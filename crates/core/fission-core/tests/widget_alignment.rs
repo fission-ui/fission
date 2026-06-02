@@ -1,8 +1,8 @@
 use fission_core::env::{Env, RuntimeState};
-use fission_core::lowering::{build_layout_tree, LoweringContext};
+use fission_core::internal::{build_layout_tree, InternalLoweringCx};
 use fission_core::ui::widgets::text::{InlineWidgetSpan, RichTextChild, RichTextSpan};
-use fission_core::ui::{Checkbox, Node, Radio, RichText, Spacer};
-use fission_ir::{CoreIR, LayoutOp, NodeId, Op};
+use fission_core::ui::{Checkbox, Radio, RichText, Spacer, Widget};
+use fission_ir::{CoreIR, LayoutOp, Op, WidgetId};
 use fission_layout::{
     LayoutEngine, LayoutSize, RichTextInlineBox, RichTextLayoutInfo, TextMeasurer,
 };
@@ -77,7 +77,7 @@ fn approx_eq(a: f32, b: f32) -> bool {
     (a - b).abs() < 0.5
 }
 
-fn parent_map(ir: &CoreIR) -> HashMap<NodeId, NodeId> {
+fn parent_map(ir: &CoreIR) -> HashMap<WidgetId, WidgetId> {
     let mut map = HashMap::new();
     for (id, node) in &ir.nodes {
         for child in &node.children {
@@ -87,7 +87,7 @@ fn parent_map(ir: &CoreIR) -> HashMap<NodeId, NodeId> {
     map
 }
 
-fn find_boxes_by_size(ir: &CoreIR, width: f32, height: f32) -> Vec<NodeId> {
+fn find_boxes_by_size(ir: &CoreIR, width: f32, height: f32) -> Vec<WidgetId> {
     let mut out = Vec::new();
     for (id, node) in &ir.nodes {
         if let Op::Layout(LayoutOp::Box {
@@ -104,20 +104,20 @@ fn find_boxes_by_size(ir: &CoreIR, width: f32, height: f32) -> Vec<NodeId> {
     out
 }
 
-fn layout_from_node(node: Node) -> (CoreIR, fission_layout::LayoutSnapshot) {
-    layout_from_node_with_measurer(node, Arc::new(SimpleMeasurer))
+fn layout_from_widget(node: Widget) -> (CoreIR, fission_layout::LayoutSnapshot) {
+    layout_from_widget_with_measurer(node, Arc::new(SimpleMeasurer))
 }
 
-fn layout_from_node_with_measurer(
-    node: Node,
+fn layout_from_widget_with_measurer(
+    node: Widget,
     measurer: Arc<dyn TextMeasurer>,
 ) -> (CoreIR, fission_layout::LayoutSnapshot) {
     let env = Env::default();
     let runtime_state = RuntimeState::default();
     let measurer_ref = measurer.clone();
 
-    let mut cx = LoweringContext::new(&env, &runtime_state, Some(&measurer_ref), None);
-    let root_id = node.lower(&mut cx);
+    let mut cx = InternalLoweringCx::new(&env, &runtime_state, Some(&measurer_ref), None);
+    let root_id = fission_core::internal::lower_widget(&node, &mut cx);
     cx.ir.root = Some(root_id);
     let input_nodes = build_layout_tree(&cx.ir, &env);
 
@@ -147,7 +147,7 @@ fn checkbox_checkmark_centered() {
         checked: true,
         ..Default::default()
     };
-    let (ir, snapshot) = layout_from_node(checkbox.into_node());
+    let (ir, snapshot) = layout_from_widget(checkbox.into());
     let parents = parent_map(&ir);
 
     let check_id = find_boxes_by_size(&ir, 10.0, 10.0)
@@ -190,7 +190,7 @@ fn radio_dot_centered() {
         checked: true,
         ..Default::default()
     };
-    let (ir, snapshot) = layout_from_node(radio.into_node());
+    let (ir, snapshot) = layout_from_widget(radio.into());
     let parents = parent_map(&ir);
 
     let dot_id = find_boxes_by_size(&ir, 9.0, 9.0)
@@ -237,8 +237,7 @@ fn rich_text_inline_widget_uses_layout_inline_box_positions() {
                 width: Some(18.0),
                 height: Some(10.0),
                 ..Default::default()
-            }
-            .into_node(),
+            },
             18.0,
             10.0,
         )),
@@ -246,7 +245,7 @@ fn rich_text_inline_widget_uses_layout_inline_box_positions() {
     ]);
 
     let (ir, snapshot) =
-        layout_from_node_with_measurer(rich_text.into_node(), Arc::new(InlineWidgetMeasurer));
+        layout_from_widget_with_measurer(rich_text.into(), Arc::new(InlineWidgetMeasurer));
 
     let paint_node = ir
         .nodes

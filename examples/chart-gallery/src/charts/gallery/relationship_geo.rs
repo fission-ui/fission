@@ -6,16 +6,16 @@ use fission::charts::{
     Chart, GraphNode, GraphSeries, Legend, LinesSeries, MapSeries, ParallelSeries, SankeySeries,
     SunburstSeries, ThemeRiverSeries, TreeSeries, TreemapNode, TreemapSeries, VisualMap,
 };
-use fission::core::ui::Node;
-use fission::core::{BuildCtx, View};
+use fission::core::ui::Widget;
+use fission::core::{BuildCtxHandle, ViewHandle};
 
 pub(super) fn build_chart(
     chart: usize,
-    ctx: &mut BuildCtx<GalleryState>,
-    view: &View<GalleryState>,
+    ctx: BuildCtxHandle<GalleryState>,
+    view: ViewHandle<GalleryState>,
     content_width: f32,
     s: f32,
-) -> Node {
+) -> Widget {
     match chart {
         0 => Chart::new()
             .title("Relationships: Graph")

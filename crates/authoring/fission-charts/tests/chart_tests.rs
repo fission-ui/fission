@@ -1,4 +1,4 @@
-use fission_charts::chart::ChartLowerer;
+use fission_charts::chart::ChartInternalLowerer;
 use fission_charts::{
     Axis, BarSeries, BoxplotSeries, BubbleSeries, CalendarHeatmapSeries, CandlestickSeries, Chart,
     ChartAnimation, ChartAnimationKind, ChartBrush, ChartGraphic, ChartHitKind, ChartInteraction,
@@ -9,7 +9,9 @@ use fission_charts::{
     ThemeRiverSeries, TreeSeries, TreemapNode, TreemapSeries, WordcloudSeries,
 };
 use fission_core::{
-    env::Env, lowering::LoweringContext, ui::traits::LowerDyn, AnimationPropertyId, WidgetNodeId,
+    env::Env,
+    internal::{InternalLowerer, InternalLoweringCx},
+    AnimationPropertyId, WidgetId,
 };
 use fission_ir::op::{Color, Fill, LayoutOp, PaintOp};
 
@@ -39,10 +41,10 @@ const SIMPLE_GEOJSON: &str = r#"
 
 fn lower_chart_with_animation_progress(
     chart: Chart,
-    chart_id: WidgetNodeId,
+    chart_id: WidgetId,
     progress: f32,
 ) -> fission_ir::CoreIR {
-    let lowerer = ChartLowerer { chart };
+    let lowerer = ChartInternalLowerer { chart };
     let env = Env::default();
     let mut runtime_state = fission_core::RuntimeState::default();
     runtime_state.animation.values.insert(
@@ -52,7 +54,7 @@ fn lower_chart_with_animation_progress(
         ),
         progress,
     );
-    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
+    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
     let root_id = cx.next_node_id();
     cx.push_scope(root_id);
     lowerer.lower_dyn(&mut cx);
@@ -375,7 +377,7 @@ fn chart_animation_progress_applies_delay_stagger_and_easing() {
 
 #[test]
 fn chart_animation_progress_changes_series_geometry_not_overlay() {
-    let chart_id = WidgetNodeId::explicit("animated-bar-test");
+    let chart_id = WidgetId::explicit("animated-bar-test");
     let bar_color = Color {
         r: 7,
         g: 99,
@@ -411,7 +413,7 @@ fn chart_animation_progress_changes_series_geometry_not_overlay() {
 
 #[test]
 fn chart_animation_progress_reveals_line_paths() {
-    let chart_id = WidgetNodeId::explicit("animated-line-test");
+    let chart_id = WidgetId::explicit("animated-line-test");
     let line_color = Color {
         r: 212,
         g: 82,
@@ -450,7 +452,7 @@ fn chart_theme_follows_dark_fission_env() {
         .title("Themed")
         .series(vec![PieSeries::new("Share").data(vec![("A", 1.0)]).into()]);
 
-    let lowerer = ChartLowerer { chart };
+    let lowerer = ChartInternalLowerer { chart };
     let mut env = Env::default();
     env.theme.tokens.colors.surface = Color {
         r: 30,
@@ -477,7 +479,7 @@ fn chart_theme_follows_dark_fission_env() {
         a: 255,
     };
     let runtime_state = fission_core::RuntimeState::default();
-    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
+    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
     let root_id = cx.next_node_id();
     cx.push_scope(root_id);
     lowerer.lower_dyn(&mut cx);
@@ -561,10 +563,10 @@ fn map_lines_tree_sunburst_and_theme_river_lower_to_paths() {
     assert!(model.diagnostics.is_empty());
     assert_eq!(model.series.len(), 5);
 
-    let lowerer = ChartLowerer { chart };
+    let lowerer = ChartInternalLowerer { chart };
     let env = Env::default();
     let runtime_state = fission_core::RuntimeState::default();
-    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
+    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
     let root_id = cx.next_node_id();
     cx.push_scope(root_id);
     lowerer.lower_dyn(&mut cx);
@@ -601,10 +603,10 @@ fn mark_components_lower_to_paint_nodes() {
             .data(vec![10.0, 22.0, 30.0])
             .into()]);
 
-    let lowerer = ChartLowerer { chart };
+    let lowerer = ChartInternalLowerer { chart };
     let env = Env::default();
     let runtime_state = fission_core::RuntimeState::default();
-    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
+    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
     let root_id = cx.next_node_id();
     cx.push_scope(root_id);
     lowerer.lower_dyn(&mut cx);
@@ -638,11 +640,11 @@ fn test_chart_lowering() {
             LineSeries::new("Line").data(vec![10.0, 20.0, 30.0]).into(),
         ]);
 
-    let lowerer = ChartLowerer { chart };
+    let lowerer = ChartInternalLowerer { chart };
 
     let env = Env::default();
     let runtime_state = fission_core::RuntimeState::default();
-    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
+    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
 
     let root_id = cx.next_node_id();
     cx.push_scope(root_id);

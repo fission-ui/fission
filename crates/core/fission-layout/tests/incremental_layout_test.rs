@@ -1,5 +1,5 @@
 use fission_ir::op::{Color, TextRun, TextStyle};
-use fission_ir::{FlexDirection, LayoutOp as IrLayoutOp, NodeId};
+use fission_ir::{FlexDirection, LayoutOp as IrLayoutOp, WidgetId};
 use fission_layout::{LayoutEngine, LayoutInputNode, LayoutSize, TextMeasurer};
 use std::collections::HashSet;
 use std::sync::{
@@ -43,7 +43,7 @@ impl TextMeasurer for CountingMeasurer {
     }
 }
 
-fn flex_root(root_id: NodeId, children_ids: Vec<NodeId>) -> LayoutInputNode {
+fn flex_root(root_id: WidgetId, children_ids: Vec<WidgetId>) -> LayoutInputNode {
     LayoutInputNode {
         id: root_id,
         parent_id: None,
@@ -67,7 +67,7 @@ fn flex_root(root_id: NodeId, children_ids: Vec<NodeId>) -> LayoutInputNode {
     }
 }
 
-fn text_node(id: NodeId, parent_id: NodeId, text: &str) -> LayoutInputNode {
+fn text_node(id: WidgetId, parent_id: WidgetId, text: &str) -> LayoutInputNode {
     LayoutInputNode {
         id,
         parent_id: Some(parent_id),
@@ -109,9 +109,9 @@ fn text_node(id: NodeId, parent_id: NodeId, text: &str) -> LayoutInputNode {
 
 #[test]
 fn incremental_layout_reuses_clean_sibling_subtrees() {
-    let root_id = NodeId::from_u128(1);
-    let first_id = NodeId::from_u128(2);
-    let second_id = NodeId::from_u128(3);
+    let root_id = WidgetId::from_u128(1);
+    let first_id = WidgetId::from_u128(2);
+    let second_id = WidgetId::from_u128(3);
     let nodes_v1 = vec![
         flex_root(root_id, vec![first_id, second_id]),
         text_node(first_id, root_id, "alpha"),

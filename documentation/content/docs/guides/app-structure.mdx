@@ -5,7 +5,7 @@ description: Organize a Fission app around typed state, explicit reducers, reusa
 
 # App structure
 
-A Fission app is easiest to maintain when each file has one job. State describes what the product knows. Reducers describe how that state changes. Widgets describe what the user sees. Shell entrypoints start the same shared app on desktop, web, mobile, terminal, or static-site targets.
+A Fission app is easiest to maintain when each file has one job. State describes what the product knows. Reducers describe how that state changes. Widgets describe what the user sees. Shell entrypoints start the same shared app on desktop, web, mobile, terminal, static-site, or server-rendered site targets.
 
 By the end of this guide, you should know where to put the first screen, where to put actions and reducers, when to split widgets into modules, and what should stay out of `main.rs`.
 
@@ -96,28 +96,33 @@ Use `#[fission_action]` for manual action structs when the action is part of a p
 
 ## 4. Build screens from real widget structs
 
-Prefer reusable widget structs over large helper functions that return `Node` directly. This keeps examples and production apps aligned with the framework model.
+Prefer reusable widget structs over large helper functions that return `Widget` directly. This keeps examples and production apps aligned with the framework model.
 
 ```rust
 pub struct TodoScreen;
 
-impl Widget<TodoState> for TodoScreen {
-    fn build(&self, view: &View<TodoState>, ctx: &mut BuildCtx<TodoState>) -> Node {
+impl From<TodoScreen> for Widget {
+    fn from(component: TodoScreen) -> Self {
+        let (ctx, view) = fission::build::current::<TodoState>();
         let add = with_reducer!(ctx, AddTodo, on_add_todo);
 
-        Column::new()
-            .child(TodoComposer { on_submit: add })
-            .child(TodoList::new(view.state.visible_items()))
-            .build(view, ctx)
+        Column {
+            children: vec![
+                TodoComposer { on_submit: add }.into(),
+                TodoList::new(view.state().visible_items()).into(),
+            ],
+            ..Default::default()
+        }
+        .into()
     }
 }
 ```
 
-Small helper functions are still useful for pure formatting or repeated literal values. They should not become a second component system beside `Widget` implementations.
+Small helper functions are still useful for pure formatting or repeated literal values. They should not become a second component system beside `Widget` conversions.
 
 ## 5. Use selectors for derived view data
 
-A selector is a small piece of code that turns product state into view-ready data. It keeps `build()` readable and avoids mutating state while building the UI.
+A selector is a small piece of code that turns product state into view-ready data. It keeps `component conversion` readable and avoids mutating state while building the UI.
 
 ```rust
 pub struct TodoListItemVm {
@@ -174,4 +179,18 @@ Split by feature before the file becomes a dumping ground. A good feature module
 
 ## Where to go next
 
-Read [Runtime model](/docs/learn/runtime-model/) for the state-action-reducer loop. Read [Layout and widgets](/docs/guides/layout-and-widgets/) for screen composition. Read [Platform capabilities](/docs/guides/platform-capabilities/) before adding host-owned features.
+Read [Runtime model](/docs/learn/runtime-model/) for the state-action-reducer loop. Read [State, handles, and providers](/docs/guides/state-handles-and-providers/) before deciding whether a value belongs in `GlobalState`, local widget state, `Env`, or a provider. Read [Layout and widgets](/docs/guides/layout-and-widgets/) for screen composition. Read [Platform capabilities](/docs/guides/platform-capabilities/) before adding host-owned features.
+
+## What you should have working
+
+After this guide, you should be able to explain where `App structure` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test. If any of those pieces are missing, treat the page as unfinished work: add the smallest runnable example, then add the diagnostic step that proves it works.
+
+## Common mistakes to check
+
+| Symptom | What to check first |
+| --- | --- |
+| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
+| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
+| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
+| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
+| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |

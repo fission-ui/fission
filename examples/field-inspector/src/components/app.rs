@@ -14,14 +14,12 @@ use crate::model::{
 use fission::prelude::*;
 use std::sync::Arc;
 
+#[derive(Clone)]
 pub struct FieldInspectorApp;
 
-impl Widget<FieldInspectorState> for FieldInspectorApp {
-    fn build(
-        &self,
-        ctx: &mut BuildCtx<FieldInspectorState>,
-        view: &View<FieldInspectorState>,
-    ) -> Node {
+impl From<FieldInspectorApp> for Widget {
+    fn from(_component: FieldInspectorApp) -> Self {
+        let (ctx, view) = fission::build::current::<FieldInspectorState>();
         let viewport = view.viewport_size();
         let wide = viewport.width >= 1100.0;
         let padding = page_padding(view);
@@ -30,41 +28,34 @@ impl Widget<FieldInspectorState> for FieldInspectorApp {
                 gap: Some(18.0),
                 align_items: ir_op::AlignItems::Stretch,
                 children: vec![
-                    Container::new(WorkOrderRail.build(ctx, view))
-                        .width(330.0)
-                        .into_node(),
-                    Container::new(main_column(ctx, view))
-                        .flex_grow(1.0)
-                        .into_node(),
+                    Container::new(WorkOrderRail).width(330.0).into(),
+                    Container::new(main_column(ctx, view)).flex_grow(1.0).into(),
                 ],
                 ..Default::default()
             }
-            .into_node()
+            .into()
         } else {
             Column {
                 gap: Some(18.0),
-                children: vec![main_column(ctx, view), WorkOrderRail.build(ctx, view)],
+                children: vec![main_column(ctx, view), WorkOrderRail.into()],
                 ..Default::default()
             }
-            .into_node()
+            .into()
         };
 
         let scroll = Scroll {
-            child: Some(Box::new(content)),
+            child: Some(content),
             direction: FlexDirection::Column,
             show_scrollbar: true,
             flex_grow: 1.0,
             ..Default::default()
         }
-        .into_node();
+        .into();
 
-        Container::new(
-            SafeArea {
-                child: Box::new(scroll),
-                ..Default::default()
-            }
-            .into_node(),
-        )
+        Container::new(SafeArea {
+            child: scroll,
+            ..Default::default()
+        })
         .height(viewport.height.max(1.0))
         .padding_all(padding)
         .bg_fill(Fill::LinearGradient {
@@ -76,11 +67,13 @@ impl Widget<FieldInspectorState> for FieldInspectorApp {
                 (1.0, color(236, 253, 245)),
             ],
         })
-        .into_node()
+        .into()
     }
 }
-
-fn main_column(ctx: &mut BuildCtx<FieldInspectorState>, view: &View<FieldInspectorState>) -> Node {
+fn main_column(
+    ctx: BuildCtxHandle<FieldInspectorState>,
+    view: ViewHandle<FieldInspectorState>,
+) -> Widget {
     Column {
         gap: Some(18.0),
         children: vec![
@@ -90,14 +83,14 @@ fn main_column(ctx: &mut BuildCtx<FieldInspectorState>, view: &View<FieldInspect
         ],
         ..Default::default()
     }
-    .into_node()
+    .into()
 }
 
-fn hero(ctx: &mut BuildCtx<FieldInspectorState>, view: &View<FieldInspectorState>) -> Node {
-    let order = view.state.selected_order();
+fn hero(ctx: BuildCtxHandle<FieldInspectorState>, view: ViewHandle<FieldInspectorState>) -> Widget {
+    let order = view.state().selected_order();
     let start = with_reducer!(ctx, StartInspection, on_start_inspection);
     let review = with_reducer!(ctx, SelectPanel(InspectorPanel::Review), on_select_panel);
-    let (complete, total) = view.state.checklist_progress();
+    let (complete, total) = view.state().checklist_progress();
     let summary = Column {
         gap: Some(8.0),
         flex_grow: 1.0,
@@ -109,13 +102,13 @@ fn hero(ctx: &mut BuildCtx<FieldInspectorState>, view: &View<FieldInspectorState
                     status_pill(view, "Field Inspector", CapabilityState::Ready),
                     status_pill(
                         view,
-                        view.state.provider_mode.label(),
-                        view.state.provider_mode.state(),
+                        view.state().provider_mode.label(),
+                        view.state().provider_mode.state(),
                     ),
                 ],
                 ..Default::default()
             }
-            .into_node(),
+            .into(),
             title_text(
                 view,
                 "Capability-driven field service",
@@ -128,11 +121,11 @@ fn hero(ctx: &mut BuildCtx<FieldInspectorState>, view: &View<FieldInspectorState
                     order.id, order.site, order.assigned_to
                 ),
             ),
-            muted_text(view, view.state.provider_mode.detail()),
+            muted_text(view, view.state().provider_mode.detail()),
         ],
         ..Default::default()
     }
-    .into_node();
+    .into();
     let actions = Column {
         gap: Some(10.0),
         children: {
@@ -147,7 +140,7 @@ fn hero(ctx: &mut BuildCtx<FieldInspectorState>, view: &View<FieldInspectorState
             )];
             if is_compact(view) {
                 children.push(action_button(
-                    if view.state.started {
+                    if view.state().started {
                         "Refresh checks"
                     } else {
                         "Start inspection"
@@ -170,14 +163,14 @@ fn hero(ctx: &mut BuildCtx<FieldInspectorState>, view: &View<FieldInspectorState
         },
         ..Default::default()
     }
-    .into_node();
+    .into();
     let child = if is_compact(view) {
         Column {
             gap: Some(16.0),
             children: vec![summary, actions],
             ..Default::default()
         }
-        .into_node()
+        .into()
     } else {
         Row {
             gap: Some(18.0),
@@ -185,12 +178,15 @@ fn hero(ctx: &mut BuildCtx<FieldInspectorState>, view: &View<FieldInspectorState
             children: vec![summary, actions],
             ..Default::default()
         }
-        .into_node()
+        .into()
     };
     panel_card(view, child)
 }
 
-fn panel_tabs(ctx: &mut BuildCtx<FieldInspectorState>, view: &View<FieldInspectorState>) -> Node {
+fn panel_tabs(
+    ctx: BuildCtxHandle<FieldInspectorState>,
+    view: ViewHandle<FieldInspectorState>,
+) -> Widget {
     let panels = [
         InspectorPanel::Overview,
         InspectorPanel::Verify,
@@ -201,7 +197,7 @@ fn panel_tabs(ctx: &mut BuildCtx<FieldInspectorState>, view: &View<FieldInspecto
     ];
     let selected_index = panels
         .iter()
-        .position(|panel| *panel == view.state.panel)
+        .position(|panel| *panel == view.state().panel)
         .unwrap_or(0);
     let actions = Arc::new(
         panels
@@ -229,7 +225,7 @@ fn panel_tabs(ctx: &mut BuildCtx<FieldInspectorState>, view: &View<FieldInspecto
                     },
                 ))
                 .width(tab_width)
-                .into_node()
+                .into()
             })
             .collect();
         return panel_card(
@@ -240,7 +236,7 @@ fn panel_tabs(ctx: &mut BuildCtx<FieldInspectorState>, view: &View<FieldInspecto
                 children,
                 ..Default::default()
             }
-            .into_node(),
+            .into(),
         );
     }
 
@@ -254,17 +250,20 @@ fn panel_tabs(ctx: &mut BuildCtx<FieldInspectorState>, view: &View<FieldInspecto
             selected_index,
             on_change: Some(Arc::new(move |index| actions[index].clone())),
         }
-        .build(ctx, view),
+        .into(),
     )
 }
 
-fn active_panel(ctx: &mut BuildCtx<FieldInspectorState>, view: &View<FieldInspectorState>) -> Node {
-    match view.state.panel {
-        InspectorPanel::Overview => OverviewPanel.build(ctx, view),
-        InspectorPanel::Verify => VerifyPanel.build(ctx, view),
-        InspectorPanel::Evidence => EvidencePanel.build(ctx, view),
-        InspectorPanel::Sensors => SensorsPanel.build(ctx, view),
-        InspectorPanel::Security => SecurityPanel.build(ctx, view),
-        InspectorPanel::Review => ReviewPanel.build(ctx, view),
+fn active_panel(
+    _ctx: BuildCtxHandle<FieldInspectorState>,
+    view: ViewHandle<FieldInspectorState>,
+) -> Widget {
+    match view.state().panel {
+        InspectorPanel::Overview => OverviewPanel.into(),
+        InspectorPanel::Verify => VerifyPanel.into(),
+        InspectorPanel::Evidence => EvidencePanel.into(),
+        InspectorPanel::Sensors => SensorsPanel.into(),
+        InspectorPanel::Security => SecurityPanel.into(),
+        InspectorPanel::Review => ReviewPanel.into(),
     }
 }

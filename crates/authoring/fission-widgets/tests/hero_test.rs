@@ -1,5 +1,5 @@
 use fission_core::ui::widgets::image::Image;
-use fission_core::AppState;
+use fission_core::GlobalState;
 use fission_widgets::hero::Hero;
 use serde::{Deserialize, Serialize};
 
@@ -8,13 +8,13 @@ use serde::{Deserialize, Serialize};
 struct TestState {
     show_detail: bool,
 }
-impl AppState for TestState {}
+impl GlobalState for TestState {}
 
 #[test]
 fn test_hero_compilation() {
     let _hero = Hero {
         tag: "avatar".into(),
-        child: Box::new(Image::asset("test.png").into_node()),
+        child: Image::asset("test.png").into(),
     };
     assert!(true);
 }

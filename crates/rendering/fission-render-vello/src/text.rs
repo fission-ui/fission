@@ -390,6 +390,7 @@ impl VelloTextMeasurer {
         fallback_idx.min(text.len())
     }
 
+    #[allow(dead_code)]
     pub(crate) fn hit_test_layout_index_at_point(
         text: &str,
         layout: &Layout<ParleyBrush>,

@@ -1,6 +1,6 @@
 use super::email::{seed_mailbox, Email, Folder};
 use chrono::NaiveDate;
-use fission::core::AppState;
+use fission::core::GlobalState;
 use fission::i18n::Locale;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -162,7 +162,7 @@ impl Default for InboxState {
     }
 }
 
-impl AppState for InboxState {}
+impl GlobalState for InboxState {}
 
 impl InboxState {
     pub fn navigate_to(&mut self, path: String) {

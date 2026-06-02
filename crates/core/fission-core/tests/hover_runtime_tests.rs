@@ -1,7 +1,7 @@
 use anyhow::Result;
-use fission_core::action::AppState;
+use fission_core::action::GlobalState;
 use fission_core::event::{InputEvent, PointerEvent};
-use fission_core::{ActionId, NodeId, Runtime};
+use fission_core::{ActionId, Runtime, WidgetId};
 use fission_ir::semantics::{ActionTrigger, MouseCursor, Role};
 use fission_ir::{ActionEntry, ActionSet, Op, Semantics};
 use fission_layout::{LayoutNodeGeometry, LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot};
@@ -14,12 +14,12 @@ struct HoverState {
     inner_exit: usize,
 }
 
-impl AppState for HoverState {}
+impl GlobalState for HoverState {}
 
 fn inc_outer_enter(
     state: &mut HoverState,
     _action: &fission_core::ActionEnvelope,
-    _target: NodeId,
+    _target: WidgetId,
 ) -> Result<()> {
     state.outer_enter += 1;
     Ok(())
@@ -28,7 +28,7 @@ fn inc_outer_enter(
 fn inc_outer_exit(
     state: &mut HoverState,
     _action: &fission_core::ActionEnvelope,
-    _target: NodeId,
+    _target: WidgetId,
 ) -> Result<()> {
     state.outer_exit += 1;
     Ok(())
@@ -37,7 +37,7 @@ fn inc_outer_exit(
 fn inc_inner_enter(
     state: &mut HoverState,
     _action: &fission_core::ActionEnvelope,
-    _target: NodeId,
+    _target: WidgetId,
 ) -> Result<()> {
     state.inner_enter += 1;
     Ok(())
@@ -46,7 +46,7 @@ fn inc_inner_enter(
 fn inc_inner_exit(
     state: &mut HoverState,
     _action: &fission_core::ActionEnvelope,
-    _target: NodeId,
+    _target: WidgetId,
 ) -> Result<()> {
     state.inner_exit += 1;
     Ok(())
@@ -61,8 +61,8 @@ fn hover_action(trigger: ActionTrigger, action_id: ActionId) -> ActionEntry {
 }
 
 fn build_hover_ir() -> (fission_ir::CoreIR, LayoutSnapshot) {
-    let outer_id = NodeId::explicit("outer");
-    let inner_id = NodeId::explicit("inner");
+    let outer_id = WidgetId::explicit("outer");
+    let inner_id = WidgetId::explicit("inner");
 
     let outer_enter = ActionId::from_name("tests::hover_outer_enter");
     let outer_exit = ActionId::from_name("tests::hover_outer_exit");

@@ -1,5 +1,6 @@
 use chrono::NaiveDate;
-use fission_core::{AppState, BuildCtx, Node, View, Widget};
+use fission_core::internal::BuildCtx;
+use fission_core::{build, GlobalState, View};
 use fission_widgets::calendar::Calendar;
 use serde::{Deserialize, Serialize};
 
@@ -7,7 +8,7 @@ use serde::{Deserialize, Serialize};
 struct TestState {
     date: Option<NaiveDate>,
 }
-impl AppState for TestState {}
+impl GlobalState for TestState {}
 
 #[test]
 fn test_calendar_build() {
@@ -16,7 +17,7 @@ fn test_calendar_build() {
     let state = TestState::default();
     let view = View::new(&state, &runtime, &env, None);
     let _reg = fission_core::ActionRegistry::<TestState>::new();
-    let mut ctx = BuildCtx::new();
+    let mut ctx = BuildCtx::<TestState>::new();
 
     let calendar = Calendar {
         year: 2025,
@@ -28,12 +29,9 @@ fn test_calendar_build() {
         padding: None,
     };
 
-    let node = calendar.build(&mut ctx, &view);
+    let node = build::enter(&mut ctx, &view, || calendar.into());
 
-    // Verify it builds a Container wrapping a VStack
-    if let Node::Container(c) = node {
-        assert!(c.child.is_some());
-    } else {
-        panic!("Calendar should return a Container root");
-    }
+    let c = fission_core::internal::widget_as_container(&node)
+        .expect("Calendar should return a Container root");
+    assert!(c.child.is_some());
 }

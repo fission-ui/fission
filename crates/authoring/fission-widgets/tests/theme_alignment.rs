@@ -1,9 +1,10 @@
-use fission_core::action::AppState;
+use fission_core::action::GlobalState;
 use fission_core::env::{Env, RuntimeState};
-use fission_core::lowering::{build_layout_tree, LoweringContext};
-use fission_core::{BuildCtx, View, Widget};
+use fission_core::internal::BuildCtx;
+use fission_core::internal::{build_layout_tree, InternalLoweringCx};
+use fission_core::{View, Widget};
 use fission_ir::op::Color;
-use fission_ir::{CoreIR, LayoutOp, NodeId, Op, PaintOp};
+use fission_ir::{CoreIR, LayoutOp, Op, PaintOp, WidgetId};
 use fission_layout::{LayoutEngine, LayoutSize, TextMeasurer};
 use fission_theme::{Theme, Tokens};
 use fission_widgets::{Badge, Stepper};
@@ -13,7 +14,7 @@ use std::sync::Arc;
 #[derive(Default, Debug)]
 struct TestState;
 
-impl AppState for TestState {}
+impl GlobalState for TestState {}
 
 struct SimpleMeasurer;
 
@@ -45,7 +46,7 @@ fn approx_eq(a: f32, b: f32) -> bool {
     (a - b).abs() < 0.5
 }
 
-fn parent_map(ir: &CoreIR) -> HashMap<NodeId, NodeId> {
+fn parent_map(ir: &CoreIR) -> HashMap<WidgetId, WidgetId> {
     let mut map = HashMap::new();
     for (id, node) in &ir.nodes {
         for child in &node.children {
@@ -55,25 +56,25 @@ fn parent_map(ir: &CoreIR) -> HashMap<NodeId, NodeId> {
     map
 }
 
-fn build_widget_ir(widget: impl Widget<TestState>, env: &Env) -> (CoreIR, NodeId) {
+fn build_widget_ir(widget: impl Into<Widget>, env: &Env) -> (CoreIR, WidgetId) {
     let runtime_state = RuntimeState::default();
     let state = TestState::default();
     let view = View::new(&state, &runtime_state, env, None);
     let mut ctx = BuildCtx::new();
-    let node = widget.build(&mut ctx, &view);
+    let node = fission_core::build::enter(&mut ctx, &view, || widget.into());
 
     let measurer: Arc<dyn TextMeasurer> = Arc::new(SimpleMeasurer);
     let measurer_ref = measurer.clone();
-    let mut lower = LoweringContext::new(env, &runtime_state, Some(&measurer_ref), None);
-    let root_id = node.lower(&mut lower);
+    let mut lower = InternalLoweringCx::new(env, &runtime_state, Some(&measurer_ref), None);
+    let root_id = fission_core::internal::lower_widget(&node, &mut lower);
     lower.ir.root = Some(root_id);
     (lower.ir, root_id)
 }
 
 fn layout_widget(
-    widget: impl Widget<TestState>,
+    widget: impl Into<Widget>,
     env: &Env,
-) -> (CoreIR, NodeId, fission_layout::LayoutSnapshot) {
+) -> (CoreIR, WidgetId, fission_layout::LayoutSnapshot) {
     let (ir, root_id) = build_widget_ir(widget, env);
     let input_nodes = build_layout_tree(&ir, &env);
     let mut engine = LayoutEngine::new().with_measurer(Arc::new(SimpleMeasurer));
@@ -96,7 +97,7 @@ fn rect_center(rect: fission_layout::LayoutRect) -> (f32, f32) {
     )
 }
 
-fn find_text_paint(ir: &CoreIR, expected: &str) -> Option<NodeId> {
+fn find_text_paint(ir: &CoreIR, expected: &str) -> Option<WidgetId> {
     ir.nodes.iter().find_map(|(id, node)| match &node.op {
         Op::Paint(PaintOp::DrawText { text, .. }) if text == expected => Some(*id),
         Op::Paint(PaintOp::DrawRichText { runs, .. })

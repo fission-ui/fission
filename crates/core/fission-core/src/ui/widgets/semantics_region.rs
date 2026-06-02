@@ -1,8 +1,8 @@
-use crate::lowering::NodeBuilder;
-use crate::ui::traits::Lower;
-use crate::ui::Node;
+use crate::internal::InternalLower;
+use crate::lowering::InternalIrBuilder;
+use crate::ui::Widget;
 use crate::ActionEnvelope;
-use fission_ir::{ActionEntry, ActionSet, NodeId, Op, Role, Semantics};
+use fission_ir::{ActionEntry, ActionSet, Op, Role, Semantics, WidgetId};
 use serde::{Deserialize, Serialize};
 
 /// Wraps a subtree in an explicit semantics node.
@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SemanticsRegion {
     /// Explicit node identity for the region.
-    pub id: Option<NodeId>,
+    pub id: Option<WidgetId>,
     /// Stable semantic identifier exposed to renderers and shell adapters.
     pub identifier: Option<String>,
     /// Optional accessible label for the region.
@@ -23,17 +23,17 @@ pub struct SemanticsRegion {
     /// Actions attached to the semantic region.
     pub actions: ActionSet,
     /// Wrapped child subtree.
-    pub child: Option<Box<Node>>,
+    pub child: Option<Widget>,
 }
 
 impl SemanticsRegion {
     /// Creates a semantic wrapper around an existing child node.
     ///
     /// Use builder methods to add a stable identifier, accessible label, role,
-    /// or action metadata before converting the region back into a `Node`.
-    pub fn new(child: Node) -> Self {
+    /// or action metadata before converting the region into a `Widget`.
+    pub fn new(child: impl Into<Widget>) -> Self {
         Self {
-            child: Some(Box::new(child)),
+            child: Some(child.into()),
             ..Default::default()
         }
     }
@@ -43,11 +43,6 @@ impl SemanticsRegion {
     /// This is useful when generated browser artifacts need to send actions
     /// back to a known mount point. Prefer leaving it unset unless the shell or
     /// renderer requires a stable id.
-    pub fn id(mut self, id: NodeId) -> Self {
-        self.id = Some(id);
-        self
-    }
-
     /// Sets the semantic identifier exposed to shells and HTML renderers.
     ///
     /// Identifiers are intended to be stable within a route. They are used by
@@ -90,11 +85,6 @@ impl SemanticsRegion {
         });
         self
     }
-
-    /// Converts the semantic region into a normal widget tree node.
-    pub fn into_node(self) -> Node {
-        Node::SemanticsRegion(self)
-    }
 }
 
 impl Default for SemanticsRegion {
@@ -110,9 +100,9 @@ impl Default for SemanticsRegion {
     }
 }
 
-impl Lower for SemanticsRegion {
-    fn lower(&self, cx: &mut crate::LoweringContext) -> NodeId {
-        let id = self.id.unwrap_or_else(|| cx.next_node_id());
+impl InternalLower for SemanticsRegion {
+    fn lower(&self, cx: &mut crate::lowering::InternalLoweringCx) -> WidgetId {
+        let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         cx.push_scope(id);
         let semantics = Semantics {
             role: self.role,
@@ -122,7 +112,7 @@ impl Lower for SemanticsRegion {
             ..Default::default()
         };
         let child_id = self.child.as_ref().map(|child| child.lower(cx));
-        let mut builder = NodeBuilder::new(id, Op::Semantics(semantics));
+        let mut builder = InternalIrBuilder::new(id, Op::Semantics(semantics));
         if let Some(child_id) = child_id {
             builder.add_child(child_id);
         }

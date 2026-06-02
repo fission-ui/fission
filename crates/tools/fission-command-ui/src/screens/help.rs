@@ -7,9 +7,10 @@ use fission::prelude::*;
 #[derive(Clone)]
 pub struct HelpScreen;
 
-impl Widget<UiState> for HelpScreen {
-    fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
-        let palette = UiPalette::for_mode(view.state.theme_mode);
+impl From<HelpScreen> for Widget {
+    fn from(_component: HelpScreen) -> Self {
+        let (_ctx, view) = fission::build::current::<UiState>();
+        let palette = UiPalette::for_mode(view.state().theme_mode);
         Column {
             gap: Some(1.0),
             children: vec![
@@ -19,24 +20,24 @@ impl Widget<UiState> for HelpScreen {
                     palette.accent,
                     palette.muted,
                 ),
-                KeyValueRow::new("Quit", "press q or Esc").build(ctx, view),
-                KeyValueRow::new("Theme", "use Switch theme in the header").build(ctx, view),
+                KeyValueRow::new("Quit", "press q or Esc").into(),
+                KeyValueRow::new("Theme", "use Switch theme in the header").into(),
                 KeyValueRow::new("Project", "initialise a directory and add targets from Project setup")
-                    .build(ctx, view),
+                    .into(),
                 KeyValueRow::new("Run", "select a target, optionally select a device, then run")
-                    .build(ctx, view),
+                    .into(),
                 KeyValueRow::new("Site", "build, check, serve, and inspect static routes")
-                    .build(ctx, view),
+                    .into(),
                 KeyValueRow::new("Logs", "read a snapshot or start a follower under .fission/ui")
-                    .build(ctx, view),
+                    .into(),
                 Text::new(
                     "The UI delegates actions to the same commands as the CLI, so command output and validation remain consistent.",
                 )
                 .color(palette.muted)
-                .into_node(),
+                .into(),
             ],
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 }

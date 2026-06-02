@@ -7,7 +7,7 @@ description: Build marketing pages and custom site routes as normal Fission widg
 
 Content routes are good for articles. Custom pages are for the designed parts of a site: home pages, product pages, pricing pages, feature overviews, launch pages, and landing pages.
 
-A custom page is not a special HTML template. It is a normal Fission widget tree registered as a static site route. The site shell renders that widget tree at build time and lowers it to semantic HTML and generated CSS.
+A custom page is not a special HTML template. It is a normal Fission widget tree registered as a static site route. The site shell renders that widget tree at conversion time and lowers it to semantic HTML and generated CSS.
 
 ## 1. Create reusable page components
 
@@ -19,22 +19,22 @@ use fission::prelude::*;
 #[derive(Clone)]
 pub struct HomePageHero;
 
-impl<State: AppState> Widget<State> for HomePageHero {
-    fn build(&self, _ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
+impl From<HomePageHero> for Widget {
+    fn from(component: HomePageHero) -> Self {
         Column {
             gap: Some(20.0),
             children: vec![
                 Text::new("Build production apps in Rust")
                     .size(56.0)
                     .weight(FontWeight::Bold)
-                    .into_node(),
+                    .into(),
                 Text::new("Desktop, mobile, web, terminal, static sites, and server-rendered pages share one application model.")
                     .size(20.0)
-                    .into_node(),
+                    .into(),
             ],
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 }
 ```
@@ -52,7 +52,7 @@ use fission::site::{build_from_cli, FissionSite};
 
 #[derive(Default)]
 struct SiteState;
-impl AppState for SiteState {}
+impl GlobalState for SiteState {}
 
 fn site_app() -> FissionSite {
     FissionSite::new().route_widget::<SiteState, _>(
@@ -79,6 +79,20 @@ A serious site normally has a shared header and footer. Put those in reusable wi
 css_files = ["site/overrides.css"]
 asset_dirs = ["static"]
 ```
+
+## What you should have working
+
+After this guide, you should be able to explain where `Static site custom pages` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test. If any of those pieces are missing, treat the page as unfinished work: add the smallest runnable example, then add the diagnostic step that proves it works.
+
+## Common mistakes to check
+
+| Symptom | What to check first |
+| --- | --- |
+| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
+| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
+| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
+| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
+| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |
 
 Generated CSS is written before user CSS. That means your override file can fine-tune spacing, responsive behavior, or product-specific visuals without replacing the static renderer.
 

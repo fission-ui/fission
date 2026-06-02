@@ -9,14 +9,14 @@ const ANDROID_TEST_CONTROL_PORT: u16 = 48761;
 
 #[cfg(target_arch = "wasm32")]
 fn web_app() -> WebApp<CounterState, CounterApp> {
-    WebApp::new(CounterApp)
+    WebApp::<CounterState, _>::new(CounterApp)
         .with_title("Fission Web Smoke")
         .mount("#fission-web-mount")
 }
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
 fn mobile_app() -> MobileApp<CounterState, CounterApp> {
-    let app = MobileApp::new(CounterApp).with_title("Fission Web Smoke");
+    let app = MobileApp::<CounterState, _>::new(CounterApp).with_title("Fission Web Smoke");
     #[cfg(target_os = "android")]
     let app = app.with_test_control_port(ANDROID_TEST_CONTROL_PORT);
     app
@@ -24,7 +24,7 @@ fn mobile_app() -> MobileApp<CounterState, CounterApp> {
 
 #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
 pub fn run_desktop() -> Result<()> {
-    DesktopApp::new(CounterApp)
+    DesktopApp::<CounterState, _>::new(CounterApp)
         .with_title("Fission Web Smoke")
         .run()
 }

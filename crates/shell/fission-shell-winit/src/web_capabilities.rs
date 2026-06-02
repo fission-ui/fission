@@ -96,7 +96,7 @@ function normalizeBarcodeFormat(format) {
     case "Codabar": return "codabar";
     case "Itf": return "itf";
     case "Pdf417": return "pdf417";
-    default: return String(format || "").toLowerCase();
+    default: return String(format || "").toInternalLowerCase();
   }
 }
 

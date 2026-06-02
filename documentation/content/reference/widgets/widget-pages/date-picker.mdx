@@ -16,10 +16,10 @@ use chrono::NaiveDate;
 use fission::prelude::*;
 use std::sync::Arc;
 
-let node = DatePicker {
-id: WidgetNodeId::explicit("publish_date"),
-value: view.state.publish_date,
-is_open: view.state.publish_date_open,
+let widget: Widget = DatePicker {
+id: WidgetId::explicit("publish_date"),
+value: view.state().publish_date,
+is_open: view.state().publish_date_open,
 width: Some(200.0),
 on_change: Some(Arc::new(move |date: NaiveDate| ActionEnvelope {
     id: set_publish_date_id,
@@ -28,7 +28,7 @@ on_change: Some(Arc::new(move |date: NaiveDate| ActionEnvelope {
 on_toggle: Some(toggle_publish_date_action),
 on_close: Some(close_publish_date_action),
 }
-.build(ctx, view);
+.into();
 ```
 
 A common reducer flow is: `on_toggle` opens the picker, `on_change` stores the selected date, and the same reducer or a follow-up action closes the picker.
@@ -37,7 +37,7 @@ A common reducer flow is: `on_toggle` opens the picker, `on_change` stores the s
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `WidgetNodeId` | Stable identity for the trigger and popover. | Required. |
+| `id` | `WidgetId` | Stable identity for the trigger and popover. | Required. |
 | `value` | `Option<NaiveDate>` | Currently selected date, or no date yet. | Controlled by app state. |
 | `is_open` | `bool` | Whether the popup calendar is visible. | Controlled by app state. |
 | `width` | `Option<f32>` | Preferred trigger width. | Defaults to `164.0`, then clamps against the viewport when needed. |
@@ -54,6 +54,18 @@ The popup calendar opens around the selected date or today. If you need a richer
 ## Product pitfalls to avoid
 
 Store a real `NaiveDate` in state, not a locale-formatted display string. A display string is for rendering, not for business logic. Also remember that a date picker chooses a calendar day, not a timezone-aware instant. If your product cares about midnight boundaries, time zones, or scheduled timestamps, keep those concerns separate from the picker's user interface value.
+
+## Production checklist
+
+For `DatePicker`, review the fields that change behavior before treating the widget as finished: `id`, `value`, `is_open`, `width`, `on_change`, `on_toggle`. The goal is to make the product rule visible in state and actions, not hidden inside ad-hoc construction code.
+
+- Bind `on_change`, `on_toggle`, `on_close` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
+- Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.
+- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
+- Prefer parent layout and design-system sizing first; use explicit size or spacing fields when the product layout requires that constraint on this widget specifically.
+- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+
+If a screen starts repeating the same `DatePicker` setup, extract a named component around this widget. That keeps the reference API small while making product code easier to read and safer for generated code to copy.
 
 ## Related
 

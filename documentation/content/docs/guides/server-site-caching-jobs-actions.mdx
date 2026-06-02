@@ -5,7 +5,7 @@ description: Use server-side jobs, cache policies, revalidation, sessions, and s
 
 # Server caching, jobs, and actions
 
-Server-rendered Fission routes need a clear data story. A page may be public and reusable, public but rebuilt after a short time, or private to one browser session. Fission keeps those decisions explicit through route modes, cache configuration, jobs, and signed action dispatch.
+Server-rendered Fission routes need a clear data story. A page may be public and reusable, public but reconverted after a short time, or private to one browser session. Fission keeps those decisions explicit through route modes, cache configuration, jobs, and signed action dispatch.
 
 ## 1. Choose what may be reused
 
@@ -50,6 +50,20 @@ max_capacity = 10000
 ttl = "5m"
 stale_while_revalidate = "1m"
 ```
+
+## What you should have working
+
+After this guide, you should be able to explain where `Server caching, jobs, and actions` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test. If any of those pieces are missing, treat the page as unfinished work: add the smallest runnable example, then add the diagnostic step that proves it works.
+
+## Common mistakes to check
+
+| Symptom | What to check first |
+| --- | --- |
+| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
+| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
+| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
+| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
+| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |
 
 For multi-process deployments, use Redis or a pipeline. The Redis URL should normally come from an environment variable rather than `fission.toml`.
 
@@ -109,12 +123,14 @@ let catalog = FutureBuilder::new(
     ResourceKey::new("pokemon-card-store.catalog"),
     CATALOG_JOB,
     CatalogRequest { generation: 1 },
-    view.state.catalog.clone(),
-    |ctx, view, snapshot| CardGrid { snapshot: snapshot.clone() }.build(ctx, view),
+    view.state().catalog.clone(),
+    CardGrid {
+        snapshot: view.state().catalog.clone(),
+    },
 )
 .on_ok(with_reducer!(ctx, CatalogLoaded, on_catalog_loaded))
 .on_err(with_reducer!(ctx, CatalogFailed, on_catalog_failed))
-.build(ctx, view);
+.into();
 ```
 
 During server rendering, Fission drains registered blocking jobs, dispatches the configured success or error reducer, and renders again until the page settles or `render_pass_limit` is reached. Missing jobs fail the render instead of producing an empty page.
@@ -162,7 +178,7 @@ Server routes should have tests for more than happy-path rendering.
 
 | Test area | What to verify |
 | --- | --- |
-| Cache expiry | Fresh entries are reused, stale entries can be rebuilt, and invalidation tags clear the right routes. |
+| Cache expiry | Fresh entries are reused, stale entries can be reconverted, and invalidation tags clear the right routes. |
 | Cache keys | Query order is normalized and declared vary headers create distinct entries. |
 | Job draining | Missing jobs fail clearly and registered jobs produce the expected page data. |
 | Action signatures | Unsigned, expired, tampered, oversized, wrong-origin, and replayed requests are rejected. |

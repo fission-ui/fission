@@ -1,16 +1,18 @@
 use anyhow::Result;
-use fission_core::ui::{Button, Grid, GridItem, Node, Text, TextContent, TextInput};
-use fission_core::{op::GridTrack, BuildCtx, NodeId, View, Widget, WidgetNodeId};
+use fission_core::ui::{Button, Grid, GridItem, Text, TextContent, TextInput, Widget};
+use fission_core::{op::GridTrack, WidgetId};
 use fission_test::TestHarness;
 use fission_widgets::{HStack, VStack};
 
 #[derive(Debug, Default, Clone)]
-struct AppState {}
-impl fission_core::action::AppState for AppState {}
+struct GlobalState {}
+impl fission_core::action::GlobalState for GlobalState {}
 
+#[derive(Clone)]
 struct HeaderRepro;
-impl Widget<AppState> for HeaderRepro {
-    fn build(&self, ctx: &mut BuildCtx<AppState>, view: &View<AppState>) -> Node {
+impl From<HeaderRepro> for Widget {
+    fn from(_component: HeaderRepro) -> Self {
+        let (_ctx, _view) = fission_core::build::current::<GlobalState>();
         Grid {
             columns: vec![
                 GridTrack::Points(220.0),
@@ -20,43 +22,37 @@ impl Widget<AppState> for HeaderRepro {
             rows: vec![GridTrack::Fr(1.0)],
             children: vec![
                 // Col 2 Content
-                GridItem::new(
-                    VStack {
-                        spacing: Some(0.0),
-                        children: vec![
-                            // Header
-                            HStack {
-                                spacing: Some(8.0),
-                                children: vec![
-                                    TextInput {
-                                        width: Some(200.0),
-                                        ..Default::default()
-                                    }
-                                    .into(),
-                                    // Popover logic simulated
-                                    // Anchor button
-                                    Button {
-                                        id: Some(NodeId::derived(
-                                            WidgetNodeId::explicit("filter_btn").as_u128(),
-                                            &[],
-                                        )),
-                                        child: Some(Box::new(
-                                            Text {
-                                                content: TextContent::Literal("Filter".into()),
-                                                ..Default::default()
-                                            }
-                                            .into(),
-                                        )),
-                                        ..Default::default()
-                                    }
-                                    .into(),
-                                ],
-                            }
-                            .build(ctx, view),
-                        ],
-                    }
-                    .build(ctx, view),
-                )
+                GridItem::new(VStack {
+                    spacing: Some(0.0),
+                    children: vec![
+                        // Header
+                        HStack {
+                            spacing: Some(8.0),
+                            children: vec![
+                                TextInput {
+                                    width: Some(200.0),
+                                    ..Default::default()
+                                }
+                                .into(),
+                                // Popover logic simulated
+                                // Anchor button
+                                Button {
+                                    id: Some(WidgetId::explicit("filter_btn")),
+                                    child: Some(
+                                        Text {
+                                            content: TextContent::Literal("Filter".into()),
+                                            ..Default::default()
+                                        }
+                                        .into(),
+                                    ),
+                                    ..Default::default()
+                                }
+                                .into(),
+                            ],
+                        }
+                        .into(),
+                    ],
+                })
                 .cell(1, 2)
                 .into(),
             ],
@@ -65,13 +61,12 @@ impl Widget<AppState> for HeaderRepro {
         .into()
     }
 }
-
 #[test]
 fn test_inbox_header_layout_coords() -> Result<()> {
-    let mut h = TestHarness::new(AppState::default()).with_root_widget(HeaderRepro);
+    let mut h = TestHarness::new(GlobalState::default()).with_root_widget(HeaderRepro);
     h.pump()?; // Build + Layout
 
-    let filter_btn_id = NodeId::derived(WidgetNodeId::explicit("filter_btn").as_u128(), &[]);
+    let filter_btn_id: WidgetId = WidgetId::explicit("filter_btn").into();
 
     if let Some(snapshot) = &h.last_snapshot {
         if let Some(geom) = snapshot.get_node_geometry(filter_btn_id) {

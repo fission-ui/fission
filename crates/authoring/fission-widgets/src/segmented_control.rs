@@ -1,6 +1,6 @@
 use crate::stack::HStack;
-use fission_core::ui::{Button, ButtonVariant, Container, Node, Text};
-use fission_core::{ActionEnvelope, BuildCtx, View, Widget};
+use fission_core::ui::{Button, ButtonVariant, Container, Text, Widget};
+use fission_core::ActionEnvelope;
 use std::sync::Arc;
 
 /// A horizontal row of toggle buttons where exactly one option is active.
@@ -30,23 +30,26 @@ impl std::fmt::Debug for SegmentedControl {
     }
 }
 
-impl<S: fission_core::AppState> Widget<S> for SegmentedControl {
-    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let theme = &view.env.theme.components.segmented_control;
-        let tokens = &view.env.theme.tokens;
+impl From<SegmentedControl> for Widget {
+    fn from(component: SegmentedControl) -> Self {
+        let (_, view) = fission_core::build::current::<()>();
+        let this = &component;
+
+        let theme = &view.env().theme.components.segmented_control;
+        let tokens = &view.env().theme.tokens;
         let mut children = Vec::new();
 
-        for (i, opt) in self.options.iter().enumerate() {
-            let is_selected = i == self.selected_index;
-            let cb = self.on_change.clone();
+        for (i, opt) in this.options.iter().enumerate() {
+            let is_selected = i == this.selected_index;
+            let cb = this.on_change.clone();
 
-            let button = Button {
+            let button: Widget = Button {
                 variant: if is_selected {
                     ButtonVariant::Filled
                 } else {
                     ButtonVariant::Ghost
                 },
-                child: Some(Box::new(
+                child: Some(
                     Text::new(opt.clone())
                         .size(14.0)
                         .color(if is_selected {
@@ -54,29 +57,26 @@ impl<S: fission_core::AppState> Widget<S> for SegmentedControl {
                         } else {
                             tokens.colors.text_primary
                         })
-                        .into_node(),
-                )),
+                        .into(),
+                ),
                 height: Some(40.0),
                 padding: Some([12.0, 12.0, 0.0, 0.0]),
                 on_press: cb.map(|f| f(i)),
                 ..Default::default()
             }
-            .into_node();
+            .into();
 
-            children.push(Container::new(button).flex_grow(1.0).into_node());
+            children.push(Container::new(button).flex_grow(1.0).into());
         }
 
-        Container::new(
-            HStack {
-                spacing: Some(2.0),
-                children,
-            }
-            .into_node(),
-        )
+        Container::new(HStack {
+            spacing: Some(2.0),
+            children,
+        })
         .padding_all(1.0)
         .bg(theme.bg_color)
         .border(theme.border_color, 1.0)
         .border_radius(theme.radius)
-        .into_node()
+        .into()
     }
 }

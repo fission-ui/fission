@@ -1,5 +1,5 @@
 use fission_ir::op::{Color, TextRun, TextStyle};
-use fission_ir::{LayoutOp as IrLayoutOp, NodeId};
+use fission_ir::{LayoutOp as IrLayoutOp, WidgetId};
 use fission_layout::{LayoutEngine, LayoutInputNode, LayoutSize, TextMeasurer};
 use std::sync::Arc;
 
@@ -27,13 +27,13 @@ impl TextMeasurer for FixedMeasurer {
 
 fn make_box_node(
     id: u128,
-    parent_id: Option<NodeId>,
+    parent_id: Option<WidgetId>,
     width: Option<f32>,
     height: Option<f32>,
-    children: Vec<NodeId>,
+    children: Vec<WidgetId>,
 ) -> LayoutInputNode {
     LayoutInputNode {
-        id: NodeId::from_u128(id),
+        id: WidgetId::from_u128(id),
         parent_id,
         op: IrLayoutOp::Box {
             width,
@@ -59,12 +59,12 @@ fn make_box_node(
 
 fn make_text_node(
     id: u128,
-    parent_id: NodeId,
+    parent_id: WidgetId,
     text: &str,
     max_width: Option<f32>,
 ) -> LayoutInputNode {
     LayoutInputNode {
-        id: NodeId::from_u128(id),
+        id: WidgetId::from_u128(id),
         parent_id: Some(parent_id),
         op: IrLayoutOp::Box {
             width: None,
@@ -104,7 +104,7 @@ fn make_text_node(
 
 fn run_layout_with_measurer(
     nodes: &[LayoutInputNode],
-    root_id: NodeId,
+    root_id: WidgetId,
     measurer: Arc<dyn TextMeasurer>,
 ) -> fission_layout::LayoutSnapshot {
     let mut engine = LayoutEngine::new().with_measurer(measurer);
@@ -114,14 +114,14 @@ fn run_layout_with_measurer(
         .unwrap()
 }
 
-fn run_layout(nodes: &[LayoutInputNode], root_id: NodeId) -> fission_layout::LayoutSnapshot {
+fn run_layout(nodes: &[LayoutInputNode], root_id: WidgetId) -> fission_layout::LayoutSnapshot {
     run_layout_with_measurer(nodes, root_id, Arc::new(FixedMeasurer))
 }
 
 #[test]
 fn text_single_line_size_matches_measure() {
-    let root_id = NodeId::from_u128(1);
-    let text_id = NodeId::from_u128(2);
+    let root_id = WidgetId::from_u128(1);
+    let text_id = WidgetId::from_u128(2);
 
     let root = make_box_node(1, None, Some(200.0), Some(200.0), vec![text_id]);
     let text = make_text_node(2, root_id, "Hello", None);
@@ -138,8 +138,8 @@ fn text_single_line_size_matches_measure() {
 
 #[test]
 fn text_wrap_respects_available_width() {
-    let root_id = NodeId::from_u128(10);
-    let text_id = NodeId::from_u128(11);
+    let root_id = WidgetId::from_u128(10);
+    let text_id = WidgetId::from_u128(11);
 
     let root = make_box_node(10, None, Some(50.0), Some(200.0), vec![text_id]);
     let text = make_text_node(11, root_id, "HelloWorld", None);
@@ -154,8 +154,8 @@ fn text_wrap_respects_available_width() {
 
 #[test]
 fn text_max_width_limits_measure() {
-    let root_id = NodeId::from_u128(20);
-    let text_id = NodeId::from_u128(21);
+    let root_id = WidgetId::from_u128(20);
+    let text_id = WidgetId::from_u128(21);
 
     let root = make_box_node(20, None, Some(200.0), Some(200.0), vec![text_id]);
     let text = make_text_node(21, root_id, "HelloWorld", Some(40.0));
@@ -188,9 +188,9 @@ impl TextMeasurer for ZeroWidthGuardMeasurer {
 
 #[test]
 fn text_measure_does_not_pass_zero_width() {
-    let root_id = NodeId::from_u128(30);
-    let row_id = NodeId::from_u128(31);
-    let text_id = NodeId::from_u128(32);
+    let root_id = WidgetId::from_u128(30);
+    let row_id = WidgetId::from_u128(31);
+    let text_id = WidgetId::from_u128(32);
 
     let root = LayoutInputNode {
         id: root_id,

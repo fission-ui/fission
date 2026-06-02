@@ -1,8 +1,8 @@
-use crate::lowering::{LoweringContext, NodeBuilder};
-use crate::ui::traits::Lower;
+use crate::internal::InternalLower;
+use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
 use fission_ir::{
     op::{EmbedKind, LayoutOp, Op},
-    NodeId, WidgetNodeId,
+    WidgetId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -23,12 +23,12 @@ use serde::{Deserialize, Serialize};
 ///     loop_playback: false,
 ///     ..Default::default()
 /// }
-/// .build(ctx, view);
+/// .into();
 /// ```
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Video {
     /// Stable widget identity (auto-derived from `source` if `None`).
-    pub id: Option<WidgetNodeId>,
+    pub id: Option<WidgetId>,
     /// URL or asset path to the video file.
     pub source: String,
     /// Fixed width in layout points.
@@ -41,20 +41,14 @@ pub struct Video {
     pub loop_playback: bool,
 }
 
-impl Video {
-    pub fn into_node(self) -> crate::ui::Node {
-        crate::ui::Node::Video(self)
-    }
-}
+impl Video {}
 
-impl Lower for Video {
-    fn lower(&self, cx: &mut LoweringContext) -> NodeId {
-        let widget_id = self
-            .id
-            .unwrap_or_else(|| WidgetNodeId::explicit(&self.source));
+impl InternalLower for Video {
+    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+        let widget_id = self.id.unwrap_or_else(|| WidgetId::explicit(&self.source));
         let layout_id = cx.widget_node_id(widget_id);
 
-        let embed_id = NodeBuilder::new(
+        let embed_id = InternalIrBuilder::new(
             cx.next_node_id(),
             Op::Layout(LayoutOp::Embed {
                 kind: EmbedKind::Video,
@@ -65,7 +59,7 @@ impl Lower for Video {
         )
         .build(cx);
 
-        let mut layout_builder = NodeBuilder::new(
+        let mut layout_builder = InternalIrBuilder::new(
             layout_id,
             Op::Layout(LayoutOp::Box {
                 width: self.width,

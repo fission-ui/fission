@@ -1,6 +1,5 @@
 use fission_core::op::Fill;
-use fission_core::ui::{Container, GridItem, Node};
-use fission_core::{BuildCtx, View, Widget};
+use fission_core::ui::{Container, GridItem, Widget};
 use serde::{Deserialize, Serialize};
 
 /// A determinate progress bar showing completion from 0% to 100%.
@@ -16,28 +15,30 @@ pub struct ProgressBar {
     pub value: f32, // 0.0 to 1.0
 }
 
-impl<S: fission_core::AppState> Widget<S> for ProgressBar {
-    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let theme = &view.env.theme.components.progress;
+impl From<ProgressBar> for Widget {
+    fn from(component: ProgressBar) -> Self {
+        let (_, view) = fission_core::build::current::<()>();
+        let this = &component;
+
+        let theme = &view.env().theme.components.progress;
 
         let height = theme.track_style.height.unwrap_or(theme.height);
         let radius = theme.track_style.radius.unwrap_or(theme.radius);
-        let track =
-            Container::new(fission_core::ui::widgets::spacer::Spacer::default().into_node())
-                .height(height)
-                .bg_fill(
-                    theme
-                        .track_style
-                        .background
-                        .clone()
-                        .unwrap_or(Fill::Solid(theme.track_color)),
-                )
-                .border_radius(radius)
-                .into_node();
+        let track = Container::new(fission_core::ui::widgets::spacer::Spacer::default())
+            .height(height)
+            .bg_fill(
+                theme
+                    .track_style
+                    .background
+                    .clone()
+                    .unwrap_or(Fill::Solid(theme.track_color)),
+            )
+            .border_radius(radius)
+            .into();
 
-        let progress_pct = (self.value * 100.0).clamp(0.0, 100.0);
+        let progress_pct = (this.value * 100.0).clamp(0.0, 100.0);
 
-        let bar = Container::new(fission_core::ui::widgets::spacer::Spacer::default().into_node())
+        let bar = Container::new(fission_core::ui::widgets::spacer::Spacer::default())
             .height(theme.fill_style.height.unwrap_or(height))
             .bg_fill(
                 theme
@@ -47,7 +48,7 @@ impl<S: fission_core::AppState> Widget<S> for ProgressBar {
                     .unwrap_or(Fill::Solid(theme.bar_color)),
             )
             .border_radius(theme.fill_style.radius.unwrap_or(radius))
-            .into_node();
+            .into();
 
         let bar_grid = fission_core::ui::Grid {
             columns: vec![
@@ -57,23 +58,20 @@ impl<S: fission_core::AppState> Widget<S> for ProgressBar {
             rows: vec![fission_ir::op::GridTrack::Points(height)],
             children: vec![GridItem {
                 col_start: fission_ir::op::GridPlacement::Line(1),
-                child: Box::new(bar),
+                child: bar,
                 ..Default::default()
             }
-            .into_node()],
+            .into()],
             ..Default::default()
         }
-        .into_node();
+        .into();
 
-        Container::new(
-            fission_core::ui::ZStack {
-                children: vec![track, bar_grid],
-                ..Default::default()
-            }
-            .into_node(),
-        )
+        Container::new(fission_core::ui::ZStack {
+            children: vec![track, bar_grid],
+            ..Default::default()
+        })
         .height(height)
         .flex_grow(1.0)
-        .into_node()
+        .into()
     }
 }

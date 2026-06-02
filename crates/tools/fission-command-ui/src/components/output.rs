@@ -2,7 +2,7 @@ use crate::actions::{select_command_session, SelectCommandSession};
 use crate::commands::CommandStatus;
 use crate::commands::{CommandSessionId, CommandSnapshot};
 use crate::density::UiDensity;
-use crate::state::{log_scroll_node_id, UiState};
+use crate::state::{log_scroll_widget_id, UiState};
 use crate::theme::UiPalette;
 use fission::prelude::*;
 
@@ -12,19 +12,20 @@ pub struct OutputPanel {
     pub height: f32,
 }
 
-impl Widget<UiState> for OutputPanel {
-    fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
-        let palette = UiPalette::for_mode(view.state.theme_mode);
-        let density = UiDensity::new(view.state.compact_mode);
-        let log_height = density.output_log_height(self.height);
-        let log_width = (self.width - 4.0).max(10.0);
-        let active = view.state.active_command_session();
+impl From<OutputPanel> for Widget {
+    fn from(component: OutputPanel) -> Self {
+        let (ctx, view) = fission::build::current::<UiState>();
+        let palette = UiPalette::for_mode(view.state().theme_mode);
+        let density = UiDensity::new(view.state().compact_mode);
+        let log_height = density.output_log_height(component.height);
+        let log_width = (component.width - 4.0).max(10.0);
+        let active = view.state().active_command_session();
         let (title, status, output, scroll_id) = match active {
             Some(session) => (
                 session.record.title.clone(),
                 session.record.status,
                 log_scrollback(session, view, log_height),
-                log_scroll_node_id(session.id),
+                log_scroll_widget_id(session.id),
             ),
             None => (
                 "Output".to_string(),
@@ -37,7 +38,7 @@ impl Widget<UiState> for OutputPanel {
                     start_line: 0,
                     visible_lines: 1,
                 },
-                NodeId::explicit("cli_ui_log_scrollback_empty"),
+                WidgetId::explicit("cli_ui_log_scrollback_empty"),
             ),
         };
         let status_color = match status {
@@ -46,44 +47,40 @@ impl Widget<UiState> for OutputPanel {
             CommandStatus::Ok => palette.success,
             CommandStatus::Failed => palette.error,
         };
-        Container::new(
-            Column {
-                gap: Some(0.0),
-                children: vec![
-                    Row {
-                        gap: Some(2.0),
-                        children: vec![
-                            Text::new(title).color(palette.text).into_node(),
-                            Text::new(status.label()).color(status_color).into_node(),
-                        ],
-                        ..Default::default()
-                    }
-                    .into_node(),
-                    command_tabs(ctx, view, self.width - 4.0),
-                    Scroll {
-                        id: Some(scroll_id),
-                        direction: FlexDirection::Column,
-                        width: Some(log_width),
-                        height: Some(log_height),
-                        show_scrollbar: true,
-                        child: Some(Box::new(scrollback_content(output, palette.muted))),
-                        ..Default::default()
-                    }
-                    .into_node(),
-                ],
-                ..Default::default()
-            }
-            .into_node(),
-        )
-        .width(self.width)
-        .height(self.height)
+        Container::new(Column {
+            gap: Some(0.0),
+            children: vec![
+                Row {
+                    gap: Some(2.0),
+                    children: vec![
+                        Text::new(title).color(palette.text).into(),
+                        Text::new(status.label()).color(status_color).into(),
+                    ],
+                    ..Default::default()
+                }
+                .into(),
+                command_tabs(ctx, view, component.width - 4.0),
+                Scroll {
+                    id: Some(scroll_id.into()),
+                    direction: FlexDirection::Column,
+                    width: Some(log_width),
+                    height: Some(log_height),
+                    show_scrollbar: true,
+                    child: Some(scrollback_content(output, palette.muted)),
+                    ..Default::default()
+                }
+                .into(),
+            ],
+            ..Default::default()
+        })
+        .width(component.width)
+        .height(component.height)
         .padding(density.sidebar_padding())
         .bg(palette.raised)
         .border(palette.border, 1.0)
-        .into_node()
+        .into()
     }
 }
-
 struct ScrollbackView {
     total_lines: usize,
     visible_text: String,
@@ -93,14 +90,14 @@ struct ScrollbackView {
 
 fn log_scrollback(
     session: &CommandSnapshot,
-    view: &View<UiState>,
+    view: ViewHandle<UiState>,
     log_height: f32,
 ) -> ScrollbackView {
     let visible_lines = (log_height.floor() as usize).max(1);
     let offset = view
-        .runtime
+        .runtime()
         .scroll
-        .get_offset(log_scroll_node_id(session.id))
+        .get_offset(log_scroll_widget_id(session.id).into())
         .max(0.0);
     let total_lines = session.record.output.display_line_count().max(1);
     let start_line = (offset.floor() as usize).min(total_lines.saturating_sub(1));
@@ -117,20 +114,20 @@ fn log_scrollback(
     }
 }
 
-fn command_tabs(ctx: &mut BuildCtx<UiState>, view: &View<UiState>, width: f32) -> Node {
-    if view.state.command_sessions.is_empty() {
+fn command_tabs(ctx: BuildCtxHandle<UiState>, view: ViewHandle<UiState>, width: f32) -> Widget {
+    if view.state().command_sessions.is_empty() {
         return Spacer {
             height: Some(0.0),
             ..Default::default()
         }
-        .into_node();
+        .into();
     }
 
-    let palette = UiPalette::for_mode(view.state.theme_mode);
+    let palette = UiPalette::for_mode(view.state().theme_mode);
     let max_tabs = 5usize;
     let mut tabs = Vec::new();
     for session in view
-        .state
+        .state()
         .command_sessions
         .iter()
         .rev()
@@ -139,49 +136,52 @@ fn command_tabs(ctx: &mut BuildCtx<UiState>, view: &View<UiState>, width: f32) -
     {
         tabs.push(command_tab(session.id, ctx, view));
     }
-    if view.state.command_sessions.len() > max_tabs {
+    if view.state().command_sessions.len() > max_tabs {
         tabs.insert(
             0,
-            Text::new(format!("+{}", view.state.command_sessions.len() - max_tabs))
-                .color(palette.muted)
-                .into_node(),
+            Text::new(format!(
+                "+{}",
+                view.state().command_sessions.len() - max_tabs
+            ))
+            .color(palette.muted)
+            .into(),
         );
     }
 
     Scroll {
-        id: Some(NodeId::explicit("cli_ui_command_tabs")),
+        id: Some(WidgetId::explicit("cli_ui_command_tabs")),
         direction: FlexDirection::Row,
         width: Some(width),
         height: Some(1.0),
         show_scrollbar: false,
-        child: Some(Box::new(
+        child: Some(
             Row {
                 gap: Some(1.0),
                 children: tabs,
                 ..Default::default()
             }
-            .into_node(),
-        )),
+            .into(),
+        ),
         ..Default::default()
     }
-    .into_node()
+    .into()
 }
 
 fn command_tab(
     session_id: CommandSessionId,
-    ctx: &mut BuildCtx<UiState>,
-    view: &View<UiState>,
-) -> Node {
+    ctx: BuildCtxHandle<UiState>,
+    view: ViewHandle<UiState>,
+) -> Widget {
     let Some(session) = view
-        .state
+        .state()
         .command_sessions
         .iter()
         .find(|item| item.id == session_id)
     else {
-        return Spacer::default().into_node();
+        return Spacer::default().into();
     };
-    let palette = UiPalette::for_mode(view.state.theme_mode);
-    let active = view.state.active_command_session_id == Some(session.id);
+    let palette = UiPalette::for_mode(view.state().theme_mode);
+    let active = view.state().active_command_session_id == Some(session.id);
     let status_marker = match session.record.status {
         CommandStatus::Ready => "-",
         CommandStatus::Running => "*",
@@ -208,13 +208,13 @@ fn command_tab(
         } else {
             palette.text
         }),
-        child: Some(Box::new(Text::new(label).into_node())),
+        child: Some(Text::new(label).into()),
         ..Default::default()
     }
-    .into_node()
+    .into()
 }
 
-fn scrollback_content(output: ScrollbackView, color: Color) -> Node {
+fn scrollback_content(output: ScrollbackView, color: Color) -> Widget {
     let bottom_lines = output
         .total_lines
         .saturating_sub(output.start_line.saturating_add(output.visible_lines));
@@ -225,15 +225,15 @@ fn scrollback_content(output: ScrollbackView, color: Color) -> Node {
                 height: Some(output.start_line as f32),
                 ..Default::default()
             }
-            .into_node(),
-            Text::new(output.visible_text).color(color).into_node(),
+            .into(),
+            Text::new(output.visible_text).color(color).into(),
             Spacer {
                 height: Some(bottom_lines as f32),
                 ..Default::default()
             }
-            .into_node(),
+            .into(),
         ],
         ..Default::default()
     }
-    .into_node()
+    .into()
 }

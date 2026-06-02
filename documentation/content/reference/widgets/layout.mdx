@@ -56,7 +56,7 @@ Use these when a purely linear layout is no longer the right shape.
 | `Positioned` | [Positioned](/reference/widgets/positioned) | A layered child needs explicit placement |
 | `Overlay` | [Overlay](/reference/widgets/overlay) | Content and overlay content share the same region deliberately |
 
-## Edge protection, ratios, and adaptive helpers
+## Edge protection, ratios, and responsive helpers
 
 These widgets become important when a layout needs to react to host conditions or special constraints.
 
@@ -74,3 +74,19 @@ These widgets become important when a layout needs to react to host conditions o
 ## Practical cross-reference
 
 If the next question is really about themed or responsive screen composition, pair this page with the guide on [Layout and widgets](/docs/guides/layout-and-widgets). If the next question is about a particular widget family rather than structure, return to the [Widget catalog](/reference/widgets/catalog).
+
+## Contract completeness checklist
+
+Use this checklist when wiring `Layout widgets` into an app or shell implementation.
+
+| Requirement | Why it matters |
+| --- | --- |
+| Public entrypoint | The app code must call the documented helper, command, or configuration field rather than a platform-specific shortcut. |
+| Required setup | Native manifests, plist entries, entitlements, service-worker files, domains, protocols, credentials, or provider registration must be present before production use. |
+| Typed success and error | The implementation should return a truthful typed result. Silent success, swallowed errors, and string-only failure paths make apps unsafe to retry. |
+| Retry behavior | Operations that can fail because of permission, network, hardware, store, or packaging state should document whether retrying is useful and what must change first. |
+| Tests | Cover the happy path, unsupported host path, bad configuration path, and any security-sensitive rejection path. |
+
+## Failure behavior and safe retry
+
+Treat failures as product states, not surprises. A Fission app should be able to tell the user whether the problem is missing configuration, missing provider support, denied permission, unavailable hardware, invalid input, expired credentials, or a transient host error. Reducers should update state from typed results and keep retry buttons idempotent so pressing them twice cannot corrupt state or duplicate unsafe work.

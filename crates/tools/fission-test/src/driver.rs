@@ -1,8 +1,8 @@
 use crate::TestHarness;
 use anyhow::{anyhow, Result};
-use fission_core::action::AppState;
+use fission_core::action::GlobalState;
 use fission_core::event::{ImeEvent, InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent};
-use fission_ir::{LayoutOp, NodeId, Op};
+use fission_ir::{LayoutOp, Op, WidgetId};
 use fission_layout::{LayoutPoint, LayoutRect, LayoutSize};
 use fission_render::DisplayOp;
 
@@ -10,7 +10,7 @@ use fission_render::DisplayOp;
 pub struct TextMatch {
     pub text: String,
     pub bounds: LayoutRect,
-    pub node_id: Option<NodeId>,
+    pub node_id: Option<WidgetId>,
 }
 
 #[derive(Debug, Clone)]
@@ -18,15 +18,15 @@ pub struct SemanticMatch {
     pub role: fission_ir::semantics::Role,
     pub label: Option<String>,
     pub bounds: LayoutRect,
-    pub node_id: NodeId,
+    pub node_id: WidgetId,
 }
 
-pub struct TestDriver<S: AppState> {
+pub struct TestDriver<S: GlobalState> {
     pub harness: TestHarness<S>,
     auto_pump: bool,
 }
 
-impl<S: AppState> TestDriver<S> {
+impl<S: GlobalState> TestDriver<S> {
     pub fn new(harness: TestHarness<S>) -> Self {
         Self {
             harness,

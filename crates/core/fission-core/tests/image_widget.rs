@@ -1,14 +1,14 @@
 use fission_core::env::{Env, RuntimeState};
-use fission_core::lowering::LoweringContext;
-use fission_core::ui::{Image, Node};
+use fission_core::internal::InternalLoweringCx;
+use fission_core::ui::Image;
 use fission_ir::op::{ImageAlignment, ImageCachePolicy, ImageFit, ImageSource, Op, PaintOp};
 use fission_ir::CoreIR;
 
 fn lower_image(image: Image) -> CoreIR {
     let env = Env::default();
     let runtime = RuntimeState::default();
-    let mut cx = LoweringContext::new(&env, &runtime, None, None);
-    let root = Node::Image(image).lower(&mut cx);
+    let mut cx = InternalLoweringCx::new(&env, &runtime, None, None);
+    let root = fission_core::internal::lower_widget(&image.into(), &mut cx);
     cx.ir.root = Some(root);
     cx.ir
 }

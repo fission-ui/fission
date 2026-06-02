@@ -22,66 +22,60 @@ impl RoutedHomePage {
     }
 }
 
-impl Widget<DocsState> for RoutedHomePage {
-    fn build(&self, ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Node {
-        Router {
-            current_path: self.current_path.clone(),
+impl From<RoutedHomePage> for Widget {
+    fn from(component: RoutedHomePage) -> Self {
+        Router::<DocsState> {
+            current_path: component.current_path.clone(),
             routes: vec![Route {
                 path: "/".to_string(),
-                builder: Arc::new(|ctx, view, _params| HomePage.build(ctx, view)),
+                builder: Arc::new(|_, _, _| HomePage.into()),
             }],
             not_found: None,
         }
-        .build(ctx, view)
+        .into()
     }
 }
-
 #[derive(Clone, Debug)]
 struct HomePage;
 
-impl Widget<DocsState> for HomePage {
-    fn build(&self, ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Node {
-        let tokens = &view.env.theme.tokens;
-        Container::new(
-            Column {
-                children: vec![
-                    HomePageNav.build(ctx, view),
-                    Row {
-                        children: vec![Container::new(
-                            Column {
-                                children: vec![
-                                    HomePageHero.build(ctx, view),
-                                    ProofStrip.build(ctx, view),
-                                    LifecycleSection.build(ctx, view),
-                                    ArchitectureSection.build(ctx, view),
-                                    ChartsSection.build(ctx, view),
-                                    ModelSection.build(ctx, view),
-                                    TargetsSection.build(ctx, view),
-                                    ExamplesSection.build(ctx, view),
-                                    FinalCta.build(ctx, view),
-                                ],
-                                gap: Some(tokens.spacing.xxxl),
-                                align_items: AlignItems::Center,
-                                ..Default::default()
-                            }
-                            .into_node(),
-                        )
-                        .width(content_width(tokens))
-                        .padding([0.0, 0.0, tokens.spacing.xxl, tokens.spacing.xxxxl])
-                        .into_node()],
-                        justify_content: JustifyContent::Center,
+impl From<HomePage> for Widget {
+    fn from(_component: HomePage) -> Self {
+        let (_ctx, view) = fission::build::current::<DocsState>();
+        let tokens = &view.env().theme.tokens;
+        Container::new(Column {
+            children: vec![
+                HomePageNav.into(),
+                Row {
+                    children: vec![Container::new(Column {
+                        children: vec![
+                            HomePageHero.into(),
+                            ProofStrip.into(),
+                            LifecycleSection.into(),
+                            ArchitectureSection.into(),
+                            ChartsSection.into(),
+                            ModelSection.into(),
+                            TargetsSection.into(),
+                            ExamplesSection.into(),
+                            FinalCta.into(),
+                        ],
+                        gap: Some(tokens.spacing.xxxl),
+                        align_items: AlignItems::Center,
                         ..Default::default()
-                    }
-                    .into_node(),
-                ],
-                gap: Some(0.0),
-                flex_grow: 1.0,
-                ..Default::default()
-            }
-            .into_node(),
-        )
+                    })
+                    .width(content_width(tokens))
+                    .padding([0.0, 0.0, tokens.spacing.xxl, tokens.spacing.xxxxl])
+                    .into()],
+                    justify_content: JustifyContent::Center,
+                    ..Default::default()
+                }
+                .into(),
+            ],
+            gap: Some(0.0),
+            flex_grow: 1.0,
+            ..Default::default()
+        })
         .min_height(tokens.spacing.xxxxl * 9.0)
         .bg_fill(page_fill(tokens))
-        .into_node()
+        .into()
     }
 }

@@ -39,3 +39,19 @@ Desktop support deserves a careful reading. Windows and macOS increasingly expos
 Web biometrics deserve a separate note. When a site appears to authenticate with a fingerprint, it is usually using a passkey or WebAuthn credential. The browser or password manager may use fingerprint or face recognition to unlock the credential, but the web app receives a credential assertion rather than direct biometric access. Fission models that as the separate [Passkeys](/docs/capabilities/passkeys/) credential capability, not as raw biometric scanning.
 
 For conceptual guidance, read [Platform capabilities](/docs/guides/platform-capabilities/). For lower-level request, provider, and configuration details, start with [Platform capabilities reference](/reference/core/platform-capabilities/).
+
+## Finished capability flow
+
+A complete `Capability matrix` integration has all of these pieces in place:
+
+| Piece | What should exist |
+| --- | --- |
+| Configuration | `fission.toml` declares the capability and generated platform files contain the permission text, manifest entry, entitlement, domain, or protocol metadata the target needs. |
+| State | App state records the in-flight flag, the successful value, and the user-facing error separately. |
+| Reducers | One reducer starts the host request, one handles success, and one handles denial, unsupported hosts, cancellation, or provider errors. |
+| Provider | The shell registers a real provider for production and a memory provider for tests. |
+| Tests | At least one test covers success and one covers permission denial or unsupported host behavior. |
+
+## Diagnose capability failures
+
+Capability failures should be safe to retry and easy to explain. Start by checking `fission.toml`, then run `fission doctor`, then inspect the generated target files. If the provider is missing, the request should return an unsupported error. If the provider exists but the platform configuration is wrong, the OS or browser will usually deny the request before the provider can complete it. Keep those cases distinct in the UI so users know whether they can retry, change settings, connect hardware, or choose another path.

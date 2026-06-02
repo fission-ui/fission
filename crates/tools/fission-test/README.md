@@ -12,7 +12,7 @@ asserting on visible output -- all running in-process with a mock text measurer 
 
 | Type | Description |
 |------|-------------|
-| `HeadlessApp<S>` | Owns an `AppState`, root widget, layout engine, and mock text measurer. Call `tick()` to advance the clock. |
+| `HeadlessApp<S>` | Owns an `GlobalState`, root widget, layout engine, and mock text measurer. Call `tick()` to advance the clock. |
 | `TestDriver<S>` | High-level driver wrapping a `TestHarness`. Provides query methods (`find_text`, `find_role`, `get_all_visible_text`) and interaction methods (`tap_text`, `type_text`, `press_key`, `scroll_down`, `scroll_to_text`). |
 | `TestRenderer` | A no-op `Renderer` implementation that stores the last `DisplayList` for inspection. |
 | `TextMatch` | A query result containing the matched text, bounding rect, and node ID. |

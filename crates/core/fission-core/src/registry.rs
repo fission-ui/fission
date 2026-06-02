@@ -8,11 +8,11 @@ use crate::{
     },
     context::{Effects, ReducerContext},
     effect::{ActionInput, Effect, EffectEnvelope},
-    ui::Node,
-    Action, ActionEnvelope, ActionId, ActionScopeId, AppState, BoxedReducer,
+    ui::Widget,
+    Action, ActionEnvelope, ActionId, BoxedReducer, GlobalState,
 };
 use anyhow::{anyhow, Result};
-use fission_ir::{NodeId, WidgetNodeId};
+use fission_ir::WidgetId;
 use serde::Serialize;
 use std::any::TypeId;
 use std::collections::{BTreeMap, HashMap};
@@ -29,21 +29,21 @@ pub type Handler<S, A> = for<'a, 'b, 'c> fn(&mut S, A, &mut ReducerContext<'a, '
 
 /// Trait that allows both 2-argument (legacy) and 3-argument (modern) handler
 /// functions to be used with [`ActionRegistry::register`] and
-/// [`BuildCtx::bind`].
-pub trait IntoHandler<S: AppState, A> {
+/// [`BuildCtxHandle::bind`](crate::build::BuildCtxHandle::bind).
+pub trait IntoHandler<S: GlobalState, A> {
     /// Invoke the handler with the given state, action, and context.
     fn call<'a, 'b, 'c>(&self, state: &mut S, action: A, ctx: &mut ReducerContext<'a, 'b, 'c, S>);
 }
 
 // Impl for Legacy (2-arg)
-impl<S: AppState, A> IntoHandler<S, A> for fn(&mut S, A) {
+impl<S: GlobalState, A> IntoHandler<S, A> for fn(&mut S, A) {
     fn call<'a, 'b, 'c>(&self, state: &mut S, action: A, _ctx: &mut ReducerContext<'a, 'b, 'c, S>) {
         (self)(state, action);
     }
 }
 
 // Impl for Modern (3-arg)
-impl<S: AppState, A> IntoHandler<S, A>
+impl<S: GlobalState, A> IntoHandler<S, A>
     for for<'a, 'b, 'c> fn(&mut S, A, &mut ReducerContext<'a, 'b, 'c, S>)
 {
     fn call<'a, 'b, 'c>(&self, state: &mut S, action: A, ctx: &mut ReducerContext<'a, 'b, 'c, S>) {
@@ -56,23 +56,7 @@ type TypedReducer<S> = Box<
     dyn for<'a, 'b, 'c> Fn(
             &mut S,
             &ActionEnvelope,
-            NodeId,
-            &mut Effects<'a, S>,
-            &'b ActionInput,
-        ) -> Result<()>
-        + Send
-        + Sync,
->;
-
-/// Raw action handler used for mounted or external subtrees.
-///
-/// Unlike typed reducers, this receives the original action envelope and
-/// dispatch target without deserializing the payload.
-pub type RawActionHandler<S> = Box<
-    dyn for<'a, 'b> Fn(
-            &mut S,
-            &ActionEnvelope,
-            NodeId,
+            WidgetId,
             &mut Effects<'a, S>,
             &'b ActionInput,
         ) -> Result<()>
@@ -82,22 +66,25 @@ pub type RawActionHandler<S> = Box<
 
 /// A per-frame collection of action handlers registered during widget building.
 ///
-/// `ActionRegistry` is populated by [`BuildCtx::bind`] calls. After the widget
+/// `ActionRegistry` is populated by [`BuildCtxHandle::bind`](crate::build::BuildCtxHandle::bind)
+/// calls. After the widget
 /// tree is built, the registry is absorbed into the [`Runtime`](crate::Runtime)
 /// via [`Runtime::absorb_registry`](crate::Runtime::absorb_registry).
-pub struct ActionRegistry<S: AppState> {
+pub struct ActionRegistry<S: GlobalState> {
     handlers: BTreeMap<ActionId, Vec<TypedReducer<S>>>,
+    runtime_handlers: BTreeMap<ActionId, Vec<BoxedReducer>>,
 }
 
-impl<S: AppState> Default for ActionRegistry<S> {
+impl<S: GlobalState> Default for ActionRegistry<S> {
     fn default() -> Self {
         Self {
             handlers: BTreeMap::new(),
+            runtime_handlers: BTreeMap::new(),
         }
     }
 }
 
-impl<S: AppState> ActionRegistry<S> {
+impl<S: GlobalState> ActionRegistry<S> {
     pub fn new() -> Self {
         Self::default()
     }
@@ -131,60 +118,22 @@ impl<S: AppState> ActionRegistry<S> {
             .push(typed_reducer);
     }
 
-    pub fn register_raw_action<F>(&mut self, action_id: ActionId, handler: F)
-    where
-        F: for<'a, 'b> Fn(
-                &mut S,
-                &ActionEnvelope,
-                NodeId,
-                &mut Effects<'a, S>,
-                &'b ActionInput,
-            ) -> Result<()>
-            + Send
-            + Sync
-            + 'static,
-    {
-        self.handlers
+    pub(crate) fn register_runtime_reducer(&mut self, action_id: ActionId, reducer: BoxedReducer) {
+        self.runtime_handlers
             .entry(action_id)
             .or_default()
-            .push(Box::new(handler));
-    }
-
-    pub fn register_scoped_raw_action<F>(
-        &mut self,
-        scope_id: ActionScopeId,
-        action_id: ActionId,
-        handler: F,
-    ) where
-        F: for<'a, 'b> Fn(
-                &mut S,
-                &ActionEnvelope,
-                NodeId,
-                &mut Effects<'a, S>,
-                &'b ActionInput,
-            ) -> Result<()>
-            + Send
-            + Sync
-            + 'static,
-    {
-        let expected_scope = scope_id.as_u128();
-        self.register_raw_action(action_id, move |state, envelope, target, effects, input| {
-            if input.action_scope_id() == Some(expected_scope) {
-                handler(state, envelope, target, effects, input)
-            } else {
-                Ok(())
-            }
-        });
+            .push(reducer);
     }
 
     pub fn dispatch_with_input(
         &mut self,
         state: &mut S,
         action: &ActionEnvelope,
-        target: NodeId,
+        target: WidgetId,
         input: &ActionInput,
     ) -> Result<Vec<EffectEnvelope>> {
         let mut effects_builder = Effects::new_headless(0);
+        let target: WidgetId = target.into();
         if let Some(reducers) = self.handlers.get_mut(&action.id) {
             for reducer in reducers {
                 reducer(state, action, target, &mut effects_builder, input)?;
@@ -197,28 +146,35 @@ impl<S: AppState> ActionRegistry<S> {
         &mut self,
         state: &mut S,
         action: &ActionEnvelope,
-        target: NodeId,
+        target: WidgetId,
     ) -> Result<Vec<EffectEnvelope>> {
         self.dispatch_with_input(state, action, target, &ActionInput::None)
     }
 
-    pub fn into_runtime_reducers(self) -> HashMap<ActionId, Vec<BoxedReducer>> {
+    pub(crate) fn into_runtime_reducers(self) -> HashMap<ActionId, Vec<BoxedReducer>> {
         let mut runtime_reducers: HashMap<ActionId, Vec<BoxedReducer>> = HashMap::new();
         let state_type_id = TypeId::of::<S>();
+
+        for (action_id, mut reducers) in self.runtime_handlers {
+            runtime_reducers
+                .entry(action_id)
+                .or_default()
+                .append(&mut reducers);
+        }
 
         for (action_id, typed_reducers) in self.handlers {
             for typed_reducer in typed_reducers {
                 let boxed_reducer: BoxedReducer = Box::new(
-                    move |app_states: &mut HashMap<TypeId, Box<dyn AppState>>,
+                    move |app_states: &mut HashMap<TypeId, Box<dyn GlobalState>>,
                           action: &ActionEnvelope,
-                          target: NodeId,
+                          target: WidgetId,
                           out_effects: &mut Vec<EffectEnvelope>,
                           input: &ActionInput|
                           -> Result<()> {
                         if let Some(state_box) = app_states.get_mut(&state_type_id) {
                             let concrete_state =
                                 state_box.downcast_mut::<S>().ok_or_else(|| {
-                                    anyhow!("Failed to downcast AppState to concrete type")
+                                    anyhow!("Failed to downcast GlobalState to concrete type")
                                 })?;
 
                             let mut effects_builder = Effects::new_headless(0);
@@ -235,7 +191,7 @@ impl<S: AppState> ActionRegistry<S> {
 
                             Ok(())
                         } else {
-                            anyhow::bail!("Target AppState for reducer not found in runtime.");
+                            anyhow::bail!("Target GlobalState for reducer not found in runtime.");
                         }
                     },
                 );
@@ -384,7 +340,7 @@ pub struct AnimationRequest {
 #[derive(Clone, Debug)]
 pub struct VideoRegistration {
     /// The stable widget identity of the video node.
-    pub node_id: WidgetNodeId,
+    pub node_id: WidgetId,
     /// URL or asset path to the video file.
     pub source: String,
     /// Whether to start playing automatically.
@@ -397,50 +353,11 @@ pub struct VideoRegistration {
 #[derive(Clone, Debug)]
 pub struct WebRegistration {
     /// The stable widget identity of the web view node.
-    pub node_id: WidgetNodeId,
+    pub node_id: WidgetId,
     /// The URL to load.
     pub url: String,
     /// Optional custom user-agent string.
     pub user_agent: Option<String>,
-}
-
-/// The mutable context passed to [`Widget::build`](crate::Widget::build).
-///
-/// `BuildCtx` is where widgets register side-effects that must survive beyond
-/// the build phase:
-///
-/// - **Action binding** -- [`bind`](BuildCtx::bind) registers a handler and
-///   returns an [`ActionEnvelope`] that can be stored in widget fields like
-///   `on_press`.
-/// - **Portals** -- [`register_portal`](BuildCtx::register_portal) places a
-///   node in the global overlay stack (modals, toasts, flyouts).
-/// - **Animations** -- [`request_animation_for`](BuildCtx::request_animation_for)
-///   or the [`anim_for`](BuildCtx::anim_for) helper.
-/// - **Video / WebView registration** -- [`register_video`](BuildCtx::register_video),
-///   [`register_web_view`](BuildCtx::register_web_view).
-///
-/// # Example
-///
-/// ```rust,ignore
-/// fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-///     let on_press = ctx.bind(MyAction { .. }, reduce_with!(handler));
-///     Button { on_press: Some(on_press), ..Default::default() }.into_node()
-/// }
-/// ```
-pub struct BuildCtx<S: AppState> {
-    /// The action registry that accumulates handlers during the build phase.
-    pub registry: ActionRegistry<S>,
-    /// Declarative runtime resources collected during the build phase.
-    pub resources: ResourceRegistry,
-    /// Pending animation requests.
-    pub animation_requests: Vec<(WidgetNodeId, AnimationRequest)>,
-    /// Registered video nodes.
-    pub video_nodes: Vec<VideoRegistration>,
-    /// Registered web view nodes.
-    pub web_nodes: Vec<WebRegistration>,
-    /// Portal entries (overlays, modals, toasts).
-    pub portals: Vec<PortalEntry>,
-    portal_seq: u64,
 }
 
 /// Z-order layer for portal entries.
@@ -469,149 +386,16 @@ pub struct PortalEntry {
     /// Insertion order (for stable ordering within a layer).
     pub seq: u64,
     /// Optional stable identity.
-    pub id: Option<WidgetNodeId>,
+    pub id: Option<WidgetId>,
     /// The portal's widget tree.
-    pub node: Node,
+    pub node: Widget,
 }
 
-impl<S: AppState> BuildCtx<S> {
-    pub fn new() -> Self {
-        Self {
-            registry: ActionRegistry::new(),
-            resources: ResourceRegistry::new(),
-            animation_requests: Vec::new(),
-            video_nodes: Vec::new(),
-            web_nodes: Vec::new(),
-            portals: Vec::new(),
-            portal_seq: 0,
-        }
-    }
-
-    pub fn bind<A: Action, H>(&mut self, action: A, handler: H) -> ActionEnvelope
-    where
-        H: IntoHandler<S, A> + Send + Sync + 'static,
-    {
-        self.registry.register(handler);
-
-        ActionEnvelope {
-            id: A::static_id(),
-            payload: action.encode(),
-        }
-    }
-
-    pub fn register<A: Action, H>(&mut self, handler: H)
-    where
-        H: IntoHandler<S, A> + Send + Sync + 'static,
-    {
-        self.registry.register::<A, H>(handler);
-    }
-
-    pub fn register_scoped_raw_action<F>(
-        &mut self,
-        scope_id: ActionScopeId,
-        action_id: ActionId,
-        handler: F,
-    ) where
-        F: for<'a, 'b> Fn(
-                &mut S,
-                &ActionEnvelope,
-                NodeId,
-                &mut Effects<'a, S>,
-                &'b ActionInput,
-            ) -> Result<()>
-            + Send
-            + Sync
-            + 'static,
-    {
-        self.registry
-            .register_scoped_raw_action(scope_id, action_id, handler);
-    }
-
-    pub fn request_animation_for(&mut self, target: WidgetNodeId, request: AnimationRequest) {
-        self.animation_requests.push((target, request));
-    }
-
-    pub fn register_video(&mut self, registration: VideoRegistration) {
-        self.video_nodes.push(registration);
-    }
-
-    pub fn register_web_view(&mut self, registration: WebRegistration) {
-        self.web_nodes.push(registration);
-    }
-
-    pub fn take_animation_requests(&mut self) -> Vec<(WidgetNodeId, AnimationRequest)> {
-        std::mem::take(&mut self.animation_requests)
-    }
-
-    pub fn take_video_registrations(&mut self) -> Vec<VideoRegistration> {
-        std::mem::take(&mut self.video_nodes)
-    }
-
-    pub fn take_web_registrations(&mut self) -> Vec<WebRegistration> {
-        std::mem::take(&mut self.web_nodes)
-    }
-
-    pub fn take_resources(&mut self) -> Vec<RuntimeResourceDeclaration> {
-        self.resources.take()
-    }
-
-    pub fn register_portal(&mut self, node: Node) {
-        self.register_portal_with_layer(PortalLayer::Default, None, node);
-    }
-
-    pub fn register_portal_with_id(&mut self, id: WidgetNodeId, node: Node) {
-        self.register_portal_with_layer(PortalLayer::Default, Some(id), node);
-    }
-
-    pub fn register_portal_with_layer(
-        &mut self,
-        layer: PortalLayer,
-        id: Option<WidgetNodeId>,
-        node: Node,
-    ) {
-        let seq = self.portal_seq;
-        self.portal_seq = self.portal_seq.wrapping_add(1);
-        self.portals.push(PortalEntry {
-            layer,
-            seq,
-            id,
-            node,
-        });
-    }
-
-    pub fn take_portals(&mut self) -> Vec<(Option<WidgetNodeId>, Node)> {
-        let mut entries = std::mem::take(&mut self.portals);
-        entries.sort_by(|a, b| (a.layer, a.seq).cmp(&(b.layer, b.seq)));
-        entries.into_iter().map(|e| (e.id, e.node)).collect()
-    }
-
-    pub fn anim_for(&mut self, target: WidgetNodeId) -> AnimCtx<'_, S> {
-        AnimCtx { target, ctx: self }
-    }
-
-    pub fn video_controls(&self, target: WidgetNodeId) -> VideoControlCtx {
-        VideoControlCtx { target }
-    }
-}
-
-pub struct AnimCtx<'a, S: AppState> {
-    target: WidgetNodeId,
-    ctx: &'a mut BuildCtx<S>,
-}
-
-impl<'a, S: AppState> AnimCtx<'a, S> {
-    pub fn request(&mut self, request: AnimationRequest) {
-        self.ctx.request_animation_for(self.target, request);
-    }
-
-    pub fn request_for(&mut self, target: WidgetNodeId, request: AnimationRequest) {
-        self.ctx.request_animation_for(target, request);
-    }
-}
-
+/// The mutable context available during `impl From<Component> for Widget`.
+///
 #[derive(Clone, Copy)]
 pub struct VideoControlCtx {
-    target: WidgetNodeId,
+    pub(crate) target: WidgetId,
 }
 
 impl VideoControlCtx {
@@ -698,7 +482,7 @@ impl ResourceKey {
         Self(name.into())
     }
 
-    pub fn widget(name: impl AsRef<str>, id: WidgetNodeId) -> Self {
+    pub fn widget(name: impl AsRef<str>, id: WidgetId) -> Self {
         Self(format!("widget:{}:{}", id.as_u128(), name.as_ref()))
     }
 

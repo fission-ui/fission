@@ -1,11 +1,13 @@
 use anyhow::Result;
-use fission_core::lowering::build_layout_tree;
+use fission_core::internal::build_layout_tree;
+use fission_core::internal::BuildCtx;
+use fission_core::internal::InternalLoweringCx;
 use fission_core::{
-    Action, ActionEnvelope, ActionId, AdvanceTo, AppState, BuildCtx, Clock, CurrentTime, Env,
-    InputEvent, LayoutPoint, LoweringContext, Runtime, ScrollStateMap, View, Widget,
+    Action, ActionEnvelope, ActionId, AdvanceTo, Clock, CurrentTime, Env, GlobalState, InputEvent,
+    LayoutPoint, Runtime, ScrollStateMap, View, Widget, WidgetIdExt,
 };
-use fission_ir::{CoreIR, NodeId};
-use fission_layout::{LayoutEngine, LayoutSize, LayoutSnapshot, TextMeasurer};
+use fission_ir::{CoreIR, WidgetId};
+use fission_layout::{LayoutEngine, LayoutInputNode, LayoutSize, LayoutSnapshot, TextMeasurer};
 use fission_render::{
     embed_surface_id, BoxShadow, Color, DisplayList, DisplayOp, LayoutRect, RenderScene, Renderer,
 };
@@ -14,6 +16,10 @@ use fission_render_vello::VelloTextMeasurer;
 use fission_theme::fonts;
 use fontique::{Blob, Collection, CollectionOptions, FontInfoOverride, SourceCache};
 use std::sync::{Arc, Mutex};
+
+pub fn layout_input_nodes(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
+    build_layout_tree(ir, env)
+}
 
 // A mock renderer that captures the display list for inspection.
 #[derive(Default, Clone)]
@@ -141,19 +147,19 @@ pub mod prelude {
     pub use fission_render::{DisplayList, DisplayOp};
 }
 
-pub struct TestHarness<S: AppState> {
+pub struct TestHarness<S: GlobalState> {
     pub runtime: Runtime,
     pub renderer: MockRenderer,
     pub layout_engine: LayoutEngine,
     pub last_snapshot: Option<LayoutSnapshot>,
     pub last_ir: Option<CoreIR>,
-    pub root_widget: Option<Box<dyn Widget<S>>>,
+    pub root_widget: Option<Box<dyn Fn() -> Widget>>,
     pub env: Env,
     pub measurer: Arc<dyn TextMeasurer>,
     _phantom: std::marker::PhantomData<S>,
 }
 
-impl<S: AppState> TestHarness<S> {
+impl<S: GlobalState> TestHarness<S> {
     // ...
     pub fn lint(&self) -> Vec<LayoutViolation> {
         if let (Some(ir), Some(snapshot)) = (&self.last_ir, &self.last_snapshot) {
@@ -195,15 +201,18 @@ impl<S: AppState> TestHarness<S> {
         }
     }
 
-    pub fn with_root_widget<W: Widget<S> + 'static>(mut self, widget: W) -> Self {
-        self.root_widget = Some(Box::new(widget));
+    pub fn with_root_widget<W>(mut self, widget: W) -> Self
+    where
+        W: Clone + Into<Widget> + 'static,
+    {
+        self.root_widget = Some(Box::new(move || widget.clone().into()));
         self
     }
 
     pub fn register_reducer(
         mut self,
         action_id: ActionId,
-        reducer: fn(&mut S, &ActionEnvelope, NodeId) -> Result<()>,
+        reducer: fission_core::action::Reducer<S>,
     ) -> Self {
         self.runtime
             .register_reducer::<S>(action_id, reducer)
@@ -212,7 +221,7 @@ impl<S: AppState> TestHarness<S> {
     }
 
     pub fn dispatch(&mut self, action: impl Action + 'static) -> Result<()> {
-        let target = NodeId::derived(0, &[0]);
+        let target = fission_core::WidgetId::from_u128(0);
         let envelope: ActionEnvelope = action.into();
         self.runtime.dispatch(envelope, target)
     }
@@ -254,8 +263,8 @@ impl<S: AppState> TestHarness<S> {
         } else {
             self.env.viewport_size = viewport;
         }
-        // 1. Build & Lower
-        if let Some(root) = &self.root_widget {
+        // 1. Build & InternalLower
+        if let Some(root) = self.root_widget.as_ref() {
             // Build
             if trace {
                 eprintln!("[test-trace] build start");
@@ -272,7 +281,7 @@ impl<S: AppState> TestHarness<S> {
                     self.last_snapshot.as_ref(),
                 );
                 let mut ctx = BuildCtx::new();
-                let tree = root.build(&mut ctx, &view);
+                let tree = fission_core::build::enter(&mut ctx, &view, root);
 
                 self.runtime.clear_reducers();
                 let animation_requests = ctx.take_animation_requests();
@@ -285,12 +294,11 @@ impl<S: AppState> TestHarness<S> {
                     .map(|(id, node)| {
                         if let Some(id) = id {
                             // Use a derived ID for the wrapper to avoid conflict with the widget's own node
-                            let wrapper_id = NodeId::derived(id.as_u128(), &[0x0000_F001]);
+                            let wrapper_id = WidgetId::derived(id.as_u128(), &[0x0000_F001]);
                             fission_core::ui::Container::new(node)
-                                .id(wrapper_id)
                                 .width(viewport.width)
                                 .height(viewport.height)
-                                .into_node()
+                                .id(wrapper_id)
                         } else {
                             node
                         }
@@ -310,40 +318,38 @@ impl<S: AppState> TestHarness<S> {
                     // Match the desktop shell overlay composition: always wrap content
                     // in an Overlay so portals render in a separate AbsoluteFill layer
                     // and do not participate in normal layout.
-                    fission_core::ui::Node::Overlay(fission_core::ui::Overlay {
+                    fission_core::ui::Overlay {
                         id: None,
                         // Ensure content establishes a viewport-sized containing block so
                         // the overlay AbsoluteFill has a concrete size in tests.
-                        content: Box::new(
-                            fission_core::ui::Container::new(tree)
-                                .width(viewport.width)
-                                .height(viewport.height)
-                                .into_node(),
-                        ),
-                        overlay: Box::new(fission_core::ui::Node::ZStack(
-                            fission_core::ui::ZStack {
-                                id: None,
-                                children: portals,
-                            },
-                        )),
-                    })
+                        content: fission_core::ui::Container::new(tree)
+                            .width(viewport.width)
+                            .height(viewport.height)
+                            .into(),
+                        overlay: fission_core::ui::ZStack {
+                            id: None,
+                            children: portals,
+                        }
+                        .into(),
+                    }
+                    .into()
                 }
             };
             if trace {
                 eprintln!("[test-trace] build done");
             }
 
-            // Lower
+            // InternalLower
             if trace {
                 eprintln!("[test-trace] lower start");
             }
-            let mut cx = LoweringContext::new(
+            let mut cx = InternalLoweringCx::new(
                 &self.env,
                 &self.runtime.runtime_state,
                 Some(&self.measurer),
                 self.last_snapshot.as_ref(),
             );
-            let root_id = node_tree.lower(&mut cx);
+            let root_id = fission_core::internal::lower_widget(&node_tree, &mut cx);
             cx.ir.root = Some(root_id);
 
             let layout_input_nodes = build_layout_tree(&cx.ir, &self.env);
@@ -408,16 +414,16 @@ impl<S: AppState> TestHarness<S> {
     }
 }
 
-pub fn detect_ir_cycle(ir: &CoreIR) -> Option<Vec<NodeId>> {
+pub fn detect_ir_cycle(ir: &CoreIR) -> Option<Vec<WidgetId>> {
     use std::collections::HashSet;
 
     fn dfs(
         ir: &CoreIR,
-        node: NodeId,
-        visited: &mut HashSet<NodeId>,
-        stack: &mut HashSet<NodeId>,
-        path: &mut Vec<NodeId>,
-    ) -> Option<Vec<NodeId>> {
+        node: WidgetId,
+        visited: &mut HashSet<WidgetId>,
+        stack: &mut HashSet<WidgetId>,
+        path: &mut Vec<WidgetId>,
+    ) -> Option<Vec<WidgetId>> {
         if !visited.insert(node) {
             return None;
         }
@@ -523,7 +529,7 @@ fn map_stroke(s: &fission_ir::op::Stroke) -> fission_render::Stroke {
 }
 
 fn generate_display_list(
-    node_id: NodeId,
+    node_id: WidgetId,
     ir: &CoreIR,
     snapshot: &LayoutSnapshot,
     scroll_map: &ScrollStateMap,
@@ -544,13 +550,13 @@ fn generate_display_list(
 }
 
 fn generate_display_list_with_visited(
-    node_id: NodeId,
+    node_id: WidgetId,
     ir: &CoreIR,
     snapshot: &LayoutSnapshot,
     scroll_map: &ScrollStateMap,
     animation_map: &fission_core::env::AnimationStateMap,
     list: &mut DisplayList,
-    visited: &mut std::collections::HashSet<NodeId>,
+    visited: &mut std::collections::HashSet<WidgetId>,
 ) {
     if !visited.insert(node_id) {
         return;

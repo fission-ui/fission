@@ -11,17 +11,17 @@ use fission::charts::{
     PictorialBarSeries, PieSeries, RadarSeries, SankeySeries, ScatterSeries, SunburstSeries,
     ThemeRiverSeries, TreeSeries, TreemapNode, TreemapSeries, VisualMap, WordcloudSeries,
 };
-use fission::core::ui::Node;
-use fission::core::{BuildCtx, View, Widget};
+use fission::core::ui::Widget;
+use fission::core::{BuildCtxHandle, ViewHandle};
 
 pub(crate) fn chart_for_doc_slug(
     slug: &str,
-    ctx: &mut BuildCtx<GalleryState>,
-    view: &View<GalleryState>,
+    ctx: BuildCtxHandle<GalleryState>,
+    view: ViewHandle<GalleryState>,
     width: f32,
     height: f32,
     s: f32,
-) -> Option<Node> {
+) -> Option<Widget> {
     if let Some(chart) = deep_catalog::build_doc_slug(slug, ctx, view, width, height, s) {
         return Some(chart);
     }
@@ -32,7 +32,7 @@ pub(crate) fn chart_for_doc_slug(
                 dataset_3d::bar3d_scene(s)
                     .width(width)
                     .height(height)
-                    .build(ctx, view),
+                    .into(),
             )
         }
         "scatter3d-basic" => {
@@ -40,7 +40,7 @@ pub(crate) fn chart_for_doc_slug(
                 dataset_3d::scatter3d_scene(s)
                     .width(width)
                     .height(height)
-                    .build(ctx, view),
+                    .into(),
             )
         }
         "surface3d-basic" => {
@@ -48,7 +48,7 @@ pub(crate) fn chart_for_doc_slug(
                 dataset_3d::surface3d_scene(s)
                     .width(width)
                     .height(height)
-                    .build(ctx, view),
+                    .into(),
             )
         }
         "line3d-basic" => {
@@ -56,7 +56,7 @@ pub(crate) fn chart_for_doc_slug(
                 dataset_3d::line3d_scene(s)
                     .width(width)
                     .height(height)
-                    .build(ctx, view),
+                    .into(),
             )
         }
         "point-cloud" => {
@@ -64,7 +64,7 @@ pub(crate) fn chart_for_doc_slug(
                 dataset_3d::point_cloud_scene(s)
                     .width(width)
                     .height(height)
-                    .build(ctx, view),
+                    .into(),
             )
         }
         "globe-basic" => {
@@ -72,7 +72,7 @@ pub(crate) fn chart_for_doc_slug(
                 dataset_3d::globe_scene(s)
                     .width(width)
                     .height(height)
-                    .build(ctx, view),
+                    .into(),
             )
         }
         "graph3d-basic" => {
@@ -80,7 +80,7 @@ pub(crate) fn chart_for_doc_slug(
                 dataset_3d::graph3d_scene(s)
                     .width(width)
                     .height(height)
-                    .build(ctx, view),
+                    .into(),
             )
         }
         "terrain-surface" => {
@@ -88,7 +88,7 @@ pub(crate) fn chart_for_doc_slug(
                 dataset_3d::terrain_scene(s)
                     .width(width)
                     .height(height)
-                    .build(ctx, view),
+                    .into(),
             )
         }
         _ => {}
@@ -725,5 +725,5 @@ pub(crate) fn chart_for_doc_slug(
         _ => return None,
     };
 
-    Some(chart.width(width).height(height).build(ctx, view))
+    Some(chart.width(width).height(height).into())
 }

@@ -1,0 +1,110 @@
+---
+title: Fission 0.4.0: a cleaner authoring model for production Rust UI
+authors:
+  - fission
+tags:
+  - release
+  - architecture
+  - authoring
+categories:
+  - Releases
+---
+
+Fission 0.4.0 is the authoring API release. It changes how application and library authors write widgets, how state is accessed during component conversion, and how local retained state is modeled. The work is tracked in [PR #63](https://github.com/worka-ai/fission/pull/63).
+
+The short version is this: authored components are now ordinary Rust structs that convert into `Widget` with `impl From<Component> for Widget`. The old public widget-authoring-boundary shape is gone. The framework keeps the closed internal `Widget` representation, but authoring code no longer teaches language models or developers to implement a public `Widget` trait or return internal node-like forms.
+
+
+The motivation came from a real documentation and code-generation problem. Fission wants examples, docs, generated components, and third-party crates to teach one clear shape. A component should look like a Rust value. It can have props. It can be composed into parent child slots. When it needs state or runtime wiring, it asks the current build scope for handles. When it is done, it returns a `Widget` tree.
+
+That gives the public boundary a simple form:
+
+```rust
+use fission::prelude::*;
+
+pub struct CounterLabel;
+
+impl From<CounterLabel> for Widget {
+    fn from(_: CounterLabel) -> Widget {
+        let (_, view) = fission::build::current::<CounterState>();
+        Text::new(format!("Count: {}", view.state().count)).into()
+    }
+}
+```
+
+State access changed at the same time. Components no longer need to be generic over the application state type just to participate in the widget tree. Instead, component conversion uses scoped handles:
+
+```rust
+let (ctx, view) = fission::build::current::<AppState>();
+```
+
+`ViewHandle` is the read side. It reads app state, generated state views, selectors, environment, theme, i18n data, viewport size, previous layout, animation values, and runtime-owned state. `BuildCtxHandle` is the wiring side. It binds actions, local reducers, animation requests, portals, media registrations, resources, and other runtime-managed behavior.
+
+The handles are deliberately handles, not raw references. They resolve through the active build scope and fail clearly if used outside component conversion. That prevents stale references from becoming hidden global state while still keeping authoring syntax readable.
+
+0.4.0 also adds a provider stack for typed parent-to-child context. A parent can install a value while a subtree converts:
+
+```rust
+Provider::new(FormSection { name: "billing" }, || BillingFields).into()
+```
+
+A descendant can then read the nearest active value of that type:
+
+```rust
+let section = fission::build::read::<FormSection>();
+```
+
+This is not a replacement for app state. Provider values are scoped build context. They are useful for local configuration, section identity, density, feature flags, or derived read-only values that should be visible to descendants without passing them through every intermediate component.
+
+Local widget state now has an explicit authoring model as well. Components that own retained UI-local state use `#[fission_component]` and `#[local_state(default = ...)]`:
+
+```rust
+#[fission_component]
+pub struct Counter {
+    #[local_state(default = 0)]
+    count: i32,
+}
+
+#[fission_reducer(Increment)]
+fn increment(count: &mut i32) {
+    *count += 1;
+}
+
+impl From<Counter> for Widget {
+    fn from(counter: Counter) -> Widget {
+        let (ctx, _) = fission::build::current::<()>();
+        let count = counter.count();
+        let increment = ctx.bind_local(Increment, count.clone(), reduce!(increment));
+
+        Button {
+            on_press: Some(increment),
+            child: Some(Text::new(format!("Count: {}", count.get())).into()),
+            ..Default::default()
+        }
+        .into()
+    }
+}
+```
+
+The local field becomes a `StateField<T>` accessor. The runtime retains it by widget identity, not by keeping the component struct object alive. If a component appears in dynamic, reorderable data, authors use `.id(WidgetId::explicit(...))` to give that identity a stable key.
+
+This release touches nearly every crate because the public boundary changed across the whole stack. Core widgets, controls, media widgets, text widgets, charts, 3D surfaces, shell integrations, static and server rendering, terminal rendering, the CLI UI, tests, examples, and documentation were all updated to the same model. The old compatibility layer was intentionally removed. Fission 0.4.0 is a breaking authoring release because keeping two authoring models would teach the wrong thing.
+
+The documentation was updated to match. The runtime model now introduces component conversion through `impl From<Component> for Widget`. The state reference documents `GlobalState`, local widget state, scoped handles, provider values, reducers, `ReducerContext`, selectors, and `WidgetId`. The new [State, handles, and providers](/docs/guides/state-handles-and-providers/) guide explains how to choose between durable state, local widget state, environment, and parent-provided context.
+
+For existing code, the migration is conceptually straightforward even though it can touch many files:
+
+1. Replace public widget-authoring-boundary implementations with `impl From<Component> for Widget`.
+2. Replace build arguments with `let (ctx, view) = fission::build::current::<State>();` inside conversion.
+3. Convert child slots to `Widget`, `Option<Widget>`, or `Vec<Widget>` and use `.into()` or `widgets![...]` at composition boundaries.
+4. Move UI-local retained fields to `#[fission_component]` and `#[local_state(default = ...)]` where appropriate.
+5. Use `Provider::new(...)` only for scoped read-only context, not product state.
+6. Add explicit `WidgetId` values for dynamic retained children that can be reordered or filtered.
+
+The payoff is a smaller and clearer public API surface. Components are Rust structs. Conversion is explicit. State access is scoped. Runtime wiring is handled through typed handles. Parent context has a stack. Local widget state has a retained identity model. The code now better matches the mental model the docs teach and the shape Fission wants generated code to produce.
+
+## What this means for developers
+
+The practical test for `Fission 0.4.0: a cleaner authoring model for production Rust UI` is whether it makes a real app less risky to build. The implementation work matters because it gives developers a shorter path from idea to running software, a clearer way to diagnose failure, and fewer hidden platform-specific assumptions.
+
+If you are evaluating Fission, use the release as a checklist rather than a marketing claim: create or open an app, run the documented command, inspect the generated files, and add one small test around the behavior you plan to depend on. The framework should make that path explicit. When it does not, the documentation or tooling needs to improve until the risk is visible and actionable.

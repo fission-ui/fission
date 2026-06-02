@@ -8,17 +8,19 @@ struct SmokeState {
     taps: u32,
 }
 
-impl AppState for SmokeState {}
+impl GlobalState for SmokeState {}
 
 #[fission_reducer(Increment)]
 fn on_increment(state: &mut SmokeState) {
     state.taps += 1;
 }
 
+#[derive(Clone)]
 struct MobileSmokeApp;
 
-impl Widget<SmokeState> for MobileSmokeApp {
-    fn build(&self, ctx: &mut BuildCtx<SmokeState>, view: &View<SmokeState>) -> Node {
+impl From<MobileSmokeApp> for Widget {
+    fn from(_component: MobileSmokeApp) -> Self {
+        let (ctx, view) = fission::build::current::<SmokeState>();
         let increment = with_reducer!(ctx, Increment, on_increment);
         let viewport = view.viewport_size();
         let content_width = (viewport.width - 48.0).clamp(240.0, 420.0);
@@ -41,68 +43,61 @@ impl Widget<SmokeState> for MobileSmokeApp {
             a: 255,
         };
 
-        let content = Container::new(
-            Column {
-                gap: Some(16.0),
-                children: vec![
-                    Text::new("Mobile smoke")
-                        .size(24.0)
-                        .color(Color::WHITE)
-                        .max_width(content_width)
-                        .into_node(),
-                    Text::new("Fission shell on mobile targets.")
-                        .size(16.0)
-                        .color(body)
-                        .max_width(content_width)
-                        .into_node(),
-                    Text::new(format!("Taps: {}", view.state.taps))
-                        .size(22.0)
-                        .color(accent)
-                        .into_node(),
-                    Button {
-                        width: Some(content_width),
-                        on_press: Some(increment),
-                        child: Some(Box::new(
-                            Text::new("Tap")
-                                .width((content_width - 96.0).max(120.0))
-                                .into_node(),
-                        )),
-                        ..Default::default()
-                    }
-                    .into_node(),
-                ],
-                ..Default::default()
-            }
-            .into_node(),
-        )
+        let content = Container::new(Column {
+            gap: Some(16.0),
+            children: vec![
+                Text::new("Mobile smoke")
+                    .size(24.0)
+                    .color(Color::WHITE)
+                    .max_width(content_width)
+                    .into(),
+                Text::new("Fission shell on mobile targets.")
+                    .size(16.0)
+                    .color(body)
+                    .max_width(content_width)
+                    .into(),
+                Text::new(format!("Taps: {}", view.state().taps))
+                    .size(22.0)
+                    .color(accent)
+                    .into(),
+                Button {
+                    width: Some(content_width),
+                    on_press: Some(increment),
+                    child: Some(
+                        Text::new("Tap")
+                            .width((content_width - 96.0).max(120.0))
+                            .into(),
+                    ),
+                    ..Default::default()
+                }
+                .into(),
+            ],
+            ..Default::default()
+        })
         .width(content_width)
-        .into_node();
+        .into();
 
-        Container::new(
-            Column {
-                gap: Some(0.0),
-                children: vec![
-                    content,
-                    Spacer {
-                        flex_grow: 1.0,
-                        ..Default::default()
-                    }
-                    .into_node(),
-                ],
-                ..Default::default()
-            }
-            .into_node(),
-        )
+        Container::new(Column {
+            gap: Some(0.0),
+            children: vec![
+                content,
+                Spacer {
+                    flex_grow: 1.0,
+                    ..Default::default()
+                }
+                .into(),
+            ],
+            ..Default::default()
+        })
         .height(viewport.height.max(1.0))
         .padding_all(24.0)
         .bg(background)
-        .into_node()
+        .into()
     }
 }
-
 #[cfg(any(target_os = "android", target_os = "ios"))]
 fn mobile_app() -> MobileApp<SmokeState, MobileSmokeApp> {
-    let app = MobileApp::new(MobileSmokeApp).with_title("Fission Mobile Smoke");
+    let app = MobileApp::<SmokeState, _>::new(MobileSmokeApp).with_title("Fission Mobile Smoke");
     #[cfg(target_os = "android")]
     let app = app.with_test_control_port(ANDROID_TEST_CONTROL_PORT);
     app
@@ -110,7 +105,7 @@ fn mobile_app() -> MobileApp<SmokeState, MobileSmokeApp> {
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn run_desktop() -> anyhow::Result<()> {
-    DesktopApp::new(MobileSmokeApp).run()
+    DesktopApp::<SmokeState, _>::new(MobileSmokeApp).run()
 }
 
 #[cfg(any(target_os = "android", target_os = "ios"))]

@@ -1,6 +1,6 @@
 [package]
 name = "fission"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/worka-ai/fission"
@@ -40,30 +40,30 @@ three-d = [
 web = ["dep:fission-shell-web"]
 
 [dependencies]
-fission-core = { path = "../../core/fission-core", version = "0.3.0" }
-fission-3d = { path = "../../core/fission-3d", version = "0.3.0", optional = true }
-fission-ir = { path = "../../core/fission-ir", version = "0.3.0" }
-fission-layout = { path = "../../core/fission-layout", version = "0.3.0" }
-fission-text-engine = { path = "../../core/fission-text-engine", version = "0.3.0" }
-fission-theme = { path = "../../core/fission-theme", version = "0.3.0" }
-fission-i18n = { path = "../../core/fission-i18n", version = "0.3.0" }
-fission-widgets = { path = "../fission-widgets", version = "0.3.0" }
-fission-macros = { path = "../fission-macros", version = "0.3.0" }
-fission-icons = { path = "../fission-icons", version = "0.3.0" }
-fission-charts = { path = "../fission-charts", version = "0.3.0", optional = true }
-fission-render = { path = "../../rendering/fission-render", version = "0.3.0" }
-fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.3.0" }
-fission-shell-site = { path = "../../shell/fission-shell-site", version = "0.3.0", optional = true }
-fission-shell-server = { path = "../../shell/fission-shell-server", version = "0.3.0", optional = true }
-fission-shell-terminal = { path = "../../shell/fission-shell-terminal", version = "0.3.0", optional = true }
-fission-test-driver = { path = "../../tools/fission-test-driver", version = "0.3.0", optional = true }
+fission-core = { path = "../../core/fission-core", version = "0.4.0" }
+fission-3d = { path = "../../core/fission-3d", version = "0.4.0", optional = true }
+fission-ir = { path = "../../core/fission-ir", version = "0.4.0" }
+fission-layout = { path = "../../core/fission-layout", version = "0.4.0" }
+fission-text-engine = { path = "../../core/fission-text-engine", version = "0.4.0" }
+fission-theme = { path = "../../core/fission-theme", version = "0.4.0" }
+fission-i18n = { path = "../../core/fission-i18n", version = "0.4.0" }
+fission-widgets = { path = "../fission-widgets", version = "0.4.0" }
+fission-macros = { path = "../fission-macros", version = "0.4.0" }
+fission-icons = { path = "../fission-icons", version = "0.4.0" }
+fission-charts = { path = "../fission-charts", version = "0.4.0", optional = true }
+fission-render = { path = "../../rendering/fission-render", version = "0.4.0" }
+fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.4.0" }
+fission-shell-site = { path = "../../shell/fission-shell-site", version = "0.4.0", optional = true }
+fission-shell-server = { path = "../../shell/fission-shell-server", version = "0.4.0", optional = true }
+fission-shell-terminal = { path = "../../shell/fission-shell-terminal", version = "0.4.0", optional = true }
+fission-test-driver = { path = "../../tools/fission-test-driver", version = "0.4.0", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))'.dependencies]
-fission-shell-desktop = { path = "../../shell/fission-shell-desktop", version = "0.3.0", optional = true }
+fission-shell-desktop = { path = "../../shell/fission-shell-desktop", version = "0.4.0", optional = true }
 
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
-fission-shell-mobile = { path = "../../shell/fission-shell-mobile", version = "0.3.0", optional = true }
+fission-shell-mobile = { path = "../../shell/fission-shell-mobile", version = "0.4.0", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-fission-shell-web = { path = "../../shell/fission-shell-web", version = "0.3.0", optional = true }
+fission-shell-web = { path = "../../shell/fission-shell-web", version = "0.4.0", optional = true }

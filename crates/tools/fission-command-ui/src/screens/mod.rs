@@ -25,37 +25,37 @@ pub use site::SiteScreen;
 #[derive(Clone)]
 pub struct ActiveScreen;
 
-impl Widget<UiState> for ActiveScreen {
-    fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
-        match view.state.route {
-            UiRoute::Dashboard => DashboardScreen.build(ctx, view),
-            UiRoute::Project => ProjectScreen.build(ctx, view),
-            UiRoute::Doctor => DoctorScreen.build(ctx, view),
-            UiRoute::Devices => DevicesScreen.build(ctx, view),
-            UiRoute::Run => RunScreen.build(ctx, view),
-            UiRoute::Build => BuildScreen.build(ctx, view),
-            UiRoute::Test => TestScreen.build(ctx, view),
-            UiRoute::Site => SiteScreen.build(ctx, view),
-            UiRoute::Logs => LogsScreen.build(ctx, view),
-            UiRoute::Settings => SettingsScreen.build(ctx, view),
-            UiRoute::Help => HelpScreen.build(ctx, view),
+impl From<ActiveScreen> for Widget {
+    fn from(_component: ActiveScreen) -> Self {
+        let (_ctx, view) = fission::build::current::<UiState>();
+        match view.state().route {
+            UiRoute::Dashboard => DashboardScreen.into(),
+            UiRoute::Project => ProjectScreen.into(),
+            UiRoute::Doctor => DoctorScreen.into(),
+            UiRoute::Devices => DevicesScreen.into(),
+            UiRoute::Run => RunScreen.into(),
+            UiRoute::Build => BuildScreen.into(),
+            UiRoute::Test => TestScreen.into(),
+            UiRoute::Site => SiteScreen.into(),
+            UiRoute::Logs => LogsScreen.into(),
+            UiRoute::Settings => SettingsScreen.into(),
+            UiRoute::Help => HelpScreen.into(),
         }
     }
 }
-
 pub fn title_block(
     title: &str,
     description: &str,
-    title_color: fission::ir::op::Color,
-    text_color: fission::ir::op::Color,
-) -> Node {
+    title_color: fission::op::Color,
+    text_color: fission::op::Color,
+) -> Widget {
     Column {
         gap: Some(0.0),
         children: vec![
-            Text::new(title).color(title_color).into_node(),
-            Text::new(description).color(text_color).into_node(),
+            Text::new(title).color(title_color).into(),
+            Text::new(description).color(text_color).into(),
         ],
         ..Default::default()
     }
-    .into_node()
+    .into()
 }

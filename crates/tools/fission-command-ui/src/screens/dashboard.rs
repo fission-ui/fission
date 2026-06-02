@@ -10,18 +10,19 @@ use fission::prelude::*;
 #[derive(Clone)]
 pub struct DashboardScreen;
 
-impl Widget<UiState> for DashboardScreen {
-    fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
-        let palette = UiPalette::for_mode(view.state.theme_mode);
+impl From<DashboardScreen> for Widget {
+    fn from(_component: DashboardScreen) -> Self {
+        let (ctx, view) = fission::build::current::<UiState>();
+        let palette = UiPalette::for_mode(view.state().theme_mode);
         let refresh = with_reducer!(ctx, RequestCommand(UiCommand::Refresh), request_command);
         let doctor = with_reducer!(ctx, Navigate(UiRoute::Doctor), navigate);
         let run = with_reducer!(ctx, Navigate(UiRoute::Run), navigate);
         let build = with_reducer!(ctx, Navigate(UiRoute::Build), navigate);
         let project = with_reducer!(ctx, Navigate(UiRoute::Project), navigate);
-        let target_summary = if view.state.targets.is_empty() {
+        let target_summary = if view.state().targets.is_empty() {
             "No configured targets".to_string()
         } else {
-            view.state
+            view.state()
                 .targets
                 .iter()
                 .copied()
@@ -41,48 +42,45 @@ impl Widget<UiState> for DashboardScreen {
                 Row {
                     gap: Some(2.0),
                     children: vec![
-                        KeyValueRow::new("Project", view.state.project_name.clone())
-                            .build(ctx, view),
-                        KeyValueRow::new("Theme", view.state.theme_mode.label()).build(ctx, view),
+                        KeyValueRow::new("Project", view.state().project_name.clone()).into(),
+                        KeyValueRow::new("Theme", view.state().theme_mode.label()).into(),
                     ],
                     ..Default::default()
                 }
-                .into_node(),
-                KeyValueRow::new("Targets", target_summary).build(ctx, view),
+                .into(),
+                KeyValueRow::new("Targets", target_summary).into(),
                 Row {
                     gap: Some(1.0),
                     children: vec![
                         ActionButton::new("Refresh", refresh)
                             .tone(ButtonTone::Neutral)
-                            .build(ctx, view),
+                            .into(),
                         ActionButton::new("Check setup", doctor)
                             .tone(ButtonTone::Primary)
-                            .build(ctx, view),
+                            .into(),
                         ActionButton::new("Run app", run)
                             .tone(ButtonTone::Success)
-                            .build(ctx, view),
+                            .into(),
                         ActionButton::new("Build", build)
                             .tone(ButtonTone::Neutral)
-                            .build(ctx, view),
+                            .into(),
                         ActionButton::new("Project setup", project)
                             .tone(ButtonTone::Neutral)
-                            .build(ctx, view),
+                            .into(),
                     ],
                     ..Default::default()
                 }
-                .into_node(),
-                Text::new("Available devices")
-                    .color(palette.accent)
-                    .into_node(),
+                .into(),
+                Text::new("Available devices").color(palette.accent).into(),
                 DeviceTable {
-                    devices: view.state.devices.clone(),
+                    devices: view.state().devices.clone(),
                     selectable: false,
                     max_rows: 7,
                 }
-                .build(ctx, view),
+                .into(),
             ],
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 }

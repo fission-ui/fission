@@ -1,4 +1,5 @@
 use fission::prelude::*;
+use fission_core::internal::BuildCtx;
 
 #[derive(Default, Debug)]
 struct ReducerMacroState {
@@ -7,7 +8,7 @@ struct ReducerMacroState {
     saw_input: bool,
 }
 
-impl AppState for ReducerMacroState {}
+impl GlobalState for ReducerMacroState {}
 
 #[fission_reducer(Increment)]
 fn increment(state: &mut ReducerMacroState) {
@@ -47,7 +48,7 @@ fn reducer_macro_generates_actions_and_handlers() {
 
     let increment_action = with_reducer!(ctx, Increment, increment);
     let set_count_action = with_reducer!(ctx, SetCount(41), set_count);
-    let record_input_action = with_reducer!(ctx, RecordInput, record_input);
+    let record_input_action = ctx.bind(RecordInput, reduce_with!(record_input));
     let set_scale_action = with_reducer!(ctx, SetScale(1.5), set_scale);
 
     assert_eq!(increment_action.id, Increment::static_id());
@@ -73,7 +74,7 @@ fn reducer_macro_preserves_manual_action_style() {
     }
 
     let mut ctx = BuildCtx::<ReducerMacroState>::new();
-    let manual_action = with_reducer!(ctx, Manual, manual);
+    let manual_action = ctx.bind(Manual, reduce_with!(manual));
 
     assert_eq!(manual_action.id, Manual::static_id());
 }

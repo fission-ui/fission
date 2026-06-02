@@ -1,4 +1,5 @@
-use fission_core::{AppState, BuildCtx, Node, View, Widget};
+use fission_core::internal::BuildCtx;
+use fission_core::{build, GlobalState, View};
 use fission_widgets::pagination::Pagination;
 use serde::{Deserialize, Serialize};
 
@@ -6,7 +7,7 @@ use serde::{Deserialize, Serialize};
 struct TestState {
     page: usize,
 }
-impl AppState for TestState {}
+impl GlobalState for TestState {}
 
 #[test]
 fn test_pagination_structure() {
@@ -22,6 +23,6 @@ fn test_pagination_structure() {
         on_change: None,
     };
 
-    let node = pagination.build(&mut ctx, &view);
-    assert!(matches!(node, Node::Row(_))); // It builds a Row (HStack)
+    let node = build::enter(&mut ctx, &view, || pagination.into());
+    assert_eq!(fission_core::internal::widget_kind_name(&node), "Row"); // It builds a Row (HStack)
 }

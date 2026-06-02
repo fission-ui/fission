@@ -7,14 +7,11 @@ pub struct ProductDetail {
     pub product: Option<Product>,
 }
 
-impl Widget<ProductBrowserState> for ProductDetail {
-    fn build(
-        &self,
-        _ctx: &mut BuildCtx<ProductBrowserState>,
-        view: &View<ProductBrowserState>,
-    ) -> Node {
-        let tokens = &view.env.theme.tokens;
-        let content = if let Some(product) = &self.product {
+impl From<ProductDetail> for Widget {
+    fn from(component: ProductDetail) -> Self {
+        let (_ctx, view) = fission::build::current::<ProductBrowserState>();
+        let tokens = &view.env().theme.tokens;
+        let content: Widget = if let Some(product) = &component.product {
             Column {
                 gap: Some(14.0),
                 align_items: ir_op::AlignItems::Start,
@@ -22,18 +19,18 @@ impl Widget<ProductBrowserState> for ProductDetail {
                     Image::network(product.thumbnail.clone())
                         .size(280.0, 220.0)
                         .fit(ir_op::ImageFit::Contain)
-                        .into_node(),
+                        .into(),
                     Text::new(product.title.clone())
                         .size(24.0)
                         .weight(800)
                         .color(tokens.colors.text_primary)
                         .max_width(300.0)
-                        .into_node(),
+                        .into(),
                     Text::new(format!("${:.2}", product.price))
                         .size(28.0)
                         .weight(800)
                         .color(tokens.colors.primary)
-                        .into_node(),
+                        .into(),
                     Text::new(format!(
                         "{:.1} stars · {} in stock · {}",
                         product.rating, product.stock, product.category
@@ -41,12 +38,12 @@ impl Widget<ProductBrowserState> for ProductDetail {
                     .size(13.0)
                     .color(tokens.colors.text_secondary)
                     .max_width(300.0)
-                    .into_node(),
+                    .into(),
                     Text::new(product.description.clone())
                         .size(15.0)
                         .color(tokens.colors.text_primary)
                         .max_width(300.0)
-                        .into_node(),
+                        .into(),
                     Text::new(if product.tags.is_empty() {
                         "No tags".to_string()
                     } else {
@@ -55,21 +52,19 @@ impl Widget<ProductBrowserState> for ProductDetail {
                     .size(13.0)
                     .color(tokens.colors.text_secondary)
                     .max_width(300.0)
-                    .into_node(),
+                    .into(),
                 ],
                 ..Default::default()
             }
-            .into_node()
+            .into()
         } else {
             Center {
-                child: Box::new(
-                    Text::new("Select a product to see the details")
-                        .color(tokens.colors.text_secondary)
-                        .max_width(260.0)
-                        .into_node(),
-                ),
+                child: Text::new("Select a product to see the details")
+                    .color(tokens.colors.text_secondary)
+                    .max_width(260.0)
+                    .into(),
             }
-            .build(_ctx, view)
+            .into()
         };
 
         Container::new(content)
@@ -79,6 +74,6 @@ impl Widget<ProductBrowserState> for ProductDetail {
             .bg(tokens.colors.surface)
             .border(tokens.colors.border, 1.0)
             .border_radius(24.0)
-            .into_node()
+            .into()
     }
 }

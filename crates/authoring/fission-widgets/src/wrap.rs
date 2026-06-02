@@ -1,5 +1,4 @@
-use fission_core::ui::Node;
-use fission_core::{BuildCtx, View, Widget};
+use fission_core::ui::Widget;
 use fission_ir::op::{FlexDirection, FlexWrap};
 use serde::{Deserialize, Serialize};
 
@@ -17,7 +16,7 @@ use serde::{Deserialize, Serialize};
 pub struct Wrap {
     pub direction: FlexDirection,
     pub spacing: Option<f32>,
-    pub children: Vec<Node>,
+    pub children: Vec<Widget>,
 }
 
 impl Default for Wrap {
@@ -30,23 +29,25 @@ impl Default for Wrap {
     }
 }
 
-impl<S: fission_core::AppState> Widget<S> for Wrap {
-    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        match self.direction {
+impl From<Wrap> for Widget {
+    fn from(component: Wrap) -> Self {
+        let this = &component;
+
+        match this.direction {
             FlexDirection::Row => fission_core::ui::Row {
-                children: self.children.clone(),
+                children: this.children.clone(),
                 wrap: FlexWrap::Wrap,
-                gap: self.spacing,
+                gap: this.spacing,
                 ..Default::default()
             }
-            .into_node(),
+            .into(),
             FlexDirection::Column => fission_core::ui::Column {
-                children: self.children.clone(),
+                children: this.children.clone(),
                 wrap: FlexWrap::Wrap,
-                gap: self.spacing,
+                gap: this.spacing,
                 ..Default::default()
             }
-            .into_node(),
+            .into(),
         }
     }
 }

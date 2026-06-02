@@ -14,7 +14,7 @@ current target, the `VideoBackend` and `VideoPlayer` traits for native video pla
 | `Platform` | Enum with variants `Desktop`, `Web`, `Mobile`, and `Test`. Used for platform-conditional logic in widgets and renderers. |
 | `VideoBackend` | Trait for creating `VideoPlayer` instances and presenting video surface frames at their laid-out rectangles. |
 | `VideoPlayer` | Trait for controlling a single video stream -- play, pause, stop, seek, volume, rate, and polling for `VideoEvent` updates. |
-| `VideoSurfaceFrame` | Struct carrying a `WidgetNodeId`, a `surface_id`, and a `LayoutRect` so the compositor knows where to place a native video surface. |
+| `VideoSurfaceFrame` | Struct carrying a `WidgetId`, a `surface_id`, and a `LayoutRect` so the compositor knows where to place a native video surface. |
 | `VideoEvent` | Enum for events emitted by a `VideoPlayer`: `Ready { duration }`, `Ended`, and `Error(String)`. |
 
 ## Usage example

@@ -1,0 +1,36 @@
+---
+title: Fission 0.3.0: async images, native capabilities, GPU-first web and server rendering
+authors:
+  - fission
+tags:
+  - release
+  - platform
+  - server
+categories:
+  - Releases
+---
+
+Fission 0.3.0 made the framework more useful for real products by improving media loading, native capability providers, platform launch behavior, GPU-first web rendering, iOS safe-area handling, static and server site workflows, Docker packaging, and security controls.
+
+This release is best understood as a productization pass. It closed gaps that appear when examples stop being demos and start behaving like app surfaces a user can actually exercise.
+
+
+Image handling moved from a simple widget field toward typed image sources and renderer-managed loading. Remote images, loading behavior, error behavior, cache policy, intrinsic sizing, and renderer refresh paths became part of the model. The product browser example used real remote data to prove this path and expose layout issues that would not show up in a toy counter.
+
+Capabilities also became much more concrete. Fission added native hosts and generated target metadata for capability families, then introduced the field inspector example to exercise them across macOS, web, iOS, and Android. The release included macOS development app bundles so capability prompts and native entitlements behave like an app instead of a random binary. It also added fixes for web passkeys, scheduled notifications, native macOS notifications, and iOS simulator dispatch linkage.
+
+Rendering quality improved across web and iOS. Web moved toward a GPU-first path, with Canvas2D software rendering kept as fallback. Software frames were rendered at device scale where needed so browser output no longer looked blurry. iOS received safe-area and text-layout fixes, plus fallback handling for cases where the native GPU path cannot be used.
+
+0.3.0 also introduced the server shell and revalidated site model. Static pages, server-rendered routes, signed action forms, progressive workers, browser islands, session-backed state, cache controls, and Docker packaging were added around a Pokemon card store example. The point was to bridge static site output, server-rendered pages, progressive browser behavior, and typed Fission state without turning the app into a separate web framework.
+
+Packaging and deployment work continued. Docker image support was added for static and server sites, with artifact manifests, registry publishing, and documentation for packaging workflows. The CLI became more capable as an application lifecycle tool rather than only a launcher.
+
+Security received direct attention in the server shell. The release added signed server action forms, runtime security configuration, cache tests, session and island coverage, and documentation for server rendering and security workflow. That is important because server-side interactivity increases the cost of ambiguous behavior. The framework needs to make unsafe paths visible and controlled.
+
+Fission 0.3.0 is the release where the platform story became significantly more complete: real media loading, native capabilities, sharper web and iOS rendering, server rendering, sessions, browser bridges, Docker packaging, and security documentation all landed together.
+
+## What this means for developers
+
+The practical test for `Fission 0.3.0: async images, native capabilities, GPU-first web and server rendering` is whether it makes a real app less risky to build. The implementation work matters because it gives developers a shorter path from idea to running software, a clearer way to diagnose failure, and fewer hidden platform-specific assumptions.
+
+If you are evaluating Fission, use the release as a checklist rather than a marketing claim: create or open an app, run the documented command, inspect the generated files, and add one small test around the behavior you plan to depend on. The framework should make that path explicit. When it does not, the documentation or tooling needs to improve until the risk is visible and actionable.

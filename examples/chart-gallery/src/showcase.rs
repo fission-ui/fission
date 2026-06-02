@@ -7,15 +7,15 @@ use fission::charts::{
     SunburstSeries, ThemeRiverSeries, TreemapNode, VisualMap,
 };
 use fission::core::op::Color;
-use fission::core::ui::{Column, Container, Node, Row, Scroll, Text};
-use fission::core::{BuildCtx, View, Widget};
+use fission::core::ui::{Column, Container, Row, Scroll, Text, Widget};
+use fission::core::{BuildCtxHandle, ViewHandle};
 
 pub(crate) fn build_showcase(
-    ctx: &mut BuildCtx<GalleryState>,
-    view: &View<GalleryState>,
+    ctx: BuildCtxHandle<GalleryState>,
+    view: ViewHandle<GalleryState>,
     content_width: f32,
     s: f32,
-) -> Node {
+) -> Widget {
     let two_columns = content_width >= 900.0;
     let gap = 18.0;
     let card_width = if two_columns {
@@ -84,7 +84,7 @@ pub(crate) fn build_showcase(
                                     302.0 * s,
                                 ])
                                 .color(teal())
-                                .smooth(view.state.smooth)
+                                .smooth(view.state().smooth)
                                 .into(),
                             LineSeries::new("Services")
                                 .stack("total")
@@ -100,7 +100,7 @@ pub(crate) fn build_showcase(
                                     188.0 * s,
                                 ])
                                 .color(blue())
-                                .smooth(view.state.smooth)
+                                .smooth(view.state().smooth)
                                 .into(),
                         ]),
                     card_width,
@@ -305,124 +305,116 @@ pub(crate) fn build_showcase(
             Text::new("Use the sidebar to inspect the single-chart examples. The overview intentionally renders several chart families together so visual regressions are obvious.")
                 .size(13.0)
                 .color(rgb(148, 163, 184))
-                .into_node(),
         )
         .padding_all(14.0)
         .border_radius(16.0)
         .bg(rgb(15, 23, 42))
         .border(rgb(51, 65, 85), 1.0)
-        .into_node(),
+        .into(),
     );
 
     Scroll {
         direction: fission::core::FlexDirection::Column,
-        child: Some(Box::new(
+        child: Some(
             Column {
                 children,
                 gap: Some(18.0),
                 ..Default::default()
             }
-            .into_node(),
-        )),
+            .into(),
+        ),
         show_scrollbar: true,
         flex_grow: 1.0,
         ..Default::default()
     }
-    .into_node()
+    .into()
 }
 
 fn chart_card(
-    ctx: &mut BuildCtx<GalleryState>,
-    view: &View<GalleryState>,
+    _ctx: BuildCtxHandle<GalleryState>,
+    view: ViewHandle<GalleryState>,
     title: &str,
     subtitle: &str,
     chart: Chart,
     width: f32,
     chart_height: f32,
     accent: Color,
-) -> Node {
-    Container::new(
-        Column {
-            children: vec![
-                Row {
-                    children: vec![
-                        Container::new(Text::new("").into_node())
-                            .width(8.0)
-                            .height(32.0)
-                            .border_radius(8.0)
-                            .bg(accent)
-                            .into_node(),
-                        Column {
-                            children: vec![
-                                Text::new(title).size(18.0).color(Color::WHITE).into_node(),
-                                Text::new(subtitle)
-                                    .size(12.0)
-                                    .color(rgb(148, 163, 184))
-                                    .into_node(),
-                            ],
-                            gap: Some(4.0),
-                            ..Default::default()
-                        }
-                        .into_node(),
-                    ],
-                    gap: Some(10.0),
-                    ..Default::default()
-                }
-                .into_node(),
-                configure_chart(chart, view, (width - 32.0).max(260.0), chart_height)
-                    .build(ctx, view),
-            ],
-            gap: Some(12.0),
-            ..Default::default()
-        }
-        .into_node(),
-    )
+) -> Widget {
+    Container::new(Column {
+        children: vec![
+            Row {
+                children: vec![
+                    Container::new(Text::new(""))
+                        .width(8.0)
+                        .height(32.0)
+                        .border_radius(8.0)
+                        .bg(accent)
+                        .into(),
+                    Column {
+                        children: vec![
+                            Text::new(title).size(18.0).color(Color::WHITE).into(),
+                            Text::new(subtitle)
+                                .size(12.0)
+                                .color(rgb(148, 163, 184))
+                                .into(),
+                        ],
+                        gap: Some(4.0),
+                        ..Default::default()
+                    }
+                    .into(),
+                ],
+                gap: Some(10.0),
+                ..Default::default()
+            }
+            .into(),
+            configure_chart(chart, view, (width - 32.0).max(260.0), chart_height).into(),
+        ],
+        gap: Some(12.0),
+        ..Default::default()
+    })
     .width(width)
     .padding_all(16.0)
     .border_radius(24.0)
     .bg(rgb(11, 18, 32))
     .border(rgb(51, 65, 85), 1.0)
-    .into_node()
+    .into()
 }
 
-fn metric_card(title: &str, value: &str, detail: &str, accent: Color, width: f32) -> Node {
-    Container::new(
-        Column {
-            children: vec![
-                Text::new(title).size(12.0).color(accent).into_node(),
-                Text::new(value).size(22.0).color(Color::WHITE).into_node(),
-                Text::new(detail)
-                    .size(12.0)
-                    .color(rgb(148, 163, 184))
-                    .into_node(),
-            ],
-            gap: Some(7.0),
-            ..Default::default()
-        }
-        .into_node(),
-    )
+fn metric_card(title: &str, value: &str, detail: &str, accent: Color, width: f32) -> Widget {
+    Container::new(Column {
+        children: vec![
+            Text::new(title).size(12.0).color(accent).into(),
+            Text::new(value).size(22.0).color(Color::WHITE).into(),
+            Text::new(detail)
+                .size(12.0)
+                .color(rgb(148, 163, 184))
+                .into(),
+        ],
+        gap: Some(7.0),
+        ..Default::default()
+    })
     .width(width)
     .padding_all(16.0)
     .border_radius(18.0)
     .bg(rgb(11, 18, 32))
     .border(rgb(51, 65, 85), 1.0)
-    .into_node()
+    .into()
 }
 
-fn chart_row(children: Vec<Node>, row: bool) -> Node {
+fn chart_row(children: Vec<Widget>, row: bool) -> Widget {
     if row {
         Row {
             children,
             gap: Some(18.0),
             ..Default::default()
         }
-        .into_node()
+        .into()
     } else {
         Column {
             children,
             gap: Some(18.0),
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 }

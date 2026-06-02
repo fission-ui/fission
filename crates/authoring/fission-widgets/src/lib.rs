@@ -2,8 +2,8 @@
 //!
 //! This crate provides a comprehensive widget library built on top of `fission-core`
 //! primitives. Each widget follows a declarative, data-driven pattern: construct the
-//! widget struct with its configuration, and the framework calls [`Widget::build()`]
-//! to produce the low-level [`Node`] tree.
+//! widget struct with its configuration, then convert it with `From<T> for
+//! `Widget` to produce the closed widget tree.
 //!
 //! Widgets do not own state. They receive all data through struct fields and communicate
 //! user interactions back to the application via [`ActionEnvelope`](fission_core::ActionEnvelope)
@@ -27,20 +27,19 @@
 //! let layout = VStack {
 //!     spacing: Some(8.0),
 //!     children: vec![
-//!         Badge { text: "New".into(), ..Default::default() }.build(&mut ctx, &view),
-//!         Card { child: Box::new(content) }.build(&mut ctx, &view),
+//!         Badge { text: "New".into(), ..Default::default() }.into(),
+//!         Card { child: content }.into(),
 //!     ],
-//! }.into_node();
+//! }.into();
 //! ```
 
 pub use fission_core::ui::widgets::Icon;
 pub use fission_core::ui::{
-    Button, ButtonContentAlign, ButtonVariant, Checkbox, Column, Container, CustomNode, FocusScope,
-    Grid, GridItem, Image, LazyColumn, Node, Overlay, Positioned, Radio, Row, SafeArea, Scroll,
-    Slider, Spacer, Switch, Text, TextContent, TextInput, Video, ZStack,
+    Button, ButtonContentAlign, ButtonVariant, Checkbox, Column, Container, CustomWidget,
+    FocusScope, Grid, GridItem, Image, LazyColumn, Overlay, Positioned, Radio, Row, SafeArea,
+    Scroll, Slider, Spacer, Switch, Text, TextContent, TextInput, Video, Widget, ZStack,
 };
-pub use fission_core::view::{Selector, View, Widget};
-pub use fission_core::BuildCtx;
+pub use fission_core::{BuildCtxHandle, Selector, ViewHandle};
 
 pub mod dropdown;
 pub use dropdown::DropDown;
@@ -221,8 +220,11 @@ pub mod router;
 pub use router::{Route, RouteParams, Router};
 
 use fission_core::{
-    lowering::NodeBuilder, op::StructuralOp, LowerDyn, LoweringContext, NodeId, Op,
+    internal::{InternalIrBuilder, InternalLowerer, InternalLoweringCx},
+    op::StructuralOp,
+    Op,
 };
+use fission_ir::WidgetId;
 use std::sync::Arc;
 
 /// Internal lowerer for the [`canvas()`] free function.
@@ -232,7 +234,7 @@ use std::sync::Arc;
 pub struct CanvasLowerer {
     pub width: Option<f32>,
     pub height: Option<f32>,
-    pub painter: Arc<dyn Fn(&mut LoweringContext) -> Vec<NodeId> + Send + Sync>,
+    pub painter: Arc<dyn Fn(&mut InternalLoweringCx) -> Vec<WidgetId> + Send + Sync>,
 }
 
 impl std::fmt::Debug for CanvasLowerer {
@@ -244,11 +246,11 @@ impl std::fmt::Debug for CanvasLowerer {
     }
 }
 
-impl LowerDyn for CanvasLowerer {
-    fn lower_dyn(&self, cx: &mut LoweringContext) -> NodeId {
+impl InternalLowerer for CanvasLowerer {
+    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
         let child_ids = (self.painter)(cx);
         let group_id = cx.next_node_id();
-        let mut group = NodeBuilder::new(
+        let mut group = InternalIrBuilder::new(
             group_id,
             Op::Structural(StructuralOp::Group { stable_hash: 0 }),
         );
@@ -257,7 +259,7 @@ impl LowerDyn for CanvasLowerer {
         }
         let group_node = group.build(cx);
 
-        let mut root = NodeBuilder::new(
+        let mut root = InternalIrBuilder::new(
             cx.next_node_id(),
             Op::Layout(fission_core::LayoutOp::Box {
                 width: self.width,
@@ -279,23 +281,14 @@ impl LowerDyn for CanvasLowerer {
 
 /// Creates a custom paint node from a closure.
 ///
-/// The `painter` closure receives a [`LoweringContext`] and returns a list of child
-/// node IDs. These are grouped inside a fixed-size box with the given `width` and
-/// `height` (both optional).
-///
-/// # Example
-///
-/// ```rust,ignore
-/// let custom_node = canvas(Some(100.0), Some(50.0), |cx| {
-///     // Create and return child node IDs
-///     vec![]
-/// });
-/// ```
-pub fn canvas<F>(width: Option<f32>, height: Option<f32>, painter: F) -> Node
+/// The `painter` closure receives an [`InternalLoweringCx`] and returns a list
+/// of child node IDs. These are grouped inside a fixed-size box with the given
+/// `width` and `height` (both optional).
+pub fn canvas<F>(width: Option<f32>, height: Option<f32>, painter: F) -> Widget
 where
-    F: Fn(&mut LoweringContext) -> Vec<NodeId> + Send + Sync + 'static,
+    F: Fn(&mut InternalLoweringCx) -> Vec<WidgetId> + Send + Sync + 'static,
 {
-    Node::Custom(fission_core::CustomNode {
+    fission_core::internal::custom_render_widget(fission_core::CustomWidget {
         debug_tag: "Canvas".into(),
         lowerer: Some(Arc::new(CanvasLowerer {
             width,
@@ -309,13 +302,13 @@ where
 // AbsoluteFill convenience
 #[derive(Debug)]
 struct AbsoluteFillLowerer {
-    child: Node,
+    child: Widget,
 }
 
-impl LowerDyn for AbsoluteFillLowerer {
-    fn lower_dyn(&self, cx: &mut LoweringContext) -> NodeId {
-        let child_id = self.child.lower(cx);
-        let mut builder = NodeBuilder::new(
+impl InternalLowerer for AbsoluteFillLowerer {
+    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+        let child_id = fission_core::internal::lower_widget(&self.child, cx);
+        let mut builder = InternalIrBuilder::new(
             cx.next_node_id(),
             Op::Layout(fission_core::LayoutOp::AbsoluteFill),
         );
@@ -329,10 +322,12 @@ impl LowerDyn for AbsoluteFillLowerer {
 
 /// Wraps a child node in an `AbsoluteFill` layout node, causing it to stretch
 /// to fill its parent's bounds.
-pub fn absolute_fill(child: Node) -> Node {
-    Node::Custom(fission_core::CustomNode {
+pub fn absolute_fill(child: impl Into<Widget>) -> Widget {
+    fission_core::internal::custom_render_widget(fission_core::internal::InternalRenderNode {
         debug_tag: "AbsoluteFill".into(),
-        lowerer: Some(Arc::new(AbsoluteFillLowerer { child })),
+        lowerer: Some(Arc::new(AbsoluteFillLowerer {
+            child: child.into(),
+        })),
         render_object: None,
     })
 }
@@ -340,15 +335,15 @@ pub fn absolute_fill(child: Node) -> Node {
 // Flyout (anchor-relative absolute positioning) convenience
 #[derive(Debug)]
 struct FlyoutLowerer {
-    anchor: NodeId,
-    content: Node,
+    anchor: WidgetId,
+    content: Widget,
 }
 
-impl LowerDyn for FlyoutLowerer {
-    fn lower_dyn(&self, cx: &mut LoweringContext) -> NodeId {
-        let content_id = self.content.lower(cx);
+impl InternalLowerer for FlyoutLowerer {
+    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+        let content_id = fission_core::internal::lower_widget(&self.content, cx);
         // Create a marker node that tells the layout engine to reposition `content_id`
-        let marker_id = NodeBuilder::new(
+        let marker_id = InternalIrBuilder::new(
             cx.next_node_id(),
             Op::Layout(fission_core::LayoutOp::Flyout {
                 anchor: self.anchor,
@@ -358,7 +353,7 @@ impl LowerDyn for FlyoutLowerer {
         .build(cx);
 
         // Ensure both the content and marker are attached to the tree via a structural group.
-        let mut wrapper = NodeBuilder::new(
+        let mut wrapper = InternalIrBuilder::new(
             cx.next_node_id(),
             Op::Structural(StructuralOp::Group { stable_hash: 0 }),
         );
@@ -376,10 +371,10 @@ impl LowerDyn for FlyoutLowerer {
 ///
 /// # Arguments
 ///
-/// * `anchor` - The `NodeId` of the widget that the flyout should be positioned relative to.
+/// * `anchor` - The `WidgetId` of the widget that the flyout should be positioned relative to.
 /// * `content` - The node tree to render in the flyout popup.
-pub fn flyout(anchor: NodeId, content: Node) -> Node {
-    Node::Custom(fission_core::CustomNode {
+pub fn flyout(anchor: WidgetId, content: Widget) -> Widget {
+    fission_core::internal::custom_render_widget(fission_core::CustomWidget {
         debug_tag: "Flyout".into(),
         lowerer: Some(Arc::new(FlyoutLowerer { anchor, content })),
         render_object: None,
@@ -397,13 +392,16 @@ pub fn flyout(anchor: NodeId, content: Node) -> Node {
 /// [`Popover`], and [`Tooltip`] to render above the main content.
 #[derive(Debug, Clone)]
 pub struct Portal {
-    pub child: Node,
+    pub child: Widget,
 }
 
-impl<S: fission_core::AppState> Widget<S> for Portal {
-    fn build(&self, ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        ctx.register_portal(self.child.clone());
+impl From<Portal> for Widget {
+    fn from(component: Portal) -> Self {
+        let (ctx, _) = fission_core::build::current::<()>();
+        let this = &component;
+
+        ctx.register_portal(this.child.clone());
         // Return invisible spacer
-        Node::Spacer(fission_core::ui::widgets::spacer::Spacer::default())
+        fission_core::ui::widgets::spacer::Spacer::default().into()
     }
 }

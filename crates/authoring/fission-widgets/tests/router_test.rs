@@ -1,11 +1,12 @@
-use fission_core::ui::{Node, Text};
-use fission_core::{AppState, BuildCtx, View, Widget};
+use fission_core::internal::BuildCtx;
+use fission_core::ui::Text;
+use fission_core::{build, GlobalState, View};
 use fission_widgets::router::{Route, Router};
 use std::sync::Arc;
 
 #[derive(Default, Clone, Debug)]
 struct State;
-impl AppState for State {}
+impl GlobalState for State {}
 
 #[test]
 fn test_router_matching() {
@@ -22,24 +23,17 @@ fn test_router_matching() {
     );
 
     // Test Exact Match
-    let router = Router {
+    let router = Router::<State> {
         current_path: "/home".into(),
         routes: vec![Route {
             path: "/home".into(),
-            builder: Arc::new(|_, _, _| Text::new("Home").into_node()),
+            builder: Arc::new(|_, _, _| Text::new("Home").into()),
         }],
         not_found: None,
     };
 
-    let node = router.build(&mut ctx, &view);
-    if let Node::Text(t) = node {
-        assert_eq!(
-            t.content,
-            fission_core::ui::TextContent::Literal("Home".into())
-        );
-    } else {
-        panic!("Router should return Home node");
-    }
+    let node = build::enter(&mut ctx, &view, || router.into());
+    assert_widget_draws_text(&node, "Home");
 }
 
 #[test]
@@ -57,25 +51,27 @@ fn test_router_params() {
     );
 
     // Test Param Match
-    let router = Router {
+    let router = Router::<State> {
         current_path: "/user/123".into(),
         routes: vec![Route {
             path: "/user/:id".into(),
-            builder: Arc::new(|_, _, params| {
-                let id = params.get("id").unwrap();
-                Text::new(format!("User {}", id)).into_node()
-            }),
+            builder: Arc::new(|_, _, params| Text::new(format!("User {}", params["id"])).into()),
         }],
         not_found: None,
     };
 
-    let node = router.build(&mut ctx, &view);
-    if let Node::Text(t) = node {
-        assert_eq!(
-            t.content,
-            fission_core::ui::TextContent::Literal("User 123".into())
-        );
-    } else {
-        panic!("Router should return User 123 node");
-    }
+    let node = build::enter(&mut ctx, &view, || router.into());
+    assert_widget_draws_text(&node, "User 123");
+}
+
+fn assert_widget_draws_text(widget: &fission_core::Widget, expected: &str) {
+    let ir = fission_core::internal::lower_widget_to_ir(widget);
+    assert!(
+        ir.nodes.values().any(|node| matches!(
+            &node.op,
+            fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, .. })
+                if text == expected
+        )),
+        "expected lowered widget tree to draw `{expected}`"
+    );
 }

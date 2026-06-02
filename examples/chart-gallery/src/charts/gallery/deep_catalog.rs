@@ -11,8 +11,8 @@ use fission::charts::{
     TreemapSeries, VisualMap,
 };
 use fission::core::op::Color;
-use fission::core::ui::Node;
-use fission::core::{BuildCtx, View, Widget};
+use fission::core::ui::Widget;
+use fission::core::{BuildCtxHandle, ViewHandle};
 use fission::three_d::Scene3D;
 
 use super::dataset_3d;
@@ -2513,11 +2513,11 @@ pub(crate) const DEEP_CATEGORIES: &[DeepCategory] = &[
 pub(crate) fn build_chart(
     absolute_category: usize,
     chart_index: usize,
-    ctx: &mut BuildCtx<GalleryState>,
-    view: &View<GalleryState>,
+    ctx: BuildCtxHandle<GalleryState>,
+    view: ViewHandle<GalleryState>,
     content_width: f32,
     s: f32,
-) -> Option<Node> {
+) -> Option<Widget> {
     let category = absolute_category.checked_sub(DEEP_CATEGORY_OFFSET)?;
     let chart = DEEP_CATEGORIES.get(category)?.charts.get(chart_index)?;
     let width = (content_width - 8.0).clamp(360.0, 1120.0);
@@ -2534,12 +2534,12 @@ pub(crate) fn build_chart(
 
 pub(crate) fn build_doc_slug(
     slug: &str,
-    ctx: &mut BuildCtx<GalleryState>,
-    view: &View<GalleryState>,
+    ctx: BuildCtxHandle<GalleryState>,
+    view: ViewHandle<GalleryState>,
     width: f32,
     height: f32,
     s: f32,
-) -> Option<Node> {
+) -> Option<Widget> {
     let chart = DEEP_CATEGORIES
         .iter()
         .flat_map(|category| category.charts.iter())
@@ -2557,13 +2557,13 @@ pub(crate) fn build_doc_slug(
 
 fn build_deep_node(
     meta: DeepChart,
-    ctx: &mut BuildCtx<GalleryState>,
-    view: &View<GalleryState>,
+    _ctx: BuildCtxHandle<GalleryState>,
+    view: ViewHandle<GalleryState>,
     width: Option<f32>,
     height: Option<f32>,
     s: f32,
     gallery_options: bool,
-) -> Node {
+) -> Widget {
     match scene_for_kind(meta.kind, meta.seed, s) {
         Some(scene) => {
             let scene = if let Some(width) = width {
@@ -2576,7 +2576,7 @@ fn build_deep_node(
             } else {
                 scene
             };
-            scene.build(ctx, view)
+            scene.into()
         }
         None => {
             let mut chart = chart_for_kind(meta.kind, meta.title, meta.seed, s);
@@ -2594,7 +2594,7 @@ fn build_deep_node(
                     height.unwrap_or(520.0),
                 );
             }
-            chart.build(ctx, view)
+            chart.into()
         }
     }
 }

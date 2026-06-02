@@ -5,8 +5,8 @@ use super::density::UiDensity;
 use super::routes::UiRoute;
 use super::theme::UiThemeMode;
 use fission::core::{Env, RuntimeState};
-use fission::ir::NodeId;
-use fission::prelude::AppState;
+use fission::prelude::GlobalState;
+use fission::WidgetId;
 use fission_command_core::{read_project_config, Target};
 use fission_command_run as workflow;
 use std::path::PathBuf;
@@ -47,7 +47,7 @@ pub struct UiState {
     pub exit_confirmed: bool,
 }
 
-impl AppState for UiState {}
+impl GlobalState for UiState {}
 
 impl Default for UiState {
     fn default() -> Self {
@@ -289,8 +289,8 @@ pub enum UiDialog {
     },
 }
 
-pub fn log_scroll_node_id(session_id: CommandSessionId) -> NodeId {
-    NodeId::explicit(&format!("{LOG_SCROLL_NODE_ID_PREFIX}_{session_id}"))
+pub fn log_scroll_widget_id(session_id: CommandSessionId) -> WidgetId {
+    WidgetId::explicit(&format!("{LOG_SCROLL_NODE_ID_PREFIX}_{session_id}"))
 }
 
 pub fn log_visible_rows_for_height(height: f32, compact: bool) -> usize {
@@ -313,7 +313,7 @@ fn stick_log_scroll_to_bottom(
     let max_offset = line_count.saturating_sub(visible_rows).max(0) as f32;
     runtime
         .scroll
-        .set_offset(log_scroll_node_id(session_id), max_offset);
+        .set_offset(log_scroll_widget_id(session_id).into(), max_offset);
 }
 
 fn should_follow_log_output(
@@ -336,7 +336,7 @@ fn should_follow_log_output(
     let new_max = next_line_count.saturating_sub(visible_rows) as f32;
     let current = runtime
         .scroll
-        .get_offset(log_scroll_node_id(next_session_id));
+        .get_offset(log_scroll_widget_id(next_session_id).into());
     current + 2.0 >= old_max || current + 2.0 >= new_max
 }
 

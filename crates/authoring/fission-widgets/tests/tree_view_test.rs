@@ -1,11 +1,11 @@
-use fission_core::ui::Node;
-use fission_core::{AppState, BuildCtx, View, Widget};
+use fission_core::internal::BuildCtx;
+use fission_core::{build, GlobalState, View};
 use fission_widgets::{TreeItem, TreeView};
 use std::collections::HashSet;
 
 #[derive(Default, Clone, Debug)]
 struct State;
-impl AppState for State {}
+impl GlobalState for State {}
 
 #[test]
 fn test_tree_view_structure() {
@@ -46,13 +46,10 @@ fn test_tree_view_structure() {
         selected_id: None,
     };
 
-    let node = tree.build(&mut ctx, &view);
+    let node = build::enter(&mut ctx, &view, || tree.into());
 
-    // Should return VStack (Column)
-    if let Node::Column(col) = node {
-        // Root row + Child row (since expanded)
-        assert_eq!(col.children.len(), 2);
-    } else {
-        panic!("TreeView should return Column");
-    }
+    let col =
+        fission_core::internal::widget_as_column(&node).expect("TreeView should return Column");
+    // Root row + Child row (since expanded)
+    assert_eq!(col.children.len(), 2);
 }

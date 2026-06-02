@@ -1,9 +1,8 @@
-use crate::lowering::{LoweringContext, NodeBuilder};
-use crate::ui::traits::Lower;
-use crate::ui::Node;
+use crate::internal::InternalLower;
+use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
 use fission_ir::{
     op::{LayoutOp, Op},
-    NodeId,
+    WidgetId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -18,9 +17,9 @@ use serde::{Deserialize, Serialize};
 /// ```rust,ignore
 /// Row {
 ///     children: vec![
-///         Text::new("Left").into_node().into(),
-///         Spacer { flex_grow: 1.0, ..Default::default() }.into_node().into(),
-///         Text::new("Right").into_node().into(),
+///         Text::new("Left").into(),
+///         Spacer { flex_grow: 1.0, ..Default::default() }.into(),
+///         Text::new("Right").into(),
 ///     ],
 ///     ..Default::default()
 /// }
@@ -28,7 +27,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Spacer {
     /// Explicit node identity.
-    pub id: Option<NodeId>,
+    pub id: Option<WidgetId>,
     /// Fixed width in layout points.
     pub width: Option<f32>,
     /// Fixed height in layout points.
@@ -37,17 +36,11 @@ pub struct Spacer {
     pub flex_grow: f32,
 }
 
-impl Spacer {
-    pub fn into_node(self) -> Node {
-        Node::Spacer(self)
-    }
-}
+impl InternalLower for Spacer {
+    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+        let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
 
-impl Lower for Spacer {
-    fn lower(&self, cx: &mut LoweringContext) -> NodeId {
-        let id = self.id.unwrap_or_else(|| cx.next_node_id());
-
-        NodeBuilder::new(
+        InternalIrBuilder::new(
             id,
             Op::Layout(LayoutOp::Box {
                 width: self.width,

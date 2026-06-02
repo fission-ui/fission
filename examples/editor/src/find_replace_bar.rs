@@ -1,15 +1,16 @@
 use crate::model::{EditorState, ToggleFindReplace, UpdateFindQuery, UpdateReplaceQuery, FindNext, FindPrevious, ReplaceOne, ReplaceAll};
 use fission::core::op::Color;
-use fission::core::ui::{Button, ButtonVariant, Container, Node, Text, TextInput};
-use fission::core::{BuildCtx, reduce_with, View, Widget};
+use fission::core::ui::{Button, ButtonVariant, Container, Widget, Text, TextInput};
+use fission::core::{BuildCtxHandle, reduce_with, ViewHandle};
 use fission::widgets::{HStack, Spacer};
 
 pub struct FindReplaceBar;
 
-impl Widget<EditorState> for FindReplaceBar {
-    fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
-        if !view.state.show_find_replace {
-            return Spacer { height: Some(0.0), ..Default::default() }.into_node();
+impl From<FindReplaceBar> for Widget {
+    fn from(component: FindReplaceBar) -> Self {
+        let (ctx, view) = fission::build::current::<EditorState>();
+        if !view.state().show_find_replace {
+            return Spacer { height: Some(0.0), ..Default::default() }.into();
         }
 
         let bg = Color { r: 37, g: 37, b: 38, a: 255 };
@@ -59,27 +60,27 @@ impl Widget<EditorState> for FindReplaceBar {
         );
 
         // Match count
-        let match_info = if view.state.find_matches.is_empty() {
-            if view.state.find_query.is_empty() {
+        let match_info = if view.state().find_matches.is_empty() {
+            if view.state().find_query.is_empty() {
                 String::new()
             } else {
                 "No results".to_string()
             }
         } else {
-            format!("{} of {}", view.state.find_match_index + 1, view.state.find_matches.len())
+            format!("{} of {}", view.state().find_match_index + 1, view.state().find_matches.len())
         };
 
-        let small_btn = |label: &str, action: fission::core::ActionEnvelope| -> Node {
+        let small_btn = |label: &str, action: fission::core::ActionEnvelope| -> Widget {
             Button {
                 variant: ButtonVariant::Ghost,
-                child: Some(Box::new(
-                    Text::new(label).size(11.0).color(text_color).into_node(),
-                )),
+                child: Some(
+                    Text::new(label).size(11.0).color(text_color).into(),
+                ),
                 on_press: Some(action),
                 height: Some(22.0),
                 padding: Some([2.0, 4.0, 0.0, 0.0]),
                 ..Default::default()
-            }.into_node()
+            }.into()
         };
 
         // Find row
@@ -88,25 +89,25 @@ impl Widget<EditorState> for FindReplaceBar {
             children: vec![
                 Container::new(
                     TextInput {
-                        id: Some(fission::ir::NodeId::explicit("editor_find_query_input")),
-                        value: view.state.find_query.clone(),
+                        id: Some(fission::WidgetId::explicit("editor_find_query_input")),
+                        value: view.state().find_query.clone(),
                         placeholder: Some("Find".into()),
                         on_change: Some(update_find),
                         borderless: true,
                         ..Default::default()
-                    }.into_node(),
+                    },
                 )
                 .bg(Color { r: 60, g: 60, b: 60, a: 255 })
                 .border(border, 1.0)
                 .border_radius(2.0)
                 .height(24.0)
                 .flex_grow(1.0)
-                .into_node(),
-                Text::new(match_info).size(11.0).color(dim).into_node(),
+                .into(),
+                Text::new(match_info).size(11.0).color(dim).into(),
                 small_btn("^", find_prev),
                 small_btn("v", find_next),
             ],
-        }.into_node();
+        }.into();
 
         // Replace row
         let replace_row = HStack {
@@ -114,24 +115,24 @@ impl Widget<EditorState> for FindReplaceBar {
             children: vec![
                 Container::new(
                     TextInput {
-                        id: Some(fission::ir::NodeId::explicit("editor_replace_query_input")),
-                        value: view.state.replace_query.clone(),
+                        id: Some(fission::WidgetId::explicit("editor_replace_query_input")),
+                        value: view.state().replace_query.clone(),
                         placeholder: Some("Replace".into()),
                         on_change: Some(update_replace),
                         borderless: true,
                         ..Default::default()
-                    }.into_node(),
+                    },
                 )
                 .bg(Color { r: 60, g: 60, b: 60, a: 255 })
                 .border(border, 1.0)
                 .border_radius(2.0)
                 .height(24.0)
                 .flex_grow(1.0)
-                .into_node(),
+                .into(),
                 small_btn("Replace", replace_one),
                 small_btn("All", replace_all),
             ],
-        }.into_node();
+        }.into();
 
         Container::new(
             HStack {
@@ -141,17 +142,18 @@ impl Widget<EditorState> for FindReplaceBar {
                         fission::widgets::VStack {
                             spacing: Some(4.0),
                             children: vec![find_row, replace_row],
-                        }.into_node(),
-                    ).flex_grow(1.0).into_node(),
+                        },
+                    ).flex_grow(1.0).into(),
                     small_btn("x", close),
                 ],
-            }.into_node(),
+            },
         )
         .bg(bg)
         .height(60.0)
         .padding_all(6.0)
         .border(Color { r: 48, g: 48, b: 49, a: 255 }, 1.0)
         .flex_shrink(0.0)
-        .into_node()
+        .into()
+
     }
 }

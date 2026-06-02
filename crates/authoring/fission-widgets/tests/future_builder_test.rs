@@ -1,13 +1,13 @@
+use fission_core::internal::BuildCtx;
 use fission_core::{
-    Action, AppState, BuildCtx, Effect, JobRef, JobSpec, Node, ResourceKey, RuntimeResourceKind,
-    View, Widget,
+    build, Action, Effect, GlobalState, JobRef, JobSpec, ResourceKey, RuntimeResourceKind, View,
 };
-use fission_widgets::{AsyncConnectionState, AsyncSnapshot, FutureBuilder, Text, TextContent};
+use fission_widgets::{AsyncConnectionState, AsyncSnapshot, FutureBuilder, Text};
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Clone)]
 struct State;
-impl AppState for State {}
+impl GlobalState for State {}
 
 #[derive(Debug)]
 struct LoadMessage;
@@ -57,22 +57,29 @@ fn future_builder_declares_job_and_builds_from_snapshot() {
         payload: loaded.encode(),
     };
 
-    let node = FutureBuilder::new(
-        ResourceKey::new("message"),
-        LOAD_MESSAGE,
-        LoadMessageRequest { id: 42 },
-        AsyncSnapshot::<String, String>::waiting(),
-        |_ctx, _view, snapshot| Text::new(format!("{:?}", snapshot.connection_state)).into_node(),
-    )
-    .deps(("message", 42_u32))
-    .preserve_on_change()
-    .on_ok(loaded_action.clone())
-    .build(&mut ctx, &view);
+    let node = build::enter(&mut ctx, &view, || {
+        FutureBuilder::<State, _>::new(
+            ResourceKey::new("message"),
+            LOAD_MESSAGE,
+            LoadMessageRequest { id: 42 },
+            AsyncSnapshot::<String, String>::waiting(),
+            |_, _, _| Text::new("Waiting").into(),
+        )
+        .deps(("message", 42_u32))
+        .preserve_on_change()
+        .on_ok(loaded_action.clone())
+        .into()
+    });
 
-    let Node::Text(text) = node else {
-        panic!("FutureBuilder should render the node returned by its builder");
-    };
-    assert_eq!(text.content, TextContent::Literal("Waiting".to_string()));
+    let ir = fission_core::internal::lower_widget_to_ir(&node);
+    assert!(
+        ir.nodes.values().any(|node| matches!(
+            &node.op,
+            fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, .. })
+                if text == "Waiting"
+        )),
+        "FutureBuilder should render the node returned by its builder"
+    );
 
     let resources = ctx.take_resources();
     assert_eq!(resources.len(), 1);

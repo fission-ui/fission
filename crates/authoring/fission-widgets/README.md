@@ -2,13 +2,13 @@
 
 High-level, composable UI widgets for the Fission framework.
 
-This crate provides a comprehensive widget library built on top of `fission-core` primitives. Each widget follows a declarative, data-driven pattern: you construct the widget struct with its configuration, and the framework calls `Widget::build()` to produce the low-level `Node` tree.
+This crate provides a comprehensive widget library built on top of `fission-core` primitives. Each widget follows a declarative, data-driven pattern: you construct the widget struct with its configuration, then convert it with `Into<Widget>` to produce the authored widget tree.
 
 ## Architecture
 
 Widgets in this crate do not own state. They receive all data (labels, open/closed flags, selected indices) through their struct fields and communicate user interactions back to the application via `ActionEnvelope` callbacks. This is analogous to "controlled components" in React or the state-management pattern in SwiftUI.
 
-All widgets implement `Widget<S>` for any `S: AppState`, meaning they are state-agnostic at the type level. The `View<S>` parameter passed to `build()` provides read access to the current theme, animation values, and runtime interaction state.
+Widgets implement `From<Component> for Widget`, so they are state-agnostic at the type level and compose through ordinary `.into()` conversions. When a widget needs runtime inputs such as theme or animation state, it reads the current build context while converting.
 
 ## Widget catalog
 
@@ -84,9 +84,7 @@ All widgets implement `Widget<S>` for any `S: AppState`, meaning they are state-
 | Widget | Description |
 |--------|-------------|
 | `FormControl` | Wraps a form field with a label, error message, and helper text. Adds a required-field asterisk when `required` is true. |
-| `canvas()` | Free function that creates a custom paint node from a closure. |
 | `absolute_fill()` | Free function that wraps a child in an `AbsoluteFill` layout node. |
-| `flyout()` | Free function that positions content relative to an anchor node using the `Flyout` layout operation. |
 
 ## Usage
 
@@ -97,16 +95,16 @@ use fission_widgets::{VStack, HStack, Badge, Card, Modal, ModalAction, Tabs, Tab
 let layout = VStack {
     spacing: Some(8.0),
     children: vec![
-        Badge { text: "New".into(), ..Default::default() }.build(&mut ctx, &view),
-        Card { child: Box::new(content) }.build(&mut ctx, &view),
+        Badge { text: "New".into(), ..Default::default() }.into(),
+        Card { child: content }.into(),
     ],
-}.into_node();
+}.into();
 
 // Open a modal dialog
 let dialog = Modal {
-    id: WidgetNodeId::explicit("confirm-dialog"),
+    id: WidgetId::explicit("confirm-dialog"),
     title: "Confirm".into(),
-    content: Box::new(Text::new("Are you sure?").into_node()),
+    content: Text::new("Are you sure?").into(),
     is_open: true,
     on_dismiss: Some(dismiss_action),
     actions: vec![

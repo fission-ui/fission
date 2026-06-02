@@ -90,7 +90,7 @@ For live data, use the normal Fission app model:
 
 1. A service, job, resource, or platform integration receives new values.
 2. A reducer updates your application state.
-3. The widget build function creates a new chart snapshot from that state.
+3. Component conversion creates a new chart snapshot from that state.
 4. The chart renderer draws the snapshot.
 
 That model keeps rendering deterministic. If a test gives the chart the same state twice, it gets the same chart twice. Network timing and storage paging stay outside the renderer where they can be retried, cancelled, throttled, tested, and logged.
@@ -143,7 +143,7 @@ For an IoT history view with decades of readings, keep three layers separate:
 - **State layer:** Fission state that records the visible time range, loaded pages, pending requests, aggregation level, live tail, and error state.
 - **Chart layer:** a direct series or DataSet snapshot containing only the visible points or the visible aggregate buckets.
 
-When the user scrolls or zooms backward, the chart should emit an interaction event or the surrounding controls should dispatch an action such as `SetTelemetryWindow(range)`. The reducer updates the requested window. A resource/job/service fetches missing pages. When the pages arrive, the reducer inserts them into the cache and the chart rebuilds with the new snapshot.
+When the user scrolls or zooms backward, the chart should emit an interaction event or the surrounding controls should dispatch an action such as `SetTelemetryWindow(range)`. The reducer updates the requested window. A resource/job/service fetches missing pages. When the pages arrive, the reducer inserts them into the cache and the chart reconversions with the new snapshot.
 
 For large histories, avoid sending raw points when the screen cannot show them. Query or compute buckets that match the zoom level: one point per pixel, percentile bands, min/max envelopes, or hourly/daily/monthly summaries. As the user zooms in, fetch finer pages. As the user zooms out, fetch coarser summaries. This keeps memory bounded and preserves meaningful visual shape.
 
@@ -188,3 +188,14 @@ That is the model to use today. A future paged data-source helper can make the p
 ## Best practices
 
 Keep charts fed by plain app state. Keep fetching, streaming, retries, caching, and paging in resources, jobs, services, or platform integrations. Test transformations before rendering. Use DataSets when named dimensions make the chart easier to reason about, and use direct series data when a small vector says everything the chart needs to say.
+
+## Lifecycle fit and verification
+
+This page belongs to the setup, learn, build, test, and publish lifecycle. Use it to decide the next concrete action, then verify the action before moving to the next stage.
+
+| Stage question | Verification |
+| --- | --- |
+| What file or command changes? | The page should point to the exact `fission` command, `fission.toml` section, Rust component, or generated artifact involved. |
+| What proves it worked? | Prefer a command output, generated file, screenshot, test assertion, package artifact, or deployed URL over a vague statement. |
+| What can fail safely? | Permission prompts, missing tools, unsupported hosts, invalid config, and expired credentials should produce diagnosable errors that can be retried after the cause is fixed. |
+| What should I read next? | Continue to the linked guide for step-by-step work or the reference page for exact fields and contracts. |

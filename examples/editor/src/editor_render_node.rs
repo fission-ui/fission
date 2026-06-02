@@ -10,7 +10,7 @@
 //!   5. Scrolls to follow the cursor.
 //!
 //! The struct is built from `EditorState` via [`EditorRenderNode::from_state`]
-//! and wrapped in a `Node::Custom(CustomNode { .. })` by `EditorSurface`.
+//! and wrapped in a `Node::Custom(CustomWidget { .. })` by `EditorSurface`.
 
 use crate::model::{
     ApplyEditorEdit, DocumentBacking, EditorState, Language, SetEditorPreedit,
@@ -26,7 +26,7 @@ use fission::core::{LayoutPoint, LayoutRect};
 use fission::ir::op::{
     AlignItems, Color as IrColor, Fill, FlexDirection, LayoutOp, Op, PaintOp, TextRun, TextStyle,
 };
-use fission::ir::NodeId;
+use fission::ir::WidgetId;
 use std::fmt;
 
 // ---------------------------------------------------------------------------
@@ -91,7 +91,7 @@ pub struct EditorRenderNode {
     pub wrap_columns: usize,
     /// Current vertical scroll offset in logical pixels.
     pub scroll_y: f32,
-    /// Stable string used to derive deterministic `NodeId`s across rebuilds.
+    /// Stable string used to derive deterministic `WidgetId`s across rebuilds.
     pub file_path: String,
     /// Viewport height in logical pixels (from the last layout pass).
     pub viewport_height: f32,
@@ -228,7 +228,7 @@ impl EditorRenderNode {
 // ---------------------------------------------------------------------------
 
 impl LowerDyn for EditorRenderNode {
-    fn lower_dyn(&self, cx: &mut LoweringContext) -> NodeId {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         let visual_lines = self.visual_lines();
         let total_visual_lines = visual_lines.len().max(1);
         let total_lines = self.logical_line_count();
@@ -244,7 +244,7 @@ impl LowerDyn for EditorRenderNode {
         let has_selection = sel_start != sel_end;
         let (sel_start_line, sel_start_col) = offset_to_line_col(&self.content, sel_start);
         let (sel_end_line, sel_end_col) = offset_to_line_col(&self.content, sel_end);
-        let mut row_ids: Vec<NodeId> = Vec::with_capacity(last_line - first_line);
+        let mut row_ids: Vec<WidgetId> = Vec::with_capacity(last_line - first_line);
         let gutter_digits = format!("{}", total_lines).len();
         let (cursor_row, cursor_col) =
             self.visual_position_for_offset(&self.content, self.cursor_offset);
@@ -253,7 +253,7 @@ impl LowerDyn for EditorRenderNode {
         for visual_idx in first_line..last_line {
             let visual_line = &visual_lines[visual_idx];
             let line_idx = visual_line.source_line;
-            let mut line_children: Vec<NodeId> = Vec::new();
+            let mut line_children: Vec<WidgetId> = Vec::new();
 
             if has_selection && line_idx >= sel_start_line && line_idx <= sel_end_line {
                 let highlight_start_col = if line_idx == sel_start_line {
@@ -648,7 +648,7 @@ impl CustomRenderObject for EditorRenderNode {
 
     fn handle_event(
         &self,
-        node_id: NodeId,
+        node_id: WidgetId,
         event: &InputEvent,
         node_rect: LayoutRect,
     ) -> CustomEventResult {
@@ -706,7 +706,7 @@ impl CustomRenderObject for EditorRenderNode {
         Some(self.caret_rect(node_rect))
     }
 
-    fn blur_actions(&self, node_id: NodeId) -> Vec<(NodeId, ActionEnvelope)> {
+    fn blur_actions(&self, node_id: WidgetId) -> Vec<(WidgetId, ActionEnvelope)> {
         if self.preedit_range.is_some() {
             vec![(
                 node_id,
@@ -894,7 +894,7 @@ impl EditorRenderNode {
 
     /// Handle a key press, producing a `CustomEventResult` with the
     /// appropriate actions to dispatch.
-    fn handle_key(&self, node_id: NodeId, key_code: &KeyCode, modifiers: u8) -> CustomEventResult {
+    fn handle_key(&self, node_id: WidgetId, key_code: &KeyCode, modifiers: u8) -> CustomEventResult {
         let shift = (modifiers & 1) != 0;
         let ctrl_or_cmd = (modifiers & 4) != 0 || (modifiers & 8) != 0;
         let content = self.content.as_str();
@@ -1079,7 +1079,7 @@ impl EditorRenderNode {
             }
         }
 
-        let mut actions: Vec<(NodeId, ActionEnvelope)> = Vec::new();
+        let mut actions: Vec<(WidgetId, ActionEnvelope)> = Vec::new();
         if let Some(forward) = window_shift {
             actions.push((
                 node_id,
@@ -1121,7 +1121,7 @@ impl EditorRenderNode {
         CustomEventResult::consumed_with(actions)
     }
 
-    fn handle_ime_commit(&self, node_id: NodeId, text: &str) -> CustomEventResult {
+    fn handle_ime_commit(&self, node_id: WidgetId, text: &str) -> CustomEventResult {
         if !self.editable {
             return CustomEventResult::consumed();
         }

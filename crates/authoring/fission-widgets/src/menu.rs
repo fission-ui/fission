@@ -2,9 +2,9 @@ use crate::stack::{HStack, VStack};
 use crate::{flyout, Divider, Icon};
 use fission_core::op::{BoxShadow, Color};
 use fission_core::ui::{
-    Button, ButtonContentAlign, ButtonVariant, Container, Node, Scroll, Text, TextContent,
+    Button, ButtonContentAlign, ButtonVariant, Container, Scroll, Text, TextContent, Widget,
 };
-use fission_core::{ActionEnvelope, BuildCtx, NodeId, View, Widget, WidgetNodeId};
+use fission_core::{ActionEnvelope, WidgetId};
 use fission_icons::material;
 use serde::{Deserialize, Serialize};
 
@@ -31,40 +31,40 @@ pub struct Menu {
     pub max_height: Option<f32>,
 }
 
-impl<S: fission_core::AppState> Widget<S> for Menu {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let tokens = &view.env.theme.tokens;
+impl From<Menu> for Widget {
+    fn from(component: Menu) -> Self {
+        let (_, view) = fission_core::build::current::<()>();
+        let this = &component;
+
+        let tokens = &view.env().theme.tokens;
         let mut menu_items = Vec::new();
 
-        let item_width = self.width.unwrap_or(200.0);
+        let item_width = this.width.unwrap_or(200.0);
 
-        for (idx, item) in self.items.iter().enumerate() {
+        for (idx, item) in this.items.iter().enumerate() {
             let mut row_children = Vec::new();
             if let Some(icon_path) = &item.icon {
-                row_children.push(Icon::svg(icon_path.clone()).size(18.0).into_node());
+                row_children.push(Icon::svg(icon_path.clone()).size(18.0).into());
             }
             row_children.push(
                 Text::new(item.label.clone())
                     .size(14.0)
                     .flex_grow(1.0)
-                    .into_node(),
+                    .into(),
             );
 
             menu_items.push(
                 Button {
                     variant: ButtonVariant::Ghost,
                     content_align: ButtonContentAlign::Start,
-                    child: Some(Box::new(
-                        Container::new(
-                            HStack {
-                                spacing: Some(12.0),
-                                children: row_children,
-                            }
-                            .into_node(),
-                        )
+                    child: Some(
+                        Container::new(HStack {
+                            spacing: Some(12.0),
+                            children: row_children,
+                        })
                         .flex_grow(1.0)
-                        .into_node(),
-                    )),
+                        .into(),
+                    ),
                     on_press: item.on_select.clone(),
                     width: Some(item_width),
                     height: Some(36.0),
@@ -74,12 +74,12 @@ impl<S: fission_core::AppState> Widget<S> for Menu {
                 .into(),
             );
 
-            if idx + 1 < self.items.len() {
+            if idx + 1 < this.items.len() {
                 menu_items.push(
                     Divider {
                         orientation: crate::divider::Orientation::Horizontal,
                     }
-                    .build(ctx, view),
+                    .into(),
                 );
             }
         }
@@ -88,25 +88,25 @@ impl<S: fission_core::AppState> Widget<S> for Menu {
             spacing: Some(2.0),
             children: menu_items,
         }
-        .into_node();
+        .into();
 
         let estimated_item_height = 36.0;
-        let estimated_dividers = self.items.len().saturating_sub(1) as f32;
+        let estimated_dividers = this.items.len().saturating_sub(1) as f32;
         let estimated_height =
-            (self.items.len() as f32 * estimated_item_height) + estimated_dividers + 8.0;
-        let max_h = self.max_height.unwrap_or(300.0);
+            (this.items.len() as f32 * estimated_item_height) + estimated_dividers + 8.0;
+        let max_h = this.max_height.unwrap_or(300.0);
         let popup_height = estimated_height.min(max_h);
         let scroll_height = Some(popup_height);
         let show_scrollbar = estimated_height > max_h + 0.5;
 
-        let scrollable_content = Scroll {
-            child: Some(Box::new(content)),
+        let scrollable_content: Widget = Scroll {
+            child: Some(content),
             height: scroll_height,
-            width: self.width,
+            width: this.width,
             show_scrollbar,
             ..Default::default()
         }
-        .into_node();
+        .into();
 
         Container::new(scrollable_content)
             // Keep the menu surface bounded to the scroll viewport.
@@ -125,7 +125,7 @@ impl<S: fission_core::AppState> Widget<S> for Menu {
                 offset: (0.0, 4.0),
             }))
             .padding_all(4.0)
-            .into_node()
+            .into()
     }
 }
 
@@ -136,42 +136,49 @@ impl<S: fission_core::AppState> Widget<S> for Menu {
 /// to the button.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MenuButton {
-    pub id: WidgetNodeId,
+    pub id: WidgetId,
     pub label: String,
     pub items: Vec<MenuItem>,
     pub is_open: bool,
     pub on_toggle: Option<ActionEnvelope>,
 }
 
-impl<S: fission_core::AppState> Widget<S> for MenuButton {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let tokens = &view.env.theme.tokens;
-        let anchor_id = NodeId::derived(self.id.as_u128(), &[]);
+impl From<MenuButton> for Widget {
+    fn from(component: MenuButton) -> Self {
+        let (ctx, view) = fission_core::build::current::<()>();
+        let mut component = component;
+        if let Some(id) = fission_core::build::current_widget_id() {
+            component.id = id;
+        }
+        let this = &component;
+
+        let tokens = &view.env().theme.tokens;
+        let anchor_id = WidgetId::derived(this.id.as_u128(), &[]);
 
         // Trigger Button
         let trigger = Button {
-            id: Some(anchor_id),
+            id: Some(anchor_id.into()),
             variant: ButtonVariant::Outline,
             content_align: ButtonContentAlign::Start,
-            child: Some(Box::new(
+            child: Some(
                 HStack {
                     spacing: Some(6.0),
                     children: vec![
                         Text {
-                            content: TextContent::Literal(self.label.clone()),
+                            content: TextContent::Literal(this.label.clone()),
                             color: Some(tokens.colors.primary),
                             ..Default::default()
                         }
-                        .into_node(),
+                        .into(),
                         Icon::svg(material::navigation::expand_more::regular())
                             .size(16.0)
                             .color(tokens.colors.text_secondary)
-                            .into_node(),
+                            .into(),
                     ],
                 }
-                .into_node(),
-            )),
-            on_press: self.on_toggle.clone(),
+                .into(),
+            ),
+            on_press: this.on_toggle.clone(),
             height: Some(40.0),
             padding: Some([12.0, 12.0, 0.0, 0.0]),
             ..Default::default()
@@ -179,18 +186,18 @@ impl<S: fission_core::AppState> Widget<S> for MenuButton {
         .into();
 
         // Menu Overlay
-        if self.is_open {
+        if this.is_open {
             let menu_content = Menu {
-                items: self.items.clone(),
+                items: this.items.clone(),
                 width: Some(200.0),
                 max_height: Some(300.0),
             }
-            .build(ctx, view);
+            .into();
 
             let flyout_node = flyout(anchor_id, menu_content);
             ctx.register_portal_with_layer(
                 fission_core::PortalLayer::Flyout,
-                Some(self.id),
+                Some(this.id),
                 flyout_node,
             );
         }

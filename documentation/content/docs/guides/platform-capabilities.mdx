@@ -138,14 +138,15 @@ Use the normal Fission action binding from a widget.
 ```rust
 struct CapturePhotoButton;
 
-impl Widget<ProfileState> for CapturePhotoButton {
-    fn build(&self, view: &View<ProfileState>, ctx: &mut BuildCtx<ProfileState>) -> Node {
+impl From<CapturePhotoButton> for Widget {
+    fn from(component: CapturePhotoButton) -> Self {
+        let (ctx, view) = fission::build::current::<ProfileState>();
         let capture = with_reducer!(ctx, CaptureProfilePhoto, on_capture_profile_photo);
 
-        Button::new(if view.state.capturing_photo { "Capturing..." } else { "Take photo" })
-            .disabled(view.state.capturing_photo)
+        Button::new(if view.state().capturing_photo { "Capturing..." } else { "Take photo" })
+            .disabled(view.state().capturing_photo)
             .on_press(capture)
-            .build(view, ctx)
+            .into()
     }
 }
 ```
@@ -216,3 +217,17 @@ Use a custom capability for product-specific host work such as enterprise device
 ## Where to go next
 
 Read [Resources and async](/docs/guides/resources-and-async/) to understand how effects return results. Use the [Capability matrix](/docs/capabilities/matrix/) to compare target support. Use [Platform capabilities reference](/reference/core/platform-capabilities/) when you need exact operation and configuration names.
+
+## What you should have working
+
+After this guide, you should be able to explain where `Platform capabilities` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test. If any of those pieces are missing, treat the page as unfinished work: add the smallest runnable example, then add the diagnostic step that proves it works.
+
+## Common mistakes to check
+
+| Symptom | What to check first |
+| --- | --- |
+| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
+| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
+| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
+| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
+| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |

@@ -54,6 +54,45 @@ Charts can emit typed `ChartInteractionEvent` values when interaction is enabled
 
 For this chart, test the data mapping first, then test lowering, then capture a live screenshot when visual output changes. The screenshot for this page is refreshed by running the ignored chart-gallery screenshot capture test with `FISSION_UPDATE_CHART_DOCS=1`, which updates `documentation/static/img/charts` before the static site build.
 
+## Authoring from a Fission component
+
+Use this reference page as the chart expression inside ordinary Fission component conversion. The chart is a `Widget`, so it can sit inside a `Card`, `Grid`, `Scroll`, responsive page section, or any other layout container.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, BarSeries, Chart};
+use fission::core::op::Color;
+
+pub struct BarWithBackgroundChart;
+
+impl From<BarWithBackgroundChart> for Widget {
+    fn from(_: BarWithBackgroundChart) -> Widget {
+        Chart::new()
+            .title("Rounded bar with background")
+            .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]))
+            .y_axis(Axis::value().max(260.0))
+            .series(vec![BarSeries::new("Traffic")
+                .border_radius(10.0)
+                .background(Color { r: 226, g: 232, b: 240, a: 150 })
+                .data(vec![120.0, 200.0, 150.0, 80.0, 70.0, 110.0, 130.0])
+                .into()])
+            .into()
+    }
+}
+```
+
+Keep expensive data loading outside component conversion. A reducer, job, service, or server route should prepare the typed chart data, then the component should read that state and construct the chart deterministically.
+
+## Options, accessibility, and diagnostics
+
+| Area | What to decide | How to verify |
+| --- | --- | --- |
+| Data shape | Keep source rows in typed Rust structs, then map them into the series type shown in the example. | Unit test the mapping separately from rendering. |
+| Options | Choose axes, legends, labels, animation, and interaction based on the user's task. | Add a screenshot test when changing visual behavior. |
+| Accessibility | Provide a clear title and adjacent summary text for important trends or outliers. | Inspect the generated semantics and make sure the chart is understandable without color alone. |
+| Failure handling | Render an empty, loading, or error state before constructing the chart if data is unavailable. | Test empty data, partial data, and failed fetches. |
+| Performance | Prefer summarized or windowed data for very large datasets; keep full raw history in the data layer. | Profile frame time and interaction latency with representative data volumes. |
+
 Tags: `bar`, `background`.
 
 

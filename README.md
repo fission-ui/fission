@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![CI](https://github.com/worka-ai/fission/actions/workflows/ci.yml/badge.svg)](https://github.com/worka-ai/fission/actions/workflows/ci.yml)
 
-Fission is a production-focused Rust application framework for building GPU-accelerated apps across desktop, web, Android, iOS, terminal interfaces, and static HTML sites.
+Fission is a production-focused Rust application framework for building GPU-accelerated apps across desktop, web, Android, iOS, terminal interfaces, static HTML sites, and server-rendered sites.
 
 It gives you the application model, widgets, rendering pipeline, platform shells, testing tools, packaging, and release workflows needed to move from a first screen to a shipped product without stitching together a new toolchain for every target.
 
@@ -24,8 +24,8 @@ Fission is built around that full lifecycle:
 | --- | --- |
 | Setup | `fission init`, target scaffolding, setup checks, project manifests, and platform notes. |
 | Learn | A guided documentation site, cookbook pages, reference pages, and examples that use the same public API as applications. |
-| Build | Declarative widgets, typed actions and reducers, design systems, charts, media/embed widgets, 3D scenes, terminal UI, and static site rendering. |
-| Test | Unit tests, widget tests, live app tests, device/simulator smoke paths, diagnostics, and route/link checks for static sites. |
+| Build | Declarative widgets, typed actions and reducers, design systems, charts, media/embed widgets, 3D scenes, terminal UI, static site rendering, and server-rendered sites. |
+| Test | Unit tests, widget tests, live app tests, device/simulator smoke paths, diagnostics, static route/link checks, and server route checks. |
 | Publish | Package outputs, readiness checks, release content validation, GitHub Pages, GitHub Releases, cloud/static providers, and store distribution flows. |
 
 The result is one Rust-first workflow that scales from a counter app to a multi-platform product.
@@ -103,53 +103,48 @@ fission ui
 
 ## A Small Fission App
 
-Fission apps are ordinary Rust. State is explicit, actions are typed, reducers update state, and widgets build a tree from the current state.
+Fission apps are ordinary Rust. State is explicit, actions are typed, reducers update local or global state, and components convert into a closed widget tree value.
 
 ```rust
 use fission::prelude::*;
 
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-struct CounterState {
+#[fission_component]
+struct CounterApp {
+    #[local_state(default = 0)]
     count: i32,
 }
 
-impl AppState for CounterState {}
-
 #[fission_reducer(Increment)]
-fn increment(state: &mut CounterState) {
-    state.count += 1;
+fn increment(count: &mut i32) {
+    *count += 1;
 }
 
-struct CounterApp;
+impl From<CounterApp> for Widget {
+    fn from(counter: CounterApp) -> Widget {
+        let (ctx, _) = fission::build::current::<()>();
+        let count = counter.count();
+        let increment = ctx.bind_local(Increment, count.clone(), reduce!(increment));
 
-impl Widget<CounterState> for CounterApp {
-    fn build(&self, ctx: &mut BuildCtx<CounterState>, view: &View<CounterState>) -> Node {
-        let increment = with_reducer!(ctx, Increment, increment);
-
-        Container::new(
-            Column {
-                gap: Some(20.0),
-                children: vec![
-                    Text::new("Counter").size(32.0).into_node(),
-                    Text::new(format!("{}", view.state.count)).size(56.0).into_node(),
-                    Button {
-                        on_press: Some(increment),
-                        child: Some(Box::new(Text::new("Increment").into_node())),
-                        ..Default::default()
-                    }
-                    .into_node(),
-                ],
-                ..Default::default()
-            }
-            .into_node(),
-        )
+        Container::new(Column {
+            gap: Some(20.0),
+            children: widgets![
+                Text::new("Counter").size(32.0),
+                Text::new(format!("{}", count.get())).size(56.0),
+                Button {
+                    on_press: Some(increment),
+                    child: Some(Text::new("Increment").into()),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        })
         .padding_all(32.0)
-        .into_node()
+        .into()
     }
 }
 
 fn main() -> anyhow::Result<()> {
-    DesktopApp::new(CounterApp).run()
+    DesktopApp::<(), _>::new(CounterApp {}).run()
 }
 ```
 
@@ -162,7 +157,7 @@ Use `#[fission_reducer]` for compact local actions, or `#[fission_action]` when 
 <details open>
 <summary><strong>Application framework</strong></summary>
 
-- Struct-based widget composition in Rust, with normal types implementing `Widget`.
+- Struct-based widget composition in Rust, with normal types implementing `From<T> for Widget`.
 - Typed application state, typed actions, reducers, selectors, effects, and explicit environment data.
 - GPU-accelerated rendering through the Fission rendering stack.
 - Layout, text input, input events, accessibility semantics, portals, overlays, animation support, media/embed widgets, and 3D support.
@@ -178,6 +173,7 @@ Use `#[fission_reducer]` for compact local actions, or `#[fission_action]` when 
 - Android emulator/device and iOS simulator/device workflows.
 - Terminal user interfaces built from Fission widgets.
 - Static HTML sites generated from custom widget routes plus Markdown/MDX content routes.
+- Server-rendered sites for request-time HTML, sessions, signed actions, jobs, cache policy, workers, and islands.
 
 </details>
 
@@ -188,6 +184,7 @@ Use `#[fission_reducer]` for compact local actions, or `#[fission_action]` when 
 - Fission Charts for dashboards and data-heavy applications.
 - Platform capabilities for notifications, deep links, NFC, biometrics, passkeys, barcode scanning, camera, clipboard, geolocation, haptics, microphone, Bluetooth, Wi-Fi, and volume control where the host platform supports them.
 - Static-site features including sidebars, table-of-contents links, favicons, generated CSS, optional code highlighting, client-side search, sitemap, robots output, JSON-LD, route-filtered page elements, and internal-link validation.
+- Server-site features including route modes, session-private state, signed actions, server jobs, cache policy, Docker packaging, progressive workers, and focused islands.
 
 </details>
 
@@ -214,6 +211,7 @@ Use `#[fission_reducer]` for compact local actions, or `#[fission_action]` when 
 | iOS | Simulator/device workflow | `fission run --target ios` |
 | Terminal UI | Widget-based terminal shell | `fission ui` and `examples/terminal` |
 | Static HTML site | Build and serve static content | `fission site serve --project-dir documentation` |
+| Server-rendered site | Run dynamic Fission HTML routes | `fission server serve --project-dir examples/pokemon-card-store` |
 
 Some host APIs depend on platform support. The capability matrix in the docs shows where each built-in capability is available and which app-store or platform configuration files are generated.
 
@@ -255,7 +253,7 @@ fission distribute --project-dir . --provider github-releases --artifact target/
 | --- | --- |
 | `crates/core` | Core runtime, layout, text, theme, 3D, and IR crates. |
 | `crates/authoring` | Public facade crate, widgets, charts, icons, and macros. |
-| `crates/shell` | Desktop, mobile, web, terminal, and static site shells. |
+| `crates/shell` | Desktop, mobile, web, terminal, static site, and server-rendered site shells. |
 | `crates/tools` | `fission` command modules, diagnostics, credentials, packaging, release, and test tooling. |
 | `examples` | Runnable apps that exercise real framework features. |
 | `documentation` | The Fission documentation and product site, built by the Fission static site shell. |
@@ -274,6 +272,7 @@ Start at [fission.rs](https://fission.rs):
 - [Charts](https://fission.rs/docs/charts/overview/)
 - [Platform capabilities](https://fission.rs/docs/guides/platform-capabilities/)
 - [Static sites](https://fission.rs/docs/guides/static-sites/)
+- [Server-rendered sites](https://fission.rs/docs/guides/server-sites/)
 - [Terminal user interfaces](https://fission.rs/docs/guides/terminal-user-interfaces/)
 - [Build and package](https://fission.rs/docs/build-and-package/overview/)
 - [Release and distribute](https://fission.rs/docs/release-and-distribute/overview/)

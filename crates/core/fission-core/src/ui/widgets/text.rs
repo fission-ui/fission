@@ -1,5 +1,5 @@
-use crate::lowering::{LoweringContext, NodeBuilder};
-use crate::ui::traits::Lower;
+use crate::internal::InternalLower;
+use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
 use crate::ActionEnvelope;
 use fission_ir::{
     op::{
@@ -11,7 +11,7 @@ use fission_ir::{
         TextRun as IrTextRun, TextWidthBasis as IrTextWidthBasis,
     },
     semantics::ActionTrigger,
-    ActionEntry, CompositeStyle, NodeId, Role, Semantics,
+    ActionEntry, CompositeStyle, Role, Semantics, WidgetId,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -309,7 +309,7 @@ pub type WidgetSpan = InlineWidgetSpan;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InlineWidgetSpan {
-    pub widget: Box<crate::ui::Node>,
+    pub widget: crate::ui::Widget,
     pub width: f32,
     pub height: f32,
     pub semantics_label: Option<String>,
@@ -325,9 +325,9 @@ impl PartialEq for InlineWidgetSpan {
 }
 
 impl InlineWidgetSpan {
-    pub fn new(widget: impl Into<crate::ui::Node>, width: f32, height: f32) -> Self {
+    pub fn new(widget: impl Into<crate::ui::Widget>, width: f32, height: f32) -> Self {
         Self {
-            widget: Box::new(widget.into()),
+            widget: widget.into(),
             width,
             height,
             semantics_label: None,
@@ -455,14 +455,6 @@ impl RichTextSpan {
 
     pub fn on_secondary_click(mut self, action: ActionEnvelope) -> Self {
         upsert_action_entry(&mut self.actions, ActionTrigger::SecondaryClick, &action);
-        self
-    }
-
-    pub fn child<T>(mut self, child: T) -> Self
-    where
-        T: Into<RichTextChild>,
-    {
-        self.children.push(child.into());
         self
     }
 
@@ -639,7 +631,7 @@ impl From<InlineWidgetSpan> for RichTextChild {
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Text {
-    pub id: Option<NodeId>,
+    pub id: Option<WidgetId>,
     pub content: TextContent,
     pub semantics: Option<Semantics>,
     pub width: Option<f32>,
@@ -884,11 +876,7 @@ impl Text {
         self
     }
 
-    pub fn into_node(self) -> crate::ui::Node {
-        crate::ui::Node::Text(self)
-    }
-
-    fn resolve_text(&self, cx: &LoweringContext<'_>) -> String {
+    fn resolve_text(&self, cx: &InternalLoweringCx<'_>) -> String {
         match &self.content {
             TextContent::Literal(s) => s.clone(),
             TextContent::Key(key) => cx
@@ -900,7 +888,7 @@ impl Text {
         }
     }
 
-    fn resolved_style(&self, cx: &LoweringContext<'_>) -> fission_ir::op::TextStyle {
+    fn resolved_style(&self, cx: &InternalLoweringCx<'_>) -> fission_ir::op::TextStyle {
         let scale = self.text_scale.unwrap_or(1.0).max(0.0);
         let base_font_size = self
             .font_size
@@ -935,7 +923,7 @@ impl Text {
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct RichText {
-    pub id: Option<NodeId>,
+    pub id: Option<WidgetId>,
     pub runs: Vec<RichTextRun>,
     pub inline_widgets: Vec<InlineWidgetSpan>,
     #[serde(default)]
@@ -1217,11 +1205,7 @@ impl RichText {
         self
     }
 
-    pub fn into_node(self) -> crate::ui::Node {
-        crate::ui::Node::RichText(self)
-    }
-
-    fn lower_runs(&self, cx: &LoweringContext<'_>) -> Vec<IrTextRun> {
+    fn lower_runs(&self, cx: &InternalLoweringCx<'_>) -> Vec<IrTextRun> {
         self.runs
             .iter()
             .map(|run| run.lower_with_theme(&cx.env.theme, None, None))
@@ -1355,9 +1339,9 @@ fn upsert_action_entry(
 }
 
 fn wrap_paint_in_layout(
-    cx: &mut LoweringContext<'_>,
-    layout_node_id: NodeId,
-    paint_node_id: NodeId,
+    cx: &mut InternalLoweringCx<'_>,
+    layout_node_id: WidgetId,
+    paint_node_id: WidgetId,
     width: Option<f32>,
     height: Option<f32>,
     min_width: Option<f32>,
@@ -1367,8 +1351,8 @@ fn wrap_paint_in_layout(
     clip_to_bounds: bool,
     flex_grow: f32,
     flex_shrink: f32,
-) -> NodeId {
-    let mut layout_builder = NodeBuilder::new(
+) -> WidgetId {
+    let mut layout_builder = InternalIrBuilder::new(
         layout_node_id,
         Op::Layout(LayoutOp::Box {
             width,
@@ -1465,11 +1449,11 @@ fn rich_text_line_height(
 }
 
 fn maybe_wrap_semantics(
-    cx: &mut LoweringContext<'_>,
-    layout_node_id: NodeId,
+    cx: &mut InternalLoweringCx<'_>,
+    layout_node_id: WidgetId,
     semantics: Option<Semantics>,
     multiline: bool,
-) -> NodeId {
+) -> WidgetId {
     if let Some(mut s) = semantics {
         if s.role == Role::Generic {
             s.role = Role::Text;
@@ -1480,7 +1464,7 @@ fn maybe_wrap_semantics(
             .entries
             .iter()
             .any(|entry| entry.trigger == ActionTrigger::Default);
-        let mut semantics_builder = NodeBuilder::new(cx.next_node_id(), Op::Semantics(s));
+        let mut semantics_builder = InternalIrBuilder::new(cx.next_node_id(), Op::Semantics(s));
         semantics_builder.add_child(layout_node_id);
         semantics_builder.build(cx)
     } else {
@@ -1488,9 +1472,9 @@ fn maybe_wrap_semantics(
     }
 }
 
-impl Lower for Text {
-    fn lower(&self, cx: &mut LoweringContext) -> NodeId {
-        let layout_node_id = self.id.unwrap_or_else(|| cx.next_node_id());
+impl InternalLower for Text {
+    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+        let layout_node_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         let resolved_text = self.resolve_text(cx);
         let style = self.resolved_style(cx);
         let paragraph_style = paragraph_style_metadata(
@@ -1522,7 +1506,7 @@ impl Lower for Text {
                 self.selection_color,
                 self.selection_text_color,
             );
-            NodeBuilder::new(
+            InternalIrBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRichText {
                     runs,
@@ -1537,7 +1521,7 @@ impl Lower for Text {
             )
             .build(cx)
         } else {
-            NodeBuilder::new(
+            InternalIrBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawText {
                     text: resolved_text,
@@ -1575,9 +1559,9 @@ impl Lower for Text {
     }
 }
 
-impl Lower for RichText {
-    fn lower(&self, cx: &mut LoweringContext) -> NodeId {
-        let layout_node_id = self.id.unwrap_or_else(|| cx.next_node_id());
+impl InternalLower for RichText {
+    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+        let layout_node_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         let runs = self.lower_runs(cx);
         let runs = apply_selection_to_runs(
             runs,
@@ -1604,7 +1588,7 @@ impl Lower for RichText {
             ),
         );
         let clip_to_bounds = should_clip_paragraph(self.max_lines, self.overflow);
-        let mut paint_builder = NodeBuilder::new(
+        let mut paint_builder = InternalIrBuilder::new(
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawRichText {
                 runs,

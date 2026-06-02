@@ -5,9 +5,9 @@ description: Learn how Fission's shell wrappers and generated host projects fit 
 
 # Platform shells, command-line interface, and testing
 
-Fission is suitable for production desktop, web, Android, iOS, terminal, and static site work today. The clearest way to understand that claim is to separate three different questions that often get mixed together.
+Fission is suitable for production desktop, web, Android, iOS, terminal, static site, and server-rendered site work today. The clearest way to understand that claim is to separate three different questions that often get mixed together.
 
-The first question is whether the shared app model is ready for real product work. In Fission, that answer is yes. Your app state, actions, reducers, widgets, layout rules, semantics, and rendering model live in one shared runtime that is meant to power real desktop, browser, mobile, terminal, and static site surfaces.
+The first question is whether the shared app model is ready for real product work. In Fission, that answer is yes. Your app state, actions, reducers, widgets, layout rules, semantics, and rendering model live in one shared runtime that is meant to power real desktop, browser, mobile, terminal, static site, and server-rendered site surfaces.
 
 The second question is whether every shell wrapper and every testing convenience is equally mature today. That answer is more nuanced. The shells expose slightly different wrapper methods, and the current live-testing hooks are not identical on every target.
 
@@ -27,7 +27,7 @@ That boundary is one of the reasons Fission can aim for strong cross-platform pa
 
 ## Shells available today
 
-Fission now has six shell families that serve different host surfaces.
+Fission now has seven shell families that serve different host surfaces.
 
 | Shell | Use it when | Main API |
 | --- | --- | --- |
@@ -35,10 +35,11 @@ Fission now has six shell families that serve different host surfaces.
 | Web | You want a browser app compiled to WebAssembly. | `WebApp` |
 | Mobile | You want Android or iOS hosts for the same shared app. | `MobileApp` |
 | Static site | You want generated HTML routes from Fission widgets and Markdown content. | `FissionSite` and `fission site ...` |
+| Server-rendered site | You want request-time HTML, cache revalidation, server jobs, signed actions, workers, or islands. | `FissionServerApp` and `fission server ...` |
 | Terminal | You want an interactive terminal user interface. | `TerminalApp` |
 | Test driver | You want automated shell control for supported live hosts. | `fission-test` and `fission-test-driver` |
 
-Desktop, web, and mobile are runtime shells: they keep the app running in a host event loop. The terminal shell is also a runtime shell, but its renderer targets terminal cells instead of a GPU-backed window. The static site shell is different: it runs at build time, lowers real Fission widgets to Core IR, and emits static HTML, CSS, and site assets.
+Desktop, web, and mobile are runtime shells: they keep the app running in a host event loop. The terminal shell is also a runtime shell, but its renderer targets terminal cells instead of a GPU-backed window. The static site shell is build-time output: it lowers real Fission widgets to Core IR and emits static HTML, CSS, and site assets. The server-rendered site shell is request-time output: it renders routes on demand, drains server jobs, manages route cache policy, verifies signed actions, and serves generated workers or islands when a page needs focused browser behavior.
 
 Those differences are host differences, not app-model differences. The same state, reducers, selectors, widgets, design system, and environment model stay at the center.
 
@@ -60,13 +61,15 @@ The public wrappers are not completely symmetrical, so it helps to understand th
 
 `TerminalApp` runs the same build, lower, layout, verify, and render pipeline inside a terminal. It is useful for command tools, dashboards, setup flows, and developer workflows where the user already lives in a terminal. It verifies terminal compatibility from Core IR and semantics rather than from hard-coded widget names. Continue to [Terminal user interfaces](/docs/guides/terminal-user-interfaces/) for a full guide.
 
-`FissionSite` is the static site shell. It is not an interactive app loop. It renders configured routes at build time, turns Markdown and custom Fission page widgets into semantic HTML, writes shared CSS, generates search data when enabled, and copies configured assets. Continue to [Static sites](/docs/guides/static-sites/) for the site workflow.
+`FissionSite` is the static site shell. It is not an interactive app loop. It renders configured routes at conversion time, turns Markdown and custom Fission page widgets into semantic HTML, writes shared CSS, generates search data when enabled, and copies configured assets. Continue to [Static sites](/docs/guides/static-sites/) for the site workflow.
+
+`FissionServerApp` is the server-rendered site shell. It runs as an HTTP process, renders Fission routes per request or cache policy, drains server jobs before responding, signs server actions, and can attach progressive workers or focused WASM islands to pages that need browser-side behavior. Continue to [Server-rendered sites](/docs/guides/server-sites/) for the server workflow.
 
 ## How developers actually use shell wrappers
 
 A good rule is to use the wrapper for host startup concerns and keep product behavior in the shared app.
 
-`with_state_init(...)` is for synchronous state preparation before the first frame. `with_startup_action(...)` is for entering the normal reducer flow as soon as the runtime is ready. `with_sync_env(...)` is for values that belong in `Env`, such as theme, locale, translation bundles, or other read-only context widgets should consume during `build()`.
+`with_state_init(...)` is for synchronous state preparation before the first frame. `with_startup_action(...)` is for entering the normal reducer flow as soon as the runtime is ready. `with_sync_env(...)` is for values that belong in `Env`, such as theme, locale, translation bundles, or other read-only context widgets should consume during component conversion.
 
 `with_async(...)` is where you register jobs, services, and capabilities that the host may need to run outside pure reducers. `with_frame_hook(...)` exists for narrow polling or wakeup cases, but it should stay a host-level helper instead of becoming your primary application architecture.
 
@@ -141,3 +144,17 @@ That is exactly the boundary a serious cross-platform framework should draw. The
 ## Where to go next
 
 For the broader testing strategy, continue to [Testing and diagnostics](/docs/guides/testing-and-diagnostics). For the beginner guide to examples, targets, and when to branch into host validation, read [Examples and targets](/docs/learn/examples-and-targets). For the first-run setup flow, go back to [Quickstart](/docs/learn/quickstart).
+
+## What you should have working
+
+After this guide, you should be able to explain where `Platform shells, command-line interface, and testing` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test. If any of those pieces are missing, treat the page as unfinished work: add the smallest runnable example, then add the diagnostic step that proves it works.
+
+## Common mistakes to check
+
+| Symptom | What to check first |
+| --- | --- |
+| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
+| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
+| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
+| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
+| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |

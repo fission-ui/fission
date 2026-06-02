@@ -1,14 +1,17 @@
 use crate::model::{DiagSeverity, EditorState, OpenFile};
 use fission::core::op::Color;
-use fission::core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, Node, Scroll, Text};
-use fission::core::{reduce_with, ActionEnvelope, BuildCtx, FlexDirection, View, Widget};
+use fission::core::ui::{
+    Button, ButtonContentAlign, ButtonVariant, Container, Scroll, Text, Widget,
+};
+use fission::core::{reduce_with, ActionEnvelope, FlexDirection};
 use fission::widgets::VStack;
 use serde_json;
 
 pub struct DiagnosticsPanel;
 
-impl Widget<EditorState> for DiagnosticsPanel {
-    fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
+impl From<DiagnosticsPanel> for Widget {
+    fn from(_component: DiagnosticsPanel) -> Self {
+        let (ctx, view) = fission::build::current::<EditorState>();
         let text_color = Color {
             r: 204,
             g: 204,
@@ -48,7 +51,7 @@ impl Widget<EditorState> for DiagnosticsPanel {
             .id;
 
         let mut all_diags: Vec<(&String, &crate::model::Diagnostic)> = view
-            .state
+            .state()
             .diagnostics
             .iter()
             .flat_map(|(path, diags)| diags.iter().map(move |d| (path, d)))
@@ -74,13 +77,12 @@ impl Widget<EditorState> for DiagnosticsPanel {
             return Container::new(
                 Text::new("No problems detected")
                     .size(12.0)
-                    .color(dim_color)
-                    .into_node(),
+                    .color(dim_color),
             )
             .bg(bg)
             .padding_all(8.0)
             .flex_grow(1.0)
-            .into_node();
+            .into();
         }
 
         let mut items = Vec::new();
@@ -98,19 +100,19 @@ impl Widget<EditorState> for DiagnosticsPanel {
                 Button {
                     variant: ButtonVariant::Ghost,
                     content_align: ButtonContentAlign::Start,
-                    child: Some(Box::new(
+                    child: Some(
                         VStack {
                             spacing: Some(1.0),
                             children: vec![
-                                Text::new(label).size(12.0).color(color).into_node(),
+                                Text::new(label).size(12.0).color(color).into(),
                                 Text::new(diag.message.chars().take(80).collect::<String>())
                                     .size(11.0)
                                     .color(text_color)
-                                    .into_node(),
+                                    .into(),
                             ],
                         }
-                        .into_node(),
-                    )),
+                        .into(),
+                    ),
                     on_press: Some(ActionEnvelope {
                         id: open_id,
                         payload: serde_json::to_vec(&OpenFile(path.to_string())).unwrap(),
@@ -118,30 +120,27 @@ impl Widget<EditorState> for DiagnosticsPanel {
                     padding: Some([4.0, 4.0, 0.0, 0.0]),
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
             );
         }
 
-        Container::new(
-            Scroll {
-                direction: FlexDirection::Column,
-                child: Some(Box::new(
-                    VStack {
-                        spacing: Some(2.0),
-                        children: items,
-                    }
-                    .into_node(),
-                )),
-                show_scrollbar: true,
-                flex_grow: 1.0,
-                flex_shrink: 1.0,
-                ..Default::default()
-            }
-            .into_node(),
-        )
+        Container::new(Scroll {
+            direction: FlexDirection::Column,
+            child: Some(
+                VStack {
+                    spacing: Some(2.0),
+                    children: items,
+                }
+                .into(),
+            ),
+            show_scrollbar: true,
+            flex_grow: 1.0,
+            flex_shrink: 1.0,
+            ..Default::default()
+        })
         .bg(bg)
         .padding_all(4.0)
         .flex_grow(1.0)
-        .into_node()
+        .into()
     }
 }

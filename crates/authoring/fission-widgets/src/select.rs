@@ -1,7 +1,7 @@
 use crate::stack::HStack;
 use crate::{flyout, Icon, Menu, MenuItem};
-use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Node, Text};
-use fission_core::{ActionEnvelope, BuildCtx, NodeId, View, Widget, WidgetNodeId};
+use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Text, Widget};
+use fission_core::{ActionEnvelope, WidgetId};
 use fission_icons::material;
 use serde::{Deserialize, Serialize};
 
@@ -23,7 +23,7 @@ pub struct SelectItem {
 ///
 /// ```rust,ignore
 /// Select {
-///     id: WidgetNodeId::explicit("country"),
+///     id: WidgetId::explicit("country"),
 ///     selected_label: Some("United States".into()),
 ///     items: vec![
 ///         SelectItem { label: "United States".into(), icon: None, on_select: us_action },
@@ -37,7 +37,7 @@ pub struct SelectItem {
 /// ```
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Select {
-    pub id: WidgetNodeId,
+    pub id: WidgetId,
     pub selected_label: Option<String>,
     pub items: Vec<SelectItem>,
     pub is_open: bool,
@@ -49,7 +49,7 @@ pub struct Select {
 impl Default for Select {
     fn default() -> Self {
         Self {
-            id: WidgetNodeId::explicit("select"),
+            id: WidgetId::explicit("select"),
             selected_label: None,
             items: Vec::new(),
             is_open: false,
@@ -60,13 +60,20 @@ impl Default for Select {
     }
 }
 
-impl<S: fission_core::AppState> Widget<S> for Select {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let tokens = &view.env.theme.tokens;
-        let anchor_id = NodeId::derived(self.id.as_u128(), &[]);
+impl From<Select> for Widget {
+    fn from(component: Select) -> Self {
+        let (ctx, view) = fission_core::build::current::<()>();
+        let mut component = component;
+        if let Some(id) = fission_core::build::current_widget_id() {
+            component.id = id;
+        }
+        let this = &component;
 
-        let display_label = self.selected_label.as_deref().unwrap_or(&self.placeholder);
-        let label_color = if self.selected_label.is_some() {
+        let tokens = &view.env().theme.tokens;
+        let anchor_id = WidgetId::derived(this.id.as_u128(), &[]);
+
+        let display_label = this.selected_label.as_deref().unwrap_or(&this.placeholder);
+        let label_color = if this.selected_label.is_some() {
             tokens.colors.text_primary
         } else {
             tokens.colors.text_secondary
@@ -78,34 +85,34 @@ impl<S: fission_core::AppState> Widget<S> for Select {
             children: vec![
                 Text::new(display_label.to_string())
                     .color(label_color)
-                    .into_node(),
+                    .into(),
                 // Spacer to push chevron to the right
                 fission_core::ui::widgets::spacer::Spacer {
                     flex_grow: 1.0,
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
                 Icon::svg(material::navigation::expand_more::regular())
                     .size(20.0)
                     .color(tokens.colors.text_secondary)
-                    .into_node(),
+                    .into(),
             ],
         }
-        .into_node();
+        .into();
 
         let trigger = Button {
-            id: Some(anchor_id),
+            id: Some(anchor_id.into()),
             variant: ButtonVariant::Outline,
             content_align: ButtonContentAlign::Start,
-            child: Some(Box::new(trigger_content)),
-            on_press: self.on_toggle.clone(),
-            width: self.width,
+            child: Some(trigger_content),
+            on_press: this.on_toggle.clone(),
+            width: this.width,
             ..Default::default()
         }
         .into();
 
-        if self.is_open {
-            let menu_items = self
+        if this.is_open {
+            let menu_items = this
                 .items
                 .iter()
                 .map(|item| MenuItem {
@@ -117,15 +124,15 @@ impl<S: fission_core::AppState> Widget<S> for Select {
 
             let menu = Menu {
                 items: menu_items,
-                width: self.width,
+                width: this.width,
                 max_height: Some(300.0),
             }
-            .build(ctx, view);
+            .into();
 
             let flyout_node = flyout(anchor_id, menu);
             ctx.register_portal_with_layer(
                 fission_core::PortalLayer::Flyout,
-                Some(self.id),
+                Some(this.id),
                 flyout_node,
             );
         }

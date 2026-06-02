@@ -1,9 +1,9 @@
 use crate::env::{Env, RuntimeState};
-use crate::lowering::{build_layout_tree, LoweringContext};
+use crate::internal::InternalLower;
+use crate::lowering::{build_layout_tree, InternalLoweringCx};
 use crate::ui::widgets::text::TextContent;
 use crate::ui::widgets::{Container, Text};
-use crate::ui::Node;
-use fission_ir::NodeId;
+use fission_ir::WidgetId;
 use fission_ir::{LayoutOp, Op};
 use fission_layout::{LayoutEngine, LayoutSize};
 
@@ -45,16 +45,16 @@ impl fission_layout::TextMeasurer for SimpleMeasurer {
 fn test_text_wrapping_in_constrained_flex() {
     let env = Env::default();
     let runtime_state = RuntimeState::default();
-    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
+    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
 
-    let root_base = NodeId::derived(0xABC, &[0]);
+    let root_base = WidgetId::derived(0xABC, &[0]);
     cx.push_scope(root_base);
     let root_id = cx.next_node_id();
     let row_id = cx.next_node_id();
     let text_id = cx.next_node_id();
 
     // Text "Hello World" (11 chars) -> 110px width.
-    let text_builder = crate::lowering::NodeBuilder::new(
+    let text_builder = crate::lowering::InternalIrBuilder::new(
         text_id,
         Op::Paint(fission_ir::PaintOp::DrawText {
             text: "Hello World".into(),
@@ -73,7 +73,7 @@ fn test_text_wrapping_in_constrained_flex() {
     let text_final = text_builder.build(&mut cx);
 
     // Row: Width 50px.
-    let mut row_builder = crate::lowering::NodeBuilder::new(
+    let mut row_builder = crate::lowering::InternalIrBuilder::new(
         row_id,
         Op::Layout(LayoutOp::Flex {
             direction: fission_ir::FlexDirection::Row,
@@ -90,7 +90,7 @@ fn test_text_wrapping_in_constrained_flex() {
     let row_final = row_builder.build(&mut cx);
 
     // Root: Box 50px.
-    let mut root_builder = crate::lowering::NodeBuilder::new(
+    let mut root_builder = crate::lowering::InternalIrBuilder::new(
         root_id,
         Op::Layout(LayoutOp::Box {
             width: Some(50.0),
@@ -134,17 +134,14 @@ fn test_text_wrapping_in_constrained_flex() {
 fn text_parent_max_width_drives_wrapping() {
     let env = Env::default();
     let runtime_state = RuntimeState::default();
-    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
+    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
 
     let text = Text {
         content: TextContent::Literal("HelloWorld".into()),
         max_width: Some(40.0),
         ..Default::default()
     };
-    let root = Container::new(Node::from(text))
-        .width(200.0)
-        .height(200.0)
-        .into_node();
+    let root = Container::new(text).width(200.0).height(200.0);
 
     let root_id = root.lower(&mut cx);
     cx.ir.root = Some(root_id);

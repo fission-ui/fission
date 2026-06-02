@@ -1,4 +1,5 @@
-use fission_core::{Env, Lower, LoweringContext, RuntimeState};
+use fission_core::internal::{InternalLower, InternalLoweringCx};
+use fission_core::{Env, RuntimeState};
 use fission_ir::{Op, Role};
 use fission_widgets::{Checkbox, Slider};
 
@@ -13,7 +14,7 @@ fn test_slider_lowering() {
 
     let env = Env::default();
     let runtime = RuntimeState::default();
-    let mut cx = LoweringContext::new(&env, &runtime, None, None);
+    let mut cx = InternalLoweringCx::new(&env, &runtime, None, None);
     let id = slider.lower(&mut cx);
 
     let node = cx.ir.nodes.get(&id).unwrap();
@@ -38,7 +39,7 @@ fn test_checkbox_lowering() {
 
     let env = Env::default();
     let runtime = RuntimeState::default();
-    let mut cx = LoweringContext::new(&env, &runtime, None, None);
+    let mut cx = InternalLoweringCx::new(&env, &runtime, None, None);
     let id = cb.lower(&mut cx);
 
     let node = cx.ir.nodes.get(&id).unwrap();
@@ -52,10 +53,10 @@ fn test_checkbox_lowering() {
 
 #[test]
 fn test_tabs_structure() {
-    // Tabs is a Widget (builds Node), not Lower (lowers to ID).
+    // Tabs builds a Widget tree before lowering to IR.
     // We need to build it first.
     // But widgets don't expose build easily without View?
-    // We can use `fission_core::view::Widget` trait.
+    // We can use the `fission_core::Widget` tree value.
     // But we need `View` and `BuildCtx`.
     // We can mock them.
 }

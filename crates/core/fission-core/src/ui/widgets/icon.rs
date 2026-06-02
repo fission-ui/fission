@@ -1,8 +1,8 @@
-use crate::lowering::{LoweringContext, NodeBuilder};
-use crate::ui::traits::Lower;
+use crate::internal::InternalLower;
+use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
 use fission_ir::{
     op::{Color, LayoutOp, Op, PaintOp, Stroke},
-    NodeId,
+    WidgetId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -55,7 +55,7 @@ impl From<String> for IconSource {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Icon {
     /// Explicit node identity.
-    pub id: Option<NodeId>,
+    pub id: Option<WidgetId>,
     /// The vector graphic source.
     pub source: IconSource,
     /// Fill colour (falls back to the theme's primary text colour).
@@ -116,15 +116,11 @@ impl Icon {
         self.stroke = Some(s);
         self
     }
-
-    pub fn into_node(self) -> crate::ui::Node {
-        crate::ui::Node::Icon(self)
-    }
 }
 
-impl Lower for Icon {
-    fn lower(&self, cx: &mut LoweringContext) -> NodeId {
-        let id = self.id.unwrap_or_else(|| cx.next_node_id());
+impl InternalLower for Icon {
+    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+        let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
 
         let tokens = &cx.env.theme.tokens;
         let color = self.color.unwrap_or(tokens.colors.text_primary);
@@ -164,9 +160,9 @@ impl Lower for Icon {
             },
         };
 
-        let paint_id = NodeBuilder::new(cx.next_node_id(), Op::Paint(paint_op)).build(cx);
+        let paint_id = InternalIrBuilder::new(cx.next_node_id(), Op::Paint(paint_op)).build(cx);
 
-        let mut layout = NodeBuilder::new(
+        let mut layout = InternalIrBuilder::new(
             id,
             Op::Layout(LayoutOp::Box {
                 width: Some(size),

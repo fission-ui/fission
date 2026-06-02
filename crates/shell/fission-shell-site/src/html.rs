@@ -4,7 +4,7 @@ use fission_ir::op::{
     FontStyle, GridPlacement, GridTrack, ImageFit, ImageSource, JustifyContent, LayoutOp, LineCap,
     LineJoin, Op, PaintOp, Stroke, TextAlign, TextOverflow, TextRun,
 };
-use fission_ir::{semantics::ActionTrigger, CoreIR, CoreNode, NodeId, Role};
+use fission_ir::{semantics::ActionTrigger, CoreIR, CoreNode, Role, WidgetId};
 use fission_theme::{DesignMode, Theme};
 use std::collections::{BTreeMap, HashSet};
 
@@ -25,7 +25,7 @@ pub struct HtmlRenderOptions {
     pub code_highlighting: CodeHighlightingOptions,
     pub search_script_href: Option<String>,
     pub server_action_post_path: Option<String>,
-    pub server_action_tokens: BTreeMap<(NodeId, u128), String>,
+    pub server_action_tokens: BTreeMap<(WidgetId, u128), String>,
     pub browser_action_bindings: bool,
     pub structured_data: Vec<String>,
     pub head_start_html: Vec<String>,
@@ -540,7 +540,7 @@ struct HtmlRenderer<'a> {
 }
 
 impl HtmlRenderer<'_> {
-    fn render_node(&mut self, node_id: NodeId) -> Result<String> {
+    fn render_node(&mut self, node_id: WidgetId) -> Result<String> {
         let node = self
             .ir
             .nodes
@@ -554,7 +554,11 @@ impl HtmlRenderer<'_> {
         }
     }
 
-    fn render_children(&mut self, children: &[NodeId], skip: &HashSet<NodeId>) -> Result<String> {
+    fn render_children(
+        &mut self,
+        children: &[WidgetId],
+        skip: &HashSet<WidgetId>,
+    ) -> Result<String> {
         let mut out = String::new();
         for child in children {
             if skip.contains(child) {
@@ -912,21 +916,21 @@ impl HtmlRenderer<'_> {
             if identifier == "site-theme-toggle" {
                 let children = self.render_children(&node.children, &HashSet::new())?;
                 return Ok(format!(
-                    "<button class=\"fission-site-node fission-site-theme-toggle\" type=\"button\" data-fission-theme-toggle data-fission-node=\"{}\">{children}</button>",
+                    "<button class=\"fission-site-node fission-site-theme-toggle\" type=\"button\" aria-label=\"Toggle color theme\" data-fission-theme-toggle data-fission-node=\"{}\">{children}</button>",
                     node.id
                 ));
             }
             if identifier == "site-search-trigger" {
                 let children = self.render_children(&node.children, &HashSet::new())?;
                 return Ok(format!(
-                    "<button class=\"fission-site-node fission-site-search-trigger\" type=\"button\" data-fission-search-trigger data-fission-node=\"{}\">{children}</button>",
+                    "<button class=\"fission-site-node fission-site-search-trigger\" type=\"button\" aria-label=\"Search documentation\" data-fission-search-trigger data-fission-node=\"{}\">{children}</button>",
                     node.id
                 ));
             }
             if identifier == "site-sidebar-toggle" {
                 let children = self.render_children(&node.children, &HashSet::new())?;
                 return Ok(format!(
-                    "<button class=\"fission-site-node fission-site-sidebar-toggle\" type=\"button\" aria-expanded=\"false\" data-fission-sidebar-toggle data-fission-node=\"{}\">{children}</button>",
+                    "<button class=\"fission-site-node fission-site-sidebar-toggle\" type=\"button\" aria-label=\"Open documentation navigation\" aria-expanded=\"false\" data-fission-sidebar-toggle data-fission-node=\"{}\">{children}</button>",
                     node.id
                 ));
             }
@@ -1169,7 +1173,7 @@ impl HtmlRenderer<'_> {
         self.render_children(&children, &HashSet::new())
     }
 
-    fn semantic_payload_children(&self, node: &CoreNode) -> Vec<NodeId> {
+    fn semantic_payload_children(&self, node: &CoreNode) -> Vec<WidgetId> {
         if node.children.len() == 1 {
             if let Some(child) = self.ir.nodes.get(&node.children[0]) {
                 match child.op {
@@ -1239,7 +1243,7 @@ impl HtmlRenderer<'_> {
     fn coalesced_paint_style(
         &self,
         node: &CoreNode,
-        skip: &mut HashSet<NodeId>,
+        skip: &mut HashSet<WidgetId>,
     ) -> Result<Vec<String>> {
         let mut style = Vec::new();
         for child_id in &node.children {
@@ -1495,21 +1499,55 @@ fn site_semantic_class(identifier: &str) -> String {
 }
 
 fn site_semantic_data_attrs(identifier: &str) -> String {
-    let Some(rest) = identifier.strip_prefix("site-sidebar-item:") else {
-        return String::new();
-    };
-    let mut parts = rest.split(':');
-    let level = parts.next().unwrap_or("0");
-    let active = parts.next().unwrap_or("false");
-    let group = parts.next().unwrap_or("false");
-    let index = parts.next().unwrap_or("0");
-    format!(
-        " data-fission-site-sidebar-level=\"{}\" data-fission-site-sidebar-active=\"{}\" data-fission-site-sidebar-group=\"{}\" data-fission-site-sidebar-index=\"{}\"",
-        escape_attr(level),
-        escape_attr(active),
-        escape_attr(group),
-        escape_attr(index)
-    )
+    if let Some(rest) = identifier.strip_prefix("site-sidebar-item:") {
+        let mut parts = rest.split(':');
+        let level = parts.next().unwrap_or("0");
+        let active = parts.next().unwrap_or("false");
+        let group = parts.next().unwrap_or("false");
+        let index = parts.next().unwrap_or("0");
+        return format!(
+            " data-fission-site-sidebar-level=\"{}\" data-fission-site-sidebar-active=\"{}\" data-fission-site-sidebar-group=\"{}\" data-fission-site-sidebar-index=\"{}\"",
+            escape_attr(level),
+            escape_attr(active),
+            escape_attr(group),
+            escape_attr(index)
+        );
+    }
+    if let Some(rest) = identifier.strip_prefix("site-nav-item:") {
+        let mut parts = rest.split(':');
+        let depth = parts.next().unwrap_or("0");
+        let has_children = parts.next().unwrap_or("false");
+        let index = parts.next().unwrap_or("0");
+        return format!(
+            " data-fission-site-nav-depth=\"{}\" data-fission-site-nav-has-children=\"{}\" data-fission-site-nav-index=\"{}\"",
+            escape_attr(depth),
+            escape_attr(has_children),
+            escape_attr(index)
+        );
+    }
+    if let Some(rest) = identifier.strip_prefix("site-nav-menu:") {
+        let mut parts = rest.split(':');
+        let depth = parts.next().unwrap_or("0");
+        let count = parts.next().unwrap_or("0");
+        return format!(
+            " data-fission-site-nav-menu-depth=\"{}\" data-fission-site-nav-menu-count=\"{}\"",
+            escape_attr(depth),
+            escape_attr(count)
+        );
+    }
+    if let Some(rest) = identifier.strip_prefix("site-nav-label:") {
+        let mut parts = rest.split(':');
+        let depth = parts.next().unwrap_or("0");
+        let has_children = parts.next().unwrap_or("false");
+        let index = parts.next().unwrap_or("0");
+        return format!(
+            " data-fission-site-nav-label-depth=\"{}\" data-fission-site-nav-label-has-children=\"{}\" data-fission-site-nav-label-index=\"{}\"",
+            escape_attr(depth),
+            escape_attr(has_children),
+            escape_attr(index)
+        );
+    }
+    String::new()
 }
 
 fn push_paragraph_style(
@@ -1785,12 +1823,12 @@ fn escape_attr(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fission_ir::{ActionEntry, ActionSet, CoreIR, CoreNode, NodeId, Op, Semantics};
+    use fission_ir::{ActionEntry, ActionSet, CoreIR, CoreNode, Op, Semantics, WidgetId};
 
     #[test]
     fn renders_text_from_core_ir() {
-        let root = NodeId::explicit("root");
-        let text = NodeId::explicit("text");
+        let root = WidgetId::explicit("root");
+        let text = WidgetId::explicit("text");
         let mut ir = CoreIR::new();
         ir.add_node(
             text,
@@ -1824,8 +1862,8 @@ mod tests {
 
     #[test]
     fn renders_typed_image_sources_to_img_elements() {
-        let root = NodeId::explicit("root");
-        let image = NodeId::explicit("image");
+        let root = WidgetId::explicit("root");
+        let image = WidgetId::explicit("image");
         let mut ir = CoreIR::new();
         ir.add_node(
             image,
@@ -1909,7 +1947,7 @@ mod tests {
 
     #[test]
     fn rejects_interactive_actions() {
-        let root = NodeId::explicit("root");
+        let root = WidgetId::explicit("root");
         let mut semantics = Semantics::default();
         semantics.actions = ActionSet {
             entries: vec![ActionEntry {
@@ -1937,7 +1975,7 @@ mod tests {
 
     #[test]
     fn server_action_options_render_signed_post_form() {
-        let root = NodeId::explicit("server-action");
+        let root = WidgetId::explicit("server-action");
         let mut semantics = Semantics {
             role: Role::Button,
             ..Default::default()
@@ -1979,7 +2017,7 @@ mod tests {
 
     #[test]
     fn browser_action_options_render_client_binding_attributes() {
-        let root = NodeId::explicit("browser-action");
+        let root = WidgetId::explicit("browser-action");
         let mut semantics = Semantics {
             role: Role::Button,
             ..Default::default()

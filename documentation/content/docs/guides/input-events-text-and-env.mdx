@@ -9,7 +9,7 @@ A user interface is not only what it draws. It is also what it hears and what co
 
 In Fission, those two concerns are handled explicitly.
 
-Input arrives through a shared event model instead of raw platform callbacks. Environment data such as theme, locale, viewport size, and safe-area style insets live in `Env` instead of hiding in globals. Widgets read that environment through `View`, and shells can synchronize app-driven environment values through `.with_sync_env(...)`.
+Input arrives through a shared event model instead of raw platform callbacks. Environment data such as theme, locale, viewport size, and safe-area style insets live in `Env` instead of hiding in globals. Widgets read that environment through `ViewHandle`, and shells can synchronize app-driven environment values through `.with_sync_env(...)`.
 
 This page introduces those pieces slowly, because they are part of what makes the framework portable and testable.
 
@@ -68,17 +68,17 @@ Today, the public `Env` type includes these important values:
 - `viewport_size`,
 - and an optional text measurer.
 
-A useful rule is this: if the value describes the current host or app-wide presentation context, it probably belongs in `Env`. If the value describes the product's durable business data, it probably belongs in `AppState` instead.
+A useful rule is this: if the value describes the current host or app-wide presentation context, it probably belongs in `Env`. If the value describes the product's durable business data, it probably belongs in `GlobalState` instead.
 
-Widgets do not reach into process-wide globals to read these values. They read them through `View`, which is why you see methods such as `view.viewport_size()` and direct environment access such as `view.env.theme`.
+Widgets do not reach into process-wide globals to read these values. They read them through `ViewHandle`, which is why you see methods such as `view.viewport_size()` and direct environment access such as `view.env.theme`.
 
 That design matters because it keeps dependencies visible. A widget can say, in code, "I need the viewport width" or "I need the current locale." Tests can then provide that same context explicitly.
 
-## Why widgets read environment through `View`
+## Why widgets read environment through `ViewHandle`
 
-`View` exists so `build()` can stay a pure function of its inputs.
+`ViewHandle` exists so `component conversion` can stay a pure function of its inputs.
 
-When a widget reads from `View`, the reader can see where the information came from: app state, runtime state, or environment data. That makes responsive layout, theme-aware styling, and translated text much easier to reason about.
+When a widget reads from `ViewHandle`, the reader can see where the information came from: app state, runtime state, or environment data. That makes responsive layout, theme-aware styling, and translated text much easier to reason about.
 
 It also prevents a class of subtle bugs. If widgets were free to look up viewport information or locale from arbitrary globals, tests would become harder to control and platform differences would leak into random parts of the app.
 
@@ -86,7 +86,7 @@ It also prevents a class of subtle bugs. If widgets were free to look up viewpor
 
 Sometimes the environment is not only host-driven. The app itself may decide parts of it.
 
-A user may toggle dark mode. They may choose a locale from a settings screen. You may want a compact-density mode stored in state and reflected in theming or layout decisions. Those values still belong in the environment seen by widgets, but the source of truth may live in `AppState` because the user can change it.
+A user may toggle dark mode. They may choose a locale from a settings screen. You may want a compact-density mode stored in state and reflected in theming or layout decisions. Those values still belong in the environment seen by widgets, but the source of truth may live in `GlobalState` because the user can change it.
 
 That is what `.with_sync_env(...)` is for.
 
@@ -115,26 +115,26 @@ Good values for `.with_sync_env(...)` are values that shape presentation or inte
 
 Theme choice belongs there. Locale belongs there. A compact or comfortable density mode may belong there if the whole user interface needs to react to it consistently. In some apps, a small set of global feature flags that affect presentation can also belong there.
 
-What does not belong there is ordinary product data. Do not mirror your inbox messages, shopping cart items, editor buffers, or save-in-progress flags into `Env`. Those are application state and should stay in `AppState`.
+What does not belong there is ordinary product data. Do not mirror your inbox messages, shopping cart items, editor buffers, or save-in-progress flags into `Env`. Those are application state and should stay in `GlobalState`.
 
 Also avoid using `.with_sync_env(...)` as a hidden side-effect hook. It is for synchronizing environment values, not for starting network work, writing files, or mutating unrelated global state.
 
-## `BuildCtx` is not a replacement for `Env`
+## `BuildCtxHandle` is not a replacement for `Env`
 
-Because `BuildCtx` and `Env` both show up during `build()`, beginners sometimes blur their roles.
+Because `BuildCtxHandle` and `Env` both show up during component conversion, beginners sometimes blur their roles.
 
-`Env`, accessed through `View`, answers questions like these:
+`Env`, accessed through `ViewHandle`, answers questions like these:
 
 - What is the viewport size?
 - What locale is active?
 - What theme should this widget style against?
 - What safe-area style insets does the host report?
 
-`BuildCtx` answers different questions:
+`BuildCtxHandle` answers different questions:
 
 - How do I bind this button to an action?
 - How do I register a portal, animation, web view, or resource?
-- How do I tell the runtime about behavior that should persist beyond this one call to `build()`?
+- How do I tell the runtime about behavior that should persist beyond this one call to `component conversion`?
 
 When you keep those roles separate, layout and input code stay much easier to read.
 
@@ -148,4 +148,18 @@ Nothing about that flow requires the widgets to reach into native browser or mob
 
 ## Where to go next
 
-If you want the full explanation of locale, translation bundles, and theme loading, continue to [Theming and internationalization](/docs/guides/theming-and-i18n). If you want the deeper explanation of resources, jobs, services, and reducer-side effects, read [Resources and async](/docs/guides/resources-and-async). For a live proof of text-heavy interaction, open `text-lab` from the public [Examples](/examples) page.
+If you want the full explanation of locale, translation bundles, and theme loading, continue to [Theming and internationalization](/docs/guides/theming-and-i18n). If you need to decide whether a value belongs in `GlobalState`, local widget state, `Env`, or a provider, read [State, handles, and providers](/docs/guides/state-handles-and-providers/). If you want the deeper explanation of resources, jobs, services, and reducer-side effects, read [Resources and async](/docs/guides/resources-and-async/). For a live proof of text-heavy interaction, open `text-lab` from the public [Examples](/examples) page.
+
+## What you should have working
+
+After this guide, you should be able to explain where `Input, text, and environment` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test. If any of those pieces are missing, treat the page as unfinished work: add the smallest runnable example, then add the diagnostic step that proves it works.
+
+## Common mistakes to check
+
+| Symptom | What to check first |
+| --- | --- |
+| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
+| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
+| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
+| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
+| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |

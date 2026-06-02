@@ -2,9 +2,9 @@ use crate::stack::{HStack, VStack};
 use crate::Icon;
 use fission_core::op::Color;
 use fission_core::ui::{
-    Align, Button, ButtonVariant, Container, GestureDetector, Node, Text, ZStack,
+    Align, Button, ButtonVariant, Container, GestureDetector, Text, Widget, ZStack,
 };
-use fission_core::{ActionEnvelope, BuildCtx, View, Widget, WidgetNodeId};
+use fission_core::{ActionEnvelope, WidgetId};
 use serde::{Deserialize, Serialize};
 
 /// A modal dialog with a dimmed backdrop, title bar, content area, and action buttons.
@@ -28,9 +28,9 @@ use serde::{Deserialize, Serialize};
 ///
 /// ```rust,ignore
 /// Modal {
-///     id: WidgetNodeId::explicit("confirm"),
+///     id: WidgetId::explicit("confirm"),
 ///     title: "Delete item?".into(),
-///     content: Box::new(Text::new("This cannot be undone.").into_node()),
+///     content: Text::new("This cannot be undone.").into(),
 ///     is_open: state.show_confirm,
 ///     on_dismiss: Some(dismiss_action),
 ///     actions: vec![
@@ -42,9 +42,9 @@ use serde::{Deserialize, Serialize};
 /// ```
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Modal {
-    pub id: WidgetNodeId,
+    pub id: WidgetId,
     pub title: String,
-    pub content: Box<Node>,
+    pub content: Widget,
     pub is_open: bool,
     pub on_dismiss: Option<ActionEnvelope>,
     pub actions: Vec<ModalAction>,
@@ -62,14 +62,21 @@ pub struct ModalAction {
     pub is_primary: bool,
 }
 
-impl<S: fission_core::AppState> Widget<S> for Modal {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        if !self.is_open {
-            return fission_core::ui::widgets::spacer::Spacer::default().into_node();
+impl From<Modal> for Widget {
+    fn from(component: Modal) -> Self {
+        let (ctx, view) = fission_core::build::current::<()>();
+        let mut component = component;
+        if let Some(id) = fission_core::build::current_widget_id() {
+            component.id = id;
+        }
+        let this = &component;
+
+        if !this.is_open {
+            return fission_core::ui::widgets::spacer::Spacer::default().into();
         }
 
-        let theme = &view.env.theme.components.modal;
-        let tokens = &view.env.theme.tokens;
+        let theme = &view.env().theme.components.modal;
+        let tokens = &view.env().theme.tokens;
         let container_style = &theme.container_style;
         let viewport = view.viewport_size();
         let horizontal_margin = 24.0;
@@ -78,11 +85,11 @@ impl<S: fission_core::AppState> Widget<S> for Modal {
         } else {
             theme.max_width
         };
-        let dialog_width = self.width.unwrap_or(theme.max_width).min(max_dialog_width);
+        let dialog_width = this.width.unwrap_or(theme.max_width).min(max_dialog_width);
 
         // Dimmed backdrop
         let backdrop =
-            Container::new(fission_core::ui::widgets::spacer::Spacer::default().into_node())
+            Container::new(fission_core::ui::widgets::spacer::Spacer::default())
                 .bg_fill(theme.scrim_style.background.clone().unwrap_or(
                     fission_core::op::Fill::Solid(Color {
                         r: 0,
@@ -92,18 +99,18 @@ impl<S: fission_core::AppState> Widget<S> for Modal {
                     }),
                 ))
                 .flex_grow(1.0)
-                .into_node();
+                .into();
 
         let backdrop_btn = GestureDetector {
-            on_tap: self.on_dismiss.clone(),
-            child: Box::new(backdrop),
+            on_tap: this.on_dismiss.clone(),
+            child: backdrop,
             ..Default::default()
         }
-        .into_node();
+        .into();
 
         // Modal Content
         let mut action_buttons = Vec::new();
-        for action in &self.actions {
+        for action in &this.actions {
             action_buttons.push(
                 Button {
                     variant: if action.is_primary {
@@ -111,80 +118,74 @@ impl<S: fission_core::AppState> Widget<S> for Modal {
                     } else {
                         ButtonVariant::SecondaryGray
                     },
-                    child: Some(Box::new(
+                    child: Some(
                         Text::new(action.label.clone())
                             .color(if action.is_primary {
                                 tokens.colors.on_primary
                             } else {
                                 tokens.colors.primary
                             })
-                            .into_node(),
-                    )),
+                            .into(),
+                    ),
                     on_press: action.on_press.clone(),
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
             );
         }
 
-        let mut modal_card_builder =
-            Container::new(
-                VStack {
-                    spacing: Some(16.0),
+        let mut modal_card_builder = Container::new(VStack {
+            spacing: Some(16.0),
+            children: vec![
+                // Header
+                HStack {
+                    spacing: Some(8.0),
                     children: vec![
-                        // Header
-                        HStack {
-                            spacing: Some(8.0),
-                            children: vec![
-                                Text::new(self.title.clone()).size(20.0).into_node(),
-                                fission_core::ui::widgets::spacer::Spacer {
-                                    flex_grow: 1.0,
-                                    ..Default::default()
-                                }
-                                .into_node(),
-                                Button {
-                                    variant: ButtonVariant::Ghost,
-                                    child: Some(Box::new(
-                                        Icon::svg(
-                                            fission_icons::material::navigation::close::regular(),
-                                        )
-                                        .size(20.0)
-                                        .into_node(),
-                                    )),
-                                    on_press: self.on_dismiss.clone(),
-                                    ..Default::default()
-                                }
-                                .into_node(),
-                            ],
+                        Text::new(this.title.clone()).size(20.0).into(),
+                        fission_core::ui::widgets::spacer::Spacer {
+                            flex_grow: 1.0,
+                            ..Default::default()
                         }
-                        .into_node(),
-                        // Content
-                        *self.content.clone(),
-                        // Footer Actions
-                        HStack {
-                            spacing: Some(8.0),
-                            children: vec![fission_core::ui::widgets::spacer::Spacer {
-                                flex_grow: 1.0,
-                                ..Default::default()
-                            }
-                            .into_node()]
-                            .into_iter()
-                            .chain(action_buttons)
-                            .collect(),
+                        .into(),
+                        Button {
+                            variant: ButtonVariant::Ghost,
+                            child: Some(
+                                Icon::svg(fission_icons::material::navigation::close::regular())
+                                    .size(20.0)
+                                    .into(),
+                            ),
+                            on_press: this.on_dismiss.clone(),
+                            ..Default::default()
                         }
-                        .into_node(),
+                        .into(),
                     ],
                 }
-                .into_node(),
-            )
-            .bg_fill(
-                container_style
-                    .background
-                    .clone()
-                    .unwrap_or(fission_core::op::Fill::Solid(theme.bg_color)),
-            )
-            .border_radius(container_style.radius.unwrap_or(theme.radius))
-            .shadows(container_style.outer_shadows());
+                .into(),
+                // Content
+                this.content.clone(),
+                // Footer Actions
+                HStack {
+                    spacing: Some(8.0),
+                    children: vec![fission_core::ui::widgets::spacer::Spacer {
+                        flex_grow: 1.0,
+                        ..Default::default()
+                    }
+                    .into()]
+                    .into_iter()
+                    .chain(action_buttons)
+                    .collect(),
+                }
+                .into(),
+            ],
+        })
+        .bg_fill(
+            container_style
+                .background
+                .clone()
+                .unwrap_or(fission_core::op::Fill::Solid(theme.bg_color)),
+        )
+        .border_radius(container_style.radius.unwrap_or(theme.radius))
+        .shadows(container_style.outer_shadows());
 
         if container_style.shadows.is_empty() {
             if let Some(s) = theme.shadow {
@@ -192,59 +193,56 @@ impl<S: fission_core::AppState> Widget<S> for Modal {
             }
         }
 
-        let modal_card = modal_card_builder
+        let modal_card: Widget = modal_card_builder
             .width(dialog_width)
             .padding_all(24.0)
-            .into_node();
+            .into();
 
         let center_layer = fission_core::ui::Positioned {
             left: Some(0.0),
             right: Some(0.0),
             top: Some(0.0),
             bottom: Some(0.0),
-            child: Some(Box::new(Align::new(modal_card.clone()).into_node())),
+            child: Some(Align::new(modal_card.clone()).into()),
             ..Default::default()
         }
-        .into_node();
+        .into();
 
-        let root = Container::new(
-            ZStack {
-                children: vec![
-                    // Full-screen backdrop button
-                    fission_core::ui::Positioned {
-                        left: Some(0.0),
-                        right: Some(0.0),
-                        top: Some(0.0),
-                        bottom: Some(0.0),
-                        child: Some(Box::new(backdrop_btn)),
-                        ..Default::default()
-                    }
-                    .into_node(),
-                    // Full-screen container with flex spacers to center the modal card
-                    center_layer,
-                ],
-                ..Default::default()
-            }
-            .into_node(),
-        )
+        let root = Container::new(ZStack {
+            children: vec![
+                // Full-screen backdrop button
+                fission_core::ui::Positioned {
+                    left: Some(0.0),
+                    right: Some(0.0),
+                    top: Some(0.0),
+                    bottom: Some(0.0),
+                    child: Some(backdrop_btn),
+                    ..Default::default()
+                }
+                .into(),
+                // Full-screen container with flex spacers to center the modal card
+                center_layer,
+            ],
+            ..Default::default()
+        })
         .flex_grow(1.0)
-        .into_node();
+        .into();
 
         let positioned_root = fission_core::ui::Positioned {
             left: Some(0.0),
             right: Some(0.0),
             top: Some(0.0),
             bottom: Some(0.0),
-            child: Some(Box::new(root)),
+            child: Some(root),
             ..Default::default()
         }
-        .into_node();
+        .into();
         ctx.register_portal_with_layer(
             fission_core::PortalLayer::Modal,
-            Some(self.id),
+            Some(this.id),
             positioned_root,
         );
 
-        fission_core::ui::widgets::spacer::Spacer::default().into_node()
+        fission_core::ui::widgets::spacer::Spacer::default().into()
     }
 }

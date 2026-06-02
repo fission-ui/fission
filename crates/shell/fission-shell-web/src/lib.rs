@@ -1,5 +1,5 @@
 use anyhow::Result;
-use fission_core::{Action, ActionRegistry, AppState, Env, Widget};
+use fission_core::{Action, ActionRegistry, Env, GlobalState, Widget};
 use fission_shell::async_host::AsyncRegistry;
 use fission_shell_winit::WinitApp;
 
@@ -15,15 +15,33 @@ pub use fission_shell_winit::{
     UnsupportedPasskeyHost, UnsupportedVolumeHost, UnsupportedWifiHost, VolumeHost, WifiHost,
 };
 
-pub struct WebApp<S: AppState, W: Widget<S>> {
+pub struct WebApp<S: GlobalState, W>
+where
+    W: Clone + Into<Widget>,
+{
     inner: WinitApp<S, W>,
 }
 
-impl<S: AppState + Default, W: Widget<S> + 'static> WebApp<S, W> {
+impl<S, W> WebApp<S, W>
+where
+    S: GlobalState + Default,
+    W: Clone + Into<Widget> + 'static,
+{
     pub fn new(root_widget: W) -> Self {
         Self {
             inner: WinitApp::new(root_widget),
         }
+    }
+
+    pub fn new_with_global_state(root_widget: W, global_state: S) -> Self {
+        Self {
+            inner: WinitApp::new_with_global_state(root_widget, global_state),
+        }
+    }
+
+    pub fn with_global_state(mut self, global_state: S) -> Self {
+        self.inner = self.inner.with_global_state(global_state);
+        self
     }
 
     pub fn with_title(mut self, title: impl Into<String>) -> Self {

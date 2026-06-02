@@ -65,6 +65,22 @@ Do not build translated strings by concatenating fragments in the widget. Differ
 
 Do not treat English text length as the layout truth. Test longer translated strings, right-to-left languages if your product supports them, and mobile widths.
 
+## Contract completeness checklist
+
+Use this checklist when wiring `Accessibility and internationalization` into an app or shell implementation.
+
+| Requirement | Why it matters |
+| --- | --- |
+| Public entrypoint | The app code must call the documented helper, command, or configuration field rather than a platform-specific shortcut. |
+| Required setup | Native manifests, plist entries, entitlements, service-worker files, domains, protocols, credentials, or provider registration must be present before production use. |
+| Typed success and error | The implementation should return a truthful typed result. Silent success, swallowed errors, and string-only failure paths make apps unsafe to retry. |
+| Retry behavior | Operations that can fail because of permission, network, hardware, store, or packaging state should document whether retrying is useful and what must change first. |
+| Tests | Cover the happy path, unsupported host path, bad configuration path, and any security-sensitive rejection path. |
+
+## Failure behavior and safe retry
+
+Treat failures as product states, not surprises. A Fission app should be able to tell the user whether the problem is missing configuration, missing provider support, denied permission, unavailable hardware, invalid input, expired credentials, or a transient host error. Reducers should update state from typed results and keep retry buttons idempotent so pressing them twice cannot corrupt state or duplicate unsafe work.
+
 ## Related pages
 
 Read [Theming and internationalization](/docs/guides/theming-and-i18n/) for a step-by-step translation setup, [Environment, input, and input method editor](/reference/core/environment-input-and-ime/) for the `Env` contract, and [Testing and diagnostics](/docs/guides/testing-and-diagnostics/) for accessibility-oriented testing practice.

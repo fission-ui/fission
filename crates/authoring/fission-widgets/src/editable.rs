@@ -1,10 +1,10 @@
-use fission_core::ui::{Button, ButtonVariant, Node, Text, TextInput};
-use fission_core::{ActionEnvelope, BuildCtx, NodeId, View, Widget, WidgetNodeId};
+use fission_core::ui::{Button, ButtonVariant, Text, TextInput, Widget};
+use fission_core::{ActionEnvelope, WidgetId};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Editable {
-    pub id: Option<WidgetNodeId>,
+    pub id: Option<WidgetId>,
     pub value: String,
     pub placeholder: String,
     pub is_editing: bool,
@@ -14,18 +14,22 @@ pub struct Editable {
     pub on_cancel: Option<ActionEnvelope>, // Esc or blur
 }
 
-impl<S: fission_core::AppState> Widget<S> for Editable {
-    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        if self.is_editing {
-            let input_id = self
+impl From<Editable> for Widget {
+    fn from(component: Editable) -> Self {
+        let mut component = component;
+        component.id = fission_core::build::current_widget_id().or(component.id);
+        let this = &component;
+
+        if this.is_editing {
+            let input_id = this
                 .id
                 .as_ref()
-                .map(|id| NodeId::derived(id.as_u128(), &[0]));
+                .map(|id| WidgetId::derived(id.as_u128(), &[0]));
             TextInput {
-                id: input_id,
-                value: self.value.clone(),
-                placeholder: Some(self.placeholder.clone().into()),
-                on_change: self.on_change.clone(),
+                id: input_id.map(Into::into),
+                value: this.value.clone(),
+                placeholder: Some(this.placeholder.clone().into()),
+                on_change: this.on_change.clone(),
                 // TODO: on_submit (Enter) and on_cancel (Esc/Blur) support in TextInput semantics?
                 // Currently TextInput semantics supports `actions` but specific triggers like Enter are handled by Runtime key events dispatching first semantics action.
                 // If we want Enter to submit, we should make sure `on_submit` is the primary action?
@@ -33,22 +37,22 @@ impl<S: fission_core::AppState> Widget<S> for Editable {
                 // We might need to wrap it or rely on focus/blur.
                 ..Default::default()
             }
-            .into_node()
+            .into()
         } else {
             Button {
                 variant: ButtonVariant::Ghost,
-                child: Some(Box::new(
-                    Text::new(if self.value.is_empty() {
-                        self.placeholder.clone()
+                child: Some(
+                    Text::new(if this.value.is_empty() {
+                        this.placeholder.clone()
                     } else {
-                        self.value.clone()
+                        this.value.clone()
                     })
-                    .into_node(),
-                )),
-                on_press: self.on_edit.clone(),
+                    .into(),
+                ),
+                on_press: this.on_edit.clone(),
                 ..Default::default()
             }
-            .into_node()
+            .into()
         }
     }
 }

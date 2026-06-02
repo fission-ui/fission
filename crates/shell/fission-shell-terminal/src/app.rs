@@ -15,12 +15,14 @@ use crossterm::style::{
 use crossterm::terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::{execute, queue};
 use fission_core::event::ImeEvent;
-use fission_core::lowering::build_layout_tree;
-use fission_core::ui::{Container, Node, Overlay, ZStack};
+use fission_core::internal::build_layout_tree;
+use fission_core::internal::BuildCtx;
+use fission_core::internal::InternalLoweringCx;
+use fission_core::ui::{Container, Overlay, Widget, ZStack};
 use fission_core::{
-    AppState, BuildCtx, Env, InputEvent, KeyCode, KeyEvent, LayoutEngine, LayoutPoint, LayoutSize,
-    LayoutSnapshot, LoweringContext, PointerButton, PointerEvent, Runtime, RuntimeState, View,
-    Widget, WindowTitle,
+    Env, GlobalState, InputEvent, KeyCode, KeyEvent, LayoutEngine, LayoutPoint, LayoutSize,
+    LayoutSnapshot, PointerButton, PointerEvent, Runtime, RuntimeState, View, WidgetIdExt,
+    WindowTitle,
 };
 use fission_ir::CoreIR;
 use fission_layout::TextMeasurer;
@@ -52,8 +54,8 @@ impl Default for TerminalRunOptions {
 
 pub struct TerminalApp<S, W>
 where
-    S: AppState + 'static,
-    W: Widget<S>,
+    S: GlobalState + 'static,
+    W: Clone + Into<Widget>,
 {
     root: W,
     runtime: Runtime,
@@ -71,25 +73,25 @@ where
 
 impl<S, W> TerminalApp<S, W>
 where
-    S: AppState + Default + 'static,
-    W: Widget<S>,
+    S: GlobalState + Default + 'static,
+    W: Clone + Into<Widget>,
 {
     pub fn new(root: W) -> Self {
-        Self::with_state(root, S::default())
+        Self::new_with_global_state(root, S::default())
     }
 }
 
 impl<S, W> TerminalApp<S, W>
 where
-    S: AppState + 'static,
-    W: Widget<S>,
+    S: GlobalState + 'static,
+    W: Clone + Into<Widget>,
 {
-    pub fn with_state(root: W, state: S) -> Self {
+    pub fn new_with_global_state(root: W, state: S) -> Self {
         let measurer: Arc<dyn TextMeasurer> = Arc::new(TerminalTextMeasurer);
         let mut runtime = Runtime::default().with_measurer(measurer.clone());
         runtime
-            .add_app_state(Box::new(state))
-            .expect("failed to register terminal app state");
+            .add_global_state(Box::new(state))
+            .expect("failed to register terminal global state");
         let mut env = Env::new(measurer.clone());
         env.viewport_size = LayoutSize::new(100.0, 32.0);
         Self {
@@ -106,6 +108,18 @@ where
             last_snapshot: None,
             _state: std::marker::PhantomData,
         }
+    }
+
+    #[doc(hidden)]
+    pub fn with_state(root: W, state: S) -> Self {
+        Self::new_with_global_state(root, state)
+    }
+
+    pub fn with_global_state(mut self, global_state: S) -> Self {
+        *self.runtime.get_global_state_mut::<S>().expect(
+            "Fission global state must be registered before TerminalApp::with_global_state is called",
+        ) = global_state;
+        self
     }
 
     pub fn with_title(mut self, title: impl Into<String>) -> Self {
@@ -159,21 +173,21 @@ where
         if let Some(sync_env) = &self.sync_env {
             let state = self
                 .runtime
-                .get_app_state::<S>()
+                .get_global_state::<S>()
                 .context("terminal app state is missing")?;
             sync_env(state, &mut self.env);
             self.env.viewport_size = viewport;
             self.env.measurer = Some(self.measurer.clone());
         }
 
-        let node_tree = self.build_node_tree(viewport)?;
-        let mut cx = LoweringContext::new(
+        let node_tree = self.build_widget_tree(viewport)?;
+        let mut cx = InternalLoweringCx::new(
             &self.env,
             &self.runtime.runtime_state,
             Some(&self.measurer),
             self.last_snapshot.as_ref(),
         );
-        let root_id = node_tree.lower(&mut cx);
+        let root_id = fission_core::internal::lower_widget(&node_tree, &mut cx);
         cx.ir.root = Some(root_id);
         verify_terminal_ir(&cx.ir).context("terminal shell support check failed")?;
 
@@ -314,7 +328,7 @@ where
         };
         let state = self
             .runtime
-            .get_app_state::<S>()
+            .get_global_state::<S>()
             .context("terminal app state is missing")?;
         Ok(should_exit(state, &self.runtime.runtime_state, &self.env))
     }
@@ -333,10 +347,10 @@ where
         Ok(changed)
     }
 
-    fn build_node_tree(&mut self, viewport: LayoutSize) -> Result<Node> {
+    fn build_widget_tree(&mut self, viewport: LayoutSize) -> Result<Widget> {
         let state = self
             .runtime
-            .get_app_state::<S>()
+            .get_global_state::<S>()
             .context("terminal app state is missing")?;
         let view = View::new(
             state,
@@ -345,7 +359,7 @@ where
             self.last_snapshot.as_ref(),
         );
         let mut ctx = BuildCtx::<S>::new();
-        let tree = self.root.build(&mut ctx, &view);
+        let tree = fission_core::build::enter(&mut ctx, &view, || self.root.clone().into());
 
         self.runtime.clear_reducers();
         let animation_requests = ctx.take_animation_requests();
@@ -363,12 +377,11 @@ where
             .into_iter()
             .map(|(id, node)| {
                 if let Some(id) = id {
-                    let wrapper_id = fission_ir::NodeId::derived(id.as_u128(), &[0x0000_F001]);
+                    let wrapper_id = fission_ir::WidgetId::derived(id.as_u128(), &[0x0000_F001]);
                     Container::new(node)
-                        .id(wrapper_id)
                         .width(viewport.width)
                         .height(viewport.height)
-                        .into_node()
+                        .id(wrapper_id)
                 } else {
                     node
                 }
@@ -378,19 +391,19 @@ where
         if portals.is_empty() {
             Ok(tree)
         } else {
-            Ok(Node::Overlay(Overlay {
+            Ok(Overlay {
                 id: None,
-                content: Box::new(
-                    Container::new(tree)
-                        .width(viewport.width)
-                        .height(viewport.height)
-                        .into_node(),
-                ),
-                overlay: Box::new(Node::ZStack(ZStack {
+                content: Container::new(tree)
+                    .width(viewport.width)
+                    .height(viewport.height)
+                    .into(),
+                overlay: ZStack {
                     id: None,
                     children: portals,
-                })),
-            }))
+                }
+                .into(),
+            }
+            .into())
         }
     }
 }

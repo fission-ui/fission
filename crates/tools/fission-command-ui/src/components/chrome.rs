@@ -4,22 +4,23 @@ use crate::density::UiDensity;
 use crate::routes::UiRoute;
 use crate::state::UiState;
 use crate::theme::UiPalette;
-use fission::ir::op::{AlignItems, JustifyContent};
-use fission::ir::NodeId;
+use fission::op::{AlignItems, JustifyContent};
+
 use fission::prelude::*;
 
 const NAV_SCROLL_NODE_ID: &str = "cli_ui_nav_scroll";
 
 #[derive(Clone)]
 pub struct AppShell {
-    pub content: Node,
+    pub content: Widget,
 }
 
-impl Widget<UiState> for AppShell {
-    fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
-        let palette = UiPalette::for_mode(view.state.theme_mode);
-        let viewport = view.env.viewport_size;
-        let density = UiDensity::new(view.state.compact_mode);
+impl From<AppShell> for Widget {
+    fn from(component: AppShell) -> Self {
+        let (_ctx, view) = fission::build::current::<UiState>();
+        let palette = UiPalette::for_mode(view.state().theme_mode);
+        let viewport = view.env().viewport_size;
+        let density = UiDensity::new(view.state().compact_mode);
         let width = viewport.width.max(96.0);
         let height = viewport.height.max(28.0);
         let metrics = density.shell_metrics(height);
@@ -29,133 +30,128 @@ impl Widget<UiState> for AppShell {
         let content_w =
             (width - sidebar_w - outer_padding[0] - outer_padding[1] - body_gap).max(48.0);
 
-        Container::new(
-            Column {
-                gap: Some(density.shell_gap()),
-                children: vec![
-                    AppHeader.build(ctx, view),
-                    Row {
-                        gap: Some(body_gap),
-                        align_items: AlignItems::Stretch,
-                        children: vec![
-                            Sidebar {
-                                width: sidebar_w,
-                                height: metrics.body_h,
-                            }
-                            .build(ctx, view),
-                            Container::new(self.content.clone())
-                                .width(content_w)
-                                .height(metrics.body_h)
-                                .padding(density.content_padding())
-                                .bg(palette.surface)
-                                .border(palette.border, 1.0)
-                                .into_node(),
-                        ],
-                        ..Default::default()
-                    }
-                    .into_node(),
-                    OutputPanel {
-                        width: width - outer_padding[0] - outer_padding[1],
-                        height: metrics.footer_h,
-                    }
-                    .build(ctx, view),
-                ],
-                ..Default::default()
-            }
-            .into_node(),
-        )
+        Container::new(Column {
+            gap: Some(density.shell_gap()),
+            children: vec![
+                AppHeader.into(),
+                Row {
+                    gap: Some(body_gap),
+                    align_items: AlignItems::Stretch,
+                    children: vec![
+                        Sidebar {
+                            width: sidebar_w,
+                            height: metrics.body_h,
+                        }
+                        .into(),
+                        Container::new(component.content.clone())
+                            .width(content_w)
+                            .height(metrics.body_h)
+                            .padding(density.content_padding())
+                            .bg(palette.surface)
+                            .border(palette.border, 1.0)
+                            .into(),
+                    ],
+                    ..Default::default()
+                }
+                .into(),
+                OutputPanel {
+                    width: width - outer_padding[0] - outer_padding[1],
+                    height: metrics.footer_h,
+                }
+                .into(),
+            ],
+            ..Default::default()
+        })
         .width(width)
         .height(height)
         .padding(outer_padding)
         .bg(palette.background)
-        .into_node()
+        .into()
     }
 }
-
 #[derive(Clone)]
 pub struct AppHeader;
 
-impl Widget<UiState> for AppHeader {
-    fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
-        let palette = UiPalette::for_mode(view.state.theme_mode);
-        let density = UiDensity::new(view.state.compact_mode);
+impl From<AppHeader> for Widget {
+    fn from(_component: AppHeader) -> Self {
+        let (ctx, view) = fission::build::current::<UiState>();
+        let palette = UiPalette::for_mode(view.state().theme_mode);
+        let density = UiDensity::new(view.state().compact_mode);
         let toggle = with_reducer!(ctx, ToggleTheme, toggle_theme);
-        Container::new(
-            Row {
-                justify_content: JustifyContent::SpaceBetween,
-                align_items: AlignItems::Center,
-                children: vec![
-                    Column {
-                        gap: Some(0.0),
-                        children: vec![
-                            Text::new("Fission command")
-                                .color(palette.accent_text)
-                                .into_node(),
-                            Text::new(format!(
-                                "{}  -  {}",
-                                view.state.project_name, view.state.project_status
-                            ))
+        Container::new(Row {
+            justify_content: JustifyContent::SpaceBetween,
+            align_items: AlignItems::Center,
+            children: vec![
+                Column {
+                    gap: Some(0.0),
+                    children: vec![
+                        Text::new("Fission command")
                             .color(palette.accent_text)
-                            .into_node(),
-                        ],
-                        ..Default::default()
-                    }
-                    .into_node(),
-                    Row {
-                        gap: Some(1.0),
-                        children: vec![
-                            Text::new(format!("Theme: {}", view.state.theme_mode.label()))
-                                .color(palette.accent_text)
-                                .into_node(),
-                            ActionButton::new("Switch theme", toggle)
-                                .tone(ButtonTone::Neutral)
-                                .width(16.0)
-                                .build(ctx, view),
-                            Text::new("q / Esc / Ctrl-C asks to exit")
-                                .color(palette.accent_text)
-                                .into_node(),
-                        ],
-                        ..Default::default()
-                    }
-                    .into_node(),
-                ],
-                ..Default::default()
-            }
-            .into_node(),
-        )
+                            .into(),
+                        Text::new(format!(
+                            "{}  -  {}",
+                            view.state().project_name,
+                            view.state().project_status
+                        ))
+                        .color(palette.accent_text)
+                        .into(),
+                    ],
+                    ..Default::default()
+                }
+                .into(),
+                Row {
+                    gap: Some(1.0),
+                    children: vec![
+                        Text::new(format!("Theme: {}", view.state().theme_mode.label()))
+                            .color(palette.accent_text)
+                            .into(),
+                        ActionButton::new("Switch theme", toggle)
+                            .tone(ButtonTone::Neutral)
+                            .width(16.0)
+                            .into(),
+                        Text::new("q / Esc / Ctrl-C asks to exit")
+                            .color(palette.accent_text)
+                            .into(),
+                    ],
+                    ..Default::default()
+                }
+                .into(),
+            ],
+            ..Default::default()
+        })
         .height(density.header_height())
         .padding(density.content_padding())
         .bg(palette.accent)
         .border(palette.accent, 1.0)
-        .into_node()
+        .into()
     }
 }
-
 #[derive(Clone)]
 pub struct Sidebar {
     pub width: f32,
     pub height: f32,
 }
 
-impl Widget<UiState> for Sidebar {
-    fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
-        let palette = UiPalette::for_mode(view.state.theme_mode);
-        let density = UiDensity::new(view.state.compact_mode);
+impl From<Sidebar> for Widget {
+    fn from(component: Sidebar) -> Self {
+        let (ctx, view) = fission::build::current::<UiState>();
+        let palette = UiPalette::for_mode(view.state().theme_mode);
+        let density = UiDensity::new(view.state().compact_mode);
         let padding = density.sidebar_padding();
-        let scroll_id = NodeId::explicit(NAV_SCROLL_NODE_ID);
-        let scroll_height = (self.height - padding[2] - padding[3]).max(1.0);
+        let scroll_id = WidgetId::explicit(NAV_SCROLL_NODE_ID);
+        let scroll_height = (component.height - padding[2] - padding[3]).max(1.0);
         let route_height = density.nav_route_height();
-        let offset = view.runtime.scroll.get_offset(scroll_id).max(0.0);
+        let offset = view.runtime().scroll.get_offset(scroll_id.into()).max(0.0);
         let start_route = ((offset / route_height).floor() as usize)
             .min(UiRoute::SIDEBAR.len().saturating_sub(1));
         let visible_routes = ((scroll_height - 1.0) / route_height).floor().max(1.0) as usize;
         let mut children = vec![
-            Text::new("Workflows").color(palette.accent).into_node(),
+            Text::new("Workflows").color(palette.accent).into(),
             Spacer {
                 height: Some(start_route as f32 * route_height),
                 ..Default::default()
             }
-            .into_node(),
+            .into(),
         ];
         for route in UiRoute::SIDEBAR
             .iter()
@@ -163,7 +159,7 @@ impl Widget<UiState> for Sidebar {
             .skip(start_route)
             .take(visible_routes)
         {
-            children.push(route_button(route, ctx, view, self.width - 4.0));
+            children.push(route_button(route, ctx, view, component.width - 4.0));
         }
         let bottom_routes = UiRoute::SIDEBAR
             .len()
@@ -173,44 +169,40 @@ impl Widget<UiState> for Sidebar {
                 height: Some(bottom_routes as f32 * route_height),
                 ..Default::default()
             }
-            .into_node(),
+            .into(),
         );
-        Container::new(
-            Scroll {
-                id: Some(scroll_id),
-                direction: FlexDirection::Column,
-                width: Some(self.width - 2.0),
-                height: Some(scroll_height),
-                show_scrollbar: true,
-                child: Some(Box::new(
-                    Column {
-                        gap: Some(density.nav_gap()),
-                        children,
-                        ..Default::default()
-                    }
-                    .into_node(),
-                )),
-                ..Default::default()
-            }
-            .into_node(),
-        )
-        .width(self.width)
-        .height(self.height)
+        Container::new(Scroll {
+            id: Some(scroll_id.into()),
+            direction: FlexDirection::Column,
+            width: Some(component.width - 2.0),
+            height: Some(scroll_height),
+            show_scrollbar: true,
+            child: Some(
+                Column {
+                    gap: Some(density.nav_gap()),
+                    children,
+                    ..Default::default()
+                }
+                .into(),
+            ),
+            ..Default::default()
+        })
+        .width(component.width)
+        .height(component.height)
         .padding(padding)
         .bg(palette.raised)
         .border(palette.border, 1.0)
-        .into_node()
+        .into()
     }
 }
-
 fn route_button(
     route: UiRoute,
-    ctx: &mut BuildCtx<UiState>,
-    view: &View<UiState>,
+    ctx: BuildCtxHandle<UiState>,
+    view: ViewHandle<UiState>,
     width: f32,
-) -> Node {
+) -> Widget {
     let action = with_reducer!(ctx, Navigate(route), navigate);
-    let tone = if view.state.route == route {
+    let tone = if view.state().route == route {
         ButtonTone::Primary
     } else {
         ButtonTone::Neutral
@@ -218,5 +210,5 @@ fn route_button(
     ActionButton::new(route.title(), action)
         .tone(tone)
         .width(width)
-        .build(ctx, view)
+        .into()
 }

@@ -1,4 +1,4 @@
-use fission::core::{AppState, BuildCtx, View, Widget, WidgetNodeId};
+use fission::core::{BuildCtxHandle, GlobalState, ViewHandle, WidgetId};
 use fission::layout::LayoutSize;
 use fission::render::DisplayOp;
 use fission_test::prelude::*;
@@ -7,7 +7,7 @@ use std::collections::HashSet;
 
 // Re-create the gallery state and widget inline (they're in the bin crate, not a lib)
 use fission::core::ui::{
-    Button, ButtonVariant, Checkbox, Container, Node, Scroll, Slider, Switch, Text, TextInput,
+    Button, ButtonVariant, Checkbox, Container, Scroll, Slider, Switch, Text, TextInput, Widget,
 };
 use fission::core::{ActionEnvelope, FlexDirection};
 use fission::widgets::{
@@ -20,20 +20,20 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct GS;
-impl AppState for GS {}
+impl GlobalState for GS {}
 
-fn section(title: &str, children: Vec<Node>) -> Node {
+fn section(title: &str, children: Vec<Widget>) -> Widget {
     VStack {
         spacing: Some(8.0),
-        children: std::iter::once(Text::new(title).size(20.0).into_node())
+        children: std::iter::once(Text::new(title).size(20.0).into())
             .chain(children)
             .collect(),
     }
-    .into_node()
+    .into()
 }
 
 // Build a minimal version of each widget category to test rendering
-fn build_all_widgets(ctx: &mut BuildCtx<GS>, view: &View<GS>) -> Node {
+fn build_all_widgets(_ctx: BuildCtxHandle<GS>, _view: ViewHandle<GS>) -> Widget {
     let _noop = ActionEnvelope {
         id: fission::core::ActionId::from_u128(9999),
         payload: vec![],
@@ -42,37 +42,37 @@ fn build_all_widgets(ctx: &mut BuildCtx<GS>, view: &View<GS>) -> Node {
     let display = section(
         "Display",
         vec![
-            Text::new("Hello").size(16.0).into_node(),
+            Text::new("Hello").size(16.0).into(),
             Badge {
                 text: "New".into(),
                 ..Default::default()
             }
-            .build(ctx, view),
+            .into(),
             Tag {
                 label: "Rust".into(),
                 on_close: None,
             }
-            .build(ctx, view),
+            .into(),
             Avatar {
                 name: Some("John Doe".into()),
                 src: None,
                 size: Some(40.0),
             }
-            .build(ctx, view),
+            .into(),
             Code {
                 text: "let x = 42;".into(),
             }
-            .build(ctx, view),
+            .into(),
             Kbd {
                 text: "Ctrl+C".into(),
             }
-            .build(ctx, view),
+            .into(),
             Stat {
                 label: "Users".into(),
                 value: "1234".into(),
                 help_text: Some("up".into()),
             }
-            .build(ctx, view),
+            .into(),
         ],
     );
 
@@ -81,64 +81,61 @@ fn build_all_widgets(ctx: &mut BuildCtx<GS>, view: &View<GS>) -> Node {
         vec![
             Button {
                 variant: ButtonVariant::Filled,
-                child: Some(Box::new(Text::new("Filled").into_node())),
+                child: Some(Text::new("Filled").into()),
                 ..Default::default()
             }
-            .into_node(),
+            .into(),
             Button {
                 variant: ButtonVariant::Outline,
-                child: Some(Box::new(Text::new("Outline").into_node())),
+                child: Some(Text::new("Outline").into()),
                 ..Default::default()
             }
-            .into_node(),
+            .into(),
             Button {
                 variant: ButtonVariant::Ghost,
-                child: Some(Box::new(Text::new("Ghost").into_node())),
+                child: Some(Text::new("Ghost").into()),
                 ..Default::default()
             }
-            .into_node(),
+            .into(),
             Button {
                 variant: ButtonVariant::Filled,
-                child: Some(Box::new(Text::new("Disabled").into_node())),
+                child: Some(Text::new("Disabled").into()),
                 disabled: true,
                 ..Default::default()
             }
-            .into_node(),
+            .into(),
             TextInput {
                 value: "hello".into(),
                 placeholder: Some("Type...".into()),
                 width: Some(200.0),
                 ..Default::default()
             }
-            .into_node(),
+            .into(),
             Checkbox {
                 checked: true,
                 label: Some("Check".into()),
                 ..Default::default()
             }
-            .into_node(),
+            .into(),
             Switch {
                 checked: true,
                 ..Default::default()
             }
-            .into_node(),
-            Container::new(
-                Slider {
-                    value: 0.5,
-                    min: 0.0,
-                    max: 1.0,
-                    ..Default::default()
-                }
-                .into_node(),
-            )
+            .into(),
+            Container::new(Slider {
+                value: 0.5,
+                min: 0.0,
+                max: 1.0,
+                ..Default::default()
+            })
             .width(200.0)
-            .into_node(),
+            .into(),
             NumberInput {
                 value: 5.0,
                 step: 1.0,
                 ..Default::default()
             }
-            .build(ctx, view),
+            .into(),
         ],
     );
 
@@ -150,53 +147,53 @@ fn build_all_widgets(ctx: &mut BuildCtx<GS>, view: &View<GS>) -> Node {
                 title: "Info".into(),
                 description: Some("Desc".into()),
             }
-            .build(ctx, view),
+            .into(),
             Alert {
                 kind: AlertKind::Success,
                 title: "Success".into(),
                 description: None,
             }
-            .build(ctx, view),
+            .into(),
             Alert {
                 kind: AlertKind::Warning,
                 title: "Warning".into(),
                 description: None,
             }
-            .build(ctx, view),
+            .into(),
             Alert {
                 kind: AlertKind::Error,
                 title: "Error".into(),
                 description: None,
             }
-            .build(ctx, view),
-            ProgressBar { value: 0.65 }.build(ctx, view),
+            .into(),
+            ProgressBar { value: 0.65 }.into(),
             Spinner {
-                id: WidgetNodeId::explicit("sp"),
+                id: WidgetId::explicit("sp"),
                 color: None,
                 animated: true,
             }
-            .build(ctx, view),
+            .into(),
             CircularProgress {
                 value: Some(0.7),
                 size: 40.0,
                 ..Default::default()
             }
-            .build(ctx, view),
+            .into(),
             Skeleton {
-                id: WidgetNodeId::explicit("sk"),
+                id: WidgetId::explicit("sk"),
                 width: Some(120.0),
                 height: Some(20.0),
                 circle: false,
                 animated: true,
             }
-            .build(ctx, view),
+            .into(),
             EmptyState {
                 icon: None,
                 title: "Empty".into(),
                 description: Some("Nothing here".into()),
                 action: None,
             }
-            .build(ctx, view),
+            .into(),
         ],
     );
 
@@ -208,18 +205,18 @@ fn build_all_widgets(ctx: &mut BuildCtx<GS>, view: &View<GS>) -> Node {
                 items: vec![
                     TabItem {
                         title: "A".into(),
-                        content: Text::new("A content").into_node(),
+                        content: Text::new("A content").into(),
                         on_press: None,
                     },
                     TabItem {
                         title: "B".into(),
-                        content: Text::new("B content").into_node(),
+                        content: Text::new("B content").into(),
                         on_press: None,
                     },
                 ],
                 ..Default::default()
             }
-            .build(ctx, view),
+            .into(),
             Breadcrumb {
                 items: vec![
                     BreadcrumbItem {
@@ -232,18 +229,18 @@ fn build_all_widgets(ctx: &mut BuildCtx<GS>, view: &View<GS>) -> Node {
                     },
                 ],
             }
-            .build(ctx, view),
+            .into(),
             Pagination {
                 current_page: 3,
                 total_pages: 10,
                 on_change: None,
             }
-            .build(ctx, view),
+            .into(),
             Link {
                 text: "Click me".into(),
                 on_click: None,
             }
-            .build(ctx, view),
+            .into(),
         ],
     );
 
@@ -251,32 +248,32 @@ fn build_all_widgets(ctx: &mut BuildCtx<GS>, view: &View<GS>) -> Node {
         "Data",
         vec![
             Card {
-                child: Box::new(Text::new("Card content").into_node()),
+                child: Text::new("Card content").into(),
                 ..Default::default()
             }
-            .build(ctx, view),
+            .into(),
             Accordion {
                 items: vec![
                     AccordionItem {
                         title: "Sec 1".into(),
-                        content: Text::new("Content 1").into_node(),
+                        content: Text::new("Content 1").into(),
                         is_expanded: true,
                         on_toggle: None,
                     },
                     AccordionItem {
                         title: "Sec 2".into(),
-                        content: Text::new("Content 2").into_node(),
+                        content: Text::new("Content 2").into(),
                         is_expanded: false,
                         on_toggle: None,
                     },
                 ],
             }
-            .build(ctx, view),
+            .into(),
             Stepper {
                 steps: vec!["A".into(), "B".into(), "C".into()],
                 active_index: 1,
             }
-            .build(ctx, view),
+            .into(),
             Timeline {
                 items: vec![
                     TimelineItem {
@@ -291,7 +288,7 @@ fn build_all_widgets(ctx: &mut BuildCtx<GS>, view: &View<GS>) -> Node {
                     },
                 ],
             }
-            .build(ctx, view),
+            .into(),
             TreeView {
                 items: vec![TreeItem {
                     id: "root".into(),
@@ -315,7 +312,7 @@ fn build_all_widgets(ctx: &mut BuildCtx<GS>, view: &View<GS>) -> Node {
                 },
                 selected_id: None,
             }
-            .build(ctx, view),
+            .into(),
         ],
     );
 
@@ -323,14 +320,14 @@ fn build_all_widgets(ctx: &mut BuildCtx<GS>, view: &View<GS>) -> Node {
         "Overlays",
         vec![
             Tooltip {
-                id: WidgetNodeId::explicit("tt"),
-                child: Box::new(Text::new("Hover").into_node()),
+                id: WidgetId::explicit("tt"),
+                child: Text::new("Hover").into(),
                 text: "Tip".into(),
                 is_visible: false,
             }
-            .build(ctx, view),
+            .into(),
             Select {
-                id: WidgetNodeId::explicit("sel"),
+                id: WidgetId::explicit("sel"),
                 selected_label: Some("Opt A".into()),
                 items: vec![],
                 is_open: false,
@@ -338,9 +335,9 @@ fn build_all_widgets(ctx: &mut BuildCtx<GS>, view: &View<GS>) -> Node {
                 placeholder: "Select".into(),
                 width: Some(200.0),
             }
-            .build(ctx, view),
+            .into(),
             MenuButton {
-                id: WidgetNodeId::explicit("mb"),
+                id: WidgetId::explicit("mb"),
                 label: "Menu".into(),
                 items: vec![MenuItem {
                     label: "Edit".into(),
@@ -350,14 +347,14 @@ fn build_all_widgets(ctx: &mut BuildCtx<GS>, view: &View<GS>) -> Node {
                 is_open: false,
                 on_toggle: None,
             }
-            .build(ctx, view),
+            .into(),
         ],
     );
 
-    let all = VStack {
+    let all: Widget = VStack {
         spacing: Some(16.0),
         children: vec![
-            Text::new("Fission Widget Gallery").size(28.0).into_node(),
+            Text::new("Fission Widget Gallery").size(28.0).into(),
             display,
             input,
             feedback,
@@ -366,31 +363,27 @@ fn build_all_widgets(ctx: &mut BuildCtx<GS>, view: &View<GS>) -> Node {
             overlays,
         ],
     }
-    .into_node();
+    .into();
 
     Scroll {
         direction: FlexDirection::Column,
-        child: Some(Box::new(
-            Container::new(all)
-                .padding_all(24.0)
-                .flex_grow(1.0)
-                .into_node(),
-        )),
+        child: Some(Container::new(all).padding_all(24.0).flex_grow(1.0).into()),
         show_scrollbar: true,
         flex_grow: 1.0,
         flex_shrink: 1.0,
         ..Default::default()
     }
-    .into_node()
+    .into()
 }
 
+#[derive(Clone)]
 struct GalleryWidget;
-impl Widget<GS> for GalleryWidget {
-    fn build(&self, ctx: &mut BuildCtx<GS>, view: &View<GS>) -> Node {
+impl From<GalleryWidget> for Widget {
+    fn from(_component: GalleryWidget) -> Self {
+        let (ctx, view) = fission::build::current::<GS>();
         build_all_widgets(ctx, view)
     }
 }
-
 #[test]
 fn all_widgets_render_without_panic() {
     let mut harness = TestHarness::<GS>::new(GS).with_root_widget(GalleryWidget);

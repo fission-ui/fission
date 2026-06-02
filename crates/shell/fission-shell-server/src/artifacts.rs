@@ -407,20 +407,20 @@ mod tests {
         FissionServerApp, ProgressiveWorker, ServerRenderPolicy, WasmIsland, WebRouteMode,
     };
     use fission_core::ui::Text;
-    use fission_core::{AppState, BuildCtx, Node, View, Widget};
+    use fission_core::{GlobalState, Widget};
 
     #[derive(Debug, Default)]
     struct State;
-    impl AppState for State {}
+    impl GlobalState for State {}
 
     #[derive(Clone)]
     struct Page;
-    impl Widget<State> for Page {
-        fn build(&self, _ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
-            Text::new("artifact page").into_node()
+    impl From<Page> for Widget {
+        fn from(_component: Page) -> Self {
+            let (_ctx, _view) = fission_core::build::current::<State>();
+            Text::new("artifact page").into()
         }
     }
-
     #[test]
     fn writes_one_shim_per_worker_and_island() {
         let root = std::env::temp_dir().join(format!("fission-artifacts-{}", std::process::id()));

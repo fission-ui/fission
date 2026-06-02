@@ -1,66 +1,58 @@
 use fission::prelude::*;
 
-#[derive(Default, Debug, Clone, PartialEq)]
-struct CounterState {
+#[fission_component]
+#[derive(Clone)]
+struct CounterApp {
+    #[local_state(default = 0)]
     count: i32,
 }
 
-impl AppState for CounterState {}
-
 #[fission_reducer(Increment)]
-fn increment(state: &mut CounterState) {
-    state.count += 1;
+fn increment(count: &mut i32) {
+    *count += 1;
 }
 
 #[fission_reducer(Decrement)]
-fn decrement(state: &mut CounterState) {
-    state.count -= 1;
+fn decrement(count: &mut i32) {
+    *count -= 1;
 }
 
-struct CounterApp;
+impl From<CounterApp> for Widget {
+    fn from(counter: CounterApp) -> Self {
+        let (ctx, _) = fission::build::current::<()>();
+        let count = counter.count();
+        let decrement = ctx.bind_local(Decrement, count.clone(), reduce!(decrement));
+        let increment = ctx.bind_local(Increment, count.clone(), reduce!(increment));
 
-impl Widget<CounterState> for CounterApp {
-    fn build(&self, ctx: &mut BuildCtx<CounterState>, view: &View<CounterState>) -> Node {
-        let decrement = with_reducer!(ctx, Decrement, decrement);
-        let increment = with_reducer!(ctx, Increment, increment);
-
-        Container::new(
-            Column {
-                gap: Some(20.0),
-                children: vec![
-                    Text::new("Counter").size(32.0).into_node(),
-                    Text::new(format!("{}", view.state.count))
-                        .size(56.0)
-                        .into_node(),
-                    Row {
-                        gap: Some(12.0),
-                        children: vec![
-                            Button {
-                                on_press: Some(decrement),
-                                child: Some(Box::new(Text::new("Decrement").into_node())),
-                                ..Default::default()
-                            }
-                            .into_node(),
-                            Button {
-                                on_press: Some(increment),
-                                child: Some(Box::new(Text::new("Increment").into_node())),
-                                ..Default::default()
-                            }
-                            .into_node(),
-                        ],
-                        ..Default::default()
-                    }
-                    .into_node(),
-                ],
-                ..Default::default()
-            }
-            .into_node(),
-        )
+        Container::new(Column {
+            gap: Some(20.0),
+            children: widgets![
+                Text::new("Counter").size(32.0),
+                Text::new(format!("{}", count.get())).size(56.0),
+                Row {
+                    gap: Some(12.0),
+                    children: widgets![
+                        Button {
+                            on_press: Some(decrement),
+                            child: Some(Text::new("Decrement").into()),
+                            ..Default::default()
+                        },
+                        Button {
+                            on_press: Some(increment),
+                            child: Some(Text::new("Increment").into()),
+                            ..Default::default()
+                        },
+                    ],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        })
         .padding_all(32.0)
-        .into_node()
+        .into()
     }
 }
 
 fn main() -> anyhow::Result<()> {
-    DesktopApp::new(CounterApp).run()
+    DesktopApp::<(), _>::new(CounterApp {}).run()
 }

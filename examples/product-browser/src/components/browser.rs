@@ -11,15 +11,13 @@ use crate::model::{
 use fission::core::ResourceKey;
 use fission::prelude::*;
 
+#[derive(Clone)]
 pub struct ProductBrowserApp;
 
-impl Widget<ProductBrowserState> for ProductBrowserApp {
-    fn build(
-        &self,
-        ctx: &mut BuildCtx<ProductBrowserState>,
-        view: &View<ProductBrowserState>,
-    ) -> Node {
-        let tokens = &view.env.theme.tokens;
+impl From<ProductBrowserApp> for Widget {
+    fn from(_component: ProductBrowserApp) -> Self {
+        let (ctx, view) = fission::build::current::<ProductBrowserState>();
+        let tokens = &view.env().theme.tokens;
         let viewport = view.viewport_size();
         let wide = viewport.width >= 980.0;
         let grid = viewport.width >= 760.0;
@@ -34,63 +32,63 @@ impl Widget<ProductBrowserState> for ProductBrowserApp {
         let pull_canceled = with_reducer!(ctx, PullCanceled, on_pull_canceled);
         let refresh_products = with_reducer!(ctx, RefreshProducts, on_refresh_products);
 
-        let products_request = view.state.product_request();
-        let categories_request = view.state.categories_request();
-        let product_snapshot = view.state.products.clone();
-        let category_snapshot = view.state.categories.clone();
-        let selected_product = view.state.selected_product();
+        let products_request = view.state().product_request();
+        let categories_request = view.state().categories_request();
+        let product_snapshot = view.state().products.clone();
+        let category_snapshot = view.state().categories.clone();
+        let selected_product = view.state().selected_product();
 
-        let category_node = FutureBuilder::new(
+        let category_node = FutureBuilder::<ProductBrowserState, _>::new(
             ResourceKey::new("product-browser.categories"),
             CATEGORIES_JOB,
             categories_request.clone(),
-            category_snapshot,
-            |ctx, view, snapshot| {
+            category_snapshot.clone(),
+            |_, _, snapshot| {
                 CategoryRail {
                     snapshot: snapshot.clone(),
                 }
-                .build(ctx, view)
+                .into()
             },
         )
         .deps(categories_request)
         .on_ok(categories_loaded)
         .on_err(categories_failed)
-        .build(ctx, view);
+        .into();
 
-        let product_node = FutureBuilder::new(
+        let product_node: Widget = FutureBuilder::<ProductBrowserState, _>::new(
             ResourceKey::new("product-browser.products"),
             PRODUCTS_JOB,
             products_request.clone(),
-            product_snapshot,
-            move |ctx, view, snapshot| {
+            product_snapshot.clone(),
+            move |_, _, snapshot| {
                 ProductResults {
                     snapshot: snapshot.clone(),
                     use_grid: grid,
                 }
-                .build(ctx, view)
+                .into()
             },
         )
         .deps(products_request)
         .on_ok(products_loaded)
         .on_err(products_failed)
-        .build(ctx, view);
+        .into();
 
-        let refreshed_products = RefreshIndicator::new(product_node)
-            .id(WidgetNodeId::explicit("product-browser.refresh"))
-            .status(view.state.refresh_status)
-            .pulled_extent(view.state.pulled_extent)
+        let refreshed_products: Widget = RefreshIndicator::new(product_node)
+            .status(view.state().refresh_status)
+            .pulled_extent(view.state().pulled_extent)
             .trigger_distance(80.0)
             .displacement(64.0)
             .on_pull_start(pull_started)
             .on_pull_update(pull_updated)
             .on_pull_cancel(pull_canceled)
             .on_refresh(refresh_products)
-            .build(ctx, view);
+            .id(WidgetId::explicit("product-browser.refresh"))
+            .into();
 
         let product_area = Container::new(refreshed_products)
             .flex_grow(1.0)
             .bg(tokens.colors.background)
-            .into_node();
+            .into();
 
         let content = if wide {
             let detail_panel = Column {
@@ -99,16 +97,16 @@ impl Widget<ProductBrowserState> for ProductBrowserApp {
                     ProductDetail {
                         product: selected_product.clone(),
                     }
-                    .build(ctx, view),
+                    .into(),
                     Spacer {
                         flex_grow: 1.0,
                         ..Default::default()
                     }
-                    .into_node(),
+                    .into(),
                 ],
                 ..Default::default()
             }
-            .into_node();
+            .into();
 
             Row {
                 gap: Some(18.0),
@@ -117,7 +115,7 @@ impl Widget<ProductBrowserState> for ProductBrowserApp {
                 children: vec![category_node, product_area, detail_panel],
                 ..Default::default()
             }
-            .into_node()
+            .into()
         } else {
             Column {
                 gap: Some(16.0),
@@ -128,46 +126,39 @@ impl Widget<ProductBrowserState> for ProductBrowserApp {
                     ProductDetail {
                         product: selected_product,
                     }
-                    .build(ctx, view),
+                    .into(),
                 ],
                 ..Default::default()
             }
-            .into_node()
+            .into()
         };
 
-        Container::new(
-            Column {
-                gap: Some(18.0),
-                children: vec![
-                    Header {
-                        on_search: search_changed,
-                    }
-                    .build(ctx, view),
-                    content,
-                ],
-                ..Default::default()
-            }
-            .into_node(),
-        )
+        Container::new(Column {
+            gap: Some(18.0),
+            children: vec![
+                Header {
+                    on_search: search_changed,
+                }
+                .into(),
+                content,
+            ],
+            ..Default::default()
+        })
         .height(viewport.height.max(1.0))
         .padding_all(24.0)
         .bg(tokens.colors.background)
-        .into_node()
+        .into()
     }
 }
-
 struct Header {
     on_search: ActionEnvelope,
 }
 
-impl Widget<ProductBrowserState> for Header {
-    fn build(
-        &self,
-        _ctx: &mut BuildCtx<ProductBrowserState>,
-        view: &View<ProductBrowserState>,
-    ) -> Node {
-        let tokens = &view.env.theme.tokens;
-        let summary = match view.state.products.data() {
+impl From<Header> for Widget {
+    fn from(component: Header) -> Self {
+        let (_ctx, view) = fission::build::current::<ProductBrowserState>();
+        let tokens = &view.env().theme.tokens;
+        let summary = match view.state().products.data() {
             Some(page) if page.total > page.products.len() as u32 => {
                 format!(
                     "{} shown from {} matching products",
@@ -176,7 +167,7 @@ impl Widget<ProductBrowserState> for Header {
                 )
             }
             Some(page) => format!("{} products shown", page.products.len()),
-            None if view.state.products.has_error() => "Product service unavailable".to_string(),
+            None if view.state().products.has_error() => "Product service unavailable".to_string(),
             None => "Loading product catalog".to_string(),
         };
         let title = Column {
@@ -187,21 +178,21 @@ impl Widget<ProductBrowserState> for Header {
                     .line_height(42.0)
                     .weight(800)
                     .color(tokens.colors.text_primary)
-                    .into_node(),
+                    .into(),
                 Text::new(summary)
                     .size(14.0)
                     .line_height(20.0)
                     .color(tokens.colors.text_secondary)
-                    .into_node(),
+                    .into(),
             ],
             ..Default::default()
         }
-        .into_node();
+        .into();
 
         let search = TextInput {
-            value: view.state.query.clone(),
+            value: view.state().query.clone(),
             placeholder: Some("Search products".into()),
-            on_change: Some(self.on_search.clone()),
+            on_change: Some(component.on_search.clone()),
             width: Some(if view.viewport_size().width >= 720.0 {
                 320.0
             } else {
@@ -209,7 +200,7 @@ impl Widget<ProductBrowserState> for Header {
             }),
             ..Default::default()
         }
-        .into_node();
+        .into();
 
         if view.viewport_size().width >= 720.0 {
             Row {
@@ -220,19 +211,19 @@ impl Widget<ProductBrowserState> for Header {
                         flex_grow: 1.0,
                         ..Default::default()
                     }
-                    .into_node(),
+                    .into(),
                     search,
                 ],
                 ..Default::default()
             }
-            .into_node()
+            .into()
         } else {
             Column {
                 gap: Some(14.0),
                 children: vec![title, search],
                 ..Default::default()
             }
-            .into_node()
+            .into()
         }
     }
 }

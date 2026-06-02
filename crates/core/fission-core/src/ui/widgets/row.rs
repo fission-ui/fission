@@ -1,6 +1,8 @@
-use crate::{Lower, LoweringContext, Node, NodeBuilder};
+use crate::internal::InternalLower;
+use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::Widget;
 use fission_ir::op::{AlignItems, FlexWrap, JustifyContent};
-use fission_ir::{FlexDirection, LayoutOp, NodeId, Op, Semantics};
+use fission_ir::{FlexDirection, LayoutOp, Op, Semantics, WidgetId};
 use serde::{Deserialize, Serialize};
 
 /// A horizontal flex container that lays out children in a row.
@@ -14,8 +16,8 @@ use serde::{Deserialize, Serialize};
 /// ```rust,ignore
 /// Row {
 ///     children: vec![
-///         Icon::path("M12 2L2 22h20L12 2z").into_node().into(),
-///         Text::new("Warning").into_node().into(),
+///         Icon::path("M12 2L2 22h20L12 2z").into(),
+///         Text::new("Warning").into(),
 ///     ],
 ///     gap: Some(8.0),
 ///     align_items: AlignItems::Center,
@@ -26,9 +28,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Row {
     /// Explicit node identity.
-    pub id: Option<NodeId>,
+    pub id: Option<WidgetId>,
     /// The child widgets laid out left-to-right.
-    pub children: Vec<Node>,
+    pub children: Vec<Widget>,
     /// Custom semantics for accessibility.
     pub semantics: Option<Semantics>,
     /// Flex grow factor.
@@ -62,7 +64,7 @@ impl Default for Row {
 }
 
 impl Row {
-    pub fn children(mut self, children: Vec<Node>) -> Self {
+    pub fn children(mut self, children: Vec<Widget>) -> Self {
         self.children = children;
         self
     }
@@ -86,19 +88,15 @@ impl Row {
         self.justify_content = justify;
         self
     }
-
-    pub fn into_node(self) -> Node {
-        Node::Row(self)
-    }
 }
 
-impl Lower for Row {
-    fn lower(&self, cx: &mut LoweringContext) -> NodeId {
-        let layout_id = self.id.unwrap_or_else(|| cx.next_node_id());
+impl InternalLower for Row {
+    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+        let layout_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
 
         cx.push_scope(layout_id);
 
-        let mut builder = NodeBuilder::new(
+        let mut builder = InternalIrBuilder::new(
             layout_id,
             Op::Layout(LayoutOp::Flex {
                 direction: FlexDirection::Row,
@@ -121,7 +119,7 @@ impl Lower for Row {
 
         if let Some(s) = &self.semantics {
             let mut semantics_builder =
-                NodeBuilder::new(cx.next_node_id(), Op::Semantics(s.clone()));
+                InternalIrBuilder::new(cx.next_node_id(), Op::Semantics(s.clone()));
             semantics_builder.add_child(layout_id);
             return semantics_builder.build(cx);
         }

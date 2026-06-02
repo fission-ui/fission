@@ -7,9 +7,8 @@ use crate::{
     SignedServerAction, VerifiedServerAction, WebRoute, WebRouteMode,
 };
 use anyhow::{anyhow, Context, Result};
-use fission_core::{
-    ActionEnvelope, ActionId, Env, LoweringContext, RuntimeResourceDeclaration, RuntimeState,
-};
+use fission_core::internal::InternalLoweringCx;
+use fission_core::{ActionEnvelope, ActionId, Env, RuntimeResourceDeclaration, RuntimeState};
 use fission_ir::{semantics::ActionTrigger, CoreIR, Op};
 use fission_layout::LayoutSize;
 use fission_shell_site::{
@@ -356,8 +355,8 @@ impl ServerRenderer {
         let mut env = Env::default();
         env.theme = self.app.theme.clone();
         env.viewport_size = self.viewport_size;
-        let mut lowering = LoweringContext::new(&env, &runtime, None, None);
-        let root = node.lower(&mut lowering);
+        let mut lowering = InternalLoweringCx::new(&env, &runtime, None, None);
+        let root = fission_core::internal::lower_widget(&node, &mut lowering);
         lowering.ir.set_root(root);
 
         let mut styles = StyleRegistry::default();
@@ -1042,7 +1041,7 @@ fn collect_server_action_tokens(
     route_path: &str,
     signer: &ServerActionSigner,
     ttl: Duration,
-) -> Result<BTreeMap<(fission_ir::NodeId, u128), String>> {
+) -> Result<BTreeMap<(fission_ir::WidgetId, u128), String>> {
     let mut tokens = BTreeMap::new();
     for node in ir.nodes.values() {
         let Op::Semantics(semantics) = &node.op else {
@@ -1131,8 +1130,8 @@ mod tests {
     };
     use fission_core::ui::{Button, Text};
     use fission_core::{
-        Action, ActionId, AppState, BuildCtx, Handler, JobRef, JobResource, JobSpec, Node,
-        ReducerContext, ResourceKey, View, Widget,
+        Action, ActionId, GlobalState, Handler, JobRef, JobResource, JobSpec, ReducerContext,
+        ResourceKey, Widget,
     };
     use serde::{Deserialize, Serialize};
     use std::fs;
@@ -1143,31 +1142,31 @@ mod tests {
 
     #[derive(Debug, Default)]
     struct TestState;
-    impl AppState for TestState {}
+    impl GlobalState for TestState {}
 
     #[derive(Clone)]
     struct TestPage(&'static str);
 
-    impl Widget<TestState> for TestPage {
-        fn build(&self, _ctx: &mut BuildCtx<TestState>, _view: &View<TestState>) -> Node {
-            Text::new(self.0).into_node()
+    impl From<TestPage> for Widget {
+        fn from(component: TestPage) -> Self {
+            let (_ctx, _view) = fission_core::build::current::<TestState>();
+            Text::new(component.0).into()
         }
     }
-
     #[derive(Clone)]
     struct TestActionPage;
 
-    impl Widget<TestState> for TestActionPage {
-        fn build(&self, _ctx: &mut BuildCtx<TestState>, _view: &View<TestState>) -> Node {
+    impl From<TestActionPage> for Widget {
+        fn from(_component: TestActionPage) -> Self {
+            let (_ctx, _view) = fission_core::build::current::<TestState>();
             Button {
-                child: Some(Box::new(Text::new("Run action").into_node())),
+                child: Some(Text::new("Run action").into()),
                 on_press: Some(ActionEnvelope::from(TestAction)),
                 ..Default::default()
             }
-            .into_node()
+            .into()
         }
     }
-
     #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
     struct TestAction;
 
@@ -1731,17 +1730,19 @@ same_site = "none"
     #[derive(Clone)]
     struct MissingJobPage;
 
-    impl Widget<TestState> for MissingJobPage {
-        fn build(&self, ctx: &mut BuildCtx<TestState>, _view: &View<TestState>) -> Node {
-            ctx.resources.job(JobResource::new(
-                ResourceKey::new("missing-job"),
-                MISSING_JOB,
-                MissingJobRequest,
-            ));
-            Text::new("Missing job").into_node()
+    impl From<MissingJobPage> for Widget {
+        fn from(_component: MissingJobPage) -> Self {
+            let (ctx, _) = fission_core::build::current::<TestState>();
+            ctx.with_resources(|resources| {
+                resources.job(JobResource::new(
+                    ResourceKey::new("missing-job"),
+                    MISSING_JOB,
+                    MissingJobRequest,
+                ));
+            });
+            Text::new("Missing job").into()
         }
     }
-
     #[test]
     fn server_rendering_rejects_unregistered_jobs_instead_of_silently_skipping_them() {
         let renderer = ServerRenderer::new(
@@ -1762,7 +1763,7 @@ same_site = "none"
         count: u32,
     }
 
-    impl AppState for LoopState {}
+    impl GlobalState for LoopState {}
 
     #[derive(Debug)]
     struct LoopJob;
@@ -1802,24 +1803,26 @@ same_site = "none"
     #[derive(Clone)]
     struct LoopPage;
 
-    impl Widget<LoopState> for LoopPage {
-        fn build(&self, ctx: &mut BuildCtx<LoopState>, view: &View<LoopState>) -> Node {
+    impl From<LoopPage> for Widget {
+        fn from(_component: LoopPage) -> Self {
+            let (ctx, view) = fission_core::build::current::<LoopState>();
             let on_ok = ctx.bind(LoopLoaded, on_loop_loaded as Handler<LoopState, LoopLoaded>);
-            ctx.resources.job(
-                JobResource::new(
-                    ResourceKey::new("loop-job"),
-                    LOOP_JOB,
-                    LoopJobRequest {
-                        count: view.state.count,
-                    },
-                )
-                .deps(view.state.count)
-                .on_ok(on_ok),
-            );
-            Text::new(format!("loop {}", view.state.count)).into_node()
+            ctx.with_resources(|resources| {
+                resources.job(
+                    JobResource::new(
+                        ResourceKey::new("loop-job"),
+                        LOOP_JOB,
+                        LoopJobRequest {
+                            count: view.state().count,
+                        },
+                    )
+                    .deps(view.state().count)
+                    .on_ok(on_ok),
+                );
+            });
+            Text::new(format!("loop {}", view.state().count)).into()
         }
     }
-
     #[test]
     fn server_rendering_fails_when_job_drain_exceeds_pass_limit() {
         let app = FissionServerApp::new("Test")

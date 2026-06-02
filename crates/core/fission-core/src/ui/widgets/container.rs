@@ -1,9 +1,9 @@
-use crate::lowering::{LoweringContext, NodeBuilder};
-use crate::ui::traits::Lower;
-use crate::ui::Node;
+use crate::internal::InternalLower;
+use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::ui::Widget;
 use fission_ir::{
     op::{BoxShadow, Color, Fill, LayoutOp, Op, PaintOp, Stroke},
-    NodeId,
+    WidgetId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 /// # Example
 ///
 /// ```rust,ignore
-/// Container::new(Text::new("Card body").into_node())
+/// Container::new(Text::new("Card body"))
 ///     .bg(theme.tokens.colors.surface)
 ///     .border(theme.tokens.colors.border, 1.0)
 ///     .border_radius(8.0)
@@ -27,9 +27,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Container {
     /// Explicit node identity.
-    pub id: Option<NodeId>,
+    pub id: Option<WidgetId>,
     /// The single child widget.
-    pub child: Option<Box<Node>>,
+    pub child: Option<Widget>,
 
     // -- Layout constraints --
     /// Fixed width in layout points.
@@ -93,16 +93,11 @@ impl Default for Container {
     }
 }
 impl Container {
-    pub fn new(child: Node) -> Self {
+    pub fn new(child: impl Into<Widget>) -> Self {
         Self {
-            child: Some(Box::new(child)),
+            child: Some(child.into()),
             ..Default::default()
         }
-    }
-
-    pub fn id(mut self, id: NodeId) -> Self {
-        self.id = Some(id);
-        self
     }
 
     pub fn size(mut self, w: f32, h: f32) -> Self {
@@ -193,15 +188,11 @@ impl Container {
         self.shadows = shadows;
         self
     }
-
-    pub fn into_node(self) -> Node {
-        Node::Container(self)
-    }
 }
 
-impl Lower for Container {
-    fn lower(&self, cx: &mut LoweringContext) -> NodeId {
-        let id = self.id.unwrap_or_else(|| cx.next_node_id());
+impl InternalLower for Container {
+    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+        let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         cx.push_scope(id);
 
         let mut children_ids = Vec::new();
@@ -214,7 +205,7 @@ impl Lower for Container {
             || !self.shadows.is_empty()
         {
             for shadow in &self.shadows {
-                let paint = NodeBuilder::new(
+                let paint = InternalIrBuilder::new(
                     cx.next_node_id(),
                     Op::Paint(PaintOp::DrawRect {
                         fill: None,
@@ -226,7 +217,7 @@ impl Lower for Container {
                 .build(cx);
                 children_ids.push(paint);
             }
-            let paint = NodeBuilder::new(
+            let paint = InternalIrBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRect {
                     fill: self
@@ -255,7 +246,7 @@ impl Lower for Container {
 
         cx.pop_scope();
 
-        let mut layout = NodeBuilder::new(
+        let mut layout = InternalIrBuilder::new(
             id,
             Op::Layout(LayoutOp::Box {
                 width: self.width,

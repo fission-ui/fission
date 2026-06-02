@@ -22,14 +22,14 @@ The chart family is still ordinary Fission UI. Each variant is constructed from 
 | [3D cluster scatter](./scene3d-scatter-clusters) | Spheres positioned in 3D space. | Use it for spatial point clusters. |
 | [3D globe coverage](./scene3d-globe-coverage) | Globe primitive with highlighted locations. | Use it for coverage and status over a globe. |
 | [3D globe status](./scene3d-globe-status) | Globe sphere with visible markers. | Use it when global context matters. |
-| [3D graph](./graph3d-basic) | Node positions and values lowered into Scene3D primitives. | Use it when topology benefits from depth or when the graph is part of a 3D product surface. |
+| [3D graph](./graph3d-basic) | Vertex positions and values lowered into Scene3D primitives. | Use it when topology benefits from depth or when the graph is part of a 3D product surface. |
 | [3D grid bars](./bar3d-grid) | Scene3D mesh cuboids. | Use it when depth and grouping are part of the data. |
 | [3D grid bars](./scene3d-bar-grid) | Grid of cuboids in a native 3D scene. | Use it for spatial bar comparisons. |
 | [3D line](./line3d-basic) | Ordered 3D positions lowered into Scene3D primitives. | Use it for paths, movement, and ordered spatial traces. |
 | [3D line path](./scene3d-line-path) | Spheres and segment meshes forming a path. | Use it for trajectories and movement. |
 | [3D mesh field](./scene3d-mesh-field) | Mesh surface primitive. | Use it for custom mesh data. |
 | [3D network](./graph3d-network) | Scene3D nodes and segment meshes. | Use it for topology in depth. |
-| [3D network scene](./scene3d-network) | Node spheres connected by segment meshes. | Use it for spatial network views. |
+| [3D network scene](./scene3d-network) | Vertex spheres connected by segment meshes. | Use it for spatial network views. |
 | [3D operations bars](./scene3d-operations-bars) | 3D bars over an operational grid. | Use it when spatial placement helps compare operational metrics. |
 | [3D outlier scatter](./scene3d-scatter-outliers) | 3D points with varied position and radius. | Use it to show outliers in a point cloud. |
 | [3D response surface](./scene3d-surface-response) | Mesh vertices and indices forming a surface. | Use it for continuous spatial fields. |
@@ -64,3 +64,37 @@ The chart family is still ordinary Fission UI. Each variant is constructed from 
 ## Choosing within this family
 
 Start with the user's question, not the visual effect. Pick the simplest variant that makes the answer clear, add interaction only when it reduces work for the user, and keep animation purposeful enough that it explains a change rather than decorating the page.
+
+## Authoring from a Fission component
+
+Use this reference page as the chart expression inside ordinary Fission component conversion. The chart is a `Widget`, so it can sit inside a `Card`, `Grid`, `Scroll`, responsive page section, or any other layout container.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, LineSeries};
+
+pub struct Fission3DAndGLChart;
+
+impl From<Fission3DAndGLChart> for Widget {
+    fn from(_: Fission3DAndGLChart) -> Widget {
+        Chart::new()
+            .title("3D and GL")
+            .x_axis(Axis::category(vec!["A", "B", "C"]))
+            .y_axis(Axis::value())
+            .series(vec![LineSeries::new("Series").data(vec![1.0, 2.0, 3.0]).into()])
+            .into()
+    }
+}
+```
+
+Keep expensive data loading outside component conversion. A reducer, job, service, or server route should prepare the typed chart data, then the component should read that state and construct the chart deterministically.
+
+## Options, accessibility, and diagnostics
+
+| Area | What to decide | How to verify |
+| --- | --- | --- |
+| Data shape | Keep source rows in typed Rust structs, then map them into the series type shown in the example. | Unit test the mapping separately from rendering. |
+| Options | Choose axes, legends, labels, animation, and interaction based on the user's task. | Add a screenshot test when changing visual behavior. |
+| Accessibility | Provide a clear title and adjacent summary text for important trends or outliers. | Inspect the generated semantics and make sure the chart is understandable without color alone. |
+| Failure handling | Render an empty, loading, or error state before constructing the chart if data is unavailable. | Test empty data, partial data, and failed fetches. |
+| Performance | Prefer summarized or windowed data for very large datasets; keep full raw history in the data layer. | Profile frame time and interaction latency with representative data volumes. |

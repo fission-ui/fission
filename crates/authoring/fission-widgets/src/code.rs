@@ -1,6 +1,5 @@
 use fission_core::op::Color;
-use fission_core::ui::{Container, Node, Text};
-use fission_core::{BuildCtx, View, Widget};
+use fission_core::ui::{Container, Text, Widget};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -8,14 +7,16 @@ pub struct Code {
     pub text: String,
 }
 
-impl<S: fission_core::AppState> Widget<S> for Code {
-    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let tokens = &view.env.theme.tokens;
+impl From<Code> for Widget {
+    fn from(component: Code) -> Self {
+        let (_, view) = fission_core::build::current::<()>();
+        let this = &component;
+
+        let tokens = &view.env().theme.tokens;
         Container::new(
-            Text::new(self.text.clone())
+            Text::new(this.text.clone())
                 .size(12.0) // Monospace usually smaller?
-                .color(tokens.colors.text_primary)
-                .into_node(),
+                .color(tokens.colors.text_primary),
         )
         .bg(Color {
             r: 240,
@@ -25,7 +26,7 @@ impl<S: fission_core::AppState> Widget<S> for Code {
         })
         .padding_all(2.0)
         .border_radius(4.0)
-        .into_node()
+        .into()
     }
 }
 
@@ -34,14 +35,16 @@ pub struct Kbd {
     pub text: String,
 }
 
-impl<S: fission_core::AppState> Widget<S> for Kbd {
-    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let tokens = &view.env.theme.tokens;
+impl From<Kbd> for Widget {
+    fn from(component: Kbd) -> Self {
+        let (_, view) = fission_core::build::current::<()>();
+        let this = &component;
+
+        let tokens = &view.env().theme.tokens;
         Container::new(
-            Text::new(self.text.clone())
+            Text::new(this.text.clone())
                 .size(12.0)
-                .color(tokens.colors.text_primary)
-                .into_node(),
+                .color(tokens.colors.text_primary),
         )
         .bg(Color {
             r: 245,
@@ -60,6 +63,6 @@ impl<S: fission_core::AppState> Widget<S> for Kbd {
         )
         .border_radius(4.0)
         .padding_all(4.0)
-        .into_node()
+        .into()
     }
 }

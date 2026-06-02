@@ -1,9 +1,10 @@
+use fission_core::internal::BuildCtx;
 use fission_core::runtime::Runtime;
 use fission_core::ui::widgets::button::Button;
-use fission_core::ui::Container;
+use fission_core::ui::{Container, Widget};
 use fission_core::{
-    reduce_with, Action, ActionEnvelope, ActionId, AppState, BuildCtx, LayoutEngine,
-    ReducerContext, View, Widget,
+    build, reduce_with, Action, ActionEnvelope, ActionId, GlobalState, LayoutEngine,
+    ReducerContext, View,
 };
 use fission_widgets::draggable::{DragTarget, Draggable};
 use fission_widgets::VStack;
@@ -13,7 +14,7 @@ use serde::{Deserialize, Serialize};
 struct TestState {
     dropped_data: Option<String>,
 }
-impl AppState for TestState {}
+impl GlobalState for TestState {}
 
 #[fission_macros::fission_action]
 struct OnDrop;
@@ -35,7 +36,7 @@ fn test_internal_drag_drop_flow() {
     registry.register(reduce_with!(handle_drop));
     runtime.absorb_registry(registry);
 
-    // Pass 1: Lower and Layout
+    // Pass 1: InternalLower and Layout
     let env = fission_core::Env::default();
 
     // Build tree manually
@@ -43,50 +44,51 @@ fn test_internal_drag_drop_flow() {
     let state = TestState::default();
     let view = View::new(&state, &runtime.runtime_state, &env, None);
 
-    let root = VStack {
+    let root: Widget = VStack {
         spacing: Some(10.0),
         children: vec![
-            Draggable {
-                payload: "hello".as_bytes().to_vec(),
-                on_drag_start: None,
-                on_drag_end: None,
-                child: Box::new(
-                    Button {
+            build::enter(&mut build_ctx, &view, || {
+                Draggable {
+                    payload: "hello".as_bytes().to_vec(),
+                    on_drag_start: None,
+                    on_drag_end: None,
+                    child: Button {
                         on_press: Some(ActionEnvelope {
                             id: ActionId::from_u128(100),
                             payload: vec![],
                         }),
                         ..Default::default()
                     }
-                    .into_node(),
-                ),
-            }
-            .build(&mut build_ctx, &view),
-            DragTarget {
-                on_drop: Some(ActionEnvelope {
-                    id: OnDrop::static_id(),
-                    payload: OnDrop.encode(),
-                }),
-                child: Box::new(
-                    Container::default()
+                    .into(),
+                }
+                .into()
+            }),
+            build::enter(&mut build_ctx, &view, || {
+                DragTarget {
+                    on_drop: Some(ActionEnvelope {
+                        id: OnDrop::static_id(),
+                        payload: OnDrop.encode(),
+                    }),
+                    child: Container::default()
                         .width(100.0)
                         .height(100.0)
                         .bg(fission_core::op::Color::RED)
-                        .into_node(),
-                ),
-            }
-            .build(&mut build_ctx, &view),
+                        .into(),
+                }
+                .into()
+            }),
         ],
     }
-    .into_node();
+    .into();
 
-    let mut cx = fission_core::LoweringContext::new(&env, &runtime.runtime_state, None, None);
-    let root_id = root.lower(&mut cx);
+    let mut cx =
+        fission_core::internal::InternalLoweringCx::new(&env, &runtime.runtime_state, None, None);
+    let root_id = fission_core::internal::lower_widget(&root, &mut cx);
     let mut ir = cx.ir;
     ir.root = Some(root_id);
 
     let env = fission_core::Env::default();
-    let input_nodes = fission_core::lowering::build_layout_tree(&ir, &env);
+    let input_nodes = fission_core::internal::build_layout_tree(&ir, &env);
     let mut layout_engine = LayoutEngine::new();
     layout_engine.rebuild(&input_nodes).unwrap();
     let snapshot = layout_engine

@@ -1,8 +1,8 @@
-use crate::lowering::{LoweringContext, NodeBuilder};
-use crate::ui::traits::Lower;
+use crate::internal::InternalLower;
+use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
 use fission_ir::{
     op::{ImageFit, LayoutOp, Op, PaintOp},
-    NodeId,
+    WidgetId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -19,7 +19,7 @@ pub use fission_ir::op::{
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Image {
     /// Explicit node identity.
-    pub id: Option<NodeId>,
+    pub id: Option<WidgetId>,
     /// Typed image request consumed by the shell image pipeline.
     pub request: ImageRequest,
     /// Fixed width in layout points.
@@ -83,11 +83,6 @@ impl Image {
             },
             ..Default::default()
         }
-    }
-
-    pub fn id(mut self, id: NodeId) -> Self {
-        self.id = Some(id);
-        self
     }
 
     pub fn width(mut self, width: f32) -> Self {
@@ -157,15 +152,11 @@ impl Image {
         }
         self
     }
-
-    pub fn into_node(self) -> crate::ui::Node {
-        crate::ui::Node::Image(self)
-    }
 }
 
-impl Lower for Image {
-    fn lower(&self, cx: &mut LoweringContext) -> NodeId {
-        let layout_id = self.id.unwrap_or_else(|| cx.next_node_id());
+impl InternalLower for Image {
+    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+        let layout_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         let paint_op = match &self.request.source {
             ImageSource::SvgText { content } => PaintOp::DrawSvg {
                 content: content.clone(),
@@ -178,9 +169,9 @@ impl Lower for Image {
                 alignment: self.alignment,
             },
         };
-        let paint_id = NodeBuilder::new(cx.next_node_id(), Op::Paint(paint_op)).build(cx);
+        let paint_id = InternalIrBuilder::new(cx.next_node_id(), Op::Paint(paint_op)).build(cx);
 
-        let mut layout_builder = NodeBuilder::new(
+        let mut layout_builder = InternalIrBuilder::new(
             layout_id,
             Op::Layout(LayoutOp::Box {
                 width: self.width,

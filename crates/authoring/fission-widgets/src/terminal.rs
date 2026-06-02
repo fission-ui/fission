@@ -1,14 +1,15 @@
 use anyhow::{Context, Result};
 use arboard::Clipboard;
 use fission_core::event::{ImeEvent, InputEvent, KeyCode, KeyEvent, PointerEvent};
-use fission_core::op::Color;
-use fission_core::ui::custom_render::{CustomEventResult, CustomHitResult, CustomRenderObject};
-use fission_core::ui::{CustomNode, Node};
-use fission_core::{
-    AppState, BuildCtx, FlexDirection, LowerDyn, LoweringContext, NodeBuilder, View, Widget,
+use fission_core::internal::{
+    CustomEventResult, CustomHitResult, CustomRenderObject, InternalIrBuilder, InternalLowerer,
+    InternalLoweringCx, InternalRenderNode,
 };
+use fission_core::op::Color;
+use fission_core::ui::Widget;
+use fission_core::FlexDirection;
 use fission_ir::op::{AlignItems, Fill, LayoutOp, PaintOp, TextRun, TextStyle};
-use fission_ir::{NodeId, Op};
+use fission_ir::{Op, WidgetId};
 use fission_layout::{LayoutPoint, LayoutRect};
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use std::fmt::{Debug, Formatter};
@@ -172,28 +173,30 @@ impl TerminalView {
     }
 }
 
-impl<S: AppState> Widget<S> for TerminalView {
-    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        self.session.resize_for_viewport(
-            self.viewport_width,
-            self.viewport_height,
-            self.font_size,
-            self.line_height,
+impl From<TerminalView> for Widget {
+    fn from(component: TerminalView) -> Self {
+        let this = &component;
+
+        this.session.resize_for_viewport(
+            this.viewport_width,
+            this.viewport_height,
+            this.font_size,
+            this.line_height,
         );
         let render_node = Arc::new(TerminalRenderNode::new(
-            self.session.clone(),
-            self.session.snapshot(),
-            self.viewport_width,
-            self.viewport_height,
-            self.font_size,
-            self.line_height,
-            self.padding_x,
-            self.padding_y,
+            this.session.clone(),
+            this.session.snapshot(),
+            this.viewport_width,
+            this.viewport_height,
+            this.font_size,
+            this.line_height,
+            this.padding_x,
+            this.padding_y,
         ));
-        let lowerer: Arc<dyn LowerDyn> = render_node.clone();
+        let lowerer: Arc<dyn InternalLowerer> = render_node.clone();
         let render_object: Arc<dyn CustomRenderObject> = render_node;
-        Node::Custom(CustomNode {
-            debug_tag: format!("TerminalView({})", self.session.id()),
+        fission_core::internal::custom_render_widget(InternalRenderNode {
+            debug_tag: format!("TerminalView({})", this.session.id()),
             lowerer: Some(lowerer),
             render_object: Some(render_object),
         })
@@ -465,8 +468,8 @@ impl TerminalRenderNode {
     }
 }
 
-impl LowerDyn for TerminalRenderNode {
-    fn lower_dyn(&self, cx: &mut LoweringContext) -> NodeId {
+impl InternalLowerer for TerminalRenderNode {
+    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
         let outer_height = self
             .viewport_height
             .max(self.line_height * self.snapshot.rows as f32 + self.padding_y * 2.0);
@@ -474,7 +477,7 @@ impl LowerDyn for TerminalRenderNode {
             .viewport_width
             .max(self.char_width * self.snapshot.cols as f32 + self.padding_x * 2.0);
 
-        let bg_paint = NodeBuilder::new(
+        let bg_paint = InternalIrBuilder::new(
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawRect {
                 fill: Some(Fill::Solid(to_ir_color(self.snapshot.palette.background))),
@@ -488,7 +491,7 @@ impl LowerDyn for TerminalRenderNode {
         let mut row_ids = Vec::with_capacity(self.snapshot.lines.len());
         let text_width = outer_width - self.padding_x * 2.0;
         for (row_idx, line) in self.snapshot.lines.iter().enumerate() {
-            let row_paint = NodeBuilder::new(
+            let row_paint = InternalIrBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRichText {
                     runs: self.row_runs(line),
@@ -506,8 +509,9 @@ impl LowerDyn for TerminalRenderNode {
             let row_layer = if let Some((sel_start, sel_end)) =
                 self.selection_range_for_row(row_idx)
             {
-                let mut builder = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::ZStack));
-                let rect = NodeBuilder::new(
+                let mut builder =
+                    InternalIrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::ZStack));
+                let rect = InternalIrBuilder::new(
                     cx.next_node_id(),
                     Op::Paint(PaintOp::DrawRect {
                         fill: Some(Fill::Solid(to_ir_color(self.snapshot.palette.selection_bg))),
@@ -517,7 +521,7 @@ impl LowerDyn for TerminalRenderNode {
                     }),
                 )
                 .build(cx);
-                let mut positioned = NodeBuilder::new(
+                let mut positioned = InternalIrBuilder::new(
                     cx.next_node_id(),
                     Op::Layout(LayoutOp::Positioned {
                         left: Some(sel_start as f32 * self.char_width),
@@ -538,7 +542,7 @@ impl LowerDyn for TerminalRenderNode {
 
             let row_box = {
                 let id = cx.next_node_id();
-                let mut builder = NodeBuilder::new(
+                let mut builder = InternalIrBuilder::new(
                     id,
                     Op::Layout(LayoutOp::Box {
                         width: Some(text_width),
@@ -561,7 +565,7 @@ impl LowerDyn for TerminalRenderNode {
 
         let content_column = {
             let id = cx.next_node_id();
-            let mut builder = NodeBuilder::new(
+            let mut builder = InternalIrBuilder::new(
                 id,
                 Op::Layout(LayoutOp::Flex {
                     direction: FlexDirection::Column,
@@ -586,7 +590,7 @@ impl LowerDyn for TerminalRenderNode {
         let cursor_box = self
             .cursor_rect(LayoutRect::new(0.0, 0.0, outer_width, outer_height))
             .map(|rect| {
-                let cursor_paint = NodeBuilder::new(
+                let cursor_paint = InternalIrBuilder::new(
                     cx.next_node_id(),
                     Op::Paint(PaintOp::DrawRect {
                         fill: Some(Fill::Solid(to_ir_color(self.snapshot.palette.cursor_bg))),
@@ -597,7 +601,7 @@ impl LowerDyn for TerminalRenderNode {
                 )
                 .build(cx);
                 let id = cx.next_node_id();
-                let mut builder = NodeBuilder::new(
+                let mut builder = InternalIrBuilder::new(
                     id,
                     Op::Layout(LayoutOp::Positioned {
                         left: Some(rect.origin.x),
@@ -614,7 +618,7 @@ impl LowerDyn for TerminalRenderNode {
 
         let layered = {
             let id = cx.next_node_id();
-            let mut builder = NodeBuilder::new(id, Op::Layout(LayoutOp::ZStack));
+            let mut builder = InternalIrBuilder::new(id, Op::Layout(LayoutOp::ZStack));
             builder.add_child(bg_paint);
             builder.add_child(content_column);
             if let Some(cursor_box) = cursor_box {
@@ -625,7 +629,7 @@ impl LowerDyn for TerminalRenderNode {
 
         let outer = {
             let id = cx.next_node_id();
-            let mut builder = NodeBuilder::new(
+            let mut builder = InternalIrBuilder::new(
                 id,
                 Op::Layout(LayoutOp::Box {
                     width: Some(outer_width),
@@ -667,7 +671,7 @@ impl CustomRenderObject for TerminalRenderNode {
 
     fn handle_event(
         &self,
-        _node_id: NodeId,
+        _node_id: WidgetId,
         event: &InputEvent,
         node_rect: LayoutRect,
     ) -> CustomEventResult {
@@ -813,7 +817,7 @@ impl CustomRenderObject for TerminalRenderNode {
         self.cursor_rect(node_rect)
     }
 
-    fn blur_actions(&self, _node_id: NodeId) -> Vec<(NodeId, fission_core::ActionEnvelope)> {
+    fn blur_actions(&self, _node_id: WidgetId) -> Vec<(WidgetId, fission_core::ActionEnvelope)> {
         self.session.set_focused(false);
         Vec::new()
     }

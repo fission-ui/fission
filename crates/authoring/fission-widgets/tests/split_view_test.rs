@@ -1,10 +1,11 @@
-use fission_core::ui::{Node, Text};
-use fission_core::{AppState, BuildCtx, View, Widget, WidgetNodeId};
+use fission_core::internal::BuildCtx;
+use fission_core::ui::Text;
+use fission_core::{build, GlobalState, View, WidgetId};
 use fission_widgets::{SplitDirection, SplitView};
 
 #[derive(Default, Clone, Debug)]
 struct State;
-impl AppState for State {}
+impl GlobalState for State {}
 
 #[test]
 fn test_split_view_layout() {
@@ -17,20 +18,17 @@ fn test_split_view_layout() {
     let view = View::new(state, &runtime.runtime_state, &env, None);
 
     let split = SplitView {
-        id: WidgetNodeId::explicit("split"),
+        id: WidgetId::explicit("split"),
         direction: SplitDirection::Horizontal,
-        first: Box::new(Text::new("Pane 1").into_node()),
-        second: Box::new(Text::new("Pane 2").into_node()),
+        first: Text::new("Pane 1").into(),
+        second: Text::new("Pane 2").into(),
         split_ratio: 0.3,
         on_resize: None,
     };
 
-    let node = split.build(&mut ctx, &view);
+    let node = build::enter(&mut ctx, &view, || split.into());
 
-    // SplitView lowers to a Row (Horizontal)
-    if let Node::Row(row) = node {
-        assert_eq!(row.children.len(), 3); // Pane 1, Handle, Pane 2
-    } else {
-        panic!("SplitView should return a Row node for Horizontal split");
-    }
+    let row = fission_core::internal::widget_as_row(&node)
+        .expect("SplitView should return a Row node for Horizontal split");
+    assert_eq!(row.children.len(), 3); // Pane 1, Handle, Pane 2
 }

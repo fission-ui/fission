@@ -1,7 +1,6 @@
 use crate::model::EditorState;
 use fission::core::op::Color;
-use fission::core::ui::{Container, Node};
-use fission::core::{BuildCtx, View, Widget};
+use fission::core::ui::{Container, Widget};
 use fission::widgets::{Spacer, VStack};
 
 /// A minimap widget that renders a narrow, scaled-down overview of the file
@@ -78,18 +77,19 @@ fn line_color(trimmed: &str) -> Color {
     }
 }
 
-impl Widget<EditorState> for Minimap {
-    fn build(&self, _ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
+impl From<Minimap> for Widget {
+    fn from(_component: Minimap) -> Self {
+        let (_ctx, view) = fission::build::current::<EditorState>();
         // If there is no active buffer we collapse to nothing.
-        let Some((_tab, buffer)) = view.state.active_buffer() else {
-            return Spacer::default().into_node();
+        let Some((_tab, buffer)) = view.state().active_buffer() else {
+            return Spacer::default().into();
         };
 
         let content_str = buffer.content();
         let lines: Vec<&str> = content_str.lines().collect();
         let line_count = lines.len();
         if line_count == 0 {
-            return Spacer::default().into_node();
+            return Spacer::default().into();
         }
 
         // Scale factor: if the file is long we shrink each bar so everything
@@ -117,7 +117,7 @@ impl Widget<EditorState> for Minimap {
         };
         let bar_count = (line_count + step - 1) / step;
 
-        let mut bars: Vec<Node> = Vec::with_capacity(bar_count);
+        let mut bars: Vec<Widget> = Vec::with_capacity(bar_count);
         for (i, line) in lines.iter().enumerate() {
             if step > 1 && i % step != 0 {
                 continue;
@@ -131,11 +131,11 @@ impl Widget<EditorState> for Minimap {
 
             let in_viewport = i >= vis_start && i < vis_end;
 
-            let bar = Container::new(Spacer::default().into_node())
+            let bar = Container::new(Spacer::default())
                 .width(width)
                 .height(scale)
                 .bg(color)
-                .into_node();
+                .into();
 
             if in_viewport {
                 // Wrap in a container with the semi-transparent viewport
@@ -144,24 +144,21 @@ impl Widget<EditorState> for Minimap {
                     Container::new(bar)
                         .height(scale)
                         .bg(VIEWPORT_OVERLAY)
-                        .into_node(),
+                        .into(),
                 );
             } else {
                 bars.push(bar);
             }
         }
 
-        Container::new(
-            VStack {
-                spacing: Some(0.0),
-                children: bars,
-            }
-            .into_node(),
-        )
+        Container::new(VStack {
+            spacing: Some(0.0),
+            children: bars,
+        })
         .width(MINIMAP_WIDTH)
         .bg(MINIMAP_BG)
         .padding_all(4.0)
         .flex_shrink(0.0)
-        .into_node()
+        .into()
     }
 }

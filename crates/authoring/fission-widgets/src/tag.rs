@@ -1,7 +1,6 @@
 use crate::stack::HStack;
 use fission_core::action::ActionEnvelope;
-use fission_core::ui::{Button, ButtonVariant, Container, Node, Text, TextContent};
-use fission_core::{BuildCtx, View, Widget};
+use fission_core::ui::{Button, ButtonVariant, Container, Text, TextContent, Widget};
 use serde::{Deserialize, Serialize};
 
 /// A pill-shaped label with an optional close button.
@@ -14,23 +13,26 @@ pub struct Tag {
     pub on_close: Option<ActionEnvelope>,
 }
 
-impl<S: fission_core::AppState> Widget<S> for Tag {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let tokens = &view.env.theme.tokens;
+impl From<Tag> for Widget {
+    fn from(component: Tag) -> Self {
+        let (_, view) = fission_core::build::current::<()>();
+        let this = &component;
+
+        let tokens = &view.env().theme.tokens;
 
         let mut children = vec![Text {
-            content: TextContent::Literal(self.label.clone()),
+            content: TextContent::Literal(this.label.clone()),
             font_size: Some(13.0),
             color: Some(tokens.colors.text_primary),
             ..Default::default()
         }
         .into()];
 
-        if let Some(action) = &self.on_close {
+        if let Some(action) = &this.on_close {
             children.push(
                 Button {
                     variant: ButtonVariant::Ghost,
-                    child: Some(Box::new(
+                    child: Some(
                         Text {
                             content: TextContent::Literal("×".into()),
                             font_size: Some(14.0),
@@ -38,7 +40,7 @@ impl<S: fission_core::AppState> Widget<S> for Tag {
                             ..Default::default()
                         }
                         .into(),
-                    )),
+                    ),
                     on_press: Some(action.clone()),
                     // Minimal styling for close button
                     width: Some(20.0),
@@ -49,18 +51,15 @@ impl<S: fission_core::AppState> Widget<S> for Tag {
             );
         }
 
-        Container::new(
-            HStack {
-                spacing: Some(4.0),
-                children,
-            }
-            .build(ctx, view),
-        )
+        Container::new(HStack {
+            spacing: Some(4.0),
+            children,
+        })
         .bg(tokens.colors.surface) // or slightly darker
         .border(tokens.colors.border, 1.0)
         .border_radius(16.0)
         .padding_all(6.0)
         .height(30.0)
-        .into_node()
+        .into()
     }
 }

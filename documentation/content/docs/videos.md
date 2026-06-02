@@ -35,7 +35,7 @@ The two-year plan rotates through these pillars so the channel does not become r
 | Apps | Fission can build complete products, not only isolated controls. |
 | Charts | Fission can handle serious dashboards and data-heavy UI. |
 | Platform capabilities | Desktop, web, Android, and iOS apps can access host capabilities through a consistent Rust API. |
-| Shells | Desktop, mobile, web, terminal, and static site targets are first-class outcomes. |
+| Shells | Desktop, mobile, web, terminal, static site, and server-rendered site targets are first-class outcomes. |
 | Production lifecycle | The CLI supports setup, running, testing, packaging, release, and publishing workflows. |
 
 ## Two-year schedule
@@ -55,7 +55,7 @@ The dates assume a weekly cadence starting in June 2026. If a week slips, keep t
 | 9 | 2026-07-27 | Internationalisation and readable UI | Locale switcher | What internationalisation means, where strings live, and how locale affects layout. | Planned |
 | 10 | 2026-08-03 | Accessibility from the first screen | Accessible settings app | How labels, roles, focus order, and keyboard navigation make a screen usable. | Planned |
 | 11 | 2026-08-10 | Navigation and routes in Fission | Mini mail router | How to model routes, route parameters, not-found screens, and navigation actions. | Planned |
-| 12 | 2026-08-17 | Resources and async work | Weather lookup | How to request outside work without putting side effects inside widget builds. | Planned |
+| 12 | 2026-08-17 | Resources and async work | Weather lookup | How to request outside work without putting side effects inside component conversion. | Planned |
 | 13 | 2026-08-24 | Commands, jobs, and services | Import progress app | When to use commands, long-running jobs, services, progress, cancellation, and resume. | Planned |
 | 14 | 2026-08-31 | Test a Fission UI like a product | Counter and todo tests | How to assert state, semantics, hit testing, layout, and rendered behavior. | Planned |
 | 15 | 2026-09-07 | Lists that stay fast | Inbox list | How lazy lists, row identity, selection, and scroll state work in a real list. | Planned |
@@ -113,7 +113,7 @@ The dates assume a weekly cadence starting in June 2026. If a week slips, keep t
 | 67 | 2027-09-06 | Widget inspector workflow | Inspector demo | How developer tools should reveal the widget tree, layout, state, and events. | Planned |
 | 68 | 2027-09-13 | Network and host work inspector | API dashboard | How requests, resources, jobs, retries, and errors can be made visible. | Planned |
 | 69 | 2027-09-20 | Logging and tracing for UI bugs | Trace viewer | How to collect useful traces without turning the app into noise. | Planned |
-| 70 | 2027-09-27 | Performance profiling | Large dashboard | How to spot slow rebuilds, heavy layouts, expensive paint, and unnecessary work. | Planned |
+| 70 | 2027-09-27 | Performance profiling | Large dashboard | How to spot slow reconversions, heavy layouts, expensive paint, and unnecessary work. | Planned |
 | 71 | 2027-10-04 | Golden, smoke, and interaction tests | Widget test suite | How to choose the right test type for each UI risk. | Planned |
 | 72 | 2027-10-11 | CI for Fission apps | GitHub workflow | How to run checks for desktop, web, mobile package smoke, and static sites. | Planned |
 | 73 | 2027-10-18 | Package for Linux | Linux release demo | How readiness checks, metadata, icons, artifacts, and distribution fit together. | Planned |
@@ -145,7 +145,7 @@ The dates assume a weekly cadence starting in June 2026. If a week slips, keep t
 | 99 | 2028-04-17 | Capstone: mobile layout | Product launch planner | How the same app adapts to phone-size screens without becoming a separate product. | Planned |
 | 100 | 2028-04-24 | Capstone: web and static companion site | Product launch planner | How the app target and static documentation/landing target can share Fission concepts. | Planned |
 | 101 | 2028-05-01 | Capstone: tests and diagnostics | Product launch planner | How to add coverage for reducers, widgets, routing, semantics, and flows. | Planned |
-| 102 | 2028-05-08 | Capstone: package every target | Product launch planner | How to prepare desktop, web, Android, iOS, terminal, and static outputs. | Planned |
+| 102 | 2028-05-08 | Capstone: package every target | Product launch planner | How to prepare desktop, web, Android, iOS, terminal, static, and server-rendered outputs. | Planned |
 | 103 | 2028-05-15 | Capstone: release and publish | Product launch planner | How to run readiness checks, generate artifacts, publish releases, and verify output. | Planned |
 | 104 | 2028-05-22 | Two years of Fission apps | Showcase reel | What the example library proves and where new viewers should start. | Planned |
 
@@ -163,3 +163,14 @@ A good weekly rhythm is:
 6. Publish the video and update this calendar.
 
 The calendar should remain flexible, but the standard should not. Every shipped video should make Fission more understandable, more trustworthy, and easier to adopt.
+
+## Lifecycle fit and verification
+
+This page belongs to the setup, learn, build, test, and publish lifecycle. Use it to decide the next concrete action, then verify the action before moving to the next stage.
+
+| Stage question | Verification |
+| --- | --- |
+| What file or command changes? | The page should point to the exact `fission` command, `fission.toml` section, Rust component, or generated artifact involved. |
+| What proves it worked? | Prefer a command output, generated file, screenshot, test assertion, package artifact, or deployed URL over a vague statement. |
+| What can fail safely? | Permission prompts, missing tools, unsupported hosts, invalid config, and expired credentials should produce diagnosable errors that can be retried after the cause is fixed. |
+| What should I read next? | Continue to the linked guide for step-by-step work or the reference page for exact fields and contracts. |

@@ -1,7 +1,7 @@
 use fission_ir::op::{
     EmbedKind, ImageAlignment, ImageRequest, RichTextAnnotation, TextParagraphStyle,
 };
-use fission_ir::{NodeId, WidgetNodeId};
+use fission_ir::WidgetId;
 pub use fission_layout::{LayoutPoint, LayoutRect, LayoutSize, LayoutUnit};
 use serde::{Deserialize, Serialize};
 
@@ -114,7 +114,7 @@ pub enum DisplayOp {
         corner_radius: LayoutUnit,
         shadow: Option<BoxShadow>,
         bounds: LayoutRect,
-        node_id: Option<NodeId>,
+        node_id: Option<WidgetId>,
     },
     DrawText {
         text: String,
@@ -122,7 +122,7 @@ pub enum DisplayOp {
         size: LayoutUnit,
         color: Color,
         bounds: LayoutRect,
-        node_id: Option<NodeId>,
+        node_id: Option<WidgetId>,
         underline: bool,
         wrap: bool,
         caret_index: Option<usize>,
@@ -136,7 +136,7 @@ pub enum DisplayOp {
         runs: Vec<TextRun>,
         position: LayoutPoint,
         bounds: LayoutRect,
-        node_id: Option<NodeId>,
+        node_id: Option<WidgetId>,
         wrap: bool,
         caret_index: Option<usize>,
         caret_color: Option<Color>,
@@ -153,32 +153,32 @@ pub enum DisplayOp {
         fit: ImageFit,
         alignment: ImageAlignment,
         bounds: LayoutRect,
-        node_id: Option<NodeId>,
+        node_id: Option<WidgetId>,
     },
     DrawPath {
         path: String,
         fill: Option<Fill>,
         stroke: Option<Stroke>,
         bounds: LayoutRect,
-        node_id: Option<NodeId>,
+        node_id: Option<WidgetId>,
     },
     DrawSvg {
         content: String,
         fill: Option<Fill>,
         stroke: Option<Stroke>,
         bounds: LayoutRect,
-        node_id: Option<NodeId>,
+        node_id: Option<WidgetId>,
     },
     DrawSurface {
         rect: LayoutRect,
         surface_id: u64,
         position: u64,
         bounds: LayoutRect,
-        node_id: Option<NodeId>,
+        node_id: Option<WidgetId>,
     },
 }
 
-pub fn embed_surface_id(kind: &EmbedKind, widget_id: WidgetNodeId) -> u64 {
+pub fn embed_surface_id(kind: &EmbedKind, widget_id: WidgetId) -> u64 {
     let kind_tag = match kind {
         EmbedKind::Video => 0xF151_0000_0000_0001,
         EmbedKind::Web => 0xF151_0000_0000_0002,
@@ -256,7 +256,7 @@ pub enum RenderNode {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RenderLayer {
-    pub node_id: Option<NodeId>,
+    pub node_id: Option<WidgetId>,
     pub bounds: LayoutRect,
     pub style: LayerStyle,
     pub children: Vec<RenderNode>,
@@ -354,11 +354,11 @@ pub trait Renderer {
 #[cfg(test)]
 mod tests {
     use super::{embed_surface_id, surface_placeholder_color};
-    use fission_ir::{EmbedKind, WidgetNodeId};
+    use fission_ir::{EmbedKind, WidgetId};
 
     #[test]
     fn embed_surface_id_is_stable_and_kind_specific() {
-        let id = WidgetNodeId::explicit("embed.demo");
+        let id = WidgetId::explicit("embed.demo");
 
         assert_eq!(
             embed_surface_id(&EmbedKind::Video, id),

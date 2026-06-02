@@ -1,12 +1,11 @@
-use crate::lowering::{LoweringContext, NodeBuilder};
-use crate::ui::traits::Lower;
-use crate::ui::Node;
+use crate::internal::InternalLower;
+use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::ui::Widget;
 use fission_ir::{
     op::{FlexDirection, LayoutOp, Op},
-    NodeId,
+    WidgetId,
 };
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 /// A virtualized vertical list that only builds visible items.
 ///
@@ -21,11 +20,9 @@ use std::sync::Arc;
 ///
 /// ```rust,ignore
 /// LazyColumn {
-///     children: Arc::new(
-///         items.iter()
-///             .map(|item| Text::new(item.name.clone()).into_node())
-///             .collect()
-///     ),
+///     children: items.iter()
+///         .map(|item| Text::new(item.name.clone()).into())
+///         .collect(),
 ///     item_height: 48.0,
 ///     ..Default::default()
 /// }
@@ -33,35 +30,31 @@ use std::sync::Arc;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LazyColumn {
     /// Explicit node identity (used for scroll-offset tracking).
-    pub id: Option<NodeId>,
+    pub id: Option<WidgetId>,
     /// All items in the list (only the visible slice is lowered each frame).
-    pub children: Arc<Vec<Node>>,
+    pub children: Vec<Widget>,
     /// Uniform height of each item in layout points. Set to 0 to disable
     /// virtualisation.
     pub item_height: f32,
 }
 
-impl LazyColumn {
-    pub fn into_node(self) -> crate::ui::Node {
-        crate::ui::Node::LazyColumn(self)
-    }
-}
+impl LazyColumn {}
 
-impl Lower for LazyColumn {
-    fn lower(&self, cx: &mut LoweringContext) -> NodeId {
-        let scroll_id = self.id.unwrap_or_else(|| cx.next_node_id());
+impl InternalLower for LazyColumn {
+    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+        let scroll_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
 
         if self.item_height <= 0.0 {
             let col_id = cx.next_node_id();
             let mut column_children = Vec::new();
             for (i, child) in self.children.iter().enumerate() {
-                let child_scope = NodeId::derived(col_id.as_u128(), &[i as u32]);
+                let child_scope = WidgetId::derived(col_id.as_u128(), &[i as u32]);
                 cx.push_scope(child_scope);
                 column_children.push(child.lower(cx));
                 cx.pop_scope();
             }
 
-            let mut col = NodeBuilder::new(
+            let mut col = InternalIrBuilder::new(
                 col_id,
                 Op::Layout(LayoutOp::Flex {
                     direction: FlexDirection::Column,
@@ -78,7 +71,7 @@ impl Lower for LazyColumn {
             let col_id = col.build(cx);
 
             let content_id = cx.next_node_id();
-            let mut content_box = NodeBuilder::new(
+            let mut content_box = InternalIrBuilder::new(
                 content_id,
                 Op::Layout(LayoutOp::Box {
                     width: None,
@@ -96,7 +89,7 @@ impl Lower for LazyColumn {
             content_box.add_child(col_id);
             let content_id = content_box.build(cx);
 
-            let mut scroll = NodeBuilder::new(
+            let mut scroll = InternalIrBuilder::new(
                 scroll_id,
                 Op::Layout(LayoutOp::Scroll {
                     direction: FlexDirection::Column,
@@ -186,8 +179,8 @@ impl Lower for LazyColumn {
         if start_index > 0 {
             let spacer_height = item_h * start_index as f32;
             if spacer_height > 0.0 {
-                let spacer_id = NodeId::derived(col_id.as_u128(), &[u32::MAX - 1]);
-                let spacer = NodeBuilder::new(
+                let spacer_id = WidgetId::derived(col_id.as_u128(), &[u32::MAX - 1]);
+                let spacer = InternalIrBuilder::new(
                     spacer_id,
                     Op::Layout(LayoutOp::Box {
                         width: None,
@@ -214,7 +207,7 @@ impl Lower for LazyColumn {
             let visible = &self.children[start_index..end_index];
             for (offset, child) in visible.iter().enumerate() {
                 let i = start_index + offset;
-                let child_scope = NodeId::derived(col_id.as_u128(), &[i as u32]);
+                let child_scope = WidgetId::derived(col_id.as_u128(), &[i as u32]);
                 cx.push_scope(child_scope);
                 column_children.push(child.lower(cx));
                 cx.pop_scope();
@@ -228,8 +221,8 @@ impl Lower for LazyColumn {
         if remaining > 0 {
             let spacer_height = item_h * remaining as f32;
             if spacer_height > 0.0 {
-                let spacer_id = NodeId::derived(col_id.as_u128(), &[u32::MAX]);
-                let spacer = NodeBuilder::new(
+                let spacer_id = WidgetId::derived(col_id.as_u128(), &[u32::MAX]);
+                let spacer = InternalIrBuilder::new(
                     spacer_id,
                     Op::Layout(LayoutOp::Box {
                         width: None,
@@ -248,7 +241,7 @@ impl Lower for LazyColumn {
             }
         }
 
-        let mut col = NodeBuilder::new(
+        let mut col = InternalIrBuilder::new(
             col_id,
             Op::Layout(LayoutOp::Flex {
                 direction: FlexDirection::Column,
@@ -265,7 +258,7 @@ impl Lower for LazyColumn {
         let col_id = col.build(cx);
 
         let content_id = cx.next_node_id();
-        let mut content_box = NodeBuilder::new(
+        let mut content_box = InternalIrBuilder::new(
             content_id,
             Op::Layout(LayoutOp::Box {
                 width: None,
@@ -284,7 +277,7 @@ impl Lower for LazyColumn {
         let content_id = content_box.build(cx);
 
         // Scroll
-        let mut scroll = NodeBuilder::new(
+        let mut scroll = InternalIrBuilder::new(
             scroll_id,
             Op::Layout(LayoutOp::Scroll {
                 direction: FlexDirection::Column,

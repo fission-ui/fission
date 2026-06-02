@@ -1,23 +1,16 @@
-use crate::editor_render_node::EditorRenderNode;
 use crate::minimap::Minimap;
-use crate::model::{
-    ApplyEditorEdit, EditorState, SetEditorPreedit, ShiftActiveFileWindow, UpdateCursorPosition,
-    UpdateScrollY,
-};
+use crate::model::{EditorState, UpdateCursorPosition, UpdateEditorDocument};
 use fission::core::op::Color;
-use fission::core::ui::custom_render::CustomRenderObject;
-use fission::core::ui::traits::LowerDyn;
-use fission::core::ui::{Container, CustomNode, Node, Row, Scroll, Text};
-use fission::core::{reduce_with, BuildCtx, FlexDirection, View, Widget};
-use fission::ir::NodeId as IrNodeId;
+use fission::core::ui::{Container, Row, Text, TextInput, Widget};
+use fission::core::{reduce_with, BuildCtxHandle, ViewHandle};
 use fission::widgets::{HStack, Spacer, VStack};
-use std::sync::Arc;
+use fission::WidgetId;
 
 pub struct EditorSurface;
 
-impl Widget<EditorState> for EditorSurface {
-    fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
-        // If there is no active buffer, show the welcome screen.
+impl From<EditorSurface> for Widget {
+    fn from(component: EditorSurface) -> Self {
+        let (ctx, view) = fission::build::current::<EditorState>();
         const MENU_BAR_HEIGHT: f32 = 28.0;
         const STATUS_BAR_HEIGHT: f32 = 26.0;
         const TAB_BAR_HEIGHT: f32 = 35.0;
@@ -26,11 +19,11 @@ impl Widget<EditorState> for EditorSurface {
         const BOTTOM_PANEL_DIVIDER_HEIGHT: f32 = 1.0;
 
         let sidebar_width = view
-            .state
+            .state()
             .sidebar_width
             .min((view.viewport_size().width - 160.0).clamp(180.0, 360.0));
-        let terminal_height = if view.state.terminal_visible {
-            view.state
+        let terminal_height = if view.state().terminal_visible {
+            view.state()
                 .terminal_height
                 .min((view.viewport_size().height * 0.33).max(96.0))
         } else {
@@ -41,12 +34,12 @@ impl Widget<EditorState> for EditorSurface {
             - STATUS_BAR_HEIGHT
             - TAB_BAR_HEIGHT
             - BREADCRUMB_HEIGHT
-            - if view.state.show_find_replace {
+            - if view.state().show_find_replace {
                 FIND_REPLACE_HEIGHT
             } else {
                 0.0
             }
-            - if view.state.terminal_visible {
+            - if view.state().terminal_visible {
                 terminal_height + BOTTOM_PANEL_DIVIDER_HEIGHT
             } else {
                 0.0
@@ -54,7 +47,7 @@ impl Widget<EditorState> for EditorSurface {
         .max(120.0);
         let editor_viewport_width = (view.viewport_size().width
             - 48.0
-            - if view.state.sidebar_visible {
+            - if view.state().sidebar_visible {
                 sidebar_width + 1.0
             } else {
                 0.0
@@ -62,29 +55,33 @@ impl Widget<EditorState> for EditorSurface {
             - 61.0
             - 24.0)
             .max(180.0);
-        let active_path = view.state.active_buffer().map(|(tab, _)| tab.path.clone());
-        let editor_scroll_id = active_path
-            .as_ref()
-            .map(|path| IrNodeId::explicit(&format!("editor_scroll_{}", path)));
-        let scroll_y = editor_scroll_id
-            .and_then(|id| view.runtime.scroll.offsets.get(&id).copied())
-            .unwrap_or(view.state.scroll_offset_y);
-        let render_node = match EditorRenderNode::from_state(
-            view.state,
-            editor_viewport_width,
-            editor_viewport_height,
-            scroll_y,
-        ) {
-            Some(rn) => rn,
-            None => return self.build_welcome_screen(ctx, view),
+
+        let Some((tab, buffer)) = view.state().active_buffer() else {
+            return component.build_welcome_screen(ctx, view);
         };
+        let path = tab.path.clone();
 
-        let path = render_node.file_path.clone();
-        let content_height = render_node.content_height();
-        let editor_canvas_height = content_height.max(editor_viewport_height);
+        let update_document = ctx.bind(
+            UpdateEditorDocument(String::new()),
+            reduce_with!(
+                (|s: &mut EditorState, a: UpdateEditorDocument, _| {
+                    if let Some(tab) = s.open_tabs.get(s.active_tab) {
+                        let path = tab.path.clone();
+                        if let Some(buf) = s.file_contents.get_mut(&path) {
+                            if !buf.is_editable() {
+                                s.status_message = Some("This document is not editable".into());
+                                return;
+                            }
+                            buf.replace_document(&a.0);
+                        }
+                        s.mark_active_tab_dirty();
+                        s.notify_buffer_changed(&path);
+                    }
+                })
+            ),
+        );
 
-        // ---- Register reducers for actions dispatched by the render object ---
-        ctx.bind(
+        let update_cursor = ctx.bind(
             UpdateCursorPosition {
                 caret: 0,
                 anchor: 0,
@@ -99,100 +96,53 @@ impl Widget<EditorState> for EditorSurface {
             ),
         );
 
-        ctx.bind(
-            ApplyEditorEdit {
-                range_start: 0,
-                range_end: 0,
-                new_text: String::new(),
-                caret: 0,
-                anchor: 0,
-            },
-            reduce_with!(
-                (|s: &mut EditorState, a: ApplyEditorEdit, _| {
-                    if let Some(tab) = s.open_tabs.get(s.active_tab) {
-                        let path = tab.path.clone();
-                        if let Some(buf) = s.file_contents.get_mut(&path) {
-                            if !buf.is_editable() {
-                                s.status_message = Some("This document is not editable".into());
-                                return;
-                            }
-                            buf.apply_edit(a.range_start..a.range_end, &a.new_text);
-                            buf.set_selection_offsets(a.caret, a.anchor);
-                        }
-                        s.mark_active_tab_dirty();
-                        s.notify_buffer_changed(&path);
-                    }
-                })
-            ),
-        );
-
-        ctx.bind(
-            SetEditorPreedit {
-                text: String::new(),
-            },
-            reduce_with!(
-                (|s: &mut EditorState, a: SetEditorPreedit, _| {
-                    if let Some((_tab, buf)) = s.active_buffer_mut() {
-                        buf.set_preedit(a.text);
-                    }
-                })
-            ),
-        );
-
-        ctx.bind(
-            UpdateScrollY(0.0),
-            reduce_with!(
-                (|s: &mut EditorState, a: UpdateScrollY, _| {
-                    s.scroll_offset_y = a.0;
-                })
-            ),
-        );
-
-        ctx.bind(
-            ShiftActiveFileWindow { forward: true },
-            reduce_with!(
-                (|s: &mut EditorState, a: ShiftActiveFileWindow, _| {
-                    s.shift_active_file_window(a.forward);
-                })
-            ),
-        );
-
-        // ---- Editor surface via CustomNode ----------------------------------
-        let rn = Arc::new(render_node);
-        let lowerer: Arc<dyn LowerDyn> = rn.clone();
-        let render_obj: Arc<dyn CustomRenderObject> = rn;
-
-        let editor_custom = Node::Custom(CustomNode {
-            debug_tag: format!("EditorRenderNode({})", path),
-            lowerer: Some(lowerer),
-            render_object: Some(render_obj),
-        });
-
-        // Wrap the custom node in a Container that fills available space.
-        let editor_area = Container::new(editor_custom)
-            .height(editor_canvas_height)
-            .min_height(editor_canvas_height)
-            .flex_grow(0.0)
-            .flex_shrink(0.0)
-            .into_node();
-
-        // ---- Outer scroll ---------------------------------------------------
-        // A single Scroll wraps the EditorRenderNode so the cursor and gutter
-        // scroll together. The render node reports full content height so the
-        // scrollbar reflects the real document length.
-        let scrollable = Scroll {
-            id: Some(IrNodeId::explicit(&format!("editor_scroll_{}", path))),
-            child: Some(Box::new(editor_area)),
-            direction: FlexDirection::Column,
-            show_scrollbar: true,
-            flex_grow: 1.0,
-            flex_shrink: 1.0,
+        let editor_input: Widget = TextInput {
+            id: Some(WidgetId::explicit(&format!("editor_input_{}", path))),
+            value: buffer.display_content(),
+            on_change: Some(update_document),
+            on_cursor_change: Some(update_cursor),
+            width: Some(editor_viewport_width),
+            height: Some(editor_viewport_height),
+            multiline: true,
+            borderless: true,
+            capture_tab: true,
+            auto_indent: true,
+            read_only: !buffer.is_editable(),
+            font_size: Some(13.0),
+            line_height: Some(20.0),
+            text_color: Some(Color {
+                r: 220,
+                g: 220,
+                b: 220,
+                a: 255,
+            }),
+            cursor_color: Some(Color {
+                r: 255,
+                g: 255,
+                b: 255,
+                a: 255,
+            }),
+            selection_color: Some(Color {
+                r: 55,
+                g: 100,
+                b: 170,
+                a: 160,
+            }),
+            spell_check: false,
+            smart_dashes: false,
+            smart_quotes: false,
             ..Default::default()
         }
-        .into_node();
+        .into();
 
-        // ---- Minimap (kept as a separate widget) ----------------------------
-        let minimap_separator = Container::new(Spacer::default().into_node())
+        let editor_area = Container::new(editor_input)
+            .height(editor_viewport_height)
+            .min_height(editor_viewport_height)
+            .flex_grow(1.0)
+            .flex_shrink(1.0)
+            .into();
+
+        let minimap_separator = Container::new(Spacer::default())
             .width(1.0)
             .bg(Color {
                 r: 48,
@@ -201,24 +151,23 @@ impl Widget<EditorState> for EditorSurface {
                 a: 255,
             })
             .flex_shrink(0.0)
-            .into_node();
+            .into();
 
-        let minimap_node = Minimap.build(ctx, view);
+        let minimap_node = Minimap.into();
 
-        // Outer row: scrollable editor | separator | minimap
         let editor_row = Row {
-            children: vec![scrollable, minimap_separator, minimap_node],
-            align_items: fission::ir::op::AlignItems::Stretch,
+            children: vec![editor_area, minimap_separator, minimap_node],
+            align_items: fission::op::AlignItems::Stretch,
             flex_grow: 1.0,
             ..Default::default()
         }
-        .into_node();
+        .into();
 
-        let editor_column = VStack {
+        let editor_column: Widget = VStack {
             spacing: Some(0.0),
             children: vec![editor_row],
         }
-        .into_node();
+        .into();
 
         Container::new(editor_column)
             .bg(Color {
@@ -229,16 +178,15 @@ impl Widget<EditorState> for EditorSurface {
             })
             .flex_grow(1.0)
             .flex_shrink(1.0)
-            .into_node()
+            .into()
     }
 }
-
 impl EditorSurface {
     fn build_welcome_screen(
         &self,
-        ctx: &mut BuildCtx<EditorState>,
-        view: &View<EditorState>,
-    ) -> Node {
+        _ctx: BuildCtxHandle<EditorState>,
+        _view: ViewHandle<EditorState>,
+    ) -> Widget {
         let dim = Color {
             r: 100,
             g: 100,
@@ -264,88 +212,80 @@ impl EditorSurface {
             a: 255,
         };
 
-        let shortcut_row = |keys: &str, desc: &str| -> Node {
+        let shortcut_row = |keys: &str, desc: &str| -> Widget {
             HStack {
                 spacing: Some(16.0),
                 children: vec![
-                    Container::new(Text::new(keys).size(12.0).color(key_color).into_node())
+                    Container::new(Text::new(keys).size(12.0).color(key_color))
                         .width(140.0)
-                        .into_node(),
-                    Text::new(desc).size(12.0).color(shortcut_color).into_node(),
+                        .into(),
+                    Text::new(desc).size(12.0).color(shortcut_color).into(),
                 ],
             }
-            .into_node()
+            .into()
         };
 
-        Container::new(
-            fission::widgets::center::Center {
-                child: Box::new(
-                    VStack {
-                        spacing: Some(8.0),
-                        children: vec![
-                            Text::new("Fission Editor")
-                                .size(36.0)
-                                .color(Color {
-                                    r: 80,
-                                    g: 80,
-                                    b: 80,
-                                    a: 255,
-                                })
-                                .into_node(),
-                            Spacer {
-                                height: Some(4.0),
-                                ..Default::default()
-                            }
-                            .into_node(),
-                            Text::new("Open a file from the explorer to begin")
-                                .size(14.0)
-                                .color(dim)
-                                .into_node(),
-                            Spacer {
-                                height: Some(16.0),
-                                ..Default::default()
-                            }
-                            .into_node(),
-                            // Keyboard shortcuts section
-                            Text::new("Keyboard Shortcuts")
-                                .size(14.0)
-                                .color(heading_color)
-                                .into_node(),
-                            Spacer {
-                                height: Some(4.0),
-                                ..Default::default()
-                            }
-                            .into_node(),
-                            shortcut_row("Ctrl+Shift+P", "Command Palette"),
-                            shortcut_row("Ctrl+B", "Toggle Sidebar"),
-                            shortcut_row("Ctrl+`", "Toggle Terminal"),
-                            shortcut_row("Ctrl+S", "Save File"),
-                            Spacer {
-                                height: Some(20.0),
-                                ..Default::default()
-                            }
-                            .into_node(),
-                            // Recent files section
-                            Text::new("Recent Files")
-                                .size(14.0)
-                                .color(heading_color)
-                                .into_node(),
-                            Spacer {
-                                height: Some(4.0),
-                                ..Default::default()
-                            }
-                            .into_node(),
-                            Text::new("No recent files")
-                                .size(12.0)
-                                .color(dim)
-                                .into_node(),
-                        ],
+        Container::new(fission::widgets::center::Center {
+            child: VStack {
+                spacing: Some(8.0),
+                children: vec![
+                    Text::new("Fission Editor")
+                        .size(36.0)
+                        .color(Color {
+                            r: 80,
+                            g: 80,
+                            b: 80,
+                            a: 255,
+                        })
+                        .into(),
+                    Spacer {
+                        height: Some(4.0),
+                        ..Default::default()
                     }
-                    .into_node(),
-                ),
+                    .into(),
+                    Text::new("Open a file from the explorer to begin")
+                        .size(14.0)
+                        .color(dim)
+                        .into(),
+                    Spacer {
+                        height: Some(16.0),
+                        ..Default::default()
+                    }
+                    .into(),
+                    // Keyboard shortcuts section
+                    Text::new("Keyboard Shortcuts")
+                        .size(14.0)
+                        .color(heading_color)
+                        .into(),
+                    Spacer {
+                        height: Some(4.0),
+                        ..Default::default()
+                    }
+                    .into(),
+                    shortcut_row("Ctrl+Shift+P", "Command Palette"),
+                    shortcut_row("Ctrl+B", "Toggle Sidebar"),
+                    shortcut_row("Ctrl+`", "Toggle Terminal"),
+                    shortcut_row("Ctrl+S", "Save File"),
+                    Spacer {
+                        height: Some(20.0),
+                        ..Default::default()
+                    }
+                    .into(),
+                    // Recent files section
+                    Text::new("Recent Files")
+                        .size(14.0)
+                        .color(heading_color)
+                        .into(),
+                    Spacer {
+                        height: Some(4.0),
+                        ..Default::default()
+                    }
+                    .into(),
+                    Text::new("No recent files").size(12.0).color(dim).into(),
+                ],
             }
-            .build(ctx, view),
-        )
+            .into(),
+        })
         .bg(Color {
             r: 30,
             g: 30,
@@ -354,6 +294,6 @@ impl EditorSurface {
         })
         .flex_grow(1.0)
         .flex_shrink(1.0)
-        .into_node()
+        .into()
     }
 }

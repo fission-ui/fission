@@ -1,10 +1,8 @@
 use fission::core::op::Color as IrColor;
 use fission::core::ui::{
-    Button, ButtonVariant, Checkbox, Container, Node, Scroll, Slider, Switch, Text, TextInput,
+    Button, ButtonVariant, Checkbox, Container, Scroll, Slider, Switch, Text, TextInput, Widget,
 };
-use fission::core::{
-    reduce_with, ActionEnvelope, AppState, BuildCtx, FlexDirection, View, Widget, WidgetNodeId,
-};
+use fission::core::{reduce_with, ActionEnvelope, FlexDirection, GlobalState, WidgetId};
 use fission::prelude::fission_action;
 use fission::prelude::DesktopApp;
 use fission::widgets::{
@@ -73,7 +71,7 @@ impl Default for GalleryState {
     }
 }
 
-impl AppState for GalleryState {}
+impl GlobalState for GalleryState {}
 
 // --- Actions ---
 
@@ -141,7 +139,7 @@ struct Noop;
 
 // --- Helpers ---
 
-fn section(title: &str, children: Vec<Node>) -> Node {
+fn section(title: &str, children: Vec<Widget>) -> Widget {
     VStack {
         spacing: Some(8.0),
         children: vec![
@@ -150,8 +148,8 @@ fn section(title: &str, children: Vec<Node>) -> Node {
                     height: Some(8.0),
                     ..Default::default()
                 }
-                .into_node(),
-                Text::new(title).size(20.0).into_node(),
+                .into(),
+                Text::new(title).size(20.0).into(),
                 Divider::default().build_inline(),
             ],
             children,
@@ -160,16 +158,16 @@ fn section(title: &str, children: Vec<Node>) -> Node {
         .flatten()
         .collect(),
     }
-    .into_node()
+    .into()
 }
 
 trait BuildInline {
-    fn build_inline(self) -> Node;
+    fn build_inline(self) -> Widget;
 }
 
 impl BuildInline for Divider {
-    fn build_inline(self) -> Node {
-        Container::new(fission::core::ui::widgets::Spacer::default().into_node())
+    fn build_inline(self) -> Widget {
+        Container::new(fission::core::ui::widgets::Spacer::default())
             .height(1.0)
             .bg(IrColor {
                 r: 200,
@@ -178,18 +176,20 @@ impl BuildInline for Divider {
                 a: 255,
             })
             .flex_grow(1.0)
-            .into_node()
+            .into()
     }
 }
 
 // --- App Widget ---
 
+#[derive(Clone)]
 struct GalleryApp;
 
-impl Widget<GalleryState> for GalleryApp {
-    fn build(&self, ctx: &mut BuildCtx<GalleryState>, view: &View<GalleryState>) -> Node {
-        let s = view.state;
-        let tokens = &view.env.theme.tokens;
+impl From<GalleryApp> for Widget {
+    fn from(_component: GalleryApp) -> Self {
+        let (ctx, view) = fission::build::current::<GalleryState>();
+        let s = view.state();
+        let tokens = &view.env().theme.tokens;
         let viewport_width = view.viewport_size().width.max(0.0);
         let control_width = (viewport_width - 96.0).clamp(220.0, 420.0);
         let drawer_width = (viewport_width * 0.42).clamp(220.0, 340.0);
@@ -201,46 +201,46 @@ impl Widget<GalleryState> for GalleryApp {
                 HStack {
                     spacing: Some(12.0),
                     children: vec![
-                        Text::new("Hello Fission").size(16.0).into_node(),
+                        Text::new("Hello Fission").size(16.0).into(),
                         Badge {
                             text: "New".into(),
                             ..Default::default()
                         }
-                        .build(ctx, view),
+                        .into(),
                         Tag {
                             label: "Rust".into(),
                             on_close: None,
                         }
-                        .build(ctx, view),
+                        .into(),
                         Avatar {
                             name: Some("John Doe".into()),
                             src: None,
                             size: Some(36.0),
                         }
-                        .build(ctx, view),
+                        .into(),
                     ],
                 }
-                .into_node(),
+                .into(),
                 HStack {
                     spacing: Some(12.0),
                     children: vec![
                         Code {
                             text: "let x = 42;".into(),
                         }
-                        .build(ctx, view),
+                        .into(),
                         Kbd {
                             text: "Ctrl+C".into(),
                         }
-                        .build(ctx, view),
+                        .into(),
                     ],
                 }
-                .into_node(),
+                .into(),
                 Stat {
                     label: "Total Users".into(),
                     value: "1,234".into(),
                     help_text: Some("+12% this month".into()),
                 }
-                .build(ctx, view),
+                .into(),
             ],
         );
 
@@ -254,33 +254,33 @@ impl Widget<GalleryState> for GalleryApp {
                     children: vec![
                         Button {
                             variant: ButtonVariant::Filled,
-                            child: Some(Box::new(Text::new("Filled").into_node())),
+                            child: Some(Text::new("Filled").into()),
                             on_press: Some(ctx.bind(Noop, reduce_with!((|_, _: Noop, _| {})))),
                             ..Default::default()
                         }
-                        .into_node(),
+                        .into(),
                         Button {
                             variant: ButtonVariant::Outline,
-                            child: Some(Box::new(Text::new("Outline").into_node())),
+                            child: Some(Text::new("Outline").into()),
                             ..Default::default()
                         }
-                        .into_node(),
+                        .into(),
                         Button {
                             variant: ButtonVariant::Ghost,
-                            child: Some(Box::new(Text::new("Ghost").into_node())),
+                            child: Some(Text::new("Ghost").into()),
                             ..Default::default()
                         }
-                        .into_node(),
+                        .into(),
                         Button {
                             variant: ButtonVariant::Filled,
-                            child: Some(Box::new(Text::new("Disabled").into_node())),
+                            child: Some(Text::new("Disabled").into()),
                             disabled: true,
                             ..Default::default()
                         }
-                        .into_node(),
+                        .into(),
                     ],
                 }
-                .into_node(),
+                .into(),
                 // TextInput
                 TextInput {
                     value: s.text_value.clone(),
@@ -292,7 +292,7 @@ impl Widget<GalleryState> for GalleryApp {
                     width: Some(control_width),
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
                 // Checkbox + Switch + Radio
                 HStack {
                     spacing: Some(16.0),
@@ -306,7 +306,7 @@ impl Widget<GalleryState> for GalleryApp {
                             label: Some("Check me".into()),
                             ..Default::default()
                         }
-                        .into_node(),
+                        .into(),
                         Switch {
                             checked: s.switch_on,
                             on_toggle: Some(ctx.bind(
@@ -317,37 +317,33 @@ impl Widget<GalleryState> for GalleryApp {
                             )),
                             ..Default::default()
                         }
-                        .into_node(),
+                        .into(),
                     ],
                 }
-                .into_node(),
+                .into(),
                 // Slider
                 HStack {
                     spacing: Some(8.0),
                     children: vec![
-                        Text::new("Slider:").into_node(),
-                        Container::new(
-                            Slider {
-                                value: s.slider_val,
-                                min: 0.0,
-                                max: 100.0,
-                                on_change: Some(ctx.bind(
-                                    SetSlider(0.0),
-                                    reduce_with!(
-                                        (|s: &mut GalleryState, a: SetSlider, _| s.slider_val =
-                                            a.0)
-                                    ),
-                                )),
-                                ..Default::default()
-                            }
-                            .into_node(),
-                        )
+                        Text::new("Slider:").into(),
+                        Container::new(Slider {
+                            value: s.slider_val,
+                            min: 0.0,
+                            max: 100.0,
+                            on_change: Some(ctx.bind(
+                                SetSlider(0.0),
+                                reduce_with!(
+                                    (|s: &mut GalleryState, a: SetSlider, _| s.slider_val = a.0)
+                                ),
+                            )),
+                            ..Default::default()
+                        })
                         .width(control_width.min(280.0))
-                        .into_node(),
-                        Text::new(format!("{:.0}", s.slider_val)).into_node(),
+                        .into(),
+                        Text::new(format!("{:.0}", s.slider_val)).into(),
                     ],
                 }
-                .into_node(),
+                .into(),
                 // NumberInput
                 NumberInput {
                     value: s.number_val,
@@ -362,7 +358,7 @@ impl Widget<GalleryState> for GalleryApp {
                     )),
                     ..Default::default()
                 }
-                .build(ctx, view),
+                .into(),
             ],
         );
 
@@ -375,70 +371,70 @@ impl Widget<GalleryState> for GalleryApp {
                     title: "Information".into(),
                     description: Some("This is an info alert.".into()),
                 }
-                .build(ctx, view),
+                .into(),
                 Alert {
                     kind: AlertKind::Success,
                     title: "Success".into(),
                     description: None,
                 }
-                .build(ctx, view),
+                .into(),
                 Alert {
                     kind: AlertKind::Warning,
                     title: "Warning".into(),
                     description: Some("Be careful!".into()),
                 }
-                .build(ctx, view),
+                .into(),
                 Alert {
                     kind: AlertKind::Error,
                     title: "Error".into(),
                     description: Some("Something went wrong.".into()),
                 }
-                .build(ctx, view),
+                .into(),
                 HStack {
                     spacing: Some(16.0),
-                    children: vec![ProgressBar { value: 0.65 }.build(ctx, view)],
+                    children: vec![ProgressBar { value: 0.65 }.into()],
                 }
-                .into_node(),
+                .into(),
                 HStack {
                     spacing: Some(16.0),
                     children: vec![
                         Spinner {
-                            id: WidgetNodeId::explicit("spinner1"),
+                            id: WidgetId::explicit("spinner1"),
                             color: None,
                             animated: true,
                         }
-                        .build(ctx, view),
+                        .into(),
                         CircularProgress {
                             value: Some(0.7),
                             size: 40.0,
                             ..Default::default()
                         }
-                        .build(ctx, view),
+                        .into(),
                         Skeleton {
-                            id: WidgetNodeId::explicit("skel1"),
+                            id: WidgetId::explicit("skel1"),
                             width: Some(120.0),
                             height: Some(20.0),
                             circle: false,
                             animated: true,
                         }
-                        .build(ctx, view),
+                        .into(),
                     ],
                 }
-                .into_node(),
+                .into(),
                 EmptyState {
                     icon: None,
                     title: "No items yet".into(),
                     description: Some("Add your first item to get started.".into()),
-                    action: Some(Box::new(
+                    action: Some(
                         Button {
                             variant: ButtonVariant::Outline,
-                            child: Some(Box::new(Text::new("Add Item").into_node())),
+                            child: Some(Text::new("Add Item").into()),
                             ..Default::default()
                         }
-                        .into_node(),
-                    )),
+                        .into(),
+                    ),
                 }
-                .build(ctx, view),
+                .into(),
             ],
         );
 
@@ -452,7 +448,7 @@ impl Widget<GalleryState> for GalleryApp {
                     items: vec![
                         TabItem {
                             title: "Tab A".into(),
-                            content: Text::new("Content of Tab A").into_node(),
+                            content: Text::new("Content of Tab A").into(),
                             on_press: Some(ctx.bind(
                                 SetTab(0),
                                 reduce_with!(
@@ -462,7 +458,7 @@ impl Widget<GalleryState> for GalleryApp {
                         },
                         TabItem {
                             title: "Tab B".into(),
-                            content: Text::new("Content of Tab B").into_node(),
+                            content: Text::new("Content of Tab B").into(),
                             on_press: Some(ctx.bind(
                                 SetTab(1),
                                 reduce_with!(
@@ -472,7 +468,7 @@ impl Widget<GalleryState> for GalleryApp {
                         },
                         TabItem {
                             title: "Tab C".into(),
-                            content: Text::new("Content of Tab C").into_node(),
+                            content: Text::new("Content of Tab C").into(),
                             on_press: Some(ctx.bind(
                                 SetTab(2),
                                 reduce_with!(
@@ -483,7 +479,7 @@ impl Widget<GalleryState> for GalleryApp {
                     ],
                     ..Default::default()
                 }
-                .build(ctx, view),
+                .into(),
                 // Breadcrumb
                 Breadcrumb {
                     items: vec![
@@ -501,7 +497,7 @@ impl Widget<GalleryState> for GalleryApp {
                         },
                     ],
                 }
-                .build(ctx, view),
+                .into(),
                 // SegmentedControl
                 SegmentedControl {
                     options: vec!["Day".into(), "Week".into(), "Month".into()],
@@ -519,7 +515,7 @@ impl Widget<GalleryState> for GalleryApp {
                         }
                     })),
                 }
-                .build(ctx, view),
+                .into(),
                 // Pagination
                 Pagination {
                     current_page: s.current_page.max(1),
@@ -537,16 +533,16 @@ impl Widget<GalleryState> for GalleryApp {
                         }
                     })),
                 }
-                .build(ctx, view),
+                .into(),
                 // Link
                 Link {
                     text: "Visit documentation".into(),
                     on_click: None,
                 }
-                .build(ctx, view),
+                .into(),
                 // MenuButton
                 MenuButton {
-                    id: WidgetNodeId::explicit("gallery_menu"),
+                    id: WidgetId::explicit("gallery_menu"),
                     label: "Actions".into(),
                     items: vec![
                         MenuItem {
@@ -566,7 +562,7 @@ impl Widget<GalleryState> for GalleryApp {
                         reduce_with!((|s: &mut GalleryState, _, _| s.menu_open = !s.menu_open)),
                     )),
                 }
-                .build(ctx, view),
+                .into(),
             ],
         );
 
@@ -576,27 +572,25 @@ impl Widget<GalleryState> for GalleryApp {
             vec![
                 // Card
                 Card {
-                    child: Box::new(
-                        VStack {
-                            spacing: Some(4.0),
-                            children: vec![
-                                Text::new("Card Title").size(18.0).into_node(),
-                                Text::new("Some card content goes here.")
-                                    .color(tokens.colors.text_secondary)
-                                    .into_node(),
-                            ],
-                        }
-                        .into_node(),
-                    ),
+                    child: VStack {
+                        spacing: Some(4.0),
+                        children: vec![
+                            Text::new("Card Title").size(18.0).into(),
+                            Text::new("Some card content goes here.")
+                                .color(tokens.colors.text_secondary)
+                                .into(),
+                        ],
+                    }
+                    .into(),
                     ..Default::default()
                 }
-                .build(ctx, view),
+                .into(),
                 // Accordion
                 Accordion {
                     items: vec![
                         AccordionItem {
                             title: "Section 1".into(),
-                            content: Text::new("Content of section 1").into_node(),
+                            content: Text::new("Content of section 1").into(),
                             is_expanded: s.accordion_open == 0,
                             on_toggle: Some(ctx.bind(
                                 ToggleAccordion(0),
@@ -613,7 +607,7 @@ impl Widget<GalleryState> for GalleryApp {
                         },
                         AccordionItem {
                             title: "Section 2".into(),
-                            content: Text::new("Content of section 2").into_node(),
+                            content: Text::new("Content of section 2").into(),
                             is_expanded: s.accordion_open == 1,
                             on_toggle: Some(ctx.bind(
                                 ToggleAccordion(1),
@@ -630,7 +624,7 @@ impl Widget<GalleryState> for GalleryApp {
                         },
                     ],
                 }
-                .build(ctx, view),
+                .into(),
                 // Stepper
                 Stepper {
                     steps: vec![
@@ -641,7 +635,7 @@ impl Widget<GalleryState> for GalleryApp {
                     ],
                     active_index: 1,
                 }
-                .build(ctx, view),
+                .into(),
                 // Timeline
                 Timeline {
                     items: vec![
@@ -662,7 +656,7 @@ impl Widget<GalleryState> for GalleryApp {
                         },
                     ],
                 }
-                .build(ctx, view),
+                .into(),
                 // TreeView
                 TreeView {
                     items: vec![TreeItem {
@@ -716,7 +710,7 @@ impl Widget<GalleryState> for GalleryApp {
                     expanded_ids: s.tree_expanded.clone(),
                     selected_id: s.tree_selected.clone(),
                 }
-                .build(ctx, view),
+                .into(),
             ],
         );
 
@@ -729,7 +723,7 @@ impl Widget<GalleryState> for GalleryApp {
                     children: vec![
                         Button {
                             variant: ButtonVariant::Outline,
-                            child: Some(Box::new(Text::new("Open Modal").into_node())),
+                            child: Some(Text::new("Open Modal").into()),
                             on_press: Some(ctx.bind(
                                 ToggleModal,
                                 reduce_with!(
@@ -738,10 +732,10 @@ impl Widget<GalleryState> for GalleryApp {
                             )),
                             ..Default::default()
                         }
-                        .into_node(),
+                        .into(),
                         Button {
                             variant: ButtonVariant::Outline,
-                            child: Some(Box::new(Text::new("Open Drawer").into_node())),
+                            child: Some(Text::new("Open Drawer").into()),
                             on_press: Some(ctx.bind(
                                 ToggleDrawer,
                                 reduce_with!(
@@ -750,31 +744,31 @@ impl Widget<GalleryState> for GalleryApp {
                             )),
                             ..Default::default()
                         }
-                        .into_node(),
+                        .into(),
                         Button {
                             variant: ButtonVariant::Outline,
-                            child: Some(Box::new(Text::new("Show Toast").into_node())),
+                            child: Some(Text::new("Show Toast").into()),
                             on_press: Some(ctx.bind(
                                 ShowToast,
                                 reduce_with!((|s: &mut GalleryState, _, _| s.show_toast = true)),
                             )),
                             ..Default::default()
                         }
-                        .into_node(),
+                        .into(),
                     ],
                 }
-                .into_node(),
+                .into(),
                 // Tooltip
                 Tooltip {
-                    id: WidgetNodeId::explicit("gallery_tooltip"),
-                    child: Box::new(Text::new("Hover me for tooltip").into_node()),
+                    id: WidgetId::explicit("gallery_tooltip"),
+                    child: Text::new("Hover me for tooltip").into(),
                     text: "This is a tooltip!".into(),
                     is_visible: false,
                 }
-                .build(ctx, view),
+                .into(),
                 // Select
                 Select {
-                    id: WidgetNodeId::explicit("gallery_select"),
+                    id: WidgetId::explicit("gallery_select"),
                     selected_label: s.select_value.clone(),
                     items: vec![
                         SelectItem {
@@ -812,18 +806,16 @@ impl Widget<GalleryState> for GalleryApp {
                     placeholder: "Choose...".into(),
                     width: Some(control_width.min(260.0)),
                 }
-                .build(ctx, view),
+                .into(),
             ],
         );
 
         // -- Register Portals for Modal/Drawer/Toast --
         if s.modal_open {
-            Modal {
-                id: WidgetNodeId::explicit("gallery_modal"),
+            let _: Widget = Modal {
+                id: WidgetId::explicit("gallery_modal"),
                 title: "Gallery Modal".into(),
-                content: Box::new(
-                    Text::new("This is modal content.\nYou can put any widget here.").into_node(),
-                ),
+                content: Text::new("This is modal content.\nYou can put any widget here.").into(),
                 is_open: true,
                 on_dismiss: Some(ctx.bind(
                     ToggleModal,
@@ -849,36 +841,34 @@ impl Widget<GalleryState> for GalleryApp {
                 ],
                 width: None,
             }
-            .build(ctx, view);
+            .into();
         }
 
         if s.drawer_open {
-            Drawer {
-                id: WidgetNodeId::explicit("gallery_drawer"),
+            let _: Widget = Drawer {
+                id: WidgetId::explicit("gallery_drawer"),
                 side: DrawerSide::Right,
                 is_open: true,
                 on_dismiss: Some(ctx.bind(
                     ToggleDrawer,
                     reduce_with!((|s: &mut GalleryState, _, _| s.drawer_open = false)),
                 )),
-                content: Box::new(
-                    VStack {
-                        spacing: Some(12.0),
-                        children: vec![
-                            Text::new("Drawer Content").size(18.0).into_node(),
-                            Text::new("This slides in from the right.").into_node(),
-                        ],
-                    }
-                    .into_node(),
-                ),
+                content: VStack {
+                    spacing: Some(12.0),
+                    children: vec![
+                        Text::new("Drawer Content").size(18.0).into(),
+                        Text::new("This slides in from the right.").into(),
+                    ],
+                }
+                .into(),
                 width: Some(drawer_width),
             }
-            .build(ctx, view);
+            .into();
         }
 
         if s.show_toast {
-            let toast = Toast {
-                id: WidgetNodeId::explicit("gallery_toast"),
+            let toast: Widget = Toast {
+                id: WidgetId::explicit("gallery_toast"),
                 kind: ToastKind::Success,
                 message: "Action completed!".into(),
                 on_close: Some(ctx.bind(
@@ -886,27 +876,27 @@ impl Widget<GalleryState> for GalleryApp {
                     reduce_with!((|s: &mut GalleryState, _, _| s.show_toast = false)),
                 )),
             }
-            .build(ctx, view);
+            .into();
             ctx.register_portal_with_layer(
                 fission::core::PortalLayer::Toast,
-                Some(WidgetNodeId::explicit("gallery_toast")),
+                Some(WidgetId::explicit("gallery_toast")),
                 fission::widgets::Positioned {
                     right: Some(20.0),
                     bottom: Some(20.0),
-                    child: Some(Box::new(toast)),
+                    child: Some(toast),
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
             );
         }
 
         // -- Compose everything --
-        let all_sections = VStack {
+        let all_sections: Widget = VStack {
             spacing: Some(16.0),
             children: vec![
-                Container::new(Text::new("Fission Widget Gallery").size(28.0).into_node())
+                Container::new(Text::new("Fission Widget Gallery").size(28.0))
                     .padding_all(16.0)
-                    .into_node(),
+                    .into(),
                 display_section,
                 input_section,
                 feedback_section,
@@ -917,26 +907,23 @@ impl Widget<GalleryState> for GalleryApp {
                     height: Some(40.0),
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
             ],
         }
-        .into_node();
+        .into();
 
         Scroll {
             direction: FlexDirection::Column,
-            child: Some(Box::new(
-                Container::new(all_sections).padding_all(24.0).into_node(),
-            )),
+            child: Some(Container::new(all_sections).padding_all(24.0).into()),
             show_scrollbar: true,
             flex_grow: 1.0,
             flex_shrink: 1.0,
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 }
-
 fn main() -> anyhow::Result<()> {
-    let app = DesktopApp::new(GalleryApp);
+    let app = DesktopApp::<GalleryState, _>::new(GalleryApp);
     app.run()
 }

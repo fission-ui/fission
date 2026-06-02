@@ -1,33 +1,39 @@
-//! Widget-level identity, separate from IR node identity.
+//! Stable identity for widgets and lowered IR nodes.
 //!
-//! A [`WidgetNodeId`] identifies a *widget* rather than an IR node. Widgets may
-//! compile to multiple IR nodes, but they share a single `WidgetNodeId`. This is
-//! used primarily by [`LayoutOp::Embed`](crate::op::LayoutOp::Embed) to reference
-//! a platform-native surface (video player, web view, etc.) that the framework
-//! does not render itself.
+//! A [`WidgetId`] is the single identity type used across authoring widgets,
+//! lowered IR nodes, layout, rendering, hit testing, and runtime state. The old
+//! split between widget identity and node identity is intentionally gone: a
+//! widget may lower to one or more IR nodes, and those nodes use derived
+//! `WidgetId` values when they need child identities.
 
-use blake3;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
-/// A 128-bit identity for a widget.
+/// A stable 128-bit identity for widgets and lowered IR nodes.
 ///
-/// Like [`NodeId`](crate::NodeId), this is derived from a BLAKE3 hash, but it uses
-/// the `"widget:"` prefix so that widget IDs and node IDs never collide. Widget IDs
-/// are interconvertible with node IDs via `From` impls.
+/// `WidgetId` values are derived from BLAKE3 hashes. Two construction strategies
+/// are available:
+///
+/// * [`WidgetId::explicit`] hashes a user-provided stable key.
+/// * [`WidgetId::derived`] hashes a parent identity plus a child-index path.
 ///
 /// # Example
 ///
 /// ```rust
-/// use fission_ir::WidgetNodeId;
-/// let wid = WidgetNodeId::explicit("video-player");
+/// use fission_ir::WidgetId;
+///
+/// let sidebar = WidgetId::explicit("sidebar");
+/// let first_item = WidgetId::derived(sidebar.as_u128(), &[0]);
+/// assert_ne!(sidebar, first_item);
 /// ```
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord, Debug)]
-pub struct WidgetNodeId(u128);
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+pub struct WidgetId(u128);
 
-impl WidgetNodeId {
-    /// Creates a `WidgetNodeId` from a raw 128-bit value.
+impl WidgetId {
+    /// Creates a `WidgetId` from a raw 128-bit value.
     ///
-    /// Intended for internal use or deserialization.
+    /// This is intended for internal use or deserialization. In normal code use
+    /// [`WidgetId::explicit`] or [`WidgetId::derived`] instead.
     pub const fn from_u128(val: u128) -> Self {
         Self(val)
     }
@@ -37,24 +43,34 @@ impl WidgetNodeId {
         self.0
     }
 
-    /// Creates a `WidgetNodeId` from a user-provided name string.
+    /// Creates a `WidgetId` from a user-provided stable key.
     ///
-    /// The name is hashed with BLAKE3 (prefixed with `"widget:"`), producing a
-    /// deterministic ID. Use this to give stable identities to platform-embedded
-    /// widgets.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use fission_ir::WidgetNodeId;
-    /// let a = WidgetNodeId::explicit("camera-preview");
-    /// let b = WidgetNodeId::explicit("camera-preview");
-    /// assert_eq!(a, b);
-    /// ```
-    pub fn explicit(name: &str) -> Self {
+    /// The key is hashed with BLAKE3 using the same explicit-identity domain as
+    /// the original IR identity system. Keep the key stable across rebuilds when
+    /// you want runtime state, focus, scroll, animation, or host-surface state to
+    /// follow a widget through tree changes.
+    pub fn explicit(key: &str) -> Self {
         let mut hasher = blake3::Hasher::new();
-        hasher.update(b"widget:");
-        hasher.update(name.as_bytes());
+        hasher.update(b"explicit:");
+        hasher.update(key.as_bytes());
+        let hash = hasher.finalize();
+        Self(u128::from_le_bytes(
+            hash.as_bytes()[0..16].try_into().unwrap(),
+        ))
+    }
+
+    /// Creates a `WidgetId` derived from a parent identity and child-index path.
+    ///
+    /// This provides structural identity for children that do not have explicit
+    /// keys. Dynamic/reorderable lists should provide explicit IDs for list items;
+    /// purely structural children can use derived IDs.
+    pub fn derived(parent: u128, path: &[u32]) -> Self {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"derived:");
+        hasher.update(&parent.to_le_bytes());
+        for index in path {
+            hasher.update(&index.to_le_bytes());
+        }
         let hash = hasher.finalize();
         Self(u128::from_le_bytes(
             hash.as_bytes()[0..16].try_into().unwrap(),
@@ -62,14 +78,14 @@ impl WidgetNodeId {
     }
 }
 
-impl From<crate::node_id::NodeId> for WidgetNodeId {
-    fn from(node: crate::node_id::NodeId) -> Self {
-        Self(node.as_u128())
+impl fmt::Debug for WidgetId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "WidgetId({:032x})", self.0)
     }
 }
 
-impl From<WidgetNodeId> for crate::node_id::NodeId {
-    fn from(id: WidgetNodeId) -> Self {
-        crate::node_id::NodeId::from_u128(id.0)
+impl fmt::Display for WidgetId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:032x}", self.0)
     }
 }

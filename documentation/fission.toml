@@ -16,7 +16,7 @@ pretty_urls = true
 generate_sitemap = true
 generate_robots = true
 title = "Fission"
-description = "Build, test, package, and release production Rust apps across desktop, mobile, web, terminal, and static site targets."
+description = "Build, test, package, and release production Rust apps across desktop, mobile, web, terminal, static site, and server-rendered site targets."
 logo = "/img/fission-mark.svg"
 favicon = "/img/fission-mark.svg"
 asset_dirs = ["static"]
@@ -46,6 +46,46 @@ production_branch = "main"
 [[site.nav]]
 title = "Product"
 href = "/product/overview/"
+
+[[site.nav.children]]
+title = "Platform overview"
+href = "/product/overview/"
+
+[[site.nav.children]]
+title = "Cross-platform apps"
+href = "/product/cross-platform-apps/"
+
+[[site.nav.children]]
+title = "Static sites"
+href = "/product/static-sites/"
+
+[[site.nav.children]]
+title = "Server-rendered sites"
+href = "/product/server-rendered-sites/"
+
+[[site.nav.children]]
+title = "Terminal apps"
+href = "/product/terminal-apps/"
+
+[[site.nav.children]]
+title = "Charts"
+href = "/product/charts/"
+
+[[site.nav.children]]
+title = "Production lifecycle"
+href = "/product/production-lifecycle/"
+
+[[site.nav.children]]
+title = "Developer tools"
+href = "/product/developer-tools/"
+
+[[site.nav.children]]
+title = "Design systems"
+href = "/product/design-systems/"
+
+[[site.nav.children]]
+title = "Blog"
+href = "/blog/"
 
 [[site.nav]]
 title = "Setup"

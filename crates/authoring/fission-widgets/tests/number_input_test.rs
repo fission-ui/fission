@@ -1,10 +1,10 @@
-use fission_core::ui::Node;
-use fission_core::{AppState, BuildCtx, View, Widget};
+use fission_core::internal::BuildCtx;
+use fission_core::{build, GlobalState, View};
 use fission_widgets::NumberInput;
 
 #[derive(Default, Clone, Debug)]
 struct State;
-impl AppState for State {}
+impl GlobalState for State {}
 
 #[test]
 fn test_number_input_structure() {
@@ -25,18 +25,15 @@ fn test_number_input_structure() {
         ..Default::default()
     };
 
-    let node = input.build(&mut ctx, &view);
+    let node = build::enter(&mut ctx, &view, || input.into());
 
-    match node {
-        Node::Container(container) => {
-            let Some(child) = container.child else {
-                panic!("NumberInput container should wrap content");
-            };
-            let Node::Row(row) = *child else {
-                panic!("NumberInput should wrap a Row inside the field container");
-            };
-            assert_eq!(row.children.len(), 3); // Dec, Input, Inc
-        }
-        _ => panic!("NumberInput should return a field container"),
-    }
+    let container = fission_core::internal::widget_as_container(&node)
+        .expect("NumberInput should return a field container");
+    let child = container
+        .child
+        .as_ref()
+        .expect("NumberInput container should wrap content");
+    let row = fission_core::internal::widget_as_row(child)
+        .expect("NumberInput should wrap a Row inside the field container");
+    assert_eq!(row.children.len(), 3); // Dec, Input, Inc
 }

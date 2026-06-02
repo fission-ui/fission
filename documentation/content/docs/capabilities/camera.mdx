@@ -17,7 +17,7 @@ Add the smallest state fields the screen needs to render honestly. For this flow
 
 ```rust
 #[derive(Default)]
-struct AppState {
+struct GlobalState {
     // Add these fields to your existing app state.
 profile_photo: Option<Vec<u8>>,
     camera_error: Option<String>,
@@ -53,14 +53,14 @@ Capability work finishes later, after the reducer that started it has returned. 
 
 ```rust
 #[fission_reducer(PhotoCaptured)]
-fn on_photo_captured(state: &mut AppState, capture: CameraCapture) {
+fn on_photo_captured(state: &mut GlobalState, capture: CameraCapture) {
     state.capturing = false;
     state.profile_photo = Some(capture.bytes);
     state.camera_error = None;
 }
 
 #[fission_reducer(PhotoCaptureFailed)]
-fn on_photo_capture_failed(state: &mut AppState, error: CameraError) {
+fn on_photo_capture_failed(state: &mut GlobalState, error: CameraError) {
     state.capturing = false;
     state.camera_error = Some(error.message);
 }
@@ -103,14 +103,15 @@ Wire the user-facing control with the normal Fission action pattern. This exampl
 ```rust
 struct CaptureProfilePhotoButton;
 
-impl Widget<AppState> for CaptureProfilePhotoButton {
-    fn build(&self, view: &View<AppState>, ctx: &mut BuildCtx<AppState>) -> Node {
+impl From<CaptureProfilePhotoButton> for Widget {
+    fn from(component: CaptureProfilePhotoButton) -> Self {
+        let (ctx, view) = fission::build::current::<GlobalState>();
         let run = with_reducer!(ctx, CaptureProfilePhoto, on_capture_profile_photo);
 
         Button::new("Take photo")
-            .disabled(view.state.capturing)
+            .disabled(view.state().capturing)
             .on_press(run)
-            .build(view, ctx)
+            .into()
     }
 }
 ```
@@ -130,3 +131,19 @@ A useful first test creates the app with the memory host, dispatches the start a
 Android, iOS, web, Windows, and macOS all have camera APIs, but permission prompts and device labels differ. Linux depends on cameras, portals, and media stack setup. Flashlight is common on phones and rare on desktops.
 
 For a cross-platform summary, read the [capability matrix](/docs/capabilities/matrix/). For exact request fields, provider traits, and generated configuration, see the [Camera and flashlight reference](/reference/capabilities/camera/).
+
+## Finished capability flow
+
+A complete `Camera and flashlight` integration has all of these pieces in place:
+
+| Piece | What should exist |
+| --- | --- |
+| Configuration | `fission.toml` declares the capability and generated platform files contain the permission text, manifest entry, entitlement, domain, or protocol metadata the target needs. |
+| State | App state records the in-flight flag, the successful value, and the user-facing error separately. |
+| Reducers | One reducer starts the host request, one handles success, and one handles denial, unsupported hosts, cancellation, or provider errors. |
+| Provider | The shell registers a real provider for production and a memory provider for tests. |
+| Tests | At least one test covers success and one covers permission denial or unsupported host behavior. |
+
+## Diagnose capability failures
+
+Capability failures should be safe to retry and easy to explain. Start by checking `fission.toml`, then run `fission doctor`, then inspect the generated target files. If the provider is missing, the request should return an unsupported error. If the provider exists but the platform configuration is wrong, the OS or browser will usually deny the request before the provider can complete it. Keep those cases distinct in the UI so users know whether they can retry, change settings, connect hardware, or choose another path.

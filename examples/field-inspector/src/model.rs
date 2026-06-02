@@ -193,7 +193,7 @@ impl Default for FieldInspectorState {
     }
 }
 
-impl AppState for FieldInspectorState {}
+impl GlobalState for FieldInspectorState {}
 
 fn notification_settings_state(settings: &NotificationSettings) -> CapabilityState {
     if matches!(
@@ -1849,7 +1849,7 @@ mod tests {
         runtime
             .dispatch_with_input(
                 CapabilitySucceeded.into(),
-                fission::core::NodeId::from_u128(0),
+                fission::WidgetId::explicit("test_root"),
                 &ActionInput::CapabilityOk {
                     capability: REQUEST_CAMERA_PERMISSION.name.into(),
                     req_id: 1,
@@ -1879,7 +1879,7 @@ mod tests {
         runtime
             .dispatch_with_input(
                 CapabilitySucceeded.into(),
-                fission::core::NodeId::from_u128(0),
+                fission::WidgetId::explicit("test_root"),
                 &ActionInput::CapabilityOk {
                     capability: CAPTURE_PHOTO.name.into(),
                     req_id: 1,
@@ -1921,7 +1921,7 @@ mod tests {
         runtime
             .dispatch_with_input(
                 CapabilitySucceeded.into(),
-                fission::core::NodeId::from_u128(0),
+                fission::WidgetId::explicit("test_root"),
                 &ActionInput::CapabilityOk {
                     capability: REGISTER_PASSKEY.name.into(),
                     req_id: 1,
@@ -1941,7 +1941,7 @@ mod tests {
         runtime
             .dispatch(
                 AuthenticatePasskey.into(),
-                fission::core::NodeId::from_u128(0),
+                fission::WidgetId::explicit("test_root"),
             )
             .unwrap();
 
@@ -1978,7 +1978,7 @@ mod tests {
         runtime
             .dispatch_with_input(
                 CapabilityFailed.into(),
-                fission::core::NodeId::from_u128(0),
+                fission::WidgetId::explicit("test_root"),
                 &ActionInput::CapabilityErr {
                     capability: CAPTURE_MICROPHONE_AUDIO.name.into(),
                     req_id: 1,
@@ -2020,7 +2020,10 @@ mod tests {
         runtime.absorb_registry(registry);
 
         runtime
-            .dispatch(StartInspection.into(), fission::core::NodeId::from_u128(0))
+            .dispatch(
+                StartInspection.into(),
+                fission::WidgetId::explicit("test_root"),
+            )
             .unwrap();
 
         let names: BTreeSet<String> = runtime

@@ -1,7 +1,7 @@
 ---
 title: Design system
 sidebar_label: Design system
-description: Use a Design System Package JSON file to generate typed Fission themes at build time.
+description: Use a Design System Package JSON file to generate typed Fission themes at conversion time.
 ---
 
 # Design system
@@ -75,6 +75,20 @@ fission = { path = "../../crates/authoring/fission", default-features = false, f
 fission-design-system-codegen = { path = "../../crates/tools/fission-design-system-codegen" }
 ```
 
+## What you should have working
+
+After this guide, you should be able to explain where `Design system` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test. If any of those pieces are missing, treat the page as unfinished work: add the smallest runnable example, then add the diagnostic step that proves it works.
+
+## Common mistakes to check
+
+| Symptom | What to check first |
+| --- | --- |
+| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
+| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
+| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
+| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
+| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |
+
 The generated code uses the public Fission theme API. Your application still imports Fission normally:
 
 ```rust title="src/main.rs"
@@ -85,7 +99,7 @@ include!(concat!(env!("OUT_DIR"), "/app_design_system.rs"));
 
 ## Let the user choose light or dark
 
-Theme choice is product state. If the user can choose light mode or dark mode, keep that choice in `AppState`, then mirror it into `Env` with `.with_sync_env(...)`.
+Theme choice is product state. If the user can choose light mode or dark mode, keep that choice in `GlobalState`, then mirror it into `Env` with `.with_sync_env(...)`.
 
 ```rust
 DesktopApp::new(MyApp)
@@ -97,7 +111,7 @@ DesktopApp::new(MyApp)
     .run()?;
 ```
 
-`Env` is the environment shared with widgets while they build. Putting the generated `Theme` there means every widget sees the same colors, typography, component sizes, shadows, and motion settings for the current frame.
+`Env` is the environment shared with widgets during component conversion. Putting the generated `Theme` there means every widget sees the same colors, typography, component sizes, shadows, and motion settings for the current frame.
 
 ## What Fission consumes today
 
@@ -107,11 +121,11 @@ Buttons consume hierarchy styles such as `primary`, `secondary_color`, `secondar
 
 Inputs, badges, tabs, cards, modals, tooltips, and progress bars follow the same model. They read generated component styles for background fills, text colors, borders, radius, padding, font sizes, font weights, line heights, shadows, and state-specific overrides. Charts read the generated data-visualization palette from the theme instead of inventing a separate chart palette.
 
-The important rule is that JSON stops at build time. Runtime code sees Rust values.
+The important rule is that JSON stops at conversion time. Runtime code sees Rust values.
 
 ## Start from a bundled system when it fits
 
-Fission ships several bundled DSP packages for common product directions. They are not magic modes inside the renderer. Each one is a normal `dsp.json` and `tokens.json` package under `crates/core/fission-theme/design`, generated into a Rust `DesignSystem` implementation at build time.
+Fission ships several bundled DSP packages for common product directions. They are not magic modes inside the renderer. Each one is a normal `dsp.json` and `tokens.json` package under `crates/core/fission-theme/design`, generated into a Rust `DesignSystem` implementation at conversion time.
 
 | Preset | Generated Rust type | Use when |
 | --- | --- | --- |
@@ -137,7 +151,7 @@ DesktopApp::new(MyApp)
 
 Presets are a good starting point, not a cage. If your product needs a slightly different brand color, radius scale, chart palette, or component state table, copy the preset package into your app's `design/` folder and edit the JSON there. Your app's build script can then generate `AppDesignSystem` from that copy.
 
-That keeps the same architecture: design information enters as DSP JSON at build time, and widgets consume typed Rust theme values at runtime.
+That keeps the same architecture: design information enters as DSP JSON at conversion time, and widgets consume typed Rust theme values at runtime.
 
 ## Where to get DSP and token files
 

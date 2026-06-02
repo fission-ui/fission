@@ -1,9 +1,10 @@
+use crate::internal::InternalLower;
 use crate::lowering::wrap_zstack_child;
+use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
 use crate::ActionEnvelope;
-use crate::{Lower, LoweringContext, NodeBuilder};
 use fission_ir::{
     op::{Color, Fill, GridTrack, LayoutOp, Op, PaintOp},
-    FlexDirection, NodeId,
+    FlexDirection, WidgetId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -18,7 +19,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// ```rust,ignore
 /// Slider {
-///     value: view.state.volume,
+///     value: view.state().volume,
 ///     min: 0.0,
 ///     max: 1.0,
 ///     on_change: Some(ctx.bind(
@@ -31,7 +32,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Slider {
     /// Explicit node identity.
-    pub id: Option<NodeId>,
+    pub id: Option<WidgetId>,
     /// Current value (clamped to `[min, max]`).
     pub value: f32,
     /// Minimum value (default: 0.0).
@@ -42,11 +43,7 @@ pub struct Slider {
     pub on_change: Option<ActionEnvelope>,
 }
 
-impl Slider {
-    pub fn into_node(self) -> crate::ui::Node {
-        crate::ui::Node::Slider(self)
-    }
-}
+impl Slider {}
 
 impl Default for Slider {
     fn default() -> Self {
@@ -60,9 +57,9 @@ impl Default for Slider {
     }
 }
 
-impl Lower for Slider {
-    fn lower(&self, cx: &mut LoweringContext) -> NodeId {
-        let id = self.id.unwrap_or_else(|| cx.next_node_id());
+impl InternalLower for Slider {
+    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+        let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         cx.push_scope(id);
 
         let tokens = &cx.env.theme.tokens;
@@ -102,7 +99,7 @@ impl Lower for Slider {
         // `LayoutOp::Flex` (Column) with `AlignItems: Stretch` and `JustifyContent: Center`.
         // Add a child Box with height `track_height`.
         let track_layer = {
-            let track_paint = NodeBuilder::new(
+            let track_paint = InternalIrBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRect {
                     fill: Some(Fill::Solid(tokens.colors.border)), // Inactive track
@@ -113,7 +110,7 @@ impl Lower for Slider {
             )
             .build(cx);
 
-            let mut track_box = NodeBuilder::new(
+            let mut track_box = InternalIrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::Box {
                     width: None, // Auto width
@@ -132,7 +129,7 @@ impl Lower for Slider {
             let _track_box_id = track_box.build(cx);
 
             // Center vertically
-            let _center_col = NodeBuilder::new(
+            let _center_col = InternalIrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::Flex {
                     direction: FlexDirection::Row,
@@ -167,7 +164,7 @@ impl Lower for Slider {
             // `padding_top = (thumb_size - track_height) / 2`.
             let p_y = (thumb_size - track_height) / 2.0;
 
-            let mut track_container = NodeBuilder::new(
+            let mut track_container = InternalIrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::Box {
                     width: None,
@@ -183,7 +180,7 @@ impl Lower for Slider {
                 }),
             );
 
-            let inner_paint = NodeBuilder::new(
+            let inner_paint = InternalIrBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRect {
                     fill: Some(Fill::Solid(tokens.colors.border)),
@@ -207,7 +204,7 @@ impl Lower for Slider {
 
             // But `inner_paint` needs a layout node to fill?
             let mut inner_box =
-                NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::AbsoluteFill)); // Fill the padded area
+                InternalIrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::AbsoluteFill)); // Fill the padded area
             inner_box.add_child(inner_paint);
             let inner_id = inner_box.build(cx);
 
@@ -217,7 +214,7 @@ impl Lower for Slider {
 
         // Layer 2: Thumb Grid
         let thumb_layer = {
-            let thumb_paint = NodeBuilder::new(
+            let thumb_paint = InternalIrBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRect {
                     fill: Some(Fill::Solid(tokens.colors.primary)),
@@ -237,7 +234,7 @@ impl Lower for Slider {
             )
             .build(cx);
 
-            let mut thumb_box = NodeBuilder::new(
+            let mut thumb_box = InternalIrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::Box {
                     width: Some(thumb_size),
@@ -255,7 +252,7 @@ impl Lower for Slider {
             thumb_box.add_child(thumb_paint);
             let thumb_id = thumb_box.build(cx);
 
-            let mut grid = NodeBuilder::new(
+            let mut grid = InternalIrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::Grid {
                     columns: vec![
@@ -271,7 +268,7 @@ impl Lower for Slider {
             );
 
             // Thumb item at col 2
-            let mut item = NodeBuilder::new(
+            let mut item = InternalIrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::GridItem {
                     row_start: fission_ir::op::GridPlacement::Line(1),
@@ -292,7 +289,7 @@ impl Lower for Slider {
         let thumb_wrapped = wrap_zstack_child(cx, thumb_layer);
         cx.pop_scope();
 
-        let mut zstack = NodeBuilder::new(layout_id, Op::Layout(LayoutOp::ZStack));
+        let mut zstack = InternalIrBuilder::new(layout_id, Op::Layout(LayoutOp::ZStack));
         zstack.add_child(track_wrapped);
         zstack.add_child(thumb_wrapped);
         zstack.build(cx);
@@ -351,7 +348,7 @@ impl Lower for Slider {
             });
         }
 
-        let mut sem_node = NodeBuilder::new(id, Op::Semantics(semantics));
+        let mut sem_node = InternalIrBuilder::new(id, Op::Semantics(semantics));
         sem_node.add_child(layout_id);
         sem_node.build(cx)
     }

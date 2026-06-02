@@ -1,10 +1,11 @@
-use fission_core::{AppState, BuildCtx, Node, View, Widget};
+use fission_core::internal::BuildCtx;
+use fission_core::{build, GlobalState, View};
 use fission_widgets::timeline::{Timeline, TimelineItem};
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq)]
 struct TestState;
-impl AppState for TestState {}
+impl GlobalState for TestState {}
 
 #[test]
 fn test_timeline_structure() {
@@ -29,6 +30,6 @@ fn test_timeline_structure() {
         ],
     };
 
-    let node = timeline.build(&mut ctx, &view);
-    assert!(matches!(node, Node::Column(_)));
+    let node = build::enter(&mut ctx, &view, || timeline.into());
+    assert_eq!(fission_core::internal::widget_kind_name(&node), "Column");
 }

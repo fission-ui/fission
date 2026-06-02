@@ -4,10 +4,10 @@ use crate::model::{
 };
 use fission::core::op::Color;
 use fission::core::ui::{
-    Button, ButtonContentAlign, ButtonVariant, Container, GestureDetector, Node, Positioned, Text,
-    TextInput, ZStack,
+    Button, ButtonContentAlign, ButtonVariant, Container, GestureDetector, Positioned, Text,
+    TextInput, Widget, ZStack,
 };
-use fission::core::{reduce_with, BuildCtx, View, Widget, WidgetNodeId};
+use fission::core::{reduce_with, WidgetId};
 use fission::widgets::{HStack, Spacer, VStack};
 
 pub struct CommandPalette;
@@ -17,14 +17,15 @@ struct Command {
     description: &'static str,
 }
 
-impl Widget<EditorState> for CommandPalette {
-    fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
-        if !view.state.show_command_palette {
+impl From<CommandPalette> for Widget {
+    fn from(_component: CommandPalette) -> Self {
+        let (ctx, view) = fission::build::current::<EditorState>();
+        if !view.state().show_command_palette {
             return Spacer {
                 height: Some(0.0),
                 ..Default::default()
             }
-            .into_node();
+            .into();
         }
 
         let dismiss = ctx.bind(
@@ -77,7 +78,7 @@ impl Widget<EditorState> for CommandPalette {
             },
         ];
 
-        let query = view.state.command_query.to_lowercase();
+        let query = view.state().command_query.to_lowercase();
         let filtered: Vec<&Command> = if query.is_empty() {
             commands.iter().collect()
         } else {
@@ -192,7 +193,7 @@ impl Widget<EditorState> for CommandPalette {
                 Button {
                     variant: ButtonVariant::Ghost,
                     content_align: ButtonContentAlign::Start,
-                    child: Some(Box::new(
+                    child: Some(
                         HStack {
                             spacing: Some(12.0),
                             children: vec![
@@ -204,23 +205,23 @@ impl Widget<EditorState> for CommandPalette {
                                         b: 220,
                                         a: 255,
                                     })
-                                    .into_node(),
+                                    .into(),
                                 Spacer {
                                     flex_grow: 1.0,
                                     ..Default::default()
                                 }
-                                .into_node(),
-                                Text::new(cmd.description).size(11.0).color(dim).into_node(),
+                                .into(),
+                                Text::new(cmd.description).size(11.0).color(dim).into(),
                             ],
                         }
-                        .into_node(),
-                    )),
+                        .into(),
+                    ),
                     on_press: Some(action_for(cmd.label)),
                     height: Some(28.0),
                     padding: Some([6.0, 6.0, 0.0, 0.0]),
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
             );
         }
 
@@ -252,117 +253,99 @@ impl Widget<EditorState> for CommandPalette {
         let results_height = (viewport.height - 140.0).clamp(160.0, 320.0);
 
         // VS Code-style dropdown from top center
-        let dropdown = Container::new(
-            VStack {
-                spacing: Some(0.0),
-                children: vec![
-                    Container::new(
-                        TextInput {
-                            id: Some(fission::ir::NodeId::explicit(
-                                "editor_command_palette_input",
-                            )),
-                            value: view.state.command_query.clone(),
-                            placeholder: Some("Type a command...".into()),
-                            on_change: Some(update_query),
-                            ..Default::default()
+        let dropdown: Widget = Container::new(VStack {
+            spacing: Some(0.0),
+            children: vec![
+                Container::new(TextInput {
+                    id: Some(fission::WidgetId::explicit("editor_command_palette_input")),
+                    value: view.state().command_query.clone(),
+                    placeholder: Some("Type a command...".into()),
+                    on_change: Some(update_query),
+                    ..Default::default()
+                })
+                .padding_all(6.0)
+                .into(),
+                Container::new(fission::core::ui::widgets::scroll::Scroll {
+                    direction: fission::core::op::FlexDirection::Column,
+                    child: Some(
+                        VStack {
+                            spacing: Some(0.0),
+                            children: result_items,
                         }
-                        .into_node(),
-                    )
-                    .padding_all(6.0)
-                    .into_node(),
-                    Container::new(
-                        fission::core::ui::widgets::scroll::Scroll {
-                            direction: fission::core::op::FlexDirection::Column,
-                            child: Some(Box::new(
-                                VStack {
-                                    spacing: Some(0.0),
-                                    children: result_items,
-                                }
-                                .into_node(),
-                            )),
-                            height: Some(results_height),
-                            show_scrollbar: true,
-                            ..Default::default()
-                        }
-                        .into_node(),
-                    )
-                    .padding_all(4.0)
-                    .into_node(),
-                ],
-            }
-            .into_node(),
-        )
+                        .into(),
+                    ),
+                    height: Some(results_height),
+                    show_scrollbar: true,
+                    ..Default::default()
+                })
+                .padding_all(4.0)
+                .into(),
+            ],
+        })
         .width(palette_width)
         .bg(card_bg)
         .border(border, 1.0)
         .border_radius(4.0)
         .shadow(shadow)
         .flex_shrink(1.0)
-        .into_node();
+        .into();
 
         // Backdrop + dropdown positioned at top center
         let backdrop = GestureDetector {
             on_tap: Some(dismiss.clone()),
-            child: Box::new(
-                Container::new(Spacer::default().into_node())
-                    .bg(Color {
-                        r: 0,
-                        g: 0,
-                        b: 0,
-                        a: 80,
-                    })
-                    .flex_grow(1.0)
-                    .into_node(),
-            ),
+            child: Container::new(Spacer::default())
+                .bg(Color {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 80,
+                })
+                .flex_grow(1.0)
+                .into(),
             ..Default::default()
         }
-        .into_node();
+        .into();
 
-        let overlay = Container::new(
-            ZStack {
-                children: vec![
-                    // Full-screen backdrop
-                    Positioned {
-                        left: Some(0.0),
-                        right: Some(0.0),
-                        top: Some(0.0),
-                        bottom: Some(0.0),
-                        child: Some(Box::new(backdrop)),
-                        ..Default::default()
-                    }
-                    .into_node(),
-                    // Dropdown at top center
-                    Positioned {
-                        top: Some(40.0),
-                        left: Some(0.0),
-                        right: Some(0.0),
-                        child: Some(Box::new(
-                            fission::core::ui::Align::new(dropdown).into_node(),
-                        )),
-                        ..Default::default()
-                    }
-                    .into_node(),
-                ],
-                ..Default::default()
-            }
-            .into_node(),
-        )
+        let overlay = Container::new(ZStack {
+            children: vec![
+                // Full-screen backdrop
+                Positioned {
+                    left: Some(0.0),
+                    right: Some(0.0),
+                    top: Some(0.0),
+                    bottom: Some(0.0),
+                    child: Some(backdrop),
+                    ..Default::default()
+                }
+                .into(),
+                // Dropdown at top center
+                Positioned {
+                    top: Some(40.0),
+                    left: Some(0.0),
+                    right: Some(0.0),
+                    child: Some(fission::core::ui::Align::new(dropdown).into()),
+                    ..Default::default()
+                }
+                .into(),
+            ],
+            ..Default::default()
+        })
         .flex_grow(1.0)
-        .into_node();
+        .into();
 
         let positioned_root = Positioned {
             left: Some(0.0),
             right: Some(0.0),
             top: Some(0.0),
             bottom: Some(0.0),
-            child: Some(Box::new(overlay)),
+            child: Some(overlay),
             ..Default::default()
         }
-        .into_node();
+        .into();
 
         ctx.register_portal_with_layer(
             fission::core::PortalLayer::Modal,
-            Some(WidgetNodeId::explicit("command_palette")),
+            Some(WidgetId::explicit("command_palette")),
             positioned_root,
         );
 
@@ -370,6 +353,6 @@ impl Widget<EditorState> for CommandPalette {
             height: Some(0.0),
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 }

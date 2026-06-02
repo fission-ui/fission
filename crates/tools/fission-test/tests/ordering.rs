@@ -1,17 +1,18 @@
 use anyhow::Result;
-use fission_core::ui::{Node, Row, Text, TextContent};
-use fission_core::{BuildCtx, View, Widget};
+use fission_core::ui::{Row, Text, TextContent, Widget};
 use fission_render::DisplayOp;
 use fission_test::TestHarness;
 
 #[derive(Debug, Default, Clone)]
-struct AppState;
-impl fission_core::action::AppState for AppState {}
+struct GlobalState;
+impl fission_core::action::GlobalState for GlobalState {}
 
+#[derive(Clone)]
 struct OrderRow;
-impl Widget<AppState> for OrderRow {
-    fn build(&self, _ctx: &mut BuildCtx<AppState>, _view: &View<AppState>) -> Node {
-        Node::Row(Row {
+impl From<OrderRow> for Widget {
+    fn from(_component: OrderRow) -> Self {
+        let (_ctx, _view) = fission_core::build::current::<GlobalState>();
+        Row {
             children: vec![
                 Text {
                     content: TextContent::Literal("A".into()),
@@ -30,13 +31,13 @@ impl Widget<AppState> for OrderRow {
                 .into(),
             ],
             ..Default::default()
-        })
+        }
+        .into()
     }
 }
-
 #[test]
 fn row_children_order_preserved_in_display_list() -> Result<()> {
-    let mut h = TestHarness::new(AppState::default()).with_root_widget(OrderRow);
+    let mut h = TestHarness::new(GlobalState::default()).with_root_widget(OrderRow);
     h.pump()?;
     let dl = h.get_last_display_list().expect("display list");
     // Collect DrawText ops in the order they appear

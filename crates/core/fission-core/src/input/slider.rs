@@ -1,7 +1,7 @@
 use super::{ControllerContext, InputController};
 use crate::event::{InputEvent, PointerEvent};
 use crate::{ActionEnvelope, ActionId};
-use fission_ir::{op::Op, semantics::Role, NodeId};
+use fission_ir::{op::Op, semantics::Role, WidgetId};
 use serde_json;
 
 pub struct SliderController;
@@ -53,7 +53,7 @@ impl InputController for SliderController {
 }
 
 impl SliderController {
-    fn update_value(&self, ctx: &mut ControllerContext, node_id: NodeId, point_x: f32) {
+    fn update_value(&self, ctx: &mut ControllerContext, node_id: WidgetId, point_x: f32) {
         if let Some(geom) = ctx.layout.get_node_geometry(node_id) {
             if let Some(node) = ctx.ir.nodes.get(&node_id) {
                 if let Op::Semantics(sem) = &node.op {

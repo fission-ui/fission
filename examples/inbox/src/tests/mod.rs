@@ -2,14 +2,13 @@ use super::*;
 use anyhow::Result;
 use fission::core::env::RuntimeState;
 use fission::core::event::{InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent};
-use fission::core::lowering::LoweringContext;
-use fission::core::{Action, AnimationPropertyId, BuildCtx, Env, LayoutSize, NodeId, WidgetNodeId};
-use fission::ir::op::{FlexDirection, FlexWrap, GridTrack};
-use fission::ir::semantics::{ActionTrigger, Role};
-use fission::ir::{EmbedKind, LayoutOp, Op, PaintOp};
+use fission::core::{Action, AnimationPropertyId, Env, LayoutSize, WidgetId};
 use fission::layout::LayoutEngine;
+use fission::op::{FlexDirection, FlexWrap, GridTrack};
 use fission::render::{DisplayOp, LayoutRect};
 use fission::shell::Pipeline;
+use fission_ir::semantics::{ActionTrigger, Role};
+use fission_ir::{EmbedKind, LayoutOp, Op, PaintOp};
 use fission_test::prelude::*;
 use std::collections::HashMap;
 
@@ -55,36 +54,16 @@ fn state_contacts() -> InboxState {
     state
 }
 
-fn build_lowered_inbox_ir(state: &InboxState) -> (fission::ir::CoreIR, RuntimeState, Env) {
-    let mut ctx = BuildCtx::new();
-    let runtime_state = RuntimeState::default();
-    let env = create_env();
-    let view = View::new(state, &runtime_state, &env, None);
-    let tree = InboxApp.build(&mut ctx, &view);
-    let portals = ctx.take_portals();
-
-    let node_tree = if portals.is_empty() {
-        tree
-    } else {
-        fission::core::ui::Node::Overlay(fission::core::ui::Overlay {
-            id: None,
-            content: Box::new(
-                fission::core::ui::Container::new(tree)
-                    .width(800.0)
-                    .height(600.0)
-                    .into_node(),
-            ),
-            overlay: Box::new(fission::core::ui::Node::ZStack(fission::core::ui::ZStack {
-                id: None,
-                children: portals.into_iter().map(|(_, n)| n).collect(),
-            })),
-        })
-    };
-
-    let mut lower_cx = LoweringContext::new(&env, &runtime_state, None, None);
-    let root_id = node_tree.lower(&mut lower_cx);
-    lower_cx.ir.root = Some(root_id);
-    (lower_cx.ir, runtime_state, env)
+fn build_lowered_inbox_ir(state: &InboxState) -> (fission_ir::CoreIR, RuntimeState, Env) {
+    let mut h = TestHarness::new(state.clone()).with_root_widget(InboxApp);
+    h.env = create_env();
+    h.env.viewport_size = LayoutSize::new(1200.0, 800.0);
+    h.pump().expect("inbox should build and lower");
+    (
+        h.last_ir.expect("pump should produce IR"),
+        h.runtime.runtime_state.clone(),
+        h.env,
+    )
 }
 
 fn summarize_render_node(node: &fission::render::RenderNode, depth: usize, out: &mut Vec<String>) {
@@ -232,13 +211,14 @@ fn scene_texts(scene: &fission::render::RenderScene) -> Vec<String> {
     out
 }
 
-fn node_rect(h: &TestHarness<InboxState>, node_id: NodeId) -> Option<LayoutRect> {
+fn node_rect(h: &TestHarness<InboxState>, node_id: WidgetId) -> Option<LayoutRect> {
     h.last_snapshot
         .as_ref()
         .and_then(|snap| snap.get_node_rect(node_id))
 }
 
-fn describe_hit_path(h: &TestHarness<InboxState>, node_id: Option<NodeId>) -> String {
+#[allow(dead_code)]
+fn describe_hit_path(h: &TestHarness<InboxState>, node_id: Option<WidgetId>) -> String {
     let Some(node_id) = node_id else {
         return "none".into();
     };
@@ -273,10 +253,11 @@ fn describe_hit_path(h: &TestHarness<InboxState>, node_id: Option<NodeId>) -> St
     out.join(" <- ")
 }
 
+#[allow(dead_code)]
 fn find_semantic_node_rects(
     h: &TestHarness<InboxState>,
-    predicate: impl Fn(&fission::ir::Semantics) -> bool,
-) -> Vec<(NodeId, LayoutRect)> {
+    predicate: impl Fn(&fission_ir::Semantics) -> bool,
+) -> Vec<(WidgetId, LayoutRect)> {
     let mut rects = Vec::new();
     let ir = match h.last_ir.as_ref() {
         Some(ir) => ir,
@@ -318,7 +299,7 @@ fn find_text_node_rects(h: &TestHarness<InboxState>, needle: &str) -> Vec<Layout
     rects
 }
 
-fn find_text_node_id(h: &TestHarness<InboxState>, needle: &str) -> Option<NodeId> {
+fn find_text_node_id(h: &TestHarness<InboxState>, needle: &str) -> Option<WidgetId> {
     let ir = h.last_ir.as_ref()?;
     for (node_id, node) in &ir.nodes {
         let matches = match &node.op {
@@ -389,7 +370,7 @@ fn click_rect(h: &mut TestHarness<InboxState>, rect: LayoutRect) -> Result<()> {
     Ok(())
 }
 
-fn click_node(h: &mut TestHarness<InboxState>, node_id: NodeId) -> Result<()> {
+fn click_node(h: &mut TestHarness<InboxState>, node_id: WidgetId) -> Result<()> {
     let rect = node_rect(h, node_id).expect("node rect");
     click_rect(h, rect)
 }
@@ -438,7 +419,7 @@ where
 
 fn ir_has_semantics<F>(h: &TestHarness<InboxState>, pred: F) -> bool
 where
-    F: Fn(&fission::ir::Semantics) -> bool,
+    F: Fn(&fission_ir::Semantics) -> bool,
 {
     h.last_ir.as_ref().map_or(false, |ir| {
         ir.nodes
@@ -447,7 +428,7 @@ where
     })
 }
 
-fn ir_has_node_id(h: &TestHarness<InboxState>, node_id: NodeId) -> bool {
+fn ir_has_node_id(h: &TestHarness<InboxState>, node_id: WidgetId) -> bool {
     h.last_ir
         .as_ref()
         .map_or(false, |ir| ir.nodes.contains_key(&node_id))
@@ -462,7 +443,7 @@ fn ir_has_embed_kind(h: &TestHarness<InboxState>, kind: EmbedKind) -> bool {
 
 fn runtime_has_animation(
     h: &TestHarness<InboxState>,
-    id: WidgetNodeId,
+    id: WidgetId,
     property: AnimationPropertyId,
 ) -> bool {
     h.runtime
@@ -600,7 +581,7 @@ fn compose_modal_backdrop_closes() -> Result<()> {
 fn compose_combobox_popup_is_bounded_and_clickable() -> Result<()> {
     let mut h = pump_state(state_compose())?;
 
-    let to_input_id = NodeId::derived(WidgetNodeId::explicit("compose_to").as_u128(), &[1]);
+    let to_input_id = WidgetId::derived(WidgetId::explicit("compose_to").as_u128(), &[1]);
     click_node(&mut h, to_input_id)?;
     h.send_event(InputEvent::Keyboard(KeyEvent::Down {
         key_code: KeyCode::Char('a'),
@@ -615,7 +596,7 @@ fn compose_combobox_popup_is_bounded_and_clickable() -> Result<()> {
     let ir = h.last_ir.as_ref().expect("ir");
     let snapshot = h.last_snapshot.as_ref().expect("snapshot");
 
-    let mut popup_scroll: Option<NodeId> = None;
+    let mut popup_scroll: Option<WidgetId> = None;
     let mut current = Some(alice_text_id);
     while let Some(id) = current {
         if let Some(node) = ir.nodes.get(&id) {
@@ -662,7 +643,7 @@ fn compose_combobox_popup_is_bounded_and_clickable() -> Result<()> {
 fn compose_combobox_popup_does_not_block_modal_close_button() -> Result<()> {
     let mut h = pump_state(state_compose())?;
 
-    let to_input_id = NodeId::derived(WidgetNodeId::explicit("compose_to").as_u128(), &[1]);
+    let to_input_id = WidgetId::derived(WidgetId::explicit("compose_to").as_u128(), &[1]);
     click_node(&mut h, to_input_id)?;
     h.send_event(InputEvent::Keyboard(KeyEvent::Down {
         key_code: KeyCode::Char('a'),
@@ -759,7 +740,7 @@ fn sidebar_click_navigates_to_sent() -> Result<()> {
 #[test]
 fn theme_select_opens_on_click() -> Result<()> {
     let mut h = pump_state(state_settings())?;
-    let select_id = NodeId::derived(WidgetNodeId::explicit("theme_select").as_u128(), &[]);
+    let select_id = WidgetId::derived(WidgetId::explicit("theme_select").as_u128(), &[]);
     click_node(&mut h, select_id)?;
     let state = h.runtime.get_app_state::<InboxState>().unwrap();
     assert!(state.show_theme_select, "theme select should open on click");
@@ -804,7 +785,7 @@ fn layout_children_exist_after_navigation() -> Result<()> {
     state.current_path = "/inbox/1".into();
 
     let (ir, _runtime_state, env) = build_lowered_inbox_ir(&state);
-    let input_nodes = fission::core::lowering::build_layout_tree(&ir, &env);
+    let input_nodes = fission_test::layout_input_nodes(&ir, &env);
 
     let map: HashMap<_, _> = input_nodes.iter().map(|n| (n.id, n)).collect();
     for n in &input_nodes {
@@ -1261,7 +1242,7 @@ fn menu_button_anchor_present() -> Result<()> {
 #[test]
 fn popover_anchor_present() -> Result<()> {
     let h = pump_state(state_default())?;
-    let anchor_id = NodeId::derived(WidgetNodeId::explicit("advanced_filters").as_u128(), &[0]);
+    let anchor_id = WidgetId::derived(WidgetId::explicit("advanced_filters").as_u128(), &[0]);
     assert!(
         ir_has_node_id(&h, anchor_id),
         "expected popover anchor node"
@@ -1272,8 +1253,8 @@ fn popover_anchor_present() -> Result<()> {
 #[test]
 fn date_range_picker_anchors_present() -> Result<()> {
     let h = pump_state(state_filters_open())?;
-    let start_id = NodeId::derived(WidgetNodeId::explicit("filter_date_start").as_u128(), &[0]);
-    let end_id = NodeId::derived(WidgetNodeId::explicit("filter_date_end").as_u128(), &[0]);
+    let start_id = WidgetId::derived(WidgetId::explicit("filter_date_start").as_u128(), &[0]);
+    let end_id = WidgetId::derived(WidgetId::explicit("filter_date_end").as_u128(), &[0]);
     assert!(
         ir_has_node_id(&h, start_id),
         "expected start date picker anchor"
@@ -1288,10 +1269,9 @@ fn date_range_picker_anchors_present() -> Result<()> {
 #[test]
 fn lazy_column_node_present() -> Result<()> {
     let state = state_default();
-    let page_key = state.page as u32;
+    let page = state.page;
     let h = pump_state(state)?;
-    let lazy_id = WidgetNodeId::explicit("email_list");
-    let node_id = NodeId::derived(lazy_id.as_u128(), &[page_key]);
+    let node_id = WidgetId::explicit(&format!("email_list_page_{page}"));
     assert!(ir_has_node_id(&h, node_id), "expected lazy column node");
     Ok(())
 }
@@ -1371,8 +1351,7 @@ fn wide_viewport_display_list_contains_inbox_rows() -> Result<()> {
 #[test]
 fn default_viewport_email_list_scroll_has_positive_height() -> Result<()> {
     let h = pump_state_with_viewport(state_default(), 800.0, 600.0)?;
-    let lazy_id = WidgetNodeId::explicit("email_list");
-    let node_id = NodeId::derived(lazy_id.as_u128(), &[1]);
+    let node_id = WidgetId::explicit("email_list_page_1");
     let rect = node_rect(&h, node_id).expect("email list rect");
     assert!(
         rect.height() > 200.0,
@@ -1385,10 +1364,10 @@ fn default_viewport_email_list_scroll_has_positive_height() -> Result<()> {
 #[test]
 fn spinner_animation_present_in_default_inbox() -> Result<()> {
     let h = pump_state(state_default())?;
-    let base = WidgetNodeId::explicit("sync_spinner");
+    let base = WidgetId::explicit("sync_spinner");
     let mut found = 0;
     for i in 1..=3 {
-        let sub_id = WidgetNodeId::from_u128(base.as_u128() ^ i as u128);
+        let sub_id = WidgetId::from_u128(base.as_u128() ^ i as u128);
         if runtime_has_animation(&h, sub_id, AnimationPropertyId::Opacity) {
             found += 1;
         }
@@ -1403,7 +1382,7 @@ fn spinner_animation_present_in_default_inbox() -> Result<()> {
 #[test]
 fn skeleton_animation_present_in_default_inbox() -> Result<()> {
     let h = pump_state(state_default())?;
-    let id = WidgetNodeId::explicit("sync_skeleton");
+    let id = WidgetId::explicit("sync_skeleton");
     assert!(
         runtime_has_animation(&h, id, AnimationPropertyId::Opacity),
         "default inbox should schedule skeleton opacity animation"
@@ -1416,7 +1395,7 @@ fn transition_animation_present() -> Result<()> {
     let mut state = state_default();
     state.show_quick_tip = true;
     let h = pump_state(state)?;
-    let id = WidgetNodeId::explicit("quick_tip_fade");
+    let id = WidgetId::explicit("quick_tip_fade");
     assert!(
         runtime_has_animation(&h, id, AnimationPropertyId::Opacity),
         "expected transition opacity animation"

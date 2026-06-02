@@ -1,9 +1,10 @@
 use crate::{render_ir_to_html_with_styles, CssVariableMap, HtmlRenderOptions, StyleRegistry};
 use anyhow::{anyhow, Context, Result};
+use fission_core::internal::BuildCtx;
+use fission_core::internal::InternalLoweringCx;
 use fission_core::{
-    ActionEnvelope, ActionId, AppState, BuildCtx, Env, LoweringContext, RuntimeState, View, Widget,
+    ActionEnvelope, ActionId, Env, GlobalState, RuntimeState, View, Widget, WidgetId,
 };
-use fission_ir::NodeId;
 use fission_theme::Theme;
 use serde_json::{json, Value};
 use std::any::Any;
@@ -23,8 +24,8 @@ thread_local! {
 /// DOM patches to the server browser bridge.
 pub struct BrowserIslandApp<S, W>
 where
-    S: AppState,
-    W: Widget<S> + Clone,
+    S: GlobalState,
+    W: Clone + Into<Widget>,
 {
     id: String,
     mount_id: String,
@@ -35,8 +36,8 @@ where
 
 impl<S, W> BrowserIslandApp<S, W>
 where
-    S: AppState,
-    W: Widget<S> + Clone,
+    S: GlobalState,
+    W: Clone + Into<Widget>,
 {
     /// Creates a browser island rooted at a semantic mount point.
     ///
@@ -96,25 +97,25 @@ where
             .transpose()?
             .unwrap_or_default();
 
-        let (_node, mut registry) = self.build_node_and_registry();
+        let (_node, mut registry) = self.build_widget_and_registry();
         registry.dispatch(
             &mut self.state,
             &ActionEnvelope {
                 id: ActionId::from_u128(action_id),
                 payload,
             },
-            NodeId::from_u128(target),
+            WidgetId::from_u128(target),
         )?;
         Ok(())
     }
 
     fn render_bridge_output(&mut self, sequence: u64) -> Result<String> {
-        let (node, _registry) = self.build_node_and_registry();
+        let (node, _registry) = self.build_widget_and_registry();
         let runtime = RuntimeState::default();
         let mut env = Env::default();
         env.theme = self.theme.clone();
-        let mut lowering = LoweringContext::new(&env, &runtime, None, None);
-        let root = node.lower(&mut lowering);
+        let mut lowering = InternalLoweringCx::new(&env, &runtime, None, None);
+        let root = fission_core::internal::lower_widget(&node, &mut lowering);
         lowering.ir.set_root(root);
 
         let mut styles = StyleRegistry::default();
@@ -160,10 +161,10 @@ where
         .to_string())
     }
 
-    fn build_node_and_registry(
+    fn build_widget_and_registry(
         &self,
     ) -> (
-        fission_core::Node,
+        fission_core::Widget,
         fission_core::registry::ActionRegistry<S>,
     ) {
         let runtime = RuntimeState::default();
@@ -171,7 +172,7 @@ where
         env.theme = self.theme.clone();
         let view = View::new(&self.state, &runtime, &env, None);
         let mut ctx = BuildCtx::<S>::new();
-        let node = self.widget.clone().build(&mut ctx, &view);
+        let node = fission_core::build::enter(&mut ctx, &view, || self.widget.clone().into());
         (node, ctx.registry)
     }
 }
@@ -183,8 +184,8 @@ where
 /// the existing instance so reducer state is retained across browser events.
 pub fn run_browser_island<S, W, F>(id: &str, input: &str, create: F) -> String
 where
-    S: AppState + 'static,
-    W: Widget<S> + Clone + 'static,
+    S: GlobalState + 'static,
+    W: Clone + Into<Widget> + 'static,
     F: FnOnce() -> BrowserIslandApp<S, W>,
 {
     let message = parse_bridge_message(input);
@@ -271,13 +272,13 @@ fn hex_value(byte: u8) -> Option<u8> {
 mod tests {
     use super::*;
     use fission_core::op::Color;
-    use fission_core::{reduce_with, Action, Button, Node, ReducerContext, Text};
+    use fission_core::{reduce_with, Action, Button, ReducerContext, Text};
 
     #[derive(Debug, Default, Clone)]
     struct CounterState {
         count: u32,
     }
-    impl AppState for CounterState {}
+    impl GlobalState for CounterState {}
 
     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
     struct Increment;
@@ -298,19 +299,20 @@ mod tests {
     #[derive(Clone)]
     struct CounterIsland;
 
-    impl Widget<CounterState> for CounterIsland {
-        fn build(&self, ctx: &mut BuildCtx<CounterState>, view: &View<CounterState>) -> Node {
+    impl From<CounterIsland> for Widget {
+        fn from(_component: CounterIsland) -> Widget {
+            let (ctx, view) = fission_core::build::current::<CounterState>();
             let action = ctx.bind(Increment, reduce_with!(increment));
             Button {
-                child: Some(Box::new(
-                    Text::new(format!("{} clicks", view.state.count))
+                child: Some(
+                    Text::new(format!("{} clicks", view.state().count))
                         .color(Color::BLACK)
-                        .into_node(),
-                )),
+                        .into(),
+                ),
                 on_press: Some(action),
                 ..Default::default()
             }
-            .into_node()
+            .into()
         }
     }
 

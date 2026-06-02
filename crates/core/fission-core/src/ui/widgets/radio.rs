@@ -1,9 +1,9 @@
-use crate::lowering::{LoweringContext, NodeBuilder};
-use crate::ui::traits::Lower;
+use crate::internal::InternalLower;
+use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
 use crate::ActionEnvelope;
 use fission_ir::{
     op::{LayoutOp, Op, PaintOp},
-    NodeId,
+    WidgetId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -22,17 +22,17 @@ use serde::{Deserialize, Serialize};
 ///         reduce_with!(handle_select),
 ///     );
 ///     children.push(Radio {
-///         checked: view.state.selected == i,
+///         checked: view.state().selected == i,
 ///         on_select: Some(on_select),
 ///         label: Some(option.clone()),
 ///         ..Default::default()
-///     }.into_node().into());
+///     }.into());
 /// }
 /// ```
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Radio {
     /// Explicit node identity.
-    pub id: Option<NodeId>,
+    pub id: Option<WidgetId>,
     /// Whether this radio button is currently selected.
     pub checked: bool,
     /// Action dispatched when this radio button is tapped.
@@ -41,15 +41,11 @@ pub struct Radio {
     pub label: Option<String>,
 }
 
-impl Radio {
-    pub fn into_node(self) -> crate::ui::Node {
-        crate::ui::Node::Radio(self)
-    }
-}
+impl Radio {}
 
-impl Lower for Radio {
-    fn lower(&self, cx: &mut LoweringContext) -> NodeId {
-        let id = self.id.unwrap_or_else(|| cx.next_node_id());
+impl InternalLower for Radio {
+    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+        let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         cx.push_scope(id);
 
         let tokens = &cx.env.theme.tokens;
@@ -88,11 +84,11 @@ impl Lower for Radio {
                 shadow: None,
             })
         };
-        let outer_node = NodeBuilder::new(cx.next_node_id(), bg_paint).build(cx);
+        let outer_node = InternalIrBuilder::new(cx.next_node_id(), bg_paint).build(cx);
 
         // Dot
         let dot_node = if self.checked {
-            let dot = NodeBuilder::new(
+            let dot = InternalIrBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRect {
                     fill: Some(fission_ir::op::Fill::Solid(active_color)),
@@ -102,7 +98,7 @@ impl Lower for Radio {
                 }),
             )
             .build(cx);
-            let mut dot_box = NodeBuilder::new(
+            let mut dot_box = InternalIrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::Box {
                     width: Some(dot_size),
@@ -119,10 +115,11 @@ impl Lower for Radio {
             );
             dot_box.add_child(dot);
             let dot_box_id = dot_box.build(cx);
-            let mut dot_align = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Align));
+            let mut dot_align =
+                InternalIrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Align));
             dot_align.add_child(dot_box_id);
             let dot_align_id = dot_align.build(cx);
-            let mut dot_container = NodeBuilder::new(
+            let mut dot_container = InternalIrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::Box {
                     width: Some(size),
@@ -143,7 +140,7 @@ impl Lower for Radio {
             None
         };
 
-        let mut radio_box = NodeBuilder::new(
+        let mut radio_box = InternalIrBuilder::new(
             cx.next_node_id(),
             Op::Layout(LayoutOp::Box {
                 width: Some(size),
@@ -166,7 +163,7 @@ impl Lower for Radio {
 
         // Label
         let label_id = if let Some(text) = &self.label {
-            let text_id = NodeBuilder::new(
+            let text_id = InternalIrBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawText {
                     text: text.clone(),
@@ -183,7 +180,7 @@ impl Lower for Radio {
                 }),
             )
             .build(cx);
-            let mut layout = NodeBuilder::new(
+            let mut layout = InternalIrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::Box {
                     width: None,
@@ -205,7 +202,7 @@ impl Lower for Radio {
         };
 
         let layout_id = cx.next_node_id();
-        let mut row = NodeBuilder::new(
+        let mut row = InternalIrBuilder::new(
             layout_id,
             Op::Layout(LayoutOp::Flex {
                 direction: fission_ir::FlexDirection::Row,
@@ -281,7 +278,7 @@ impl Lower for Radio {
             });
         }
 
-        let mut sem_node = NodeBuilder::new(id, Op::Semantics(semantics));
+        let mut sem_node = InternalIrBuilder::new(id, Op::Semantics(semantics));
         sem_node.add_child(layout_id);
         sem_node.build(cx)
     }

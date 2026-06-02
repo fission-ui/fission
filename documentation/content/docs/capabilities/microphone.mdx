@@ -17,7 +17,7 @@ Add the smallest state fields the screen needs to render honestly. For this flow
 
 ```rust
 #[derive(Default)]
-struct AppState {
+struct GlobalState {
     // Add these fields to your existing app state.
 voice_note: Option<Vec<u8>>,
     microphone_error: Option<String>,
@@ -53,14 +53,14 @@ Capability work finishes later, after the reducer that started it has returned. 
 
 ```rust
 #[fission_reducer(AudioCaptured)]
-fn on_audio_captured(state: &mut AppState, capture: MicrophoneCapture) {
+fn on_audio_captured(state: &mut GlobalState, capture: MicrophoneCapture) {
     state.recording = false;
     state.voice_note = Some(capture.bytes);
     state.microphone_error = None;
 }
 
 #[fission_reducer(AudioCaptureFailed)]
-fn on_audio_capture_failed(state: &mut AppState, error: MicrophoneError) {
+fn on_audio_capture_failed(state: &mut GlobalState, error: MicrophoneError) {
     state.recording = false;
     state.microphone_error = Some(error.message);
 }
@@ -102,14 +102,15 @@ Wire the user-facing control with the normal Fission action pattern. This exampl
 ```rust
 struct RecordVoiceNoteButton;
 
-impl Widget<AppState> for RecordVoiceNoteButton {
-    fn build(&self, view: &View<AppState>, ctx: &mut BuildCtx<AppState>) -> Node {
+impl From<RecordVoiceNoteButton> for Widget {
+    fn from(component: RecordVoiceNoteButton) -> Self {
+        let (ctx, view) = fission::build::current::<GlobalState>();
         let run = with_reducer!(ctx, RecordVoiceNote, on_record_voice_note);
 
         Button::new("Record voice note")
-            .disabled(view.state.recording)
+            .disabled(view.state().recording)
             .on_press(run)
-            .build(view, ctx)
+            .into()
     }
 }
 ```
@@ -129,3 +130,19 @@ A useful first test creates the app with the memory host, dispatches the start a
 Android, iOS, web, Windows, and macOS have microphone APIs. Linux depends on portals and audio services such as PulseAudio or PipeWire. Browser capture requires a secure origin and user permission.
 
 For a cross-platform summary, read the [capability matrix](/docs/capabilities/matrix/). For exact request fields, provider traits, and generated configuration, see the [Microphone reference](/reference/capabilities/microphone/).
+
+## Finished capability flow
+
+A complete `Microphone` integration has all of these pieces in place:
+
+| Piece | What should exist |
+| --- | --- |
+| Configuration | `fission.toml` declares the capability and generated platform files contain the permission text, manifest entry, entitlement, domain, or protocol metadata the target needs. |
+| State | App state records the in-flight flag, the successful value, and the user-facing error separately. |
+| Reducers | One reducer starts the host request, one handles success, and one handles denial, unsupported hosts, cancellation, or provider errors. |
+| Provider | The shell registers a real provider for production and a memory provider for tests. |
+| Tests | At least one test covers success and one covers permission denial or unsupported host behavior. |
+
+## Diagnose capability failures
+
+Capability failures should be safe to retry and easy to explain. Start by checking `fission.toml`, then run `fission doctor`, then inspect the generated target files. If the provider is missing, the request should return an unsupported error. If the provider exists but the platform configuration is wrong, the OS or browser will usually deny the request before the provider can complete it. Keep those cases distinct in the UI so users know whether they can retry, change settings, connect hardware, or choose another path.

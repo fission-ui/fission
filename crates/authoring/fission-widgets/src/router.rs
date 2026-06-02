@@ -1,36 +1,39 @@
-use fission_core::ui::Node;
-use fission_core::{BuildCtx, View, Widget};
+use fission_core::build::{self, BuildCtxHandle, ViewHandle};
+use fission_core::{GlobalState, Widget};
 use std::collections::HashMap;
 use std::sync::Arc;
 
 pub type RouteParams = HashMap<String, String>;
 pub type PageBuilder<S> =
-    Arc<dyn Fn(&mut BuildCtx<S>, &View<S>, &RouteParams) -> Node + Send + Sync>;
+    Arc<dyn Fn(BuildCtxHandle<S>, ViewHandle<S>, &RouteParams) -> Widget + Send + Sync>;
 
-pub struct Route<S: fission_core::AppState> {
+pub struct Route<S: GlobalState> {
     pub path: String,
     pub builder: PageBuilder<S>,
 }
 
-pub struct Router<S: fission_core::AppState> {
+pub struct Router<S: GlobalState> {
     pub current_path: String,
     pub routes: Vec<Route<S>>,
     pub not_found: Option<PageBuilder<S>>,
 }
 
-impl<S: fission_core::AppState> Widget<S> for Router<S> {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        for route in &self.routes {
-            if let Some(params) = match_route(&route.path, &self.current_path) {
+impl<S: GlobalState> From<Router<S>> for Widget {
+    fn from(component: Router<S>) -> Self {
+        let (ctx, view) = build::current::<S>();
+        let this = &component;
+
+        for route in &this.routes {
+            if let Some(params) = match_route(&route.path, &this.current_path) {
                 return (route.builder)(ctx, view, &params);
             }
         }
 
-        if let Some(not_found) = &self.not_found {
-            return (not_found)(ctx, view, &HashMap::new());
+        if let Some(not_found) = &this.not_found {
+            return not_found(ctx, view, &HashMap::new());
         }
 
-        fission_core::ui::Text::new(format!("404: {}", self.current_path)).into_node()
+        fission_core::ui::Text::new(format!("404: {}", this.current_path)).into()
     }
 }
 

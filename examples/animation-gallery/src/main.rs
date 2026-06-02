@@ -4,19 +4,19 @@ use fission::prelude::*;
 use fission::widgets::{Transition, Wrap};
 use fission::{
     op::Color as IrColor, with_reducer, AnimationPropertyId, AnimationRequest, AnimationStartValue,
-    AppState, BuildCtx, Button, ButtonVariant, Column, Composite, Container, FlexDirection, Node,
-    Row, Scroll, Text, View, Widget, WidgetNodeId,
+    Button, ButtonVariant, Column, Composite, Container, FlexDirection, GlobalState, Row, Scroll,
+    Text, Widget, WidgetId,
 };
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 
 lazy_static! {
-    static ref OPACITY_ID: WidgetNodeId = WidgetNodeId::explicit("animation_gallery.opacity");
-    static ref TRANSLATE_ID: WidgetNodeId = WidgetNodeId::explicit("animation_gallery.translate");
-    static ref SCALE_ID: WidgetNodeId = WidgetNodeId::explicit("animation_gallery.scale");
-    static ref ROTATION_ID: WidgetNodeId = WidgetNodeId::explicit("animation_gallery.rotation");
-    static ref CLIP_ID: WidgetNodeId = WidgetNodeId::explicit("animation_gallery.clip");
-    static ref CUSTOM_ID: WidgetNodeId = WidgetNodeId::explicit("animation_gallery.custom");
+    static ref OPACITY_ID: WidgetId = WidgetId::explicit("animation_gallery.opacity");
+    static ref TRANSLATE_ID: WidgetId = WidgetId::explicit("animation_gallery.translate");
+    static ref SCALE_ID: WidgetId = WidgetId::explicit("animation_gallery.scale");
+    static ref ROTATION_ID: WidgetId = WidgetId::explicit("animation_gallery.rotation");
+    static ref CLIP_ID: WidgetId = WidgetId::explicit("animation_gallery.clip");
+    static ref CUSTOM_ID: WidgetId = WidgetId::explicit("animation_gallery.custom");
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34,7 +34,7 @@ impl Default for AnimationGalleryState {
     }
 }
 
-impl AppState for AnimationGalleryState {}
+impl GlobalState for AnimationGalleryState {}
 
 #[fission_reducer(ToggleScene)]
 fn toggle_scene(state: &mut AnimationGalleryState) {
@@ -46,17 +46,15 @@ fn toggle_custom(state: &mut AnimationGalleryState) {
     state.custom_active = !state.custom_active;
 }
 
+#[derive(Clone)]
 struct AnimationGalleryApp;
 
-impl Widget<AnimationGalleryState> for AnimationGalleryApp {
-    fn build(
-        &self,
-        ctx: &mut BuildCtx<AnimationGalleryState>,
-        view: &View<AnimationGalleryState>,
-    ) -> Node {
-        let tokens = &view.env.theme.tokens.colors;
-        let scene_active = view.state.scene_active;
-        let custom_active = view.state.custom_active;
+impl From<AnimationGalleryApp> for Widget {
+    fn from(_component: AnimationGalleryApp) -> Self {
+        let (ctx, view) = fission::build::current::<AnimationGalleryState>();
+        let tokens = &view.env().theme.tokens.colors;
+        let scene_active = view.state().scene_active;
+        let custom_active = view.state().custom_active;
         let viewport_width = view.viewport_size().width.max(0.0);
         let content_width = (viewport_width - 48.0).max(260.0);
         let columns = if content_width >= 1120.0 {
@@ -95,38 +93,38 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
         let title = Column {
             gap: Some(8.0),
             children: vec![
-                Text::new("Animation Gallery").size(28.0).into_node(),
+                Text::new("Animation Gallery").size(28.0).into(),
                 Text::new(
                     "Built-in compositor-driven opacity, translation, scale, rotation, clip, scroll, and a compositor-driven pulse.",
                 )
                 .size(14.0)
                 .color(tokens.text_secondary)
-                .into_node(),
+                .into(),
             ],
             ..Default::default()
         }
-        .into_node();
+        .into();
 
         let controls = Wrap {
             direction: FlexDirection::Row,
             spacing: Some(12.0),
             children: vec![
                 Button {
-                    child: Some(Box::new(Text::new("Toggle scene").into_node())),
+                    child: Some(Text::new("Toggle scene").into()),
                     on_press: Some(with_reducer!(ctx, ToggleScene, toggle_scene)),
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
                 Button {
-                    child: Some(Box::new(Text::new("Toggle custom pulse").into_node())),
+                    child: Some(Text::new("Toggle custom pulse").into()),
                     on_press: Some(with_reducer!(ctx, ToggleCustom, toggle_custom)),
                     variant: ButtonVariant::Outline,
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
             ],
         }
-        .build(ctx, view);
+        .into();
 
         let demos = Column {
             gap: Some(18.0),
@@ -143,10 +141,10 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
                                 property: AnimationPropertyId::Opacity,
                                 value: if scene_active { 0.92 } else { 0.28 },
                                 duration: 550,
-                                child: Box::new(sample_block("Fade", tokens.primary)),
+                                child: sample_block("Fade", tokens.primary),
                                 ..Default::default()
                             }
-                            .build(ctx, view),
+                            .into(),
                         ),
                         demo_card(
                             "Translate X",
@@ -156,10 +154,10 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
                                 property: AnimationPropertyId::TranslateX,
                                 value: if scene_active { 14.0 } else { -28.0 },
                                 duration: 550,
-                                child: Box::new(sample_block("Slide", color(30, 136, 93, 255))),
+                                child: sample_block("Slide", color(30, 136, 93, 255)),
                                 ..Default::default()
                             }
-                            .build(ctx, view),
+                            .into(),
                         ),
                         demo_card(
                             "Scale",
@@ -169,10 +167,10 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
                                 property: AnimationPropertyId::Scale,
                                 value: if scene_active { 0.94 } else { 0.68 },
                                 duration: 550,
-                                child: Box::new(sample_block("Zoom", color(222, 144, 35, 255))),
+                                child: sample_block("Zoom", color(222, 144, 35, 255)),
                                 ..Default::default()
                             }
-                            .build(ctx, view),
+                            .into(),
                         ),
                         demo_card(
                             "Rotation",
@@ -182,33 +180,28 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
                                 property: AnimationPropertyId::Rotation,
                                 value: if scene_active { -0.14 } else { 0.24 },
                                 duration: 650,
-                                child: Box::new(sample_block("Rotate", color(54, 96, 168, 255))),
+                                child: sample_block("Rotate", color(54, 96, 168, 255)),
                                 ..Default::default()
                             }
-                            .build(ctx, view),
+                            .into(),
                         ),
                         demo_card(
                             "Clip + translate",
                             card_width,
-                            Composite::new(
-                                Transition {
-                                    id: *CLIP_ID,
-                                    property: AnimationPropertyId::TranslateX,
-                                    value: if scene_active { 16.0 } else { -28.0 },
-                                    duration: 700,
-                                    child: Box::new(
-                                        Container::new(sample_block("Clipped", tokens.primary))
-                                            .width(116.0)
-                                            .height(64.0)
-                                            .into_node(),
-                                    ),
-                                    ..Default::default()
-                                }
-                                .build(ctx, view),
-                            )
+                            Composite::new(Transition {
+                                id: *CLIP_ID,
+                                property: AnimationPropertyId::TranslateX,
+                                value: if scene_active { 16.0 } else { -28.0 },
+                                duration: 700,
+                                child: Container::new(sample_block("Clipped", tokens.primary))
+                                    .width(116.0)
+                                    .height(64.0)
+                                    .into(),
+                                ..Default::default()
+                            })
                             .clip_to_bounds(true)
                             .repaint_boundary(true)
-                            .into_node(),
+                            .into(),
                         ),
                         demo_card(
                             "Custom pulse",
@@ -217,7 +210,7 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
                         ),
                     ],
                 }
-                .build(ctx, view),
+                .into(),
                 wide_demo_card(
                     "Scroll translation",
                     Scroll {
@@ -225,135 +218,111 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
                         width: Some((wide_card_width - 42.0).max(240.0)),
                         height: Some(88.0),
                         show_scrollbar: true,
-                        child: Some(Box::new(scroll_strip(
-                            tokens.primary,
-                            color(84, 110, 122, 255),
-                        ))),
+                        child: Some(scroll_strip(tokens.primary, color(84, 110, 122, 255))),
                         ..Default::default()
                     }
-                    .into_node(),
+                    .into(),
                     wide_card_width,
                 ),
             ],
             ..Default::default()
         }
-        .into_node();
+        .into();
 
-        Container::new(
-            Scroll {
-                direction: FlexDirection::Column,
-                show_scrollbar: true,
-                flex_grow: 1.0,
-                flex_shrink: 1.0,
-                child: Some(Box::new(
-                    Container::new(
-                        Column {
-                            gap: Some(20.0),
-                            children: vec![title, controls, demos],
-                            ..Default::default()
-                        }
-                        .into_node(),
-                    )
-                    .padding_all(24.0)
-                    .into_node(),
-                )),
-                ..Default::default()
-            }
-            .into_node(),
-        )
+        Container::new(Scroll {
+            direction: FlexDirection::Column,
+            show_scrollbar: true,
+            flex_grow: 1.0,
+            flex_shrink: 1.0,
+            child: Some(
+                Container::new(Column {
+                    gap: Some(20.0),
+                    children: vec![title, controls, demos],
+                    ..Default::default()
+                })
+                .padding_all(24.0)
+                .into(),
+            ),
+            ..Default::default()
+        })
         .bg(tokens.background)
-        .into_node()
+        .into()
     }
 }
-
-fn demo_card(title: &str, width: f32, body: Node) -> Node {
+fn demo_card(title: &str, width: f32, body: Widget) -> Widget {
     sized_demo_card(title, body, width)
 }
 
-fn wide_demo_card(title: &str, body: Node, width: f32) -> Node {
+fn wide_demo_card(title: &str, body: Widget, width: f32) -> Widget {
     sized_demo_card(title, body, width)
 }
 
-fn sized_demo_card(title: &str, body: Node, width: f32) -> Node {
-    let header = Text::new(title).size(14.0).into_node();
+fn sized_demo_card(title: &str, body: Widget, width: f32) -> Widget {
+    let header = Text::new(title).size(14.0).into();
     let frame = Composite::new(
         Container::new(body)
             .height(112.0)
             .padding_all(14.0)
             .border(color(120, 120, 140, 70), 1.0)
             .border_radius(16.0)
-            .bg(color(250, 250, 252, 255))
-            .into_node(),
+            .bg(color(250, 250, 252, 255)),
     )
     .repaint_boundary(true)
-    .into_node();
+    .into();
 
-    Container::new(
-        Column {
-            gap: Some(10.0),
-            children: vec![header, frame],
-            ..Default::default()
-        }
-        .into_node(),
-    )
+    Container::new(Column {
+        gap: Some(10.0),
+        children: vec![header, frame],
+        ..Default::default()
+    })
     .width(width)
     .padding_all(14.0)
     .border(color(218, 219, 228, 255), 1.0)
     .border_radius(18.0)
     .bg(color(255, 255, 255, 255))
-    .into_node()
+    .into()
 }
 
-fn sample_block(label: &str, color: IrColor) -> Node {
-    Container::new(
-        Text::new(label)
-            .size(18.0)
-            .color(IrColor::WHITE)
-            .into_node(),
-    )
-    .width(96.0)
-    .height(64.0)
-    .padding_all(18.0)
-    .border_radius(18.0)
-    .bg(color)
-    .into_node()
+fn sample_block(label: &str, color: IrColor) -> Widget {
+    Container::new(Text::new(label).size(18.0).color(IrColor::WHITE))
+        .width(96.0)
+        .height(64.0)
+        .padding_all(18.0)
+        .border_radius(18.0)
+        .bg(color)
+        .into()
 }
 
-fn custom_pulse_card(active: bool, base: IrColor) -> Node {
+fn custom_pulse_card(active: bool, base: IrColor) -> Widget {
     let label = if active {
         "Pulse running"
     } else {
         "Pulse paused"
     };
-    let block = Container::new(
-        Text::new(label)
-            .size(16.0)
-            .color(IrColor::WHITE)
-            .into_node(),
-    )
-    .width(112.0)
-    .height(72.0)
-    .padding_all(14.0)
-    .border_radius(16.0)
-    .bg(color(base.r, 196, base.b, 255))
-    .into_node();
+    let block: Widget = Container::new(Text::new(label).size(16.0).color(IrColor::WHITE))
+        .width(112.0)
+        .height(72.0)
+        .padding_all(14.0)
+        .border_radius(16.0)
+        .bg(color(base.r, 196, base.b, 255))
+        .into();
 
     if active {
         Composite::new(block)
             .animated_scale(*CUSTOM_ID, 1.0)
             .animated_opacity(*CUSTOM_ID, 1.0)
-            .into_node()
+            .into()
     } else {
         Container::new(block)
             .width(112.0)
             .height(72.0)
             .border_radius(16.0)
             .bg(color(base.r, 196, base.b, 24))
-            .into_node()
+            .into()
     }
 }
 
-fn scroll_strip(primary: IrColor, alt: IrColor) -> Node {
+fn scroll_strip(primary: IrColor, alt: IrColor) -> Widget {
     let mut items = Vec::new();
     for i in 0..14 {
         let bg = if i % 2 == 0 { primary } else { alt };
@@ -361,15 +330,14 @@ fn scroll_strip(primary: IrColor, alt: IrColor) -> Node {
             Container::new(
                 Text::new(format!("Lane {}", i + 1))
                     .size(14.0)
-                    .color(IrColor::WHITE)
-                    .into_node(),
+                    .color(IrColor::WHITE),
             )
             .width(112.0)
             .height(52.0)
             .padding_all(16.0)
             .border_radius(14.0)
             .bg(bg)
-            .into_node(),
+            .into(),
         );
     }
 
@@ -378,11 +346,11 @@ fn scroll_strip(primary: IrColor, alt: IrColor) -> Node {
         children: items,
         ..Default::default()
     }
-    .into_node()
+    .into()
 }
 
 fn main() -> anyhow::Result<()> {
-    DesktopApp::new(AnimationGalleryApp)
+    DesktopApp::<AnimationGalleryState, _>::new(AnimationGalleryApp)
         .with_title("Fission Animation Gallery")
         .run()
 }

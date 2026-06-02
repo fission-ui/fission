@@ -1,10 +1,10 @@
-use crate::lowering::{LoweringContext, NodeBuilder};
-use crate::ui::traits::Lower;
-use crate::ui::Node;
+use crate::internal::InternalLower;
+use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::ui::Widget;
 use crate::{ActionEnvelope, Env, InteractionStateMap};
 use fission_ir::{
     op::{BoxShadow, Color as IrColor, Fill, LayoutOp, Op, PaintOp, Stroke},
-    ActionEntry, ActionSet, NodeId, Role, Semantics,
+    ActionEntry, ActionSet, Role, Semantics, WidgetId,
 };
 use fission_theme::{ButtonHierarchy, ComponentSize, ComponentState};
 use serde::{Deserialize, Serialize};
@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 /// ```rust,ignore
 /// Button {
 ///     variant: ButtonVariant::Outline,
-///     child: Some(Box::new(Text::new("Cancel").into_node())),
+///     child: Some(Text::new("Cancel").into()),
 ///     ..Default::default()
 /// }
 /// ```
@@ -92,7 +92,7 @@ pub enum ButtonContentAlign {
 /// let on_press = ctx.bind(Submit, reduce_with!(handle_submit));
 ///
 /// Button {
-///     child: Some(Box::new(Text::new("Submit").into_node())),
+///     child: Some(Text::new("Submit").into()),
 ///     on_press: Some(on_press),
 ///     variant: ButtonVariant::Filled,
 ///     content_align: ButtonContentAlign::Center,
@@ -102,9 +102,9 @@ pub enum ButtonContentAlign {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Button {
     /// Explicit node identity (auto-generated if `None`).
-    pub id: Option<NodeId>,
+    pub id: Option<WidgetId>,
     /// The button's content widget (typically [`Text`] or [`Icon`]).
-    pub child: Option<Box<Node>>,
+    pub child: Option<Widget>,
     /// Action dispatched when the button is pressed.
     pub on_press: Option<ActionEnvelope>,
     /// Custom semantics (overrides the default button semantics).
@@ -172,10 +172,6 @@ impl Button {
         self.max_width = Some(width);
         self
     }
-
-    pub fn into_node(self) -> crate::ui::Node {
-        crate::ui::Node::Button(self)
-    }
 }
 
 impl Default for Button {
@@ -226,7 +222,7 @@ impl Button {
         &self,
         env: &Env,
         interaction: &InteractionStateMap,
-        self_id: NodeId,
+        self_id: WidgetId,
     ) -> ButtonStyleResolved {
         let default_style = &env.theme.components.button;
         let tokens = &env.theme.tokens.colors;
@@ -338,10 +334,10 @@ impl Button {
     }
 }
 
-impl Lower for Button {
-    fn lower(&self, cx: &mut LoweringContext) -> NodeId {
+impl InternalLower for Button {
+    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
         let semantics_op = self.build_semantics();
-        let outermost_id = self.id.unwrap_or_else(|| cx.next_node_id());
+        let outermost_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
 
         let (layout_node_id, final_id) = if let Some(_) = semantics_op {
             (cx.next_node_id(), outermost_id)
@@ -353,7 +349,7 @@ impl Lower for Button {
 
         cx.push_scope(layout_node_id);
 
-        let mut button_builder = NodeBuilder::new(
+        let mut button_builder = InternalIrBuilder::new(
             layout_node_id,
             Op::Layout(LayoutOp::Box {
                 width: self.width,
@@ -379,7 +375,7 @@ impl Lower for Button {
         );
 
         for shadow in &resolved_style.shadows {
-            let shadow_id = NodeBuilder::new(
+            let shadow_id = InternalIrBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRect {
                     fill: None,
@@ -392,7 +388,7 @@ impl Lower for Button {
             button_builder.add_child(shadow_id);
         }
 
-        let background_id = NodeBuilder::new(
+        let background_id = InternalIrBuilder::new(
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawRect {
                 fill: resolved_style.background_fill,
@@ -409,7 +405,7 @@ impl Lower for Button {
         button_builder.add_child(background_id);
 
         if let Some(child_widget) = &self.child {
-            let child_id = if let Node::Text(mut text_widget) = *child_widget.clone() {
+            let child_id = if let Ok(mut text_widget) = child_widget.clone().into_text() {
                 text_widget.color = Some(resolved_style.text_color);
                 text_widget.font_size = Some(resolved_style.font_size);
                 text_widget.font_weight = Some(resolved_style.font_weight);
@@ -422,7 +418,7 @@ impl Lower for Button {
                 ButtonContentAlign::Center => {
                     // Center the content within the button's box (vertically + horizontally).
                     let mut align_builder =
-                        NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Align));
+                        InternalIrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Align));
                     align_builder.add_child(child_id);
                     align_builder.build(cx)
                 }
@@ -432,7 +428,7 @@ impl Lower for Button {
                         ButtonContentAlign::End => fission_ir::op::JustifyContent::End,
                         ButtonContentAlign::Center => fission_ir::op::JustifyContent::Center,
                     };
-                    let mut flex_builder = NodeBuilder::new(
+                    let mut flex_builder = InternalIrBuilder::new(
                         cx.next_node_id(),
                         Op::Layout(LayoutOp::Flex {
                             direction: fission_ir::FlexDirection::Row,
@@ -455,7 +451,7 @@ impl Lower for Button {
         let button_node_id = button_builder.build(cx);
 
         if let Some(op) = semantics_op {
-            let mut semantics_builder = NodeBuilder::new(final_id, Op::Semantics(op));
+            let mut semantics_builder = InternalIrBuilder::new(final_id, Op::Semantics(op));
             semantics_builder.add_child(button_node_id);
             let res_id = semantics_builder.build(cx);
             cx.pop_scope();

@@ -67,7 +67,7 @@ impl ProductBrowserState {
     }
 }
 
-impl AppState for ProductBrowserState {}
+impl GlobalState for ProductBrowserState {}
 
 #[fission_reducer(SearchChanged)]
 pub fn on_search_changed(state: &mut ProductBrowserState, query: String) {

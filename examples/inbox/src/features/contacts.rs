@@ -1,14 +1,15 @@
 use crate::model::{InboxState, SetContactsOpen, ToggleContactSelection};
-use fission::core::ui::Node;
-use fission::core::{reduce_with, BuildCtx, View, Widget, WidgetNodeId};
+use fission::core::ui::Widget;
+use fission::core::{reduce_with, WidgetId};
 use fission::widgets::{DataTable, Modal, ModalAction, TableColumn, TableRow};
 use serde_json;
 use std::sync::Arc;
 
 pub struct ContactsModal;
 
-impl Widget<InboxState> for ContactsModal {
-    fn build(&self, ctx: &mut BuildCtx<InboxState>, view: &View<InboxState>) -> Node {
+impl From<ContactsModal> for Widget {
+    fn from(_component: ContactsModal) -> Self {
+        let (ctx, view) = fission::build::current::<InboxState>();
         let viewport_width = view.viewport_size().width.max(0.0);
         let toggle_id = ctx
             .bind(
@@ -40,7 +41,7 @@ impl Widget<InboxState> for ContactsModal {
         ];
 
         Modal {
-            id: WidgetNodeId::explicit("contacts_modal"),
+            id: WidgetId::explicit("contacts_modal"),
             title: "Contacts".into(),
             is_open: true,
             on_dismiss: Some(ctx.bind(
@@ -48,34 +49,30 @@ impl Widget<InboxState> for ContactsModal {
                 reduce_with!((|s: &mut InboxState, a: SetContactsOpen, _| s.show_contacts = a.0)),
             )),
             width: Some((viewport_width - 48.0).clamp(320.0, 560.0)),
-            content: Box::new(
-                DataTable {
-                    id: WidgetNodeId::explicit("contacts_table"),
-                    columns: vec![
-                        TableColumn {
-                            id: "name".into(),
-                            title: "Name".into(),
-                            width: 150.0,
-                            sortable: true,
-                        },
-                        TableColumn {
-                            id: "email".into(),
-                            title: "Email".into(),
-                            width: 250.0,
-                            sortable: true,
-                        },
-                    ],
-                    rows: data,
-                    selected_ids: view.state.contact_selected_ids.clone(),
-                    on_selection_change: Some(Arc::new(move |row_id| {
-                        fission::core::ActionEnvelope {
-                            id: toggle_id,
-                            payload: serde_json::to_vec(&ToggleContactSelection(row_id)).unwrap(),
-                        }
-                    })),
-                }
-                .build(ctx, view),
-            ),
+            content: DataTable {
+                id: WidgetId::explicit("contacts_table"),
+                columns: vec![
+                    TableColumn {
+                        id: "name".into(),
+                        title: "Name".into(),
+                        width: 150.0,
+                        sortable: true,
+                    },
+                    TableColumn {
+                        id: "email".into(),
+                        title: "Email".into(),
+                        width: 250.0,
+                        sortable: true,
+                    },
+                ],
+                rows: data,
+                selected_ids: view.state().contact_selected_ids.clone(),
+                on_selection_change: Some(Arc::new(move |row_id| fission::core::ActionEnvelope {
+                    id: toggle_id,
+                    payload: serde_json::to_vec(&ToggleContactSelection(row_id)).unwrap(),
+                })),
+            }
+            .into(),
             actions: vec![ModalAction {
                 label: "Done".into(),
                 is_primary: true,
@@ -87,6 +84,6 @@ impl Widget<InboxState> for ContactsModal {
                 )),
             }],
         }
-        .build(ctx, view)
+        .into()
     }
 }

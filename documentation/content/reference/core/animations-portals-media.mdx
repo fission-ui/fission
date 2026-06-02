@@ -5,7 +5,7 @@ description: The reference contract for runtime-owned animation, overlay composi
 
 # Animations, portals, and media
 
-Animations, portals, and media are grouped together because they all involve runtime-owned behavior that is declared during `build()`.
+Animations, portals, and media are grouped together because they all involve runtime-owned behavior that is declared during component conversion.
 
 That does not make them hidden. It means the widget tree describes what should exist, then the runtime tracks the transient state needed to make it behave across frames.
 
@@ -19,11 +19,11 @@ Animation in Fission is runtime-owned motion requested against stable widget ide
 | `AnimationStartValue` | Describes where the animation begins | Lets an animation start from a known value instead of guessing from current rendering. |
 | `AnimationRequest` | Full request for one animation | Contains property, target, timing, easing, and related metadata. |
 | `EasingFunction` | Timing curve | Controls how progress moves from start to end. |
-| `WidgetNodeId` | Stable target identity | Required when the runtime needs to track an animation across rebuilds. |
+| `WidgetId` | Stable target identity | Required when the runtime needs to track an animation across reconversions. |
 
-Widgets request animation through `ctx.request_animation_for(...)` or `ctx.anim_for(id).request(...)`. The runtime stores the active animation state and exposes current values through `View`.
+Widgets request animation through `ctx.request_animation_for(...)` or `ctx.anim_for(id).request(...)`. The runtime stores the active animation state and exposes current values through `ViewHandle`.
 
-Do not store per-frame animation progress in `AppState`. App state should hold durable facts such as "the panel is open" or "the item was selected." The runtime can animate from the old visual state to the new visual state.
+Do not store per-frame animation progress in `GlobalState`. App state should hold durable facts such as "the panel is open" or "the item was selected." The runtime can animate from the old visual state to the new visual state.
 
 ## Portal contract
 
@@ -33,7 +33,7 @@ A portal is the runtime mechanism for content that should render outside the nor
 | --- | --- | --- |
 | `PortalLayer` | Ordered overlay layer | Keeps modal, flyout, toast, and other overlays predictable. |
 | `PortalEntry` | One registered portal item | Holds the content and layer identity for runtime composition. |
-| `NodeId` / `WidgetNodeId` | Anchor or stable identity | Used by flyouts, popovers, and layout-aware overlays. |
+| `WidgetId` | Stable authoring identity | Used by flyouts, popovers, and layout-aware overlays. |
 
 Use portals when content genuinely belongs above the main tree: modals, drawers, flyouts, popovers, menus, tooltips, and toasts. Do not use portals to avoid learning normal layout. Ordinary rows, columns, stacks, and scroll regions should remain inline.
 
@@ -54,7 +54,7 @@ The runtime keeps these registrations tied to layout identity and host presentat
 
 ## Runtime-owned state
 
-The runtime tracks several kinds of state that usually should not live in `AppState` directly:
+The runtime tracks several kinds of state that usually should not live in `GlobalState` directly:
 
 | Runtime-owned state | Why it stays out of product state |
 | --- | --- |
@@ -69,14 +69,30 @@ Store the durable decision in app state; let the runtime manage the transient me
 
 ## Common mistakes
 
-Do not start side effects in `build()` to drive animation or media. Declare the desired widget tree and registrations, then let the runtime and shell handle frame progression.
+Do not start side effects in `component conversion` to drive animation or media. Declare the desired widget tree and registrations, then let the runtime and shell handle frame progression.
 
-Do not put a modal or popover's open state inside a local widget field. Store `show_settings`, `active_menu`, or similar product-visible state in `AppState` and let the widget tree include or exclude the overlay from that state.
+Do not put a modal or popover's open state inside a local widget field. Store `show_settings`, `active_menu`, or similar product-visible state in `GlobalState` and let the widget tree include or exclude the overlay from that state.
 
 Do not use `WebView` as a substitute for building normal Fission screens. It is for embedded web content that genuinely needs a browser surface.
 
 Do not expect every media surface to have identical behavior on every host without validation. Video, embedded browsers, terminal sessions, and 3D graphics live close to platform capabilities and deserve target-specific tests.
 
+## Contract completeness checklist
+
+Use this checklist when wiring `Animations, portals, and media` into an app or shell implementation.
+
+| Requirement | Why it matters |
+| --- | --- |
+| Public entrypoint | The app code must call the documented helper, command, or configuration field rather than a platform-specific shortcut. |
+| Required setup | Native manifests, plist entries, entitlements, service-worker files, domains, protocols, credentials, or provider registration must be present before production use. |
+| Typed success and error | The implementation should return a truthful typed result. Silent success, swallowed errors, and string-only failure paths make apps unsafe to retry. |
+| Retry behavior | Operations that can fail because of permission, network, hardware, store, or packaging state should document whether retrying is useful and what must change first. |
+| Tests | Cover the happy path, unsupported host path, bad configuration path, and any security-sensitive rejection path. |
+
+## Failure behavior and safe retry
+
+Treat failures as product states, not surprises. A Fission app should be able to tell the user whether the problem is missing configuration, missing provider support, denied permission, unavailable hardware, invalid input, expired credentials, or a transient host error. Reducers should update state from typed results and keep retry buttons idempotent so pressing them twice cannot corrupt state or duplicate unsafe work.
+
 ## Related pages
 
-For the widget build contract, see [Widget trait](/reference/core/widget-trait/). For the guide-level explanation, read [Media, animation, portals, and 3D](/docs/guides/media-animation-portals-and-3d/). For concrete media widgets, see [Media and custom surfaces](/reference/widgets/media/).
+For the component conversion contract, see [Widget authoring boundary](/reference/core/widget-authoring-boundary/). For the guide-level explanation, read [Media, animation, portals, and 3D](/docs/guides/media-animation-portals-and-3d/). For concrete media widgets, see [Media and custom surfaces](/reference/widgets/media/).

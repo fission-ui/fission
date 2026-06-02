@@ -1,14 +1,14 @@
-use crate::lowering::{LoweringContext, NodeBuilder};
-use crate::ui::traits::Lower;
-use crate::ui::Node;
-use fission_ir::{LayoutOp, NodeId, Op};
+use crate::internal::InternalLower;
+use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::ui::Widget;
+use fission_ir::{LayoutOp, Op, WidgetId};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Clip {
-    pub id: Option<NodeId>,
+    pub id: Option<WidgetId>,
     pub path: Option<String>,
-    pub child: Box<Node>,
+    pub child: Widget,
 }
 
 impl Default for Clip {
@@ -16,15 +16,15 @@ impl Default for Clip {
         Self {
             id: None,
             path: None,
-            child: Box::new(crate::ui::widgets::spacer::Spacer::default().into_node()),
+            child: crate::ui::widgets::spacer::Spacer::default().into(),
         }
     }
 }
 
 impl Clip {
-    pub fn new(child: Node) -> Self {
+    pub fn new(child: impl Into<Widget>) -> Self {
         Self {
-            child: Box::new(child),
+            child: child.into(),
             ..Default::default()
         }
     }
@@ -33,21 +33,17 @@ impl Clip {
         self.path = Some(path.into());
         self
     }
-
-    pub fn into_node(self) -> Node {
-        Node::Clip(self)
-    }
 }
 
-impl Lower for Clip {
-    fn lower(&self, cx: &mut LoweringContext) -> NodeId {
-        let id = self.id.unwrap_or_else(|| cx.next_node_id());
+impl InternalLower for Clip {
+    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+        let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
 
         cx.push_scope(id);
         let child_id = self.child.lower(cx);
         cx.pop_scope();
 
-        let mut builder = NodeBuilder::new(
+        let mut builder = InternalIrBuilder::new(
             id,
             Op::Layout(LayoutOp::Clip {
                 path: self.path.clone(),

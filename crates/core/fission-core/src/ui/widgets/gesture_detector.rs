@@ -1,10 +1,10 @@
-use crate::lowering::{LoweringContext, NodeBuilder};
-use crate::ui::traits::Lower;
-use crate::ui::Node;
+use crate::internal::InternalLower;
+use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::ui::Widget;
 use crate::ActionEnvelope;
 use fission_ir::{
     semantics::{ActionTrigger, Role},
-    ActionEntry, NodeId, Op, Semantics,
+    ActionEntry, Op, Semantics, WidgetId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 /// let on_secondary = ctx.bind(ShowMenu { id: 42 }, reduce_with!(handle_menu));
 ///
 /// GestureDetector {
-///     child: Box::new(item_content),
+///     child: item_content,
 ///     on_tap: Some(on_tap),
 ///     on_secondary_click: Some(on_secondary),
 ///     ..Default::default()
@@ -36,9 +36,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GestureDetector {
     /// Explicit node identity.
-    pub id: Option<NodeId>,
+    pub id: Option<WidgetId>,
     /// The child widget that receives gesture detection.
-    pub child: Box<Node>,
+    pub child: Widget,
     /// Action dispatched on a single tap (pointer up after pointer down).
     pub on_tap: Option<ActionEnvelope>,
     /// Action dispatched on a double-tap.
@@ -72,7 +72,7 @@ impl Default for GestureDetector {
     fn default() -> Self {
         Self {
             id: None,
-            child: Box::new(crate::ui::widgets::spacer::Spacer::default().into_node()),
+            child: crate::ui::widgets::spacer::Spacer::default().into(),
             on_tap: None,
             on_double_tap: None,
             on_long_press: None,
@@ -91,23 +91,19 @@ impl Default for GestureDetector {
 }
 
 impl GestureDetector {
-    pub fn new(child: Node) -> Self {
+    pub fn new(child: impl Into<Widget>) -> Self {
         Self {
-            child: Box::new(child),
+            child: child.into(),
             ..Default::default()
         }
     }
-
-    pub fn into_node(self) -> crate::ui::Node {
-        crate::ui::Node::GestureDetector(self)
-    }
 }
 
-impl Lower for GestureDetector {
-    fn lower(&self, cx: &mut LoweringContext) -> NodeId {
-        let id = self.id.unwrap_or_else(|| cx.next_node_id());
+impl InternalLower for GestureDetector {
+    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+        let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
 
-        // Lower child
+        // InternalLower child
         let child_id = self.child.lower(cx);
 
         // Build Semantics
@@ -237,7 +233,7 @@ impl Lower for GestureDetector {
             });
         }
 
-        let mut node = NodeBuilder::new(id, Op::Semantics(semantics));
+        let mut node = InternalIrBuilder::new(id, Op::Semantics(semantics));
         node.add_child(child_id);
         node.build(cx)
     }

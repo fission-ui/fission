@@ -1,21 +1,21 @@
-use fission_ir::{NodeId, Op, StructuralOp};
+use fission_ir::{Op, StructuralOp, WidgetId};
 use serde_json;
 
 #[test]
 fn test_node_id_determinism() {
     // Identity must be deterministic based on input components
-    let id1 = NodeId::derived(0, &[1, 2, 3]);
-    let id2 = NodeId::derived(0, &[1, 2, 3]);
-    let id3 = NodeId::derived(0, &[1, 2, 4]);
+    let id1 = WidgetId::derived(0, &[1, 2, 3]);
+    let id2 = WidgetId::derived(0, &[1, 2, 3]);
+    let id3 = WidgetId::derived(0, &[1, 2, 4]);
 
-    assert_eq!(id1, id2, "NodeId must be deterministic");
-    assert_ne!(id1, id3, "NodeId must distinguish paths");
+    assert_eq!(id1, id2, "WidgetId must be deterministic");
+    assert_ne!(id1, id3, "WidgetId must distinguish paths");
 }
 
 #[test]
 fn test_node_id_explicit_vs_derived() {
-    let explicit = NodeId::explicit("submit_btn");
-    let derived = NodeId::derived(0, &[0]);
+    let explicit = WidgetId::explicit("submit_btn");
+    let derived = WidgetId::derived(0, &[0]);
 
     assert_ne!(
         explicit, derived,

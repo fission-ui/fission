@@ -1,6 +1,6 @@
 use fission_core::op::Color;
-use fission_core::ui::{Column, Container, Node, Row};
-use fission_core::{ActionEnvelope, BuildCtx, View, Widget, WidgetNodeId};
+use fission_core::ui::{Column, Container, Row, Widget};
+use fission_core::{ActionEnvelope, WidgetId};
 use serde::{Deserialize, Serialize};
 
 /// The axis along which a [`SplitView`] divides its two panes.
@@ -25,10 +25,10 @@ pub enum SplitDirection {
 /// * `on_resize` - Action dispatched when the handle is dragged (user must update `split_ratio`).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SplitView {
-    pub id: WidgetNodeId,
+    pub id: WidgetId,
     pub direction: SplitDirection,
-    pub first: Box<Node>,
-    pub second: Box<Node>,
+    pub first: Widget,
+    pub second: Widget,
     pub split_ratio: f32,                  // 0.0 to 1.0
     pub on_resize: Option<ActionEnvelope>, // Action(f32)
 }
@@ -54,34 +54,40 @@ pub struct SplitView {
 // First pane: flex_grow = ratio.
 // Second pane: flex_grow = 1.0 - ratio.
 
-impl<S: fission_core::AppState> Widget<S> for SplitView {
-    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let handle_size = 4.0;
-        let tokens = &view.env.theme.tokens;
+impl From<SplitView> for Widget {
+    fn from(component: SplitView) -> Self {
+        let (_, view) = fission_core::build::current::<()>();
+        let mut component = component;
+        if let Some(id) = fission_core::build::current_widget_id() {
+            component.id = id;
+        }
+        let this = &component;
 
-        let (width, height) = match self.direction {
+        let handle_size = 4.0;
+        let tokens = &view.env().theme.tokens;
+
+        let (width, height) = match this.direction {
             SplitDirection::Horizontal => (Some(handle_size), None),
             SplitDirection::Vertical => (None, Some(handle_size)),
         };
 
-        let (line_w, line_h) = match self.direction {
+        let (line_w, line_h) = match this.direction {
             SplitDirection::Horizontal => (Some(1.0), None),
             SplitDirection::Vertical => (None, Some(1.0)),
         };
 
-        let _line = Container::new(fission_core::ui::widgets::Spacer::default().into_node())
+        let _line: Widget = Container::new(fission_core::ui::widgets::Spacer::default())
             .bg(tokens.colors.border)
-            .into_node();
+            .into();
 
         // We need the line to be 1px. Spacer doesn't support background color directly (it's empty).
         // Container supports background.
         // So we use Container(Spacer) for line.
         // And we set width/height on that Container.
 
-        let mut line_container =
-            Container::new(fission_core::ui::widgets::Spacer::default().into_node())
-                .bg(tokens.colors.border)
-                .flex_grow(1.0);
+        let mut line_container = Container::new(fission_core::ui::widgets::Spacer::default())
+            .bg(tokens.colors.border)
+            .flex_grow(1.0);
 
         if let Some(w) = line_w {
             line_container = line_container.width(w);
@@ -90,7 +96,7 @@ impl<S: fission_core::AppState> Widget<S> for SplitView {
             line_container = line_container.height(h);
         }
 
-        let mut handle = Container::new(line_container.into_node())
+        let mut handle = Container::new(line_container)
             .bg(Color {
                 r: 0,
                 g: 0,
@@ -107,40 +113,40 @@ impl<S: fission_core::AppState> Widget<S> for SplitView {
         }
 
         // Ensure ratio is clamped
-        let ratio = self.split_ratio.clamp(0.1, 0.9);
+        let ratio = this.split_ratio.clamp(0.1, 0.9);
         let first_grow = ratio;
         let second_grow = 1.0 - ratio;
 
         // Wrap children in Containers with flex_grow
-        let first_pane = Container::new(*self.first.clone())
+        let first_pane = Container::new(this.first.clone())
             .flex_grow(first_grow)
             .flex_shrink(1.0)
-            .into_node();
+            .into();
 
-        let second_pane = Container::new(*self.second.clone())
+        let second_pane = Container::new(this.second.clone())
             .flex_grow(second_grow)
             .flex_shrink(1.0)
-            .into_node();
+            .into();
 
-        match self.direction {
+        match this.direction {
             SplitDirection::Horizontal => Row {
-                children: vec![first_pane, handle.into_node(), second_pane],
+                children: vec![first_pane, handle.into(), second_pane],
                 align_items: fission_ir::op::AlignItems::Stretch,
                 justify_content: fission_ir::op::JustifyContent::Start,
                 flex_grow: 1.0,
                 flex_shrink: 1.0,
                 ..Default::default()
             }
-            .into_node(),
+            .into(),
             SplitDirection::Vertical => Column {
-                children: vec![first_pane, handle.into_node(), second_pane],
+                children: vec![first_pane, handle.into(), second_pane],
                 align_items: fission_ir::op::AlignItems::Stretch,
                 justify_content: fission_ir::op::JustifyContent::Start,
                 flex_grow: 1.0,
                 flex_shrink: 1.0,
                 ..Default::default()
             }
-            .into_node(),
+            .into(),
         }
     }
 }

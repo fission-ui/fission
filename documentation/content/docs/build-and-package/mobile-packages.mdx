@@ -1,0 +1,56 @@
+---
+title: Mobile packages
+description: Package Fission apps for Android and iOS release workflows.
+---
+
+# Mobile packages
+
+Mobile packaging turns the shared app into the artifact expected by the mobile platform. The shell keeps your app model shared; the package owns platform metadata, capabilities, signing references, store identity, icons, splash screens, and generated host files.
+
+## 1. Run mobile readiness
+
+```bash
+fission readiness package --project-dir . --target android --format apk
+fission readiness package --project-dir . --target android --format aab
+fission readiness package --project-dir . --target ios --format ipa
+```
+
+Readiness should find the Android SDK and NDK for Android, Xcode tools for iOS, required Rust targets, generated platform folders, app id, icon set, capability metadata, and signing references.
+
+## 2. Choose the mobile format
+
+| Target | Format | Use it for |
+| --- | --- | --- |
+| Android | `.apk` | Emulator, device, and direct install testing. |
+| Android | `.aab` | Android store distribution. |
+| iOS | `.ipa` | iOS release distribution through Apple tooling. |
+
+For local debugging, use `fission run` and the emulator or simulator first. For release, package explicitly so Fission writes the artifact manifest and records what was built.
+
+## 3. Package Android
+
+```bash
+fission package --project-dir . --target android --format aab --release
+```
+
+Before publishing, validate release content for the destination provider:
+
+```bash
+fission release-content validate --project-dir . --provider play-store
+```
+
+## 4. Package iOS
+
+```bash
+fission package --project-dir . --target ios --format ipa --release
+```
+
+iOS packaging depends on Apple tooling and signing configuration. Keep credentials in the platform toolchain, CI secrets, the operating-system key store, or the Fission credential vault. Do not put private signing material directly into [`fission.toml`](/reference/config/fission-toml/).
+
+## 5. Verify on the host
+
+Run the generated mobile smoke path before release. Check safe areas, touch input, keyboard behavior, permissions, splash screen, icons, and capability prompts on the emulator or simulator, then on real devices for any feature where hardware matters.
+
+## Next steps
+
+Use [App store distribution](/docs/release-and-distribute/app-stores/) for tracks, testers, rollout, review metadata, and provider upload.

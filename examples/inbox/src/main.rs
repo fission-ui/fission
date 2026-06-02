@@ -1,11 +1,7 @@
-use fission::core::ui::{Container, Node, Row};
-use fission::core::{reduce_with, BuildCtx, Env, View, Widget, WidgetNodeId};
+use fission::core::ui::{Container, Row, Widget};
+use fission::core::{reduce_with, Env, WidgetId};
 use fission::i18n::{Locale, TranslationBundle};
-use fission::prelude::{
-    DesignMode, DesignSystem, DesktopApp, FissionCupertinoDesignSystem, FissionFluent2DesignSystem,
-    FissionLiquidGlassDesignSystem, FissionMaterialDesign3DesignSystem,
-};
-use fission::theme::Theme;
+use fission::prelude::{DesignMode, DesignSystem, DesktopApp, FissionFluent2DesignSystem};
 use fission::widgets::{
     Center, Drawer, DrawerSide, Overlay, Route, Router, SafeArea, SplitDirection, SplitView, Toast,
     ToastKind, Transition,
@@ -24,11 +20,13 @@ use model::*;
 
 // --- APP ---
 
+#[derive(Clone)]
 struct InboxApp;
 
-impl Widget<InboxState> for InboxApp {
-    fn build(&self, ctx: &mut BuildCtx<InboxState>, view: &View<InboxState>) -> Node {
-        let tokens = &view.env.theme.tokens;
+impl From<InboxApp> for Widget {
+    fn from(_component: InboxApp) -> Self {
+        let (ctx, view) = fission::build::current::<InboxState>();
+        let tokens = &view.env().theme.tokens;
         let viewport = view.viewport_size();
         let viewport_width = viewport.width.max(0.0);
         let show_right_sidebar = viewport_width >= 1100.0;
@@ -41,49 +39,49 @@ impl Widget<InboxState> for InboxApp {
         };
         let right_sidebar_width = (viewport_width * 0.24).clamp(232.0, 320.0);
         // Register Modals
-        if view.state.show_settings {
-            let node = SettingsModal.build(ctx, view);
+        if view.state().show_settings {
+            let node = SettingsModal.into();
             ctx.register_portal(node);
         }
-        if view.state.show_contacts {
-            let node = ContactsModal.build(ctx, view);
+        if view.state().show_contacts {
+            let node = ContactsModal.into();
             ctx.register_portal(node);
         }
-        if view.state.show_compose {
-            let node = ComposeModal.build(ctx, view);
+        if view.state().show_compose {
+            let node = ComposeModal.into();
             ctx.register_portal(node);
         }
-        if view.state.show_browser_demo {
-            let node = BrowserModal.build(ctx, view);
+        if view.state().show_browser_demo {
+            let node = BrowserModal.into();
             ctx.register_portal(node);
         }
 
-        if view.state.show_mobile_menu {
+        if view.state().show_mobile_menu {
             let mobile_drawer_width = (view.viewport_size().width * 0.72).clamp(220.0, 320.0);
             let drawer_node = Drawer {
-                id: WidgetNodeId::explicit("mobile_drawer"),
+                id: WidgetId::explicit("mobile_drawer"),
                 side: DrawerSide::Left,
-                is_open: view.state.show_mobile_menu,
+                is_open: view.state().show_mobile_menu,
                 on_dismiss: Some(ctx.bind(
                     SetMobileMenuOpen(false),
                     reduce_with!(
                         (|s: &mut InboxState, a: SetMobileMenuOpen, _| s.show_mobile_menu = a.0)
                     ),
                 )),
-                content: Box::new(Sidebar.build(ctx, view)),
+                content: Sidebar.into(),
                 width: Some(mobile_drawer_width),
             }
-            .build(ctx, view);
+            .into();
 
             ctx.register_portal(drawer_node);
         }
         // Register Toast
-        if view.state.show_toast {
+        if view.state().show_toast {
             let toast = Toast {
-                id: WidgetNodeId::explicit("app_toast"),
+                id: WidgetId::explicit("app_toast"),
                 kind: ToastKind::Success,
                 message: view
-                    .state
+                    .state()
                     .toast_message
                     .clone()
                     .unwrap_or_else(|| "Action completed successfully".into()),
@@ -92,7 +90,7 @@ impl Widget<InboxState> for InboxApp {
                     reduce_with!((|s: &mut InboxState, _a: ToggleToast, _| s.show_toast = false)),
                 )),
             }
-            .build(ctx, view);
+            .into();
 
             ctx.register_portal(
                 fission::widgets::Positioned {
@@ -100,149 +98,125 @@ impl Widget<InboxState> for InboxApp {
                     bottom: Some(20.0), // Bottom left toast
                     width: None,
                     height: None,
-                    child: Some(Box::new(toast)),
+                    child: Some(toast),
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
             );
         }
 
-        let main_content = SafeArea {
+        let main_content: Widget = SafeArea {
             id: None,
-            child: Box::new(
-                SplitView {
-                    id: WidgetNodeId::explicit("main_split"),
-                    direction: SplitDirection::Horizontal,
-                    split_ratio,
-                    on_resize: None,
-                    first: Box::new(Sidebar.build(ctx, view)),
-                    second: Box::new(
-                        Row {
-                            gap: None,
-                            align_items: fission::ir::op::AlignItems::Stretch,
-                            children: {
-                                let mut children = vec![Container::new(
-                                    Router {
-                                        current_path: view.state.current_path.clone(),
-                                        routes: vec![
-                                            Route {
-                                                path: "/inbox".into(),
-                                                builder: Arc::new(|c, v, _p| {
-                                                    EmailList {
-                                                        folder: "Inbox".into(),
-                                                    }
-                                                    .build(c, v)
-                                                }),
-                                            },
-                                            Route {
-                                                path: "/:folder".into(),
-                                                builder: Arc::new(|c, v, p| {
-                                                    let folder = p
-                                                        .get("folder")
-                                                        .unwrap_or(&"Inbox".to_string())
-                                                        .clone();
-                                                    EmailList { folder }.build(c, v)
-                                                }),
-                                            },
-                                            Route {
-                                                path: "/:folder/:id".into(),
-                                                builder: Arc::new(|c, v, p| {
-                                                    let folder = p
-                                                        .get("folder")
-                                                        .unwrap_or(&"Inbox".to_string())
-                                                        .clone();
-                                                    let id = p
-                                                        .get("id")
-                                                        .unwrap_or(&"0".to_string())
-                                                        .parse()
-                                                        .unwrap_or(0);
-                                                    EmailDetail { folder, id }.build(c, v)
-                                                }),
-                                            },
-                                        ],
-                                        not_found: Some(Arc::new(|_c, _v, _| {
-                                            fission::core::ui::Text::new("Folder not found")
-                                                .into_node()
-                                        })),
-                                    }
-                                    .build(ctx, view),
-                                )
-                                .flex_grow(1.0)
-                                .into_node()];
-                                if show_right_sidebar {
-                                    children.push(
-                                        Container::new(RightSidebar.build(ctx, view))
-                                            .width(right_sidebar_width)
-                                            .flex_shrink(0.0)
-                                            .into_node(),
-                                    );
-                                }
-                                children
-                            },
-                            ..Default::default()
+            child: SplitView {
+                id: WidgetId::explicit("main_split"),
+                direction: SplitDirection::Horizontal,
+                split_ratio,
+                on_resize: None,
+                first: Sidebar.into(),
+                second: Row {
+                    gap: None,
+                    align_items: fission::op::AlignItems::Stretch,
+                    children: {
+                        let mut children = vec![Container::new(Router::<InboxState> {
+                            current_path: view.state().current_path.clone(),
+                            routes: vec![
+                                Route {
+                                    path: "/inbox".into(),
+                                    builder: Arc::new(|_, _, _| {
+                                        EmailList {
+                                            folder: "Inbox".into(),
+                                        }
+                                        .into()
+                                    }),
+                                },
+                                Route {
+                                    path: "/:folder".into(),
+                                    builder: Arc::new(|_, _, params| {
+                                        EmailList {
+                                            folder: params["folder"].clone(),
+                                        }
+                                        .into()
+                                    }),
+                                },
+                                Route {
+                                    path: "/:folder/:id".into(),
+                                    builder: Arc::new(|_, _, params| {
+                                        EmailDetail {
+                                            folder: params["folder"].clone(),
+                                            id: params["id"].parse().unwrap_or(0),
+                                        }
+                                        .into()
+                                    }),
+                                },
+                            ],
+                            not_found: Some(Arc::new(|_, _, _| {
+                                fission::core::ui::Text::new("Folder not found").into()
+                            })),
+                        })
+                        .flex_grow(1.0)
+                        .into()];
+                        if show_right_sidebar {
+                            children.push(
+                                Container::new(RightSidebar)
+                                    .width(right_sidebar_width)
+                                    .flex_shrink(0.0)
+                                    .into(),
+                            );
                         }
-                        .into_node(),
-                    ),
+                        children
+                    },
+                    ..Default::default()
                 }
-                .build(ctx, view),
-            ),
+                .into(),
+            }
+            .into(),
         }
         .into();
         let main_content = Container::new(main_content)
             .bg(tokens.colors.background)
             .flex_grow(1.0)
-            .into_node();
+            .into();
 
-        let overlay_tip = if view.state.show_quick_tip {
+        let overlay_tip = if view.state().show_quick_tip {
             Transition {
-                id: WidgetNodeId::explicit("quick_tip_fade"),
+                id: WidgetId::explicit("quick_tip_fade"),
                 value: 1.0,
                 property: fission::core::AnimationPropertyId::Opacity,
                 duration: 300,
                 delay: 0,
-                child: Box::new(
-                    Center {
-                        child: Box::new(
-                            fission::widgets::Card {
-                                child: Box::new(
-                                    fission::widgets::VStack {
-                                        spacing: Some(6.0),
-                                        children: vec![
-                                            fission::core::ui::Text::new(
-                                                "Tip: press ? for shortcuts",
-                                            )
-                                            .into_node(),
-                                            fission::core::ui::Text::new(
-                                                "You can pin labels and drag to reorder.",
-                                            )
-                                            .size(12.0)
-                                            .into_node(),
-                                        ],
-                                    }
-                                    .into_node(),
-                                ),
-                                ..Default::default()
-                            }
-                            .build(ctx, view),
-                        ),
+                child: Center {
+                    child: fission::widgets::Card {
+                        child: fission::widgets::VStack {
+                            spacing: Some(6.0),
+                            children: vec![
+                                fission::core::ui::Text::new("Tip: press ? for shortcuts").into(),
+                                fission::core::ui::Text::new(
+                                    "You can pin labels and drag to reorder.",
+                                )
+                                .size(12.0)
+                                .into(),
+                            ],
+                        }
+                        .into(),
+                        ..Default::default()
                     }
-                    .build(ctx, view),
-                ),
+                    .into(),
+                }
+                .into(),
             }
-            .build(ctx, view)
+            .into()
         } else {
-            fission::core::ui::widgets::Spacer::default().into_node()
+            fission::core::ui::widgets::Spacer::default().into()
         };
 
         Overlay {
             id: None,
-            content: Box::new(main_content),
-            overlay: Box::new(overlay_tip),
+            content: main_content,
+            overlay: overlay_tip,
         }
         .into()
     }
 }
-
 // Handlers for Browser Demo
 fn on_open_system_link(
     _state: &mut InboxState,
@@ -606,7 +580,7 @@ fn create_env() -> Env {
 }
 
 fn main() -> anyhow::Result<()> {
-    let mut app = DesktopApp::new(InboxApp)
+    let mut app = DesktopApp::<InboxState, _>::new(InboxApp)
         .with_title("Fission Inbox")
         .with_env(create_env())
         // .with_sync_env(|state: &InboxState, env: &mut Env| {

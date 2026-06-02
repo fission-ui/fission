@@ -1,7 +1,7 @@
 use crate::number_input::NumberInput;
 use crate::stack::HStack;
-use fission_core::ui::{Node, Text};
-use fission_core::{ActionEnvelope, BuildCtx, View, Widget};
+use fission_core::ui::{Text, Widget};
+use fission_core::ActionEnvelope;
 use std::sync::Arc;
 
 pub struct TimePicker {
@@ -20,11 +20,13 @@ impl std::fmt::Debug for TimePicker {
     }
 }
 
-impl<S: fission_core::AppState> Widget<S> for TimePicker {
-    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let cb = self.on_change.as_ref();
-        let h = self.hour;
-        let m = self.minute;
+impl From<TimePicker> for Widget {
+    fn from(component: TimePicker) -> Self {
+        let this = &component;
+
+        let cb = this.on_change.as_ref();
+        let h = this.hour;
+        let m = this.minute;
 
         // Hour Envelopes
         let h_inc = cb.map(|f| f((h + 1) % 24, m));
@@ -50,8 +52,8 @@ impl<S: fission_core::AppState> Widget<S> for TimePicker {
                     on_decrement: h_dec,
                     ..Default::default()
                 }
-                .build(_ctx, view),
-                Text::new(":").size(16.0).into_node(),
+                .into(),
+                Text::new(":").size(16.0).into(),
                 NumberInput {
                     value: m as f32,
                     display_text: Some(format!("{:02}", m)),
@@ -65,9 +67,9 @@ impl<S: fission_core::AppState> Widget<S> for TimePicker {
                     on_decrement: m_dec,
                     ..Default::default()
                 }
-                .build(_ctx, view),
+                .into(),
             ],
         }
-        .into_node()
+        .into()
     }
 }

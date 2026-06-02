@@ -14,16 +14,16 @@
 //!
 //! The engine is pure computation with no platform dependencies. Give it nodes and
 //! a viewport size, and it returns a [`LayoutSnapshot`] mapping every
-//! [`NodeId`](fission_ir::NodeId) to a [`LayoutRect`].
+//! [`WidgetId`](fission_ir::WidgetId) to a [`LayoutRect`].
 //!
 //! # Example
 //!
 //! ```rust,no_run
 //! use fission_layout::*;
-//! use fission_ir::{NodeId, LayoutOp};
+//! use fission_ir::{WidgetId, LayoutOp};
 //!
 //! let mut engine = LayoutEngine::new();
-//! let root_id = NodeId::explicit("root");
+//! let root_id = WidgetId::explicit("root");
 //! // ... build LayoutInputNode list ...
 //! // let snapshot = engine.compute_layout(&nodes, root_id, viewport, &|_| 0.0).unwrap();
 //! ```
@@ -31,7 +31,7 @@
 use anyhow::Result;
 use fission_diagnostics::prelude as diag;
 use fission_ir::op::{RichTextAnnotation, TextParagraphStyle, TextRun};
-use fission_ir::{FlexDirection as IrFlexDirection, FlexWrap as IrFlexWrap, NodeId};
+use fission_ir::{FlexDirection as IrFlexDirection, FlexWrap as IrFlexWrap, WidgetId};
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
@@ -50,22 +50,22 @@ pub use fission_ir::{FlexDirection, GridPlacement, GridTrack, LayoutOp};
 ///
 /// ```rust
 /// use fission_layout::ScrollDataSource;
-/// use fission_ir::NodeId;
+/// use fission_ir::WidgetId;
 ///
 /// // A closure works as a ScrollDataSource:
-/// let source = |_node: NodeId| -> f32 { 0.0 };
-/// assert_eq!(source.get_offset(NodeId::explicit("scroll")), 0.0);
+/// let source = |_node: WidgetId| -> f32 { 0.0 };
+/// assert_eq!(source.get_offset(WidgetId::explicit("scroll")), 0.0);
 /// ```
 pub trait ScrollDataSource {
     /// Returns the current scroll offset for the given scroll container node.
-    fn get_offset(&self, node_id: NodeId) -> f32;
+    fn get_offset(&self, node_id: WidgetId) -> f32;
 }
 
 impl<F> ScrollDataSource for F
 where
-    F: Fn(NodeId) -> f32,
+    F: Fn(WidgetId) -> f32,
 {
-    fn get_offset(&self, node_id: NodeId) -> f32 {
+    fn get_offset(&self, node_id: WidgetId) -> f32 {
         self(node_id)
     }
 }
@@ -322,7 +322,7 @@ struct MeasureCacheKey {
 }
 
 impl MeasureCacheKey {
-    fn new(node_id: NodeId, constraints: BoxConstraints) -> Self {
+    fn new(node_id: WidgetId, constraints: BoxConstraints) -> Self {
         Self {
             node_id: node_id.as_u128(),
             min_w: constraints.min_w.to_bits(),
@@ -335,12 +335,12 @@ impl MeasureCacheKey {
 
 #[derive(Debug, Clone, Default)]
 struct LayoutGraphValidationState {
-    duplicate_nodes: Vec<NodeId>,
-    missing_parent_refs: Vec<(NodeId, NodeId)>,
-    missing_child_refs: Vec<(NodeId, NodeId)>,
-    parent_child_mismatches: Vec<(NodeId, NodeId, Option<NodeId>)>,
-    cycle_nodes: Vec<NodeId>,
-    root_nodes: Vec<NodeId>,
+    duplicate_nodes: Vec<WidgetId>,
+    missing_parent_refs: Vec<(WidgetId, WidgetId)>,
+    missing_child_refs: Vec<(WidgetId, WidgetId)>,
+    parent_child_mismatches: Vec<(WidgetId, WidgetId, Option<WidgetId>)>,
+    cycle_nodes: Vec<WidgetId>,
+    root_nodes: Vec<WidgetId>,
 }
 
 impl LayoutGraphValidationState {
@@ -387,19 +387,19 @@ impl LayoutGraphValidationState {
 struct LayoutGraphState {
     graph_version: u64,
     last_layout_version: Option<u64>,
-    node_order: Vec<NodeId>,
-    node_fingerprints: HashMap<NodeId, u64>,
-    nodes: HashMap<NodeId, LayoutInputNode>,
-    parents: HashMap<NodeId, Option<NodeId>>,
-    children: HashMap<NodeId, Vec<NodeId>>,
-    roots: Vec<NodeId>,
+    node_order: Vec<WidgetId>,
+    node_fingerprints: HashMap<WidgetId, u64>,
+    nodes: HashMap<WidgetId, LayoutInputNode>,
+    parents: HashMap<WidgetId, Option<WidgetId>>,
+    children: HashMap<WidgetId, Vec<WidgetId>>,
+    roots: Vec<WidgetId>,
     validation: LayoutGraphValidationState,
 }
 
 #[derive(Debug, Clone, Default)]
 struct IncrementalLayoutReuseState {
     previous_snapshot: LayoutSnapshot,
-    dirty_ancestors: HashSet<NodeId>,
+    dirty_ancestors: HashSet<WidgetId>,
 }
 
 impl LayoutGraphState {
@@ -528,18 +528,18 @@ impl LayoutGraphState {
         self.validation = validation;
     }
 
-    fn node(&self, node_id: NodeId) -> Option<&LayoutInputNode> {
+    fn node(&self, node_id: WidgetId) -> Option<&LayoutInputNode> {
         self.nodes.get(&node_id)
     }
 
-    fn children_of(&self, node_id: NodeId) -> &[NodeId] {
+    fn children_of(&self, node_id: WidgetId) -> &[WidgetId] {
         self.children
             .get(&node_id)
             .map(Vec::as_slice)
             .unwrap_or(&[])
     }
 
-    fn parent_of(&self, node_id: NodeId) -> Option<NodeId> {
+    fn parent_of(&self, node_id: WidgetId) -> Option<WidgetId> {
         self.parents.get(&node_id).copied().flatten()
     }
 
@@ -549,13 +549,13 @@ impl LayoutGraphState {
             .filter_map(|node_id| self.nodes.get(node_id))
     }
 
-    fn detect_cycle_nodes(&self) -> Vec<NodeId> {
+    fn detect_cycle_nodes(&self) -> Vec<WidgetId> {
         fn dfs(
-            node_id: NodeId,
-            children: &HashMap<NodeId, Vec<NodeId>>,
-            visited: &mut HashSet<NodeId>,
-            stack: &mut HashSet<NodeId>,
-            cycle_nodes: &mut Vec<NodeId>,
+            node_id: WidgetId,
+            children: &HashMap<WidgetId, Vec<WidgetId>>,
+            visited: &mut HashSet<WidgetId>,
+            stack: &mut HashSet<WidgetId>,
+            cycle_nodes: &mut Vec<WidgetId>,
         ) {
             if stack.contains(&node_id) {
                 cycle_nodes.push(node_id);
@@ -595,12 +595,12 @@ impl LayoutGraphState {
 #[cfg(test)]
 mod tests {
     use super::{LayoutEngine, LayoutGraphState, LayoutInputNode};
-    use fission_ir::{LayoutOp, NodeId};
+    use fission_ir::{LayoutOp, WidgetId};
 
     fn box_node(
-        id: NodeId,
-        parent_id: Option<NodeId>,
-        children_ids: Vec<NodeId>,
+        id: WidgetId,
+        parent_id: Option<WidgetId>,
+        children_ids: Vec<WidgetId>,
     ) -> LayoutInputNode {
         LayoutInputNode {
             id,
@@ -629,9 +629,9 @@ mod tests {
 
     #[test]
     fn matches_input_nodes_rejects_reordered_flattened_inputs() {
-        let root = NodeId::from_u128(1);
-        let first = NodeId::from_u128(2);
-        let second = NodeId::from_u128(3);
+        let root = WidgetId::from_u128(1);
+        let first = WidgetId::from_u128(2);
+        let second = WidgetId::from_u128(3);
         let canonical = vec![
             box_node(root, None, vec![first, second]),
             box_node(first, Some(root), vec![]),
@@ -649,9 +649,9 @@ mod tests {
 
     #[test]
     fn update_refreshes_node_order_for_reordered_flattened_inputs() {
-        let root = NodeId::from_u128(10);
-        let first = NodeId::from_u128(11);
-        let second = NodeId::from_u128(12);
+        let root = WidgetId::from_u128(10);
+        let first = WidgetId::from_u128(11);
+        let second = WidgetId::from_u128(12);
         let canonical = vec![
             box_node(root, None, vec![first, second]),
             box_node(first, Some(root), vec![]),
@@ -770,19 +770,19 @@ pub struct LayoutNodeGeometry {
 ///
 /// ```rust,no_run
 /// use fission_layout::{LayoutSnapshot, LayoutSize};
-/// use fission_ir::NodeId;
+/// use fission_ir::WidgetId;
 ///
 /// let snapshot = LayoutSnapshot::new(LayoutSize::new(800.0, 600.0));
 /// assert_eq!(snapshot.viewport_size.width, 800.0);
 /// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct LayoutSnapshot {
-    /// Computed geometry for every node, keyed by [`NodeId`].
-    pub nodes: HashMap<NodeId, LayoutNodeGeometry>,
+    /// Computed geometry for every node, keyed by [`WidgetId`].
+    pub nodes: HashMap<WidgetId, LayoutNodeGeometry>,
     /// The constraints that were passed to each node during layout. Useful for
     /// debugging. Skipped during serialization.
     #[serde(skip)]
-    pub constraints: HashMap<NodeId, BoxConstraints>,
+    pub constraints: HashMap<WidgetId, BoxConstraints>,
     /// The viewport size used for this layout pass.
     pub viewport_size: LayoutSize,
 }
@@ -799,18 +799,18 @@ impl LayoutSnapshot {
 
     /// Returns the full geometry (rect + content size) for a node, or `None` if
     /// the node was not part of this layout pass.
-    pub fn get_node_geometry(&self, node_id: NodeId) -> Option<&LayoutNodeGeometry> {
+    pub fn get_node_geometry(&self, node_id: WidgetId) -> Option<&LayoutNodeGeometry> {
         self.nodes.get(&node_id)
     }
 
     /// Returns just the bounding rectangle for a node, or `None` if not found.
-    pub fn get_node_rect(&self, node_id: NodeId) -> Option<LayoutRect> {
+    pub fn get_node_rect(&self, node_id: WidgetId) -> Option<LayoutRect> {
         self.nodes.get(&node_id).map(|g| g.rect)
     }
 
     /// Returns the constraints that were passed to a node during layout, or `None`
     /// if not found. Useful for debugging layout issues.
-    pub fn get_node_constraints(&self, node_id: NodeId) -> Option<BoxConstraints> {
+    pub fn get_node_constraints(&self, node_id: WidgetId) -> Option<BoxConstraints> {
         self.constraints.get(&node_id).copied()
     }
 }
@@ -826,13 +826,13 @@ impl LayoutSnapshot {
 #[derive(Debug, Clone)]
 pub struct LayoutInputNode {
     /// The unique identity of this node.
-    pub id: NodeId,
+    pub id: WidgetId,
     /// The parent node's ID, or `None` for the root.
-    pub parent_id: Option<NodeId>,
+    pub parent_id: Option<WidgetId>,
     /// The layout operation this node performs.
     pub op: LayoutOp,
     /// Ordered list of child node IDs.
-    pub children_ids: Vec<NodeId>,
+    pub children_ids: Vec<WidgetId>,
     /// A human-readable name for debugging and diagnostics.
     pub debug_name: String,
     /// Explicit width override, or `None` to derive from constraints.
@@ -1027,7 +1027,7 @@ pub trait TextMeasurer: Send + Sync {
 ///
 /// ```rust,no_run
 /// use fission_layout::*;
-/// use fission_ir::NodeId;
+/// use fission_ir::WidgetId;
 /// use std::sync::Arc;
 ///
 /// let mut engine = LayoutEngine::new();
@@ -1083,7 +1083,7 @@ impl LayoutEngine {
         }
     }
 
-    fn validate_graph_state(&self, root: NodeId) -> Result<()> {
+    fn validate_graph_state(&self, root: WidgetId) -> Result<()> {
         if let Some(err) = self.graph_state.validation.first_error() {
             return Err(err);
         }
@@ -1145,12 +1145,16 @@ impl LayoutEngine {
     ///
     /// Call this during development/testing to catch malformed IR before it causes
     /// layout panics. Returns `Err` with a description of the first problem found.
-    pub fn verify_post_update(&self, input_nodes: &[LayoutInputNode], root: NodeId) -> Result<()> {
+    pub fn verify_post_update(
+        &self,
+        input_nodes: &[LayoutInputNode],
+        root: WidgetId,
+    ) -> Result<()> {
         if self.graph_state.matches_input_nodes(input_nodes) {
             return self.validate_graph_state(root);
         }
 
-        let node_map: HashMap<NodeId, &LayoutInputNode> =
+        let node_map: HashMap<WidgetId, &LayoutInputNode> =
             input_nodes.iter().map(|n| (n.id, n)).collect();
         // Parent/child consistency
         for n in input_nodes {
@@ -1165,10 +1169,10 @@ impl LayoutEngine {
         }
         // Cycle via DFS
         fn dfs(
-            id: NodeId,
-            map: &HashMap<NodeId, &LayoutInputNode>,
-            visited: &mut HashSet<NodeId>,
-            stack: &mut HashSet<NodeId>,
+            id: WidgetId,
+            map: &HashMap<WidgetId, &LayoutInputNode>,
+            visited: &mut HashSet<WidgetId>,
+            stack: &mut HashSet<WidgetId>,
         ) -> Result<()> {
             if !visited.insert(id) {
                 return Ok(());
@@ -1212,7 +1216,7 @@ impl LayoutEngine {
     pub fn compute_layout(
         &mut self,
         input_nodes: &[LayoutInputNode],
-        root_node_id: NodeId,
+        root_node_id: WidgetId,
         viewport_size: LayoutSize,
         scroll_source: &impl ScrollDataSource,
     ) -> Result<LayoutSnapshot> {
@@ -1228,14 +1232,14 @@ impl LayoutEngine {
         Ok(snapshot)
     }
 
-    /// Lower-level layout that skips scroll diagnostics.
+    /// InternalLower-level layout that skips scroll diagnostics.
     ///
     /// Same as [`compute_layout`](LayoutEngine::compute_layout) but does not emit
     /// diagnostic events. Useful when you need the snapshot but not the debug output.
     pub fn compute_layout_constraints(
         &mut self,
         input_nodes: &[LayoutInputNode],
-        root_node_id: NodeId,
+        root_node_id: WidgetId,
         viewport_size: LayoutSize,
         scroll_source: &impl ScrollDataSource,
     ) -> Result<LayoutSnapshot> {
@@ -1266,7 +1270,7 @@ impl LayoutEngine {
             0,
         )?;
 
-        let visual_location = |node_id: NodeId| -> Option<LayoutPoint> {
+        let visual_location = |node_id: WidgetId| -> Option<LayoutPoint> {
             let mut pos = snapshot.nodes.get(&node_id)?.rect.origin;
             let mut current = self.graph_state.parent_of(node_id);
             while let Some(parent_id) = current {
@@ -1286,7 +1290,7 @@ impl LayoutEngine {
             Some(pos)
         };
 
-        let mut flyout_abs_overrides: HashMap<NodeId, (f32, f32)> = HashMap::new();
+        let mut flyout_abs_overrides: HashMap<WidgetId, (f32, f32)> = HashMap::new();
         for node in self.graph_state.ordered_nodes() {
             if let LayoutOp::Flyout { anchor, content } = node.op {
                 if let (Some(anchor_geom), Some(content_geom)) =
@@ -1348,11 +1352,11 @@ impl LayoutEngine {
     pub fn compute_layout_incremental(
         &mut self,
         input_nodes: &[LayoutInputNode],
-        root_node_id: NodeId,
+        root_node_id: WidgetId,
         viewport_size: LayoutSize,
         scroll_source: &impl ScrollDataSource,
         previous_snapshot: &LayoutSnapshot,
-        dirty_nodes: &HashSet<NodeId>,
+        dirty_nodes: &HashSet<WidgetId>,
     ) -> Result<LayoutSnapshot> {
         self.ensure_graph_state(input_nodes);
         self.validate_graph_state(root_node_id)?;
@@ -1441,7 +1445,7 @@ impl LayoutEngine {
         }
     }
 
-    fn layout_depth_overflow(&self, node_id: NodeId, depth: usize) -> anyhow::Error {
+    fn layout_depth_overflow(&self, node_id: WidgetId, depth: usize) -> anyhow::Error {
         let details = format!(
             "layout recursion depth {} exceeded max {} at node {}",
             depth,
@@ -1463,11 +1467,11 @@ impl LayoutEngine {
 
     fn copy_cached_subtree(
         &self,
-        node_id: NodeId,
+        node_id: WidgetId,
         origin: LayoutPoint,
         current_constraints: BoxConstraints,
-        out: &mut HashMap<NodeId, LayoutNodeGeometry>,
-        constraints_out: &mut HashMap<NodeId, BoxConstraints>,
+        out: &mut HashMap<WidgetId, LayoutNodeGeometry>,
+        constraints_out: &mut HashMap<WidgetId, BoxConstraints>,
     ) -> Result<Option<LayoutSize>> {
         let Some(reuse) = self.incremental_reuse.as_ref() else {
             return Ok(None);
@@ -1523,11 +1527,11 @@ impl LayoutEngine {
 
     fn layout_node_constraints(
         &self,
-        node_id: NodeId,
+        node_id: WidgetId,
         constraints: BoxConstraints,
         origin: LayoutPoint,
-        out: &mut HashMap<NodeId, LayoutNodeGeometry>,
-        constraints_out: &mut HashMap<NodeId, BoxConstraints>,
+        out: &mut HashMap<WidgetId, LayoutNodeGeometry>,
+        constraints_out: &mut HashMap<WidgetId, BoxConstraints>,
         measure_cache: &mut HashMap<MeasureCacheKey, LayoutSize>,
         scroll_source: &impl ScrollDataSource,
         record: bool,
@@ -1559,8 +1563,8 @@ impl LayoutEngine {
             }
         }
 
-        let mut flow_children: Vec<NodeId> = Vec::new();
-        let mut abs_children: Vec<NodeId> = Vec::new();
+        let mut flow_children: Vec<WidgetId> = Vec::new();
+        let mut abs_children: Vec<WidgetId> = Vec::new();
         for child_id in self.graph_state.children_of(node_id) {
             let is_absolute = matches!(
                 self.graph_state.node(*child_id).map(|n| &n.op),
@@ -1627,7 +1631,7 @@ impl LayoutEngine {
                 }
                 let base_child_constraints = local.deflate(*padding);
                 let mut max_child = LayoutSize::ZERO;
-                let mut measured_children: Vec<(NodeId, BoxConstraints, LayoutSize)> = Vec::new();
+                let mut measured_children: Vec<(WidgetId, BoxConstraints, LayoutSize)> = Vec::new();
                 if !rich_text_inline_children {
                     for child_id in &flow_children {
                         let (child_width, child_height, child_max_width, child_max_height) = self
@@ -1757,9 +1761,9 @@ impl LayoutEngine {
                 };
 
                 if matches!(wrap, IrFlexWrap::Wrap | IrFlexWrap::WrapReverse) {
-                    let mut lines: Vec<(Vec<(NodeId, LayoutSize, BoxConstraints)>, f32, f32)> =
+                    let mut lines: Vec<(Vec<(WidgetId, LayoutSize, BoxConstraints)>, f32, f32)> =
                         Vec::new();
-                    let mut line_children: Vec<(NodeId, LayoutSize, BoxConstraints)> = Vec::new();
+                    let mut line_children: Vec<(WidgetId, LayoutSize, BoxConstraints)> = Vec::new();
                     let mut line_main = 0.0f32;
                     let mut line_cross = 0.0f32;
                     let mut max_line_main = 0.0f32;
@@ -1983,7 +1987,7 @@ impl LayoutEngine {
                     size
                 } else {
                     struct FlexChildEntry {
-                        id: NodeId,
+                        id: WidgetId,
                         flex: f32,
                         size: LayoutSize,
                         constraints: BoxConstraints,
@@ -3106,11 +3110,11 @@ impl LayoutEngine {
 
     fn record_geometry(
         &self,
-        node_id: NodeId,
+        node_id: WidgetId,
         origin: LayoutPoint,
         size: LayoutSize,
         content_size: LayoutSize,
-        out: &mut HashMap<NodeId, LayoutNodeGeometry>,
+        out: &mut HashMap<WidgetId, LayoutNodeGeometry>,
         record: bool,
     ) -> LayoutSize {
         let mut rect_origin = origin;

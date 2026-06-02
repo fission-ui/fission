@@ -1,7 +1,10 @@
 use crate::stack::{HStack, VStack};
 use crate::Icon;
-use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, Node, Text};
-use fission_core::{ActionEnvelope, BuildCtx, View, Widget};
+use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, Text, Widget};
+use fission_core::{
+    build::{BuildCtxHandle, ViewHandle},
+    ActionEnvelope,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -22,35 +25,38 @@ pub struct TreeView {
     pub selected_id: Option<String>,
 }
 
-impl<S: fission_core::AppState> Widget<S> for TreeView {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
+impl From<TreeView> for Widget {
+    fn from(component: TreeView) -> Self {
+        let (ctx, view) = fission_core::build::current::<()>();
+        let this = &component;
+
         let mut nodes = Vec::new();
-        for item in &self.items {
-            self.build_recursive(item, 0, &mut nodes, ctx, view);
+        for item in &this.items {
+            this.build_recursive(item, 0, &mut nodes, &ctx, view);
         }
 
         VStack {
             spacing: Some(0.0),
             children: nodes,
         }
-        .build(ctx, view)
+        .into()
     }
 }
 
 impl TreeView {
-    fn build_recursive<S: fission_core::AppState>(
+    fn build_recursive(
         &self,
         item: &TreeItem,
         depth: usize,
-        nodes: &mut Vec<Node>,
-        ctx: &mut BuildCtx<S>,
-        view: &View<S>,
+        nodes: &mut Vec<Widget>,
+        ctx: &BuildCtxHandle<()>,
+        view: ViewHandle<()>,
     ) {
         let is_selected = self.selected_id.as_ref() == Some(&item.id);
         let is_expanded = self.expanded_ids.contains(&item.id);
 
-        let theme = &view.env.theme.components.tree_view;
-        let tokens = &view.env.theme.tokens;
+        let theme = &view.env().theme.components.tree_view;
+        let tokens = &view.env().theme.tokens;
 
         let mut row_children = Vec::new();
 
@@ -60,7 +66,7 @@ impl TreeView {
                 width: Some(depth as f32 * theme.indent),
                 ..Default::default()
             }
-            .into_node(),
+            .into(),
         );
 
         // Icon
@@ -69,14 +75,14 @@ impl TreeView {
                 Icon::svg(icon.clone())
                     .size(18.0)
                     .color(tokens.colors.text_secondary)
-                    .into_node(),
+                    .into(),
             );
             row_children.push(
                 fission_core::ui::widgets::Spacer {
                     width: Some(8.0),
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
             );
         }
 
@@ -90,16 +96,13 @@ impl TreeView {
                     tokens.colors.text_primary
                 })
                 .flex_grow(1.0)
-                .into_node(),
+                .into(),
         );
 
-        let row_content = Container::new(
-            HStack {
-                spacing: Some(0.0),
-                children: row_children,
-            }
-            .into_node(),
-        )
+        let row_content = Container::new(HStack {
+            spacing: Some(0.0),
+            children: row_children,
+        })
         .padding_all(8.0)
         .height(40.0)
         .bg(if is_selected {
@@ -114,19 +117,19 @@ impl TreeView {
         })
         .border_radius(tokens.radii.medium)
         .flex_grow(1.0)
-        .into_node();
+        .into();
 
         nodes.push(
             Button {
                 variant: ButtonVariant::Ghost,
                 content_align: ButtonContentAlign::Start,
-                child: Some(Box::new(row_content)),
+                child: Some(row_content),
                 on_press: item.on_select.clone(),
                 padding: Some([0.0; 4]),
                 height: Some(40.0), // Force button height
                 ..Default::default()
             }
-            .into_node(),
+            .into(),
         );
 
         if is_expanded {

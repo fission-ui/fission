@@ -1,65 +1,67 @@
 use fission_core::ui::{Column, Container, Scroll, Text, TextInput};
-use fission_core::{
-    AppState, BuildCtx, FlexDirection, InputEvent, LayoutPoint, Node, PointerEvent, View, Widget,
-};
+use fission_core::{FlexDirection, GlobalState, InputEvent, LayoutPoint, PointerEvent, Widget};
 use fission_ir::op::{Color, Fill, LayoutOp, PaintOp};
 use fission_shell_terminal::{verify_terminal_ir, TerminalApp};
 
 #[derive(Default, Debug, Clone, PartialEq)]
 struct State;
-impl AppState for State {}
+impl GlobalState for State {}
 
+#[derive(Clone)]
 struct HelloApp;
 
-impl Widget<State> for HelloApp {
-    fn build(&self, _ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
-        Container::new(Text::new("Hello terminal").color(Color::BLACK).into_node())
+impl From<HelloApp> for Widget {
+    fn from(_component: HelloApp) -> Self {
+        let (_ctx, _view) = fission_core::build::current::<State>();
+        Container::new(Text::new("Hello terminal").color(Color::BLACK))
             .width(24.0)
             .height(3.0)
             .padding([1.0, 1.0, 1.0, 1.0])
             .bg(Color::WHITE)
             .border(Color::BLACK, 1.0)
-            .into_node()
+            .into()
     }
 }
-
+#[derive(Clone)]
 struct ScrollApp;
 
-impl Widget<State> for ScrollApp {
-    fn build(&self, _ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
+impl From<ScrollApp> for Widget {
+    fn from(_component: ScrollApp) -> Self {
+        let (_ctx, _view) = fission_core::build::current::<State>();
         let children = (0..12)
             .map(|idx| {
                 Text::new(format!("line-{idx:02}"))
                     .color(Color::BLACK)
-                    .into_node()
+                    .into()
             })
             .collect();
         Scroll {
-            id: Some(fission_ir::NodeId::explicit("terminal_scroll")),
+            id: Some(fission_ir::WidgetId::explicit("terminal_scroll")),
             direction: FlexDirection::Column,
             width: Some(18.0),
             height: Some(8.0),
             show_scrollbar: true,
-            child: Some(Box::new(
+            child: Some(
                 Column {
                     gap: Some(0.0),
                     children,
                     ..Default::default()
                 }
-                .into_node(),
-            )),
+                .into(),
+            ),
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 }
-
+#[derive(Clone)]
 struct TextInputApp;
 
-impl Widget<State> for TextInputApp {
-    fn build(&self, _ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
+impl From<TextInputApp> for Widget {
+    fn from(_component: TextInputApp) -> Self {
+        let (_ctx, _view) = fission_core::build::current::<State>();
         TextInput {
-            id: Some(fission_ir::NodeId::explicit("terminal_text_input")),
+            id: Some(fission_ir::WidgetId::explicit("terminal_text_input")),
             value: "abc".to_string(),
             width: Some(12.0),
             height: Some(3.0),
@@ -69,10 +71,9 @@ impl Widget<State> for TextInputApp {
             focus_border_color: Some(Color::BLACK),
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 }
-
 #[test]
 fn terminal_app_renders_real_fission_widget_tree_to_cells() {
     let mut app = TerminalApp::<State, _>::new(HelloApp);
@@ -83,7 +84,7 @@ fn terminal_app_renders_real_fission_widget_tree_to_cells() {
 #[test]
 fn terminal_verifier_rejects_graphical_only_paint() {
     let mut ir = fission_ir::CoreIR::new();
-    let id = fission_ir::NodeId::from_u128(1);
+    let id = fission_ir::WidgetId::from_u128(1);
     ir.add_node(
         id,
         fission_ir::Op::Paint(fission_ir::PaintOp::DrawImage {
@@ -105,8 +106,8 @@ fn terminal_verifier_rejects_graphical_only_paint() {
 #[test]
 fn terminal_verifier_documents_supported_and_unsupported_ir_shapes() {
     let mut supported = fission_ir::CoreIR::new();
-    let root = fission_ir::NodeId::from_u128(10);
-    let text = fission_ir::NodeId::from_u128(11);
+    let root = fission_ir::WidgetId::from_u128(10);
+    let text = fission_ir::WidgetId::from_u128(11);
     supported.add_node(
         root,
         fission_ir::Op::Layout(LayoutOp::Scroll {
@@ -145,7 +146,7 @@ fn terminal_verifier_documents_supported_and_unsupported_ir_shapes() {
     assert!(verify_terminal_ir(&supported).is_ok());
 
     let mut gradient = fission_ir::CoreIR::new();
-    let id = fission_ir::NodeId::from_u128(12);
+    let id = fission_ir::WidgetId::from_u128(12);
     gradient.add_node(
         id,
         fission_ir::Op::Paint(PaintOp::DrawRect {

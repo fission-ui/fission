@@ -1,26 +1,23 @@
-use crate::ui::Container;
-use crate::{AppState, BoxConstraints, BuildCtx, Node, NodeId, View, Widget, WidgetNodeId};
+use crate::build::{self, BuildCtxHandle, ViewHandle};
+use crate::ui::{Container, Widget};
+use crate::{BoxConstraints, GlobalState, WidgetId};
 use std::sync::Arc;
 
-/// A closure-based widget that builds a [`Node`] tree from a function.
+/// A closure-backed widget for small inline composition.
 ///
-/// `Builder` lets you define inline widgets without creating a named struct.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// let widget = Builder::new(|ctx, view| {
-///     Text::new(format!("Count: {}", view.state.count)).into_node()
-/// });
-/// ```
-pub struct Builder<S: AppState> {
-    builder: Arc<dyn Fn(&mut BuildCtx<S>, &View<S>) -> Node + Send + Sync>,
+/// `Builder` is not a replacement for named components. Use
+/// `impl From<MyComponent> for Widget` for reusable application widgets. Use
+/// `Builder` when a short local closure is clearer than introducing a named
+/// component, for example inside tests or small conditional sections.
+#[derive(Clone)]
+pub struct Builder<S: GlobalState> {
+    builder: Arc<dyn Fn(BuildCtxHandle<S>, ViewHandle<S>) -> Widget + Send + Sync>,
 }
 
-impl<S: AppState> Builder<S> {
+impl<S: GlobalState> Builder<S> {
     pub fn new<F>(builder: F) -> Self
     where
-        F: Fn(&mut BuildCtx<S>, &View<S>) -> Node + Send + Sync + 'static,
+        F: Fn(BuildCtxHandle<S>, ViewHandle<S>) -> Widget + Send + Sync + 'static,
     {
         Self {
             builder: Arc::new(builder),
@@ -28,41 +25,34 @@ impl<S: AppState> Builder<S> {
     }
 }
 
-impl<S: AppState> Widget<S> for Builder<S> {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        (self.builder)(ctx, view)
+impl<S: GlobalState> From<Builder<S>> for Widget {
+    fn from(component: Builder<S>) -> Self {
+        let (ctx, view) = build::current::<S>();
+        (component.builder)(ctx, view)
     }
 }
 
-/// A closure-based widget that receives its parent's [`BoxConstraints`].
+/// A closure-backed widget that receives its parent's last known constraints.
 ///
-/// `LayoutBuilder` is the layout-aware counterpart of [`Builder`]. The closure
-/// receives the constraints from the previous frame (or a fallback derived
-/// from the viewport) so it can adapt its output to the available space.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// let widget = LayoutBuilder::new(|ctx, view, constraints| {
-///     let cols = if constraints.max_width > 600.0 { 3 } else { 1 };
-///     build_grid(ctx, view, cols)
-/// })
-/// .flex_grow(1.0);
-/// ```
-pub struct LayoutBuilder<S: AppState> {
+/// The constraint value comes from the previous layout pass when an explicit
+/// `id` is supplied. Otherwise it falls back to a loose constraint derived from
+/// the current viewport. Prefer normal responsive widgets first; use
+/// `LayoutBuilder` when the child tree itself must change with available size.
+#[derive(Clone)]
+pub struct LayoutBuilder<S: GlobalState> {
     /// Optional stable identity for constraint look-up across frames.
-    pub id: Option<WidgetNodeId>,
-    /// Flex grow factor.
+    pub id: Option<WidgetId>,
+    /// Flex grow factor applied to the wrapper when `id` is set.
     pub flex_grow: f32,
-    /// Flex shrink factor.
+    /// Flex shrink factor applied to the wrapper when `id` is set.
     pub flex_shrink: f32,
-    builder: Arc<dyn Fn(&mut BuildCtx<S>, &View<S>, BoxConstraints) -> Node + Send + Sync>,
+    builder: Arc<dyn Fn(BuildCtxHandle<S>, ViewHandle<S>, BoxConstraints) -> Widget + Send + Sync>,
 }
 
-impl<S: AppState> LayoutBuilder<S> {
+impl<S: GlobalState> LayoutBuilder<S> {
     pub fn new<F>(builder: F) -> Self
     where
-        F: Fn(&mut BuildCtx<S>, &View<S>, BoxConstraints) -> Node + Send + Sync + 'static,
+        F: Fn(BuildCtxHandle<S>, ViewHandle<S>, BoxConstraints) -> Widget + Send + Sync + 'static,
     {
         Self {
             id: None,
@@ -70,11 +60,6 @@ impl<S: AppState> LayoutBuilder<S> {
             flex_shrink: 1.0,
             builder: Arc::new(builder),
         }
-    }
-
-    pub fn id(mut self, id: WidgetNodeId) -> Self {
-        self.id = Some(id);
-        self
     }
 
     pub fn flex_grow(mut self, grow: f32) -> Self {
@@ -88,12 +73,10 @@ impl<S: AppState> LayoutBuilder<S> {
     }
 }
 
-impl<S: AppState> Widget<S> for LayoutBuilder<S> {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let viewport = view
-            .layout
-            .map(|layout| layout.viewport_size)
-            .unwrap_or_else(|| view.viewport_size());
+impl<S: GlobalState> From<LayoutBuilder<S>> for Widget {
+    fn from(component: LayoutBuilder<S>) -> Self {
+        let (ctx, view) = build::current::<S>();
+        let viewport = view.viewport_size();
         let mut max_w = viewport.width;
         let mut max_h = viewport.height;
         if !max_w.is_finite() || max_w <= 0.0 {
@@ -103,17 +86,18 @@ impl<S: AppState> Widget<S> for LayoutBuilder<S> {
             max_h = f32::INFINITY;
         }
         let fallback = BoxConstraints::loose(max_w, max_h);
-        let constraints = self
-            .id
+        let id = build::current_widget_id().or(component.id);
+        let constraints = id
             .and_then(|id| view.get_constraints(id))
             .unwrap_or(fallback);
-        let child = (self.builder)(ctx, view, constraints);
-        if let Some(id) = self.id {
-            Container::new(child)
-                .id(NodeId::from(id))
-                .flex_grow(self.flex_grow)
-                .flex_shrink(self.flex_shrink)
-                .into_node()
+        let child = (component.builder)(ctx, view, constraints);
+
+        if let Some(id) = id {
+            let mut container = Container::new(child)
+                .flex_grow(component.flex_grow)
+                .flex_shrink(component.flex_shrink);
+            container.id = Some(id);
+            container.into()
         } else {
             child
         }

@@ -35,6 +35,18 @@ separate_artifacts = true
 preload = "route"
 ```
 
+## Finished state and checks
+
+By the end of `Build a server-rendered store`, you should have a runnable change, not just a set of snippets. Run the command shown in the page, exercise the feature once manually, and add or update the smallest test that protects the behavior.
+
+| Check | Expected result |
+| --- | --- |
+| Build | `cargo check` or the relevant `fission` command finishes without target-specific configuration errors. |
+| Behavior | The screen, package, server route, or test flow described by the recipe is visible and responds to input. |
+| Failure path | At least one denied, missing, invalid, or empty case renders a useful message instead of silently doing nothing. |
+| Next link | The reference page linked from the recipe explains the exact fields, commands, or types used here. |
+
+
 The route mode says the storefront is rendered per session, which is the right default for a cart. The worker and island settings say browser artifacts should be generated separately rather than bundled into one large file. Before production, add `[server.sessions]` with a signed cookie secret as described in [Server security](/docs/guides/server-site-security/).
 
 ## 2. Model the data
@@ -86,20 +98,21 @@ The route can ask for the catalog during rendering. The server shell drains the 
 #[derive(Clone)]
 pub struct StoreHomePage;
 
-impl Widget<StoreState> for StoreHomePage {
-    fn build(&self, _ctx: &mut BuildCtx<StoreState>, view: &View<StoreState>) -> Node {
+impl From<StoreHomePage> for Widget {
+    fn from(component: StoreHomePage) -> Self {
+        let (_, view) = fission::build::current::<StoreState>();
         Column {
             gap: Some(24.0),
             children: vec![
                 Text::new("Pokémon Card Store")
                     .size(44.0)
                     .weight(FontWeight::Bold)
-                    .into_node(),
-                CardGrid::new(view.state().products.clone()).into_node(),
+                    .into(),
+                CardGrid::new(view.state().products.clone()).into(),
             ],
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 }
 ```

@@ -5,7 +5,7 @@ description: Follow the Fission software development lifecycle from setup throug
 
 # Docs
 
-Fission is a Rust application platform for building and shipping real apps across desktop, web, Android, iOS, terminal interfaces, and static HTML sites.
+Fission is a Rust application platform for building and shipping real apps across desktop, web, Android, iOS, terminal interfaces, static HTML sites, and server-rendered sites.
 
 That word _platform_ is deliberate. Fission is not only a widget catalog. It gives you the application model, platform shells, command-line workflow, testing story, packaging commands, static site generation, capability APIs, and release tooling needed to carry an app from the first screen to a published product.
 
@@ -23,9 +23,10 @@ After that, learn the core loop in this order:
 | 2 | [Rendering pipeline](/docs/learn/rendering-pipeline/) | How widgets become layout, semantics, display lists, and host output. |
 | 3 | [Layout and widgets](/docs/guides/layout-and-widgets/) | How to compose screens that adapt to mobile, desktop, and web-sized viewports. |
 | 4 | [Input, events, text, and environment](/docs/guides/input-events-text-and-env/) | How pointer, keyboard, text input, theme, locale, and environment data reach widgets. |
-| 5 | [State, resources, and async](/docs/guides/resources-and-async/) | How to keep product state explicit while still doing host work, background work, and long-lived resources. |
+| 5 | [State, handles, and providers](/docs/guides/state-handles-and-providers/) | Where durable app state, local widget state, build handles, environment, and parent-provided context belong. |
+| 6 | [State, resources, and async](/docs/guides/resources-and-async/) | How to keep product state explicit while still doing host work, background work, and long-lived resources. |
 
-The docs assume you can run `cargo`, but they do not assume you are an expert Rust developer. When a concept such as `Env`, `BuildCtx`, `View`, reducer, selector, resource, job, or capability appears, the relevant guide should introduce what it is, why it exists, when to use it, and what to avoid.
+The docs assume you can run `cargo`, but they do not assume you are an expert Rust developer. When a concept such as `Env`, `BuildCtxHandle`, `ViewHandle`, reducer, selector, resource, job, or capability appears, the relevant guide should introduce what it is, why it exists, when to use it, and what to avoid.
 
 ## Follow the lifecycle
 
@@ -33,10 +34,10 @@ Fission projects move through a practical development lifecycle.
 
 | Lifecycle stage | Where to go | What the pages teach |
 | --- | --- | --- |
-| Setup | [Quickstart](/docs/learn/quickstart/), [Project structure](/docs/guides/app-structure/), [Add platform targets](/docs/cookbook/add-platform-targets/) | Create or open a project, understand [`fission.toml`](/reference/config/fission-toml/), and add desktop, web, Android, iOS, terminal, or static site targets without losing existing files. |
+| Setup | [Quickstart](/docs/learn/quickstart/), [Project structure](/docs/guides/app-structure/), [Add platform targets](/docs/cookbook/add-platform-targets/) | Create or open a project, understand [`fission.toml`](/reference/config/fission-toml/), and add desktop, web, Android, iOS, terminal, static site, or server-rendered site targets without losing existing files. |
 | Learn | [Learn overview](/docs/learn/overview/), [Runtime model](/docs/learn/runtime-model/), [Rendering pipeline](/docs/learn/rendering-pipeline/) | Understand the architecture before copying patterns into a larger app. |
-| Build features | [Layout and widgets](/docs/guides/layout-and-widgets/), [Theming and internationalization](/docs/guides/theming-and-i18n/), [Design system](/docs/guides/design-system/), [Charts](/docs/charts/overview/), [Capabilities](/docs/capabilities/matrix/) | Build product screens, theme them, translate them, add charts, and request platform features through typed capabilities. |
-| Develop | [Development workflow](/docs/develop/workflow/), [Platform shells and CLI](/docs/guides/platform-shells-cli-and-testing/), [Terminal user interfaces](/docs/guides/terminal-user-interfaces/), [Static sites](/docs/guides/static-sites/) | Run the app on real targets, keep logs attached, use the terminal UI, and build content-backed static sites. |
+| Build features | [Layout and widgets](/docs/guides/layout-and-widgets/), [State, handles, and providers](/docs/guides/state-handles-and-providers/), [Theming and internationalization](/docs/guides/theming-and-i18n/), [Design system](/docs/guides/design-system/), [Charts](/docs/charts/overview/), [Capabilities](/docs/capabilities/matrix/) | Build product screens, manage state intentionally, theme them, translate them, add charts, and request platform features through typed capabilities. |
+| Develop | [Development workflow](/docs/develop/workflow/), [Platform shells and CLI](/docs/guides/platform-shells-cli-and-testing/), [Terminal user interfaces](/docs/guides/terminal-user-interfaces/), [Static sites](/docs/guides/static-sites/), [Server-rendered sites](/docs/guides/server-sites/) | Run the app on real targets, keep logs attached, use the terminal UI, build content-backed static sites, and run server-rendered sites when pages need request-time behavior. |
 | Test and debug | [Testing lifecycle](/docs/test-and-debug/overview/), [Testing and diagnostics](/docs/guides/testing-and-diagnostics/), [Write a live UI test](/docs/cookbook/write-a-live-ui-test/) | Test reducers first, then widgets, runtime effects, shell paths, screenshots, logs, and release captures. |
 | Build and package | [Packaging overview](/docs/build-and-package/overview/) | Produce installable or uploadable artifacts with readiness checks and artifact manifests. |
 | Release and distribute | [Release overview](/docs/release-and-distribute/overview/), [Release lifecycle details](/docs/release-and-distribute/post-build-lifecycle/) | Prepare release content, validate metadata, upload through providers, manage tracks/testers, and keep audit receipts. |
@@ -46,16 +47,18 @@ Fission projects move through a practical development lifecycle.
 
 A Fission app should stay understandable as it grows.
 
-State holds product truth. Actions describe intent. Reducers update state. Selectors derive values from state. Widgets build the interface from the current state and environment. Resources, commands, jobs, services, and capabilities describe work outside pure rendering. Shells host the same app model on desktop, web, mobile, terminal, or static site targets. The `fission` command carries the project through setup, running, testing, packaging, and release.
+State holds product truth. Actions describe intent. Reducers update state. Selectors derive values from state. Widgets build the interface from the current state and environment. Resources, commands, jobs, services, and capabilities describe work outside pure rendering. Shells host the same app model on desktop, web, mobile, terminal, static site, or server-rendered site targets. The `fission` command carries the project through setup, running, testing, packaging, and release.
 
 If you are unsure where a piece of code belongs, ask what kind of thing it is:
 
 | If it is... | It usually belongs in... |
 | --- | --- |
-| Durable product data | `AppState` |
+| Durable product data | [`GlobalState`](/docs/guides/state-handles-and-providers/) |
 | A user intent such as save, select, open, close, submit, or retry | An action and reducer |
-| A value derived from existing state | A selector or local calculation in `build()` |
-| Visual structure for the current frame | A widget `build()` method |
+| A value derived from existing state | A selector or local calculation in `component conversion` |
+| Visual structure for the current frame | A widget `component conversion` method |
+| Temporary UI state owned by one widget identity | [local widget state](/docs/guides/state-handles-and-providers/) |
+| Typed context a parent gives only to descendants | [providers](/docs/guides/state-handles-and-providers/) |
 | Theme, locale, title, viewport, or other app-wide presentation context | `Env` synchronized from state or seeded by the shell |
 | File I/O, networking, device access, notifications, camera, clipboard, or other host work | A capability, resource, command, job, service, or explicit effect |
 | Platform packaging, SDK setup, release metadata, or provider upload | [`fission.toml`](/reference/config/fission-toml/), release-content files, and `fission` CLI commands |
@@ -67,3 +70,14 @@ That separation is the reason the same product can run through multiple hosts wi
 The guide pages teach patterns step by step. The reference pages are for exact contracts: struct fields, enum choices, command flags, platform tables, widget behavior, chart variants, and capability provider details.
 
 When you know the subsystem you need, go to the [Reference overview](/reference/overview/overview/). When you are still learning how a feature should be built, stay in the guides and cookbook first.
+
+## Lifecycle fit and verification
+
+This page belongs to the setup, learn, build, test, and publish lifecycle. Use it to decide the next concrete action, then verify the action before moving to the next stage.
+
+| Stage question | Verification |
+| --- | --- |
+| What file or command changes? | The page should point to the exact `fission` command, `fission.toml` section, Rust component, or generated artifact involved. |
+| What proves it worked? | Prefer a command output, generated file, screenshot, test assertion, package artifact, or deployed URL over a vague statement. |
+| What can fail safely? | Permission prompts, missing tools, unsupported hosts, invalid config, and expired credentials should produce diagnosable errors that can be retried after the cause is fixed. |
+| What should I read next? | Continue to the linked guide for step-by-step work or the reference page for exact fields and contracts. |

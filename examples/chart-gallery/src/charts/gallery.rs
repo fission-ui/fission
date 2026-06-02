@@ -6,8 +6,8 @@ use fission::charts::{
     MarkPoint,
 };
 use fission::core::op::Color;
-use fission::core::ui::{Container, Node, Text};
-use fission::core::{BuildCtx, View, Widget};
+use fission::core::ui::{Container, Text, Widget};
+use fission::core::{BuildCtxHandle, ViewHandle};
 use fission::three_d::Scene3D;
 
 mod cartesian;
@@ -21,13 +21,13 @@ mod relationship_geo;
 mod statistical;
 
 pub(crate) fn build_selected_chart(
-    ctx: &mut BuildCtx<GalleryState>,
-    view: &View<GalleryState>,
+    ctx: BuildCtxHandle<GalleryState>,
+    view: ViewHandle<GalleryState>,
     content_width: f32,
     scale: f32,
-) -> Node {
+) -> Widget {
     let s = scale;
-    match (view.state.selected_category, view.state.selected_chart) {
+    match (view.state().selected_category, view.state().selected_chart) {
         (SHOWCASE_CATEGORY, 0) => build_showcase(ctx, view, content_width, s),
         (0, chart) => cartesian::build_chart(chart, ctx, view, content_width, s),
         (1, chart) => cartesian_variants::build_chart(chart, ctx, view, content_width, s),
@@ -40,82 +40,74 @@ pub(crate) fn build_selected_chart(
         (category, chart) if category >= deep_catalog::DEEP_CATEGORY_OFFSET => {
             deep_catalog::build_chart(category, chart, ctx, view, content_width, s).unwrap_or_else(
                 || {
-                    Container::new(
-                        Text::new("Select a chart from the gallery")
-                            .color(Color {
-                                r: 150,
-                                g: 150,
-                                b: 150,
-                                a: 255,
-                            })
-                            .into_node(),
-                    )
-                    .into_node()
+                    Container::new(Text::new("Select a chart from the gallery").color(Color {
+                        r: 150,
+                        g: 150,
+                        b: 150,
+                        a: 255,
+                    }))
+                    .into()
                 },
             )
         }
-        _ => Container::new(
-            Text::new("Select a chart from the gallery")
-                .color(Color {
-                    r: 150,
-                    g: 150,
-                    b: 150,
-                    a: 255,
-                })
-                .into_node(),
-        )
-        .into_node(),
+        _ => Container::new(Text::new("Select a chart from the gallery").color(Color {
+            r: 150,
+            g: 150,
+            b: 150,
+            a: 255,
+        }))
+        .into(),
     }
 }
 
 pub(super) trait GalleryBuildExt {
     fn build_in_gallery(
         self,
-        ctx: &mut BuildCtx<GalleryState>,
-        view: &View<GalleryState>,
+        ctx: BuildCtxHandle<GalleryState>,
+        view: ViewHandle<GalleryState>,
         content_width: f32,
-    ) -> Node;
+    ) -> Widget;
 }
 
 impl GalleryBuildExt for Chart {
     fn build_in_gallery(
         self,
-        ctx: &mut BuildCtx<GalleryState>,
-        view: &View<GalleryState>,
+        _ctx: BuildCtxHandle<GalleryState>,
+        view: ViewHandle<GalleryState>,
         content_width: f32,
-    ) -> Node {
+    ) -> Widget {
         configure_chart(
             self,
             view,
             gallery_chart_width(content_width),
             gallery_chart_height(),
         )
-        .build(ctx, view)
+        .into()
     }
 }
 
 impl GalleryBuildExt for Scene3D {
     fn build_in_gallery(
         self,
-        ctx: &mut BuildCtx<GalleryState>,
-        _view: &View<GalleryState>,
+        _ctx: BuildCtxHandle<GalleryState>,
+        _view: ViewHandle<GalleryState>,
         content_width: f32,
-    ) -> Node {
+    ) -> Widget {
         self.width(gallery_chart_width(content_width))
             .height(gallery_chart_height())
-            .build(ctx, _view)
+            .into()
     }
 }
 
 pub(crate) fn configure_chart(
     mut chart: Chart,
-    view: &View<GalleryState>,
+    view: ViewHandle<GalleryState>,
     width: f32,
     height: f32,
 ) -> Chart {
     chart = chart.width(width).height(height);
 
-    if view.state.interactions {
+    if view.state().interactions {
         let interaction = chart
             .interaction
             .clone()
@@ -126,7 +118,7 @@ pub(crate) fn configure_chart(
         chart = chart.interaction(interaction);
     }
 
-    if view.state.animations {
+    if view.state().animations {
         chart = chart.animation(
             ChartAnimation::enter(ChartAnimationKind::Sweep)
                 .duration_ms(1200)
@@ -134,10 +126,12 @@ pub(crate) fn configure_chart(
         );
     }
 
-    if view.state.markers {
+    if view.state().markers {
         chart = chart
-            .mark_line(MarkLine::y("target", 160.0 * view.state.data_scale).color(amber()))
-            .mark_point(MarkPoint::xy("sample", 3.0, 210.0 * view.state.data_scale).color(blue()));
+            .mark_line(MarkLine::y("target", 160.0 * view.state().data_scale).color(amber()))
+            .mark_point(
+                MarkPoint::xy("sample", 3.0, 210.0 * view.state().data_scale).color(blue()),
+            );
     }
 
     chart

@@ -15,16 +15,16 @@ It is stateless. The app stores the current refresh status and pulled distance, 
 use fission::prelude::*;
 
 let content = RefreshIndicator::new(product_list)
-    .id(WidgetNodeId::explicit("catalog.refresh"))
-    .status(view.state.refresh_status)
-    .pulled_extent(view.state.pulled_extent)
+    .id(WidgetId::explicit("catalog.refresh"))
+    .status(view.state().refresh_status)
+    .pulled_extent(view.state().pulled_extent)
     .trigger_distance(80.0)
     .displacement(64.0)
     .on_pull_start(with_reducer!(ctx, PullStarted, on_pull_started))
     .on_pull_update(with_reducer!(ctx, PullUpdated, on_pull_updated))
     .on_pull_cancel(with_reducer!(ctx, PullCanceled, on_pull_canceled))
     .on_refresh(with_reducer!(ctx, RefreshProducts, on_refresh_products))
-    .build(ctx, view);
+    .into();
 ```
 
 `on_pull_update` receives pointer drag data through the reducer context. Store the accumulated pulled distance in state. When the user releases after crossing `trigger_distance`, `on_refresh` fires.
@@ -33,8 +33,8 @@ let content = RefreshIndicator::new(product_list)
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `WidgetNodeId` | Stable identity for the refresh indicator and its progress animation. | Set this explicitly when a screen has more than one refresh region. |
-| `child` | `Box<Node>` | Content being refreshed. | Usually a scrollable list or grid. |
+| `id` | `WidgetId` | Stable identity for the refresh indicator and its progress animation. | Set this explicitly when a screen has more than one refresh region. |
+| `child` | `Widget` | Content being refreshed. | Usually a scrollable list or grid. |
 | `status` | `RefreshIndicatorStatus` | Current visual and interaction state. | Defaults to `Inactive`. |
 | `pulled_extent` | `f32` | Current pull distance in logical points. | Stored in app state. |
 | `trigger_distance` | `f32` | Pull distance needed to trigger refresh. | Defaults to `80.0`. |
@@ -59,6 +59,18 @@ let content = RefreshIndicator::new(product_list)
 | `Armed` | The pull distance is enough to refresh if released. |
 | `Refreshing` | Refresh work is running. The indicator uses indeterminate progress. |
 | `Done` | Refresh has completed and the indicator can settle. |
+
+## Production checklist
+
+For `RefreshIndicator`, review the fields that change behavior before treating the widget as finished: `id`, `child`, `status`, `pulled_extent`, `trigger_distance`, `displacement`. The goal is to make the product rule visible in state and actions, not hidden inside ad-hoc construction code.
+
+- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
+- When child widgets are generated from data, give reordered or filtered rows an explicit `WidgetId` so retained local state and scroll behavior do not drift between items.
+- Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.
+- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
+- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+
+If a screen starts repeating the same `RefreshIndicator` setup, extract a named component around this widget. That keeps the reference API small while making product code easier to read and safer for generated code to copy.
 
 ## Related
 

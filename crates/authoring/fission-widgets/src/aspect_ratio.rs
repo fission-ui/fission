@@ -1,21 +1,23 @@
-use fission_core::ui::Node;
-use fission_core::{BuildCtx, LowerDyn, LoweringContext, NodeBuilder, View, Widget};
-use fission_ir::{LayoutOp, NodeId, Op};
+use fission_core::internal::{InternalIrBuilder, InternalLowerer, InternalLoweringCx};
+use fission_core::ui::Widget;
+use fission_ir::{LayoutOp, Op, WidgetId};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AspectRatio {
     pub ratio: f32,
-    pub child: Box<Node>,
+    pub child: Widget,
 }
 
-impl<S: fission_core::AppState> Widget<S> for AspectRatio {
-    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        Node::Custom(fission_core::ui::CustomNode {
+impl From<AspectRatio> for Widget {
+    fn from(component: AspectRatio) -> Self {
+        let this = &component;
+
+        fission_core::internal::custom_render_widget(fission_core::internal::InternalRenderNode {
             debug_tag: "AspectRatio".into(),
             lowerer: Some(std::sync::Arc::new(AspectRatioLowerer {
-                ratio: self.ratio,
-                child: *self.child.clone(),
+                ratio: this.ratio,
+                child: this.child.clone(),
             })),
             render_object: None,
         })
@@ -25,15 +27,15 @@ impl<S: fission_core::AppState> Widget<S> for AspectRatio {
 #[derive(Debug)]
 struct AspectRatioLowerer {
     ratio: f32,
-    child: Node,
+    child: Widget,
 }
 
-impl LowerDyn for AspectRatioLowerer {
-    fn lower_dyn(&self, cx: &mut LoweringContext) -> NodeId {
-        let child_id = self.child.lower(cx);
+impl InternalLowerer for AspectRatioLowerer {
+    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+        let child_id = fission_core::internal::lower_widget(&self.child, cx);
         let id = cx.next_node_id();
 
-        let mut builder = NodeBuilder::new(
+        let mut builder = InternalIrBuilder::new(
             id,
             Op::Layout(LayoutOp::Box {
                 width: None,

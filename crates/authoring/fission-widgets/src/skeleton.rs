@@ -1,9 +1,6 @@
 use fission_core::op::Color;
-use fission_core::ui::{Composite, Container, Node};
-use fission_core::{
-    AnimationPropertyId, AnimationRequest, AnimationStartValue, BuildCtx, View, Widget,
-    WidgetNodeId,
-};
+use fission_core::ui::{Composite, Container, Widget};
+use fission_core::{AnimationPropertyId, AnimationRequest, AnimationStartValue, WidgetId};
 use serde::{Deserialize, Serialize};
 
 const LOW_PRIORITY_REPEAT_FRAME_MS: u64 = 166;
@@ -22,7 +19,7 @@ const LOW_PRIORITY_REPEAT_FRAME_MS: u64 = 166;
 /// * `circle` - If `true`, uses `border_radius: 9999` for a circular shape.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Skeleton {
-    pub id: WidgetNodeId,
+    pub id: WidgetId,
     pub width: Option<f32>,
     pub height: Option<f32>,
     pub circle: bool,
@@ -30,29 +27,36 @@ pub struct Skeleton {
     pub animated: bool,
 }
 
-impl<S: fission_core::AppState> Widget<S> for Skeleton {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let tokens = &view.env.theme.tokens;
+impl From<Skeleton> for Widget {
+    fn from(component: Skeleton) -> Self {
+        let (ctx, view) = fission_core::build::current::<()>();
+        let mut component = component;
+        if let Some(id) = fission_core::build::current_widget_id() {
+            component.id = id;
+        }
+        let this = &component;
 
-        let base = Container::new(fission_core::ui::widgets::Spacer::default().into_node())
-            .width(self.width.unwrap_or(100.0))
-            .height(self.height.unwrap_or(20.0))
+        let tokens = &view.env().theme.tokens;
+
+        let base: Widget = Container::new(fission_core::ui::widgets::Spacer::default())
+            .width(this.width.unwrap_or(100.0))
+            .height(this.height.unwrap_or(20.0))
             .bg(Color {
                 r: 200,
                 g: 200,
                 b: 200,
                 a: (0.8 * 255.0) as u8,
             })
-            .border_radius(if self.circle {
+            .border_radius(if this.circle {
                 9999.0
             } else {
                 tokens.radii.small
             })
-            .into_node();
-        let boundary = Composite::new(base).repaint_boundary(true).into_node();
+            .into();
+        let boundary = Composite::new(base).repaint_boundary(true).into();
 
-        if self.animated {
-            ctx.anim_for(self.id).request(AnimationRequest {
+        if this.animated {
+            ctx.anim_for(this.id).request(AnimationRequest {
                 property: AnimationPropertyId::Opacity,
                 from: AnimationStartValue::Explicit(0.4),
                 to: 0.8,
@@ -63,8 +67,8 @@ impl<S: fission_core::AppState> Widget<S> for Skeleton {
                 easing: Default::default(),
             });
             Composite::new(boundary)
-                .animated_opacity(self.id, 0.4)
-                .into_node()
+                .animated_opacity(this.id, 0.4)
+                .into()
         } else {
             boundary
         }

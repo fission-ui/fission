@@ -1,4 +1,5 @@
-use fission_core::{AppState, BuildCtx, Node, View, Widget, WidgetNodeId};
+use fission_core::internal::BuildCtx;
+use fission_core::{build, GlobalState, View, WidgetId};
 use fission_widgets::combobox::Combobox;
 use serde::{Deserialize, Serialize};
 
@@ -6,7 +7,7 @@ use serde::{Deserialize, Serialize};
 struct TestState {
     query: String,
 }
-impl AppState for TestState {}
+impl GlobalState for TestState {}
 
 #[test]
 fn test_combobox_build() {
@@ -17,7 +18,7 @@ fn test_combobox_build() {
     let mut ctx = BuildCtx::<TestState>::new();
 
     let combo = Combobox {
-        id: WidgetNodeId::explicit("test"),
+        id: WidgetId::explicit("test"),
         value: "abc".into(),
         items: vec!["abcd".into(), "abce".into()],
         is_open: true,
@@ -28,8 +29,8 @@ fn test_combobox_build() {
         on_toggle: None,
     };
 
-    let node = combo.build(&mut ctx, &view);
+    let node = build::enter(&mut ctx, &view, || combo.into());
     // Combobox returns the trigger (TextInput) and registers a portal
-    assert!(matches!(node, Node::Container(_)));
+    assert_eq!(fission_core::internal::widget_kind_name(&node), "Container");
     assert_eq!(ctx.portals.len(), 1);
 }

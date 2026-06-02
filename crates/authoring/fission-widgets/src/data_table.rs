@@ -1,8 +1,8 @@
 use crate::stack::{HStack, VStack};
 use crate::Icon;
 use fission_core::op::Color;
-use fission_core::ui::{Button, ButtonVariant, Checkbox, Container, Node, Scroll, Text};
-use fission_core::{ActionEnvelope, BuildCtx, View, Widget, WidgetNodeId};
+use fission_core::ui::{Button, ButtonVariant, Checkbox, Container, Scroll, Text, Widget};
+use fission_core::{ActionEnvelope, WidgetId};
 use fission_icons::material;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -23,7 +23,7 @@ pub struct TableRow {
 
 #[derive(Clone)]
 pub struct DataTable {
-    pub id: WidgetNodeId,
+    pub id: WidgetId,
     pub columns: Vec<TableColumn>,
     pub rows: Vec<TableRow>,
     pub selected_ids: Vec<String>,
@@ -41,132 +41,126 @@ impl std::fmt::Debug for DataTable {
     }
 }
 
-impl<S: fission_core::AppState> Widget<S> for DataTable {
-    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let tokens = &view.env.theme.tokens;
+impl From<DataTable> for Widget {
+    fn from(component: DataTable) -> Self {
+        let (_, view) = fission_core::build::current::<()>();
+        let mut component = component;
+        if let Some(id) = fission_core::build::current_widget_id() {
+            component.id = id;
+        }
+        let this = &component;
+
+        let tokens = &view.env().theme.tokens;
 
         // Header
         let mut header_cells = Vec::new();
         // Checkbox column
         header_cells.push(
-            Container::new(
-                Checkbox {
-                    checked: false,
-                    label: None,
-                    on_toggle: None,
-                    ..Default::default()
-                }
-                .into_node(),
-            )
+            Container::new(Checkbox {
+                checked: false,
+                label: None,
+                on_toggle: None,
+                ..Default::default()
+            })
             .width(40.0)
             .padding_all(8.0)
-            .into_node(),
+            .into(),
         );
 
-        for col in &self.columns {
+        for col in &this.columns {
             header_cells.push(
-                Container::new(
-                    HStack {
-                        spacing: Some(4.0),
-                        children: vec![
-                            Text::new(col.title.clone())
-                                // .weight(fission_core::ui::FontWeight::Bold) // Stubbed
+                Container::new(HStack {
+                    spacing: Some(4.0),
+                    children: vec![
+                        Text::new(col.title.clone())
+                            // .weight(fission_core::ui::FontWeight::Bold) // Stubbed
+                            .color(tokens.colors.text_secondary)
+                            .size(12.0)
+                            .into(),
+                        if col.sortable {
+                            Icon::svg(material::navigation::arrow_drop_down::regular())
+                                .size(16.0)
                                 .color(tokens.colors.text_secondary)
-                                .size(12.0)
-                                .into_node(),
-                            if col.sortable {
-                                Icon::svg(material::navigation::arrow_drop_down::regular())
-                                    .size(16.0)
-                                    .color(tokens.colors.text_secondary)
-                                    .into_node()
-                            } else {
-                                fission_core::ui::widgets::Spacer {
-                                    width: Some(16.0),
-                                    ..Default::default()
-                                }
-                                .into_node()
-                            },
-                        ],
-                    }
-                    .into_node(),
-                )
+                                .into()
+                        } else {
+                            fission_core::ui::widgets::Spacer {
+                                width: Some(16.0),
+                                ..Default::default()
+                            }
+                            .into()
+                        },
+                    ],
+                })
                 .width(col.width)
                 .padding_all(8.0)
-                .into_node(),
+                .into(),
             );
         }
 
-        let header = Container::new(
-            HStack {
-                spacing: Some(0.0),
-                children: header_cells,
-            }
-            .into_node(),
-        )
+        let header = Container::new(HStack {
+            spacing: Some(0.0),
+            children: header_cells,
+        })
         .bg(tokens.colors.surface)
         .flex_shrink(0.0) // Header shouldn't shrink
-        .into_node();
+        .into();
 
         // Rows
         let mut row_nodes = Vec::new();
-        for row in &self.rows {
-            let is_selected = self.selected_ids.contains(&row.id);
+        for row in &this.rows {
+            let is_selected = this.selected_ids.contains(&row.id);
             let mut row_cells = Vec::new();
 
             // Checkbox
-            let toggle = self.on_selection_change.clone();
+            let toggle = this.on_selection_change.clone();
             row_cells.push(
-                Container::new(
-                    Checkbox {
-                        checked: is_selected,
-                        label: None,
-                        on_toggle: toggle.map(|f| f(row.id.clone())),
-                        ..Default::default()
-                    }
-                    .into_node(),
-                )
+                Container::new(Checkbox {
+                    checked: is_selected,
+                    label: None,
+                    on_toggle: toggle.map(|f| f(row.id.clone())),
+                    ..Default::default()
+                })
                 .width(40.0)
                 .padding_all(8.0)
-                .into_node(),
+                .into(),
             );
 
             for (i, cell_text) in row.cells.iter().enumerate() {
-                let width = self.columns.get(i).map(|c| c.width).unwrap_or(100.0);
+                let width = this.columns.get(i).map(|c| c.width).unwrap_or(100.0);
                 row_cells.push(
                     Container::new(
                         Text::new(cell_text.clone())
                             .size(14.0)
-                            .color(tokens.colors.text_primary)
-                            .into_node(),
+                            .color(tokens.colors.text_primary),
                     )
                     .width(width)
                     .padding_all(8.0)
-                    .into_node(),
+                    .into(),
                 );
             }
 
-            let row_content = HStack {
+            let row_content: Widget = HStack {
                 spacing: Some(0.0),
                 children: row_cells,
             }
-            .into_node();
+            .into();
 
-            let row_toggle = self.on_selection_change.clone().map(|f| f(row.id.clone()));
+            let row_toggle = this.on_selection_change.clone().map(|f| f(row.id.clone()));
             let row_body = Container::new(row_content)
                 .bg(if is_selected {
                     tokens.colors.primary.with_alpha(20)
                 } else {
                     Color::WHITE
                 })
-                .into_node();
+                .into();
             let row_node = if let Some(action) = row_toggle {
                 Button {
                     variant: ButtonVariant::Ghost,
-                    child: Some(Box::new(row_body)),
+                    child: Some(row_body),
                     on_press: Some(action),
                     ..Default::default()
                 }
-                .into_node()
+                .into()
             } else {
                 row_body
             };
@@ -174,35 +168,32 @@ impl<S: fission_core::AppState> Widget<S> for DataTable {
 
             // Divider
             row_nodes.push(
-                Container::new(fission_core::ui::widgets::Spacer::default().into_node())
+                Container::new(fission_core::ui::widgets::Spacer::default())
                     .height(1.0)
                     .bg(tokens.colors.border)
-                    .into_node(),
+                    .into(),
             );
         }
 
         let content = Scroll {
-            child: Some(Box::new(
+            child: Some(
                 VStack {
                     spacing: Some(0.0),
                     children: row_nodes,
                 }
-                .into_node(),
-            )),
+                .into(),
+            ),
             show_scrollbar: true,
             ..Default::default()
         }
-        .into_node();
+        .into();
 
-        Container::new(
-            VStack {
-                spacing: Some(0.0),
-                children: vec![header, content],
-            }
-            .into_node(),
-        )
+        Container::new(VStack {
+            spacing: Some(0.0),
+            children: vec![header, content],
+        })
         .border(tokens.colors.border, 1.0)
         .border_radius(tokens.radii.small)
-        .into_node()
+        .into()
     }
 }

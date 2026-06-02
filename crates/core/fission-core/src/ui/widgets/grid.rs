@@ -1,9 +1,9 @@
-use crate::lowering::{LoweringContext, NodeBuilder};
-use crate::ui::traits::Lower;
-use crate::ui::Node;
+use crate::internal::InternalLower;
+use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::ui::Widget;
 use fission_ir::{
     op::{GridPlacement, GridTrack, LayoutOp, Op},
-    NodeId,
+    WidgetId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -21,8 +21,8 @@ use serde::{Deserialize, Serialize};
 ///     column_gap: Some(8.0),
 ///     row_gap: Some(8.0),
 ///     children: vec![
-///         GridItem::new(Text::new("A").into_node()).cell(1, 1).into_node().into(),
-///         GridItem::new(Text::new("B").into_node()).cell(1, 2).into_node().into(),
+///         GridItem::new(Text::new("A")).cell(1, 1).into(),
+///         GridItem::new(Text::new("B")).cell(1, 2).into(),
 ///     ],
 ///     ..Default::default()
 /// }
@@ -30,9 +30,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Grid {
     /// Explicit node identity.
-    pub id: Option<NodeId>,
+    pub id: Option<WidgetId>,
     /// Grid children (typically [`GridItem`] nodes).
-    pub children: Vec<Node>,
+    pub children: Vec<Widget>,
     /// Column track definitions.
     pub columns: Vec<GridTrack>,
     /// Row track definitions.
@@ -45,18 +45,14 @@ pub struct Grid {
     pub padding: [f32; 4],
 }
 
-impl Grid {
-    pub fn into_node(self) -> crate::ui::Node {
-        crate::ui::Node::Grid(self)
-    }
-}
+impl Grid {}
 
-impl Lower for Grid {
-    fn lower(&self, cx: &mut LoweringContext) -> NodeId {
-        let id = self.id.unwrap_or_else(|| cx.next_node_id());
+impl InternalLower for Grid {
+    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+        let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         cx.push_scope(id);
 
-        let mut builder = NodeBuilder::new(
+        let mut builder = InternalIrBuilder::new(
             id,
             Op::Layout(LayoutOp::Grid {
                 columns: self.columns.clone(),
@@ -91,9 +87,9 @@ impl Lower for Grid {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GridItem {
     /// Explicit node identity.
-    pub id: Option<NodeId>,
+    pub id: Option<WidgetId>,
     /// The child widget placed in the grid cell.
-    pub child: Box<Node>,
+    pub child: Widget,
     /// Starting row (1-indexed line or Auto).
     pub row_start: GridPlacement,
     /// Ending row (Auto or Span).
@@ -109,7 +105,7 @@ impl Default for GridItem {
         Self {
             id: None,
             // Default child: empty Row
-            child: Box::new(Node::Row(crate::ui::Row::default())),
+            child: crate::ui::Row::default().into(),
             row_start: GridPlacement::Auto,
             row_end: GridPlacement::Auto,
             col_start: GridPlacement::Auto,
@@ -119,9 +115,9 @@ impl Default for GridItem {
 }
 
 impl GridItem {
-    pub fn new(child: Node) -> Self {
+    pub fn new(child: impl Into<Widget>) -> Self {
         Self {
-            child: Box::new(child),
+            child: child.into(),
             ..Default::default()
         }
     }
@@ -137,22 +133,18 @@ impl GridItem {
         self.col_end = GridPlacement::Span(col_span);
         self
     }
-
-    pub fn into_node(self) -> Node {
-        Node::GridItem(self)
-    }
 }
 
-impl Lower for GridItem {
-    fn lower(&self, cx: &mut LoweringContext) -> NodeId {
-        let id = self.id.unwrap_or_else(|| cx.next_node_id());
+impl InternalLower for GridItem {
+    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+        let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         cx.push_scope(id);
 
         let child_id = self.child.lower(cx);
 
         cx.pop_scope();
 
-        let mut builder = NodeBuilder::new(
+        let mut builder = InternalIrBuilder::new(
             id,
             Op::Layout(LayoutOp::GridItem {
                 row_start: self.row_start,

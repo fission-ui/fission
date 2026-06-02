@@ -32,6 +32,17 @@ The same pattern works for other providers. The target, package format, provider
 
 ## Keep release metadata reviewable
 
+## Lifecycle fit and verification
+
+This page belongs to the setup, learn, build, test, and publish lifecycle. Use it to decide the next concrete action, then verify the action before moving to the next stage.
+
+| Stage question | Verification |
+| --- | --- |
+| What file or command changes? | The page should point to the exact `fission` command, `fission.toml` section, Rust component, or generated artifact involved. |
+| What proves it worked? | Prefer a command output, generated file, screenshot, test assertion, package artifact, or deployed URL over a vague statement. |
+| What can fail safely? | Permission prompts, missing tools, unsupported hosts, invalid config, and expired credentials should produce diagnosable errors that can be retried after the cause is fixed. |
+| What should I read next? | Continue to the linked guide for step-by-step work or the reference page for exact fields and contracts. |
+
 [`fission.toml`](/reference/config/fission-toml/) is the root of the release configuration. It should contain the stable facts a reviewer expects to find quickly: app identity, package identifiers, provider IDs, active release, tracks, locales, and paths to the files that contain longer release content.
 
 Long text should live in referenced files. Full release notes, store descriptions, privacy declarations, review instructions, screenshots, preview videos, trailers, and generated content manifests are too large for the root manifest. Keeping them in `release-content/` makes them easier to review, localize, regenerate, and compare in pull requests.
@@ -95,7 +106,7 @@ The manifest records the target, format, profile, artifact paths, hashes, sizes,
 
 ## Release content is separate from the binary
 
-Store listings and marketing assets often change without rebuilding the app. Fission treats release content as its own workflow:
+Store listings and marketing assets often change without reconverting the app. Fission treats release content as its own workflow:
 
 ```bash
 fission release-content capture --project-dir . --target ios --set app-store

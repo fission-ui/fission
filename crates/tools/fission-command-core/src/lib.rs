@@ -1006,7 +1006,7 @@ fn scaffold_target_with_policy(
                     "Install the Rust target: `rustup target add wasm32-unknown-unknown`.",
                     "Install `wasm-pack` once: `cargo install wasm-pack`.",
                     "Install Node.js 22+ so the smoke test can inspect Chrome/Chromium CDP runtime and console output.",
-                    "Run `fission doctor web --project-dir .` to check wasm-pack, Node.js, Chrome/Chromium, and Rust target setup.",
+                    "Run `fission doctor web --project-dir .` to check wasm-pack, generated JavaScript glue, Chrome/Chromium, and Rust target setup.",
                     "Run `fission devices --project-dir .` to confirm Chrome/Chromium detection.",
                     "Run `fission run --target web --project-dir .` to build, serve, open, and attach to the local server.",
                     "Run `fission run --target web --detach --project-dir .` to keep the local server running in the background.",
@@ -2932,7 +2932,7 @@ const ANDROID_TEST_CONTROL_PORT: u16 = 48761;
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
 fn mobile_app() -> MobileApp<crate::app::CounterState, CounterApp> {
-    let app = MobileApp::new(CounterApp).with_title("Fission App");
+    let app = MobileApp::<crate::app::CounterState, _>::new(CounterApp).with_title("Fission App");
     #[cfg(target_os = "android")]
     let app = app.with_test_control_port(ANDROID_TEST_CONTROL_PORT);
     app
@@ -2940,12 +2940,12 @@ fn mobile_app() -> MobileApp<crate::app::CounterState, CounterApp> {
 
 #[cfg(target_arch = "wasm32")]
 fn web_app() -> WebApp<crate::app::CounterState, CounterApp> {
-    WebApp::new(CounterApp).with_title("Fission App")
+    WebApp::<crate::app::CounterState, _>::new(CounterApp).with_title("Fission App")
 }
 
 #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
 pub fn run_desktop() -> anyhow::Result<()> {
-    DesktopApp::new(CounterApp).run()
+    DesktopApp::<crate::app::CounterState, _>::new(CounterApp).run()
 }
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
@@ -2976,33 +2976,36 @@ pub struct CounterState {
     pub count: i32,
 }
 
-impl AppState for CounterState {}
+impl GlobalState for CounterState {}
 
 #[fission_reducer(Increment)]
 fn on_increment(state: &mut CounterState) {
     state.count += 1;
 }
 
+#[derive(Clone)]
 pub struct CounterApp;
 
-impl Widget<CounterState> for CounterApp {
-    fn build(&self, ctx: &mut BuildCtx<CounterState>, view: &View<CounterState>) -> Node {
+impl From<CounterApp> for Widget {
+    fn from(component: CounterApp) -> Self {
+        let (ctx, view) = fission::build::current::<CounterState>();
         let increment = with_reducer!(ctx, Increment, on_increment);
 
         Column {
             gap: Some(16.0),
             children: vec![
-                Text::new(format!("Count: {}", view.state.count)).size(28.0).into_node(),
+                Text::new(format!("Count: {}", view.state().count)).size(28.0).into(),
                 Button {
                     on_press: Some(increment),
-                    child: Some(Box::new(Text::new("Increment").into_node())),
+                    child: Some(Text::new("Increment").into()),
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
             ],
             ..Default::default()
         }
-        .into_node()
+        .into()
+
     }
 }
 "#;

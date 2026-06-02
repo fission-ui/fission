@@ -1,9 +1,9 @@
-use crate::lowering::{LoweringContext, NodeBuilder};
-use crate::ui::traits::Lower;
-use crate::ui::Node;
+use crate::internal::InternalLower;
+use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::ui::Widget;
 use fission_ir::{
     op::{LayoutOp, Op},
-    NodeId,
+    WidgetId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -20,14 +20,14 @@ use serde::{Deserialize, Serialize};
 /// Positioned {
 ///     top: Some(8.0),
 ///     right: Some(8.0),
-///     child: Some(Box::new(badge_widget)),
+///     child: Some(badge_widget),
 ///     ..Default::default()
 /// }
 /// ```
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Positioned {
     /// Explicit node identity.
-    pub id: Option<NodeId>,
+    pub id: Option<WidgetId>,
     /// Distance from the left edge of the parent.
     pub left: Option<f32>,
     /// Distance from the top edge of the parent.
@@ -41,18 +41,14 @@ pub struct Positioned {
     /// Explicit height override.
     pub height: Option<f32>,
     /// The child widget to position.
-    pub child: Option<Box<Node>>,
+    pub child: Option<Widget>,
 }
 
-impl Positioned {
-    pub fn into_node(self) -> Node {
-        Node::Positioned(self)
-    }
-}
+impl Positioned {}
 
-impl Lower for Positioned {
-    fn lower(&self, cx: &mut LoweringContext) -> NodeId {
-        let id = self.id.unwrap_or_else(|| cx.next_node_id());
+impl InternalLower for Positioned {
+    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+        let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         cx.push_scope(id);
 
         let child_id = if let Some(child) = &self.child {
@@ -61,7 +57,7 @@ impl Lower for Positioned {
             None
         };
 
-        let mut builder = NodeBuilder::new(
+        let mut builder = InternalIrBuilder::new(
             id,
             Op::Layout(LayoutOp::Positioned {
                 left: self.left,

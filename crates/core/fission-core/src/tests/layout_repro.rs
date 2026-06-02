@@ -1,15 +1,15 @@
 use crate::env::{Env, RuntimeState};
-use crate::lowering::{build_layout_tree, LoweringContext};
-use fission_ir::{FlexDirection, LayoutOp, NodeId, Op};
+use crate::lowering::{build_layout_tree, InternalLoweringCx};
+use fission_ir::{FlexDirection, LayoutOp, Op, WidgetId};
 use fission_layout::{LayoutEngine, LayoutSize};
 
 #[test]
 fn test_absolute_fill_inside_grown_container() {
     let env = Env::default();
     let runtime_state = RuntimeState::default();
-    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
+    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
 
-    let root_base = NodeId::derived(0xDEF, &[0]);
+    let root_base = WidgetId::derived(0xDEF, &[0]);
     cx.push_scope(root_base);
     let root_id = cx.next_node_id();
     let row_id = cx.next_node_id();
@@ -18,16 +18,17 @@ fn test_absolute_fill_inside_grown_container() {
     let zstack_id = cx.next_node_id();
 
     // 1. ZStack
-    let zstack = crate::lowering::NodeBuilder::new(zstack_id, Op::Layout(LayoutOp::ZStack));
+    let zstack = crate::lowering::InternalIrBuilder::new(zstack_id, Op::Layout(LayoutOp::ZStack));
     let zstack_final = zstack.build(&mut cx);
 
     // 2. AbsFill
-    let mut abs = crate::lowering::NodeBuilder::new(abs_id, Op::Layout(LayoutOp::AbsoluteFill));
+    let mut abs =
+        crate::lowering::InternalIrBuilder::new(abs_id, Op::Layout(LayoutOp::AbsoluteFill));
     abs.add_child(zstack_final);
     let abs_final = abs.build(&mut cx);
 
     // 3. Container (Box, Auto size, Grow 1)
-    let mut container = crate::lowering::NodeBuilder::new(
+    let mut container = crate::lowering::InternalIrBuilder::new(
         container_id,
         Op::Layout(LayoutOp::Box {
             width: None,
@@ -46,7 +47,7 @@ fn test_absolute_fill_inside_grown_container() {
     let container_final = container.build(&mut cx);
 
     // 4. Row (Flex Row)
-    let mut row = crate::lowering::NodeBuilder::new(
+    let mut row = crate::lowering::InternalIrBuilder::new(
         row_id,
         Op::Layout(LayoutOp::Flex {
             direction: FlexDirection::Row,
@@ -63,7 +64,7 @@ fn test_absolute_fill_inside_grown_container() {
     let row_final = row.build(&mut cx);
 
     // 5. Root (Fixed 800x600)
-    let mut root = crate::lowering::NodeBuilder::new(
+    let mut root = crate::lowering::InternalIrBuilder::new(
         root_id,
         Op::Layout(LayoutOp::Box {
             width: Some(800.0),

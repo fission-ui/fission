@@ -1,7 +1,7 @@
 use crate::env::ScrollStateMap;
 use crate::ui::custom_render::downcast_render_object;
 use fission_diagnostics::prelude as diag;
-use fission_ir::{CoreIR, LayoutOp, NodeId, Op};
+use fission_ir::{CoreIR, LayoutOp, Op, WidgetId};
 use fission_layout::{LayoutPoint, LayoutSnapshot};
 use glam::{Mat4, Vec4};
 
@@ -18,7 +18,7 @@ pub fn hit_test(
     layout: &LayoutSnapshot,
     scroll_map: &ScrollStateMap,
     point: LayoutPoint,
-) -> Option<NodeId> {
+) -> Option<WidgetId> {
     hit_test_internal(ir, layout, Some(scroll_map), point)
 }
 
@@ -27,7 +27,7 @@ pub fn hit_test_with_scroll(
     layout: &LayoutSnapshot,
     scroll_map: &ScrollStateMap,
     point: LayoutPoint,
-) -> Option<NodeId> {
+) -> Option<WidgetId> {
     hit_test_internal(ir, layout, Some(scroll_map), point)
 }
 
@@ -36,7 +36,7 @@ fn hit_test_internal(
     layout: &LayoutSnapshot,
     scroll_map: Option<&ScrollStateMap>,
     point: LayoutPoint,
-) -> Option<NodeId> {
+) -> Option<WidgetId> {
     let result = ir
         .root
         .and_then(|root| hit_test_recursive(root, ir, layout, scroll_map, point));
@@ -56,12 +56,12 @@ fn hit_test_internal(
 }
 
 fn hit_test_recursive(
-    node_id: NodeId,
+    node_id: WidgetId,
     ir: &CoreIR,
     layout: &LayoutSnapshot,
     scroll_map: Option<&ScrollStateMap>,
     point: LayoutPoint,
-) -> Option<NodeId> {
+) -> Option<WidgetId> {
     let node = ir.nodes.get(&node_id)?;
     let geom = layout.get_node_geometry(node_id)?;
 
@@ -150,7 +150,11 @@ fn hit_test_recursive(
     }
 }
 
-pub fn find_next_focus_node(ir: &CoreIR, current: Option<NodeId>, reverse: bool) -> Option<NodeId> {
+pub fn find_next_focus_node(
+    ir: &CoreIR,
+    current: Option<WidgetId>,
+    reverse: bool,
+) -> Option<WidgetId> {
     // Identify current scope if focused node is provided
     let (current_scope_id, current_is_barrier) = if let Some(id) = current {
         let scope = find_parent_scope(id, ir);
@@ -215,7 +219,7 @@ pub fn find_next_focus_node(ir: &CoreIR, current: Option<NodeId>, reverse: bool)
     }
 }
 
-pub fn get_all_focusable_nodes(ir: &CoreIR) -> Vec<NodeId> {
+pub fn get_all_focusable_nodes(ir: &CoreIR) -> Vec<WidgetId> {
     let mut list = Vec::new();
     if let Some(root) = ir.root {
         collect_focusable_nodes(root, ir, &mut list, false, 0);
@@ -223,7 +227,7 @@ pub fn get_all_focusable_nodes(ir: &CoreIR) -> Vec<NodeId> {
     sort_focusable_nodes(ir, list)
 }
 
-fn sort_focusable_nodes(ir: &CoreIR, mut list: Vec<(NodeId, usize)>) -> Vec<NodeId> {
+fn sort_focusable_nodes(ir: &CoreIR, mut list: Vec<(WidgetId, usize)>) -> Vec<WidgetId> {
     list.sort_by(|(id_a, order_a), (id_b, order_b)| {
         let idx_a = ir.nodes.get(id_a).and_then(|n| {
             if let Op::Semantics(s) = &n.op {
@@ -251,9 +255,9 @@ fn sort_focusable_nodes(ir: &CoreIR, mut list: Vec<(NodeId, usize)>) -> Vec<Node
 }
 
 fn collect_focusable_nodes(
-    node_id: NodeId,
+    node_id: WidgetId,
     ir: &CoreIR,
-    list: &mut Vec<(NodeId, usize)>,
+    list: &mut Vec<(WidgetId, usize)>,
     stop_at_barriers: bool,
     mut order: usize,
 ) {
@@ -293,7 +297,7 @@ fn collect_focusable_nodes(
     }
 }
 
-fn find_parent_scope(node_id: NodeId, ir: &CoreIR) -> Option<NodeId> {
+fn find_parent_scope(node_id: WidgetId, ir: &CoreIR) -> Option<WidgetId> {
     let mut curr = ir.nodes.get(&node_id)?.parent;
     while let Some(pid) = curr {
         if let Some(node) = ir.nodes.get(&pid) {
@@ -313,9 +317,9 @@ fn find_parent_scope(node_id: NodeId, ir: &CoreIR) -> Option<NodeId> {
 pub fn find_neighbor_focus_node(
     ir: &CoreIR,
     layout: &LayoutSnapshot,
-    current: NodeId,
+    current: WidgetId,
     direction: FocusDirection,
-) -> Option<NodeId> {
+) -> Option<WidgetId> {
     let current_rect = layout.get_node_rect(current)?;
     let focusable_nodes = get_all_focusable_nodes(ir);
 

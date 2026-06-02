@@ -17,7 +17,7 @@ Add the smallest state fields the screen needs to render honestly. For this flow
 
 ```rust
 #[derive(Default)]
-struct AppState {
+struct GlobalState {
     // Add these fields to your existing app state.
 login_challenge: Vec<u8>,
     known_credentials: Vec<PasskeyCredentialDescriptor>,
@@ -54,13 +54,13 @@ Capability work finishes later, after the reducer that started it has returned. 
 
 ```rust
 #[fission_reducer(PasskeyAssertionReady)]
-fn on_passkey_assertion_ready(state: &mut AppState, assertion: PasskeyAuthenticationResult) {
+fn on_passkey_assertion_ready(state: &mut GlobalState, assertion: PasskeyAuthenticationResult) {
     state.pending_assertion = Some(assertion);
     state.login_error = None;
 }
 
 #[fission_reducer(PasskeySignInFailed)]
-fn on_passkey_sign_in_failed(state: &mut AppState, error: PasskeyError) {
+fn on_passkey_sign_in_failed(state: &mut GlobalState, error: PasskeyError) {
     state.pending_assertion = None;
     state.login_error = Some(error.message);
 }
@@ -102,14 +102,15 @@ Wire the user-facing control with the normal Fission action pattern. This exampl
 ```rust
 struct PasskeySignInButton;
 
-impl Widget<AppState> for PasskeySignInButton {
-    fn build(&self, view: &View<AppState>, ctx: &mut BuildCtx<AppState>) -> Node {
+impl From<PasskeySignInButton> for Widget {
+    fn from(component: PasskeySignInButton) -> Self {
+        let (ctx, view) = fission::build::current::<GlobalState>();
         let run = with_reducer!(ctx, SignInWithPasskey, on_sign_in_with_passkey);
 
         Button::new("Sign in with passkey")
             .disabled(false)
             .on_press(run)
-            .build(view, ctx)
+            .into()
     }
 }
 ```
@@ -129,3 +130,19 @@ A useful first test creates the app with the memory host, dispatches the start a
 Web, Android, iOS, macOS, and Windows all have passkey routes. Linux support depends on browser, desktop credential providers, and hardware authenticators. Secure origin and domain ownership are non-negotiable for production.
 
 For a cross-platform summary, read the [capability matrix](/docs/capabilities/matrix/). For exact request fields, provider traits, and generated configuration, see the [Passkeys reference](/reference/capabilities/passkeys/).
+
+## Finished capability flow
+
+A complete `Passkeys` integration has all of these pieces in place:
+
+| Piece | What should exist |
+| --- | --- |
+| Configuration | `fission.toml` declares the capability and generated platform files contain the permission text, manifest entry, entitlement, domain, or protocol metadata the target needs. |
+| State | App state records the in-flight flag, the successful value, and the user-facing error separately. |
+| Reducers | One reducer starts the host request, one handles success, and one handles denial, unsupported hosts, cancellation, or provider errors. |
+| Provider | The shell registers a real provider for production and a memory provider for tests. |
+| Tests | At least one test covers success and one covers permission denial or unsupported host behavior. |
+
+## Diagnose capability failures
+
+Capability failures should be safe to retry and easy to explain. Start by checking `fission.toml`, then run `fission doctor`, then inspect the generated target files. If the provider is missing, the request should return an unsupported error. If the provider exists but the platform configuration is wrong, the OS or browser will usually deny the request before the provider can complete it. Keep those cases distinct in the UI so users know whether they can retry, change settings, connect hardware, or choose another path.

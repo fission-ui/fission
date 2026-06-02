@@ -4,11 +4,11 @@ use crate::{
     WebRoute, WebRouteMode,
 };
 use anyhow::Result;
+use fission_core::internal::BuildCtx;
 use fission_core::{
-    ActionInput, AppState, BuildCtx, Effect, Env, Node, RuntimeResourceDeclaration,
-    RuntimeResourceKind, RuntimeState, View, Widget,
+    ActionInput, Effect, Env, GlobalState, RuntimeResourceDeclaration, RuntimeResourceKind,
+    RuntimeState, View, Widget, WidgetId,
 };
-use fission_ir::NodeId;
 use fission_layout::LayoutSize;
 use fission_theme::Theme;
 use std::collections::BTreeSet;
@@ -22,7 +22,7 @@ type InitialStateLoader<S> =
 
 #[derive(Debug)]
 pub(crate) struct ServerRenderedNode {
-    pub node: Node,
+    pub node: Widget,
     pub resources: Vec<RuntimeResourceDeclaration>,
 }
 
@@ -89,8 +89,8 @@ impl FissionServerApp {
         widget: W,
     ) -> Self
     where
-        S: AppState + Default + 'static,
-        W: Widget<S> + Clone + Send + Sync + 'static,
+        S: GlobalState + Default + 'static,
+        W: Clone + Into<Widget> + Send + Sync + 'static,
     {
         self.route_widget_with_state(path, title, description, mode, widget, |_| Ok(S::default()))
     }
@@ -105,8 +105,8 @@ impl FissionServerApp {
         initial_state: F,
     ) -> Self
     where
-        S: AppState + 'static,
-        W: Widget<S> + Clone + Send + Sync + 'static,
+        S: GlobalState + 'static,
+        W: Clone + Into<Widget> + Send + Sync + 'static,
         F: for<'a> Fn(&ServerRenderContext<'a>) -> Result<S> + Send + Sync + 'static,
     {
         let widget = Arc::new(widget);
@@ -122,7 +122,7 @@ impl FissionServerApp {
             },
             render: Arc::new(move |ctx| {
                 let state = initial_state(ctx)?;
-                render_widget_node::<S, W>(widget.as_ref().clone(), ctx, state)
+                render_widget_node::<S, W>(widget.as_ref(), ctx, state)
             }),
         });
         self
@@ -160,10 +160,10 @@ impl FissionServerApp {
         widget: W,
     ) -> Self
     where
-        S: AppState + Default + 'static,
-        W: Widget<S> + Clone + Send + Sync + 'static,
+        S: GlobalState + Default + 'static,
+        W: Clone + Into<Widget> + Send + Sync + 'static,
     {
-        self.route_widget(
+        self.route_widget::<S, W>(
             path,
             title,
             description,
@@ -197,13 +197,13 @@ impl FissionServerApp {
 }
 
 fn render_widget_node<S, W>(
-    widget: W,
+    widget: &W,
     ctx: &ServerRenderContext<'_>,
     mut state: S,
 ) -> Result<ServerRenderedNode>
 where
-    S: AppState + 'static,
-    W: Widget<S> + Clone,
+    S: GlobalState + 'static,
+    W: Clone + Into<Widget>,
 {
     let runtime = RuntimeState::default();
     let mut env = Env::default();
@@ -217,13 +217,13 @@ where
     for pass in 0..=ctx.render_pass_limit {
         let view = View::new(&state, &runtime, &env, None);
         let mut build_ctx = BuildCtx::<S>::new();
-        let node = widget.clone().build(&mut build_ctx, &view);
+        let node = fission_core::build::enter(&mut build_ctx, &view, || (*widget).clone().into());
 
         if let Some(action) = pending_action.take() {
             build_ctx.registry.dispatch(
                 &mut state,
                 &action.action,
-                NodeId::from_u128(action.target_node),
+                WidgetId::from_u128(action.target_node),
             )?;
             continue;
         }
@@ -254,13 +254,13 @@ where
         node: final_node.unwrap_or_else(|| {
             let view = View::new(&state, &runtime, &env, None);
             let mut build_ctx = BuildCtx::<S>::new();
-            widget.build(&mut build_ctx, &view)
+            fission_core::build::enter(&mut build_ctx, &view, || (*widget).clone().into())
         }),
         resources: final_resources,
     })
 }
 
-fn drain_server_jobs<S: AppState>(
+fn drain_server_jobs<S: GlobalState>(
     resources: &[RuntimeResourceDeclaration],
     build_ctx: &mut BuildCtx<S>,
     state: &mut S,
@@ -303,7 +303,7 @@ fn drain_server_jobs<S: AppState>(
                     build_ctx.registry.dispatch_with_input(
                         state,
                         action,
-                        NodeId::from_u128(0),
+                        WidgetId::from_u128(0),
                         &ActionInput::JobOk {
                             job_name: payload.job_name.clone(),
                             req_id: job.effect.req_id,
@@ -318,7 +318,7 @@ fn drain_server_jobs<S: AppState>(
                     build_ctx.registry.dispatch_with_input(
                         state,
                         action,
-                        NodeId::from_u128(0),
+                        WidgetId::from_u128(0),
                         &ActionInput::JobErr {
                             job_name: payload.job_name.clone(),
                             req_id: job.effect.req_id,

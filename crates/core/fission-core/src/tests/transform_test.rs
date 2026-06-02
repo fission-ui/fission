@@ -1,6 +1,6 @@
 use crate::env::{Env, RuntimeState};
-use crate::lowering::LoweringContext;
-use crate::ui::traits::Lower;
+use crate::internal::InternalLower;
+use crate::lowering::InternalLoweringCx;
 use crate::ui::widgets::container::Container;
 use crate::ui::widgets::transform::Transform;
 use fission_ir::{LayoutOp, Op};
@@ -17,11 +17,11 @@ fn test_transform_lowering() {
 
     let transform = Transform {
         transform: matrix,
-        child: Box::new(Container::default().into_node()),
+        child: Container::default().into(),
         ..Default::default()
     };
 
-    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
+    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
     let root_id = transform.lower(&mut cx);
 
     let node = cx.ir.nodes.get(&root_id).unwrap();

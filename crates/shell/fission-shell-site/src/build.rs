@@ -12,8 +12,10 @@ use crate::site::{
     SitePageElementPlacement, SiteRenderContext,
 };
 use anyhow::{bail, Context, Result};
+use fission_core::internal::BuildCtx;
+use fission_core::internal::InternalLoweringCx;
 use fission_core::ui::Column;
-use fission_core::{BuildCtx, Env, LoweringContext, Node, RuntimeState, View, Widget};
+use fission_core::{Env, RuntimeState, View, Widget};
 use fission_layout::LayoutSize;
 use fission_theme::DesignMode;
 use serde::Deserialize;
@@ -118,10 +120,7 @@ impl SiteBuildOptions {
         let site_nav = site
             .nav
             .into_iter()
-            .map(|link| SiteNavLink {
-                title: link.title,
-                href: normalize_site_link_href(&link.href),
-            })
+            .map(normalize_project_site_nav_link)
             .collect();
         let user_css = site
             .css_files
@@ -312,6 +311,9 @@ pub fn list_site_routes(
             body: String::new(),
             headings: Vec::new(),
             sidebar: Vec::new(),
+            tags: Vec::new(),
+            categories: Vec::new(),
+            show_adjacent_posts: false,
             source_path: PathBuf::from("<custom>"),
             rendered: None,
         });
@@ -472,7 +474,7 @@ fn render_footer_node(
     options: &SiteBuildOptions,
     site: &FissionSite,
     route_path: &str,
-) -> Result<Option<Node>> {
+) -> Result<Option<Widget>> {
     let Some(footer) = &site.footer else {
         return Ok(None);
     };
@@ -484,7 +486,7 @@ fn render_footer_node(
     Ok(Some(footer(&ctx)?))
 }
 
-fn append_footer(node: Node, footer: Option<Node>) -> Node {
+fn append_footer(node: Widget, footer: Option<Widget>) -> Widget {
     let Some(footer) = footer else {
         return node;
     };
@@ -492,7 +494,7 @@ fn append_footer(node: Node, footer: Option<Node>) -> Node {
         children: vec![node, footer],
         ..Default::default()
     }
-    .into_node()
+    .into()
 }
 
 fn copy_asset_dirs(options: &SiteBuildOptions) -> Result<()> {
@@ -553,6 +555,7 @@ fn load_content_routes(
             if let Some(transform) = transform {
                 body = transform(&body, &options.project_dir, &file)?;
             }
+            body = strip_mdx_control_markers(&body);
             body = resolve_relative_markdown_links(&body, &config.path, &config.source, &file);
             let title = front
                 .title
@@ -568,16 +571,234 @@ fn load_content_routes(
                 description: front.description,
                 headings: extract_page_links(&body),
                 sidebar: sidebar.clone(),
+                tags: front.tags,
+                categories: front.categories,
+                show_adjacent_posts: front.show_adjacent_posts.unwrap_or(true),
                 body,
                 source_path: file,
                 rendered: None,
             });
         }
     }
+    add_generated_blog_routes(options, &mut routes)?;
     if routes.is_empty() && site_has_content_routes(options) {
         bail!("configured site content routes contain no .md or .mdx files");
     }
     Ok(routes)
+}
+
+fn add_generated_blog_routes(
+    options: &SiteBuildOptions,
+    routes: &mut Vec<ContentRoute>,
+) -> Result<()> {
+    for config in &options.content_routes {
+        let prefix = normalize_site_path(&config.path);
+        if prefix != "/blog/" {
+            continue;
+        }
+        let posts = routes
+            .iter()
+            .filter(|route| {
+                route.path.starts_with(&prefix)
+                    && route.path != prefix
+                    && !is_blog_taxonomy_path(&route.path)
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        if posts.is_empty() {
+            continue;
+        }
+        let sidebar = load_sidebar(config.sidebar.as_deref())?;
+        if !routes.iter().any(|route| route.path == prefix) {
+            let body = blog_landing_markdown(&posts);
+            routes.push(ContentRoute {
+                path: prefix.clone(),
+                title: "Blog".to_string(),
+                description: Some(
+                    "Technical posts, release notes, and product updates from Fission.".to_string(),
+                ),
+                headings: extract_page_links(&body),
+                sidebar: sidebar.clone(),
+                tags: Vec::new(),
+                categories: Vec::new(),
+                show_adjacent_posts: false,
+                body,
+                source_path: PathBuf::from("<generated-blog-index>"),
+                rendered: None,
+            });
+        }
+        add_generated_blog_taxonomy_routes(routes, &posts, &sidebar);
+    }
+    Ok(())
+}
+
+fn add_generated_blog_taxonomy_routes(
+    routes: &mut Vec<ContentRoute>,
+    posts: &[ContentRoute],
+    sidebar: &[SidebarLink],
+) {
+    let categories = unique_taxonomy_values(posts, BlogTaxonomyKind::Category);
+    for category in categories {
+        let path = blog_taxonomy_route(BlogTaxonomyKind::Category, &category);
+        if routes.iter().any(|route| route.path == path) {
+            continue;
+        }
+        let body = format!("# {category}\n\nPosts filed under the {category} category.\n");
+        routes.push(ContentRoute {
+            path,
+            title: format!("{category} posts"),
+            description: Some(format!("Posts filed under the {category} category.")),
+            headings: extract_page_links(&body),
+            sidebar: sidebar.to_vec(),
+            tags: Vec::new(),
+            categories: vec![category.clone()],
+            show_adjacent_posts: false,
+            body,
+            source_path: PathBuf::from(format!(
+                "<generated-blog-category-{}>",
+                taxonomy_slug(&category)
+            )),
+            rendered: None,
+        });
+    }
+
+    let tags = unique_taxonomy_values(posts, BlogTaxonomyKind::Tag);
+    for tag in tags {
+        let path = blog_taxonomy_route(BlogTaxonomyKind::Tag, &tag);
+        if routes.iter().any(|route| route.path == path) {
+            continue;
+        }
+        let body = format!("# #{tag}\n\nPosts tagged #{tag}.\n");
+        routes.push(ContentRoute {
+            path,
+            title: format!("#{tag} posts"),
+            description: Some(format!("Posts tagged #{tag}.")),
+            headings: extract_page_links(&body),
+            sidebar: sidebar.to_vec(),
+            tags: vec![tag.clone()],
+            categories: Vec::new(),
+            show_adjacent_posts: false,
+            body,
+            source_path: PathBuf::from(format!("<generated-blog-tag-{}>", taxonomy_slug(&tag))),
+            rendered: None,
+        });
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BlogTaxonomyKind {
+    Category,
+    Tag,
+}
+
+fn unique_taxonomy_values(posts: &[ContentRoute], kind: BlogTaxonomyKind) -> Vec<String> {
+    let mut values = posts
+        .iter()
+        .flat_map(|route| match kind {
+            BlogTaxonomyKind::Category => route.categories.iter(),
+            BlogTaxonomyKind::Tag => route.tags.iter(),
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    values.sort_by_key(|value| value.to_ascii_lowercase());
+    values.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
+    values
+}
+
+fn blog_taxonomy_route(kind: BlogTaxonomyKind, value: &str) -> String {
+    let segment = match kind {
+        BlogTaxonomyKind::Category => "categories",
+        BlogTaxonomyKind::Tag => "tags",
+    };
+    normalize_site_path(&format!("/blog/{segment}/{}", taxonomy_slug(value)))
+}
+
+fn taxonomy_slug(value: &str) -> String {
+    let mut out = String::new();
+    let mut previous_dash = false;
+    for ch in value.chars().flat_map(char::to_lowercase) {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch);
+            previous_dash = false;
+        } else if !previous_dash && !out.is_empty() {
+            out.push('-');
+            previous_dash = true;
+        }
+    }
+    let slug = out.trim_matches('-');
+    if slug.is_empty() {
+        "untitled".to_string()
+    } else {
+        slug.to_string()
+    }
+}
+
+fn is_blog_taxonomy_path(path: &str) -> bool {
+    path.starts_with("/blog/categories/") || path.starts_with("/blog/tags/")
+}
+
+fn blog_landing_markdown(posts: &[ContentRoute]) -> String {
+    let mut posts = posts.to_vec();
+    posts.sort_by(|a, b| {
+        b.source_path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or(&b.path)
+            .cmp(
+                a.source_path
+                    .file_stem()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or(&a.path),
+            )
+    });
+
+    let mut tags = posts
+        .iter()
+        .flat_map(|route| route.tags.iter().cloned())
+        .collect::<Vec<_>>();
+    tags.sort();
+    tags.dedup();
+
+    let mut categories = posts
+        .iter()
+        .flat_map(|route| route.categories.iter().cloned())
+        .collect::<Vec<_>>();
+    categories.sort();
+    categories.dedup();
+
+    let mut body = String::from(
+        "# Blog\n\nTechnical posts, release notes, and product updates from the Fission team.\n\n",
+    );
+    if !categories.is_empty() {
+        body.push_str("## Categories\n\n");
+        body.push_str(&categories.join(", "));
+        body.push_str("\n\n");
+    }
+    if !tags.is_empty() {
+        body.push_str("## Tags\n\n");
+        body.push_str(&tags.join(", "));
+        body.push_str("\n\n");
+    }
+    body.push_str("## Latest posts\n\n");
+    for route in posts {
+        body.push_str(&format!("- [{}]({})", route.title, route.path));
+        if let Some(description) = &route.description {
+            body.push_str(&format!(" — {description}"));
+        }
+        body.push('\n');
+    }
+    body
+}
+
+fn strip_mdx_control_markers(markdown: &str) -> String {
+    markdown
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim();
+            trimmed != "{/* truncate */}" && trimmed != "<!-- truncate -->"
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn load_sidebar(path: Option<&Path>) -> Result<Vec<SidebarLink>> {
@@ -678,6 +899,9 @@ fn render_custom_routes(
             body: String::new(),
             headings: Vec::new(),
             sidebar: Vec::new(),
+            tags: Vec::new(),
+            categories: Vec::new(),
+            show_adjacent_posts: false,
             source_path: PathBuf::from("<custom>"),
             rendered: Some(html),
         });
@@ -733,10 +957,8 @@ fn render_route(
         route,
         all_routes: routes,
     };
-    let node = append_footer(
-        page.build(&mut build_ctx, &view),
-        render_footer_node(options, site, &route.path)?,
-    );
+    let page_node = fission_core::build::enter(&mut build_ctx, &view, || page.into());
+    let node = append_footer(page_node, render_footer_node(options, site, &route.path)?);
     render_node_to_html(
         node,
         &format!("{} | {}", route.title, options.site_title),
@@ -752,7 +974,7 @@ fn render_route(
 }
 
 fn render_node_to_html(
-    node: Node,
+    node: Widget,
     title: &str,
     description: Option<String>,
     route_path: &str,
@@ -763,8 +985,8 @@ fn render_node_to_html(
     let runtime = RuntimeState::default();
     let mut env = Env::default();
     env.theme = site.theme.clone();
-    let mut lowering = LoweringContext::new(&env, &runtime, None, None);
-    let root = node.lower(&mut lowering);
+    let mut lowering = InternalLoweringCx::new(&env, &runtime, None, None);
+    let root = fission_core::internal::lower_widget(&node, &mut lowering);
     lowering.ir.set_root(root);
 
     let render_options = HtmlRenderOptions {
@@ -1241,6 +1463,18 @@ fn normalize_site_link_href(value: &str) -> String {
     }
 }
 
+fn normalize_project_site_nav_link(link: ProjectSiteNavLink) -> SiteNavLink {
+    SiteNavLink {
+        title: link.title,
+        href: normalize_site_link_href(&link.href),
+        children: link
+            .children
+            .into_iter()
+            .map(normalize_project_site_nav_link)
+            .collect(),
+    }
+}
+
 fn normalize_site_asset_href(value: &str) -> String {
     let value = value.trim();
     if is_absolute_href(value) || value.starts_with("data:") {
@@ -1370,6 +1604,8 @@ struct ProjectSitePageElement {
 struct ProjectSiteNavLink {
     title: String,
     href: String,
+    #[serde(default)]
+    children: Vec<ProjectSiteNavLink>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1448,6 +1684,14 @@ mod tests {
         options.generate_robots = true;
         options.code_highlighting.enabled = true;
         options.search.enabled = true;
+        options.site_nav =
+            vec![
+                SiteNavLink::new("Product", "/content/getting-started/").with_children(vec![
+                    SiteNavLink::new("Resources", "/content/getting-started/").with_children(vec![
+                        SiteNavLink::new("Documentation", "/content/getting-started/"),
+                    ]),
+                ]),
+            ];
         options.page_elements.push(
             SitePageElement::head("<script defer src=\"https://example.com/site.js\"></script>")
                 .only_route("/content/getting-started/"),
@@ -1473,6 +1717,10 @@ mod tests {
         assert!(html.contains("<pre class=\"fission-site-code-block\""));
         assert!(html.contains("class=\"language-rust\""));
         assert!(html.contains("highlight.js/11.11.1/highlight.min.js"));
+        assert!(html.contains("fission-site-nav-item"));
+        assert!(html.contains("fission-site-nav-menu"));
+        assert!(html.contains("Resources"));
+        assert!(html.contains("Documentation"));
         let css = fs::read_to_string(temp.join("target/fission/site/site.css")).unwrap();
         assert!(css.contains(":root"));
         assert!(css.contains(".fs_"));
@@ -1484,6 +1732,121 @@ mod tests {
             .exists());
         let docs = fs::read_to_string(temp.join("target/fission/site/search/docs.json")).unwrap();
         assert!(docs.contains("Getting started"));
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn project_site_nav_supports_nested_dropdowns() {
+        let temp = std::env::temp_dir().join(format!(
+            "fission-site-nav-test-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&temp).unwrap();
+        fs::write(
+            temp.join("fission.toml"),
+            r#"
+[app]
+name = "docs"
+
+[site]
+title = "Docs"
+
+[[site.nav]]
+title = "Product"
+href = "product/overview"
+
+[[site.nav.children]]
+title = "Resources"
+href = "/docs/"
+
+[[site.nav.children.children]]
+title = "Documentation"
+href = "/docs/reference/"
+"#,
+        )
+        .unwrap();
+
+        let options = SiteBuildOptions::from_project_dir(&temp, "Docs").unwrap();
+        assert_eq!(options.site_nav.len(), 1);
+        assert_eq!(options.site_nav[0].href, "/product/overview/");
+        assert_eq!(options.site_nav[0].children[0].title, "Resources");
+        assert_eq!(
+            options.site_nav[0].children[0].children[0].href,
+            "/docs/reference/"
+        );
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn blog_routes_get_generated_index_and_strip_truncate_marker() {
+        let temp = std::env::temp_dir().join(format!(
+            "fission-site-blog-test-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(temp.join("content/blog")).unwrap();
+        fs::write(
+            temp.join("content/blog/2026-06-02-release.md"),
+            "---\ntitle: Release post\ntags:\n  - release\ncategories: [updates]\n---\n# Release post\n\n{/* truncate */}\n\nPost body.",
+        )
+        .unwrap();
+
+        let mut options = SiteBuildOptions::for_project(&temp, "Test site");
+        options.content_routes = vec![SiteContentRouteConfig {
+            path: "/blog".to_string(),
+            source: temp.join("content/blog"),
+            template: None,
+            sidebar: None,
+        }];
+
+        let report = build_content_site(&options).unwrap();
+        assert!(report.routes.iter().any(|route| route.path == "/blog/"));
+        assert!(report
+            .routes
+            .iter()
+            .any(|route| route.path == "/blog/2026-06-02-release/"));
+        assert!(report
+            .routes
+            .iter()
+            .any(|route| route.path == "/blog/categories/updates/"));
+        assert!(report
+            .routes
+            .iter()
+            .any(|route| route.path == "/blog/tags/release/"));
+
+        let index = fs::read_to_string(temp.join("target/fission/site/blog/index.html")).unwrap();
+        assert!(index.contains("Featured"));
+        assert!(index.contains("Release post"));
+        assert!(index.contains("release"));
+        assert!(index.contains("updates"));
+        assert!(index.contains("blog/categories/updates/"));
+        assert!(index.contains("blog/tags/release/"));
+
+        let post =
+            fs::read_to_string(temp.join("target/fission/site/blog/2026-06-02-release/index.html"))
+                .unwrap();
+        assert!(post.contains("Post"));
+        assert!(post.contains("body."));
+        assert!(!post.contains("truncate"));
+        assert!(post.contains("site-blog-adjacent-posts") || !post.contains("Older post"));
+        assert!(post.contains("blog/categories/updates/"));
+        assert!(post.contains("blog/tags/release/"));
+
+        let category =
+            fs::read_to_string(temp.join("target/fission/site/blog/categories/updates/index.html"))
+                .unwrap();
+        assert!(category.contains("Category: updates"));
+        assert!(category.contains("Release post"));
+
+        let tag = fs::read_to_string(temp.join("target/fission/site/blog/tags/release/index.html"))
+            .unwrap();
+        assert!(tag.contains("Tag: #release"));
+        assert!(tag.contains("Release post"));
         let _ = fs::remove_dir_all(temp);
     }
 

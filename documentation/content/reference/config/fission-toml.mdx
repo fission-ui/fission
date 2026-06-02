@@ -22,6 +22,23 @@ name = "my-app"
 app_id = "com.example.my_app"
 ```
 
+## Contract completeness checklist
+
+Use this checklist when wiring `fission.toml manifest` into an app or shell implementation.
+
+| Requirement | Why it matters |
+| --- | --- |
+| Public entrypoint | The app code must call the documented helper, command, or configuration field rather than a platform-specific shortcut. |
+| Required setup | Native manifests, plist entries, entitlements, service-worker files, domains, protocols, credentials, or provider registration must be present before production use. |
+| Typed success and error | The implementation should return a truthful typed result. Silent success, swallowed errors, and string-only failure paths make apps unsafe to retry. |
+| Retry behavior | Operations that can fail because of permission, network, hardware, store, or packaging state should document whether retrying is useful and what must change first. |
+| Tests | Cover the happy path, unsupported host path, bad configuration path, and any security-sensitive rejection path. |
+
+## Failure behavior and safe retry
+
+Treat failures as product states, not surprises. A Fission app should be able to tell the user whether the problem is missing configuration, missing provider support, denied permission, unavailable hardware, invalid input, expired credentials, or a transient host error. Reducers should update state from typed results and keep retry buttons idempotent so pressing them twice cannot corrupt state or duplicate unsafe work.
+
+
 `fission init` writes this file for you. `fission add-target` and `fission add-capability` update it idempotently.
 
 ## Parsing rules
@@ -115,20 +132,37 @@ The current documentation manifest also contains `locales` and `pretty_urls`. Th
 
 ### `[[site.nav]]`
 
-Each `[[site.nav]]` entry adds one top-level navigation link to the generated documentation template.
+Each `[[site.nav]]` entry adds one top-level navigation link to the generated documentation template. A link can also contain nested `children`, which the static-site shell renders as dropdown menus. Nested children can continue recursively, so a top-level product menu can contain a Resources item, and Resources can contain a Documentation item. Keep blog navigation on the blog landing page itself rather than stuffing every post into the global header.
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
 | `title` | string | Yes | Text shown in the header navigation. |
 | `href` | string | Yes | Site route or absolute URL. Site routes should start with `/`. |
+| `children` | array of nav entries | No | Nested dropdown entries. Each child has the same `title`, `href`, and optional `children` fields. |
 
 Example:
 
 ```toml
 [[site.nav]]
-title = "Learn"
-href = "/docs/learn/overview/"
+title = "Product"
+href = "/product/overview/"
+
+[[site.nav.children]]
+title = "Platform overview"
+href = "/product/overview/"
+
+[[site.nav.children]]
+title = "Resources"
+href = "/docs/intro/"
+
+[[site.nav.children.children]]
+title = "Documentation"
+href = "/docs/intro/"
 ```
+
+The dropdown is generated from data, not from hand-written HTML. Keep `href` on parent items even when they have children, because keyboard users and search engines still need a normal destination for the parent item. The menu can nest beyond three levels, but a production navigation should stay shallow enough that users can scan it quickly.
+
+Blog navigation is generated from content metadata instead of global dropdown children. When a `[[site.routes]]` entry uses `path = "/blog"`, the static-site shell generates `/blog/` if you have not provided a Markdown file for it. That landing page lists recent posts, categories, and tags. Individual posts also get older/newer post links unless a post disables them in front matter.
 
 ### `[[site.routes]]`
 
@@ -151,6 +185,41 @@ path = "/reference"
 source = "content/reference"
 template = "fission::site::documentation"
 sidebar = "site/reference-sidebar.toml"
+```
+
+### Content route front matter
+
+Markdown and MDX files may start with front matter. The static-site shell reads these fields before rendering the page body.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `title` | string | No | File stem converted to title case | Page title used in headings, browser metadata, search, sidebars, and blog lists. |
+| `description` | string | No | none | Page summary used in SEO metadata, search excerpts, and generated blog landing entries. |
+| `authors` | array of strings | No | `[]` | Author identifiers for blog and release posts. |
+| `tags` | array of strings | No | `[]` | Topic labels used by the generated blog landing page, blog sidebar taxonomy, and article chips. |
+| `categories` | array of strings | No | `[]` | Higher-level group labels used by the generated blog landing page, blog sidebar taxonomy, and article chips. |
+| `show_adjacent_posts` | boolean | No | `true` for blog posts, `false` otherwise | Shows older/newer post links below a blog article. |
+| `prev_next` | boolean | No | same as `show_adjacent_posts` | Alias accepted for authors who prefer shorter front matter. |
+
+Example:
+
+```mdx
+---
+title: Fission 0.4.0
+description: A release note for the authoring API update.
+authors:
+  - fission
+categories:
+  - Releases
+tags:
+  - release
+  - authoring
+show_adjacent_posts: true
+---
+
+# Fission 0.4.0
+
+Write the post body here.
 ```
 
 ### `[[site.elements]]`
@@ -198,7 +267,7 @@ Client-side search is optional. When enabled, the build writes a local search in
 | `default_route_mode` | string | No | app default | Route mode applied to routes declared through the default server route helper. Accepted values are `static`, `server`, `dynamic`, `server_private`, `private`, `revalidated`, `client_app`, and `client`. `dynamic` is an alias for `server`; `private` is an alias for `server_private`. |
 | `render_pass_limit` | integer | No | `4` | Maximum render passes allowed while jobs/resources settle before the server returns HTML. `fission server check`, `fission server serve`, and the server binary read this value. |
 
-Route modes are intentionally explicit. Use `server_private` for pages that depend on a session or user, `server` for request-rendered public pages, and `revalidated` for public pages that can be cached and rebuilt after a TTL. Fission rejects a revalidated page if the rendered HTML contains signed server action forms, because action tokens are request-specific.
+Route modes are intentionally explicit. Use `server_private` for pages that depend on a session or user, `server` for request-rendered public pages, and `revalidated` for public pages that can be cached and reconverted after a TTL. Fission rejects a revalidated page if the rendered HTML contains signed server action forms, because action tokens are request-specific.
 
 ### `[server.http]`
 

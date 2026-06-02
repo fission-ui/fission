@@ -73,13 +73,13 @@ On the server-rendered page, render a fallback region that remains readable if J
 
 ```rust
 SemanticsRegion::new(
-    Container::new(Text::new("Island booting").into_node())
+    Container::new(Text::new("Island booting").into())
         .padding_all(18.0)
-        .into_node(),
+        .into(),
 )
-.id(fission::ir::NodeId::explicit("cart-drawer"))
+.id(fission::WidgetId::explicit("cart-drawer"))
 .identifier("cart-drawer")
-.into_node()
+.into()
 ```
 
 The island itself is a normal Fission widget app with state and reducers:
@@ -90,24 +90,25 @@ pub struct BrowserCartState {
     count: u32,
 }
 
-impl AppState for BrowserCartState {}
+impl GlobalState for BrowserCartState {}
 
 #[derive(Clone)]
 pub struct CartDrawerIsland;
 
-impl Widget<BrowserCartState> for CartDrawerIsland {
-    fn build(&self, ctx: &mut BuildCtx<BrowserCartState>, view: &View<BrowserCartState>) -> Node {
+impl From<CartDrawerIsland> for Widget {
+    fn from(component: CartDrawerIsland) -> Self {
+        let (ctx, view) = fission::build::current::<BrowserCartState>();
         let add = ctx.bind(IslandAddToCart, reduce_with!(on_island_add_to_cart));
 
         SemanticsRegion::new(
-            Container::new(Text::new(format!("{} items", view.state.count)).into_node())
+            Container::new(Text::new(format!("{} items", view.state().count)).into())
                 .padding_all(12.0)
-                .into_node(),
+                .into(),
         )
         .identifier("island-action:add-card")
-        .role(fission::ir::Role::Button)
+        .role(fission::Role::Button)
         .default_action(add)
-        .into_node()
+        .into()
     }
 }
 
@@ -150,3 +151,17 @@ The command writes generated shim crates and compiles one WASM output per worker
 | Page has no runtime behavior beyond links | Static site or server-rendered HTML |
 
 This split keeps server pages fast and crawlable while still allowing rich interaction where it earns its cost.
+
+## What you should have working
+
+After this guide, you should be able to explain where `Workers and islands` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test. If any of those pieces are missing, treat the page as unfinished work: add the smallest runnable example, then add the diagnostic step that proves it works.
+
+## Common mistakes to check
+
+| Symptom | What to check first |
+| --- | --- |
+| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
+| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
+| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
+| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
+| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |

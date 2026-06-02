@@ -1,4 +1,4 @@
-use fission::ir::op::Color;
+use fission::op::Color;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]

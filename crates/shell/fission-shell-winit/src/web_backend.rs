@@ -1,11 +1,11 @@
 #![allow(unexpected_cfgs)]
 
-use fission_ir::WidgetNodeId;
+use fission_ir::WidgetId;
 use fission_render::LayoutRect;
 
 #[derive(Clone, Debug)]
 pub struct WebSurfaceFrame {
-    pub widget_id: WidgetNodeId,
+    pub widget_id: WidgetId,
     pub url: String,
     pub user_agent: Option<String>,
     pub rect: LayoutRect,
@@ -25,7 +25,7 @@ mod mac {
     use cocoa::base::{id, nil, YES};
     use cocoa::foundation::NSString;
     use core_graphics::geometry::{CGPoint, CGRect, CGSize};
-    use fission_ir::WidgetNodeId;
+    use fission_ir::WidgetId;
     use fission_render::LayoutRect;
     use objc::rc::StrongPtr;
     use objc::{class, msg_send, sel, sel_impl};
@@ -63,7 +63,7 @@ mod mac {
 
     pub struct MacWebBackend {
         view: RetainedId,
-        views: Mutex<HashMap<WidgetNodeId, WebViewEntry>>,
+        views: Mutex<HashMap<WidgetId, WebViewEntry>>,
     }
 
     impl MacWebBackend {

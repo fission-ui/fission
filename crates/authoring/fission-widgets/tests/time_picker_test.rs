@@ -1,12 +1,13 @@
-use fission_core::ui::Node;
-use fission_core::{AppState, BuildCtx, View, Widget};
+use fission_core::internal::BuildCtx;
+use fission_core::ui::Widget;
+use fission_core::{build, GlobalState, View};
 use fission_widgets::TimePicker;
 
 #[derive(Default, Clone, Debug)]
 struct State;
-impl AppState for State {}
+impl GlobalState for State {}
 
-fn build_time_picker(hour: u32, minute: u32) -> Node {
+fn build_time_picker(hour: u32, minute: u32) -> Widget {
     let mut runtime = fission_core::Runtime::default();
     runtime.add_app_state(Box::new(State)).unwrap();
 
@@ -19,82 +20,78 @@ fn build_time_picker(hour: u32, minute: u32) -> Node {
         None,
     );
 
-    TimePicker {
-        hour,
-        minute,
-        on_change: None,
-    }
-    .build(&mut ctx, &view)
+    build::enter(&mut ctx, &view, || {
+        TimePicker {
+            hour,
+            minute,
+            on_change: None,
+        }
+        .into()
+    })
 }
 
-fn collect_text_inputs<'a>(node: &'a Node, out: &mut Vec<&'a fission_core::ui::TextInput>) {
-    match node {
-        Node::TextInput(input) => out.push(input),
-        Node::Row(row) => {
-            for child in &row.children {
-                collect_text_inputs(child, out);
-            }
+fn collect_text_inputs<'a>(node: &'a Widget, out: &mut Vec<&'a fission_core::ui::TextInput>) {
+    if let Some(input) = fission_core::internal::widget_as_text_input(node) {
+        out.push(input);
+    }
+    if let Some(row) = fission_core::internal::widget_as_row(node) {
+        for child in &row.children {
+            collect_text_inputs(child, out);
         }
-        Node::Column(col) => {
-            for child in &col.children {
-                collect_text_inputs(child, out);
-            }
+    }
+    if let Some(col) = fission_core::internal::widget_as_column(node) {
+        for child in &col.children {
+            collect_text_inputs(child, out);
         }
-        Node::Button(button) => {
-            if let Some(child) = &button.child {
-                collect_text_inputs(child, out);
-            }
+    }
+    if let Some(button) = fission_core::internal::widget_as_button(node) {
+        if let Some(child) = &button.child {
+            collect_text_inputs(child, out);
         }
-        Node::Container(container) => {
-            if let Some(child) = &container.child {
-                collect_text_inputs(child, out);
-            }
+    }
+    if let Some(container) = fission_core::internal::widget_as_container(node) {
+        if let Some(child) = &container.child {
+            collect_text_inputs(child, out);
         }
-        _ => {}
     }
 }
 
-fn collect_buttons<'a>(node: &'a Node, out: &mut Vec<&'a fission_core::ui::Button>) {
-    match node {
-        Node::Button(button) => {
-            out.push(button);
-            if let Some(child) = &button.child {
-                collect_buttons(child, out);
-            }
+fn collect_buttons<'a>(node: &'a Widget, out: &mut Vec<&'a fission_core::ui::Button>) {
+    if let Some(button) = fission_core::internal::widget_as_button(node) {
+        out.push(button);
+        if let Some(child) = &button.child {
+            collect_buttons(child, out);
         }
-        Node::Row(row) => {
-            for child in &row.children {
-                collect_buttons(child, out);
-            }
+    }
+    if let Some(row) = fission_core::internal::widget_as_row(node) {
+        for child in &row.children {
+            collect_buttons(child, out);
         }
-        Node::Column(col) => {
-            for child in &col.children {
-                collect_buttons(child, out);
-            }
+    }
+    if let Some(col) = fission_core::internal::widget_as_column(node) {
+        for child in &col.children {
+            collect_buttons(child, out);
         }
-        Node::Container(container) => {
-            if let Some(child) = &container.child {
-                collect_buttons(child, out);
-            }
+    }
+    if let Some(container) = fission_core::internal::widget_as_container(node) {
+        if let Some(child) = &container.child {
+            collect_buttons(child, out);
         }
-        _ => {}
     }
 }
 
 #[test]
 fn time_picker_uses_compact_stepper_buttons() {
     let node = build_time_picker(9, 0);
-    let Node::Row(row) = node else {
-        panic!("TimePicker should lower to a row");
-    };
+    let row =
+        fission_core::internal::widget_as_row(&node).expect("TimePicker should lower to a row");
     assert_eq!(
         row.children.len(),
         3,
         "expected time picker to have HH : MM children"
     );
     let mut buttons = Vec::new();
-    let row_node = Node::Row(row.clone());
-    collect_buttons(&row_node, &mut buttons);
+    collect_buttons(&node, &mut buttons);
     assert_eq!(
         buttons.len(),
         4,

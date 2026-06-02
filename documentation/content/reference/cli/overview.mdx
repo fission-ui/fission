@@ -5,14 +5,14 @@ description: Reference documentation for the Fission command-line interface, inc
 
 # Command-line interface overview
 
-The Fission command-line interface is the tool you use to put a new Fission app on disk, connect that shared app to real platform hosts, and keep the daily development loop consistent across desktop, web, Android, and iOS.
+The Fission command-line interface is the tool you use to put a new Fission app on disk, connect that shared app to real platform hosts, and keep the daily development loop consistent across desktop, web, Android, iOS, terminal, static site, and server-rendered site targets.
 
-That distinction matters. Fission's core architecture lives in your shared Rust code: your app state, actions, reducers, widgets, and effects. The command-line interface does not replace that architecture. Its job is narrower and more concrete. It gives you a correct starting scaffold, records which targets your app supports, generates the host folders that let the shared app run on desktop, web, Android, and iOS, and then gives you one place to discover devices, run the app, attach logs, build artifacts, and run smoke tests.
+That distinction matters. Fission's core architecture lives in your shared Rust code: your app state, actions, reducers, widgets, and effects. The command-line interface does not replace that architecture. Its job is narrower and more concrete. It gives you a correct starting scaffold, records which targets your app supports, generates the host folders that let the shared app run on desktop, web, Android, iOS, terminal, static site, and server-rendered site targets, and then gives you one place to discover devices, run the app, attach logs, build artifacts, and run smoke tests.
 
 If you are learning Fission, think of the command-line interface as the bridge between two layers:
 
 - your shared app model, which stays the same across platforms, and
-- the shell hosts, which package and launch that shared app in a desktop window, a browser page, an Android app, or an iOS app bundle.
+- the shell hosts, which package and launch that shared app in a desktop window, a browser page, an Android app, an iOS app bundle, a terminal surface, static HTML output, or a server-rendered web process.
 
 This page explains how to use that bridge well.
 
@@ -22,7 +22,7 @@ Most teams meet the command-line interface at two moments.
 
 The first moment is the start of a project. You run `fission init` when you want a fresh app with the expected file layout, a starter application, an initial desktop host, and a [`fission.toml`](/reference/config/fission-toml/) manifest that records project metadata and target choices.
 
-The second moment is when your shared app is ready to run in another host. At that point, you use `fission add-target` to generate the extra platform folder for web, Android, or iOS, or to add a specific desktop target if needed. The important idea is that you are not rewriting your app for each platform. You are generating the host wrapper around the same shared app model.
+The second moment is when your shared app is ready to run in another host. At that point, you use `fission add-target` to generate the extra platform folder for web, Android, iOS, terminal, static site, or server, or to add a specific desktop target if needed. The important idea is that you are not rewriting your app for each platform. You are generating the host wrapper around the same shared app model.
 
 After that, the command-line interface becomes part of the normal development loop. You can ask it which devices are available, choose a device by id, run the app, attach to logs, build without launching, or run the generated smoke test. That keeps the workflow close to the app instead of forcing every developer on the team to memorize different shell scripts for each platform.
 
@@ -414,3 +414,19 @@ The generated output directory is build output, not source. Keep the site projec
 The command-line interface does not explain the runtime model for you, choose your architecture, or replace platform documentation. It creates the shared scaffold and the host wrappers, but you still use the rest of the docs to understand how the app works and how each platform behaves.
 
 If you are still learning the overall shape of a Fission app, read [Quickstart](/docs/learn/quickstart) and [Runtime model](/docs/learn/runtime-model) next. If you are already working at the platform layer, continue to [Targets](/reference/platform/targets).
+
+## Contract completeness checklist
+
+Use this checklist when wiring `Command-line interface overview` into an app or shell implementation.
+
+| Requirement | Why it matters |
+| --- | --- |
+| Public entrypoint | The app code must call the documented helper, command, or configuration field rather than a platform-specific shortcut. |
+| Required setup | Native manifests, plist entries, entitlements, service-worker files, domains, protocols, credentials, or provider registration must be present before production use. |
+| Typed success and error | The implementation should return a truthful typed result. Silent success, swallowed errors, and string-only failure paths make apps unsafe to retry. |
+| Retry behavior | Operations that can fail because of permission, network, hardware, store, or packaging state should document whether retrying is useful and what must change first. |
+| Tests | Cover the happy path, unsupported host path, bad configuration path, and any security-sensitive rejection path. |
+
+## Failure behavior and safe retry
+
+Treat failures as product states, not surprises. A Fission app should be able to tell the user whether the problem is missing configuration, missing provider support, denied permission, unavailable hardware, invalid input, expired credentials, or a transient host error. Reducers should update state from typed results and keep retry buttons idempotent so pressing them twice cannot corrupt state or duplicate unsafe work.

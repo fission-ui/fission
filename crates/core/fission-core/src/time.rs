@@ -1,4 +1,4 @@
-use crate::AppState;
+use crate::GlobalState;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
@@ -15,7 +15,7 @@ impl Default for Clock {
     }
 }
 
-impl AppState for Clock {
+impl GlobalState for Clock {
     // as_any and as_any_mut are provided by the Downcast trait now.
 }
 

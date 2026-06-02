@@ -12,6 +12,7 @@ pub mod image;
 pub mod lazy_column;
 pub mod overlay;
 pub mod positioned;
+pub mod provider;
 pub mod radio;
 pub mod row;
 pub mod safe_area;
@@ -44,6 +45,7 @@ pub use image::{
 pub use lazy_column::LazyColumn;
 pub use overlay::Overlay;
 pub use positioned::Positioned;
+pub use provider::{provider, Provider};
 pub use radio::Radio;
 pub use row::Row;
 pub use safe_area::SafeArea;

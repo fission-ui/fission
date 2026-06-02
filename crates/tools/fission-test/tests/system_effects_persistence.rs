@@ -2,14 +2,14 @@ use anyhow::Result;
 use fission_core::action::ActionEnvelope;
 use fission_core::registry::ActionRegistry;
 use fission_core::{
-    reduce_with, AppState, BuildCtx, InputEvent, OpenUrlRequest, PointerButton, PointerEvent,
-    ReducerContext, View, Widget, OPEN_URL,
+    reduce_with, GlobalState, InputEvent, OpenUrlRequest, PointerButton, PointerEvent,
+    ReducerContext, OPEN_URL,
 };
-use fission_widgets::{Button, ButtonVariant, Container, Node, Text};
+use fission_widgets::{Button, ButtonVariant, Container, Text, Widget};
 
 #[derive(Debug, Default)]
 struct TestState;
-impl AppState for TestState {}
+impl GlobalState for TestState {}
 
 #[fission_macros::fission_action]
 struct OpenLink(pub String);
@@ -24,27 +24,25 @@ fn on_open_link(_state: &mut TestState, action: OpenLink, ctx: &mut ReducerConte
     );
 }
 
+#[derive(Clone)]
 struct Root;
 
-impl Widget<TestState> for Root {
-    fn build(&self, _ctx: &mut BuildCtx<TestState>, _view: &View<TestState>) -> Node {
-        Container::new(
-            Button {
-                child: Some(Box::new(Text::new("Open").into_node())),
-                on_press: Some(ActionEnvelope::from(OpenLink("https://example.com".into()))),
-                variant: ButtonVariant::Filled,
-                width: Some(200.0),
-                height: Some(40.0),
-                ..Default::default()
-            }
-            .into_node(),
-        )
+impl From<Root> for Widget {
+    fn from(_component: Root) -> Self {
+        let (_ctx, _view) = fission_core::build::current::<TestState>();
+        Container::new(Button {
+            child: Some(Text::new("Open").into()),
+            on_press: Some(ActionEnvelope::from(OpenLink("https://example.com".into()))),
+            variant: ButtonVariant::Filled,
+            width: Some(200.0),
+            height: Some(40.0),
+            ..Default::default()
+        })
         .width(300.0)
         .height(100.0)
-        .into_node()
+        .into()
     }
 }
-
 #[test]
 fn persistent_reducers_survive_clear_reducers_frames() -> Result<()> {
     let mut h = fission_test::TestHarness::new(TestState::default()).with_root_widget(Root);

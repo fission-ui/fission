@@ -1,8 +1,8 @@
-use crate::lowering::{LoweringContext, NodeBuilder};
-use crate::ui::traits::Lower;
-use crate::ui::Node;
+use crate::internal::InternalLower;
+use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::ui::Widget;
 use crate::ActionScopeId;
-use fission_ir::{NodeId, Op, Semantics};
+use fission_ir::{Op, Semantics, WidgetId};
 use serde::{Deserialize, Serialize};
 
 /// Tags a subtree with a raw action dispatch scope.
@@ -13,24 +13,20 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActionScope {
     pub id: ActionScopeId,
-    pub child: Box<Node>,
+    pub child: Widget,
 }
 
 impl ActionScope {
-    pub fn new(id: ActionScopeId, child: Node) -> Self {
+    pub fn new(child_scope_id: ActionScopeId, child: impl Into<Widget>) -> Self {
         Self {
-            id,
-            child: Box::new(child),
+            id: child_scope_id,
+            child: child.into(),
         }
-    }
-
-    pub fn into_node(self) -> Node {
-        Node::ActionScope(self)
     }
 }
 
-impl Lower for ActionScope {
-    fn lower(&self, cx: &mut LoweringContext) -> NodeId {
+impl InternalLower for ActionScope {
+    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
         let wrapper_id = cx.next_node_id();
         cx.push_scope(wrapper_id);
         let child_id = self.child.lower(cx);
@@ -40,7 +36,7 @@ impl Lower for ActionScope {
             action_scope_id: Some(self.id.as_u128()),
             ..Semantics::default()
         };
-        let mut builder = NodeBuilder::new(wrapper_id, Op::Semantics(semantics));
+        let mut builder = InternalIrBuilder::new(wrapper_id, Op::Semantics(semantics));
         builder.add_child(child_id);
         builder.build(cx)
     }

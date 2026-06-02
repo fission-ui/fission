@@ -1,9 +1,9 @@
 use crate::CircularProgress;
 use fission_core::op::Color;
 use fission_core::ui::{
-    Align, Composite, Container, GestureDetector, Node, Positioned, Spacer, ZStack,
+    Align, Composite, Container, GestureDetector, Positioned, Spacer, Widget, ZStack,
 };
-use fission_core::{ActionEnvelope, AppState, BuildCtx, View, Widget, WidgetNodeId};
+use fission_core::{ActionEnvelope, WidgetId};
 use serde::{Deserialize, Serialize};
 
 /// Visual state for a pull-to-refresh interaction.
@@ -24,8 +24,8 @@ pub enum RefreshIndicatorStatus {
 /// provide an `on_refresh` action that starts the refresh work.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RefreshIndicator {
-    pub id: WidgetNodeId,
-    pub child: Box<Node>,
+    pub id: WidgetId,
+    pub child: Widget,
     pub status: RefreshIndicatorStatus,
     pub pulled_extent: f32,
     pub trigger_distance: f32,
@@ -45,8 +45,8 @@ pub struct RefreshIndicator {
 impl Default for RefreshIndicator {
     fn default() -> Self {
         Self {
-            id: WidgetNodeId::explicit("fission.widgets.refresh_indicator"),
-            child: Box::new(Spacer::default().into_node()),
+            id: WidgetId::explicit("fission.widgets.refresh_indicator"),
+            child: Spacer::default().into(),
             status: RefreshIndicatorStatus::Inactive,
             pulled_extent: 0.0,
             trigger_distance: 80.0,
@@ -66,16 +66,11 @@ impl Default for RefreshIndicator {
 }
 
 impl RefreshIndicator {
-    pub fn new(child: Node) -> Self {
+    pub fn new(child: impl Into<Widget>) -> Self {
         Self {
-            child: Box::new(child),
+            child: child.into(),
             ..Default::default()
         }
-    }
-
-    pub fn id(mut self, id: WidgetNodeId) -> Self {
-        self.id = id;
-        self
     }
 
     pub fn status(mut self, status: RefreshIndicatorStatus) -> Self {
@@ -163,8 +158,8 @@ impl RefreshIndicator {
         self.status != RefreshIndicatorStatus::Inactive || self.pulled_extent > 0.0
     }
 
-    fn progress_id(&self) -> WidgetNodeId {
-        WidgetNodeId::from_u128(self.id.as_u128() ^ 1)
+    fn progress_id(&self) -> WidgetId {
+        WidgetId::from_u128(self.id.as_u128() ^ 1)
     }
 
     fn child_offset(&self) -> f32 {
@@ -179,64 +174,71 @@ impl RefreshIndicator {
     }
 }
 
-impl<S: AppState> Widget<S> for RefreshIndicator {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let tokens = &view.env.theme.tokens;
-        let pull_offset = self.child_offset();
-        let indicator_top = self.edge_offset + pull_offset * 0.5;
+impl From<RefreshIndicator> for Widget {
+    fn from(component: RefreshIndicator) -> Self {
+        let (_, view) = fission_core::build::current::<()>();
+        let mut component = component;
+        if let Some(id) = fission_core::build::current_widget_id() {
+            component.id = id;
+        }
+        let this = &component;
+
+        let tokens = &view.env().theme.tokens;
+        let pull_offset = this.child_offset();
+        let indicator_top = this.edge_offset + pull_offset * 0.5;
 
         let child = if pull_offset > 0.0 {
-            Composite::new(*self.child.clone())
+            Composite::new(this.child.clone())
                 .translate_y(pull_offset)
-                .into_node()
+                .into()
         } else {
-            *self.child.clone()
+            this.child.clone()
         };
         let mut children = vec![child];
-        if self.is_indicator_visible() {
-            let progress = CircularProgress {
-                id: self.progress_id(),
-                value: self.indicator_progress(),
-                size: self.indicator_size,
-                color: Some(self.color.unwrap_or(tokens.colors.primary)),
-                track_color: Some(self.track_color.unwrap_or(tokens.colors.border)),
-                thickness: self.stroke_width,
+        if this.is_indicator_visible() {
+            let progress: Widget = CircularProgress {
+                id: this.progress_id(),
+                value: this.indicator_progress(),
+                size: this.indicator_size,
+                color: Some(this.color.unwrap_or(tokens.colors.primary)),
+                track_color: Some(this.track_color.unwrap_or(tokens.colors.border)),
+                thickness: this.stroke_width,
                 animated: true,
             }
-            .build(ctx, view);
+            .into();
 
-            let indicator = Container::new(progress)
-                .size(self.indicator_size + 16.0, self.indicator_size + 16.0)
-                .bg(self.background_color.unwrap_or(tokens.colors.surface))
+            let indicator: Widget = Container::new(progress)
+                .size(this.indicator_size + 16.0, this.indicator_size + 16.0)
+                .bg(this.background_color.unwrap_or(tokens.colors.surface))
                 .border(tokens.colors.border, 1.0)
-                .border_radius((self.indicator_size + 16.0) * 0.5)
+                .border_radius((this.indicator_size + 16.0) * 0.5)
                 .padding_all(8.0)
-                .into_node();
+                .into();
 
             children.push(
                 Positioned {
                     top: Some(indicator_top),
                     left: Some(0.0),
                     right: Some(0.0),
-                    height: Some(self.indicator_size + 16.0),
-                    child: Some(Box::new(Align::new(indicator).into_node())),
+                    height: Some(this.indicator_size + 16.0),
+                    child: Some(Align::new(indicator).into()),
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
             );
         }
 
         GestureDetector {
-            child: Box::new(ZStack { id: None, children }.into_node()),
-            on_drag_start: self.on_pull_start.clone(),
-            on_drag_update: self.on_pull_update.clone(),
-            on_drag_end: if self.status == RefreshIndicatorStatus::Armed {
-                self.on_refresh.clone()
+            child: ZStack { id: None, children }.into(),
+            on_drag_start: this.on_pull_start.clone(),
+            on_drag_update: this.on_pull_update.clone(),
+            on_drag_end: if this.status == RefreshIndicatorStatus::Armed {
+                this.on_refresh.clone()
             } else {
-                self.on_pull_cancel.clone()
+                this.on_pull_cancel.clone()
             },
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 }

@@ -1,6 +1,9 @@
 use anyhow::{Context, Result};
-use fission_core::{ActionEnvelope, ActionRegistry, AppState, BuildCtx, Env, Runtime, View};
-use fission_ir::NodeId;
+use fission_core::internal::BuildCtx;
+use fission_core::{
+    ActionEnvelope, ActionRegistry, BuildCtxHandle, Env, GlobalState, Runtime, View, ViewHandle,
+    WidgetId,
+};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -127,7 +130,7 @@ pub enum TrayMenuEntry {
     Separator,
 }
 
-/// A platform-neutral menu description produced by a tray menu widget.
+/// A platform-neutral menu description produced by a tray menu builder.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct TrayMenu {
     entries: Vec<TrayMenuEntry>,
@@ -180,23 +183,23 @@ impl TrayMenu {
     }
 }
 
-/// A Fission tray menu widget. It participates in the same state/view/action model as
-/// normal widgets but produces a native tray menu model instead of a visual node tree.
-pub trait TrayMenuWidget<S: AppState>: Send + Sync + 'static {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> TrayMenu;
+/// A Fission tray menu builder. It participates in the same state/view/action model as
+/// visual widgets but produces a native tray menu model instead of a visual node tree.
+pub trait TrayMenuBuilder<S: GlobalState>: Send + Sync + 'static {
+    fn menu(&self, ctx: BuildCtxHandle<S>, view: ViewHandle<S>) -> TrayMenu;
 }
 
-impl<S, F> TrayMenuWidget<S> for F
+impl<S, F> TrayMenuBuilder<S> for F
 where
-    S: AppState,
-    F: Fn(&mut BuildCtx<S>, &View<S>) -> TrayMenu + Send + Sync + 'static,
+    S: GlobalState,
+    F: Fn(BuildCtxHandle<S>, ViewHandle<S>) -> TrayMenu + Send + Sync + 'static,
 {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> TrayMenu {
+    fn menu(&self, ctx: BuildCtxHandle<S>, view: ViewHandle<S>) -> TrayMenu {
         self(ctx, view)
     }
 }
 
-pub struct TrayConfig<S: AppState> {
+pub struct TrayConfig<S: GlobalState> {
     pub icon: TrayIconSource,
     pub tooltip: Option<String>,
     pub title: Option<String>,
@@ -206,10 +209,10 @@ pub struct TrayConfig<S: AppState> {
     pub menu_on_left_click: bool,
     pub menu_on_right_click: bool,
     pub include_default_quit: bool,
-    pub menu: Option<Arc<dyn TrayMenuWidget<S>>>,
+    pub menu: Option<Arc<dyn TrayMenuBuilder<S>>>,
 }
 
-impl<S: AppState> Clone for TrayConfig<S> {
+impl<S: GlobalState> Clone for TrayConfig<S> {
     fn clone(&self) -> Self {
         Self {
             icon: self.icon.clone(),
@@ -226,7 +229,7 @@ impl<S: AppState> Clone for TrayConfig<S> {
     }
 }
 
-impl<S: AppState> TrayConfig<S> {
+impl<S: GlobalState> TrayConfig<S> {
     pub fn new(icon: TrayIconSource) -> Self {
         Self {
             icon,
@@ -284,7 +287,7 @@ impl<S: AppState> TrayConfig<S> {
 
     pub fn menu<M>(mut self, menu: M) -> Self
     where
-        M: TrayMenuWidget<S>,
+        M: TrayMenuBuilder<S>,
     {
         self.menu = Some(Arc::new(menu));
         self
@@ -302,14 +305,14 @@ pub(crate) struct TrayEventOutcome {
     pub(crate) quit: bool,
 }
 
-pub(crate) struct ActiveTray<S: AppState> {
+pub(crate) struct ActiveTray<S: GlobalState> {
     config: TrayConfig<S>,
     _tray_icon: TrayIcon,
     _menu: Menu,
     actions_by_menu_id: HashMap<String, TrayMenuAction>,
 }
 
-impl<S: AppState> ActiveTray<S> {
+impl<S: GlobalState> ActiveTray<S> {
     pub(crate) fn close_behavior(&self) -> WindowCloseBehavior {
         self.config.close_behavior
     }
@@ -384,7 +387,7 @@ impl<S: AppState> ActiveTray<S> {
                         Ok(TrayEventOutcome::default())
                     }
                     TrayMenuAction::App(action) => {
-                        runtime.dispatch(action, NodeId::derived(0, &[0]))?;
+                        runtime.dispatch(action, WidgetId::from_u128(0))?;
                         Ok(TrayEventOutcome {
                             redraw: true,
                             quit: false,
@@ -467,7 +470,7 @@ fn should_activate_from_tray_event(event: &TrayIconEvent) -> bool {
     )
 }
 
-fn build_tray_menu<S: AppState>(
+fn build_tray_menu<S: GlobalState>(
     config: &TrayConfig<S>,
     runtime: &Runtime,
     env: &Env,
@@ -476,7 +479,7 @@ fn build_tray_menu<S: AppState>(
     let mut ctx = BuildCtx::new();
     let tray_menu = if let Some(menu_widget) = &config.menu {
         let state = runtime
-            .get_app_state::<S>()
+            .get_global_state::<S>()
             .context("tray menu requested before app state was available")?;
         let view = View::new(
             state,
@@ -484,7 +487,10 @@ fn build_tray_menu<S: AppState>(
             env,
             pipeline.last_snapshot.as_ref(),
         );
-        menu_widget.build(&mut ctx, &view)
+        fission_core::build::enter(&mut ctx, &view, || {
+            let (ctx, view) = fission_core::build::current::<S>();
+            menu_widget.menu(ctx, view)
+        })
     } else {
         TrayMenu::new()
     };
@@ -496,7 +502,7 @@ fn build_tray_menu<S: AppState>(
     Ok((tray_menu, ctx.registry))
 }
 
-fn fallback_tray_menu<S: AppState>(config: &TrayConfig<S>) -> TrayMenu {
+fn fallback_tray_menu<S: GlobalState>(config: &TrayConfig<S>) -> TrayMenu {
     let tray_menu = TrayMenu::new();
     if config.include_default_quit {
         tray_menu.with_default_quit()
@@ -568,7 +574,7 @@ mod tests {
         refreshes: u32,
     }
 
-    impl AppState for TrayTestState {}
+    impl GlobalState for TrayTestState {}
 
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
     struct RefreshTray;
@@ -589,11 +595,15 @@ mod tests {
 
     struct DynamicTrayMenu;
 
-    impl TrayMenuWidget<TrayTestState> for DynamicTrayMenu {
-        fn build(&self, ctx: &mut BuildCtx<TrayTestState>, view: &View<TrayTestState>) -> TrayMenu {
+    impl TrayMenuBuilder<TrayTestState> for DynamicTrayMenu {
+        fn menu(
+            &self,
+            ctx: BuildCtxHandle<TrayTestState>,
+            view: ViewHandle<TrayTestState>,
+        ) -> TrayMenu {
             let refresh = ctx.bind(RefreshTray, refresh_tray as fission_core::Handler<_, _>);
             TrayMenu::new().item(
-                format!("Refresh {}", view.state.refreshes),
+                format!("Refresh {}", view.state().refreshes),
                 TrayMenuAction::app(refresh),
             )
         }
@@ -681,7 +691,7 @@ mod tests {
     fn tray_menu_widget_build_returns_frame_registry_for_app_actions() {
         let mut runtime = Runtime::default();
         runtime
-            .add_app_state(Box::new(TrayTestState::default()))
+            .add_global_state(Box::new(TrayTestState::default()))
             .unwrap();
         let config =
             TrayConfig::<TrayTestState>::new(TrayIconSource::rgba(vec![255, 255, 255, 255], 1, 1))
@@ -691,7 +701,6 @@ mod tests {
         let pipeline = Pipeline::new();
 
         let (menu, registry) = build_tray_menu(&config, &runtime, &env, &pipeline).unwrap();
-        assert!(runtime.persistent_reducers.is_empty());
         assert_eq!(menu.entries().len(), 1);
         let TrayMenuEntry::Item(item) = &menu.entries()[0] else {
             panic!("expected refresh item");
@@ -702,13 +711,25 @@ mod tests {
         };
 
         runtime.clear_reducers();
-        runtime.absorb_registry(registry);
-        runtime.dispatch(action, NodeId::derived(0, &[0])).unwrap();
+        runtime
+            .dispatch(action.clone(), WidgetId::from_u128(0))
+            .unwrap();
         assert_eq!(
-            runtime.get_app_state::<TrayTestState>().unwrap().refreshes,
+            runtime
+                .get_global_state::<TrayTestState>()
+                .unwrap()
+                .refreshes,
+            0
+        );
+        runtime.absorb_registry(registry);
+        runtime.dispatch(action, WidgetId::from_u128(0)).unwrap();
+        assert_eq!(
+            runtime
+                .get_global_state::<TrayTestState>()
+                .unwrap()
+                .refreshes,
             1
         );
-        assert!(runtime.persistent_reducers.is_empty());
     }
 
     #[test]

@@ -12,7 +12,7 @@ positioning, and flyout anchoring.
 
 The engine is pure computation -- it has no dependency on any windowing system or
 GPU. Give it nodes and a viewport size, and it hands back a [`LayoutSnapshot`]
-mapping every [`NodeId`] to a [`LayoutRect`].
+mapping every [`WidgetId`] to a [`LayoutRect`].
 
 ## Core concepts
 
@@ -23,7 +23,7 @@ mapping every [`NodeId`] to a [`LayoutRect`].
 | [`LayoutSize`] | A width/height pair. |
 | [`LayoutPoint`] | An x/y coordinate. |
 | [`LayoutRect`] | Origin + size -- the final bounding box of a node. |
-| [`LayoutSnapshot`] | The output: a `HashMap<NodeId, LayoutNodeGeometry>` plus the viewport size. |
+| [`LayoutSnapshot`] | The output: a `HashMap<WidgetId, LayoutNodeGeometry>` plus the viewport size. |
 | [`TextMeasurer`] | Trait that platform backends implement so the engine can measure text. |
 | [`LineMetric`] | Per-line metrics returned by text measurement (baseline, height, width). |
 
@@ -31,12 +31,12 @@ mapping every [`NodeId`] to a [`LayoutRect`].
 
 ```rust
 use fission_layout::*;
-use fission_ir::{NodeId, LayoutOp, FlexDirection, FlexWrap, AlignItems, JustifyContent};
+use fission_ir::{WidgetId, LayoutOp, FlexDirection, FlexWrap, AlignItems, JustifyContent};
 
 let measurer: Option<std::sync::Arc<dyn TextMeasurer>> = None;
 let mut engine = LayoutEngine::new();
 
-let root_id = NodeId::explicit("root");
+let root_id = WidgetId::explicit("root");
 let nodes = vec![
     LayoutInputNode {
         id: root_id,

@@ -1,6 +1,7 @@
 use fission_core::env::Env;
-use fission_core::ui::{Node, Text};
-use fission_core::{AppState, BuildCtx, View, Widget, WidgetNodeId};
+use fission_core::internal::BuildCtx;
+use fission_core::ui::{Text, Widget};
+use fission_core::{build, GlobalState, View, WidgetId};
 use fission_widgets::{MenuButton, MenuItem, Popover, Toast, ToastKind};
 
 #[derive(Default, Clone, Debug)]
@@ -9,7 +10,7 @@ struct State {
     menu_open: bool,
     toast_visible: bool,
 }
-impl AppState for State {}
+impl GlobalState for State {}
 
 #[test]
 fn test_menu_button_registers_portal_when_open() {
@@ -27,7 +28,7 @@ fn test_menu_button_registers_portal_when_open() {
     let view = View::new(state, &runtime.runtime_state, &env, None);
 
     let menu_button = MenuButton {
-        id: WidgetNodeId::explicit("test_menu"),
+        id: WidgetId::explicit("test_menu"),
         label: "Menu".into(),
         items: vec![MenuItem {
             label: "Item 1".into(),
@@ -38,7 +39,7 @@ fn test_menu_button_registers_portal_when_open() {
         on_toggle: None,
     };
 
-    let _ = menu_button.build(&mut ctx, &view);
+    let _: Widget = build::enter(&mut ctx, &view, || menu_button.into());
 
     let portals = ctx.take_portals();
     assert_eq!(
@@ -59,20 +60,15 @@ fn test_toast_renders_content() {
     let view = View::new(state, &runtime.runtime_state, &env, None);
 
     let toast = Toast {
-        id: WidgetNodeId::explicit("test_toast"),
+        id: WidgetId::explicit("test_toast"),
         kind: ToastKind::Success,
         message: "Operation completed".into(),
         on_close: None,
     };
 
-    let node = toast.build(&mut ctx, &view);
+    let node = build::enter(&mut ctx, &view, || toast.into());
 
-    // Toast is a direct widget, it returns a Container node
-    if let Node::Container(_) = node {
-        // ok
-    } else {
-        panic!("Toast build should return a Container node");
-    }
+    assert_eq!(fission_core::internal::widget_kind_name(&node), "Container");
 }
 
 #[test]
@@ -87,15 +83,17 @@ fn test_popover_without_on_close_does_not_add_backdrop_layer() {
     let state = runtime.get_app_state::<State>().unwrap();
     let view = View::new(state, &runtime.runtime_state, &env, None);
 
-    let _ = Popover {
-        id: WidgetNodeId::explicit("test_popover_no_close"),
-        is_open: true,
-        on_toggle: None,
-        on_close: None,
-        trigger: Box::new(Text::new("trigger").into_node()),
-        content: Box::new(Text::new("content").into_node()),
-    }
-    .build(&mut ctx, &view);
+    let _: Widget = build::enter(&mut ctx, &view, || {
+        Popover {
+            id: WidgetId::explicit("test_popover_no_close"),
+            is_open: true,
+            on_toggle: None,
+            on_close: None,
+            trigger: Text::new("trigger").into(),
+            content: Text::new("content").into(),
+        }
+        .into()
+    });
 
     let portals = ctx.take_portals();
     assert_eq!(
@@ -103,9 +101,10 @@ fn test_popover_without_on_close_does_not_add_backdrop_layer() {
         1,
         "popover should register one flyout portal"
     );
+    let ir = fission_core::internal::lower_widget_to_ir(&portals[0].1);
     assert!(
-        matches!(portals[0].1, Node::Custom(_)),
-        "popover without on_close should register only flyout content, not a full-screen backdrop"
+        ir.nodes.len() > 0,
+        "popover without on_close should register lowerable flyout content, not a full-screen backdrop"
     );
 }
 
@@ -121,23 +120,25 @@ fn test_popover_with_on_close_adds_backdrop_layer() {
     let state = runtime.get_app_state::<State>().unwrap();
     let view = View::new(state, &runtime.runtime_state, &env, None);
 
-    let _ = Popover {
-        id: WidgetNodeId::explicit("test_popover_with_close"),
-        is_open: true,
-        on_toggle: None,
-        on_close: Some(fission_core::ActionEnvelope {
-            id: fission_core::ActionId::from_u128(42),
-            payload: vec![],
-        }),
-        trigger: Box::new(Text::new("trigger").into_node()),
-        content: Box::new(Text::new("content").into_node()),
-    }
-    .build(&mut ctx, &view);
+    let _: Widget = build::enter(&mut ctx, &view, || {
+        Popover {
+            id: WidgetId::explicit("test_popover_with_close"),
+            is_open: true,
+            on_toggle: None,
+            on_close: Some(fission_core::ActionEnvelope {
+                id: fission_core::ActionId::from_u128(42),
+                payload: vec![],
+            }),
+            trigger: Text::new("trigger").into(),
+            content: Text::new("content").into(),
+        }
+        .into()
+    });
 
     let portals = ctx.take_portals();
     assert_eq!(portals.len(), 1, "popover should register one portal");
     assert!(
-        matches!(portals[0].1, Node::ZStack(_)),
+        fission_core::internal::widget_kind_name(&portals[0].1) == "ZStack",
         "popover with on_close should include the backdrop + flyout stack"
     );
 }

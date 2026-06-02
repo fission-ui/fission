@@ -1,5 +1,4 @@
-use fission_core::ui::{Container, Node};
-use fission_core::{BuildCtx, View, Widget};
+use fission_core::ui::{Container, Widget};
 use serde::{Deserialize, Serialize};
 
 /// The direction of a [`Divider`] line.
@@ -25,16 +24,19 @@ pub struct Divider {
     pub orientation: Orientation,
 }
 
-impl<S: fission_core::AppState> Widget<S> for Divider {
-    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let tokens = &view.env.theme.tokens;
+impl From<Divider> for Widget {
+    fn from(component: Divider) -> Self {
+        let (_, view) = fission_core::build::current::<()>();
+        let this = &component;
 
-        let (w, h) = match self.orientation {
+        let tokens = &view.env().theme.tokens;
+
+        let (w, h) = match this.orientation {
             Orientation::Horizontal => (f32::NAN, 1.0), // Auto width
             Orientation::Vertical => (1.0, f32::NAN),   // Auto height
         };
 
-        let mut c = Container::new(fission_core::ui::Row::default().into()) // Empty
+        let mut c = Container::new(fission_core::ui::Row::default()) // Empty
             .bg(tokens.colors.border);
 
         if w.is_nan() {
@@ -51,6 +53,6 @@ impl<S: fission_core::AppState> Widget<S> for Divider {
 
         c = c.flex_grow(1.0);
 
-        c.into_node()
+        c.into()
     }
 }

@@ -1,9 +1,9 @@
-use crate::lowering::{wrap_zstack_child, LoweringContext, NodeBuilder};
-use crate::ui::traits::Lower;
+use crate::internal::InternalLower;
+use crate::lowering::{wrap_zstack_child, InternalIrBuilder, InternalLoweringCx};
 use crate::ActionEnvelope;
 use fission_ir::{
     op::{Color, LayoutOp, Op, PaintOp},
-    NodeId,
+    WidgetId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// ```rust,ignore
 /// Switch {
-///     checked: view.state.dark_mode,
+///     checked: view.state().dark_mode,
 ///     on_toggle: Some(ctx.bind(ToggleDarkMode, reduce_with!(handler))),
 ///     ..Default::default()
 /// }
@@ -25,22 +25,18 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Switch {
     /// Explicit node identity.
-    pub id: Option<NodeId>,
+    pub id: Option<WidgetId>,
     /// Current on/off state.
     pub checked: bool,
     /// Action dispatched when the switch is tapped.
     pub on_toggle: Option<ActionEnvelope>,
 }
 
-impl Switch {
-    pub fn into_node(self) -> crate::ui::Node {
-        crate::ui::Node::Switch(self)
-    }
-}
+impl Switch {}
 
-impl Lower for Switch {
-    fn lower(&self, cx: &mut LoweringContext) -> NodeId {
-        let id = self.id.unwrap_or_else(|| cx.next_node_id());
+impl InternalLower for Switch {
+    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+        let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         cx.push_scope(id);
 
         let tokens = &cx.env.theme.tokens;
@@ -63,7 +59,7 @@ impl Lower for Switch {
             corner_radius: height / 2.0,
             shadow: None,
         });
-        let track_node = NodeBuilder::new(cx.next_node_id(), track_paint).build(cx);
+        let track_node = InternalIrBuilder::new(cx.next_node_id(), track_paint).build(cx);
 
         // Thumb
         let thumb_paint = Op::Paint(PaintOp::DrawRect {
@@ -81,7 +77,7 @@ impl Lower for Switch {
                 offset: (0.0, 1.0),
             }),
         });
-        let thumb_paint_node = NodeBuilder::new(cx.next_node_id(), thumb_paint).build(cx);
+        let thumb_paint_node = InternalIrBuilder::new(cx.next_node_id(), thumb_paint).build(cx);
 
         let left_padding = if self.checked {
             width - thumb_size - padding
@@ -89,7 +85,7 @@ impl Lower for Switch {
             padding
         };
 
-        let mut thumb_wrapper = NodeBuilder::new(
+        let mut thumb_wrapper = InternalIrBuilder::new(
             cx.next_node_id(),
             Op::Layout(LayoutOp::Box {
                 width: Some(thumb_size),
@@ -111,13 +107,13 @@ impl Lower for Switch {
         let layout_id = cx.next_node_id();
         let bg_id = {
             let mut bg_fill =
-                NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::AbsoluteFill));
+                InternalIrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::AbsoluteFill));
             bg_fill.add_child(track_node);
             bg_fill.build(cx)
         };
 
         let content_id = {
-            let mut thumb_track = NodeBuilder::new(
+            let mut thumb_track = InternalIrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::Box {
                     width: Some(width),
@@ -141,7 +137,7 @@ impl Lower for Switch {
         let content_wrapped = wrap_zstack_child(cx, content_id);
         cx.pop_scope();
 
-        let mut root = NodeBuilder::new(layout_id, Op::Layout(LayoutOp::ZStack));
+        let mut root = InternalIrBuilder::new(layout_id, Op::Layout(LayoutOp::ZStack));
         root.add_child(bg_wrapped);
         root.add_child(content_wrapped);
         root.build(cx);
@@ -203,7 +199,7 @@ impl Lower for Switch {
             });
         }
 
-        let mut sem_node = NodeBuilder::new(id, Op::Semantics(semantics));
+        let mut sem_node = InternalIrBuilder::new(id, Op::Semantics(semantics));
         sem_node.add_child(layout_id);
         sem_node.build(cx)
     }

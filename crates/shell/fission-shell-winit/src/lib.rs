@@ -6,6 +6,7 @@
 
 use anyhow::Result;
 use base64::Engine;
+use fission_core::internal::BuildCtx;
 use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -30,18 +31,18 @@ use winit::{
 };
 
 use fission_core::env::{VideoStatus, WindowInsets};
-use fission_core::lowering::LoweringContext;
-use fission_core::ui::custom_render::downcast_render_object;
+use fission_core::internal::downcast_render_object;
+use fission_core::internal::InternalLoweringCx;
 use fission_core::{
-    Action, ActionId, ActionRegistry, AppState, BuildCtx, DeepLink, DeepLinkConfig,
-    DeepLinkReceived, Env, InputEvent, KeyCode, KeyEvent as FissionKeyEvent, NotificationResponse,
+    Action, ActionId, ActionRegistry, DeepLink, DeepLinkConfig, DeepLinkReceived, Env, GlobalState,
+    InputEvent, KeyCode, KeyEvent as FissionKeyEvent, NotificationResponse,
     NotificationResponseReceived, OpenUrlRequest, PointerButton, PointerEvent, Runtime,
-    RuntimeEffect, ServiceBindings, View, Widget, OPEN_URL,
+    RuntimeEffect, ServiceBindings, View, Widget, WidgetIdExt, OPEN_URL,
 };
 use fission_core::{ActionInput, CapabilityInvocationPayload, Effect};
 use fission_diagnostics::prelude as diag;
 use fission_ir::semantics::MouseCursor;
-use fission_ir::{CoreIR, NodeId, Op, WidgetNodeId};
+use fission_ir::{CoreIR, Op, WidgetId};
 use fission_layout::{LayoutEngine, LayoutSize};
 use fission_render::{LayoutPoint, LayoutRect, Renderer as _};
 use fission_render_vello::parley::FontContext;
@@ -123,7 +124,7 @@ pub mod tray;
 #[cfg(feature = "tray")]
 pub use tray::{
     TrayActivateBehavior, TrayConfig, TrayHostAction, TrayIconSource, TrayMenu, TrayMenuAction,
-    TrayMenuEntry, TrayMenuItem, TrayMenuWidget, WindowCloseBehavior,
+    TrayMenuBuilder, TrayMenuEntry, TrayMenuItem, WindowCloseBehavior,
 };
 pub mod test_control;
 mod wifi;
@@ -663,12 +664,7 @@ fn native_renderer_request() -> RendererRequest {
     let force_cpu_vello = std::env::var("FISSION_VELLO_USE_CPU")
         .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
         .unwrap_or(false);
-    let force_software_renderer = std::env::var("FISSION_FORCE_SOFTWARE_RENDERER")
-        .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
-        .unwrap_or(false);
-    if force_software_renderer {
-        RendererRequest::NativeSoftware
-    } else if force_cpu_vello {
+    if force_cpu_vello {
         RendererRequest::NativeVelloCpu
     } else {
         request
@@ -1689,7 +1685,7 @@ fn drain_effect_results(
                 if let Some(action) = on_ok {
                     let _ = runtime.dispatch_with_input(
                         action,
-                        NodeId::derived(0, &[0]),
+                        WidgetId::from_u128(0),
                         &ActionInput::JobOk {
                             job_name,
                             req_id,
@@ -1715,7 +1711,7 @@ fn drain_effect_results(
                 if let Some(action) = on_err {
                     let _ = runtime.dispatch_with_input(
                         action,
-                        NodeId::derived(0, &[0]),
+                        WidgetId::from_u128(0),
                         &ActionInput::JobErr {
                             job_name,
                             req_id,
@@ -1750,7 +1746,7 @@ fn drain_effect_results(
                     if let Some(action) = bindings.on_started.clone() {
                         let _ = runtime.dispatch_with_input(
                             action,
-                            NodeId::derived(0, &[0]),
+                            WidgetId::from_u128(0),
                             &ActionInput::ServiceStarted {
                                 service_name,
                                 slot_key,
@@ -1787,7 +1783,7 @@ fn drain_effect_results(
                     if let Some(action) = bindings.and_then(|bindings| bindings.on_start_failed) {
                         let _ = runtime.dispatch_with_input(
                             action,
-                            NodeId::derived(0, &[0]),
+                            WidgetId::from_u128(0),
                             &ActionInput::ServiceStartFailed {
                                 service_name,
                                 slot_key,
@@ -1824,7 +1820,7 @@ fn drain_effect_results(
                     if let Some(action) = bindings.on_event.clone() {
                         let _ = runtime.dispatch_with_input(
                             action,
-                            NodeId::derived(0, &[0]),
+                            WidgetId::from_u128(0),
                             &ActionInput::ServiceEvent {
                                 service_name,
                                 slot_key,
@@ -1862,7 +1858,7 @@ fn drain_effect_results(
                     if let Some(action) = bindings.and_then(|bindings| bindings.on_stopped) {
                         let _ = runtime.dispatch_with_input(
                             action,
-                            NodeId::derived(0, &[0]),
+                            WidgetId::from_u128(0),
                             &ActionInput::ServiceStopped {
                                 service_name,
                                 slot_key,
@@ -1897,7 +1893,7 @@ fn drain_effect_results(
                 if let Some(action) = on_ok {
                     let _ = runtime.dispatch_with_input(
                         action,
-                        NodeId::derived(0, &[0]),
+                        WidgetId::from_u128(0),
                         &ActionInput::ServiceCommandOk {
                             service_name,
                             slot_key,
@@ -1936,7 +1932,7 @@ fn drain_effect_results(
                 if let Some(action) = on_err {
                     let _ = runtime.dispatch_with_input(
                         action,
-                        NodeId::derived(0, &[0]),
+                        WidgetId::from_u128(0),
                         &ActionInput::ServiceCommandErr {
                             service_name,
                             slot_key,
@@ -1964,7 +1960,7 @@ fn drain_effect_results(
                 if let Some(action) = on_ok {
                     let _ = runtime.dispatch_with_input(
                         action,
-                        NodeId::derived(0, &[0]),
+                        WidgetId::from_u128(0),
                         &ActionInput::CapabilityOk {
                             capability: capability_name,
                             req_id,
@@ -1990,7 +1986,7 @@ fn drain_effect_results(
                 if let Some(action) = on_err {
                     let _ = runtime.dispatch_with_input(
                         action,
-                        NodeId::derived(0, &[0]),
+                        WidgetId::from_u128(0),
                         &ActionInput::CapabilityErr {
                             capability: capability_name,
                             req_id,
@@ -2007,7 +2003,7 @@ fn drain_effect_results(
     dispatched
 }
 
-fn focused_text_input_id(runtime: &Runtime, ir: Option<&CoreIR>) -> Option<NodeId> {
+fn focused_text_input_id(runtime: &Runtime, ir: Option<&CoreIR>) -> Option<WidgetId> {
     let focused = runtime.runtime_state.interaction.focused?;
     let ir = ir?;
     let mut current = Some(focused);
@@ -2071,7 +2067,7 @@ fn reset_text_input_caret(
 struct PendingTextTrace {
     seq: u64,
     source: String,
-    target: Option<NodeId>,
+    target: Option<WidgetId>,
     started_at: Instant,
     handled_at: Option<Instant>,
     effects_at: Option<Instant>,
@@ -2083,7 +2079,7 @@ fn start_text_trace(
     traces: &mut VecDeque<PendingTextTrace>,
     next_seq: &mut u64,
     source: String,
-    target: Option<NodeId>,
+    target: Option<WidgetId>,
     presented_frames: u64,
 ) -> Option<u64> {
     if !enabled {
@@ -2122,7 +2118,7 @@ fn mark_text_trace_effects(traces: &mut VecDeque<PendingTextTrace>, seq: Option<
 fn set_text_trace_target(
     traces: &mut VecDeque<PendingTextTrace>,
     seq: Option<u64>,
-    target: Option<NodeId>,
+    target: Option<WidgetId>,
 ) {
     if let Some(seq) = seq {
         if let Some(trace) = traces.iter_mut().rev().find(|trace| trace.seq == seq) {
@@ -2620,7 +2616,7 @@ fn parse_key_code(key: &str) -> KeyCode {
 /// TestEvent::KeyDown / TestEvent::TextInput.
 ///
 /// Returns `true` if the app key handler consumed the event.
-fn handle_key_down<S: AppState>(
+fn handle_key_down<S: GlobalState>(
     code: KeyCode,
     modifiers: u8,
     runtime: &mut Runtime,
@@ -2653,7 +2649,7 @@ fn handle_key_down<S: AppState>(
     // App-level key handler intercepts before framework
     if let Some(handler) = key_handler {
         let handler = handler.clone();
-        if let Some(state) = runtime.get_app_state_mut::<S>() {
+        if let Some(state) = runtime.get_global_state_mut::<S>() {
             if handler(state, &code, modifiers) {
                 if process_pending_effects(
                     runtime,
@@ -2753,7 +2749,7 @@ fn visual_rect_for_node(
     ir: &CoreIR,
     snap: &fission_layout::LayoutSnapshot,
     scroll: &fission_core::ScrollStateMap,
-    node_id: NodeId,
+    node_id: WidgetId,
 ) -> Option<LayoutRect> {
     let mut rect = snap.get_node_rect(node_id)?;
     let mut current = ir.nodes.get(&node_id).and_then(|node| node.parent);
@@ -2777,7 +2773,7 @@ fn rect_visible_in_scroll_ancestors(
     ir: &CoreIR,
     snap: &fission_layout::LayoutSnapshot,
     scroll: &fission_core::ScrollStateMap,
-    node_id: NodeId,
+    node_id: WidgetId,
     rect: LayoutRect,
 ) -> bool {
     let viewport = LayoutRect::new(
@@ -2966,19 +2962,17 @@ fn handle_tap_text(
 }
 
 fn wrap_portal_for_viewport(
-    id: Option<WidgetNodeId>,
-    node: fission_core::Node,
+    id: Option<WidgetId>,
+    node: fission_core::Widget,
     env: &Env,
-) -> fission_core::Node {
+) -> fission_core::Widget {
     let builder = fission_core::ui::Container::new(node)
         .width(env.viewport_size.width)
         .height(env.viewport_size.height);
     if let Some(id) = id {
-        builder
-            .id(fission_core::NodeId::derived(id.as_u128(), &[0x0000_F001]))
-            .into_node()
+        builder.id(fission_ir::WidgetId::derived(id.as_u128(), &[0x0000_F001]))
     } else {
-        builder.into_node()
+        builder.into()
     }
 }
 
@@ -3012,7 +3006,10 @@ fn texture_plans_fit_device_limits(
 pub type KeyHandler<S> = Arc<dyn Fn(&mut S, &fission_core::KeyCode, u8) -> bool + Send + Sync>;
 pub type FrameHook<S> = Arc<dyn Fn(&mut S) -> bool + Send + Sync>;
 
-pub struct WinitApp<S: AppState, W: Widget<S>> {
+pub struct WinitApp<S: GlobalState, W>
+where
+    W: Clone + Into<Widget>,
+{
     runtime: Runtime,
     layout_engine: LayoutEngine,
     root_widget: W,
@@ -3038,10 +3035,18 @@ pub struct WinitApp<S: AppState, W: Widget<S>> {
     _phantom: std::marker::PhantomData<S>,
 }
 
-impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
+impl<S, W> WinitApp<S, W>
+where
+    S: GlobalState + Default,
+    W: Clone + Into<Widget> + 'static,
+{
     pub fn new(root_widget: W) -> Self {
+        Self::new_with_global_state(root_widget, S::default())
+    }
+
+    pub fn new_with_global_state(root_widget: W, global_state: S) -> Self {
         let mut runtime = Runtime::default();
-        runtime.add_app_state(Box::new(S::default())).unwrap();
+        runtime.add_global_state(Box::new(global_state)).unwrap();
 
         const DEFAULT_FONT_FAMILY: &str = "Fission Default";
         let font_cx = Arc::new(Mutex::new(build_font_context()));
@@ -3098,6 +3103,13 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         }
     }
 
+    pub fn with_global_state(mut self, global_state: S) -> Self {
+        *self.runtime.get_global_state_mut::<S>().expect(
+            "Fission global state must be registered before WinitApp::with_global_state is called",
+        ) = global_state;
+        self
+    }
+
     pub fn with_key_handler<F>(mut self, handler: F) -> Self
     where
         F: Fn(&mut S, &fission_core::KeyCode, u8) -> bool + Send + Sync + 'static,
@@ -3127,7 +3139,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
     where
         F: FnOnce(&mut S),
     {
-        if let Some(state) = self.runtime.get_app_state_mut::<S>() {
+        if let Some(state) = self.runtime.get_global_state_mut::<S>() {
             init(state);
         }
         self
@@ -3435,7 +3447,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
     pub fn register_reducer(
         &mut self,
         action_id: ActionId,
-        reducer: fn(&mut S, &fission_core::ActionEnvelope, NodeId) -> Result<()>,
+        reducer: fission_core::action::Reducer<S>,
     ) -> Result<()> {
         self.runtime.register_reducer::<S>(action_id, reducer)
     }
@@ -3549,12 +3561,12 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
 
         let mut runtime = self.runtime;
         for link in startup_deep_links {
-            runtime.dispatch(DeepLinkReceived { link }.into(), NodeId::derived(0, &[0]))?;
+            runtime.dispatch(DeepLinkReceived { link }.into(), WidgetId::from_u128(0))?;
         }
         for response in startup_notification_responses {
             runtime.dispatch(
                 NotificationResponseReceived { response }.into(),
-                NodeId::derived(0, &[0]),
+                WidgetId::from_u128(0),
             )?;
         }
         let mut layout_engine = self.layout_engine;
@@ -3581,7 +3593,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         let web_backend = MacWebBackend::new(&platform_window);
         #[cfg(not(target_os = "macos"))]
         let web_backend = MockWebBackend::new();
-        let mut players: HashMap<WidgetNodeId, ActivePlayer> = HashMap::new();
+        let mut players: HashMap<WidgetId, ActivePlayer> = HashMap::new();
 
         let mut last_cursor_position: Option<PhysicalPosition<f64>> = None;
         let mut active_primary_touch: Option<u64> = None;
@@ -3629,7 +3641,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                 .unwrap_or(530),
         );
         let mut last_blink_toggle = Instant::now();
-        let mut blink_focus_id: Option<NodeId> = None;
+        let mut blink_focus_id: Option<WidgetId> = None;
         let text_trace_enabled = std::env::var("FISSION_TEXT_TRACE")
             .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
             .unwrap_or(false);
@@ -4615,7 +4627,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                         // Application frame hook (e.g. LSP polling).
                         let frame_hook_wants_redraw = if let Some(ref hook) = self.frame_hook {
                             let hook = hook.clone();
-                            if let Some(state) = runtime.get_app_state_mut::<S>() {
+                            if let Some(state) = runtime.get_global_state_mut::<S>() {
                                 hook(state)
                             } else {
                                 false
@@ -5247,7 +5259,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     window_safe_area_insets(window, viewport_state.scale_factor);
 
                                 if let Some(sync) = &self.sync_env {
-                                    let state = runtime.get_app_state::<S>().unwrap();
+                                    let state = runtime.get_global_state::<S>().unwrap();
                                     sync(state, &mut env);
                                 }
                                 let desired_window_title = env.window.title.plain_text();
@@ -5268,7 +5280,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         web_views,
                                         portals,
                                     ) = {
-                                        let state = runtime.get_app_state::<S>().unwrap();
+                                        let state = runtime.get_global_state::<S>().unwrap();
                                         let view = View::new(
                                             state,
                                             &runtime.runtime_state,
@@ -5276,7 +5288,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                             pipeline.last_snapshot.as_ref(),
                                         );
                                         let mut ctx = BuildCtx::new();
-                                        let node = root_widget.build(&mut ctx, &view);
+                                        let node =
+                                            fission_core::build::enter(&mut ctx, &view, || {
+                                                root_widget.clone().into()
+                                            });
                                         let resources = ctx.take_resources();
                                         let anims = ctx.take_animation_requests();
                                         let videos = ctx.take_video_registrations();
@@ -5339,7 +5354,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     if !startup_dispatched {
                                         if let Some(action) = startup_action.clone() {
                                             if let Err(err) =
-                                                runtime.dispatch(action, NodeId::derived(0, &[0]))
+                                                runtime.dispatch(action, WidgetId::from_u128(0))
                                             {
                                                 eprintln!("Startup action error: {:?}", err);
                                             }
@@ -5353,25 +5368,28 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     runtime.sync_video_nodes(&videos);
                                     runtime.sync_web_nodes(&web_views);
 
-                                    let final_root =
-                                        fission_core::Node::Overlay(fission_core::ui::Overlay {
+                                    let final_root: fission_core::Widget =
+                                        fission_core::ui::Overlay {
                                             id: None,
-                                            content: Box::new(node_tree),
-                                            overlay: Box::new(fission_core::Node::ZStack(
-                                                fission_core::ui::ZStack {
-                                                    children: portals,
-                                                    ..Default::default()
-                                                },
-                                            )),
-                                        });
+                                            content: node_tree,
+                                            overlay: fission_core::ui::ZStack {
+                                                children: portals,
+                                                ..Default::default()
+                                            }
+                                            .into(),
+                                        }
+                                        .into();
 
-                                    let mut lower_cx = LoweringContext::new(
+                                    let mut lower_cx = InternalLoweringCx::new(
                                         &env,
                                         &runtime.runtime_state,
                                         runtime.measurer.as_ref(),
                                         pipeline.last_snapshot.as_ref(),
                                     );
-                                    let root_id = final_root.lower(&mut lower_cx);
+                                    let root_id = fission_core::internal::lower_widget(
+                                        &final_root,
+                                        &mut lower_cx,
+                                    );
                                     lower_cx.ir.root = Some(root_id);
 
                                     let pipeline_invalidations =
@@ -6922,9 +6940,9 @@ mod tests {
     use crate::pipeline::CompositorTexturePlan;
     use crate::InvalidationSet;
     use fission_core::env::{ActiveAnimation, AnimationStateMap, ScrollStateMap};
-    use fission_core::{AnimationPropertyId, DeepLinkConfig, WidgetNodeId};
+    use fission_core::{AnimationPropertyId, DeepLinkConfig, WidgetId};
     use fission_ir::semantics::MouseCursor;
-    use fission_ir::{CoreIR, FlexDirection, LayoutOp, NodeId, Op};
+    use fission_ir::{CoreIR, FlexDirection, LayoutOp, Op};
     use fission_layout::{LayoutNodeGeometry, LayoutRect, LayoutSize, LayoutSnapshot};
     use std::collections::HashMap;
     use std::time::Duration;
@@ -7000,8 +7018,8 @@ mod tests {
 
     #[test]
     fn visual_rect_subtracts_ancestor_scroll_offset() {
-        let scroll = NodeId::from_u128(1);
-        let child = NodeId::from_u128(2);
+        let scroll = WidgetId::from_u128(1);
+        let child = WidgetId::from_u128(2);
         let mut ir = CoreIR::new();
         ir.add_node(
             child,
@@ -7108,11 +7126,11 @@ mod tests {
         let mut animation = AnimationStateMap::default();
         animation.active.insert(
             (
-                WidgetNodeId::explicit("spinner"),
+                WidgetId::explicit("spinner"),
                 AnimationPropertyId::opacity(),
             ),
             ActiveAnimation {
-                target: WidgetNodeId::explicit("spinner"),
+                target: WidgetId::explicit("spinner"),
                 property: AnimationPropertyId::opacity(),
                 start_value: 0.3,
                 end_value: 1.0,
@@ -7136,12 +7154,9 @@ mod tests {
             active: HashMap::new(),
         };
         animation.active.insert(
-            (
-                WidgetNodeId::explicit("slow"),
-                AnimationPropertyId::opacity(),
-            ),
+            (WidgetId::explicit("slow"), AnimationPropertyId::opacity()),
             ActiveAnimation {
-                target: WidgetNodeId::explicit("slow"),
+                target: WidgetId::explicit("slow"),
                 property: AnimationPropertyId::opacity(),
                 start_value: 0.3,
                 end_value: 1.0,
@@ -7153,12 +7168,9 @@ mod tests {
             },
         );
         animation.active.insert(
-            (
-                WidgetNodeId::explicit("fast"),
-                AnimationPropertyId::opacity(),
-            ),
+            (WidgetId::explicit("fast"), AnimationPropertyId::opacity()),
             ActiveAnimation {
-                target: WidgetNodeId::explicit("fast"),
+                target: WidgetId::explicit("fast"),
                 property: AnimationPropertyId::opacity(),
                 start_value: 0.3,
                 end_value: 1.0,

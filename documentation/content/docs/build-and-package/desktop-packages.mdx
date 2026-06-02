@@ -1,0 +1,49 @@
+---
+title: Desktop packages
+description: Package Fission desktop apps for Windows, macOS, and Linux.
+---
+
+# Desktop packages
+
+Desktop packaging takes the shared Fission app and gives it the operating-system metadata users expect: name, icon, bundle identity, installer shape, signing references, and a predictable artifact manifest.
+
+## 1. Check the desktop target
+
+Start with readiness. It catches missing target setup and packaging tools before the release build starts.
+
+```bash
+fission readiness package --project-dir . --target macos --format app
+fission readiness package --project-dir . --target windows --format msix
+fission readiness package --project-dir . --target linux --format run
+```
+
+Readiness should confirm the target exists in [`fission.toml`](/reference/config/fission-toml/), the app has usable icons, the package identity is present, and the platform tools needed for the selected format are available.
+
+## 2. Choose the package format
+
+| Target | Format | Use it for |
+| --- | --- | --- |
+| macOS | `.app` | Local app-bundle validation and direct distribution. |
+| macOS | `.pkg` | Installer-based distribution and managed deployment. |
+| Windows | `.exe` | Direct installer flow. |
+| Windows | `.msi` | Enterprise or managed Windows installer flow. |
+| Windows | `.msix` | Microsoft Store and modern Windows package identity workflows. |
+| Linux | `.run` | Self-contained Linux installer artifact. |
+
+Use the smallest format that proves the next step. For example, use `.app` while validating icon, dock, and permission behavior on macOS; move to `.pkg` when installer behavior matters.
+
+## 3. Build the package
+
+```bash
+fission package --project-dir . --target macos --format app --release
+```
+
+The package command writes the platform artifact and an `artifact-manifest.json` under `target/fission/release/<target>/<format>/`. Use that manifest for release commands instead of passing a raw file path.
+
+## 4. Verify the result
+
+Open or install the produced package on the target operating system. Check the app name, icon, dock or taskbar behavior, permission prompts, window title, and any capability the app needs. Packaging is not complete until the installed app behaves like an app, not like an unnamed development binary.
+
+## Next steps
+
+Read [Release and distribute](/docs/release-and-distribute/overview/) when the desktop artifact is ready to upload. For exact manifest fields, use the [`fission.toml` reference](/reference/config/fission-toml/).

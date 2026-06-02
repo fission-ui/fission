@@ -1,7 +1,7 @@
-use crate::lowering::{LoweringContext, NodeBuilder};
-use crate::ui::traits::Lower;
-use crate::ui::Node;
-use fission_ir::{LayoutOp, NodeId, Op};
+use crate::internal::InternalLower;
+use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::ui::Widget;
+use fission_ir::{LayoutOp, Op, WidgetId};
 use serde::{Deserialize, Serialize};
 
 /// Centers its child within the available parent space.
@@ -12,37 +12,33 @@ use serde::{Deserialize, Serialize};
 /// # Example
 ///
 /// ```rust,ignore
-/// Align::new(Text::new("Centered!").into_node())
+/// Align::new(Text::new("Centered!"))
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Align {
     /// Explicit node identity.
-    pub id: Option<NodeId>,
+    pub id: Option<WidgetId>,
     /// The child widget to center.
-    pub child: Box<Node>,
+    pub child: Widget,
 }
 
 impl Align {
-    pub fn new(child: Node) -> Self {
+    pub fn new(child: impl Into<Widget>) -> Self {
         Self {
-            child: Box::new(child),
+            child: child.into(),
             id: None,
         }
     }
-
-    pub fn into_node(self) -> Node {
-        Node::Align(self)
-    }
 }
 
-impl Lower for Align {
-    fn lower(&self, cx: &mut LoweringContext) -> NodeId {
-        let id = self.id.unwrap_or_else(|| cx.next_node_id());
+impl InternalLower for Align {
+    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+        let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         cx.push_scope(id);
         let child_id = self.child.lower(cx);
         cx.pop_scope();
 
-        let mut builder = NodeBuilder::new(id, Op::Layout(LayoutOp::Align));
+        let mut builder = InternalIrBuilder::new(id, Op::Layout(LayoutOp::Align));
         builder.add_child(child_id);
         builder.build(cx)
     }

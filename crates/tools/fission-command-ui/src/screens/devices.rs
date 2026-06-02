@@ -9,9 +9,10 @@ use fission::prelude::*;
 #[derive(Clone)]
 pub struct DevicesScreen;
 
-impl Widget<UiState> for DevicesScreen {
-    fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
-        let palette = UiPalette::for_mode(view.state.theme_mode);
+impl From<DevicesScreen> for Widget {
+    fn from(_component: DevicesScreen) -> Self {
+        let (ctx, view) = fission::build::current::<UiState>();
+        let palette = UiPalette::for_mode(view.state().theme_mode);
         let refresh = with_reducer!(ctx, RequestCommand(UiCommand::Refresh), request_command);
         Column {
             gap: Some(1.0),
@@ -25,26 +26,26 @@ impl Widget<UiState> for DevicesScreen {
                 Row {
                     gap: Some(2.0),
                     children: vec![
-                        KeyValueRow::new("Selected target", view.state.selected_target_label())
-                            .build(ctx, view),
-                        KeyValueRow::new("Selected device", view.state.selected_device_label())
-                            .build(ctx, view),
+                        KeyValueRow::new("Selected target", view.state().selected_target_label())
+                            .into(),
+                        KeyValueRow::new("Selected device", view.state().selected_device_label())
+                            .into(),
                         ActionButton::new("Refresh devices", refresh)
                             .tone(ButtonTone::Primary)
-                            .build(ctx, view),
+                            .into(),
                     ],
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
                 DeviceTable {
-                    devices: view.state.devices.clone(),
+                    devices: view.state().devices.clone(),
                     selectable: true,
                     max_rows: 12,
                 }
-                .build(ctx, view),
+                .into(),
             ],
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 }

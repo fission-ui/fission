@@ -1,11 +1,12 @@
+use fission_core::internal::BuildCtx;
 use fission_core::ui::widgets::spacer::Spacer;
-use fission_core::{AppState, BuildCtx, Node, View, Widget};
+use fission_core::{build, GlobalState, View};
 use fission_widgets::dropzone::Dropzone;
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq)]
 struct TestState;
-impl AppState for TestState {}
+impl GlobalState for TestState {}
 
 #[test]
 fn test_dropzone_structure() {
@@ -16,12 +17,15 @@ fn test_dropzone_structure() {
     let mut ctx = BuildCtx::<TestState>::new();
 
     let dropzone = Dropzone {
-        child: Box::new(Spacer::default().into_node()),
+        child: Spacer::default().into(),
         on_drop: None,
         on_drag_enter: None,
         on_drag_leave: None,
     };
 
-    let node = dropzone.build(&mut ctx, &view);
-    assert!(matches!(node, Node::GestureDetector(_)));
+    let node = build::enter(&mut ctx, &view, || dropzone.into());
+    assert_eq!(
+        fission_core::internal::widget_kind_name(&node),
+        "GestureDetector"
+    );
 }

@@ -13,7 +13,7 @@ use fission_ir::FlexDirection;
 use fission_ir::{
     op::{self, decode_text_paragraph_style, LayoutOp, Op, TextAlign, TextParagraphStyle},
     semantics::{InputFormatter, MaxLengthEnforcement, TextCapitalization, TextInputType},
-    NodeId, Semantics,
+    Semantics, WidgetId,
 };
 use serde_json;
 use unicode_segmentation::UnicodeSegmentation;
@@ -1119,7 +1119,7 @@ impl TextInputController {
 
     fn runtime_config(
         ctx: &ControllerContext,
-        focused_id: NodeId,
+        focused_id: WidgetId,
     ) -> Option<crate::ui::widgets::text_input::TextInputRuntimeConfig> {
         ctx.ir
             .custom_render_objects
@@ -1128,13 +1128,13 @@ impl TextInputController {
             .cloned()
     }
 
-    fn drag_start_behavior(ctx: &ControllerContext, focused_id: NodeId) -> DragStartBehavior {
+    fn drag_start_behavior(ctx: &ControllerContext, focused_id: WidgetId) -> DragStartBehavior {
         Self::runtime_config(ctx, focused_id)
             .map(|cfg| cfg.drag_start_behavior)
             .unwrap_or_default()
     }
 
-    fn sync_runtime_state(ctx: &mut ControllerContext, focused_id: NodeId, semantic_value: &str) {
+    fn sync_runtime_state(ctx: &mut ControllerContext, focused_id: WidgetId, semantic_value: &str) {
         let runtime = Self::runtime_config(ctx, focused_id);
         ctx.text_edit.sync_from_runtime(
             focused_id,
@@ -1148,7 +1148,7 @@ impl TextInputController {
         );
     }
 
-    fn persist_runtime_state(ctx: &mut ControllerContext, focused_id: NodeId) {
+    fn persist_runtime_state(ctx: &mut ControllerContext, focused_id: WidgetId) {
         let runtime = Self::runtime_config(ctx, focused_id);
         ctx.text_edit.persist_restoration(
             focused_id,
@@ -1200,8 +1200,8 @@ impl TextInputController {
 
     fn node_or_ancestor_matches(
         ir: &fission_ir::CoreIR,
-        node_id: NodeId,
-        expected: NodeId,
+        node_id: WidgetId,
+        expected: WidgetId,
     ) -> bool {
         let mut current = Some(node_id);
         while let Some(id) = current {
@@ -1215,8 +1215,8 @@ impl TextInputController {
 
     fn toolbar_action_hit(
         ir: &fission_ir::CoreIR,
-        focused_id: NodeId,
-        hit_node_id: NodeId,
+        focused_id: WidgetId,
+        hit_node_id: WidgetId,
     ) -> Option<TextContextMenuAction> {
         for action in [
             TextContextMenuAction::Copy,
@@ -1237,8 +1237,8 @@ impl TextInputController {
 
     fn selection_handle_hit(
         ir: &fission_ir::CoreIR,
-        focused_id: NodeId,
-        hit_node_id: NodeId,
+        focused_id: WidgetId,
+        hit_node_id: WidgetId,
     ) -> Option<TextSelectionHandleKind> {
         for kind in [
             TextSelectionHandleKind::Caret,
@@ -1279,7 +1279,7 @@ impl TextInputController {
 
     fn input_wrapper_geometry<'a>(
         ctx: &'a ControllerContext<'_>,
-        focused_id: NodeId,
+        focused_id: WidgetId,
     ) -> Option<&'a fission_layout::LayoutNodeGeometry> {
         let wrapper_id = ctx.ir.nodes.get(&focused_id)?.children.first().copied()?;
         ctx.layout.get_node_geometry(wrapper_id)
@@ -1299,7 +1299,7 @@ impl TextInputController {
     fn local_text_point_for_index(
         measurer: &std::sync::Arc<dyn fission_layout::TextMeasurer>,
         ir: &fission_ir::CoreIR,
-        focused_id: NodeId,
+        focused_id: WidgetId,
         wrapper_geom: &fission_layout::LayoutNodeGeometry,
         scroll_geom: &fission_layout::LayoutNodeGeometry,
         scroll_direction: FlexDirection,
@@ -1343,7 +1343,7 @@ impl TextInputController {
         Some(fission_layout::LayoutPoint::new(local_x, local_y))
     }
 
-    fn clear_text_input_affordances(ctx: &mut ControllerContext, focused_id: NodeId) {
+    fn clear_text_input_affordances(ctx: &mut ControllerContext, focused_id: WidgetId) {
         if let Some(state) = ctx.text_edit.states.get_mut(&focused_id) {
             state.affordances = Default::default();
         }
@@ -1351,7 +1351,7 @@ impl TextInputController {
 
     fn sync_text_input_affordances(
         ctx: &mut ControllerContext,
-        focused_id: NodeId,
+        focused_id: WidgetId,
         semantics: &Semantics,
         value: &str,
         toolbar_visible: bool,
@@ -1481,7 +1481,7 @@ impl TextInputController {
 
     fn current_line_bounds(
         ctx: &ControllerContext,
-        focused_id: NodeId,
+        focused_id: WidgetId,
         semantics: &Semantics,
         value: &str,
         caret: usize,
@@ -1606,7 +1606,7 @@ impl TextInputController {
                 InputFormatter::AsciiOnly => {
                     out = out.chars().filter(|ch| ch.is_ascii()).collect();
                 }
-                InputFormatter::Lowercase => {
+                InputFormatter::InternalLowercase => {
                     out = out.to_lowercase();
                 }
                 InputFormatter::Uppercase => {
@@ -1740,7 +1740,7 @@ impl TextInputController {
         &self,
         ctx: &mut ControllerContext,
         semantics: &fission_ir::Semantics,
-        node_id: NodeId,
+        node_id: WidgetId,
         new_text: String,
     ) {
         Self::persist_runtime_state(ctx, node_id);
@@ -1768,7 +1768,7 @@ impl TextInputController {
     fn dispatch_cursor_change(
         ctx: &mut ControllerContext,
         semantics: &fission_ir::Semantics,
-        node_id: NodeId,
+        node_id: WidgetId,
         new_caret: usize,
         new_anchor: usize,
     ) {
@@ -1812,7 +1812,7 @@ impl TextInputController {
     fn dispatch_submit(
         ctx: &mut ControllerContext,
         semantics: &fission_ir::Semantics,
-        node_id: NodeId,
+        node_id: WidgetId,
         current_value: &str,
     ) -> bool {
         let mut dispatched = false;
@@ -1834,7 +1834,7 @@ impl TextInputController {
     fn dispatch_action_for_trigger(
         ctx: &mut ControllerContext,
         semantics: &fission_ir::Semantics,
-        node_id: NodeId,
+        node_id: WidgetId,
         trigger: fission_ir::semantics::ActionTrigger,
         fallback_payload: Option<Vec<u8>>,
     ) -> bool {
@@ -1862,7 +1862,7 @@ impl TextInputController {
 
     fn resolve_editing_value(
         ctx: &mut ControllerContext,
-        focused_id: NodeId,
+        focused_id: WidgetId,
         semantic_value: &str,
     ) -> (String, usize, usize) {
         Self::sync_runtime_state(ctx, focused_id, semantic_value);
@@ -1873,7 +1873,7 @@ impl TextInputController {
 
     fn display_value_for_metrics(
         ctx: &mut ControllerContext,
-        focused_id: NodeId,
+        focused_id: WidgetId,
         semantic_value: &str,
     ) -> String {
         Self::sync_runtime_state(ctx, focused_id, semantic_value);
@@ -1976,9 +1976,9 @@ impl TextInputController {
 
     fn find_scroll_container_and_text_op(
         ir: &fission_ir::CoreIR,
-        root: NodeId,
+        root: WidgetId,
         multiline_semantics: bool,
-    ) -> Option<(NodeId, NodeId, op::FlexDirection)> {
+    ) -> Option<(WidgetId, WidgetId, op::FlexDirection)> {
         let mut stack = vec![root];
         while let Some(id) = stack.pop() {
             if let Some(n) = ir.nodes.get(&id) {
@@ -2016,11 +2016,11 @@ impl TextInputController {
     /// Extract rich text runs from the TextInput's DrawRichText child.
     fn extract_rich_runs(
         ir: &fission_ir::CoreIR,
-        semantics_id: NodeId,
+        semantics_id: WidgetId,
     ) -> Option<Vec<fission_ir::op::TextRun>> {
         fn walk(
             ir: &fission_ir::CoreIR,
-            node_id: NodeId,
+            node_id: WidgetId,
             depth: usize,
         ) -> Option<Vec<fission_ir::op::TextRun>> {
             if depth > 20 {
@@ -2045,9 +2045,9 @@ impl TextInputController {
     }
 
     /// Extract the font size from the TextInput's DrawRichText or DrawText child.
-    fn extract_font_size(ir: &fission_ir::CoreIR, semantics_id: NodeId) -> Option<f32> {
+    fn extract_font_size(ir: &fission_ir::CoreIR, semantics_id: WidgetId) -> Option<f32> {
         // Walk children of the semantics node to find a text paint op
-        fn walk(ir: &fission_ir::CoreIR, node_id: NodeId, depth: usize) -> Option<f32> {
+        fn walk(ir: &fission_ir::CoreIR, node_id: WidgetId, depth: usize) -> Option<f32> {
             if depth > 10 {
                 return None;
             }
@@ -2079,7 +2079,7 @@ impl TextInputController {
     fn hit_test_text(
         measurer: &std::sync::Arc<dyn fission_layout::TextMeasurer>,
         ir: &fission_ir::CoreIR,
-        focused_id: NodeId,
+        focused_id: WidgetId,
         prefer_plain_text: bool,
         text: &str,
         scroll_geom: &fission_layout::LayoutNodeGeometry,
@@ -2129,7 +2129,7 @@ impl TextInputController {
         0
     }
 
-    fn auto_scroll_textinput(ctx: &mut ControllerContext, text_root: NodeId) {
+    fn auto_scroll_textinput(ctx: &mut ControllerContext, text_root: WidgetId) {
         let font_size = Self::extract_font_size(ctx.ir, text_root).unwrap_or(16.0);
         if let Some(measurer) = ctx.measurer {
             // Need to get multiline status from semantics here
@@ -2273,7 +2273,7 @@ impl TextInputController {
     fn handle_vertical_navigation(
         &mut self,
         ctx: &mut ControllerContext,
-        focused_id: NodeId,
+        focused_id: WidgetId,
         semantics: &Semantics,
         value: &str,
         caret: usize,
@@ -2353,7 +2353,7 @@ impl TextInputController {
     fn handle_page_navigation(
         &mut self,
         ctx: &mut ControllerContext,
-        focused_id: NodeId,
+        focused_id: WidgetId,
         semantics: &Semantics,
         value: &str,
         caret: usize,
@@ -2438,11 +2438,11 @@ impl TextInputController {
 
     fn extract_paragraph_style(
         ir: &fission_ir::CoreIR,
-        semantics_id: NodeId,
+        semantics_id: WidgetId,
     ) -> Option<TextParagraphStyle> {
         fn walk(
             ir: &fission_ir::CoreIR,
-            node_id: NodeId,
+            node_id: WidgetId,
             depth: usize,
         ) -> Option<TextParagraphStyle> {
             if depth > 10 {

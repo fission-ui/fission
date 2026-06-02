@@ -1,10 +1,11 @@
-use fission_core::{AppState, BuildCtx, Node, View, Widget};
+use fission_core::internal::BuildCtx;
+use fission_core::{build, GlobalState, View};
 use fission_widgets::empty_state::EmptyState;
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq)]
 struct TestState;
-impl AppState for TestState {}
+impl GlobalState for TestState {}
 
 #[test]
 fn test_empty_state_structure() {
@@ -21,6 +22,9 @@ fn test_empty_state_structure() {
         action: None,
     };
 
-    let node = empty.build(&mut ctx, &view);
-    assert!(matches!(node, Node::Align(_) | Node::Container(_)));
+    let node = build::enter(&mut ctx, &view, || empty.into());
+    assert!(matches!(
+        fission_core::internal::widget_kind_name(&node),
+        "Align" | "Container"
+    ));
 }

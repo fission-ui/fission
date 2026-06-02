@@ -6,7 +6,7 @@ use crate::scrollbar::{
 };
 use crate::{ActionEnvelope, ActionId, ActionInput};
 use fission_ir::op::RichTextAnnotation;
-use fission_ir::{semantics::ActionTrigger, NodeId, Op};
+use fission_ir::{semantics::ActionTrigger, Op, WidgetId};
 use fission_layout::LayoutPoint;
 
 pub struct GestureController;
@@ -172,7 +172,7 @@ impl InputController for GestureController {
                                         || self.is_descendant(ctx, up_hit, target)
                                         || self.is_descendant(ctx, target, up_hit)
                                     {
-                                        let rich_text_path = self.path_from_node(ctx, up_hit);
+                                        let rich_text_path = self.path_for_node(ctx, up_hit);
                                         if let Some((annotation_node_id, annotation)) =
                                             crate::input::hover::resolve_rich_text_annotation_at_point(
                                                 ctx,
@@ -213,7 +213,7 @@ impl InputController for GestureController {
                                         || self.is_descendant(ctx, up_hit, target)
                                         || self.is_descendant(ctx, target, up_hit)
                                     {
-                                        let rich_text_path = self.path_from_node(ctx, up_hit);
+                                        let rich_text_path = self.path_for_node(ctx, up_hit);
                                         if let Some((annotation_node_id, annotation)) =
                                             crate::input::hover::resolve_rich_text_annotation_at_point(
                                                 ctx,
@@ -266,7 +266,7 @@ impl InputController for GestureController {
 }
 
 impl GestureController {
-    fn path_from_node(&self, ctx: &ControllerContext, node_id: NodeId) -> Vec<NodeId> {
+    fn path_for_node(&self, ctx: &ControllerContext, node_id: WidgetId) -> Vec<WidgetId> {
         let mut path = Vec::new();
         let mut curr = Some(node_id);
         while let Some(id) = curr {
@@ -276,7 +276,7 @@ impl GestureController {
         path
     }
 
-    fn is_descendant(&self, ctx: &ControllerContext, child: NodeId, ancestor: NodeId) -> bool {
+    fn is_descendant(&self, ctx: &ControllerContext, child: WidgetId, ancestor: WidgetId) -> bool {
         let mut curr = Some(child);
         while let Some(id) = curr {
             if id == ancestor {
@@ -294,7 +294,7 @@ impl GestureController {
     fn dispatch_annotation_trigger(
         &self,
         ctx: &mut ControllerContext,
-        node_id: NodeId,
+        node_id: WidgetId,
         annotation: &RichTextAnnotation,
         trigger: ActionTrigger,
         point: LayoutPoint,
@@ -331,7 +331,7 @@ impl GestureController {
         true
     }
 
-    fn find_drag_payload(&self, ctx: &ControllerContext, start_node: NodeId) -> Option<Vec<u8>> {
+    fn find_drag_payload(&self, ctx: &ControllerContext, start_node: WidgetId) -> Option<Vec<u8>> {
         let mut current_id = Some(start_node);
         while let Some(node_id) = current_id {
             if let Some(node) = ctx.ir.nodes.get(&node_id) {
@@ -351,7 +351,7 @@ impl GestureController {
     fn dispatch_internal_drop(
         &self,
         ctx: &mut ControllerContext,
-        target_node: NodeId,
+        target_node: WidgetId,
         payload: Vec<u8>,
         point: LayoutPoint,
     ) -> bool {
@@ -392,7 +392,7 @@ impl GestureController {
     fn dispatch_trigger(
         &self,
         ctx: &mut ControllerContext,
-        start_node: NodeId,
+        start_node: WidgetId,
         trigger: ActionTrigger,
         point: LayoutPoint,
         delta: Option<LayoutPoint>,

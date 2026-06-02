@@ -1,8 +1,8 @@
 use crate::env::{Env, RuntimeState};
 use crate::hit_test::find_next_focus_node;
-use crate::lowering::LoweringContext;
-use crate::ui::traits::Lower;
-use crate::ui::Node;
+use crate::internal::InternalLower;
+use crate::lowering::InternalLoweringCx;
+use crate::ui::Widget;
 use crate::{InputEvent, KeyCode, KeyEvent, Runtime};
 use fission_core::Op;
 use fission_ir::{semantics::Role, Semantics};
@@ -16,20 +16,23 @@ fn test_explicit_focus_order() {
     // Default order (tree): B1, B2, B3
     // Explicit order: B2(1), B1(2), B3(3)
 
-    fn button_with_focus(index: i32) -> Node {
-        Node::Custom(fission_core::ui::CustomNode {
+    fn button_with_focus(index: i32) -> Widget {
+        fission_core::internal::custom_render_widget(fission_core::internal::InternalRenderNode {
             debug_tag: format!("Button({})", index),
-            lowerer: Some(std::sync::Arc::new(FocusButtonLowerer { index })),
+            lowerer: Some(std::sync::Arc::new(FocusButtonInternalLowerer { index })),
             render_object: None,
         })
     }
 
     #[derive(Debug)]
-    struct FocusButtonLowerer {
+    struct FocusButtonInternalLowerer {
         index: i32,
     }
-    impl fission_core::LowerDyn for FocusButtonLowerer {
-        fn lower_dyn(&self, cx: &mut fission_core::LoweringContext) -> fission_ir::NodeId {
+    impl fission_core::internal::InternalLowerer for FocusButtonInternalLowerer {
+        fn lower_dyn(
+            &self,
+            cx: &mut fission_core::internal::InternalLoweringCx,
+        ) -> fission_ir::WidgetId {
             let id = cx.next_node_id();
             let s = Semantics {
                 role: Role::Button,
@@ -51,7 +54,7 @@ fn test_explicit_focus_order() {
                 auto_indent: false,
                 ..Default::default()
             };
-            fission_core::NodeBuilder::new(id, Op::Semantics(s)).build(cx)
+            fission_core::internal::InternalIrBuilder::new(id, Op::Semantics(s)).build(cx)
         }
         fn stable_key(&self) -> u64 {
             self.index as u64
@@ -67,7 +70,7 @@ fn test_explicit_focus_order() {
         ..Default::default()
     };
 
-    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
+    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
     let root_id = root.lower(&mut cx);
     cx.ir.root = Some(root_id);
 
@@ -123,8 +126,11 @@ fn test_autofocus_assigns_initial_focus() {
     #[derive(Debug)]
     struct AutofocusTextInput;
 
-    impl fission_core::LowerDyn for AutofocusTextInput {
-        fn lower_dyn(&self, cx: &mut fission_core::LoweringContext) -> fission_ir::NodeId {
+    impl fission_core::internal::InternalLowerer for AutofocusTextInput {
+        fn lower_dyn(
+            &self,
+            cx: &mut fission_core::internal::InternalLoweringCx,
+        ) -> fission_ir::WidgetId {
             let id = cx.next_node_id();
             let semantics = Semantics {
                 role: Role::TextInput,
@@ -132,7 +138,7 @@ fn test_autofocus_assigns_initial_focus() {
                 autofocus: true,
                 ..Default::default()
             };
-            fission_core::NodeBuilder::new(id, Op::Semantics(semantics)).build(cx)
+            fission_core::internal::InternalIrBuilder::new(id, Op::Semantics(semantics)).build(cx)
         }
 
         fn stable_key(&self) -> u64 {
@@ -140,13 +146,14 @@ fn test_autofocus_assigns_initial_focus() {
         }
     }
 
-    let root = Node::Custom(fission_core::ui::CustomNode {
-        debug_tag: "AutofocusTextInput".into(),
-        lowerer: Some(std::sync::Arc::new(AutofocusTextInput)),
-        render_object: None,
-    });
+    let root =
+        fission_core::internal::custom_render_widget(fission_core::internal::InternalRenderNode {
+            debug_tag: "AutofocusTextInput".into(),
+            lowerer: Some(std::sync::Arc::new(AutofocusTextInput)),
+            render_object: None,
+        });
 
-    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
+    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
     let root_id = root.lower(&mut cx);
     cx.ir.root = Some(root_id);
     let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 50.0));

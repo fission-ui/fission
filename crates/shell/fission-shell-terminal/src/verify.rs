@@ -1,10 +1,10 @@
 use fission_ir::op::{Fill, LayoutOp, PaintOp};
-use fission_ir::{CoreIR, NodeId, Op};
+use fission_ir::{CoreIR, Op, WidgetId};
 use std::fmt;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TerminalSupportError {
-    pub node_id: NodeId,
+    pub node_id: WidgetId,
     pub reason: String,
 }
 
@@ -31,7 +31,7 @@ pub fn verify_terminal_ir(ir: &CoreIR) -> Result<(), TerminalSupportError> {
     Ok(())
 }
 
-fn verify_layout(node_id: NodeId, layout: &LayoutOp) -> Result<(), TerminalSupportError> {
+fn verify_layout(node_id: WidgetId, layout: &LayoutOp) -> Result<(), TerminalSupportError> {
     match layout {
         LayoutOp::Box { .. }
         | LayoutOp::Flex { .. }
@@ -62,7 +62,7 @@ fn verify_layout(node_id: NodeId, layout: &LayoutOp) -> Result<(), TerminalSuppo
     }
 }
 
-fn verify_paint(node_id: NodeId, paint: &PaintOp) -> Result<(), TerminalSupportError> {
+fn verify_paint(node_id: WidgetId, paint: &PaintOp) -> Result<(), TerminalSupportError> {
     match paint {
         PaintOp::DrawRect { fill, stroke, .. } => {
             if fill.as_ref().is_some_and(is_non_solid_fill) {
@@ -102,7 +102,7 @@ fn is_non_solid_fill(fill: &Fill) -> bool {
     !matches!(fill, Fill::Solid(_))
 }
 
-fn unsupported(node_id: NodeId, reason: impl Into<String>) -> TerminalSupportError {
+fn unsupported(node_id: WidgetId, reason: impl Into<String>) -> TerminalSupportError {
     TerminalSupportError {
         node_id,
         reason: reason.into(),

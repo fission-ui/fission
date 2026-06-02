@@ -1,0 +1,36 @@
+---
+title: Fission 0.2.0: charts, platforms, capabilities, docs, and release tooling
+authors:
+  - fission
+tags:
+  - release
+  - docs
+  - platform
+categories:
+  - Releases
+---
+
+Fission 0.2.0 expanded the project from a desktop-focused UI foundation into a broader application platform. The release added the first serious charting system, mobile and web target scaffolding, typed host capabilities, richer text and input behavior, a documentation site, local search, and the first release-lifecycle command surface.
+
+The goal was not to add isolated features. It was to make more of the application lifecycle first class.
+
+
+The charting work started with `fission-charts` and grew into a native chart gallery with mathematical layout algorithms, datasets, interaction configuration, 3D scene support, and a wide catalog of chart families. That work matters because data-heavy applications need charts that feel like part of the framework rather than embedded screenshots or foreign widgets.
+
+The platform story also moved forward. Fission gained scaffolding and smoke paths for web, iOS simulator, Android, and shared winit shells. Mobile input paths, target-safe dependencies, app icons, software fallback paths, viewport handling, and target documentation all improved. The web shell became runnable, and mobile smoke examples gave the project concrete cross-platform proofs.
+
+Typed host work became a clearer part of the runtime. The release added async jobs, services, runtime resources, and a move away from ad hoc system effects toward typed capabilities. Capabilities give app code a portable contract for host-owned work such as files, device access, and platform services, while keeping reducers explicit and testable.
+
+The text and input system continued to mature. Rich text gained locale, selection, inline-widget, hover, and span-action support. Text input gained paragraph-aware rendering, input-method editor synchronization, tap-outside actions, decoration APIs, and a stronger event lifecycle. These changes were backed by tests and example updates because text editing is one of the quickest ways to expose weaknesses in a UI runtime.
+
+0.2.0 also invested heavily in developer experience. The documentation site was introduced, then repeatedly rewritten toward guided learning, reference coverage, widget pages, platform messaging, and local client-side search. The site moved toward the current lifecycle structure: setup, learn, build, test, and publish. It was not yet at the standard Fission now targets, but this release established documentation as part of the product rather than an afterthought.
+
+The CLI and release lifecycle also began to take shape. `fission init`, platform target scaffolding, doctor-style checks, packaging concepts, credential handling, store metadata flows, and release recipes were added. The release work was deliberately broad because Fission's ambition is to help a developer ship, not only render a window.
+
+Fission 0.2.0 is the release where the project became visibly cross-platform and lifecycle-oriented. Charts, mobile/web shells, capabilities, docs, examples, and release tooling all started converging around one application model.
+
+## What this means for developers
+
+The practical test for `Fission 0.2.0: charts, platforms, capabilities, docs, and release tooling` is whether it makes a real app less risky to build. The implementation work matters because it gives developers a shorter path from idea to running software, a clearer way to diagnose failure, and fewer hidden platform-specific assumptions.
+
+If you are evaluating Fission, use the release as a checklist rather than a marketing claim: create or open an app, run the documented command, inspect the generated files, and add one small test around the behavior you plan to depend on. The framework should make that path explicit. When it does not, the documentation or tooling needs to improve until the risk is visible and actionable.

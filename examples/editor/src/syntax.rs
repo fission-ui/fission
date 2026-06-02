@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Mutex;
 
-use tree_sitter::{Node as TsNode, Parser};
+use tree_sitter::Parser;
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -255,7 +255,28 @@ fn highlight_rust_document(content: &str) -> Vec<Vec<StyledSpan>> {
 
     // Collect colored ranges from the syntax tree
     let mut colored_ranges: Vec<(usize, usize, usize, usize, Color)> = Vec::new();
-    collect_colored_ranges(tree.root_node(), content, &mut colored_ranges);
+    let mut stack = vec![tree.root_node()];
+    while let Some(node) = stack.pop() {
+        let parent_kind = node.parent().map(|parent| parent.kind());
+        if let Some(c) = node_color(node.kind(), parent_kind) {
+            let start = node.start_position();
+            let end = node.end_position();
+            colored_ranges.push((start.row, start.column, end.row, end.column, c));
+            if is_leaf_colored(node.kind()) {
+                continue;
+            }
+        }
+
+        let mut cursor = node.walk();
+        if cursor.goto_first_child() {
+            loop {
+                stack.push(cursor.node());
+                if !cursor.goto_next_sibling() {
+                    break;
+                }
+            }
+        }
+    }
 
     // Sort by start position so we process them in order
     colored_ranges.sort_by_key(|&(sr, sc, _, _, _)| (sr, sc));
@@ -276,41 +297,7 @@ fn highlight_rust_document(content: &str) -> Vec<Vec<StyledSpan>> {
     result
 }
 
-/// Recursively walk the tree-sitter tree and collect (start_row, start_col,
-/// end_row, end_col, color) tuples for every node that should be colored.
-fn collect_colored_ranges(
-    node: TsNode,
-    source: &str,
-    out: &mut Vec<(usize, usize, usize, usize, Color)>,
-) {
-    let color = node_color(node, source);
-
-    if let Some(c) = color {
-        let start = node.start_position();
-        let end = node.end_position();
-        out.push((start.row, start.column, end.row, end.column, c));
-        // Don't recurse into children of colored leaf-like nodes (the whole
-        // range already has the right colour).  We still recurse for container
-        // nodes like `macro_invocation` where children may need different
-        // colours.
-        if is_leaf_colored(node.kind()) {
-            return;
-        }
-    }
-
-    // Recurse into children
-    let mut cursor = node.walk();
-    if cursor.goto_first_child() {
-        loop {
-            collect_colored_ranges(cursor.node(), source, out);
-            if !cursor.goto_next_sibling() {
-                break;
-            }
-        }
-    }
-}
-
-/// Returns true for node kinds whose entire text extent should be painted
+/// Returns true for syntax tree item kinds whose entire text extent should be painted
 /// with a single colour (no need to inspect children).
 fn is_leaf_colored(kind: &str) -> bool {
     matches!(
@@ -331,10 +318,10 @@ fn is_leaf_colored(kind: &str) -> bool {
     )
 }
 
-/// Map a tree-sitter node kind to a colour.  Returns `None` if the node
+/// Map a tree-sitter item kind to a colour.  Returns `None` if the item
 /// should inherit the default colour or be handled by its children.
-fn node_color(node: TsNode, _source: &str) -> Option<Color> {
-    match node.kind() {
+fn node_color(kind: &str, parent_kind: Option<&str>) -> Option<Color> {
+    match kind {
         // Comments
         "line_comment" | "block_comment" => Some(COMMENT),
 
@@ -371,11 +358,8 @@ fn node_color(node: TsNode, _source: &str) -> Option<Color> {
 
         // The `!` in a macro call and the macro name
         "!" => {
-            // Check if parent is macro_invocation
-            if let Some(parent) = node.parent() {
-                if parent.kind() == "macro_invocation" {
-                    return Some(MACRO_COLOR);
-                }
+            if parent_kind == Some("macro_invocation") {
+                return Some(MACRO_COLOR);
             }
             None
         }
@@ -388,12 +372,8 @@ fn node_color(node: TsNode, _source: &str) -> Option<Color> {
 
         _ => {
             // Handle identifier nodes that are macro names
-            if node.kind() == "identifier" {
-                if let Some(parent) = node.parent() {
-                    if parent.kind() == "macro_invocation" {
-                        return Some(MACRO_COLOR);
-                    }
-                }
+            if kind == "identifier" && parent_kind == Some("macro_invocation") {
+                return Some(MACRO_COLOR);
             }
             None
         }

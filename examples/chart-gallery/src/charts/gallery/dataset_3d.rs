@@ -2,17 +2,17 @@ use super::GalleryBuildExt;
 use crate::state::GalleryState;
 use fission::charts::{Axis, BarSeries, Chart, DataValue, Dataset, Encode, Legend, LineSeries};
 use fission::core::op::Color;
-use fission::core::ui::Node;
-use fission::core::{BuildCtx, View};
+use fission::core::ui::Widget;
+use fission::core::{BuildCtxHandle, ViewHandle};
 use fission::three_d::{Point3D, Primitive3D, Scene3D};
 
 pub(super) fn build_chart(
     chart: usize,
-    ctx: &mut BuildCtx<GalleryState>,
-    view: &View<GalleryState>,
+    ctx: BuildCtxHandle<GalleryState>,
+    view: ViewHandle<GalleryState>,
     content_width: f32,
     s: f32,
-) -> Node {
+) -> Widget {
     match chart {
         0 => dataset_demo(view, s).build_in_gallery(ctx, view, content_width),
         1 => scene3d_demo().build_in_gallery(ctx, view, content_width),
@@ -28,7 +28,7 @@ pub(super) fn build_chart(
     }
 }
 
-pub(crate) fn dataset_demo(view: &View<GalleryState>, s: f32) -> Chart {
+pub(crate) fn dataset_demo(view: ViewHandle<GalleryState>, s: f32) -> Chart {
     Chart::new()
         .title("Dataset Engine: Encoded Line & Bar")
         .dataset(
@@ -101,7 +101,7 @@ pub(crate) fn dataset_demo(view: &View<GalleryState>, s: f32) -> Chart {
                     b: 20,
                     a: 255,
                 })
-                .smooth(view.state.smooth)
+                .smooth(view.state().smooth)
                 .into(),
         ])
 }

@@ -1,44 +1,35 @@
-//! Read-only view, widget trait, and selector pattern.
+//! Read-only view and selector pattern.
 //!
-//! During [`Widget::build`], the framework provides a [`View`] that gives
-//! read-only access to the current [`AppState`], theme, i18n registry,
+//! During widget conversion, the framework provides a scoped [`View`] that gives
+//! read-only access to the current [`GlobalState`], theme, i18n registry,
 //! layout snapshot, and animation values. Widgets use this to decide what
-//! to render without any side-effects.
+//! to render without side effects.
 
 use crate::{
-    env::VideoState,
-    registry::{AnimationPropertyId, VideoRegistration},
-    ui::{
-        Align, Button, Checkbox, Column, Container, Grid, GridItem, Image, LazyColumn, Node,
-        Overlay, Positioned, Radio, Row, Scroll, Slider, Spacer, Switch, Text, TextInput, Video,
-        ZStack,
-    },
-    AppState, BuildCtx, Env, LayoutRect, LayoutSize, LayoutSnapshot, RuntimeState,
+    env::VideoState, registry::AnimationPropertyId, Env, GlobalState, LayoutRect, LayoutSize,
+    LayoutSnapshot, RuntimeState, ViewHandle,
 };
 use fission_i18n::I18nRegistry;
-use fission_ir::{NodeId, WidgetNodeId};
+use fission_ir::WidgetId;
 use fission_layout::BoxConstraints;
 use fission_theme::Theme;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::hash::{BuildHasher, Hash};
 
 /// Read-only access to application state and environment during widget building.
 ///
 /// `View` is the primary way widgets read data. It is parameterised over the
-/// concrete [`AppState`] type `S`, giving type-safe access to `state` while
+/// concrete [`GlobalState`] type `S`, giving type-safe access to `state` while
 /// also exposing the theme, i18n registry, layout snapshot from the previous
 /// frame, and animation values.
 ///
 /// # Example
 ///
 /// ```rust,ignore
-/// fn build(&self, _ctx: &mut BuildCtx<MyState>, view: &View<MyState>) -> Node {
-///     let name = &view.state.user_name;
-///     let theme = view.theme();
-///     Text::new(format!("Hello, {}!", name))
-///         .color(theme.tokens.colors.primary)
-///         .into_node()
-/// }
+/// let name = &view.state().user_name;
+/// let theme = view.theme();
 /// ```
-pub struct View<'a, S: AppState> {
+pub struct View<'a, S: GlobalState> {
     /// Reference to the current application state.
     pub state: &'a S,
     /// Runtime interaction, scroll, text-edit, and animation state.
@@ -49,7 +40,7 @@ pub struct View<'a, S: AppState> {
     pub layout: Option<&'a LayoutSnapshot>,
 }
 
-impl<'a, S: AppState> View<'a, S> {
+impl<'a, S: GlobalState> View<'a, S> {
     pub fn new(
         state: &'a S,
         runtime: &'a RuntimeState,
@@ -64,6 +55,22 @@ impl<'a, S: AppState> View<'a, S> {
         }
     }
 
+    pub fn state(&self) -> &S {
+        self.state
+    }
+
+    pub fn runtime(&self) -> &RuntimeState {
+        self.runtime
+    }
+
+    pub fn env(&self) -> &Env {
+        self.env
+    }
+
+    pub fn layout(&self) -> Option<&LayoutSnapshot> {
+        self.layout
+    }
+
     pub fn theme(&self) -> &Theme {
         &self.env.theme
     }
@@ -71,13 +78,13 @@ impl<'a, S: AppState> View<'a, S> {
         &self.env.i18n
     }
 
-    pub fn get_rect(&self, id: WidgetNodeId) -> Option<LayoutRect> {
-        let node_id: NodeId = id.into();
+    pub fn get_rect(&self, id: WidgetId) -> Option<LayoutRect> {
+        let node_id: WidgetId = id.into();
         self.layout.and_then(|l| l.get_node_rect(node_id))
     }
 
-    pub fn get_constraints(&self, id: WidgetNodeId) -> Option<BoxConstraints> {
-        let node_id: NodeId = id.into();
+    pub fn get_constraints(&self, id: WidgetId) -> Option<BoxConstraints> {
+        let node_id: WidgetId = id.into();
         self.layout.and_then(|l| l.get_node_constraints(node_id))
     }
 
@@ -85,11 +92,11 @@ impl<'a, S: AppState> View<'a, S> {
         self.env.viewport_size
     }
 
-    pub fn select<T: Selector<S>>(&self) -> T::Output {
-        T::select(self)
+    pub fn select<R>(&self, selector: impl FnOnce(&S) -> R) -> R {
+        selector(self.state)
     }
 
-    pub fn animation_value(&self, widget_id: WidgetNodeId, property: &AnimationPropertyId) -> f32 {
+    pub fn animation_value(&self, widget_id: WidgetId, property: &AnimationPropertyId) -> f32 {
         self.runtime
             .animation
             .values
@@ -98,12 +105,196 @@ impl<'a, S: AppState> View<'a, S> {
             .unwrap_or_else(|| property.default_value())
     }
 
-    pub fn video_state(&self, widget_id: WidgetNodeId) -> Option<&VideoState> {
+    pub fn video_state(&self, widget_id: WidgetId) -> Option<&VideoState> {
         self.runtime.video.states.get(&widget_id)
     }
 }
 
-/// A selector that derives a value from the [`View`].
+/// A read-only generated view over a value.
+///
+/// `ValueView` is used by generated global-state views for scalar and
+/// collection fields. It borrows the current state; [`get`](Self::get) clones
+/// only when the caller explicitly asks for an owned value.
+#[derive(Clone, Copy, Debug)]
+pub struct ValueView<'a, T> {
+    value: &'a T,
+}
+
+impl<'a, T> ValueView<'a, T> {
+    pub fn new(value: &'a T) -> Self {
+        Self { value }
+    }
+
+    pub fn borrow(&self) -> &'a T {
+        self.value
+    }
+
+    pub fn map<R>(&self, selector: impl FnOnce(&T) -> R) -> ComputedView<R> {
+        ComputedView::new(selector(self.value))
+    }
+}
+
+impl<T: Clone> ValueView<'_, T> {
+    pub fn get(&self) -> T {
+        self.value.clone()
+    }
+}
+
+impl<'a, T> ValueView<'a, Vec<T>> {
+    pub fn len(&self) -> usize {
+        self.value.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.value.is_empty()
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<'a, T> {
+        self.value.iter()
+    }
+}
+
+impl<'a, T> IntoIterator for ValueView<'a, Vec<T>> {
+    type Item = &'a T;
+    type IntoIter = std::slice::Iter<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.value.iter()
+    }
+}
+
+/// A computed read-only value produced from a generated state view.
+#[derive(Clone, Debug)]
+pub struct ComputedView<T> {
+    value: T,
+}
+
+impl<T> ComputedView<T> {
+    pub fn new(value: T) -> Self {
+        Self { value }
+    }
+
+    pub fn borrow(&self) -> &T {
+        &self.value
+    }
+
+    pub fn get(self) -> T {
+        self.value
+    }
+
+    pub fn map<R>(self, selector: impl FnOnce(&T) -> R) -> ComputedView<R> {
+        ComputedView::new(selector(&self.value))
+    }
+}
+
+/// Maps a state field type to the view returned by generated view accessors.
+///
+/// `#[derive(FissionStateView)]` implements this trait for nested state
+/// structs. Built-in scalar and collection types map to [`ValueView`].
+pub trait FissionViewField {
+    type View<'a>
+    where
+        Self: 'a;
+
+    fn view_field<'a>(value: &'a Self) -> Self::View<'a>;
+}
+
+macro_rules! scalar_view_field {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl FissionViewField for $ty {
+                type View<'a> = ValueView<'a, Self> where Self: 'a;
+
+                fn view_field<'a>(value: &'a Self) -> Self::View<'a> {
+                    ValueView::new(value)
+                }
+            }
+        )*
+    };
+}
+
+scalar_view_field!(
+    bool, char, String, usize, u8, u16, u32, u64, u128, isize, i8, i16, i32, i64, i128, f32, f64
+);
+
+impl<T> FissionViewField for Vec<T> {
+    type View<'a>
+        = ValueView<'a, Self>
+    where
+        Self: 'a;
+
+    fn view_field<'a>(value: &'a Self) -> Self::View<'a> {
+        ValueView::new(value)
+    }
+}
+
+impl<T> FissionViewField for Option<T> {
+    type View<'a>
+        = ValueView<'a, Self>
+    where
+        Self: 'a;
+
+    fn view_field<'a>(value: &'a Self) -> Self::View<'a> {
+        ValueView::new(value)
+    }
+}
+
+impl<T, const N: usize> FissionViewField for [T; N] {
+    type View<'a>
+        = ValueView<'a, Self>
+    where
+        Self: 'a;
+
+    fn view_field<'a>(value: &'a Self) -> Self::View<'a> {
+        ValueView::new(value)
+    }
+}
+
+impl<T: Ord> FissionViewField for BTreeSet<T> {
+    type View<'a>
+        = ValueView<'a, Self>
+    where
+        Self: 'a;
+
+    fn view_field<'a>(value: &'a Self) -> Self::View<'a> {
+        ValueView::new(value)
+    }
+}
+
+impl<K: Ord, V> FissionViewField for BTreeMap<K, V> {
+    type View<'a>
+        = ValueView<'a, Self>
+    where
+        Self: 'a;
+
+    fn view_field<'a>(value: &'a Self) -> Self::View<'a> {
+        ValueView::new(value)
+    }
+}
+
+impl<T: Eq + Hash, S: BuildHasher> FissionViewField for HashSet<T, S> {
+    type View<'a>
+        = ValueView<'a, Self>
+    where
+        Self: 'a;
+
+    fn view_field<'a>(value: &'a Self) -> Self::View<'a> {
+        ValueView::new(value)
+    }
+}
+
+impl<K: Eq + Hash, V, S: BuildHasher> FissionViewField for HashMap<K, V, S> {
+    type View<'a>
+        = ValueView<'a, Self>
+    where
+        Self: 'a;
+
+    fn view_field<'a>(value: &'a Self) -> Self::View<'a> {
+        ValueView::new(value)
+    }
+}
+
+/// A selector that derives a value from a [`ViewHandle`].
 ///
 /// Selectors extract and transform data from state so widgets can depend on
 /// derived values without coupling to the full state shape.
@@ -114,104 +305,17 @@ impl<'a, S: AppState> View<'a, S> {
 /// struct ItemCount;
 /// impl Selector<MyState> for ItemCount {
 ///     type Output = usize;
-///     fn select(view: &View<MyState>) -> usize {
-///         view.state.items.len()
+///     fn select(view: ViewHandle<MyState>) -> usize {
+///         view.state().items.len()
 ///     }
 /// }
 ///
 /// // In a widget:
-/// let count: usize = view.select::<ItemCount>();
+/// let count: usize = view.select_with::<ItemCount>();
 /// ```
-pub trait Selector<S: AppState> {
+pub trait Selector<S: GlobalState> {
     /// The type produced by the selector.
     type Output;
-    /// Extract the value from the given view.
-    fn select(view: &View<S>) -> Self::Output;
-}
-
-/// The core trait for composable UI components.
-///
-/// A `Widget` produces a [`Node`] tree given read-only access to state
-/// ([`View`]) and a mutable build context ([`BuildCtx`]) for binding actions,
-/// registering portals, and requesting animations.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// struct Greeting;
-///
-/// impl Widget<AppState> for Greeting {
-///     fn build(&self, ctx: &mut BuildCtx<AppState>, view: &View<AppState>) -> Node {
-///         let on_press = ctx.bind(SayHello, reduce_with!(handle_hello));
-///         Button {
-///             child: Some(Box::new(Text::new("Hello!").into_node())),
-///             on_press: Some(on_press),
-///             ..Default::default()
-///         }.into_node()
-///     }
-/// }
-/// ```
-pub trait Widget<S: AppState> {
-    /// Build the widget's node tree.
-    ///
-    /// Called once per frame. Implementations must be pure -- all side-effects
-    /// go through `ctx` (action binding, portals, animations).
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node;
-}
-
-// Implement Widget for Node (identity)
-impl<S: AppState> Widget<S> for Node {
-    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        self.clone()
-    }
-}
-
-macro_rules! impl_widget_for_primitive {
-    ($t:ty, $v:ident) => {
-        impl<S: AppState> Widget<S> for $t {
-            fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-                Node::$v(self.clone())
-            }
-        }
-    };
-}
-
-impl_widget_for_primitive!(Row, Row);
-impl_widget_for_primitive!(Column, Column);
-impl_widget_for_primitive!(Align, Align);
-impl_widget_for_primitive!(Text, Text);
-impl_widget_for_primitive!(Button, Button);
-impl_widget_for_primitive!(TextInput, TextInput);
-impl_widget_for_primitive!(Scroll, Scroll);
-impl_widget_for_primitive!(Image, Image);
-impl_widget_for_primitive!(ZStack, ZStack);
-impl_widget_for_primitive!(Overlay, Overlay);
-impl_widget_for_primitive!(Container, Container);
-impl_widget_for_primitive!(Grid, Grid);
-impl_widget_for_primitive!(GridItem, GridItem);
-impl_widget_for_primitive!(Checkbox, Checkbox);
-impl_widget_for_primitive!(Switch, Switch);
-impl_widget_for_primitive!(Radio, Radio);
-impl_widget_for_primitive!(Positioned, Positioned);
-impl_widget_for_primitive!(Spacer, Spacer);
-impl_widget_for_primitive!(Slider, Slider);
-impl_widget_for_primitive!(LazyColumn, LazyColumn);
-
-impl<S: AppState> Widget<S> for Video {
-    fn build(&self, ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        let mut video = self.clone();
-        let id = video
-            .id
-            .unwrap_or_else(|| WidgetNodeId::explicit(&video.source));
-        video.id = Some(id);
-
-        ctx.register_video(VideoRegistration {
-            node_id: id,
-            source: video.source.clone(),
-            autoplay: video.autoplay,
-            loop_playback: video.loop_playback,
-        });
-
-        Node::Video(video)
-    }
+    /// Extract the value from the given view handle.
+    fn select(view: ViewHandle<S>) -> Self::Output;
 }

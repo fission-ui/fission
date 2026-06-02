@@ -17,7 +17,7 @@ They are not random exceptions. They are places where the framework proves that 
 
 Animation is the controlled change of a visual property over time.
 
-In Fission, animations are not hidden in ad hoc widget-local timers. They are requested through `BuildCtx` against stable widget identities, and the runtime tracks their current values.
+In Fission, animations are not hidden in ad hoc widget-local timers. They are requested through `BuildCtxHandle` against stable widget identities, and the runtime tracks their current values.
 
 That design exists for practical reasons.
 
@@ -43,7 +43,7 @@ Modals, drawers, popovers, menus, tooltips, and toast notifications all live in 
 
 Why does Fission model them this way? Because overlays still need deterministic ordering, layout participation, and test visibility. They should not be a magical escape hatch that bypasses the rest of the runtime.
 
-`BuildCtx` exposes portal registration APIs, and higher-level widgets such as `Modal`, `Drawer`, `Popover`, `Tooltip`, and menu-style controls build on that mechanism. Portals are ordered by explicit layers such as default, modal, flyout, and toast.
+`BuildCtxHandle` exposes portal registration APIs, and higher-level widgets such as `Modal`, `Drawer`, `Popover`, `Tooltip`, and menu-style controls build on that mechanism. Portals are ordered by explicit layers such as default, modal, flyout, and toast.
 
 Use a portal when the content should visually escape clipping or stacking constraints from the main page while still behaving like part of the same app. A dropdown menu anchored to a field, a full-screen modal, or a toast message are all good fits.
 
@@ -61,7 +61,7 @@ Today, the most visible examples are `Video` and `WebView`. These are not plain 
 
 Why keep them explicit? Because an embedded surface still needs a place in the layout system. It still needs geometry, hit testing, and visibility rules. Tests and diagnostics still need to know that it exists, even when the host provides the low-level playback or browsing surface.
 
-That is why widgets such as `Video` and `WebView` register themselves with the runtime during `build()`. The runtime can then track them as part of the frame model instead of letting them become an invisible side channel.
+That is why widgets such as `Video` and `WebView` register themselves with the runtime during component conversion. The runtime can then track them as part of the frame model instead of letting them become an invisible side channel.
 
 Use media or embed widgets when the user interface genuinely needs a host-backed surface, such as video playback or a bounded browser view.
 
@@ -91,7 +91,7 @@ The `chart-gallery` example is the current checked-in proof for this path.
 
 Even though animation, overlays, embeds, and 3D feel advanced, they still follow the same broad Fission story.
 
-State lives in `AppState`. Widgets describe the current user interface in `build()`. `BuildCtx` registers runtime-managed behavior such as animations, portals, and embeds. The runtime lowers, lays out, and renders the result. Shells host the output on desktop, web, Android, and iOS.
+State lives in `GlobalState`. Widgets describe the current user interface in `component conversion`. `BuildCtxHandle` registers runtime-managed behavior such as animations, portals, and embeds. The runtime lowers, lays out, and renders the result. Shells host the output on desktop, web, Android, and iOS.
 
 That consistency is the real lesson here.
 
@@ -110,3 +110,17 @@ For 3D, watch scope. Treat the scene as a bounded part of the interface, not as 
 ## Where to go next
 
 If you want the underlying explanation of layout, viewport reasoning, and screen composition first, read [Layout and widgets](/docs/guides/layout-and-widgets). If you want the async and runtime side of jobs, timers, and long-lived work, continue to [Resources and async](/docs/guides/resources-and-async). For checked-in proofs, open `animation-gallery`, `chart-gallery`, `inbox`, or `fission-editor` from the public [Examples](/examples) page.
+
+## What you should have working
+
+After this guide, you should be able to explain where `Media, animation, portals, and 3D` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test. If any of those pieces are missing, treat the page as unfinished work: add the smallest runnable example, then add the diagnostic step that proves it works.
+
+## Common mistakes to check
+
+| Symptom | What to check first |
+| --- | --- |
+| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
+| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
+| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
+| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
+| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |

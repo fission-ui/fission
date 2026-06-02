@@ -1,40 +1,44 @@
 use fission_core::ui::widgets::GestureDetector;
-use fission_core::{ActionEnvelope, BuildCtx, Node, View, Widget};
+use fission_core::{ActionEnvelope, Widget};
 
 #[derive(Clone, Debug)]
 pub struct Draggable {
     pub payload: Vec<u8>,
-    pub child: Box<Node>,
+    pub child: Widget,
     pub on_drag_start: Option<ActionEnvelope>,
     pub on_drag_end: Option<ActionEnvelope>,
 }
 
-impl<S: fission_core::AppState> Widget<S> for Draggable {
-    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
+impl From<Draggable> for Widget {
+    fn from(component: Draggable) -> Self {
+        let this = &component;
+
         GestureDetector {
-            child: self.child.clone(),
-            drag_payload: Some(self.payload.clone()),
-            on_drag_start: self.on_drag_start.clone(),
-            on_drag_end: self.on_drag_end.clone(),
+            child: this.child.clone(),
+            drag_payload: Some(this.payload.clone()),
+            on_drag_start: this.on_drag_start.clone(),
+            on_drag_end: this.on_drag_end.clone(),
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct DragTarget {
     pub on_drop: Option<ActionEnvelope>,
-    pub child: Box<Node>,
+    pub child: Widget,
 }
 
-impl<S: fission_core::AppState> Widget<S> for DragTarget {
-    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
+impl From<DragTarget> for Widget {
+    fn from(component: DragTarget) -> Self {
+        let this = &component;
+
         GestureDetector {
-            child: self.child.clone(),
-            on_drop: self.on_drop.clone(),
+            child: this.child.clone(),
+            on_drop: this.on_drop.clone(),
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 }

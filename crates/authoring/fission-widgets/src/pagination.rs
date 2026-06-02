@@ -1,6 +1,6 @@
 use crate::stack::HStack;
-use fission_core::ui::{Button, ButtonVariant, Node, Text};
-use fission_core::{ActionEnvelope, BuildCtx, View, Widget};
+use fission_core::ui::{Button, ButtonVariant, Text, Widget};
+use fission_core::ActionEnvelope;
 use std::sync::Arc;
 
 pub struct Pagination {
@@ -24,42 +24,45 @@ impl std::fmt::Debug for Pagination {
     }
 }
 
-impl<S: fission_core::AppState> Widget<S> for Pagination {
-    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let theme = &view.env.theme.components.pagination;
-        let tokens = &view.env.theme.tokens;
+impl From<Pagination> for Widget {
+    fn from(component: Pagination) -> Self {
+        let (_, view) = fission_core::build::current::<()>();
+        let this = &component;
+
+        let theme = &view.env().theme.components.pagination;
+        let tokens = &view.env().theme.tokens;
         let mut children = Vec::new();
 
-        let callback = |page: usize| self.on_change.as_ref().map(|f| f(page));
+        let callback = |page: usize| this.on_change.as_ref().map(|f| f(page));
 
         // ... (Prev button) ...
         children.push(
             Button {
                 variant: ButtonVariant::Outline,
-                child: Some(Box::new(Text::new("<").into_node())),
-                on_press: if self.current_page > 1 {
-                    callback(self.current_page - 1)
+                child: Some(Text::new("<").into()),
+                on_press: if this.current_page > 1 {
+                    callback(this.current_page - 1)
                 } else {
                     None
                 },
-                disabled: self.current_page <= 1,
+                disabled: this.current_page <= 1,
                 width: Some(40.0),
                 height: Some(40.0),
                 padding: Some([0.0; 4]),
                 ..Default::default()
             }
-            .into_node(),
+            .into(),
         );
 
         // ... (Pages logic) ...
-        let start = (self.current_page as isize - 2).max(1) as usize;
-        let end = (start + 4).min(self.total_pages);
+        let start = (this.current_page as isize - 2).max(1) as usize;
+        let end = (start + 4).min(this.total_pages);
         let start = (end as isize - 4).max(1) as usize;
 
         if start > 1 {
             children.push(page_btn(
                 1,
-                self.current_page == 1,
+                this.current_page == 1,
                 callback(1),
                 theme,
                 tokens,
@@ -69,7 +72,7 @@ impl<S: fission_core::AppState> Widget<S> for Pagination {
                     Text::new("...")
                         .size(12.0)
                         .color(tokens.colors.text_secondary)
-                        .into_node(),
+                        .into(),
                 );
             }
         }
@@ -77,26 +80,26 @@ impl<S: fission_core::AppState> Widget<S> for Pagination {
         for i in start..=end {
             children.push(page_btn(
                 i,
-                self.current_page == i,
+                this.current_page == i,
                 callback(i),
                 theme,
                 tokens,
             ));
         }
 
-        if end < self.total_pages {
-            if end < self.total_pages - 1 {
+        if end < this.total_pages {
+            if end < this.total_pages - 1 {
                 children.push(
                     Text::new("...")
                         .size(12.0)
                         .color(tokens.colors.text_secondary)
-                        .into_node(),
+                        .into(),
                 );
             }
             children.push(page_btn(
-                self.total_pages,
-                self.current_page == self.total_pages,
-                callback(self.total_pages),
+                this.total_pages,
+                this.current_page == this.total_pages,
+                callback(this.total_pages),
                 theme,
                 tokens,
             ));
@@ -106,26 +109,26 @@ impl<S: fission_core::AppState> Widget<S> for Pagination {
         children.push(
             Button {
                 variant: ButtonVariant::Outline,
-                child: Some(Box::new(Text::new(">").into_node())),
-                on_press: if self.current_page < self.total_pages {
-                    callback(self.current_page + 1)
+                child: Some(Text::new(">").into()),
+                on_press: if this.current_page < this.total_pages {
+                    callback(this.current_page + 1)
                 } else {
                     None
                 },
-                disabled: self.current_page >= self.total_pages,
+                disabled: this.current_page >= this.total_pages,
                 width: Some(40.0),
                 height: Some(40.0),
                 padding: Some([0.0; 4]),
                 ..Default::default()
             }
-            .into_node(),
+            .into(),
         );
 
         HStack {
             spacing: Some(theme.spacing.max(6.0)),
             children,
         }
-        .into_node()
+        .into()
     }
 }
 
@@ -135,14 +138,14 @@ fn page_btn(
     action: Option<ActionEnvelope>,
     theme: &fission_theme::PaginationTheme,
     tokens: &fission_theme::Tokens,
-) -> Node {
+) -> Widget {
     Button {
         variant: if active {
             ButtonVariant::Filled
         } else {
             ButtonVariant::Outline
         },
-        child: Some(Box::new(
+        child: Some(
             Text::new(format!("{}", page))
                 .size(14.0)
                 .color(if active {
@@ -150,13 +153,13 @@ fn page_btn(
                 } else {
                     tokens.colors.text_primary
                 })
-                .into_node(),
-        )),
+                .into(),
+        ),
         on_press: action,
         width: Some(40.0),
         height: Some(40.0),
         padding: Some([0.0; 4]),
         ..Default::default()
     }
-    .into_node()
+    .into()
 }

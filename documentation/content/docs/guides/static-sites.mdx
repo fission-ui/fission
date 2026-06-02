@@ -12,13 +12,13 @@ This documentation site is the real-world example. The project under `documentat
 
 ## When to use the site target
 
-Use the site target when a route can be decided at build time and the user should receive a fast, crawlable document. Good fits include product landing pages, documentation, API reference pages, blog posts, changelogs, legal pages, and chart galleries that can show static screenshots with links into richer examples.
+Use the site target when a route can be decided at conversion time and the user should receive a fast, crawlable document. Good fits include product landing pages, documentation, API reference pages, blog posts, changelogs, legal pages, and chart galleries that can show static screenshots with links into richer examples.
 
 Do not use the site target as a replacement for the normal web app target. If a page needs continuous runtime state, canvas rendering, device APIs, live collaboration, background workers, or heavy in-page interaction, use the web target for that surface. A static site can still contain light progressive enhancement such as search, theme switching, collapsible sidebars, and code highlighting, but the base page should remain useful as static HTML.
 
 ## What the static site shell does
 
-The site shell takes a real Fission app and renders it ahead of time. The custom routes are ordinary Fission widgets. Content routes start as Markdown or MDX files, pass through the documentation template widget, and then lower through the same Fission `Node` and Core IR path used by the renderer. The HTML backend visits that resolved tree and writes semantic HTML.
+The site shell takes a real Fission app and renders it ahead of time. The custom routes are ordinary Fission widgets. Content routes start as Markdown or MDX files, pass through the documentation template widget, and then lower through the same Fission `Widget` and Core IR path used by the renderer. The HTML backend visits that resolved tree and writes semantic HTML.
 
 The important detail is that the site target does not introduce a second page model. It does not ask you to build a parallel HTML router. Your custom pages are widgets, your shared visual language comes from the Fission theme, and the static renderer produces the static assets from that resolved tree.
 
@@ -71,6 +71,20 @@ generate_sitemap = true
 generate_robots = true
 ```
 
+## What you should have working
+
+After this guide, you should be able to explain where `Static sites` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test. If any of those pieces are missing, treat the page as unfinished work: add the smallest runnable example, then add the diagnostic step that proves it works.
+
+## Common mistakes to check
+
+| Symptom | What to check first |
+| --- | --- |
+| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
+| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
+| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
+| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
+| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |
+
 The `entry` value tells the command-line interface that this project has a Rust site app. When it is present, `fission site build` runs the project's own site builder so custom routes, custom footers, theme choices, and content transforms are included. When it is absent, Fission can still build a content-only site from the configured content routes.
 
 A practical directory layout looks like this:
@@ -103,22 +117,22 @@ use fission::site::{build_from_cli, FissionSite};
 
 #[derive(Default)]
 struct SiteState;
-impl AppState for SiteState {}
+impl GlobalState for SiteState {}
 
 #[derive(Clone)]
 struct HomePage;
 
-impl Widget<SiteState> for HomePage {
-    fn build(&self, _ctx: &mut BuildCtx<SiteState>, _view: &View<SiteState>) -> Node {
+impl From<HomePage> for Widget {
+    fn from(component: HomePage) -> Self {
         Column {
             children: vec![
-                Text::new("Build something people can read").size(48.0).into_node(),
-                Text::new("This route is rendered by the Fission static site shell.").into_node(),
+                Text::new("Build something people can read").size(48.0).into(),
+                Text::new("This route is rendered by the Fission static site shell.").into(),
             ],
             gap: Some(16.0),
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 }
 
@@ -134,7 +148,7 @@ fn main() -> Result<()> {
 }
 ```
 
-The route widget is rendered at build time. That means `build()` should describe the static page for the current route and theme. It should not start network requests, mutate global state, or depend on a live browser event loop. If a page needs live behavior, keep the static page useful and link to a normal Fission web app route or example.
+The route widget is rendered at conversion time. That means `component conversion` should describe the static page for the current route and theme. It should not start network requests, mutate global state, or depend on a live browser event loop. If a page needs live behavior, keep the static page useful and link to a normal Fission web app route or example.
 
 ## Content routes
 
@@ -163,6 +177,67 @@ Write the page body in Markdown or MDX.
 ```
 
 The built-in documentation template renders the page as a three-column documentation layout. The left column comes from the sidebar file. The middle column is the Markdown body. The right column is generated from headings in the page. On narrow screens the layout collapses so the article remains readable.
+
+## Header navigation and dropdowns
+
+Use `[[site.nav]]` in `fission.toml` for the header links that should appear on documentation pages. A navigation item can include nested `children`, and the static-site shell renders those children as dropdown menus with ordinary links. This keeps navigation declarative: the menu structure lives in the project manifest, while the shell handles HTML, CSS, keyboard focus, hover behavior, and progressive enhancement.
+
+```toml
+[[site.nav]]
+title = "Product"
+href = "/product/overview/"
+
+[[site.nav.children]]
+title = "Platform overview"
+href = "/product/overview/"
+
+[[site.nav.children]]
+title = "Resources"
+href = "/docs/intro/"
+
+[[site.nav.children.children]]
+title = "Documentation"
+href = "/docs/intro/"
+```
+
+Parent items should still have an `href`. That means the menu works both as a dropdown and as a normal navigation path for users, crawlers, and browsers without JavaScript. The implementation supports recursive children, but keep production menus shallow unless the information architecture genuinely needs deeper nesting.
+
+## Blog navigation
+
+Blogs should not put every post into the global header. Register the blog as a normal content route and let the documentation template generate the blog navigation from the post metadata.
+
+```toml
+[[site.routes]]
+kind = "content"
+path = "/blog"
+source = "content/blog"
+template = "fission::site::documentation"
+sidebar = "site/blog-sidebar.toml"
+```
+
+If the blog route exists and you do not provide a `content/blog/index.mdx`, the static-site shell generates `/blog/` automatically. That page lists recent posts, categories, and tags, so the header only needs a single Blog link.
+
+Use front matter to describe each post:
+
+```mdx
+---
+title: Fission 0.4.0
+description: A release note for the authoring API update.
+authors:
+  - fission
+categories:
+  - Releases
+tags:
+  - release
+  - authoring
+---
+
+# Fission 0.4.0
+
+Write the post body here.
+```
+
+Generated blog articles show category and tag chips above the body. They also show older/newer post links below the article. Set `show_adjacent_posts: false` in a post's front matter when a standalone announcement should not link into the release-note sequence.
 
 ## Sidebars
 

@@ -1,6 +1,6 @@
 use fission_core::op::Color;
-use fission_core::ui::{Container, GestureDetector, Node};
-use fission_core::{ActionEnvelope, BuildCtx, NodeId, View, Widget, WidgetNodeId};
+use fission_core::ui::{Container, GestureDetector, Widget};
+use fission_core::{ActionEnvelope, WidgetId, WidgetIdExt};
 use serde::{Deserialize, Serialize};
 
 /// An anchor-relative popup that renders content positioned next to a trigger widget.
@@ -20,48 +20,52 @@ use serde::{Deserialize, Serialize};
 /// * `content` - The popup content rendered in the flyout layer.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Popover {
-    pub id: WidgetNodeId,
+    pub id: WidgetId,
     pub is_open: bool,
     pub on_toggle: Option<ActionEnvelope>,
     pub on_close: Option<ActionEnvelope>,
 
-    pub trigger: Box<Node>,
-    pub content: Box<Node>,
+    pub trigger: Widget,
+    pub content: Widget,
 }
 
-impl<S: fission_core::AppState> Widget<S> for Popover {
-    fn build(&self, ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        // Derive stable anchor ID
-        let anchor_id = NodeId::derived(self.id.as_u128(), &[0]);
+impl From<Popover> for Widget {
+    fn from(component: Popover) -> Self {
+        let (ctx, _) = fission_core::build::current::<()>();
+        let mut component = component;
+        if let Some(id) = fission_core::build::current_widget_id() {
+            component.id = id;
+        }
+        let this = &component;
 
-        let trigger_wrapper = Container::new(*self.trigger.clone())
-            .id(anchor_id)
+        // Derive stable anchor ID
+        let anchor_id = WidgetId::derived(this.id.as_u128(), &[0]);
+
+        let trigger_wrapper = Container::new(this.trigger.clone())
             .flex_shrink(0.0)
-            .into_node();
+            .id(anchor_id);
 
         // Wrap trigger in a clickable area if on_toggle provided?
         // Or assume trigger handles clicks.
         // Usually trigger handles clicks.
 
-        if self.is_open {
-            let content_node = *self.content.clone();
+        if this.is_open {
+            let content_node = this.content.clone();
             let flyout_node = crate::flyout(anchor_id, content_node);
-            if self.on_close.is_some() {
+            if this.on_close.is_some() {
                 let backdrop = GestureDetector {
-                    on_tap: self.on_close.clone(),
-                    child: Box::new(
-                        Container::new(fission_core::ui::widgets::Spacer::default().into_node())
-                            .bg(Color {
-                                r: 0,
-                                g: 0,
-                                b: 0,
-                                a: 0,
-                            })
-                            .into_node(),
-                    ),
+                    on_tap: this.on_close.clone(),
+                    child: Container::new(fission_core::ui::widgets::Spacer::default())
+                        .bg(Color {
+                            r: 0,
+                            g: 0,
+                            b: 0,
+                            a: 0,
+                        })
+                        .into(),
                     ..Default::default()
                 }
-                .into_node();
+                .into();
 
                 // We need to render [Backdrop, Flyout].
                 // Backdrop is ZStack layer 0. Flyout layer 1.
@@ -74,25 +78,25 @@ impl<S: fission_core::AppState> Widget<S> for Popover {
                             top: Some(0.0),
                             right: Some(0.0),
                             bottom: Some(0.0),
-                            child: Some(Box::new(backdrop)),
+                            child: Some(backdrop),
                             ..Default::default()
                         }
-                        .into_node(),
+                        .into(),
                         flyout_node,
                     ],
                     ..Default::default()
                 }
-                .into_node();
+                .into();
 
                 ctx.register_portal_with_layer(
                     fission_core::PortalLayer::Flyout,
-                    Some(self.id),
+                    Some(this.id),
                     overlay,
                 );
             } else {
                 ctx.register_portal_with_layer(
                     fission_core::PortalLayer::Flyout,
-                    Some(self.id),
+                    Some(this.id),
                     flyout_node,
                 );
             }

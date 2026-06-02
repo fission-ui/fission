@@ -42,7 +42,7 @@ pub struct ImportState {
     pub error_message: Option<String>,
 }
 
-impl AppState for ImportState {}
+impl GlobalState for ImportState {}
 ```
 
 This state does not try to store platform picker internals. It stores what your product cares about: whether an import is in progress, the imported text if it succeeded, and an error message if it failed.
@@ -191,8 +191,9 @@ These reducers are plain state updates again. That is the architectural payoff. 
 The widget does not need special platform logic. It only binds actions and renders from state.
 
 ```rust
-impl Widget<ImportState> for ImportScreen {
-    fn build(&self, ctx: &mut BuildCtx<ImportState>, view: &View<ImportState>) -> Node {
+impl From<ImportScreen> for Widget {
+    fn from(component: ImportScreen) -> Self {
+        let (ctx, view) = fission::build::current::<ImportState>();
         let import = ctx.bind(
             ImportPressed,
             reduce_with!(on_import_pressed),
@@ -203,20 +204,20 @@ impl Widget<ImportState> for ImportScreen {
             children: vec![
                 Button {
                     on_press: Some(import),
-                    child: Some(Box::new(Text::new("Import file").into_node())),
+                    child: Some(Text::new("Import file").into()),
                     ..Default::default()
                 }
-                .into_node(),
-                Text::new(if view.state.importing {
+                .into(),
+                Text::new(if view.state().importing {
                     "Importing..."
                 } else {
                     "Choose a text file to import."
                 })
-                .into_node(),
+                .into(),
             ],
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 }
 ```
@@ -243,7 +244,7 @@ If the runtime should keep work alive for as long as the user interface subtree 
 
 ## What to avoid
 
-Do not put platform calls directly in `build()`. That will make rebuilds unsafe and unpredictable.
+Do not put platform calls directly in `component conversion`. That will make reconversions unsafe and unpredictable.
 
 Do not use capabilities as a generic async escape hatch. If the work is really application logic, keep it in a job or service.
 
@@ -252,3 +253,14 @@ Do not store raw platform callback state all over your widget tree. Convert it i
 ## Where to go next
 
 If your next feature needs repeated background work instead of a one-shot host action, continue with [Keep a timer or service alive](/docs/cookbook/keep-a-timer-or-service-alive). If you want the deeper architecture behind effects, jobs, services, and resources, read [Resources and async](/docs/guides/resources-and-async).
+
+## Finished state and checks
+
+By the end of `Run typed host work`, you should have a runnable change, not just a set of snippets. Run the command shown in the page, exercise the feature once manually, and add or update the smallest test that protects the behavior.
+
+| Check | Expected result |
+| --- | --- |
+| Build | `cargo check` or the relevant `fission` command finishes without target-specific configuration errors. |
+| Behavior | The screen, package, server route, or test flow described by the recipe is visible and responds to input. |
+| Failure path | At least one denied, missing, invalid, or empty case renders a useful message instead of silently doing nothing. |
+| Next link | The reference page linked from the recipe explains the exact fields, commands, or types used here. |

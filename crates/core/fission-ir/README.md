@@ -20,7 +20,7 @@ rendering backend.
 |------|---------|
 | [`CoreIR`] | Root container that owns every node and tracks the tree root. |
 | [`CoreNode`] | A single node: an ID, an operation, child links, and a content hash. |
-| [`NodeId`] | Content-addressed 128-bit identity (BLAKE3). Stable across rebuilds when the structure is unchanged. |
+| [`WidgetId`] | Content-addressed 128-bit identity (BLAKE3). Stable across rebuilds when the structure is unchanged. |
 | [`Op`] | What a node does. One of four categories: `Layout`, `Paint`, `Structural`, or `Semantics`. |
 
 ## Operations at a glance
@@ -41,12 +41,12 @@ role, label, actions, focus, drag-and-drop, scroll axes, and more.
 ## Quick example
 
 ```rust
-use fission_ir::{CoreIR, NodeId, Op, LayoutOp};
+use fission_ir::{CoreIR, WidgetId, Op, LayoutOp};
 
 let mut ir = CoreIR::new();
 
-let root = NodeId::explicit("root");
-let child = NodeId::explicit("child");
+let root = WidgetId::explicit("root");
+let child = WidgetId::explicit("child");
 
 ir.add_node(child, Op::Layout(LayoutOp::Box {
     width: Some(100.0),

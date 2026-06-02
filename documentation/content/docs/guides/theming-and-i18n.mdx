@@ -9,7 +9,7 @@ A serious app needs two kinds of flexibility very early.
 
 It needs to control how the interface looks, and it needs to control what language the interface speaks.
 
-In Fission, both concerns are explicit. Theme values and translated text do not live in hidden global state. They live in `Env`, the shared environment that widgets read through `View`.
+In Fission, both concerns are explicit. Theme values and translated text do not live in hidden global state. They live in `Env`, the shared environment that widgets read through `ViewHandle`.
 
 That design matters for the same reason explicit state matters elsewhere in the framework. If the current theme and locale are visible inputs, the user interface stays predictable, tests can provide known values, and the same app model can behave consistently across desktop, web, Android, and iOS.
 
@@ -29,7 +29,7 @@ In code, a widget usually reads the active theme through `view.env.theme` or the
 
 If the theme never changes, you can seed `Env` once and stop there.
 
-If the user can switch between light mode and dark mode, or choose branded variants, the theme choice should live in `AppState`. That is because the user's theme choice is real product state. Once that choice is in state, you mirror it into `Env` with `.with_sync_env(...)`.
+If the user can switch between light mode and dark mode, or choose branded variants, the theme choice should live in `GlobalState`. That is because the user's theme choice is real product state. Once that choice is in state, you mirror it into `Env` with `.with_sync_env(...)`.
 
 Here is the basic pattern:
 
@@ -124,6 +124,20 @@ Add `serde_yaml` to your app:
 [dependencies]
 serde_yaml = "0.9"
 ```
+
+## What you should have working
+
+After this guide, you should be able to explain where `Theming and internationalization` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test. If any of those pieces are missing, treat the page as unfinished work: add the smallest runnable example, then add the diagnostic step that proves it works.
+
+## Common mistakes to check
+
+| Symptom | What to check first |
+| --- | --- |
+| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
+| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
+| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
+| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
+| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |
 
 You do not need to think of this as "Fission requires YAML." It does not. Fission only requires that you eventually provide a `HashMap<String, String>` inside a `TranslationBundle`. This guide uses YAML because it is approachable for human-edited translation files.
 
@@ -256,7 +270,7 @@ At render time, Fission uses `env.locale` and `env.i18n` together to resolve the
 
 ## Keep locale in app state when the user can change it
 
-If the app has a language picker, the current locale should live in `AppState`.
+If the app has a language picker, the current locale should live in `GlobalState`.
 
 That is because the selected language is real product state. The user changed it. The app may need to persist it. The rest of the interface should react to it consistently.
 
@@ -296,7 +310,7 @@ So the full idea is:
 
 ## When locale does not need to live in app state
 
-Locale does not always need to be stored in `AppState`.
+Locale does not always need to be stored in `GlobalState`.
 
 If your app is single-locale, or if the locale is fixed at startup and never changes during the session, you can set `env.locale` once and leave it there.
 
@@ -311,7 +325,7 @@ What you should avoid is making each widget guess the locale for itself. The loc
 
 Theme belongs there. Locale belongs there. Other app-wide presentation inputs can belong there too.
 
-What does not belong there is ordinary domain data. Do not mirror your shopping cart, message list, or document body into `Env`. Those values are product state, and widgets should read them from `view.state`.
+What does not belong there is ordinary domain data. Do not mirror your shopping cart, message list, or document body into `Env`. Those values are product state, and widgets should read them from `view.state()`.
 
 Also do not use `.with_sync_env(...)` to perform side effects. It is for synchronization, not for network loading, file writes, or job startup.
 
@@ -321,17 +335,17 @@ Start with checked-in translation files and `include_str!`. That keeps startup s
 
 Use stable message keys based on meaning, not on where text happens to appear in the layout today.
 
-Treat theme and locale as explicit app-wide inputs. If a widget depends on them, let that dependency stay visible through `View`.
+Treat theme and locale as explicit app-wide inputs. If a widget depends on them, let that dependency stay visible through `ViewHandle`.
 
 Test long translated strings, not only short English labels. Responsive problems often show up there first.
 
-If the user can change locale or theme, keep that choice in `AppState` and mirror it through `.with_sync_env(...)` so every widget sees the same answer.
+If the user can change locale or theme, keep that choice in `GlobalState` and mirror it through `.with_sync_env(...)` so every widget sees the same answer.
 
 ## A practical end-to-end picture
 
 Imagine a settings screen where the user can switch between light and dark mode and choose between English and Spanish.
 
-The selected theme mode and locale live in `AppState` because the user owns those settings. Startup code uses `include_str!` to embed the YAML files, parses them into translation maps, wraps them in `TranslationBundle` values, and stores them in `env.i18n`. The shell uses `.with_sync_env(...)` to mirror the current locale and theme choice from state into the environment. Widgets then render keyed text and theme-aware styling by reading from `View`.
+The selected theme mode and locale live in `GlobalState` because the user owns those settings. Startup code uses `include_str!` to embed the YAML files, parses them into translation maps, wraps them in `TranslationBundle` values, and stores them in `env.i18n`. The shell uses `.with_sync_env(...)` to mirror the current locale and theme choice from state into the environment. Widgets then render keyed text and theme-aware styling by reading from `ViewHandle`.
 
 That means one reducer update can refresh the whole interface coherently. No widget needs its own translation lookup system. No component needs to guess whether dark mode is active. The model stays explicit all the way through.
 

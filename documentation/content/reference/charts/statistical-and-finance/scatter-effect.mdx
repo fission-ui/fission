@@ -49,6 +49,39 @@ Charts can emit typed `ChartInteractionEvent` values when interaction is enabled
 
 For this chart, test the data mapping first, then test lowering, then capture a live screenshot when visual output changes. The screenshot for this page is refreshed by running the ignored chart-gallery screenshot capture test with `FISSION_UPDATE_CHART_DOCS=1`, which updates `documentation/static/img/charts` before the static site build.
 
+## Authoring from a Fission component
+
+Use this reference page as the chart expression inside ordinary Fission component conversion. The chart is a `Widget`, so it can sit inside a `Card`, `Grid`, `Scroll`, responsive page section, or any other layout container.
+
+```rust
+use fission::prelude::*;
+use fission::charts::Chart;
+
+pub struct EffectScatterChart;
+
+impl From<EffectScatterChart> for Widget {
+    fn from(_: EffectScatterChart) -> Widget {
+        Chart::new()
+            .title("Effect scatter")
+            .width(720.0)
+            .height(480.0)
+            .into()
+    }
+}
+```
+
+Keep expensive data loading outside component conversion. A reducer, job, service, or server route should prepare the typed chart data, then the component should read that state and construct the chart deterministically.
+
+## Options, accessibility, and diagnostics
+
+| Area | What to decide | How to verify |
+| --- | --- | --- |
+| Data shape | Keep source rows in typed Rust structs, then map them into the series type shown in the example. | Unit test the mapping separately from rendering. |
+| Options | Choose axes, legends, labels, animation, and interaction based on the user's task. | Add a screenshot test when changing visual behavior. |
+| Accessibility | Provide a clear title and adjacent summary text for important trends or outliers. | Inspect the generated semantics and make sure the chart is understandable without color alone. |
+| Failure handling | Render an empty, loading, or error state before constructing the chart if data is unavailable. | Test empty data, partial data, and failed fetches. |
+| Performance | Prefer summarized or windowed data for very large datasets; keep full raw history in the data layer. | Profile frame time and interaction latency with representative data volumes. |
+
 Tags: `scatter`, `effect`.
 
 

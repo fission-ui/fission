@@ -1,8 +1,8 @@
 use crate::env::TextSelectionHandleKind;
-use crate::lowering::{LoweringContext, NodeBuilder};
+use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
 use crate::ui::{
-    traits::Lower, Button, ButtonContentAlign, ButtonVariant, Container, Node, Positioned, Row,
-    Spacer, Text, TextContent, TextFontStyle,
+    traits::InternalLower, Button, ButtonContentAlign, ButtonVariant, Container, Positioned, Row,
+    Spacer, Text, TextContent, TextFontStyle, Widget,
 };
 use crate::ActionEnvelope;
 use fission_ir::{
@@ -14,7 +14,7 @@ use fission_ir::{
         InputFormatter, MaxLengthEnforcement, MouseCursor as SemanticsMouseCursor,
         TextCapitalization, TextInputAction, TextInputType,
     },
-    AnyRenderObject, FlexDirection, FlexWrap, NodeId, Role, Semantics,
+    AnyRenderObject, FlexDirection, FlexWrap, Role, Semantics, WidgetId,
 };
 use fission_theme::{ComponentSize, ComponentState};
 use serde::{Deserialize, Serialize};
@@ -208,28 +208,28 @@ impl Default for TextMagnifierConfiguration {
 }
 
 pub(crate) fn text_input_selection_handle_id(
-    input_id: NodeId,
+    input_id: WidgetId,
     kind: TextSelectionHandleKind,
-) -> NodeId {
+) -> WidgetId {
     let suffix = match kind {
         TextSelectionHandleKind::Caret => 0,
         TextSelectionHandleKind::Start => 1,
         TextSelectionHandleKind::End => 2,
     };
-    NodeId::derived(input_id.as_u128(), &[900, suffix])
+    WidgetId::derived(input_id.as_u128(), &[900, suffix])
 }
 
 pub(crate) fn text_input_toolbar_button_id(
-    input_id: NodeId,
+    input_id: WidgetId,
     action: TextContextMenuAction,
-) -> NodeId {
+) -> WidgetId {
     let suffix = match action {
         TextContextMenuAction::Copy => 0,
         TextContextMenuAction::Cut => 1,
         TextContextMenuAction::Paste => 2,
         TextContextMenuAction::SelectAll => 3,
     };
-    NodeId::derived(input_id.as_u128(), &[901, suffix])
+    WidgetId::derived(input_id.as_u128(), &[901, suffix])
 }
 
 /// An editable text field with support for single-line and multiline input,
@@ -245,7 +245,7 @@ pub(crate) fn text_input_toolbar_button_id(
 /// let on_change = ctx.bind(TextChanged { .. }, reduce_with!(handle_text));
 ///
 /// TextInput {
-///     value: view.state.query.clone(),
+///     value: view.state().query.clone(),
 ///     placeholder: Some("Search...".into()),
 ///     on_change: Some(on_change),
 ///     ..Default::default()
@@ -271,7 +271,7 @@ pub(crate) fn text_input_toolbar_button_id(
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TextInput {
     /// Explicit node identity (used for focus tracking and scroll state).
-    pub id: Option<NodeId>,
+    pub id: Option<WidgetId>,
     /// The current text value (controlled by the application).
     pub value: String,
     /// Optional label shown above the field.
@@ -405,9 +405,9 @@ pub struct TextInput {
     /// Paragraph height trimming behavior.
     pub text_height_behavior: fission_ir::op::TextHeightBehavior,
     /// Optional leading decoration node.
-    pub prefix: Option<Box<Node>>,
+    pub prefix: Option<Widget>,
     /// Optional trailing decoration node.
-    pub suffix: Option<Box<Node>>,
+    pub suffix: Option<Widget>,
     /// Optional hover cursor override while pointing at the field.
     pub mouse_cursor: Option<SemanticsMouseCursor>,
     /// Preferred software keyboard / input modality.
@@ -746,13 +746,13 @@ impl TextInput {
         self
     }
 
-    pub fn prefix(mut self, node: Node) -> Self {
-        self.prefix = Some(Box::new(node));
+    pub fn prefix(mut self, node: impl Into<Widget>) -> Self {
+        self.prefix = Some(node.into());
         self
     }
 
-    pub fn suffix(mut self, node: Node) -> Self {
-        self.suffix = Some(Box::new(node));
+    pub fn suffix(mut self, node: impl Into<Widget>) -> Self {
+        self.suffix = Some(node.into());
         self
     }
 
@@ -764,10 +764,6 @@ impl TextInput {
     pub fn scroll_padding(mut self, scroll_padding: [f32; 4]) -> Self {
         self.scroll_padding = Some(scroll_padding);
         self
-    }
-
-    pub fn into_node(self) -> crate::ui::Node {
-        crate::ui::Node::TextInput(self)
     }
 }
 
@@ -864,7 +860,7 @@ impl Default for TextInput {
 }
 
 impl TextInput {
-    fn resolve_text_content(content: &TextContent, cx: &LoweringContext<'_>) -> String {
+    fn resolve_text_content(content: &TextContent, cx: &InternalLoweringCx<'_>) -> String {
         match content {
             TextContent::Literal(s) => s.clone(),
             TextContent::Key(key) => cx
@@ -896,7 +892,7 @@ impl TextInput {
 
     fn supporting_counter_text(
         &self,
-        cx: &LoweringContext<'_>,
+        cx: &InternalLoweringCx<'_>,
         current_text: &str,
     ) -> Option<String> {
         self.counter_text
@@ -910,24 +906,21 @@ impl TextInput {
 
     fn build_selection_handle_overlay(
         &self,
-        cx: &mut LoweringContext,
-        input_id: NodeId,
+        cx: &mut InternalLoweringCx,
+        input_id: WidgetId,
         kind: TextSelectionHandleKind,
         point: fission_layout::LayoutPoint,
-    ) -> NodeId {
+    ) -> WidgetId {
         let controls = &self.selection_controls;
         let diameter = controls.handle_radius * 2.0;
         let handle_node = Button {
-            id: Some(text_input_selection_handle_id(input_id, kind)),
-            child: Some(Box::new(
-                Container::new(
-                    Spacer {
-                        width: Some(diameter),
-                        height: Some(diameter),
-                        ..Default::default()
-                    }
-                    .into_node(),
-                )
+            id: Some(text_input_selection_handle_id(input_id, kind).into()),
+            child: Some(
+                Container::new(Spacer {
+                    width: Some(diameter),
+                    height: Some(diameter),
+                    ..Default::default()
+                })
                 .bg_fill(Fill::Solid(controls.handle_fill))
                 .border(
                     controls.handle_stroke.unwrap_or(IrColor {
@@ -939,8 +932,8 @@ impl TextInput {
                     controls.handle_stroke_width,
                 )
                 .border_radius(controls.handle_radius)
-                .into_node(),
-            )),
+                .into(),
+            ),
             width: Some(diameter),
             height: Some(diameter),
             padding: Some([0.0; 4]),
@@ -948,14 +941,14 @@ impl TextInput {
             variant: ButtonVariant::Ghost,
             ..Default::default()
         }
-        .into_node();
+        .into();
 
         Positioned {
             left: Some((point.x - controls.handle_radius).max(0.0)),
             top: Some((point.y - controls.handle_radius).max(0.0)),
             width: Some(diameter),
             height: Some(diameter),
-            child: Some(Box::new(handle_node)),
+            child: Some(handle_node),
             ..Default::default()
         }
         .lower(cx)
@@ -963,42 +956,42 @@ impl TextInput {
 
     fn build_toolbar_overlay(
         &self,
-        cx: &mut LoweringContext,
-        input_id: NodeId,
+        cx: &mut InternalLoweringCx,
+        input_id: WidgetId,
         anchor: fission_layout::LayoutPoint,
-    ) -> NodeId {
+    ) -> WidgetId {
         let tokens = &cx.env.theme.tokens;
         let mut row = Row::default().gap(self.context_menu.gap);
         for action in &self.context_menu.actions {
             row.children.push(
                 Button {
-                    id: Some(text_input_toolbar_button_id(input_id, *action)),
-                    child: Some(Box::new(
+                    id: Some(text_input_toolbar_button_id(input_id, *action).into()),
+                    child: Some(
                         Text::new(action.label())
                             .size(tokens.typography.label_large_size)
                             .color(tokens.colors.text_primary)
-                            .into_node(),
-                    )),
+                            .into(),
+                    ),
                     padding: Some([10.0, 10.0, 6.0, 6.0]),
                     content_align: ButtonContentAlign::Center,
                     variant: ButtonVariant::Ghost,
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
             );
         }
 
-        let toolbar = Container::new(row.into_node())
+        let toolbar: Widget = Container::new(row)
             .bg_fill(Fill::Solid(tokens.colors.surface))
             .border(tokens.colors.border, 1.0)
             .border_radius(self.context_menu.border_radius)
             .padding(self.context_menu.padding)
-            .into_node();
+            .into();
 
         Positioned {
             left: Some(anchor.x.max(0.0)),
             top: Some((anchor.y - 44.0).max(0.0)),
-            child: Some(Box::new(toolbar)),
+            child: Some(toolbar),
             ..Default::default()
         }
         .lower(cx)
@@ -1027,12 +1020,12 @@ impl TextInput {
 
     fn build_magnifier_overlay(
         &self,
-        cx: &mut LoweringContext,
+        cx: &mut InternalLoweringCx,
         anchor: fission_layout::LayoutPoint,
         display_text: &str,
         caret: usize,
         base_text_style: &fission_ir::op::TextStyle,
-    ) -> NodeId {
+    ) -> WidgetId {
         let cfg = &self.magnifier_configuration;
         let tokens = &cx.env.theme.tokens;
         let preview = Self::magnifier_snippet(display_text, caret);
@@ -1053,10 +1046,9 @@ impl TextInput {
                     .unwrap_or(base_text_style.font_size * 1.25)
                     * cfg.scale,
             )
-            .letter_spacing(base_text_style.letter_spacing * cfg.scale)
-            .into_node();
+            .letter_spacing(base_text_style.letter_spacing * cfg.scale);
 
-        let magnifier = Container::new(preview_text)
+        let magnifier: Widget = Container::new(preview_text)
             .width(cfg.diameter)
             .height(cfg.diameter)
             .bg_fill(Fill::Solid(tokens.colors.surface))
@@ -1066,23 +1058,23 @@ impl TextInput {
             )
             .border_radius(cfg.border_radius)
             .padding_all(8.0)
-            .into_node();
+            .into();
 
         Positioned {
             left: Some((anchor.x - cfg.diameter * 0.5).max(0.0)),
             top: Some((anchor.y - cfg.diameter - 18.0).max(0.0)),
             width: Some(cfg.diameter),
             height: Some(cfg.diameter),
-            child: Some(Box::new(magnifier)),
+            child: Some(magnifier),
             ..Default::default()
         }
         .lower(cx)
     }
 }
 
-impl Lower for TextInput {
-    fn lower(&self, cx: &mut LoweringContext) -> NodeId {
-        let input_id = self.id.unwrap_or_else(|| cx.next_node_id());
+impl InternalLower for TextInput {
+    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+        let input_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         let is_focused = cx.runtime_state.interaction.is_focused(input_id);
 
         let theme = &cx.env.theme.components.text_input;
@@ -1197,7 +1189,7 @@ impl Lower for TextInput {
             None
         } else {
             Some(
-                NodeBuilder::new(
+                InternalIrBuilder::new(
                     cx.next_node_id(),
                     Op::Paint(PaintOp::DrawRect {
                         fill: Some(
@@ -1428,7 +1420,7 @@ impl Lower for TextInput {
                 }
         });
 
-        let text_id = NodeBuilder::new(
+        let text_id = InternalIrBuilder::new(
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawRichText {
                 runs,
@@ -1443,7 +1435,7 @@ impl Lower for TextInput {
         )
         .build(cx);
 
-        let mut text_box = NodeBuilder::new(
+        let mut text_box = InternalIrBuilder::new(
             cx.next_node_id(),
             Op::Layout(LayoutOp::Box {
                 width: None,
@@ -1462,7 +1454,7 @@ impl Lower for TextInput {
         let text_layout_id = text_box.build(cx);
 
         // 3. Scroll Container
-        let mut scroll = NodeBuilder::new(
+        let mut scroll = InternalIrBuilder::new(
             cx.next_node_id(),
             Op::Layout(LayoutOp::Scroll {
                 direction: if self.multiline {
@@ -1486,7 +1478,7 @@ impl Lower for TextInput {
         let scroll_id = scroll.build(cx);
 
         // 4. Editable content row and vertical alignment container.
-        let mut content_row = NodeBuilder::new(
+        let mut content_row = InternalIrBuilder::new(
             cx.next_node_id(),
             Op::Layout(LayoutOp::Flex {
                 direction: FlexDirection::Row,
@@ -1512,7 +1504,7 @@ impl Lower for TextInput {
         }
         let content_row_id = content_row.build(cx);
 
-        let mut content_alignment = NodeBuilder::new(
+        let mut content_alignment = InternalIrBuilder::new(
             cx.next_node_id(),
             Op::Layout(LayoutOp::Flex {
                 direction: FlexDirection::Column,
@@ -1554,7 +1546,7 @@ impl Lower for TextInput {
 
         // 5. Wrapper (Border + Padding)
         let wrapper_id = cx.next_node_id();
-        let mut wrapper = NodeBuilder::new(
+        let mut wrapper = InternalIrBuilder::new(
             wrapper_id,
             Op::Layout(LayoutOp::Box {
                 width: self.width,
@@ -1644,7 +1636,7 @@ impl Lower for TextInput {
 
                 if !overlay_children.is_empty() {
                     let mut stack =
-                        NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::ZStack));
+                        InternalIrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::ZStack));
                     stack.add_child(wrapper_visual_id);
                     for child in overlay_children {
                         stack.add_child(child);
@@ -1691,7 +1683,7 @@ impl Lower for TextInput {
                         .text_color
                         .unwrap_or(tokens.colors.text_secondary),
                 );
-                let mut column = NodeBuilder::new(
+                let mut column = InternalIrBuilder::new(
                     cx.next_node_id(),
                     Op::Layout(LayoutOp::Flex {
                         direction: FlexDirection::Column,
@@ -1739,7 +1731,7 @@ impl Lower for TextInput {
                                         .unwrap_or(tokens.typography.label_large_size),
                                 )
                                 .color(supporting_color)
-                                .into_node(),
+                                .into(),
                         );
                     }
                     row.children.push(
@@ -1747,7 +1739,7 @@ impl Lower for TextInput {
                             flex_grow: 1.0,
                             ..Default::default()
                         }
-                        .into_node(),
+                        .into(),
                     );
                     if let Some(counter_text) = counter_text {
                         row.children.push(
@@ -1759,7 +1751,7 @@ impl Lower for TextInput {
                                         .unwrap_or(tokens.typography.label_large_size),
                                 )
                                 .color(counter_color)
-                                .into_node(),
+                                .into(),
                         );
                     }
                     column.add_child(row.lower(cx));
@@ -1870,7 +1862,7 @@ impl Lower for TextInput {
                 .entries
                 .push(fission_ir::ActionEntry::hover_cursor(mouse_cursor));
         }
-        let mut semantics_builder = NodeBuilder::new(input_id, Op::Semantics(semantics));
+        let mut semantics_builder = InternalIrBuilder::new(input_id, Op::Semantics(semantics));
         semantics_builder.add_child(field_body_id);
         let semantics_id = semantics_builder.build(cx);
         cx.ir.custom_render_objects.insert(

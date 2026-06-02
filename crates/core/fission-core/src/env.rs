@@ -1,11 +1,12 @@
 use crate::{
-    action::AppState,
+    action::GlobalState,
     registry::{AnimationPropertyId, EasingFunction},
+    state::LocalStateStore,
 };
 use fission_i18n::{I18nRegistry, Locale};
 use fission_ir::op::RichTextAnnotation;
 use fission_ir::semantics::MouseCursor;
-use fission_ir::{NodeId, WidgetNodeId};
+use fission_ir::WidgetId;
 use fission_layout::{LayoutPoint, LayoutSize};
 use fission_text_engine::{EditTransaction, TextBuffer, TextEdit};
 use fission_theme::Theme;
@@ -115,6 +116,7 @@ pub trait ImeHandler: Send + Sync {
 // Runtime state managed by framework (Interaction)
 #[derive(Clone, Debug, Default)]
 pub struct RuntimeState {
+    pub local_widget_state: LocalStateStore,
     pub scroll: ScrollStateMap,
     pub video: VideoStateMap,
     pub web: WebStateMap,
@@ -122,15 +124,15 @@ pub struct RuntimeState {
     pub interaction: InteractionStateMap,
     pub text_edit: TextEditStateMap,
     pub clipboard: String,
-    pub caret_visible: HashMap<NodeId, bool>,
+    pub caret_visible: HashMap<WidgetId, bool>,
     pub gesture: GestureState,
     pub hero: HeroState,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct HeroState {
-    // tag -> (Last Known NodeId, Last Known Rect)
-    pub positions: HashMap<String, (NodeId, fission_layout::LayoutRect)>,
+    // tag -> (Last Known WidgetId, Last Known Rect)
+    pub positions: HashMap<String, (WidgetId, fission_layout::LayoutRect)>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -138,7 +140,7 @@ pub struct GestureState {
     pub start_point: Option<LayoutPoint>,
     pub last_point: Option<LayoutPoint>,
     pub is_panning: bool,
-    pub target_node: Option<NodeId>,
+    pub target_node: Option<WidgetId>,
     pub dragging_payload: Option<Vec<u8>>,
     pub pressed_button: Option<crate::event::PointerButton>,
     pub scrollbar_drag: Option<crate::scrollbar::ScrollbarDragState>,
@@ -146,13 +148,13 @@ pub struct GestureState {
 
 #[derive(Clone, Debug, Default)]
 pub struct AnimationStateMap {
-    pub values: HashMap<(WidgetNodeId, AnimationPropertyId), f32>,
-    pub active: HashMap<(WidgetNodeId, AnimationPropertyId), ActiveAnimation>,
+    pub values: HashMap<(WidgetId, AnimationPropertyId), f32>,
+    pub active: HashMap<(WidgetId, AnimationPropertyId), ActiveAnimation>,
 }
 
 #[derive(Clone, Debug)]
 pub struct ActiveAnimation {
-    pub target: WidgetNodeId,
+    pub target: WidgetId,
     pub property: AnimationPropertyId,
     pub start_value: f32,
     pub end_value: f32,
@@ -165,22 +167,22 @@ pub struct ActiveAnimation {
 
 #[derive(Clone, Debug, Default)]
 pub struct ScrollStateMap {
-    pub offsets: HashMap<NodeId, f32>,
+    pub offsets: HashMap<WidgetId, f32>,
 }
 
 impl ScrollStateMap {
-    pub fn get_offset(&self, id: NodeId) -> f32 {
+    pub fn get_offset(&self, id: WidgetId) -> f32 {
         *self.offsets.get(&id).unwrap_or(&0.0)
     }
 
-    pub fn set_offset(&mut self, id: NodeId, offset: f32) {
+    pub fn set_offset(&mut self, id: WidgetId, offset: f32) {
         self.offsets.insert(id, offset);
     }
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct TextEditStateMap {
-    pub states: HashMap<NodeId, TextEditState>,
+    pub states: HashMap<WidgetId, TextEditState>,
     pub restoration: HashMap<String, TextRestorationSnapshot>,
 }
 
@@ -309,15 +311,15 @@ fn apply_transaction(buffer: &mut TextBuffer, transaction: &EditTransaction) {
 }
 
 impl TextEditStateMap {
-    pub fn get_mut_or_default(&mut self, id: NodeId) -> &mut TextEditState {
+    pub fn get_mut_or_default(&mut self, id: WidgetId) -> &mut TextEditState {
         self.states.entry(id).or_default()
     }
-    pub fn get(&self, id: NodeId) -> Option<&TextEditState> {
+    pub fn get(&self, id: WidgetId) -> Option<&TextEditState> {
         self.states.get(&id)
     }
     pub fn sync_from_runtime(
         &mut self,
-        id: NodeId,
+        id: WidgetId,
         semantic_value: &str,
         restoration_id: Option<&str>,
         undo_capacity: Option<usize>,
@@ -343,7 +345,7 @@ impl TextEditStateMap {
             self.restoration.insert(rid.to_string(), st.snapshot());
         }
     }
-    pub fn persist_restoration(&mut self, id: NodeId, restoration_id: Option<&str>) {
+    pub fn persist_restoration(&mut self, id: WidgetId, restoration_id: Option<&str>) {
         let Some(rid) = restoration_id else {
             return;
         };
@@ -351,7 +353,7 @@ impl TextEditStateMap {
             self.restoration.insert(rid.to_string(), st.snapshot());
         }
     }
-    pub fn set_caret(&mut self, id: NodeId, caret: usize, anchor: Option<usize>) {
+    pub fn set_caret(&mut self, id: WidgetId, caret: usize, anchor: Option<usize>) {
         let st = self.states.entry(id).or_default();
         st.caret = caret;
         st.anchor = anchor.unwrap_or(caret);
@@ -506,33 +508,33 @@ impl TextEditState {
 
 #[derive(Clone, Debug, Default)]
 pub struct InteractionStateMap {
-    pub hovered: HashMap<NodeId, bool>,
-    pub hover_path: Vec<NodeId>,
+    pub hovered: HashMap<WidgetId, bool>,
+    pub hover_path: Vec<WidgetId>,
     pub hover_rich_text_annotation: Option<HoveredRichTextAnnotation>,
-    pub pressed: HashMap<NodeId, bool>,
-    pub focused: Option<NodeId>,
+    pub pressed: HashMap<WidgetId, bool>,
+    pub focused: Option<WidgetId>,
     pub cursor: MouseCursor,
     pub last_down_point: Option<LayoutPoint>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HoveredRichTextAnnotation {
-    pub node_id: NodeId,
+    pub node_id: WidgetId,
     pub annotation: RichTextAnnotation,
 }
 
 impl InteractionStateMap {
-    pub fn is_hovered(&self, id: NodeId) -> bool {
+    pub fn is_hovered(&self, id: WidgetId) -> bool {
         self.hovered.get(&id).copied().unwrap_or(false)
     }
-    pub fn is_pressed(&self, id: NodeId) -> bool {
+    pub fn is_pressed(&self, id: WidgetId) -> bool {
         self.pressed.get(&id).copied().unwrap_or(false)
     }
-    pub fn is_focused(&self, id: NodeId) -> bool {
+    pub fn is_focused(&self, id: WidgetId) -> bool {
         self.focused == Some(id)
     }
 
-    pub fn hovered_path(&self) -> &[NodeId] {
+    pub fn hovered_path(&self) -> &[WidgetId] {
         &self.hover_path
     }
 
@@ -544,7 +546,7 @@ impl InteractionStateMap {
         self.cursor
     }
 
-    pub fn set_hovered(&mut self, id: NodeId, value: bool) {
+    pub fn set_hovered(&mut self, id: WidgetId, value: bool) {
         if value {
             self.hovered.insert(id, true);
         } else {
@@ -552,7 +554,7 @@ impl InteractionStateMap {
         }
     }
 
-    pub fn set_hover_path(&mut self, path: Vec<NodeId>) {
+    pub fn set_hover_path(&mut self, path: Vec<WidgetId>) {
         self.hover_path = path;
     }
 
@@ -563,7 +565,7 @@ impl InteractionStateMap {
         self.hover_rich_text_annotation = annotation;
     }
 
-    pub fn set_pressed(&mut self, id: NodeId, value: bool) {
+    pub fn set_pressed(&mut self, id: WidgetId, value: bool) {
         if value {
             self.pressed.insert(id, true);
         } else {
@@ -571,7 +573,7 @@ impl InteractionStateMap {
         }
     }
 
-    pub fn set_focused(&mut self, id: Option<NodeId>) {
+    pub fn set_focused(&mut self, id: Option<WidgetId>) {
         self.focused = id;
     }
 
@@ -582,7 +584,7 @@ impl InteractionStateMap {
 
 #[derive(Clone, Debug, Default)]
 pub struct VideoStateMap {
-    pub states: HashMap<WidgetNodeId, VideoState>,
+    pub states: HashMap<WidgetId, VideoState>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -597,12 +599,12 @@ pub struct WebState {
 
 #[derive(Clone, Debug, Default)]
 pub struct WebStateMap {
-    pub states: HashMap<WidgetNodeId, WebState>,
+    pub states: HashMap<WidgetId, WebState>,
 }
 
 // Static environment data (Theme, I18n)
 
-impl AppState for VideoStateMap {}
+impl GlobalState for VideoStateMap {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct VideoState {

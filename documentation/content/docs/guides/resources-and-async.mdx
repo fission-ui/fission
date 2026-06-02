@@ -77,7 +77,7 @@ Use a job when the work is finite and request-shaped.
 
 Do not use a job for a long-lived connection, a continuously running process, or something that should stay mounted while a widget subtree exists. Those cases belong to services or resources.
 
-A common mistake is starting the same job repeatedly from `build()`. If the work should happen because a user acted, start it from a reducer through `ctx.effects`. If the work should stay alive while a screen is mounted, declare it as a resource instead.
+A common mistake is starting the same job repeatedly from `component conversion`. If the work should happen because a user acted, start it from a reducer through `ctx.effects`. If the work should stay alive while a screen is mounted, declare it as a resource instead.
 
 ## Capabilities: one-shot work owned by the host
 
@@ -201,7 +201,7 @@ So far, the examples have all been reducer-driven. A user action happened, so th
 
 Resources solve a different problem.
 
-A resource is work that should stay mounted while a widget subtree exists. It is declared during `build()` through `BuildCtx.resources`, and the runtime reconciles it over time by key and dependency payload.
+A resource is work that should stay mounted while a widget subtree exists. It is declared during component conversion through `BuildCtxHandle` resource methods, and the runtime reconciles it over time by key and dependency payload.
 
 That distinction matters. Some work is not best described as "the user clicked a button." A polling timer may need to exist while a panel is visible. A background job may need to restart when a dependency changes. A long-lived service may need to stay alive for as long as a screen is mounted.
 
@@ -222,19 +222,19 @@ Use it when the user interface should declare "while this screen is present and 
 That looks like this in practice:
 
 ```rust
-if view.state.tree_scan_pending() {
+if view.state().tree_scan_pending() {
     ctx.resources.job(
         JobResource::new(
             ResourceKey::new("editor-tree-scan"),
             TREE_SCAN_JOB,
             TreeScanRequest {
-                root_path: view.state.root_path.clone(),
-                generation: view.state.tree_scan_generation,
+                root_path: view.state().root_path.clone(),
+                generation: view.state().tree_scan_generation,
             },
         )
         .deps((
-            view.state.root_path.clone(),
-            view.state.tree_scan_generation,
+            view.state().root_path.clone(),
+            view.state().tree_scan_generation,
         ))
         .on_ok(tree_scan_loaded)
         .on_err(tree_scan_failed),
@@ -288,7 +288,7 @@ Use a timer resource when the app should wake up periodically because the curren
 
 Do not use a timer resource as a substitute for real event-driven modeling when no periodic work is actually needed. Also avoid keeping timers mounted for screens that are not visible anymore.
 
-A common mistake is placing polling logic in `build()` itself instead of declaring a timer resource that the runtime can manage cleanly.
+A common mistake is placing polling logic in `component conversion` itself instead of declaring a timer resource that the runtime can manage cleanly.
 
 ## Why resources are separated from reducers
 
@@ -300,7 +300,7 @@ That separation keeps both halves simpler.
 
 Reducers remain deterministic state transitions with explicit effect requests.
 
-`build()` remains pure description, but it is still allowed to declare runtime-managed resources because those declarations are data, not immediate side effects.
+`component conversion` remains pure description, but it is still allowed to declare runtime-managed resources because those declarations are data, not immediate side effects.
 
 The runtime then compares resource declarations over time and starts, preserves, restarts, or stops them according to keys, dependencies, and policies.
 
@@ -352,7 +352,7 @@ If you are unsure between a job and a service, ask whether the work has identity
 
 ## Common mistakes to avoid
 
-The first mistake is putting side effects directly inside `build()`. A rebuild is not a user intent. If `build()` starts network work, writes a file, or opens a picker, the app becomes unpredictable quickly.
+The first mistake is putting side effects directly inside `component conversion`. A reconvert is not a user intent. If `component conversion` starts network work, writes a file, or opens a picker, the app becomes unpredictable quickly.
 
 The second mistake is using reducers to manually manage long-lived background work that really belongs to a resource. That often creates start-stop logic spread across unrelated actions.
 
@@ -364,4 +364,18 @@ The fifth mistake is choosing unstable resource keys or dependency payloads. Rec
 
 ## Where to go next
 
-If you want the app-model foundation behind reducers and pure `build()` methods, revisit [Runtime model](/docs/learn/runtime-model). If you want to see responsive user interface and state-driven composition before adding async work, read [Layout and widgets](/docs/guides/layout-and-widgets). For a checked-in product example that uses job resources and timers heavily, inspect Fission Editor from the public [Examples](/examples) page after reading this guide.
+If you want the app-model foundation behind reducers and pure `component conversion` methods, revisit [Runtime model](/docs/learn/runtime-model/). If you need the detailed rules for app state, local widget state, build handles, and provider scopes, read [State, handles, and providers](/docs/guides/state-handles-and-providers/). If you want to see responsive user interface and state-driven composition before adding async work, read [Layout and widgets](/docs/guides/layout-and-widgets/). For a checked-in product example that uses job resources and timers heavily, inspect Fission Editor from the public [Examples](/examples) page after reading this guide.
+
+## What you should have working
+
+After this guide, you should be able to explain where `Resources and async` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test. If any of those pieces are missing, treat the page as unfinished work: add the smallest runnable example, then add the diagnostic step that proves it works.
+
+## Common mistakes to check
+
+| Symptom | What to check first |
+| --- | --- |
+| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
+| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
+| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
+| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
+| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |

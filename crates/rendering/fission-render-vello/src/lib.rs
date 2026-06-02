@@ -11,7 +11,7 @@ use fission_render::{
     surface_placeholder_color, Color as RenderColor, DisplayList, DisplayOp, LayerClip,
     RenderLayer, RenderNode, RenderScene, Renderer, TextStyle as RenderTextStyle,
 };
-use vello::kurbo::{Affine, BezPath, Rect, RoundedRect};
+use vello::kurbo::{Affine, BezPath, Point, Rect, RoundedRect};
 // Minimal imports from peniko
 use vello::peniko::{
     Blob, Brush, Color, Fill, ImageAlphaType, ImageBrush, ImageData, ImageFormat, ImageSampler, Mix,
@@ -108,6 +108,7 @@ const PARAGRAPH_FADE_SLICE_COUNT: usize = 8;
 const PARAGRAPH_FADE_MIN_SPAN: f32 = 8.0;
 const PARAGRAPH_FADE_RIGHT_MULTIPLIER: f32 = 1.5;
 const PARAGRAPH_FADE_BOTTOM_FRACTION: f32 = 0.5;
+const TEXT_CULL_PADDING: f32 = 8.0;
 const LTR_DIRECTION_MARK: &str = "\u{200E}";
 const RTL_DIRECTION_MARK: &str = "\u{200F}";
 
@@ -123,6 +124,24 @@ enum ParagraphFade {
     Bottom { start: f32, end: f32 },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct TextClip {
+    left: f32,
+    right: f32,
+    top: f32,
+    bottom: f32,
+}
+
+impl TextClip {
+    fn intersects_y(self, top: f32, bottom: f32) -> bool {
+        bottom >= self.top && top <= self.bottom
+    }
+
+    fn intersects_x(self, left: f32, right: f32) -> bool {
+        right >= self.left && left <= self.right
+    }
+}
+
 #[derive(Debug, Clone)]
 struct PreparedParagraphLayout {
     text: String,
@@ -130,6 +149,7 @@ struct PreparedParagraphLayout {
     styles: Vec<(std::ops::Range<usize>, RenderTextStyle)>,
     inline_boxes: Vec<crate::text::RichInlineBox>,
     caret_index: Option<usize>,
+    #[allow(dead_code)]
     text_byte_offset: usize,
 }
 
@@ -953,6 +973,45 @@ mod tests {
     }
 
     #[test]
+    fn simple_text_rendering_culls_glyphs_outside_bounds() {
+        let mut scene = Scene::new();
+        let mut cache = RetainedSceneCache::default();
+        let mut renderer = test_renderer(&mut scene, &mut cache);
+        let text = "M".repeat(20_000);
+
+        renderer.render_text(
+            &text,
+            16.0,
+            RenderColor {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
+            false,
+            false,
+            LayoutPoint::new(0.0, 0.0),
+            LayoutRect::new(0.0, 0.0, 120.0, 32.0),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &[],
+            &[],
+        );
+        drop(renderer);
+
+        let glyphs = scene.encoding().resources.glyphs.len();
+        assert!(glyphs > 0, "visible glyphs should still be encoded");
+        assert!(
+            glyphs < 256,
+            "renderer should not encode the full off-bounds text run; glyphs={glyphs}"
+        );
+    }
+
+    #[test]
     fn explicit_text_direction_realigns_neutral_content() {
         let mut scene = Scene::new();
         let mut cache = RetainedSceneCache::default();
@@ -1169,6 +1228,7 @@ pub struct VelloRenderer<'a> {
     current_transform: Affine,
     layer_count_stack: Vec<usize>,
     current_layer_count: usize,
+    clip_stack: Vec<Rect>,
 }
 
 pub struct RetainedSceneCache {
@@ -1251,7 +1311,90 @@ impl<'a> VelloRenderer<'a> {
             current_transform: Affine::scale(scale_factor),
             layer_count_stack: Vec::new(),
             current_layer_count: 0,
+            clip_stack: Vec::new(),
         }
+    }
+
+    fn layout_rect_to_rect(rect: fission_render::LayoutRect) -> Rect {
+        Rect::new(
+            rect.origin.x as f64,
+            rect.origin.y as f64,
+            (rect.origin.x + rect.size.width) as f64,
+            (rect.origin.y + rect.size.height) as f64,
+        )
+    }
+
+    fn transform_rect_bounds(transform: Affine, rect: Rect) -> Rect {
+        let points = [
+            Point::new(rect.x0, rect.y0),
+            Point::new(rect.x1, rect.y0),
+            Point::new(rect.x0, rect.y1),
+            Point::new(rect.x1, rect.y1),
+        ];
+        let mut min_x = f64::INFINITY;
+        let mut min_y = f64::INFINITY;
+        let mut max_x = f64::NEG_INFINITY;
+        let mut max_y = f64::NEG_INFINITY;
+        for point in points {
+            let point = transform * point;
+            min_x = min_x.min(point.x);
+            min_y = min_y.min(point.y);
+            max_x = max_x.max(point.x);
+            max_y = max_y.max(point.y);
+        }
+        Rect::new(min_x, min_y, max_x, max_y)
+    }
+
+    fn rects_intersect(a: Rect, b: Rect) -> bool {
+        a.width() > 0.0 && a.height() > 0.0 && b.width() > 0.0 && b.height() > 0.0
+            && a.x1 >= b.x0
+            && a.x0 <= b.x1
+            && a.y1 >= b.y0
+            && a.y0 <= b.y1
+    }
+
+    fn intersect_rects(a: Rect, b: Rect) -> Rect {
+        Rect::new(a.x0.max(b.x0), a.y0.max(b.y0), a.x1.min(b.x1), a.y1.min(b.y1))
+    }
+
+    fn local_rect_visible(&self, rect: Rect) -> bool {
+        if rect.width() <= 0.0 || rect.height() <= 0.0 {
+            return false;
+        }
+        let Some(active_clip) = self.clip_stack.last().copied() else {
+            return true;
+        };
+        let transformed = Self::transform_rect_bounds(self.current_transform, rect);
+        Self::rects_intersect(transformed, active_clip)
+    }
+
+    fn push_clip_bounds(&mut self, rect: Rect) {
+        let transformed = Self::transform_rect_bounds(self.current_transform, rect);
+        let clipped = if let Some(active_clip) = self.clip_stack.last().copied() {
+            Self::intersect_rects(active_clip, transformed)
+        } else {
+            transformed
+        };
+        self.clip_stack.push(clipped);
+    }
+
+    fn pop_clip_bounds(&mut self) {
+        let _ = self.clip_stack.pop();
+    }
+
+    fn text_clip(
+        position: fission_render::LayoutPoint,
+        bounds: fission_render::LayoutRect,
+    ) -> Option<TextClip> {
+        if bounds.width() <= 0.0 || bounds.height() <= 0.0 {
+            return None;
+        }
+        Some(TextClip {
+            left: bounds.x() - position.x - TEXT_CULL_PADDING,
+            right: bounds.right() - position.x + TEXT_CULL_PADDING,
+            top: bounds.y() - position.y - TEXT_CULL_PADDING,
+            bottom: bounds.bottom() - position.y + TEXT_CULL_PADDING,
+        })
     }
 
     fn get_image(&self, request: &ImageRequest) -> Option<Arc<ImageData>> {
@@ -1472,9 +1615,22 @@ impl<'a> VelloRenderer<'a> {
         top_y: f32,
         line_height: f32,
         styles: &[(std::ops::Range<usize>, RenderTextStyle)],
+        clip: Option<TextClip>,
     ) {
+        if let Some(clip) = clip {
+            if !clip.intersects_y(top_y, top_y + line_height) {
+                return;
+            }
+        }
         for item in line.items() {
             if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
+                let run_left = glyph_run.offset();
+                let run_right = glyph_run.offset() + glyph_run.advance();
+                if let Some(clip) = clip {
+                    if !clip.intersects_x(run_left, run_right) {
+                        continue;
+                    }
+                }
                 let style = glyph_run.style();
                 let run = glyph_run.run();
                 let font = run.font();
@@ -1494,8 +1650,17 @@ impl<'a> VelloRenderer<'a> {
                         let overlap_end = range.end.min(run_text_range.end);
                         if overlap_start < overlap_end {
                             let bg_color = Color::from_rgba8(bg.r, bg.g, bg.b, bg.a);
-                            let x0 = position.x as f64 + glyph_run.offset() as f64;
-                            let x1 = x0 + glyph_run.advance() as f64;
+                            let x0 = clip
+                                .map(|clip| run_left.max(clip.left))
+                                .unwrap_or(run_left);
+                            let x1 = clip
+                                .map(|clip| run_right.min(clip.right))
+                                .unwrap_or(run_right);
+                            if x1 <= x0 {
+                                break;
+                            }
+                            let x0 = position.x as f64 + x0 as f64;
+                            let x1 = position.x as f64 + x1 as f64;
                             let y0 = position.y as f64 + top_y as f64;
                             let bg_rect = Rect::new(x0, y0, x1, y0 + line_height as f64);
                             self.scene.fill(
@@ -1512,16 +1677,30 @@ impl<'a> VelloRenderer<'a> {
 
                 let mut x = glyph_run.offset();
                 let y = glyph_run.baseline();
-                let glyphs = glyph_run.glyphs().map(|g| {
-                    let gx = x + g.x;
-                    let gy = y - g.y;
-                    x += g.advance;
-                    Glyph {
-                        id: g.id as u32,
-                        x: gx,
-                        y: gy,
-                    }
-                });
+                let glyphs = glyph_run
+                    .glyphs()
+                    .filter_map(|g| {
+                        let gx = x + g.x;
+                        let gy = y - g.y;
+                        x += g.advance;
+                        let glyph_right = gx + g.advance.max(1.0);
+                        if clip
+                            .map(|clip| clip.intersects_x(gx, glyph_right))
+                            .unwrap_or(true)
+                        {
+                            Some(Glyph {
+                                id: g.id as u32,
+                                x: gx,
+                                y: gy,
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                if glyphs.is_empty() {
+                    continue;
+                }
 
                 self.scene
                     .draw_glyphs(font)
@@ -1531,7 +1710,7 @@ impl<'a> VelloRenderer<'a> {
                             * Affine::translate((position.x as f64, position.y as f64)),
                     )
                     .brush(color)
-                    .draw(Fill::NonZero, glyphs);
+                    .draw(Fill::NonZero, glyphs.into_iter());
 
                 if let Some(decoration) = &style.underline {
                     let metrics = run.metrics();
@@ -1545,8 +1724,17 @@ impl<'a> VelloRenderer<'a> {
                         deco_brush.0[3],
                     );
 
-                    let x0 = position.x as f64 + glyph_run.offset() as f64;
-                    let x1 = x0 + glyph_run.advance() as f64;
+                    let x0 = clip
+                        .map(|clip| run_left.max(clip.left))
+                        .unwrap_or(run_left);
+                    let x1 = clip
+                        .map(|clip| run_right.min(clip.right))
+                        .unwrap_or(run_right);
+                    if x1 <= x0 {
+                        continue;
+                    }
+                    let x0 = position.x as f64 + x0 as f64;
+                    let x1 = position.x as f64 + x1 as f64;
                     let y0 = position.y as f64 + (glyph_run.baseline() + offset) as f64;
                     let rect = Rect::new(x0, y0, x1, y0 + size as f64);
                     self.scene.fill(
@@ -1569,6 +1757,7 @@ impl<'a> VelloRenderer<'a> {
         top_y: f32,
         line_height: f32,
         styles: &[(std::ops::Range<usize>, RenderTextStyle)],
+        clip: Option<TextClip>,
         fade: ParagraphFade,
     ) {
         let line_top = position.y + top_y;
@@ -1585,7 +1774,7 @@ impl<'a> VelloRenderer<'a> {
                         line_bottom as f64,
                     );
                     self.with_clip_rect(clip_rect, |this| {
-                        this.draw_paragraph_line(line, position, top_y, line_height, styles);
+                        this.draw_paragraph_line(line, position, top_y, line_height, styles, clip);
                     });
                 }
 
@@ -1603,7 +1792,7 @@ impl<'a> VelloRenderer<'a> {
                         line_bottom as f64,
                     );
                     self.with_alpha_clip_rect(clip_rect, alpha, |this| {
-                        this.draw_paragraph_line(line, position, top_y, line_height, styles);
+                        this.draw_paragraph_line(line, position, top_y, line_height, styles, clip);
                     });
                 }
             }
@@ -1616,7 +1805,7 @@ impl<'a> VelloRenderer<'a> {
                         (line_top + start).min(bounds.bottom()) as f64,
                     );
                     self.with_clip_rect(clip_rect, |this| {
-                        this.draw_paragraph_line(line, position, top_y, line_height, styles);
+                        this.draw_paragraph_line(line, position, top_y, line_height, styles, clip);
                     });
                 }
 
@@ -1634,7 +1823,7 @@ impl<'a> VelloRenderer<'a> {
                         (line_top + slice_end).min(bounds.bottom()) as f64,
                     );
                     self.with_alpha_clip_rect(clip_rect, alpha, |this| {
-                        this.draw_paragraph_line(line, position, top_y, line_height, styles);
+                        this.draw_paragraph_line(line, position, top_y, line_height, styles, clip);
                     });
                 }
             }
@@ -1681,6 +1870,7 @@ impl<'a> VelloRenderer<'a> {
                     visible_lines == 1,
                 ),
         );
+        let text_clip = Self::text_clip(draw_position, bounds);
 
         for (line_idx, line) in lines.iter().take(visible_lines).enumerate() {
             let metrics = *line.metrics();
@@ -1748,6 +1938,7 @@ impl<'a> VelloRenderer<'a> {
                         top_y,
                         visual_line_height,
                         &prepared.styles,
+                        text_clip,
                     );
                 });
             } else if let Some(fade) = fade {
@@ -1758,6 +1949,7 @@ impl<'a> VelloRenderer<'a> {
                     top_y,
                     visual_line_height,
                     &prepared.styles,
+                    text_clip,
                     fade,
                 );
             } else {
@@ -1767,6 +1959,7 @@ impl<'a> VelloRenderer<'a> {
                     top_y,
                     visual_line_height,
                     &prepared.styles,
+                    text_clip,
                 );
             }
 
@@ -1893,6 +2086,8 @@ impl<'a> VelloRenderer<'a> {
             return;
         }
 
+        let text_clip = Self::text_clip(position, bounds);
+
         // Fast path for simple text using cache
         if styles.is_empty() && inline_boxes.is_empty() {
             let layout = self.measurer.get_layout(
@@ -1907,8 +2102,26 @@ impl<'a> VelloRenderer<'a> {
 
             // Draw Glyphs (Reused layout logic)
             for line in layout.lines() {
+                let metrics = *line.metrics();
+                let line_height = metrics
+                    .line_height
+                    .max(metrics.ascent + metrics.descent)
+                    .max(1.0);
+                let line_top = metrics.baseline - metrics.ascent;
+                if let Some(clip) = text_clip {
+                    if !clip.intersects_y(line_top, line_top + line_height) {
+                        continue;
+                    }
+                }
                 for item in line.items() {
                     if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
+                        let run_left = glyph_run.offset();
+                        let run_right = glyph_run.offset() + glyph_run.advance();
+                        if let Some(clip) = text_clip {
+                            if !clip.intersects_x(run_left, run_right) {
+                                continue;
+                            }
+                        }
                         let run = glyph_run.run();
                         let font = run.font();
                         let font_size = run.font_size();
@@ -1924,16 +2137,30 @@ impl<'a> VelloRenderer<'a> {
                         let mut x = glyph_run.offset();
                         let y = glyph_run.baseline();
 
-                        let glyphs = glyph_run.glyphs().map(|g| {
-                            let gx = x + g.x;
-                            let gy = y - g.y;
-                            x += g.advance;
-                            Glyph {
-                                id: g.id as u32,
-                                x: gx,
-                                y: gy,
-                            }
-                        });
+                        let glyphs = glyph_run
+                            .glyphs()
+                            .filter_map(|g| {
+                                let gx = x + g.x;
+                                let gy = y - g.y;
+                                x += g.advance;
+                                let glyph_right = gx + g.advance.max(1.0);
+                                if text_clip
+                                    .map(|clip| clip.intersects_x(gx, glyph_right))
+                                    .unwrap_or(true)
+                                {
+                                    Some(Glyph {
+                                        id: g.id as u32,
+                                        x: gx,
+                                        y: gy,
+                                    })
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect::<Vec<_>>();
+                        if glyphs.is_empty() {
+                            continue;
+                        }
 
                         self.scene
                             .draw_glyphs(font)
@@ -1943,14 +2170,23 @@ impl<'a> VelloRenderer<'a> {
                                     * Affine::translate((position.x as f64, position.y as f64)),
                             )
                             .brush(color)
-                            .draw(Fill::NonZero, glyphs);
+                            .draw(Fill::NonZero, glyphs.into_iter());
 
                         if underline {
                             let metrics = run.metrics();
                             let offset = metrics.underline_offset;
                             let size = metrics.underline_size.max(1.0);
-                            let x0 = position.x as f64 + glyph_run.offset() as f64;
-                            let x1 = x0 + glyph_run.advance() as f64;
+                            let x0 = text_clip
+                                .map(|clip| run_left.max(clip.left))
+                                .unwrap_or(run_left);
+                            let x1 = text_clip
+                                .map(|clip| run_right.min(clip.right))
+                                .unwrap_or(run_right);
+                            if x1 <= x0 {
+                                continue;
+                            }
+                            let x0 = position.x as f64 + x0 as f64;
+                            let x1 = position.x as f64 + x1 as f64;
                             let y0 = position.y as f64 + (glyph_run.baseline() + offset) as f64;
                             let rect = Rect::new(x0, y0, x1, y0 + size as f64);
                             self.scene.fill(
@@ -1997,8 +2233,26 @@ impl<'a> VelloRenderer<'a> {
 
         // Draw Glyphs for rich text (uses brushes from layout)
         for line in layout.lines() {
+            let metrics = *line.metrics();
+            let line_height = metrics
+                .line_height
+                .max(metrics.ascent + metrics.descent)
+                .max(1.0);
+            let line_top = metrics.baseline - metrics.ascent;
+            if let Some(clip) = text_clip {
+                if !clip.intersects_y(line_top, line_top + line_height) {
+                    continue;
+                }
+            }
             for item in line.items() {
                 if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
+                    let run_left = glyph_run.offset();
+                    let run_right = glyph_run.offset() + glyph_run.advance();
+                    if let Some(clip) = text_clip {
+                        if !clip.intersects_x(run_left, run_right) {
+                            continue;
+                        }
+                    }
                     let style = glyph_run.style();
                     let run = glyph_run.run();
                     let font = run.font();
@@ -2026,8 +2280,17 @@ impl<'a> VelloRenderer<'a> {
                                     .max(1.0);
                                 let top_y = metrics.baseline - metrics.ascent;
                                 let bg_color = Color::from_rgba8(bg.r, bg.g, bg.b, bg.a);
-                                let x0 = position.x as f64 + glyph_run.offset() as f64;
-                                let x1 = x0 + glyph_run.advance() as f64;
+                                let x0 = text_clip
+                                    .map(|clip| run_left.max(clip.left))
+                                    .unwrap_or(run_left);
+                                let x1 = text_clip
+                                    .map(|clip| run_right.min(clip.right))
+                                    .unwrap_or(run_right);
+                                if x1 <= x0 {
+                                    break;
+                                }
+                                let x0 = position.x as f64 + x0 as f64;
+                                let x1 = position.x as f64 + x1 as f64;
                                 let y0 = position.y as f64 + top_y as f64;
                                 let bg_rect = Rect::new(x0, y0, x1, y0 + line_height as f64);
                                 self.scene.fill(
@@ -2045,16 +2308,30 @@ impl<'a> VelloRenderer<'a> {
                     let mut x = glyph_run.offset();
                     let y = glyph_run.baseline();
 
-                    let glyphs = glyph_run.glyphs().map(|g| {
-                        let gx = x + g.x;
-                        let gy = y - g.y;
-                        x += g.advance;
-                        Glyph {
-                            id: g.id as u32,
-                            x: gx,
-                            y: gy,
-                        }
-                    });
+                    let glyphs = glyph_run
+                        .glyphs()
+                        .filter_map(|g| {
+                            let gx = x + g.x;
+                            let gy = y - g.y;
+                            x += g.advance;
+                            let glyph_right = gx + g.advance.max(1.0);
+                            if text_clip
+                                .map(|clip| clip.intersects_x(gx, glyph_right))
+                                .unwrap_or(true)
+                            {
+                                Some(Glyph {
+                                    id: g.id as u32,
+                                    x: gx,
+                                    y: gy,
+                                })
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<Vec<_>>();
+                    if glyphs.is_empty() {
+                        continue;
+                    }
 
                     self.scene
                         .draw_glyphs(font)
@@ -2064,7 +2341,7 @@ impl<'a> VelloRenderer<'a> {
                                 * Affine::translate((position.x as f64, position.y as f64)),
                         )
                         .brush(color)
-                        .draw(Fill::NonZero, glyphs);
+                        .draw(Fill::NonZero, glyphs.into_iter());
 
                     if let Some(decoration) = &style.underline {
                         let metrics = run.metrics();
@@ -2078,8 +2355,17 @@ impl<'a> VelloRenderer<'a> {
                             deco_brush.0[3],
                         );
 
-                        let x0 = position.x as f64 + glyph_run.offset() as f64;
-                        let x1 = x0 + glyph_run.advance() as f64;
+                        let x0 = text_clip
+                            .map(|clip| run_left.max(clip.left))
+                            .unwrap_or(run_left);
+                        let x1 = text_clip
+                            .map(|clip| run_right.min(clip.right))
+                            .unwrap_or(run_right);
+                        if x1 <= x0 {
+                            continue;
+                        }
+                        let x0 = position.x as f64 + x0 as f64;
+                        let x1 = position.x as f64 + x1 as f64;
                         let y0 = position.y as f64 + (glyph_run.baseline() + offset) as f64;
                         let rect = Rect::new(x0, y0, x1, y0 + size as f64);
                         self.scene.fill(
@@ -2283,6 +2569,7 @@ impl<'a> VelloRenderer<'a> {
                 DisplayOp::Restore => {
                     for _ in 0..self.current_layer_count {
                         self.scene.pop_layer();
+                        self.pop_clip_bounds();
                     }
                     if let Some(t) = self.transform_stack.pop() {
                         self.current_transform = t;
@@ -2321,37 +2608,25 @@ impl<'a> VelloRenderer<'a> {
                     }
                 }
                 DisplayOp::ClipRect(rect) => {
-                    let r = Rect::new(
-                        rect.origin.x as f64,
-                        rect.origin.y as f64,
-                        (rect.origin.x + rect.size.width) as f64,
-                        (rect.origin.y + rect.size.height) as f64,
-                    );
+                    let r = Self::layout_rect_to_rect(*rect);
                     self.scene
                         .push_layer(Mix::Normal, 1.0, self.current_transform, &r);
+                    self.push_clip_bounds(r);
                     self.current_layer_count += 1;
                 }
                 DisplayOp::ClipRoundedRect { rect, radius } => {
-                    let r = Rect::new(
-                        rect.origin.x as f64,
-                        rect.origin.y as f64,
-                        (rect.origin.x + rect.size.width) as f64,
-                        (rect.origin.y + rect.size.height) as f64,
-                    );
+                    let r = Self::layout_rect_to_rect(*rect);
                     let shape = RoundedRect::from_rect(r, *radius as f64);
                     self.scene
                         .push_layer(Mix::Normal, 1.0, self.current_transform, &shape);
+                    self.push_clip_bounds(r);
                     self.current_layer_count += 1;
                 }
                 DisplayOp::OpacityLayer { alpha, bounds } => {
-                    let r = Rect::new(
-                        bounds.origin.x as f64,
-                        bounds.origin.y as f64,
-                        (bounds.origin.x + bounds.size.width) as f64,
-                        (bounds.origin.y + bounds.size.height) as f64,
-                    );
+                    let r = Self::layout_rect_to_rect(*bounds);
                     self.scene
                         .push_layer(Mix::Normal, *alpha, self.current_transform, &r);
+                    self.push_clip_bounds(r);
                     self.current_layer_count += 1;
                 }
                 DisplayOp::DrawRect {
@@ -2435,6 +2710,9 @@ impl<'a> VelloRenderer<'a> {
                     paragraph_style,
                     ..
                 } => {
+                    if !self.local_rect_visible(Self::layout_rect_to_rect(*bounds)) {
+                        continue;
+                    }
                     self.render_text(
                         text,
                         *size,
@@ -2466,6 +2744,9 @@ impl<'a> VelloRenderer<'a> {
                     paragraph_style,
                     ..
                 } => {
+                    if !self.local_rect_visible(Self::layout_rect_to_rect(*bounds)) {
+                        continue;
+                    }
                     let rich =
                         crate::text::VelloTextMeasurer::rich_layout_input_from_render_runs(runs);
                     if let Some(first) = runs.first() {
@@ -2761,44 +3042,33 @@ impl<'a> VelloRenderer<'a> {
     fn render_layer_uncached(&mut self, layer: &RenderLayer) -> Result<()> {
         let saved_transform = self.current_transform;
         let saved_layer_count = self.current_layer_count;
+        let saved_clip_count = self.clip_stack.len();
 
         if let Some(clip) = &layer.style.clip {
             match clip {
                 LayerClip::Rect(rect) => {
-                    let r = Rect::new(
-                        rect.origin.x as f64,
-                        rect.origin.y as f64,
-                        (rect.origin.x + rect.size.width) as f64,
-                        (rect.origin.y + rect.size.height) as f64,
-                    );
+                    let r = Self::layout_rect_to_rect(*rect);
                     self.scene
                         .push_layer(Mix::Normal, 1.0, self.current_transform, &r);
+                    self.push_clip_bounds(r);
                     self.current_layer_count += 1;
                 }
                 LayerClip::RoundedRect { rect, radius } => {
-                    let r = Rect::new(
-                        rect.origin.x as f64,
-                        rect.origin.y as f64,
-                        (rect.origin.x + rect.size.width) as f64,
-                        (rect.origin.y + rect.size.height) as f64,
-                    );
+                    let r = Self::layout_rect_to_rect(*rect);
                     let shape = RoundedRect::from_rect(r, *radius as f64);
                     self.scene
                         .push_layer(Mix::Normal, 1.0, self.current_transform, &shape);
+                    self.push_clip_bounds(r);
                     self.current_layer_count += 1;
                 }
             }
         }
 
         if (layer.style.opacity - 1.0).abs() > 0.001 {
-            let r = Rect::new(
-                layer.bounds.origin.x as f64,
-                layer.bounds.origin.y as f64,
-                (layer.bounds.origin.x + layer.bounds.size.width) as f64,
-                (layer.bounds.origin.y + layer.bounds.size.height) as f64,
-            );
+            let r = Self::layout_rect_to_rect(layer.bounds);
             self.scene
                 .push_layer(Mix::Normal, layer.style.opacity, self.current_transform, &r);
+            self.push_clip_bounds(r);
             self.current_layer_count += 1;
         }
 
@@ -2846,6 +3116,7 @@ impl<'a> VelloRenderer<'a> {
             self.scene.pop_layer();
             self.current_layer_count -= 1;
         }
+        self.clip_stack.truncate(saved_clip_count);
         self.current_transform = saved_transform;
         Ok(())
     }

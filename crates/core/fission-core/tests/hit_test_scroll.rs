@@ -1,14 +1,14 @@
 use fission_core::{
     hit_test::hit_test_with_scroll, LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot, Runtime,
 };
-use fission_ir::{CoreIR, FlexDirection, LayoutOp, NodeId, Op};
+use fission_ir::{CoreIR, FlexDirection, LayoutOp, Op, WidgetId};
 use fission_layout::LayoutNodeGeometry;
 
 #[test]
 fn test_scroll_hit_test_logic() {
-    let scroll_id = NodeId::derived(0, &[1]);
-    let column_id = NodeId::derived(0, &[2]);
-    let button_id = NodeId::derived(0, &[3]);
+    let scroll_id = WidgetId::derived(0, &[1]);
+    let column_id = WidgetId::derived(0, &[2]);
+    let button_id = WidgetId::derived(0, &[3]);
 
     let mut ir = CoreIR::new();
     ir.set_root(scroll_id);

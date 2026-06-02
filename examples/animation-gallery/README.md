@@ -2,7 +2,7 @@
 
 Animation Gallery shows how Fission animates ordinary widget trees without requiring an application-specific render loop. The app groups small cards for opacity, translation, scale, rotation, clipping, scrolling, transitions, and a compositor-driven pulse so you can compare animation properties side by side.
 
-Use this example when you want to learn how a widget asks the runtime to animate a stable `WidgetNodeId`, how transition widgets wrap existing content, and how state changes trigger one-shot transitions.
+Use this example when you want to learn how a widget asks the runtime to animate a stable `WidgetId`, how transition widgets wrap existing content, and how state changes trigger one-shot transitions.
 
 ## Run it
 

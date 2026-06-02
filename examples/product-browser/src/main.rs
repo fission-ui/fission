@@ -8,7 +8,7 @@ use fission::prelude::*;
 use model::ProductBrowserState;
 
 fn main() -> anyhow::Result<()> {
-    DesktopApp::new(ProductBrowserApp)
+    DesktopApp::<ProductBrowserState, _>::new(ProductBrowserApp)
         .with_title("Fission Product Browser")
         .with_async(|asyncs| {
             asyncs.register_job(PRODUCTS_JOB, |request, _| async move {

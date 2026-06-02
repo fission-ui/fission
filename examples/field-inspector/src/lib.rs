@@ -112,14 +112,17 @@ fn callback_reducers() -> fission::core::ActionRegistry<FieldInspectorState> {
 
 #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
 pub fn run_desktop() -> anyhow::Result<()> {
-    let mut app = configure_field_inspector_app!(DesktopApp::new(FieldInspectorApp));
+    let mut app = configure_field_inspector_app!(DesktopApp::<FieldInspectorState, _>::new(
+        FieldInspectorApp
+    ));
     app.absorb_registry(callback_reducers());
     app.run()
 }
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
 fn mobile_app() -> MobileApp<FieldInspectorState, FieldInspectorApp> {
-    let mut app = configure_field_inspector_app!(MobileApp::new(FieldInspectorApp));
+    let mut app =
+        configure_field_inspector_app!(MobileApp::<FieldInspectorState, _>::new(FieldInspectorApp));
     app.absorb_registry(callback_reducers());
     #[cfg(target_os = "android")]
     let app = app.with_test_control_port(ANDROID_TEST_CONTROL_PORT);
@@ -140,7 +143,8 @@ fn android_main(app_handle: AndroidApp) {
 #[cfg(target_arch = "wasm32")]
 fn web_app() -> WebApp<FieldInspectorState, FieldInspectorApp> {
     let mut app =
-        configure_field_inspector_app!(WebApp::new(FieldInspectorApp)).mount("#fission-web-mount");
+        configure_field_inspector_app!(WebApp::<FieldInspectorState, _>::new(FieldInspectorApp))
+            .mount("#fission-web-mount");
     app.absorb_registry(callback_reducers());
     app
 }

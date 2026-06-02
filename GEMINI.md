@@ -28,14 +28,14 @@ The system is divided into four distinct layers:
 
 ### Layer 1: Authoring (`crates/authoring`)
 *   **Role:** The "Frontend" API used by app developers.
-*   **Key Traits:** `Widget<S>`, `View<S>`, `Selector<S>`.
-*   **Output:** Produces a `Node` tree (high-level description).
+*   **Key APIs:** `Widget`, `View<S>`, `Selector<S>`, and `fission::build::current::<S>()`.
+*   **Output:** Produces public `Widget` values via `From<Component> for Widget`.
 *   **State:** Reads `AppState` (User) and `RuntimeState` (Framework) via `View`.
 
 ### Layer 2: Core (`crates/core`)
 *   **Role:** The "Brain". Handles logic, diffing, layout, and event routing.
 *   **Key Components:**
-    *   **Lowering:** Compiles `Node` tree -> `CoreIR` (Ops).
+    *   **Runtime Compilation:** Compiles authored `Widget` values into `CoreIR` (Ops).
     *   **Runtime:** Manages `AppState`, `RuntimeState` (Scroll, Focus, Anim), and dispatches `Actions`.
 *   **Layout:** Computes geometry using a constraint-based layout engine (Flutter-style).
     *   **Diffing:** Compares `CoreIR` trees to optimize updates (Hybrid Retained Mode).
@@ -59,12 +59,13 @@ The system is divided into four distinct layers:
 
 ## 3. Core Concepts & Implementation
 
-### 3.1 Authoring: The `Widget` Trait
-Widgets are pure data structs. They implement `build` to compose other widgets or primitives.
+### 3.1 Authoring: `From<Component> for Widget`
+Widgets are pure data structs. Components implement `From<Component> for Widget` to compose other widgets or primitives.
 
 ```rust
-impl Widget<S> for MyWidget {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
+impl From<MyWidget> for Widget {
+    fn from(component: MyWidget) -> Widget {
+        let (ctx, view) = fission::build::current::<S>();
         let val = view.select::<MySelector>();
         Button {
             on_press: Some(ctx.bind(MyAction, on_action)),
@@ -75,10 +76,11 @@ impl Widget<S> for MyWidget {
 }
 ```
 
-### 3.2 Lowering: `Node` -> `CoreIR`
-The `Lower` trait compiles high-level `Node`s into low-level `CoreIR` operations (`Op`).
-*   **Primitives:** `Button`, `Text`, `Row` implement `Lower` directly.
-*   **Custom:** `Node::Custom` uses `LowerDyn` to emit arbitrary Ops (escape hatch).
+### 3.2 Runtime Compilation: `Widget` Values to `CoreIR`
+Framework-owned runtime compilation turns authored `Widget` values into low-level `CoreIR` operations (`Op`).
+*   **Public Boundary:** App authors do not implement rendering/lowering traits or return renderer internals.
+*   **Primitives:** `Button`, `Text`, `Row`, and other built-ins are compiled by framework internals.
+*   **Custom Rendering:** Specialized render paths are framework-owned and exposed to apps only as normal values that convert into `Widget`.
 *   **Result:** A list of `LayoutOp` (Box, Flex, Scroll), `PaintOp` (Rect, Text, Image), and `Semantics` (Roles, Actions).
 
 ### 3.3 The Action System
@@ -124,7 +126,7 @@ The `Lower` trait compiles high-level `Node`s into low-level `CoreIR` operations
 │   │   ├── fission-widgets/  (High-level widgets)
 │   │   └── fission-macros/   (Derive macros)
 │   ├── core/
-│   │   ├── fission-core/     (Runtime, Node, Lowering, Env)
+│   │   ├── fission-core/     (Runtime, internal compilation, Env)
 │   │   ├── fission-ir/       (Ops, IDs, Semantics)
 │   │   ├── fission-layout/   (constraint layout engine)
 │   │   ├── fission-theme/    (Token definitions)
@@ -147,14 +149,16 @@ The `Lower` trait compiles high-level `Node`s into low-level `CoreIR` operations
 ## 6. Development Workflows
 
 ### Adding a New Primitive Widget
-1.  **Define Struct:** Create `pub struct MyWidget { ... }` in `crates/core/fission-core/src/ui/widgets/`.
-2.  **Implement `Lower`:** Implement `fn lower(...)` to emit `LayoutOp`s and `PaintOp`s.
-3.  **Register Node:** Add variant to `Node` enum in `crates/core/fission-core/src/ui/node.rs`.
-4.  **Export:** Add to `crates/core/fission-core/src/ui/mod.rs` and `lib.rs`.
+1.  **Define Public API:** Create a data struct with deterministic fields and defaults.
+2.  **Expose Authoring Conversion:** Ensure the public value converts into `fission::Widget` or the facade `Widget`.
+3.  **Keep Rendering Internal:** Put specialized rendering, layout, and semantics hooks behind the framework boundary.
+4.  **Export:** Re-export the public type from the appropriate facade/prelude module.
 
 ### Adding a High-Level Widget
 1.  **Define Struct:** Create struct in `crates/authoring/fission-widgets/src/`.
-2.  **Implement `Widget`:** Implement `build` to return a `Node` composed of existing primitives.
+2.  **Implement Conversion:** Implement `From<MyWidget> for fission::Widget` or the facade `Widget`.
+3.  **Use Build Scope:** Inside conversion, call `let (ctx, view) = fission::build::current::<GlobalState>();`.
+4.  **Compose Widgets:** Return public widget values composed from existing widgets and components.
 
 ### Running Tests (Mandatory)
 *   **Test Command:** `cargo test --no-fail-fast --quiet -- --nocapture`
@@ -165,7 +169,7 @@ The `Lower` trait compiles high-level `Node`s into low-level `CoreIR` operations
 
 ### Code Style & Conventions
 *   **No Unwraps in Runtime:** Propagate `Result`. Panics only for invariant violations (e.g. infinite loops).
-*   **Explicit IDs:** Use `WidgetNodeId` for stable identity in animations/media.
+*   **Explicit IDs:** Use `WidgetId` for stable identity in animations/media.
 *   **No Interior Mutability:** Widgets are immutable. State is mutated only in Reducers.
 
 ---

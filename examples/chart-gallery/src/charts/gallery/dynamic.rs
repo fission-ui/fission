@@ -4,16 +4,16 @@ use fission::charts::{
     Axis, Chart, EffectScatterSeries, GaugeSeries, LiquidfillSeries, PictorialBarSeries,
     WordcloudSeries,
 };
-use fission::core::ui::Node;
-use fission::core::{BuildCtx, View};
+use fission::core::ui::Widget;
+use fission::core::{BuildCtxHandle, ViewHandle};
 
 pub(super) fn build_chart(
     chart: usize,
-    ctx: &mut BuildCtx<GalleryState>,
-    view: &View<GalleryState>,
+    ctx: BuildCtxHandle<GalleryState>,
+    view: ViewHandle<GalleryState>,
     content_width: f32,
     s: f32,
-) -> Node {
+) -> Widget {
     match chart {
         0 => Chart::new()
             .title("Dynamic: Gauge")

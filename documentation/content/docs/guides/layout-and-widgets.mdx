@@ -27,54 +27,55 @@ Ask these questions before you choose containers:
 
 That is the foundation of responsive design in Fission. You are not only placing boxes. You are deciding how one state-driven screen should adapt across several hosts.
 
-## `View` is where layout decisions read their inputs
+## `ViewHandle` is where layout decisions read their inputs
 
-When a widget decides between phone, tablet, or desktop structure, it reads those inputs through `View`.
+When a widget decides between phone, tablet, or desktop structure, it reads those inputs through `ViewHandle`.
 
 The most common inputs are:
 
 - `view.viewport_size()` for current viewport width and height,
 - `view.env.window_insets` for safe-area style insets,
-- `view.state` for product-driven decisions such as whether a detail panel is open,
+- `view.state()` for product-driven decisions such as whether a detail panel is open,
 - `view.get_rect(...)` when a later frame needs previous geometry, such as a popover anchor.
 
-`BuildCtx` has a different job. It is for wiring actions, resources, portals, animations, and other runtime-managed behavior. Do not use `BuildCtx` as a place to discover layout facts. Read layout inputs from `View`, then use `BuildCtx` only when the runtime needs registration or wiring information.
+`BuildCtxHandle` has a different job. It is for wiring actions, resources, portals, animations, and other runtime-managed behavior. Do not use `BuildCtxHandle` as a place to discover layout facts. Read layout inputs from `ViewHandle`, then use `BuildCtxHandle` only when the runtime needs registration or wiring information.
 
 ## A concrete responsive example
 
 Imagine a mail screen. On a phone, you usually want one column: either the thread list or the selected thread, because both side by side would be cramped. On a larger desktop or web viewport, you usually want a list on the left and a detail panel on the right.
 
-That decision belongs in `build()` because it is just a pure description choice based on the current viewport and app state.
+That decision belongs in `component conversion` because it is just a pure description choice based on the current viewport and app state.
 
 ```rust
 use fission::prelude::*;
 
 pub struct MailScreen;
 
-impl Widget<MailState> for MailScreen {
-    fn build(&self, ctx: &mut BuildCtx<MailState>, view: &View<MailState>) -> Node {
+impl From<MailScreen> for Widget {
+    fn from(component: MailScreen) -> Self {
+        let (ctx, view) = fission::build::current::<MailState>();
         let viewport = view.viewport_size();
         let is_phone = viewport.width < 900.0;
 
-        let list = ThreadList.build(ctx, view);
-        let detail = if let Some(thread_id) = view.state.selected_thread {
-            ThreadDetail { thread_id }.build(ctx, view)
+        let list = ThreadList.into();
+        let detail = if let Some(thread_id) = view.state().selected_thread {
+            ThreadDetail { thread_id }.into()
         } else {
-            EmptyThreadState.build(ctx, view)
+            EmptyThreadState.into()
         };
 
         let body = if is_phone {
-            let content = if view.state.selected_thread.is_some() {
+            let content = if view.state().selected_thread.is_some() {
                 detail
             } else {
                 list
             };
 
             Scroll {
-                child: Box::new(content),
+                child: content,
                 ..Default::default()
             }
-            .into_node()
+            .into()
         } else {
             Row {
                 gap: Some(16.0),
@@ -82,19 +83,19 @@ impl Widget<MailState> for MailScreen {
                     Container::new(list)
                         .width((viewport.width * 0.32).clamp(280.0, 360.0))
                         .flex_shrink(0.0)
-                        .into_node(),
-                    Container::new(detail).flex_grow(1.0).into_node(),
+                        .into(),
+                    Container::new(detail).flex_grow(1.0).into(),
                 ],
                 ..Default::default()
             }
-            .into_node()
+            .into()
         };
 
         SafeArea {
             id: None,
-            child: Box::new(body),
+            child: body,
         }
-        .into_node()
+        .into()
     }
 }
 ```
@@ -103,7 +104,7 @@ The important part is not the exact breakpoint number. The important part is why
 
 The viewport width decides whether side-by-side work is realistic. App state decides whether there is a selected thread at all. `SafeArea` protects the content from notches, system bars, and other platform insets. `Scroll` is only used for the part that may exceed the viewport.
 
-This is the usual Fission pattern for responsive user interface: read from `View`, choose a structure, and return that structure with no side effects.
+This is the usual Fission pattern for responsive user interface: read from `ViewHandle`, choose a structure, and return that structure with no side effects.
 
 ## What changes between phone, tablet, desktop, and web layouts
 
@@ -169,7 +170,7 @@ A third mistake is using fixed sizes everywhere. Fixed widths and heights are so
 
 Another frequent issue is nesting scroll regions without a clear reason. That can make touch, wheel, and keyboard navigation confusing. Try to keep the scroll story obvious.
 
-Finally, avoid putting layout side effects into `build()`. Do not fetch data because the viewport changed. Do not write files or mutate global state because a branch rebuilt. Keep layout choices pure, and let reducers or explicit runtime resources handle outside work.
+Finally, avoid putting layout side effects into `component conversion`. Do not fetch data because the viewport changed. Do not write files or mutate global state because a branch reconverted. Keep layout choices pure, and let reducers or explicit runtime resources handle outside work.
 
 ## A practical workflow for new screens
 
@@ -179,8 +180,22 @@ Then decide which additional context is worth revealing on wider surfaces. Add r
 
 After that, validate the screen on a desktop-sized viewport and a narrow mobile-sized viewport. If the feature is headed for web or mobile, test the real host path after the shared behavior is stable.
 
-This workflow matches the architecture of Fission itself. The app model stays shared. The layout adapts through pure decisions in `build()`. Platform-specific validation happens when platform-specific questions are actually present.
+This workflow matches the architecture of Fission itself. The app model stays shared. The layout adapts through pure decisions in `component conversion`. Platform-specific validation happens when platform-specific questions are actually present.
 
 ## Where to go next
 
-If you want to understand how input, viewport data, locale, and theme reach widgets, read [Input, text, and environment](/docs/guides/input-events-text-and-env). If you want the beginner explanation of `View`, `BuildCtx`, and selectors first, go back to [Runtime model](/docs/learn/runtime-model). For a live tour of built-in widgets, open the public [Examples](/examples) page and start with Widget Gallery.
+If you want to understand how input, viewport data, locale, and theme reach widgets, read [Input, text, and environment](/docs/guides/input-events-text-and-env). If you want the beginner explanation of `ViewHandle`, `BuildCtxHandle`, and selectors first, go back to [Runtime model](/docs/learn/runtime-model). For a live tour of built-in widgets, open the public [Examples](/examples) page and start with Widget Gallery.
+
+## What you should have working
+
+After this guide, you should be able to explain where `Layout and widgets` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test. If any of those pieces are missing, treat the page as unfinished work: add the smallest runnable example, then add the diagnostic step that proves it works.
+
+## Common mistakes to check
+
+| Symptom | What to check first |
+| --- | --- |
+| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
+| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
+| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
+| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
+| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |

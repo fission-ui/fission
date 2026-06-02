@@ -1,11 +1,11 @@
-use fission_core::ui::{Container, Node, Text};
-use fission_core::{BuildCtx, View, Widget, WidgetNodeId};
+use fission_core::ui::{Container, Text, Widget};
+use fission_core::{WidgetId, WidgetIdExt};
 use serde::{Deserialize, Serialize};
 
 /// A hover-activated text tooltip displayed near a trigger widget.
 ///
 /// The tooltip appears when the trigger widget is hovered (detected via
-/// `view.runtime.interaction.is_hovered`) or when `is_visible` is explicitly
+/// `view.runtime().interaction.is_hovered`) or when `is_visible` is explicitly
 /// set to `true`. The tooltip card is styled using `TooltipTheme` and rendered
 /// in the flyout portal layer.
 ///
@@ -17,32 +17,36 @@ use serde::{Deserialize, Serialize};
 /// * `is_visible` - Force the tooltip visible regardless of hover state.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Tooltip {
-    pub id: WidgetNodeId,
-    pub child: Box<Node>,
+    pub id: WidgetId,
+    pub child: Widget,
     pub text: String,
     pub is_visible: bool,
 }
 
-impl<S: fission_core::AppState> Widget<S> for Tooltip {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let theme = &view.env.theme.components.tooltip;
+impl From<Tooltip> for Widget {
+    fn from(component: Tooltip) -> Self {
+        let (ctx, view) = fission_core::build::current::<()>();
+        let mut component = component;
+        if let Some(id) = fission_core::build::current_widget_id() {
+            component.id = id;
+        }
+        let this = &component;
 
-        let trigger_id = fission_ir::NodeId::derived(self.id.as_u128(), &[]);
-        let is_hovered = view.runtime.interaction.is_hovered(trigger_id);
-        let show_tooltip = self.is_visible || is_hovered;
+        let theme = &view.env().theme.components.tooltip;
 
-        let trigger = Container::new(*self.child.clone())
-            .id(trigger_id)
-            .into_node();
+        let trigger_id = fission_ir::WidgetId::derived(this.id.as_u128(), &[]);
+        let is_hovered = view.runtime().interaction.is_hovered(trigger_id);
+        let show_tooltip = this.is_visible || is_hovered;
+
+        let trigger = Container::new(this.child.clone()).id(trigger_id);
 
         if show_tooltip {
             let style = &theme.style;
             let tooltip_card = Container::new(
-                Text::new(self.text.clone())
+                Text::new(this.text.clone())
                     .size(style.font_size.unwrap_or(theme.font_size))
                     .color(style.text_color.unwrap_or(theme.text_color))
-                    .max_width(style.max_width.unwrap_or(theme.max_width))
-                    .into_node(),
+                    .max_width(style.max_width.unwrap_or(theme.max_width)),
             )
             .bg_fill(
                 style
@@ -53,15 +57,15 @@ impl<S: fission_core::AppState> Widget<S> for Tooltip {
             .padding(style.padding_box(theme.padding_x, theme.padding_y))
             .border_radius(style.radius.unwrap_or(theme.radius))
             .shadows(style.outer_shadows())
-            .into_node();
+            .into();
 
             let flyout_node = crate::flyout(
-                fission_ir::NodeId::derived(self.id.as_u128(), &[]),
+                fission_ir::WidgetId::derived(this.id.as_u128(), &[]),
                 tooltip_card,
             );
             ctx.register_portal_with_layer(
                 fission_core::PortalLayer::Flyout,
-                Some(self.id),
+                Some(this.id),
                 flyout_node,
             );
         }

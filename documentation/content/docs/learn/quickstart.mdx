@@ -74,7 +74,7 @@ cargo run
 
 On the first run, Cargo may take a little while because it needs to download and compile dependencies. That is normal.
 
-When the build finishes, a desktop window should open. You should see a very small app with a count label and an `Increment` button. Clicking the button should increase the number. That tells you the starter project is working end to end: the app state exists, the button sends an action, the reducer updates the state, and the user interface rebuilds from the new value.
+When the build finishes, a desktop window should open. You should see a very small app with a count label and an `Increment` button. Clicking the button should increase the number. That tells you the starter project is working end to end: the app state exists, the button sends an action, the reducer updates the state, and the user interface reconversions from the new value.
 
 Close the window or stop the process in your terminal when you are done.
 
@@ -161,3 +161,14 @@ If you want to understand the structure you just ran, read [Runtime model](/docs
 If you want to understand how the user interface becomes layout and pixels, continue to [Rendering pipeline](/docs/learn/rendering-pipeline).
 
 If you want to start shaping the project into a real app, go to [App structure](/docs/guides/app-structure).
+
+## What you should be able to do next
+
+After reading `Quickstart`, you should be able to say what part of the Fission lifecycle the page explained, which command or source file you would inspect next, and what observation proves the idea is working. If the idea still feels abstract, run the nearest example and connect the visible behavior back to the terms on this page.
+
+| Question | Concrete check |
+| --- | --- |
+| What should I edit or run? | Use the linked guide, example, or `fission` command rather than guessing from repository structure. |
+| What proves I understood it? | Explain the state, action, reducer, component conversion, shell, or target boundary involved in one sentence. |
+| What can go wrong? | Look for missing target setup, stale state assumptions, side effects during component conversion, or a platform provider that has not been configured. |
+| What comes next? | Follow the next link at the end of the page and keep the setup, learn, build, test, publish path explicit. |

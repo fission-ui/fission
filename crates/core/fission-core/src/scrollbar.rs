@@ -1,5 +1,5 @@
 use crate::env::ScrollStateMap;
-use fission_ir::{CoreIR, FlexDirection, LayoutOp, NodeId, Op};
+use fission_ir::{CoreIR, FlexDirection, LayoutOp, Op, WidgetId};
 use fission_layout::{LayoutPoint, LayoutRect, LayoutSnapshot};
 
 pub const SCROLLBAR_INSET: f32 = 2.0;
@@ -14,7 +14,7 @@ pub enum ScrollbarAxis {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ScrollbarGeometry {
-    pub node_id: NodeId,
+    pub node_id: WidgetId,
     pub axis: ScrollbarAxis,
     pub rail_rect: LayoutRect,
     pub thumb_rect: LayoutRect,
@@ -39,7 +39,7 @@ pub struct ScrollbarHit {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ScrollbarDragState {
-    pub node_id: NodeId,
+    pub node_id: WidgetId,
     pub pointer_to_thumb_start: f32,
 }
 
@@ -47,7 +47,7 @@ pub fn scrollbar_geometry_for_node(
     ir: &CoreIR,
     layout: &LayoutSnapshot,
     scroll_map: &ScrollStateMap,
-    node_id: NodeId,
+    node_id: WidgetId,
 ) -> Option<ScrollbarGeometry> {
     let node = ir.nodes.get(&node_id)?;
     let Op::Layout(LayoutOp::Scroll {
@@ -160,7 +160,7 @@ pub fn scrollbar_drag_offset(geometry: ScrollbarGeometry, point: LayoutPoint) ->
 pub fn scrollbar_point_for_node(
     ir: &CoreIR,
     scroll_map: &ScrollStateMap,
-    node_id: NodeId,
+    node_id: WidgetId,
     mut point: LayoutPoint,
 ) -> LayoutPoint {
     let mut current = ir.nodes.get(&node_id).and_then(|node| node.parent);
@@ -202,7 +202,7 @@ impl ScrollbarGeometry {
 }
 
 fn scrollbar_hit_test_recursive(
-    node_id: NodeId,
+    node_id: WidgetId,
     ir: &CoreIR,
     layout: &LayoutSnapshot,
     scroll_map: &ScrollStateMap,
@@ -286,7 +286,7 @@ mod tests {
         scrollbar_point_for_node, ScrollbarAxis, ScrollbarHitKind,
     };
     use crate::env::ScrollStateMap;
-    use fission_ir::{CompositeStyle, CoreIR, CoreNode, FlexDirection, LayoutOp, NodeId, Op};
+    use fission_ir::{CompositeStyle, CoreIR, CoreNode, FlexDirection, LayoutOp, Op, WidgetId};
     use fission_layout::{LayoutNodeGeometry, LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot};
 
     #[test]
@@ -355,8 +355,8 @@ mod tests {
 
     #[test]
     fn nested_scrollbar_hit_uses_target_layout_coordinates() {
-        let parent = NodeId::derived(71, &[0]);
-        let child = NodeId::derived(71, &[1]);
+        let parent = WidgetId::derived(71, &[0]);
+        let child = WidgetId::derived(71, &[1]);
         let mut ir = CoreIR::new();
         ir.add_node(
             child,
@@ -428,8 +428,8 @@ mod tests {
         );
     }
 
-    fn scroll_tree() -> (CoreIR, LayoutSnapshot, NodeId) {
-        let scroll = NodeId::derived(70, &[1]);
+    fn scroll_tree() -> (CoreIR, LayoutSnapshot, WidgetId) {
+        let scroll = WidgetId::derived(70, &[1]);
         let mut ir = CoreIR::default();
         ir.nodes.insert(
             scroll,

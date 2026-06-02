@@ -5,16 +5,16 @@ use fission::charts::{
     VisualMap,
 };
 use fission::core::op::Color;
-use fission::core::ui::Node;
-use fission::core::{BuildCtx, View};
+use fission::core::ui::Widget;
+use fission::core::{BuildCtxHandle, ViewHandle};
 
 pub(super) fn build_chart(
     chart: usize,
-    ctx: &mut BuildCtx<GalleryState>,
-    view: &View<GalleryState>,
+    ctx: BuildCtxHandle<GalleryState>,
+    view: ViewHandle<GalleryState>,
     content_width: f32,
     s: f32,
-) -> Node {
+) -> Widget {
     match chart {
         0 => Chart::new()
             .title("Foundational: Line & Bar")
@@ -58,7 +58,7 @@ pub(super) fn build_chart(
                         b: 117,
                         a: 255,
                     })
-                    .smooth(view.state.smooth)
+                    .smooth(view.state().smooth)
                     .into(),
             ])
             .build_in_gallery(ctx, view, content_width),
@@ -94,7 +94,7 @@ pub(super) fn build_chart(
                         b: 117,
                         a: 255,
                     })
-                    .smooth(view.state.smooth)
+                    .smooth(view.state().smooth)
                     .into(),
                 LineSeries::new("Video Ads")
                     .stack("total")
@@ -119,7 +119,7 @@ pub(super) fn build_chart(
                         b: 198,
                         a: 255,
                     })
-                    .smooth(view.state.smooth)
+                    .smooth(view.state().smooth)
                     .into(),
             ])
             .build_in_gallery(ctx, view, content_width),

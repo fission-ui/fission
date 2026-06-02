@@ -13,8 +13,8 @@ Use it when you need to confirm what each stage consumes, what it produces, and 
 
 | Stage | Input | Output | Why it exists |
 | --- | --- | --- | --- |
-| `build()` | `Widget`, `BuildCtx`, `View` | authored `Node` tree | Gives the runtime a deterministic user interface description for the current inputs |
-| lowering | authored `Node` tree | Core intermediate representation | Converts author-friendly structure into a smaller, stable internal contract |
+| authoring conversion | `From<Component>`, `BuildCtxHandle`, `ViewHandle` | authored `Widget` tree | Gives the runtime a deterministic user interface description for the current inputs |
+| lowering | authored `Widget` tree | Core intermediate representation | Converts author-friendly structure into a smaller, stable internal contract |
 | layout | Core intermediate representation plus viewport constraints | `LayoutSnapshot` | Computes sizes, positions, and related geometry |
 | semantics derivation | runtime structure plus layout meaning | semantics tree | Exposes roles, labels, values, focus structure, and accessibility meaning |
 | paint compilation | visible structure plus layout | display list | Produces ordered drawing commands for the renderer |
@@ -22,7 +22,7 @@ Use it when you need to confirm what each stage consumes, what it produces, and 
 
 ## Authored build output
 
-The pipeline begins when `Widget::build()` returns a `Node` tree.
+The pipeline begins when a component converts into a `Widget` tree.
 
 This tree is the authoring-layer description of the user interface. It is where ordinary widget composition, branching, action binding, resource declaration, portal registration, and runtime wiring are expressed.
 
@@ -30,13 +30,13 @@ The authored tree is not yet the runtime's final internal form. It is optimized 
 
 ## Lowering and the Core intermediate representation
 
-Lowering is the step that translates the authored `Node` tree into the smaller internal contract used by later runtime stages.
+Lowering is the step that translates the authored `Widget` tree into the smaller internal contract used by later runtime stages.
 
 That contract is commonly described as the Core intermediate representation, or Core IR.
 
 The purpose of Core IR is architectural stability. Layout, semantics, testing, and rendering should not have to understand every authoring convenience widget directly. They consume a more stable internal representation instead.
 
-Custom lowerers such as `LowerDyn` fit into this stage when a widget needs direct control over what internal structure it emits.
+Framework-owned specialized render paths fit into this stage when a built-in widget needs direct control over its internal representation. Application code still authors components by converting values into `Widget`.
 
 ## Layout and `LayoutSnapshot`
 
@@ -44,7 +44,7 @@ The layout stage resolves constraints and computes geometry.
 
 The public geometry result is `LayoutSnapshot`, which records the computed rectangles and related layout data for the frame. `LayoutRect`, `LayoutSize`, and constraint-related helpers are part of this surface.
 
-This explicit geometry stage is why layout can be inspected directly in tests and diagnostics. It is also why widgets can read prior-frame geometry through `View` when they need anchor information.
+This explicit geometry stage is why layout can be inspected directly in tests and diagnostics. It is also why widgets can read prior-frame geometry through `ViewHandle` when they need anchor information.
 
 ## Semantics output
 
@@ -70,16 +70,15 @@ This is the last step in the pipeline. The shell is responsible for surface crea
 
 The most commonly referenced public types in this area are:
 
-- `Node`, `CustomNode`, and `LowerDyn` for authoring and custom lowering,
-- `LoweringContext` and `NodeBuilder` for lower-level custom emission,
-- `NodeId` and `WidgetNodeId` for runtime identity,
+- `Widget` for the authored widget tree,
+- `WidgetId` for stable widget identity,
 - `LayoutSnapshot`, `LayoutRect`, and `LayoutSize` for geometry.
 
 ## Debugging guidance
 
 This page is often most useful when you ask which stage first became wrong.
 
-If the wrong branch or text is present, inspect state or `build()`.
+If the wrong branch or text is present, inspect state or the component conversion.
 
 If the structure is right but the geometry is wrong, inspect layout.
 
@@ -87,6 +86,22 @@ If layout is right but the visual output is wrong, inspect paint, theme, or medi
 
 If the shared runtime output looks correct but one host still behaves differently, inspect the shell boundary.
 
+## Contract completeness checklist
+
+Use this checklist when wiring `Rendering pipeline` into an app or shell implementation.
+
+| Requirement | Why it matters |
+| --- | --- |
+| Public entrypoint | The app code must call the documented helper, command, or configuration field rather than a platform-specific shortcut. |
+| Required setup | Native manifests, plist entries, entitlements, service-worker files, domains, protocols, credentials, or provider registration must be present before production use. |
+| Typed success and error | The implementation should return a truthful typed result. Silent success, swallowed errors, and string-only failure paths make apps unsafe to retry. |
+| Retry behavior | Operations that can fail because of permission, network, hardware, store, or packaging state should document whether retrying is useful and what must change first. |
+| Tests | Cover the happy path, unsupported host path, bad configuration path, and any security-sensitive rejection path. |
+
+## Failure behavior and safe retry
+
+Treat failures as product states, not surprises. A Fission app should be able to tell the user whether the problem is missing configuration, missing provider support, denied permission, unavailable hardware, invalid input, expired credentials, or a transient host error. Reducers should update state from typed results and keep retry buttons idempotent so pressing them twice cannot corrupt state or duplicate unsafe work.
+
 ## Related reference pages
 
-For the widget contract that starts this pipeline, see [Widget trait](/reference/core/widget-trait). For the teaching version of the same staged model, see [Rendering pipeline](/docs/learn/rendering-pipeline). For stage-level investigation tools, continue to [Testing and diagnostics](/reference/core/testing-and-diagnostics).
+For the widget contract that starts this pipeline, see [Widget authoring boundary](/reference/core/widget-authoring-boundary). For the teaching version of the same staged model, see [Rendering pipeline](/docs/learn/rendering-pipeline). For stage-level investigation tools, continue to [Testing and diagnostics](/reference/core/testing-and-diagnostics).

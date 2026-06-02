@@ -76,7 +76,7 @@ A practical Fission design separates three concerns:
 
 For a live IoT chart, a service might receive new readings and update a bounded in-memory buffer for the latest window. When the user scrolls back, a resource or job can request older pages from the durable store and merge them into the visible slice. The chart still receives typed Rust values, but the app does not pretend the entire history belongs in one synchronous in-memory dataset.
 
-That distinction matters because Fission's chart API is intentionally synchronous at build time. `build()` should read the data that is currently available and describe the chart. It should not block while fetching the next page from a database or device.
+That distinction matters because Fission's chart API is intentionally synchronous at conversion time. `component conversion` should read the data that is currently available and describe the chart. It should not block while fetching the next page from a database or device.
 
 ## Axes turn values into position
 
@@ -148,3 +148,14 @@ Treat chart tests as product tests, not only renderer tests.
 | Shell tests | The target host presents the chart correctly on the platform you plan to ship. |
 
 A chart can be wrong in several different ways. Testing the layers separately keeps failures small enough to fix.
+
+## Lifecycle fit and verification
+
+This page belongs to the setup, learn, build, test, and publish lifecycle. Use it to decide the next concrete action, then verify the action before moving to the next stage.
+
+| Stage question | Verification |
+| --- | --- |
+| What file or command changes? | The page should point to the exact `fission` command, `fission.toml` section, Rust component, or generated artifact involved. |
+| What proves it worked? | Prefer a command output, generated file, screenshot, test assertion, package artifact, or deployed URL over a vague statement. |
+| What can fail safely? | Permission prompts, missing tools, unsupported hosts, invalid config, and expired credentials should produce diagnosable errors that can be retried after the cause is fixed. |
+| What should I read next? | Continue to the linked guide for step-by-step work or the reference page for exact fields and contracts. |

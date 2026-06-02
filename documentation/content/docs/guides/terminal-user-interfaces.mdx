@@ -1,6 +1,6 @@
 ---
 title: Terminal user interfaces
-description: Build terminal applications with the same Fission widget, reducer, and shell model used by desktop, web, mobile, and static site targets.
+description: Build terminal applications with the same Fission widget, reducer, and shell model used by desktop, web, mobile, static site, and server-rendered site targets.
 ---
 
 # Terminal user interfaces
@@ -24,6 +24,20 @@ Use the Fission facade crate and enable the terminal shell feature for tools tha
 fission = { path = "../crates/authoring/fission", features = ["terminal-shell"] }
 ```
 
+## What you should have working
+
+After this guide, you should be able to explain where `Terminal user interfaces` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test. If any of those pieces are missing, treat the page as unfinished work: add the smallest runnable example, then add the diagnostic step that proves it works.
+
+## Common mistakes to check
+
+| Symptom | What to check first |
+| --- | --- |
+| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
+| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
+| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
+| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
+| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |
+
 The public API is available through the facade, so app code should use `fission::terminal::TerminalApp` or import from the prelude when appropriate. You should not depend directly on the internal shell crate unless you are working on Fission itself.
 
 ## Build a terminal app from normal widgets
@@ -39,7 +53,7 @@ struct ToolState {
     logs: Vec<String>,
 }
 
-impl AppState for ToolState {}
+impl GlobalState for ToolState {}
 
 #[fission_reducer(SelectScreen)]
 fn select_screen(state: &mut ToolState, selected: usize) {
@@ -49,8 +63,9 @@ fn select_screen(state: &mut ToolState, selected: usize) {
 #[derive(Clone)]
 struct ToolApp;
 
-impl Widget<ToolState> for ToolApp {
-    fn build(&self, ctx: &mut BuildCtx<ToolState>, view: &View<ToolState>) -> Node {
+impl From<ToolApp> for Widget {
+    fn from(component: ToolApp) -> Self {
+        let (ctx, view) = fission::build::current::<ToolState>();
         let dashboard = with_reducer!(ctx, SelectScreen(0), select_screen);
         let settings = with_reducer!(ctx, SelectScreen(1), select_screen);
 
@@ -58,15 +73,15 @@ impl Widget<ToolState> for ToolApp {
             children: vec![
                 Column {
                     children: vec![
-                        Button { on_press: Some(dashboard), child: Some(Box::new(Text::new("Dashboard").into_node())), ..Default::default() }.into_node(),
-                        Button { on_press: Some(settings), child: Some(Box::new(Text::new("Settings").into_node())), ..Default::default() }.into_node(),
+                        Button { on_press: Some(dashboard), child: Some(Text::new("Dashboard").into()), ..Default::default() }.into(),
+                        Button { on_press: Some(settings), child: Some(Text::new("Settings").into()), ..Default::default() }.into(),
                     ],
                     ..Default::default()
-                }.into_node(),
-                Text::new(format!("Selected screen: {}", view.state.selected)).into_node(),
+                }.into(),
+                Text::new(format!("Selected screen: {}", view.state().selected)).into(),
             ],
             ..Default::default()
-        }.into_node()
+        }.into()
     }
 }
 
@@ -98,14 +113,14 @@ This is the important lesson from the CLI: a terminal app should still be a real
 
 ## Keep long-running work out of the frame loop
 
-Terminal tools often run slow commands: build, test, doctor, deploy, logs, and server processes. Do not run that work directly inside `build()` and do not block the terminal event loop while a command is running.
+Terminal tools often run slow commands: build, test, doctor, deploy, logs, and server processes. Do not run that work directly inside `component conversion` and do not block the terminal event loop while a command is running.
 
 The CLI starts command work on a background thread, stores progress in shared command state, and lets the terminal app poll for new output between input events. That keeps the interface responsive while the command runs. The visible output panel is just another widget reading app state.
 
 A good command workflow has three parts:
 
 1. Dispatch an action when the user presses a button or selects a command.
-2. Start the command outside `build()` and immediately return control to the UI.
+2. Start the command outside `component conversion` and immediately return control to the UI.
 3. Append output to bounded scrollback and request a redraw when new data arrives.
 
 That pattern keeps keyboard navigation, mouse clicks, scrolling, theme changes, and settings usable while the command is still running.
@@ -144,4 +159,4 @@ The CLI has a route smoke test that creates the UI state, renders each route, an
 
 ## Where to go next
 
-Read [Platform shells, command-line interface, and testing](/docs/guides/platform-shells-cli-and-testing/) for the broader shell model. Read [Testing and diagnostics](/docs/guides/testing-and-diagnostics/) for the general testing strategy. If you want to build static documentation or marketing sites instead of terminal tools, continue to [Static sites](/docs/guides/static-sites/).
+Read [Platform shells, command-line interface, and testing](/docs/guides/platform-shells-cli-and-testing/) for the broader shell model. Read [Testing and diagnostics](/docs/guides/testing-and-diagnostics/) for the general testing strategy. If you want to build static documentation or marketing sites instead of terminal tools, continue to [Static sites](/docs/guides/static-sites/). If the site needs request-time data, sessions, signed actions, cache revalidation, workers, or islands, continue to [Server-rendered sites](/docs/guides/server-sites/).

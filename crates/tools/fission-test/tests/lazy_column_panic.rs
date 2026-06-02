@@ -1,17 +1,17 @@
 use anyhow::Result;
-use fission_core::ui::{Node, Text, TextContent};
-use fission_core::{BuildCtx, View, Widget};
+use fission_core::ui::{Text, TextContent, Widget};
 use fission_test::TestHarness;
 use fission_widgets::LazyColumn;
-use std::sync::Arc;
 
 #[derive(Debug, Default, Clone)]
-struct AppState {}
-impl fission_core::action::AppState for AppState {}
+struct GlobalState {}
+impl fission_core::action::GlobalState for GlobalState {}
 
+#[derive(Clone)]
 struct Root;
-impl Widget<AppState> for Root {
-    fn build(&self, _ctx: &mut BuildCtx<AppState>, _view: &View<AppState>) -> Node {
+impl From<Root> for Widget {
+    fn from(_component: Root) -> Self {
+        let (_ctx, _view) = fission_core::build::current::<GlobalState>();
         let mut children = Vec::new();
         for i in 0..10 {
             children.push(
@@ -25,16 +25,15 @@ impl Widget<AppState> for Root {
 
         LazyColumn {
             id: None,
-            children: Arc::new(children),
+            children,
             item_height: 20.0,
         }
         .into()
     }
 }
-
 #[test]
 fn test_lazy_column_no_panic() -> Result<()> {
-    let mut h = TestHarness::new(AppState::default()).with_root_widget(Root);
+    let mut h = TestHarness::new(GlobalState::default()).with_root_widget(Root);
     // Pump a few frames to trigger layout updates and verifications
     h.pump()?;
     h.pump()?;

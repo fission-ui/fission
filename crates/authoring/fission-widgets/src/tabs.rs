@@ -1,15 +1,15 @@
 use crate::stack::{HStack, VStack};
 use fission_core::ui::{
-    Button, ButtonVariant, ComponentSize, ComponentState, Container, Node, Text,
+    Button, ButtonVariant, ComponentSize, ComponentState, Container, Text, Widget,
 };
-use fission_core::{ActionEnvelope, BuildCtx, View, Widget};
+use fission_core::ActionEnvelope;
 use serde::{Deserialize, Serialize};
 
 /// A single tab definition containing a title, content node, and selection action.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TabItem {
     pub title: String,
-    pub content: Node,
+    pub content: Widget,
     pub on_press: Option<ActionEnvelope>,
 }
 
@@ -37,19 +37,22 @@ pub struct Tabs {
     pub size: ComponentSize,
 }
 
-impl<S: fission_core::AppState> Widget<S> for Tabs {
-    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let theme = &view.env.theme.components.tabs;
+impl From<Tabs> for Widget {
+    fn from(component: Tabs) -> Self {
+        let (_, view) = fission_core::build::current::<()>();
+        let this = &component;
+
+        let theme = &view.env().theme.components.tabs;
         let mut tab_buttons = vec![];
 
-        for (i, item) in self.items.iter().enumerate() {
-            let is_active = i == self.active_index;
+        for (i, item) in this.items.iter().enumerate() {
+            let is_active = i == this.active_index;
             let state = if is_active {
                 ComponentState::Active
             } else {
                 ComponentState::Default
             };
-            let style = theme.resolve_tab(self.size, state);
+            let style = theme.resolve_tab(this.size, state);
             let color = style.text_color.unwrap_or(if is_active {
                 theme.active_color
             } else {
@@ -57,18 +60,18 @@ impl<S: fission_core::AppState> Widget<S> for Tabs {
             });
             let border = style.border.clone();
 
-            let tab_button = VStack {
+            let tab_button: Widget = VStack {
                 spacing: Some(0.0),
                 children: vec![
                     Button {
                         variant: ButtonVariant::Ghost,
-                        child: Some(Box::new(
+                        child: Some(
                             Text::new(item.title.clone())
                                 .size(style.font_size.unwrap_or(14.0))
                                 .weight(style.font_weight.unwrap_or(400))
                                 .color(color)
-                                .into_node(),
-                        )),
+                                .into(),
+                        ),
                         on_press: item.on_press.clone(),
                         height: style.height.or(Some(38.0)),
                         padding: Some([
@@ -79,39 +82,34 @@ impl<S: fission_core::AppState> Widget<S> for Tabs {
                         ]),
                         ..Default::default()
                     }
-                    .into_node(),
+                    .into(),
                     if is_active {
-                        Container::new(
-                            fission_core::ui::widgets::spacer::Spacer::default().into_node(),
-                        )
-                        .height(
-                            border
-                                .as_ref()
-                                .map(|border| border.width)
-                                .unwrap_or(theme.indicator_height),
-                        )
-                        .bg(match border.map(|border| border.fill) {
-                            Some(fission_core::op::Fill::Solid(color)) => color,
-                            _ => theme.active_color,
-                        })
-                        .into_node()
+                        Container::new(fission_core::ui::widgets::spacer::Spacer::default())
+                            .height(
+                                border
+                                    .as_ref()
+                                    .map(|border| border.width)
+                                    .unwrap_or(theme.indicator_height),
+                            )
+                            .bg(match border.map(|border| border.fill) {
+                                Some(fission_core::op::Fill::Solid(color)) => color,
+                                _ => theme.active_color,
+                            })
+                            .into()
                     } else {
-                        fission_core::ui::widgets::spacer::Spacer::default().into_node()
+                        fission_core::ui::widgets::spacer::Spacer::default().into()
                     },
                 ],
             }
-            .into_node();
+            .into();
 
-            tab_buttons.push(Container::new(tab_button).padding_all(2.0).into_node());
+            tab_buttons.push(Container::new(tab_button).padding_all(2.0).into());
         }
 
-        let tab_bar = Container::new(
-            HStack {
-                spacing: Some(14.0),
-                children: tab_buttons,
-            }
-            .into_node(),
-        )
+        let tab_bar = Container::new(HStack {
+            spacing: Some(14.0),
+            children: tab_buttons,
+        })
         .bg_fill(
             theme
                 .track_style
@@ -137,19 +135,19 @@ impl<S: fission_core::AppState> Widget<S> for Tabs {
                 .unwrap_or(1.0),
         )
         .padding_all(2.0)
-        .into_node();
+        .into();
 
         VStack {
             spacing: Some(12.0),
             children: vec![
                 tab_bar,
-                if let Some(tab) = self.items.get(self.active_index) {
+                if let Some(tab) = this.items.get(this.active_index) {
                     tab.content.clone()
                 } else {
-                    fission_core::ui::widgets::spacer::Spacer::default().into_node()
+                    fission_core::ui::widgets::spacer::Spacer::default().into()
                 },
             ],
         }
-        .into_node()
+        .into()
     }
 }

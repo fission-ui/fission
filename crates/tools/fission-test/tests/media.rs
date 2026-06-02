@@ -1,5 +1,5 @@
-use fission_core::ui::Image;
-use fission_core::AppState;
+use fission_core::ui::{Image, Widget};
+use fission_core::GlobalState;
 use fission_ir::op::{ImageAlignment, ImageFit};
 use fission_render::DisplayOp;
 use fission_test::TestHarness;
@@ -7,13 +7,13 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct DummyState;
-impl AppState for DummyState {}
+impl GlobalState for DummyState {}
 
 #[test]
 fn test_image_render_op() {
     let mut harness = TestHarness::new(DummyState);
 
-    harness = harness.with_root_widget(Image::asset("test.png").size(100.0, 100.0));
+    harness = harness.with_root_widget(Widget::from(Image::asset("test.png").size(100.0, 100.0)));
 
     harness.pump().expect("Pump failed");
 
@@ -38,14 +38,14 @@ fn test_image_render_op() {
 fn test_network_image_render_op_preserves_request_and_fit() {
     let mut harness = TestHarness::new(DummyState);
 
-    harness = harness.with_root_widget(
+    harness = harness.with_root_widget(Widget::from(
         Image::network("https://cdn.example.com/product.webp")
             .size(220.0, 160.0)
             .cache_size(440, 320)
             .semantic_label("Product thumbnail")
             .fit(ImageFit::Cover)
             .alignment(ImageAlignment::TopCenter),
-    );
+    ));
 
     harness.pump().expect("Pump failed");
 
@@ -81,12 +81,12 @@ fn test_network_image_render_op_preserves_request_and_fit() {
 fn test_svg_image_render_op() {
     let mut harness = TestHarness::new(DummyState);
 
-    harness = harness.with_root_widget(
+    harness = harness.with_root_widget(Widget::from(
         Image::svg_text(
             r#"<svg viewBox="0 0 20 10" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="1" width="18" height="8" rx="2"/></svg>"#,
         )
         .size(120.0, 60.0),
-    );
+    ));
 
     harness.pump().expect("Pump failed");
 

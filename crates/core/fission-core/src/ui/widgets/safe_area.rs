@@ -1,33 +1,29 @@
-use crate::lowering::{LoweringContext, NodeBuilder};
-use crate::ui::traits::Lower;
-use crate::ui::Node;
-use fission_ir::{LayoutOp, NodeId, Op};
+use crate::internal::InternalLower;
+use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::ui::Widget;
+use fission_ir::{LayoutOp, Op, WidgetId};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SafeArea {
-    pub id: Option<NodeId>,
-    pub child: Box<Node>,
+    pub id: Option<WidgetId>,
+    pub child: Widget,
 }
 
 impl Default for SafeArea {
     fn default() -> Self {
         Self {
             id: None,
-            child: Box::new(crate::ui::widgets::spacer::Spacer::default().into_node()),
+            child: crate::ui::widgets::spacer::Spacer::default().into(),
         }
     }
 }
 
-impl SafeArea {
-    pub fn into_node(self) -> Node {
-        Node::SafeArea(self)
-    }
-}
+impl SafeArea {}
 
-impl Lower for SafeArea {
-    fn lower(&self, cx: &mut LoweringContext) -> NodeId {
-        let id = self.id.unwrap_or_else(|| cx.next_node_id());
+impl InternalLower for SafeArea {
+    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+        let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         let insets = &cx.env.window_insets;
 
         cx.push_scope(id);
@@ -35,7 +31,7 @@ impl Lower for SafeArea {
         cx.pop_scope();
 
         // SafeArea is just a Box with padding derived from window_insets
-        let mut builder = NodeBuilder::new(
+        let mut builder = InternalIrBuilder::new(
             id,
             Op::Layout(LayoutOp::Box {
                 width: None,

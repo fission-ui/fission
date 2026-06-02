@@ -1,115 +1,323 @@
 ---
 title: State system
-description: The reference contract for AppState, Action, reducers, ReducerContext, and selectors.
+description: The reference contract for GlobalState, local widget state, build handles, provider scopes, actions, reducers, ReducerContext, and selectors.
 ---
 
 # State system
 
-The state system is the behavioral backbone of a Fission app.
+The state system is the behavioral backbone of a Fission app. It separates durable product state, local widget memory, build-scope context, and reducer-side effects so the same app model can run through different shells without hidden platform coupling.
 
-This page is the reference version of that model. Use it when you want to confirm the contract for `AppState`, typed `Action` values, reducers, `ReducerContext`, or selectors without re-reading the more narrative Learn pages.
+For a step-by-step guide, read [State, handles, and providers](/docs/guides/state-handles-and-providers/). This page is the reference contract.
 
-## The core contract at a glance
+## Core pieces
 
 | Piece | Contract | Purpose |
 | --- | --- | --- |
-| `AppState` | Your durable application data model | Holds the product data the user interface describes and reducers update |
-| `Action` | A typed, serializable intent value with a stable `ActionId` | Describes what happened in app terms |
-| reducer | A function that updates state in response to an action | Centralizes state changes in one explicit path |
-| `ReducerContext` | Reducer-time access to effect emission and action input metadata | Lets reducers request outside work and inspect returned input |
-| `Selector<S>` | A derived read-only view computation | Keeps larger widgets from scattering raw state reads everywhere |
+| `GlobalState` | Runtime-owned durable app state | Holds product truth shared across screens, reducers, tests, and shells |
+| `StateField<T>` | Handle to retained local widget state | Stores UI-local memory for one stable widget identity |
+| `BuildCtxHandle<S>` | Build-scope wiring handle | Binds actions, local reducers, resources, portals, media, and animations |
+| `ViewHandle<S>` | Build-scope read handle | Reads `GlobalState`, `Env`, runtime values, layout snapshots, and selectors |
+| `Provider<T, F>` | Typed build-stack value scoped to descendants | Lets parents inject contextual read-only values without prop drilling |
+| `Action` | Typed, serializable intent with stable `ActionId` | Describes what happened in app terms |
+| reducer | Function that updates state for an action | Centralizes mutations in one explicit path |
+| `ReducerContext<S>` | Reducer-time effect and input context | Lets reducers request outside work and read returned payloads |
+| `Selector<S>` | Read-only derived view computation | Keeps component conversion focused on view-ready values |
 
-## `AppState`
+## `GlobalState`
 
-`AppState` is the trait implemented by the application state type managed by the runtime.
+`GlobalState` is implemented by the root product state managed by the runtime.
 
-In practice, your state is usually an ordinary Rust struct, and `impl AppState for MyState {}` marks it as the app's shared state model.
+A `GlobalState` type must be `'static`, downcastable, `Send`, `Sync`, and `Debug`. Common primitive types and `()` implement it already. App structs usually derive or implement it directly.
 
-What belongs in `AppState`? Durable product truth. Text the user is editing, the selected screen, whether a save is in progress, the current locale preference, loaded data, error states, and other user-visible product state all fit here.
+```rust
+#[derive(Debug, Default, Clone, FissionGlobalState)]
+pub struct ShopState {
+    pub cart: CartState,
+    pub session: SessionState,
+}
 
-What does not belong there? Runtime-owned details such as current animation interpolation values, platform clipboard implementations, or other framework-managed interaction state.
+#[derive(Debug, Default, Clone, FissionStateView)]
+pub struct CartState {
+    pub items: Vec<CartItem>,
+}
+```
+
+Use `GlobalState` for durable product facts: current route, loaded records, form drafts that should survive navigation, selected account, save status, user preferences, and feature state shared by distant widgets.
+
+Do not use `GlobalState` for runtime-owned details such as current animation interpolation values or host handle stores. Do not use it for tiny UI-local state that disappears with a component unless that state is product-significant.
+
+## Reading state during component conversion
+
+Component conversion reads app inputs with `fission::build::current::<S>()`:
+
+```rust
+let (ctx, view) = fission::build::current::<ShopState>();
+```
+
+`S` is the concrete `GlobalState` type the component expects. If a component does not read app state and only needs state-independent local wiring, it may request the common scope with `()`:
+
+```rust
+let (ctx, _) = fission::build::current::<()>();
+```
+
+`build::current::<S>()` is valid only inside an active build pass. Calling it outside component conversion panics with a build-scope error.
+
+## `ViewHandle<S>`
+
+`ViewHandle<S>` is the read-side handle for component conversion.
+
+| Method | Purpose |
+| --- | --- |
+| `state()` | Returns the current `&S` app state |
+| `global()` | Returns the generated typed state view when `S: FissionViewField` |
+| `select(...)` | Runs a one-off closure selector against `&S` |
+| `select_with::<T>()` | Runs a reusable `Selector<S>` implementation |
+| `env()` | Reads the current environment |
+| `theme()` | Reads `env.theme` |
+| `i18n()` | Reads `env.i18n` |
+| `viewport_size()` | Reads the current viewport size |
+| `layout()` | Reads the optional previous layout snapshot |
+| `get_rect(id)` | Reads a previous layout rectangle for a widget id |
+| `get_constraints(id)` | Reads previous constraints for a widget id |
+| `animation_value(id, property)` | Reads runtime animation state for a widget property |
+| `video_state(id)` | Reads runtime video state for a widget |
+
+`ViewHandle` is not a long-lived reference. Store derived values, not the handle itself, if data must travel into an action or effect payload.
+
+## `BuildCtxHandle<S>`
+
+`BuildCtxHandle<S>` is the write-side wiring handle for component conversion. It records relationships the runtime will use later.
+
+| Method | Purpose |
+| --- | --- |
+| `bind(action, handler)` | Creates an `ActionEnvelope` for a normal app-state reducer |
+| `register::<A, H>(handler)` | Registers a reducer handler without immediately binding a widget event |
+| `bind_local(action, field, handler)` | Binds a reducer to a retained local `StateField<T>` |
+| `request_animation_for(id, request)` | Queues an animation request for a widget id |
+| `anim_for(id)` | Creates a scoped animation helper for a target widget id |
+| `register_video(...)` | Registers a video node with the runtime |
+| `register_web_view(...)` | Registers a web view node with the runtime |
+| `register_portal(...)` | Registers a default-layer portal |
+| `register_portal_with_id(...)` | Registers a portal with an explicit widget id |
+| `register_portal_with_layer(...)` | Registers a portal in a specific layer |
+| `with_resources(...)` | Gives controlled access to the build resource registry |
+| `video_controls(id)` | Creates controls for a registered video widget |
+
+`BuildCtxHandle` does not mutate app state directly. App state changes happen in reducers. The handle records that a future event should dispatch an action, update local state, start an animation, register a resource, or connect another runtime-managed behavior.
+
+## Handle lifetime
+
+`BuildCtxHandle` and `ViewHandle` are copyable handles, not raw references. They resolve through the active build scope. This lets Fission expose ergonomic `let (ctx, view) = build::current::<State>();` syntax without handing authoring code a reference that can outlive the shell-owned build data.
+
+Correct usage:
+
+```rust
+impl From<CartBadge> for Widget {
+    fn from(_: CartBadge) -> Widget {
+        let (_, view) = fission::build::current::<ShopState>();
+        Text::new(format!("{}", view.state().cart.items.len())).into()
+    }
+}
+```
+
+Incorrect usage:
+
+```rust
+// Do not store handles for later reducer, async, service, or static use.
+struct BadCache<S: GlobalState> {
+    view: ViewHandle<S>,
+}
+```
+
+If a handle is used outside an active build pass, Fission panics with a clear scope error. That is part of the contract; it prevents stale build handles from becoming hidden global state.
+
+## Local widget state
+
+Local widget state is retained state associated with a component field and widget identity.
+
+Declare it with `#[fission_component]` and `#[local_state(default = ...)]`:
+
+```rust
+#[fission_component]
+pub struct Counter {
+    #[local_state(default = 0)]
+    count: i32,
+}
+```
+
+The macro removes local-state fields from the component's public prop fields and generates accessor methods. The accessor returns `StateField<T>`:
+
+```rust
+let count = counter.count();
+let value = count.get();
+```
+
+Bind a local reducer with `BuildCtxHandle::bind_local`:
+
+```rust
+#[fission_reducer(Increment)]
+fn increment(count: &mut i32) {
+    *count += 1;
+}
+
+let (ctx, _) = fission::build::current::<()>();
+let count = counter.count();
+let on_press = ctx.bind_local(Increment, count.clone(), reduce!(increment));
+```
+
+Local state persists across rebuilds while the same widget identity is active. It is pruned after a build when that identity is no longer present. It is not persisted across app restarts unless the app explicitly mirrors it into durable state.
+
+## `StateField<T>`
+
+`StateField<T>` is the handle returned by local-state accessors.
+
+| Method | Purpose |
+| --- | --- |
+| `get()` | Clones and returns the current retained value |
+| `component()` | Returns the component identity string used by the generated accessor |
+| `field()` | Returns the field name |
+| `key()` | Returns the `LocalStateKey` |
+| `action_id::<A>()` | Builds the scoped local action id for action `A` |
+
+`StateField<T>` is intentionally a handle. Updating it happens through `ctx.bind_local(...)` and a reducer, not by mutating the field directly inside component conversion.
+
+## `WidgetId` and local state identity
+
+Fission can distinguish simple static siblings by structural position. Dynamic children that can be inserted, removed, filtered, or reordered should use explicit widget ids.
+
+```rust
+let children = rows
+    .into_iter()
+    .map(|row| RowCard { row: row.clone() }
+        .id(WidgetId::explicit(&format!("row.{}", row.id))))
+    .collect();
+```
+
+Use a durable key from the data. Do not use the list index for reorderable data. An unstable id makes retained local state appear to move between rows.
+
+## Provider stack
+
+`Provider<T, F>` installs a typed value for descendants during component conversion.
+
+```rust
+#[derive(Clone)]
+struct SectionName(&'static str);
+
+Provider::new(SectionName("billing"), || BillingFields).into()
+```
+
+A descendant reads the nearest active value of that type:
+
+```rust
+let section = fission::build::read::<SectionName>();
+```
+
+Use `try_read::<T>()` when the value is optional:
+
+```rust
+let section = fission::build::try_read::<SectionName>()
+    .unwrap_or(SectionName("default"));
+```
+
+Provider values must be `Clone + Send + Sync + 'static`. Reads clone the value. This avoids borrowed stack data escaping the build pass.
+
+Providers are nested. The nearest provider of the requested type wins; when a nested provider finishes converting its child, the parent value becomes visible again.
+
+Providers are not durable state. Use them for read-only contextual values scoped to a subtree. Use `GlobalState` or local widget state for values that need reducers or retention.
 
 ## `Action`
 
-An `Action` is the typed message that describes user intent or some other meaningful event in the app.
+An `Action` is the typed message that describes user intent or a runtime result.
 
-The `Action` trait requires values to be serializable and to provide a stable `ActionId` through `static_id()`. In practice, most app actions are small Rust structs or enums that derive the framework macro and travel through the runtime as `ActionEnvelope` values.
+The trait requires values to be serializable and to provide a stable `ActionId` through `static_id()`. In ordinary app code, prefer `#[fission_reducer(ActionName)]` when one reducer owns one action. Use `#[fission_action]` for manual action structs that are shared, public, or need separately documented fields.
 
-The point of this system is not ceremony for its own sake. It gives the runtime a deterministic, typed way to route behavior across input, reducers, testing, diagnostics, and replay.
+Good action names describe intent in product language: `SaveRequested`, `FilterChanged`, `CardAddedToCart`, `SessionExpired`, or `PhotoCaptured`.
 
-Use actions to describe what happened in app language. Examples include `SaveRequested`, `LocaleChanged`, `DrawerClosed`, or `FilterUpdated`.
-
-Avoid using vague "do everything" actions that hide several unrelated transitions. Small, intention-revealing actions are easier to test and review.
+Avoid vague actions such as `Clicked` or `Update` unless the surrounding type makes the intent unambiguous.
 
 ## Reducers
 
-A reducer is the function that receives the current state, an action, and optionally reducer-time context, then updates state in response.
+A reducer receives current state, an action, and optionally `ReducerContext`, then updates state.
 
-The modern reducer shape is:
+Typical shapes:
 
 ```rust
-fn handle(state: &mut MyState, action: MyAction, ctx: &mut ReducerContext<MyState>)
+#[fission_reducer(SetFilter)]
+fn on_set_filter(state: &mut ShopState, filter: ProductFilter) {
+    state.filter = filter;
+}
+
+#[fission_reducer(SaveRequested)]
+fn on_save_requested(state: &mut ShopState, ctx: &mut ReducerContext<ShopState>) {
+    state.saving = true;
+    // request outside work through ctx.effects
+}
 ```
 
-This is the important contract to remember: reducers are where state changes are supposed to happen.
+Reducers are the normal place for state mutation. They should be deterministic except for explicitly requested effects. Do not put host work, network calls, file writes, or hidden global mutation directly inside a reducer body.
 
-That gives Fission its clear one-way flow:
+## `ReducerContext<S>`
 
-1. widgets emit actions,
-2. the runtime dispatches them,
-3. reducers update state,
-4. widgets rebuild from the new state.
+`ReducerContext<S>` is available only while a reducer is running.
 
-Reducers should stay deterministic and explicit. They may request effects through `ReducerContext`, but they should not become ad hoc side-effect containers.
+| Field | Purpose |
+| --- | --- |
+| `effects` | Queues jobs, services, commands, capabilities, timers, and other runtime-managed work |
+| `input` | Reads explicit input that arrived with this dispatch, such as job results or capability payloads |
 
-## `ReducerContext`
+`ReducerContext` is not storage. It should not be retained after the reducer returns.
 
-`ReducerContext` is the reducer-time helper for two related jobs.
+## Selectors and generated views
 
-First, it exposes `ctx.effects`, which lets a reducer request jobs, services, commands, capabilities, and other runtime-managed work.
+Generated state views give component conversion a typed path through state:
 
-Second, it exposes `ctx.input`, which lets the reducer inspect the input data that accompanied this dispatch. That may include job results, capability results, service events, timer payloads, pointer data, or dropped-file data.
+```rust
+let (_, view) = fission::build::current::<ShopState>();
+let cart_count = view.global().cart().items().map(|items| items.len()).get();
+```
 
-Use `ReducerContext` when a reducer needs to say "start this outside work" or "read the explicit data that came back from the runtime."
+Use `#[derive(FissionStateView)]` on nested state structs you want to traverse this way. Scalar and collection fields return `ValueView<T>`, which borrows the source field and clones only when `get()` is called.
 
-Do not treat `ReducerContext` as long-lived storage. It exists only while the reducer is running.
+For one-off reads, use `view.select(...)`:
 
-## Binding reducers into the app
+```rust
+let cart_count = view.select(|state| state.cart.items.len());
+```
 
-Two binding patterns matter most in ordinary app code.
+For reusable derived view models, implement `Selector<S>` and call `view.select_with::<YourSelector>()`.
 
-Use `with_reducer!(ctx, action, handler)` inside `build()` when the action wiring is local to the widget tree. This is the most common pattern for buttons, text fields, and local interactions.
+Selectors are read-only. Do not use them to mutate state or hide side effects.
 
-Use `ActionRegistry` and shell-side registration when reducers should be registered in a more centralized startup-style path.
+## Decision table
 
-The important architectural point is the same either way: state still changes through explicit reducer functions, not through hidden widget mutation.
+| Need | API |
+| --- | --- |
+| Durable product data | `GlobalState` |
+| One widget's temporary retained memory | `#[local_state]` and `StateField<T>` |
+| Parent-scoped contextual read-only data | `Provider<T, F>`, `read::<T>()`, `try_read::<T>()` |
+| Theme, locale, viewport, window, safe-area, and platform presentation context | `Env` through `ViewHandle` |
+| Bind a widget event to app-state change | `BuildCtxHandle::bind(...)` or `with_reducer!(...)` |
+| Bind a widget event to local state change | `BuildCtxHandle::bind_local(...)` |
+| Read app state or derived view models | `ViewHandle::state`, `global`, `select`, or `select_with` |
+| Request outside work | `ReducerContext::effects` |
+| Keep identity stable across reordered dynamic children | `.id(WidgetId::explicit(...))` |
 
-## Selectors
+## Contract completeness checklist
 
-A selector is a read-only derived computation from `View`.
+Use this checklist when wiring `State system` into an app or shell implementation.
 
-Publicly, `Selector<S>` exists so widgets can ask for exactly the view model they need instead of reaching into raw state fields everywhere. That becomes increasingly valuable as screens grow.
+| Requirement | Why it matters |
+| --- | --- |
+| Public entrypoint | The app code must call the documented helper, command, or configuration field rather than a platform-specific shortcut. |
+| Required setup | Native manifests, plist entries, entitlements, service-worker files, domains, protocols, credentials, or provider registration must be present before production use. |
+| Typed success and error | The implementation should return a truthful typed result. Silent success, swallowed errors, and string-only failure paths make apps unsafe to retry. |
+| Retry behavior | Operations that can fail because of permission, network, hardware, store, or packaging state should document whether retrying is useful and what must change first. |
+| Tests | Cover the happy path, unsupported host path, bad configuration path, and any security-sensitive rejection path. |
 
-Use a selector when a widget needs formatted text, derived booleans, grouped data, or a small view model struct that is computed from current inputs.
+## Failure behavior and safe retry
 
-Do not use a selector to hide side effects or mutate state. A selector is a read operation only.
+Treat failures as product states, not surprises. A Fission app should be able to tell the user whether the problem is missing configuration, missing provider support, denied permission, unavailable hardware, invalid input, expired credentials, or a transient host error. Reducers should update state from typed results and keep retry buttons idempotent so pressing them twice cannot corrupt state or duplicate unsafe work.
 
-In small examples, direct `view.state` reads are often fine. In larger apps, selectors help keep build code cleaner and make data dependencies easier to test.
+## Related pages
 
-## A useful mental model for this page
-
-`AppState` holds the durable data.
-
-`Action` describes what happened.
-
-Reducers decide how that changes state.
-
-`ReducerContext` gives reducers explicit effect and input plumbing.
-
-Selectors derive focused read models for widgets.
-
-If you remember that shape, most of the reference pages around widgets, resources, input, and testing become much easier to navigate.
-
-## Related reference pages
-
-For async work and reducer-side effect emission, continue to [Commands, services, and jobs](/reference/core/commands-services-jobs) and [Resources and capabilities](/reference/core/resources-and-capabilities). For the widget-side contract that reads from this state system, see [Widget trait](/reference/core/widget-trait).
+Read [State, handles, and providers](/docs/guides/state-handles-and-providers/) for the guided version of this reference. For async work and reducer-side effect emission, continue to [Commands, services, and jobs](/reference/core/commands-services-jobs/) and [Resources and capabilities](/reference/core/resources-and-capabilities/). For the component conversion boundary that reads from this state system, see [Widget authoring boundary](/reference/core/widget-authoring-boundary/).

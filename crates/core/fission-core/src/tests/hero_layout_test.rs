@@ -1,17 +1,19 @@
 use crate::env::{Env, RuntimeState};
-use crate::lowering::{build_layout_tree, LoweringContext, NodeBuilder};
-use crate::ui::traits::LowerDyn;
-use crate::ui::Node;
+use crate::internal::InternalLower;
+use crate::internal::InternalLowerer;
+use crate::internal::InternalRenderNode;
+use crate::lowering::{build_layout_tree, InternalIrBuilder, InternalLoweringCx};
+use crate::ui::Widget;
 use fission_ir::{Op, Semantics};
 use fission_layout::{LayoutEngine, LayoutSize};
 
 #[derive(Debug)]
 struct MockHero {
-    child: Node,
+    child: Widget,
 }
 
-impl LowerDyn for MockHero {
-    fn lower_dyn(&self, cx: &mut LoweringContext) -> fission_ir::NodeId {
+impl InternalLowerer for MockHero {
+    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> fission_ir::WidgetId {
         let child_id = self.child.lower(cx);
         let id = cx.next_node_id();
 
@@ -21,7 +23,7 @@ impl LowerDyn for MockHero {
         };
 
         // Hero lowers to Semantics op
-        let mut builder = NodeBuilder::new(id, Op::Semantics(semantics));
+        let mut builder = InternalIrBuilder::new(id, Op::Semantics(semantics));
         builder.add_child(child_id);
         builder.build(cx)
     }
@@ -34,23 +36,23 @@ impl LowerDyn for MockHero {
 fn test_hero_text_layout_height() {
     let env = Env::default();
     let runtime_state = RuntimeState::default();
-    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
+    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
 
     // Construct Hero with Text that needs wrapping
-    let text = crate::ui::Text::new("Long Subject That Wraps").into_node();
-    let hero = Node::Custom(crate::ui::CustomNode {
+    let text = crate::ui::Text::new("Long Subject That Wraps").into();
+    let hero = fission_core::internal::custom_render_widget(InternalRenderNode {
         debug_tag: "Hero".into(),
         lowerer: Some(std::sync::Arc::new(MockHero { child: text })),
         render_object: None,
     });
 
     // VStack
-    let vstack = crate::ui::Column::default()
-        .children(vec![hero, crate::ui::Text::new("Preview").into_node()])
-        .into_node();
+    let vstack: Widget = crate::ui::Column::default()
+        .children(vec![hero, crate::ui::Text::new("Preview").into()])
+        .into();
 
     // Root Container (Constraint 100px width)
-    let root = crate::ui::Container::new(vstack).width(100.0).into_node();
+    let root = crate::ui::Container::new(vstack).width(100.0);
 
     let root_id = root.lower(&mut cx);
     cx.ir.root = Some(root_id);

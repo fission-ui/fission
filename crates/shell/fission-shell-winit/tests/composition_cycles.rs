@@ -1,9 +1,10 @@
 use anyhow::Result;
-use fission_core::action::AppState as CoreAppState;
+use fission_core::action::GlobalState as CoreGlobalState;
 use fission_core::env::Env;
-use fission_core::lowering::LoweringContext;
-use fission_core::ui::{Node, TextInput};
-use fission_core::{reduce_with, BuildCtx, ReducerContext, Runtime, View};
+use fission_core::internal::BuildCtx;
+use fission_core::internal::InternalLoweringCx;
+use fission_core::ui::{TextInput, Widget};
+use fission_core::{reduce_with, ReducerContext, Runtime, View, WidgetIdExt};
 use fission_layout::{LayoutEngine, LayoutSize, LineMetric, TextMeasurer};
 use fission_render::{DisplayList, RenderScene, Renderer};
 use fission_widgets::{Checkbox, Portal};
@@ -12,22 +13,22 @@ use std::sync::{Arc, Mutex};
 use fission_shell_winit::Pipeline;
 
 #[derive(Debug, Default, Clone)]
-struct AppState {
+struct GlobalState {
     text: String,
     checked: bool,
     show_portal: bool,
 }
-impl CoreAppState for AppState {}
+impl CoreGlobalState for GlobalState {}
 
 #[fission_macros::fission_action]
 struct Toggle;
-fn on_toggle(state: &mut AppState, _a: Toggle, _ctx: &mut ReducerContext<AppState>) {
+fn on_toggle(state: &mut GlobalState, _a: Toggle, _ctx: &mut ReducerContext<GlobalState>) {
     state.checked = !state.checked;
 }
 
 #[fission_macros::fission_action]
 struct UpdateText(String);
-fn on_update(state: &mut AppState, a: UpdateText, _ctx: &mut ReducerContext<AppState>) {
+fn on_update(state: &mut GlobalState, a: UpdateText, _ctx: &mut ReducerContext<GlobalState>) {
     state.text = a.0;
 }
 
@@ -65,20 +66,22 @@ impl TextMeasurer for MockMeasurer {
     }
 }
 
+#[derive(Clone)]
 struct Root;
-impl fission_core::view::Widget<AppState> for Root {
-    fn build(&self, ctx: &mut BuildCtx<AppState>, view: &View<AppState>) -> Node {
+impl From<Root> for Widget {
+    fn from(_component: Root) -> Self {
+        let (ctx, view) = fission_core::build::current::<GlobalState>();
         use fission_core::ui::{Column, Row};
-        let mut children: Vec<Node> = vec![
+        let mut children: Vec<Widget> = vec![
             Checkbox {
-                checked: view.state.checked,
+                checked: view.state().checked,
                 on_toggle: Some(ctx.bind(Toggle, reduce_with!(on_toggle))),
                 label: Some("check".into()),
                 ..Default::default()
             }
             .into(),
             TextInput {
-                value: view.state.text.clone(),
+                value: view.state().text.clone(),
                 placeholder: Some("type".into()),
                 on_change: Some(ctx.bind(UpdateText("".into()), reduce_with!(on_update))),
                 width: Some(200.0),
@@ -87,50 +90,54 @@ impl fission_core::view::Widget<AppState> for Root {
             }
             .into(),
         ];
-        if view.state.show_portal {
+        if view.state().show_portal {
             use fission_core::ui::{Overlay, ZStack};
             let overlay = Overlay {
                 id: None,
-                content: Box::new(Node::Row(Row::default())),
-                overlay: Box::new(Node::ZStack(ZStack {
+                content: Row::default().into(),
+                overlay: ZStack {
                     id: None,
                     children: vec![
                         // Nested portal to test recursion
                         Portal {
-                            child: Node::Row(Row::default()),
+                            child: Row::default().into(),
                         }
-                        .build(ctx, view),
+                        .into(),
                     ],
                     ..Default::default()
-                })),
+                }
+                .into(),
             };
             children.push(
                 Portal {
-                    child: Node::Overlay(overlay),
+                    child: overlay.into(),
                 }
-                .build(ctx, view),
+                .into(),
             );
         }
         // Add more nodes to ensure structure
-        children.push(Node::Row(Row::default()));
+        children.push(Row::default().into());
 
-        Node::Column(Column {
+        Column {
             children,
             ..Default::default()
-        })
+        }
+        .into()
     }
 }
-
-fn pump(
+fn pump<W>(
     runtime: &mut Runtime,
     layout: &mut LayoutEngine,
     pipe: &mut Pipeline,
     env: &Env,
-    root: &impl fission_core::view::Widget<AppState>,
-) -> (fission_ir::CoreIR, fission_layout::LayoutSnapshot) {
+    root: &W,
+) -> (fission_ir::CoreIR, fission_layout::LayoutSnapshot)
+where
+    W: Clone + Into<Widget>,
+{
     // Build + wrap portals like desktop
     let node_tree = {
-        let state = runtime.get_app_state::<AppState>().unwrap();
+        let state = runtime.get_global_state::<GlobalState>().unwrap();
         let view = View::new(
             state,
             &runtime.runtime_state,
@@ -138,7 +145,7 @@ fn pump(
             pipe.last_snapshot.as_ref(),
         );
         let mut ctx = BuildCtx::new();
-        let mut tree = root.build(&mut ctx, &view);
+        let mut tree = fission_core::build::enter(&mut ctx, &view, || (*root).clone().into());
         runtime.clear_reducers();
         let anim = ctx.take_animation_requests();
         for (t, r) in anim {
@@ -151,9 +158,7 @@ fn pump(
             .into_iter()
             .map(|(id, node)| {
                 if let Some(id) = id {
-                    fission_core::ui::Container::new(node)
-                        .id(id.into())
-                        .into_node()
+                    fission_core::ui::Container::new(node).id(id).into()
                 } else {
                     node
                 }
@@ -164,28 +169,32 @@ fn pump(
             let mut children = Vec::with_capacity(1 + portals.len());
             children.push(tree);
             for p in portals {
-                children.push(Node::Overlay(Overlay {
-                    id: None,
-                    content: Box::new(Node::Row(Row::default())),
-                    overlay: Box::new(p),
-                }));
+                children.push(
+                    Overlay {
+                        id: None,
+                        content: Row::default().into(),
+                        overlay: p,
+                    }
+                    .into(),
+                );
             }
-            tree = Node::ZStack(ZStack {
+            tree = ZStack {
                 id: None,
                 children,
                 ..Default::default()
-            });
+            }
+            .into();
         }
         tree
     };
-    // Lower
-    let mut cx = LoweringContext::new(
+    // InternalLower
+    let mut cx = InternalLoweringCx::new(
         env,
         &runtime.runtime_state,
         None,
         pipe.last_snapshot.as_ref(),
     );
-    let root_id = node_tree.lower(&mut cx);
+    let root_id = fission_core::internal::lower_widget(&node_tree, &mut cx);
     cx.ir.root = Some(root_id);
     let ir = cx.ir;
     // Render via pipeline (performing layout inside)
@@ -217,7 +226,7 @@ fn test_composition_cycles_and_portals() -> Result<()> {
     // or ID collisions if done repeatedly.
     let env = Env::default();
     let mut runtime = Runtime::default();
-    runtime.add_app_state(Box::new(AppState::default()))?;
+    runtime.add_global_state(Box::new(GlobalState::default()))?;
     let mut layout = LayoutEngine::new().with_measurer(Arc::new(MockMeasurer));
     let mut pipe = Pipeline::new();
     let root = Root;
@@ -227,7 +236,7 @@ fn test_composition_cycles_and_portals() -> Result<()> {
 
     // Toggle portal ON
     {
-        let state = runtime.get_app_state_mut::<AppState>().unwrap();
+        let state = runtime.get_global_state_mut::<GlobalState>().unwrap();
         state.show_portal = true;
     }
 
@@ -235,7 +244,7 @@ fn test_composition_cycles_and_portals() -> Result<()> {
 
     // Toggle portal OFF
     {
-        let state = runtime.get_app_state_mut::<AppState>().unwrap();
+        let state = runtime.get_global_state_mut::<GlobalState>().unwrap();
         state.show_portal = false;
     }
 

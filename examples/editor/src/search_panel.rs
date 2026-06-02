@@ -1,16 +1,17 @@
 use crate::model::{EditorState, ExecuteSearch, OpenFile, UpdateSearchQuery};
 use fission::core::op::Color;
 use fission::core::ui::{
-    Button, ButtonContentAlign, ButtonVariant, Column, Container, Node, Scroll, Text, TextInput,
+    Button, ButtonContentAlign, ButtonVariant, Column, Container, Scroll, Text, TextInput, Widget,
 };
-use fission::core::{reduce_with, ActionEnvelope, BuildCtx, FlexDirection, View, Widget};
+use fission::core::{reduce_with, ActionEnvelope, FlexDirection};
 use fission::widgets::{HStack, VStack};
 use serde_json;
 
 pub struct SearchPanel;
 
-impl Widget<EditorState> for SearchPanel {
-    fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
+impl From<SearchPanel> for Widget {
+    fn from(_component: SearchPanel) -> Self {
+        let (ctx, view) = fission::build::current::<EditorState>();
         let text_color = Color {
             r: 204,
             g: 204,
@@ -42,35 +43,30 @@ impl Widget<EditorState> for SearchPanel {
             .id;
 
         // Connected search input with Go button inside a single bordered container
-        let search_row = Container::new(
-            HStack {
-                spacing: Some(0.0),
-                children: vec![
-                    TextInput {
-                        id: Some(fission::ir::NodeId::explicit("editor_search_query_input")),
-                        value: view.state.search_query.clone(),
-                        placeholder: Some("Search...".into()),
-                        on_change: Some(update_query),
-                        borderless: true,
-                        ..Default::default()
-                    }
-                    .into_node(),
-                    Button {
-                        variant: ButtonVariant::Ghost,
-                        child: Some(Box::new(
-                            Text::new("Go").size(11.0).color(text_color).into_node(),
-                        )),
-                        on_press: Some(execute),
-                        width: Some(32.0),
-                        height: Some(28.0),
-                        padding: Some([0.0; 4]),
-                        ..Default::default()
-                    }
-                    .into_node(),
-                ],
-            }
-            .into_node(),
-        )
+        let search_row = Container::new(HStack {
+            spacing: Some(0.0),
+            children: vec![
+                TextInput {
+                    id: Some(fission::WidgetId::explicit("editor_search_query_input")),
+                    value: view.state().search_query.clone(),
+                    placeholder: Some("Search...".into()),
+                    on_change: Some(update_query),
+                    borderless: true,
+                    ..Default::default()
+                }
+                .into(),
+                Button {
+                    variant: ButtonVariant::Ghost,
+                    child: Some(Text::new("Go").size(11.0).color(text_color).into()),
+                    on_press: Some(execute),
+                    width: Some(32.0),
+                    height: Some(28.0),
+                    padding: Some([0.0; 4]),
+                    ..Default::default()
+                }
+                .into(),
+            ],
+        })
         .bg(Color {
             r: 60,
             g: 60,
@@ -88,21 +84,21 @@ impl Widget<EditorState> for SearchPanel {
         )
         .border_radius(3.0)
         .height(30.0)
-        .into_node();
+        .into();
 
         let mut children = vec![search_row];
 
         // Results
-        if !view.state.search_results.is_empty() {
+        if !view.state().search_results.is_empty() {
             children.push(
-                Text::new(format!("{} results", view.state.search_results.len()))
+                Text::new(format!("{} results", view.state().search_results.len()))
                     .size(11.0)
                     .color(dim_color)
-                    .into_node(),
+                    .into(),
             );
 
             let mut result_nodes = Vec::new();
-            for result in view.state.search_results.iter().take(50) {
+            for result in view.state().search_results.iter().take(50) {
                 let label = format!(
                     "{}:{}",
                     result.path.rsplit('/').next().unwrap_or(&result.path),
@@ -112,19 +108,19 @@ impl Widget<EditorState> for SearchPanel {
                     Button {
                         variant: ButtonVariant::Ghost,
                         content_align: ButtonContentAlign::Start,
-                        child: Some(Box::new(
+                        child: Some(
                             VStack {
                                 spacing: Some(1.0),
                                 children: vec![
-                                    Text::new(label).size(12.0).color(text_color).into_node(),
+                                    Text::new(label).size(12.0).color(text_color).into(),
                                     Text::new(result.context.chars().take(60).collect::<String>())
                                         .size(11.0)
                                         .color(dim_color)
-                                        .into_node(),
+                                        .into(),
                                 ],
                             }
-                            .into_node(),
-                        )),
+                            .into(),
+                        ),
                         on_press: Some(ActionEnvelope {
                             id: open_id,
                             payload: serde_json::to_vec(&OpenFile(result.path.clone())).unwrap(),
@@ -132,48 +128,45 @@ impl Widget<EditorState> for SearchPanel {
                         padding: Some([4.0, 4.0, 0.0, 0.0]),
                         ..Default::default()
                     }
-                    .into_node(),
+                    .into(),
                 );
             }
 
             children.push(
                 Scroll {
                     direction: FlexDirection::Column,
-                    child: Some(Box::new(
+                    child: Some(
                         VStack {
                             spacing: Some(2.0),
                             children: result_nodes,
                         }
-                        .into_node(),
-                    )),
+                        .into(),
+                    ),
                     show_scrollbar: true,
                     flex_grow: 1.0,
                     flex_shrink: 1.0,
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
             );
-        } else if !view.state.search_query.is_empty() {
+        } else if !view.state().search_query.is_empty() {
             children.push(
                 Text::new("No results found")
                     .size(12.0)
                     .color(dim_color)
-                    .into_node(),
+                    .into(),
             );
         }
 
-        Container::new(
-            Column {
-                gap: Some(8.0),
-                children,
-                flex_grow: 1.0,
-                justify_content: fission::core::op::JustifyContent::Start,
-                ..Default::default()
-            }
-            .into_node(),
-        )
+        Container::new(Column {
+            gap: Some(8.0),
+            children,
+            flex_grow: 1.0,
+            justify_content: fission::core::op::JustifyContent::Start,
+            ..Default::default()
+        })
         .padding_all(8.0)
         .flex_grow(1.0)
-        .into_node()
+        .into()
     }
 }

@@ -1,14 +1,13 @@
-use fission_core::lowering::wrap_zstack_child;
-use fission_core::ui::Node;
-use fission_core::{
-    ActionEnvelope, BuildCtx, LowerDyn, LoweringContext, NodeBuilder, View, Widget,
-};
-use fission_ir::{LayoutOp, NodeId, Op, PaintOp};
+use fission_core::internal::wrap_zstack_child;
+use fission_core::internal::{InternalIrBuilder, InternalLowerer, InternalLoweringCx};
+use fission_core::ui::Widget;
+use fission_core::ActionEnvelope;
+use fission_ir::{LayoutOp, Op, PaintOp, WidgetId};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RangeSlider {
-    pub id: Option<NodeId>,
+    pub id: Option<WidgetId>,
     pub start: f32,
     pub end: f32,
     pub min: f32,
@@ -16,16 +15,20 @@ pub struct RangeSlider {
     pub on_change: Option<ActionEnvelope>,
 }
 
-impl<S: fission_core::AppState> Widget<S> for RangeSlider {
-    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        Node::Custom(fission_core::ui::CustomNode {
+impl From<RangeSlider> for Widget {
+    fn from(component: RangeSlider) -> Self {
+        let mut component = component;
+        component.id = fission_core::build::current_widget_id().or(component.id);
+        let this = &component;
+
+        fission_core::internal::custom_render_widget(fission_core::internal::InternalRenderNode {
             debug_tag: "RangeSlider".into(),
             lowerer: Some(std::sync::Arc::new(RangeSliderLowerer {
-                id: self.id,
-                start: self.start,
-                end: self.end,
-                min: self.min,
-                max: self.max,
+                id: this.id.map(Into::into),
+                start: this.start,
+                end: this.end,
+                min: this.min,
+                max: this.max,
             })),
             render_object: None,
         })
@@ -34,15 +37,15 @@ impl<S: fission_core::AppState> Widget<S> for RangeSlider {
 
 #[derive(Debug)]
 struct RangeSliderLowerer {
-    id: Option<NodeId>,
+    id: Option<WidgetId>,
     start: f32,
     end: f32,
     min: f32,
     max: f32,
 }
 
-impl LowerDyn for RangeSliderLowerer {
-    fn lower_dyn(&self, cx: &mut LoweringContext) -> NodeId {
+impl InternalLowerer for RangeSliderLowerer {
+    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
         let id = self.id.unwrap_or_else(|| cx.next_node_id());
         cx.push_scope(id);
 
@@ -56,7 +59,7 @@ impl LowerDyn for RangeSliderLowerer {
 
         // Track layer
         let track_layer = {
-            let track_paint = NodeBuilder::new(
+            let track_paint = InternalIrBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRect {
                     fill: Some(fission_ir::op::Fill::Solid(tokens.colors.border)),
@@ -67,7 +70,7 @@ impl LowerDyn for RangeSliderLowerer {
             )
             .build(cx);
 
-            let mut track_box = NodeBuilder::new(
+            let mut track_box = InternalIrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::Box {
                     width: None,
@@ -86,7 +89,7 @@ impl LowerDyn for RangeSliderLowerer {
             let track_box_id = track_box.build(cx);
 
             let p_y = (thumb_size - track_height) / 2.0;
-            let mut track_container = NodeBuilder::new(
+            let mut track_container = InternalIrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::Box {
                     width: None,
@@ -125,7 +128,7 @@ impl LowerDyn for RangeSliderLowerer {
         // But spacing between thumbs?
         // Let's use `GridTrack::Percent`.
 
-        let mut grid = NodeBuilder::new(
+        let mut grid = InternalIrBuilder::new(
             cx.next_node_id(),
             Op::Layout(LayoutOp::Grid {
                 columns: vec![
@@ -143,7 +146,7 @@ impl LowerDyn for RangeSliderLowerer {
         );
 
         // Thumb 1
-        let thumb1 = NodeBuilder::new(
+        let thumb1 = InternalIrBuilder::new(
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawRect {
                 fill: Some(fission_ir::op::Fill::Solid(tokens.colors.primary)),
@@ -153,7 +156,7 @@ impl LowerDyn for RangeSliderLowerer {
             }),
         )
         .build(cx);
-        let mut item1 = NodeBuilder::new(
+        let mut item1 = InternalIrBuilder::new(
             cx.next_node_id(),
             Op::Layout(LayoutOp::GridItem {
                 row_start: fission_ir::op::GridPlacement::Line(1),
@@ -162,7 +165,7 @@ impl LowerDyn for RangeSliderLowerer {
                 col_end: fission_ir::op::GridPlacement::Auto,
             }),
         );
-        let mut box1 = NodeBuilder::new(
+        let mut box1 = InternalIrBuilder::new(
             cx.next_node_id(),
             Op::Layout(LayoutOp::Box {
                 width: Some(thumb_size),
@@ -182,7 +185,7 @@ impl LowerDyn for RangeSliderLowerer {
         grid.add_child(item1.build(cx));
 
         // Thumb 2
-        let thumb2 = NodeBuilder::new(
+        let thumb2 = InternalIrBuilder::new(
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawRect {
                 fill: Some(fission_ir::op::Fill::Solid(tokens.colors.primary)),
@@ -192,7 +195,7 @@ impl LowerDyn for RangeSliderLowerer {
             }),
         )
         .build(cx);
-        let mut item2 = NodeBuilder::new(
+        let mut item2 = InternalIrBuilder::new(
             cx.next_node_id(),
             Op::Layout(LayoutOp::GridItem {
                 row_start: fission_ir::op::GridPlacement::Line(1),
@@ -201,7 +204,7 @@ impl LowerDyn for RangeSliderLowerer {
                 col_end: fission_ir::op::GridPlacement::Auto,
             }),
         );
-        let mut box2 = NodeBuilder::new(
+        let mut box2 = InternalIrBuilder::new(
             cx.next_node_id(),
             Op::Layout(LayoutOp::Box {
                 width: Some(thumb_size),
@@ -228,7 +231,7 @@ impl LowerDyn for RangeSliderLowerer {
         let thumb_wrapped = wrap_zstack_child(cx, thumb_layer);
         cx.pop_scope();
 
-        let mut zstack = NodeBuilder::new(zstack_id, Op::Layout(LayoutOp::ZStack));
+        let mut zstack = InternalIrBuilder::new(zstack_id, Op::Layout(LayoutOp::ZStack));
         zstack.add_child(track_wrapped);
         zstack.add_child(thumb_wrapped);
 

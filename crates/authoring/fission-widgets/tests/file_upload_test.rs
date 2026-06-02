@@ -1,10 +1,11 @@
-use fission_core::{AppState, BuildCtx, Node, View, Widget};
+use fission_core::internal::BuildCtx;
+use fission_core::{build, GlobalState, View};
 use fission_widgets::file_upload::FileUpload;
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq)]
 struct TestState;
-impl AppState for TestState {}
+impl GlobalState for TestState {}
 
 #[test]
 fn test_file_upload_structure() {
@@ -20,6 +21,6 @@ fn test_file_upload_structure() {
         on_browse: None,
     };
 
-    let node = upload.build(&mut ctx, &view);
-    assert!(matches!(node, Node::Row(_)));
+    let node = build::enter(&mut ctx, &view, || upload.into());
+    assert_eq!(fission_core::internal::widget_kind_name(&node), "Row");
 }

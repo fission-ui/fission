@@ -1,9 +1,6 @@
 use crate::stack::HStack;
-use fission_core::ui::{Composite, Container, Node};
-use fission_core::{
-    AnimationPropertyId, AnimationRequest, AnimationStartValue, BuildCtx, View, Widget,
-    WidgetNodeId,
-};
+use fission_core::ui::{Composite, Container, Widget};
+use fission_core::{AnimationPropertyId, AnimationRequest, AnimationStartValue, WidgetId};
 use serde::{Deserialize, Serialize};
 
 const LOW_PRIORITY_REPEAT_FRAME_MS: u64 = 166;
@@ -20,16 +17,23 @@ const LOW_PRIORITY_REPEAT_FRAME_MS: u64 = 166;
 /// * `color` - Override dot color (defaults to `tokens.colors.primary`).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Spinner {
-    pub id: WidgetNodeId,
+    pub id: WidgetId,
     pub color: Option<fission_core::op::Color>,
     #[serde(default = "spinner_default_animated")]
     pub animated: bool,
 }
 
-impl<S: fission_core::AppState> Widget<S> for Spinner {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let tokens = &view.env.theme.tokens;
-        let color = self.color.unwrap_or(tokens.colors.primary);
+impl From<Spinner> for Widget {
+    fn from(component: Spinner) -> Self {
+        let (ctx, view) = fission_core::build::current::<()>();
+        let mut component = component;
+        if let Some(id) = fission_core::build::current_widget_id() {
+            component.id = id;
+        }
+        let this = &component;
+
+        let tokens = &view.env().theme.tokens;
+        let color = this.color.unwrap_or(tokens.colors.primary);
         let dot_size = 10.0;
 
         let mut dots = Vec::new();
@@ -37,21 +41,21 @@ impl<S: fission_core::AppState> Widget<S> for Spinner {
         for i in 0..3 {
             // Generate stable sub-ID for animation
             // Hacking a sub-ID by XORing? Or using a deterministic derivation if available.
-            // WidgetNodeId doesn't expose derivation.
+            // WidgetId doesn't expose derivation.
             // But we can create a new explicit one if we assume `id` is unique.
             // Or hash it.
             // Let's assume we can construct one.
-            let sub_id_u128 = self.id.as_u128() ^ (i as u128 + 1);
-            let sub_id = WidgetNodeId::from_u128(sub_id_u128);
+            let sub_id_u128 = this.id.as_u128() ^ (i as u128 + 1);
+            let sub_id = WidgetId::from_u128(sub_id_u128);
 
-            let dot = Container::new(fission_core::ui::Row::default().into())
+            let dot: Widget = Container::new(fission_core::ui::Row::default())
                 .size(dot_size, dot_size)
                 .bg(color)
                 .border_radius(dot_size / 2.0)
-                .into_node();
-            let boundary = Composite::new(dot).repaint_boundary(true).into_node();
+                .into();
+            let boundary = Composite::new(dot).repaint_boundary(true).into();
 
-            let node = if self.animated {
+            let node = if this.animated {
                 ctx.anim_for(sub_id).request(AnimationRequest {
                     property: AnimationPropertyId::Opacity,
                     from: AnimationStartValue::Explicit(0.3),
@@ -64,7 +68,7 @@ impl<S: fission_core::AppState> Widget<S> for Spinner {
                 });
                 Composite::new(boundary)
                     .animated_opacity(sub_id, 0.3)
-                    .into_node()
+                    .into()
             } else {
                 boundary
             };
@@ -75,7 +79,7 @@ impl<S: fission_core::AppState> Widget<S> for Spinner {
             spacing: Some(6.0),
             children: dots,
         }
-        .build(ctx, view)
+        .into()
     }
 }
 

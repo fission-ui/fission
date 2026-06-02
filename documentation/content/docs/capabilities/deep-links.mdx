@@ -17,7 +17,7 @@ Add the smallest state fields the screen needs to render honestly. For this flow
 
 ```rust
 #[derive(Default)]
-struct AppState {
+struct GlobalState {
     // Add these fields to your existing app state.
 pending_route: Option<String>,
     route_error: Option<String>,
@@ -45,7 +45,7 @@ If the API exists but the provider is missing, the request returns a typed unsup
 Capability work finishes later, after the reducer that started it has returned. You therefore need one reducer for the successful result and one reducer for the error path.
 
 ```rust
-fn on_deep_link(state: &mut AppState, action: DeepLinkReceived) {
+fn on_deep_link(state: &mut GlobalState, action: DeepLinkReceived) {
     if let Some(id) = action.link.url.strip_prefix("fission://document/") {
         state.pending_route = Some(format!("document:{id}"));
         state.route_error = None;
@@ -81,14 +81,15 @@ Deep links are inbound, so there is no button to wire for the route itself. The 
 ```rust
 struct CurrentRoute;
 
-impl Widget<AppState> for CurrentRoute {
-    fn build(&self, view: &View<AppState>, ctx: &mut BuildCtx<AppState>) -> Node {
-        match view.state.pending_route.as_deref() {
+impl From<CurrentRoute> for Widget {
+    fn from(component: CurrentRoute) -> Self {
+        let (ctx, view) = fission::build::current::<GlobalState>();
+        match view.state().pending_route.as_deref() {
             Some(route) if route.starts_with("document:") => {
-                DocumentScreen::new(route.to_owned()).build(view, ctx)
+                DocumentScreen::new(route.to_owned()).into()
             }
-            Some(_) => Text::new("This link is not supported yet").build(view, ctx),
-            None => HomeScreen.build(view, ctx),
+            Some(_) => Text::new("This link is not supported yet").into(),
+            None => HomeScreen.into(),
         }
     }
 }
@@ -109,3 +110,19 @@ A useful first test creates the app with the memory host, dispatches the start a
 Mobile platforms require explicit scheme or associated-domain metadata before the system will launch the app. Desktop support depends on package registration. Web routes work when the server or static host serves the generated page for the requested path.
 
 For a cross-platform summary, read the [capability matrix](/docs/capabilities/matrix/). For exact request fields, provider traits, and generated configuration, see the [Deep links reference](/reference/capabilities/deep-links/).
+
+## Finished capability flow
+
+A complete `Deep links` integration has all of these pieces in place:
+
+| Piece | What should exist |
+| --- | --- |
+| Configuration | `fission.toml` declares the capability and generated platform files contain the permission text, manifest entry, entitlement, domain, or protocol metadata the target needs. |
+| State | App state records the in-flight flag, the successful value, and the user-facing error separately. |
+| Reducers | One reducer starts the host request, one handles success, and one handles denial, unsupported hosts, cancellation, or provider errors. |
+| Provider | The shell registers a real provider for production and a memory provider for tests. |
+| Tests | At least one test covers success and one covers permission denial or unsupported host behavior. |
+
+## Diagnose capability failures
+
+Capability failures should be safe to retry and easy to explain. Start by checking `fission.toml`, then run `fission doctor`, then inspect the generated target files. If the provider is missing, the request should return an unsupported error. If the provider exists but the platform configuration is wrong, the OS or browser will usually deny the request before the provider can complete it. Keep those cases distinct in the UI so users know whether they can retry, change settings, connect hardware, or choose another path.

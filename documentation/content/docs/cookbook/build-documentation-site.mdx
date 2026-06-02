@@ -16,6 +16,18 @@ cd docs-site
 fission add-target site --project-dir .
 ```
 
+## Finished state and checks
+
+By the end of `Build a documentation site`, you should have a runnable change, not just a set of snippets. Run the command shown in the page, exercise the feature once manually, and add or update the smallest test that protects the behavior.
+
+| Check | Expected result |
+| --- | --- |
+| Build | `cargo check` or the relevant `fission` command finishes without target-specific configuration errors. |
+| Behavior | The screen, package, server route, or test flow described by the recipe is visible and responds to input. |
+| Failure path | At least one denied, missing, invalid, or empty case renders a useful message instead of silently doing nothing. |
+| Next link | The reference page linked from the recipe explains the exact fields, commands, or types used here. |
+
+
 Set the site fields in [`fission.toml`](/reference/config/fission-toml/):
 
 ```toml
@@ -102,25 +114,25 @@ use fission::site::{build_from_cli, FissionSite};
 
 #[derive(Default)]
 struct SiteState;
-impl AppState for SiteState {}
+impl GlobalState for SiteState {}
 
 #[derive(Clone)]
 struct HomePage;
 
-impl Widget<SiteState> for HomePage {
-    fn build(&self, _ctx: &mut BuildCtx<SiteState>, _view: &View<SiteState>) -> Node {
+impl From<HomePage> for Widget {
+    fn from(component: HomePage) -> Self {
         Column {
             gap: Some(18.0),
             children: vec![
                 Text::new("Documentation people can actually use")
                     .size(48.0)
                     .weight(FontWeight::Bold)
-                    .into_node(),
-                Text::new("A custom Fission page rendered to static HTML.").into_node(),
+                    .into(),
+                Text::new("A custom Fission page rendered to static HTML.").into(),
             ],
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 }
 

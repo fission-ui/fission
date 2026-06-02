@@ -6,13 +6,10 @@ use fission::prelude::*;
 
 pub struct CapabilityOverview;
 
-impl Widget<FieldInspectorState> for CapabilityOverview {
-    fn build(
-        &self,
-        _ctx: &mut BuildCtx<FieldInspectorState>,
-        view: &View<FieldInspectorState>,
-    ) -> Node {
-        let lines = view.state.capability_lines();
+impl From<CapabilityOverview> for Widget {
+    fn from(_component: CapabilityOverview) -> Self {
+        let (_ctx, view) = fission::build::current::<FieldInspectorState>();
+        let lines = view.state().capability_lines();
         let complete = lines
             .iter()
             .filter(|line| {
@@ -46,15 +43,15 @@ impl Widget<FieldInspectorState> for CapabilityOverview {
                                 ],
                                 ..Default::default()
                             }
-                            .into_node(),
+                            .into(),
                             status_pill(
                                 view,
-                                if view.state.started {
+                                if view.state().started {
                                     "Live"
                                 } else {
                                     "Not started"
                                 },
-                                if view.state.started {
+                                if view.state().started {
                                     CapabilityState::Ready
                                 } else {
                                     CapabilityState::Idle
@@ -63,17 +60,16 @@ impl Widget<FieldInspectorState> for CapabilityOverview {
                         ],
                         ..Default::default()
                     }
-                    .into_node(),
+                    .into(),
                     capability_grid(view, lines),
                 ],
                 ..Default::default()
             }
-            .into_node(),
+            .into(),
         )
     }
 }
-
-fn capability_grid(view: &View<FieldInspectorState>, lines: Vec<CapabilityLine>) -> Node {
+fn capability_grid(view: ViewHandle<FieldInspectorState>, lines: Vec<CapabilityLine>) -> Widget {
     let columns = if is_compact(view) { 1 } else { 2 };
     let cells = lines
         .into_iter()
@@ -81,7 +77,7 @@ fn capability_grid(view: &View<FieldInspectorState>, lines: Vec<CapabilityLine>)
         .map(|(index, line)| {
             GridItem::new(capability_cell(view, line))
                 .cell((index / columns + 1) as i16, (index % columns + 1) as i16)
-                .into_node()
+                .into()
         })
         .collect();
     Grid {
@@ -92,63 +88,57 @@ fn capability_grid(view: &View<FieldInspectorState>, lines: Vec<CapabilityLine>)
         children: cells,
         ..Default::default()
     }
-    .into_node()
+    .into()
 }
 
-fn capability_cell(view: &View<FieldInspectorState>, line: CapabilityLine) -> Node {
-    let tokens = &view.env.theme.tokens;
-    Container::new(
-        Column {
-            gap: Some(8.0),
-            children: vec![
-                Row {
-                    gap: Some(8.0),
-                    children: vec![
-                        Text::new(line.title)
-                            .size(14.0)
-                            .line_height(20.0)
-                            .weight(800)
-                            .color(tokens.colors.text_primary)
-                            .into_node(),
-                        Spacer {
-                            flex_grow: 1.0,
-                            ..Default::default()
-                        }
-                        .into_node(),
-                        status_pill(view, line.state.label(), line.state),
-                    ],
-                    ..Default::default()
-                }
-                .into_node(),
-                body_text(view, line.detail),
-            ],
-            ..Default::default()
-        }
-        .into_node(),
-    )
+fn capability_cell(view: ViewHandle<FieldInspectorState>, line: CapabilityLine) -> Widget {
+    let tokens = &view.env().theme.tokens;
+    Container::new(Column {
+        gap: Some(8.0),
+        children: vec![
+            Row {
+                gap: Some(8.0),
+                children: vec![
+                    Text::new(line.title)
+                        .size(14.0)
+                        .line_height(20.0)
+                        .weight(800)
+                        .color(tokens.colors.text_primary)
+                        .into(),
+                    Spacer {
+                        flex_grow: 1.0,
+                        ..Default::default()
+                    }
+                    .into(),
+                    status_pill(view, line.state.label(), line.state),
+                ],
+                ..Default::default()
+            }
+            .into(),
+            body_text(view, line.detail),
+        ],
+        ..Default::default()
+    })
     .bg(tokens.colors.background.with_alpha(150))
     .border(tokens.colors.border.with_alpha(110), 1.0)
     .border_radius(16.0)
     .padding_all(12.0)
     .min_height(98.0)
-    .into_node()
+    .into()
 }
 
 pub struct ActivityLog;
 
-impl Widget<FieldInspectorState> for ActivityLog {
-    fn build(
-        &self,
-        _ctx: &mut BuildCtx<FieldInspectorState>,
-        view: &View<FieldInspectorState>,
-    ) -> Node {
-        let rows: Vec<Node> = if view.state.logs.is_empty() {
+impl From<ActivityLog> for Widget {
+    fn from(_component: ActivityLog) -> Self {
+        let (_ctx, view) = fission::build::current::<FieldInspectorState>();
+        let rows: Vec<Widget> = if view.state().logs.is_empty() {
             vec![body_text(
                 view,
                 "Run the inspection to see capability requests and host results here.",
             )]
         } else {
-            view.state
+            view.state()
                 .logs
                 .iter()
                 .map(|log| {
@@ -161,19 +151,16 @@ impl Widget<FieldInspectorState> for ActivityLog {
                                 gap: Some(3.0),
                                 flex_grow: 1.0,
                                 children: vec![
-                                    Text::new(log.title.clone())
-                                        .size(14.0)
-                                        .weight(800)
-                                        .into_node(),
+                                    Text::new(log.title.clone()).size(14.0).weight(800).into(),
                                     muted_text(view, log.detail.clone()),
                                 ],
                                 ..Default::default()
                             }
-                            .into_node(),
+                            .into(),
                         ],
                         ..Default::default()
                     }
-                    .into_node()
+                    .into()
                 })
                 .collect()
         };
@@ -189,11 +176,11 @@ impl Widget<FieldInspectorState> for ActivityLog {
                         children: rows,
                         ..Default::default()
                     }
-                    .into_node(),
+                    .into(),
                 ],
                 ..Default::default()
             }
-            .into_node(),
+            .into(),
         )
     }
 }

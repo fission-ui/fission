@@ -80,6 +80,17 @@ After the command finishes, your shared app logic is still in the same place.
 
 `src/app.rs` still contains the shared app logic.
 
+## Finished state and checks
+
+By the end of `Add platform targets`, you should have a runnable change, not just a set of snippets. Run the command shown in the page, exercise the feature once manually, and add or update the smallest test that protects the behavior.
+
+| Check | Expected result |
+| --- | --- |
+| Build | `cargo check` or the relevant `fission` command finishes without target-specific configuration errors. |
+| Behavior | The screen, package, server route, or test flow described by the recipe is visible and responds to input. |
+| Failure path | At least one denied, missing, invalid, or empty case renders a useful message instead of silently doing nothing. |
+| Next link | The reference page linked from the recipe explains the exact fields, commands, or types used here. |
+
 [`fission.toml`](/reference/config/fission-toml/) now records the targets you added.
 
 The new part is the generated `platforms/` folders.
@@ -142,11 +153,11 @@ On iOS, validate safe-area behavior, smaller viewport assumptions, text entry fl
 
 After target generation, the important architectural truth is unchanged.
 
-`AppState` is still shared.
+`GlobalState` is still shared.
 
 Your reducers are still shared.
 
-Your widgets still build from `View` and `BuildCtx`.
+Your components still convert with `ViewHandle` and `BuildCtxHandle`.
 
 Your selectors still derive shared view data.
 

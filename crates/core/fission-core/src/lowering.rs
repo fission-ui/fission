@@ -1,23 +1,23 @@
 use crate::env::{Env, RuntimeState};
 use fission_ir::{
-    op::decode_inline_widget_marker, CompositeStyle, CoreIR, GridPlacement, LayoutOp, NodeId, Op,
-    PaintOp, WidgetNodeId,
+    op::decode_inline_widget_marker, CompositeStyle, CoreIR, GridPlacement, LayoutOp, Op, PaintOp,
+    WidgetId,
 };
 use fission_layout::{LayoutInputNode, LayoutSnapshot, TextMeasurer};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-pub struct LoweringContext<'a> {
+pub struct InternalLoweringCx<'a> {
     pub env: &'a Env,
     pub runtime_state: &'a RuntimeState,
     pub ir: CoreIR,
     pub measurer: Option<&'a Arc<dyn TextMeasurer>>,
     pub layout: Option<&'a LayoutSnapshot>,
-    id_stack: Vec<(NodeId, u32)>,
+    id_stack: Vec<(WidgetId, u32)>,
     global_seq: u32,
 }
 
-impl<'a> LoweringContext<'a> {
+impl<'a> InternalLoweringCx<'a> {
     pub fn new(
         env: &'a Env,
         runtime_state: &'a RuntimeState,
@@ -35,41 +35,43 @@ impl<'a> LoweringContext<'a> {
         }
     }
 
-    pub fn next_node_id(&mut self) -> NodeId {
+    pub fn next_node_id(&mut self) -> WidgetId {
         if let Some((base_id, seq)) = self.id_stack.last_mut() {
-            let next_id = NodeId::derived(base_id.as_u128(), &[*seq]);
+            let next_id = WidgetId::derived(base_id.as_u128(), &[*seq]);
             *seq += 1;
             next_id
         } else {
-            let next_id = NodeId::derived(0x1337_C0DE_0000_0000, &[self.global_seq]);
+            let next_id = WidgetId::derived(0x1337_C0DE_0000_0000, &[self.global_seq]);
             self.global_seq += 1;
             next_id
         }
     }
 
-    pub fn push_scope(&mut self, node_id: NodeId) {
+    pub fn push_scope(&mut self, node_id: WidgetId) {
         self.id_stack.push((node_id, 0));
     }
 
     pub fn pop_scope(&mut self) {
-        self.id_stack.pop().expect("Lowering stack underflow");
+        self.id_stack
+            .pop()
+            .expect("InternalLowering stack underflow");
     }
 
-    pub fn widget_node_id(&self, widget_id: WidgetNodeId) -> NodeId {
+    pub fn widget_node_id(&self, widget_id: WidgetId) -> WidgetId {
         widget_id.into()
     }
 
-    pub fn insert_node(&mut self, node_id: NodeId, op: Op, children: Vec<NodeId>) -> NodeId {
+    pub fn insert_node(&mut self, node_id: WidgetId, op: Op, children: Vec<WidgetId>) -> WidgetId {
         self.insert_node_with_composite(node_id, op, CompositeStyle::default(), children)
     }
 
     pub fn insert_node_with_composite(
         &mut self,
-        node_id: NodeId,
+        node_id: WidgetId,
         op: Op,
         composite: CompositeStyle,
-        children: Vec<NodeId>,
-    ) -> NodeId {
+        children: Vec<WidgetId>,
+    ) -> WidgetId {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         op.hash(&mut hasher);
@@ -94,15 +96,15 @@ impl<'a> LoweringContext<'a> {
     }
 }
 
-pub struct NodeBuilder {
-    node_id: NodeId,
+pub struct InternalIrBuilder {
+    node_id: WidgetId,
     op: Op,
     composite: CompositeStyle,
-    children: Vec<NodeId>,
+    children: Vec<WidgetId>,
 }
 
-impl NodeBuilder {
-    pub fn new(node_id: NodeId, op: Op) -> Self {
+impl InternalIrBuilder {
+    pub fn new(node_id: WidgetId, op: Op) -> Self {
         Self {
             node_id,
             op,
@@ -116,25 +118,25 @@ impl NodeBuilder {
         self
     }
 
-    pub fn add_child(&mut self, child: NodeId) {
+    pub fn add_child(&mut self, child: WidgetId) {
         self.children.push(child);
     }
 
     pub fn add_children<I>(&mut self, children: I)
     where
-        I: IntoIterator<Item = NodeId>,
+        I: IntoIterator<Item = WidgetId>,
     {
         self.children.extend(children);
     }
 
-    pub fn build(self, cx: &mut LoweringContext) -> NodeId {
+    pub fn build(self, cx: &mut InternalLoweringCx) -> WidgetId {
         cx.insert_node_with_composite(self.node_id, self.op, self.composite, self.children);
         self.node_id
     }
 }
 
-pub fn wrap_zstack_child(cx: &mut LoweringContext, child_id: NodeId) -> NodeId {
-    let mut item = NodeBuilder::new(
+pub fn wrap_zstack_child(cx: &mut InternalLoweringCx, child_id: WidgetId) -> WidgetId {
+    let mut item = InternalIrBuilder::new(
         cx.next_node_id(),
         Op::Layout(LayoutOp::GridItem {
             row_start: GridPlacement::Line(1),

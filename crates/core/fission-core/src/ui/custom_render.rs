@@ -1,12 +1,15 @@
-//! Custom render object trait for CustomNode.
+//! Custom render object trait for custom-render-backed widgets.
 //!
 //! Allows third-party or application-specific nodes to participate in
 //! hit-testing, event handling, and painting without requiring changes to the
 //! core IR enum variants.
 
 use crate::action::ActionEnvelope;
+use crate::internal::InternalLowerer;
+use crate::ui::node::InternalRenderNode;
+use crate::ui::Widget;
 use fission_ir::op::PaintOp;
-use fission_ir::{AnyRenderObject, NodeId};
+use fission_ir::{AnyRenderObject, WidgetId};
 use fission_layout::{LayoutPoint, LayoutRect};
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -53,7 +56,7 @@ pub struct CustomEventResult {
     /// If `true` the event was consumed and should not propagate further.
     pub handled: bool,
     /// Zero or more actions to dispatch as a consequence of the event.
-    pub actions: Vec<(NodeId, ActionEnvelope)>,
+    pub actions: Vec<(WidgetId, ActionEnvelope)>,
 }
 
 impl CustomEventResult {
@@ -74,7 +77,7 @@ impl CustomEventResult {
     }
 
     /// The event was consumed and produced actions.
-    pub fn consumed_with(actions: Vec<(NodeId, ActionEnvelope)>) -> Self {
+    pub fn consumed_with(actions: Vec<(WidgetId, ActionEnvelope)>) -> Self {
         Self {
             handled: true,
             actions,
@@ -128,7 +131,7 @@ pub trait CustomRenderObject: Send + Sync + Debug {
     /// propagation through the standard controller chain.
     fn handle_event(
         &self,
-        node_id: NodeId,
+        node_id: WidgetId,
         event: &crate::event::InputEvent,
         node_rect: LayoutRect,
     ) -> CustomEventResult {
@@ -142,7 +145,7 @@ pub trait CustomRenderObject: Send + Sync + Debug {
     }
 
     /// Actions to dispatch if this render object loses focus.
-    fn blur_actions(&self, _node_id: NodeId) -> Vec<(NodeId, ActionEnvelope)> {
+    fn blur_actions(&self, _node_id: WidgetId) -> Vec<(WidgetId, ActionEnvelope)> {
         Vec::new()
     }
 
@@ -173,4 +176,44 @@ pub struct RenderObjectHolder(pub Arc<dyn CustomRenderObject>);
 pub fn downcast_render_object(any: &AnyRenderObject) -> Option<&Arc<dyn CustomRenderObject>> {
     any.downcast_ref::<RenderObjectHolder>()
         .map(|holder| &holder.0)
+}
+
+/// Widget adapter for a custom render object.
+///
+/// Most applications should compose the built-in widgets instead of using this
+/// low-level extension point. Use `CustomRender` only when a component needs to
+/// provide its own lowering, paint, hit-test, or input behavior while still
+/// participating in the normal Fission widget tree.
+#[derive(Clone)]
+pub struct CustomRender {
+    debug_tag: String,
+    lowerer: Arc<dyn InternalLowerer>,
+    render_object: Option<Arc<dyn CustomRenderObject>>,
+}
+
+impl CustomRender {
+    /// Creates a custom-render-backed widget.
+    pub fn new(debug_tag: impl Into<String>, lowerer: Arc<dyn InternalLowerer>) -> Self {
+        Self {
+            debug_tag: debug_tag.into(),
+            lowerer,
+            render_object: None,
+        }
+    }
+
+    /// Attaches a runtime render object used for paint, hit-testing, and input.
+    pub fn with_render_object(mut self, render_object: Arc<dyn CustomRenderObject>) -> Self {
+        self.render_object = Some(render_object);
+        self
+    }
+}
+
+impl From<CustomRender> for Widget {
+    fn from(widget: CustomRender) -> Self {
+        Widget::custom(InternalRenderNode {
+            debug_tag: widget.debug_tag,
+            lowerer: Some(widget.lowerer),
+            render_object: widget.render_object,
+        })
+    }
 }

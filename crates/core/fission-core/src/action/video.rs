@@ -1,11 +1,11 @@
 use crate::{Action, ActionId};
-use fission_ir::WidgetNodeId;
+use fission_ir::WidgetId;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VideoPlay {
-    pub target: WidgetNodeId,
+    pub target: WidgetId,
 }
 
 impl Action for VideoPlay {
@@ -20,7 +20,7 @@ lazy_static! {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VideoPause {
-    pub target: WidgetNodeId,
+    pub target: WidgetId,
 }
 
 impl Action for VideoPause {
@@ -35,7 +35,7 @@ lazy_static! {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VideoStop {
-    pub target: WidgetNodeId,
+    pub target: WidgetId,
 }
 
 impl Action for VideoStop {
@@ -50,7 +50,7 @@ lazy_static! {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VideoSeek {
-    pub target: WidgetNodeId,
+    pub target: WidgetId,
     pub position_ms: u64,
 }
 
@@ -66,7 +66,7 @@ lazy_static! {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VideoSetRate {
-    pub target: WidgetNodeId,
+    pub target: WidgetId,
     pub rate: f32,
 }
 
@@ -82,7 +82,7 @@ lazy_static! {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VideoSetVolume {
-    pub target: WidgetNodeId,
+    pub target: WidgetId,
     pub volume: f32,
 }
 
@@ -99,7 +99,7 @@ lazy_static! {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VideoSetMuted {
-    pub target: WidgetNodeId,
+    pub target: WidgetId,
     pub muted: bool,
 }
 

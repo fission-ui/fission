@@ -4,16 +4,16 @@ use crate::style::{blue, teal};
 use fission::charts::{
     CalendarHeatmapSeries, Chart, PolarBarSeries, PolarLineSeries, SingleAxisSeries, VisualMap,
 };
-use fission::core::ui::Node;
-use fission::core::{BuildCtx, View};
+use fission::core::ui::Widget;
+use fission::core::{BuildCtxHandle, ViewHandle};
 
 pub(super) fn build_chart(
     chart: usize,
-    ctx: &mut BuildCtx<GalleryState>,
-    view: &View<GalleryState>,
+    ctx: BuildCtxHandle<GalleryState>,
+    view: ViewHandle<GalleryState>,
     content_width: f32,
     s: f32,
-) -> Node {
+) -> Widget {
     match chart {
         0 => polar_bar(s).build_in_gallery(ctx, view, content_width),
         1 => polar_line(s).build_in_gallery(ctx, view, content_width),

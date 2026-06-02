@@ -1,11 +1,11 @@
 use fission_core::op::Color;
-use fission_core::ui::{Column, Container, Node, Row, Text};
-use fission_core::{AppState, BuildCtx, View, Widget};
+use fission_core::ui::{Column, Container, Row, Text, Widget};
+use fission_core::GlobalState;
 use fission_test::TestHarness;
 
 #[derive(Debug, Default, Clone)]
 struct State;
-impl AppState for State {}
+impl GlobalState for State {}
 
 #[test]
 fn test_email_list_row_layout() {
@@ -15,42 +15,36 @@ fn test_email_list_row_layout() {
     //   -> Container (Text Column) -> Column -> Text, Text
     //   -> Text (Date)
 
+    #[derive(Clone)]
     struct EmailRow;
-    impl Widget<State> for EmailRow {
-        fn build(&self, _ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
+    impl From<EmailRow> for Widget {
+        fn from(_component: EmailRow) -> Self {
+            let (_ctx, _view) = fission_core::build::current::<State>();
             Container::new(
                 Row::default()
                     .flex_grow(0.0) // Row itself
                     .children(vec![
                         // Avatar
-                        Container::new(
-                            fission_core::ui::widgets::spacer::Spacer::default().into_node(),
-                        )
-                        .width(40.0)
-                        .height(40.0)
-                        .bg(Color::BLUE)
-                        .into_node(),
+                        Container::new(fission_core::ui::widgets::spacer::Spacer::default())
+                            .width(40.0)
+                            .height(40.0)
+                            .bg(Color::BLUE)
+                            .into(),
                         // Text Column
-                        Container::new(
-                            Column::default()
-                                .children(vec![
-                                    Text::new("Subject Line").into_node(),
-                                    Text::new("Preview Text").into_node(),
-                                ])
-                                .into_node(),
-                        )
+                        Container::new(Column::default().children(vec![
+                            Text::new("Subject Line").into(),
+                            Text::new("Preview Text").into(),
+                        ]))
                         .flex_grow(1.0) // Grow to fill space
-                        .into_node(),
+                        .into(),
                         // Date
-                        Text::new("10:00 AM").into_node(),
-                    ])
-                    .into_node(),
+                        Text::new("10:00 AM").into(),
+                    ]),
             )
             .width(300.0)
-            .into_node()
+            .into()
         }
     }
-
     let mut h = TestHarness::new(State);
     h = h.with_root_widget(EmailRow);
     h.pump().unwrap();

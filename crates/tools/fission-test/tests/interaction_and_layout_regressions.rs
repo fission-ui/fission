@@ -1,5 +1,5 @@
-use fission_core::ui::{Container, Node, Text};
-use fission_core::{reduce_with, AppState, BuildCtx, ReducerContext, View, Widget};
+use fission_core::ui::{Container, Text, Widget};
+use fission_core::{reduce_with, GlobalState, ReducerContext};
 use fission_test::TestHarness;
 use fission_widgets::{NumberInput, SplitDirection, SplitView};
 
@@ -9,7 +9,7 @@ struct State {
     _text: String,
     modal_open: bool,
 }
-impl AppState for State {}
+impl GlobalState for State {}
 
 #[fission_macros::fission_action(no_eq)]
 struct DismissAction;
@@ -26,22 +26,20 @@ fn ignore_increment(
 
 #[test]
 fn test_stepper_button_layout() {
+    #[derive(Clone)]
     struct StepperTest;
-    impl Widget<State> for StepperTest {
-        fn build(&self, ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
-            Container::new(
-                NumberInput {
-                    value: 9.0,
-                    on_increment: Some(ctx.bind(IncrementAction, reduce_with!(ignore_increment))),
-                    on_decrement: Some(ctx.bind(IncrementAction, reduce_with!(ignore_increment))),
-                    ..Default::default()
-                }
-                .build(ctx, _view),
-            )
-            .into_node()
+    impl From<StepperTest> for Widget {
+        fn from(_component: StepperTest) -> Self {
+            let (ctx, _view) = fission_core::build::current::<State>();
+            Container::new(NumberInput {
+                value: 9.0,
+                on_increment: Some(ctx.bind(IncrementAction, reduce_with!(ignore_increment))),
+                on_decrement: Some(ctx.bind(IncrementAction, reduce_with!(ignore_increment))),
+                ..Default::default()
+            })
+            .into()
         }
     }
-
     let mut h = TestHarness::new(State::default());
     h = h.with_root_widget(StepperTest);
     h.pump().unwrap();
@@ -72,37 +70,30 @@ fn test_stepper_button_layout() {
 #[test]
 #[ignore] // FIXME: SplitView layout stretch issue
 fn test_email_list_width() {
+    #[derive(Clone)]
     struct InboxLayout;
-    impl Widget<State> for InboxLayout {
-        fn build(&self, _ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
+    impl From<InboxLayout> for Widget {
+        fn from(_component: InboxLayout) -> Self {
+            let (_ctx, _view) = fission_core::build::current::<State>();
             SplitView {
-                id: fission_core::WidgetNodeId::explicit("split"),
+                id: fission_core::WidgetId::explicit("split"),
                 direction: SplitDirection::Horizontal,
-                first: Box::new(
-                    Container::new(Text::new("Sidebar").into_node())
-                        .width(200.0)
-                        .into_node(),
-                ),
-                second: Box::new(
-                    SplitView {
-                        id: fission_core::WidgetNodeId::explicit("split_inner"),
-                        direction: fission_widgets::SplitDirection::Horizontal,
-                        first: Box::new(Container::new(Text::new("List").into_node()).into_node()),
-                        second: Box::new(
-                            Container::new(Text::new("Detail").into_node()).into_node(),
-                        ),
-                        split_ratio: 0.3,
-                        on_resize: None,
-                    }
-                    .build(_ctx, _view),
-                ),
+                first: Container::new(Text::new("Sidebar")).width(200.0).into(),
+                second: SplitView {
+                    id: fission_core::WidgetId::explicit("split_inner"),
+                    direction: fission_widgets::SplitDirection::Horizontal,
+                    first: Container::new(Text::new("List")).into(),
+                    second: Container::new(Text::new("Detail")).into(),
+                    split_ratio: 0.3,
+                    on_resize: None,
+                }
+                .into(),
                 split_ratio: 0.2,
                 on_resize: None,
             }
-            .build(_ctx, _view)
+            .into()
         }
     }
-
     let mut h = TestHarness::new(State::default());
     h = h.with_root_widget(InboxLayout);
     h.pump().unwrap();
@@ -139,13 +130,15 @@ fn test_modal_backdrop_dismiss() {
     use fission_core::reduce_with;
     use fission_widgets::Modal;
 
+    #[derive(Clone)]
     struct ModalTest;
-    impl Widget<State> for ModalTest {
-        fn build(&self, ctx: &mut BuildCtx<State>, view: &View<State>) -> Node {
+    impl From<ModalTest> for Widget {
+        fn from(_component: ModalTest) -> Self {
+            let (ctx, _view) = fission_core::build::current::<State>();
             Modal {
-                id: fission_core::WidgetNodeId::explicit("test_modal"),
+                id: fission_core::WidgetId::explicit("test_modal"),
                 title: "Test".into(),
-                content: Box::new(Text::new("Content").into_node()),
+                content: Text::new("Content").into(),
                 is_open: true,
                 on_dismiss: Some(ctx.bind(
                     DismissAction,
@@ -158,10 +151,9 @@ fn test_modal_backdrop_dismiss() {
                 actions: vec![],
                 width: Some(300.0),
             }
-            .build(ctx, view)
+            .into()
         }
     }
-
     let mut h = TestHarness::new(State {
         modal_open: true,
         ..Default::default()
@@ -200,13 +192,15 @@ fn test_modal_close_button_dismiss() {
     use fission_core::reduce_with;
     use fission_widgets::Modal;
 
+    #[derive(Clone)]
     struct ModalTest;
-    impl Widget<State> for ModalTest {
-        fn build(&self, ctx: &mut BuildCtx<State>, view: &View<State>) -> Node {
+    impl From<ModalTest> for Widget {
+        fn from(_component: ModalTest) -> Self {
+            let (ctx, _view) = fission_core::build::current::<State>();
             Modal {
-                id: fission_core::WidgetNodeId::explicit("test_modal"),
+                id: fission_core::WidgetId::explicit("test_modal"),
                 title: "Test".into(),
-                content: Box::new(Text::new("Content").into_node()),
+                content: Text::new("Content").into(),
                 is_open: true,
                 on_dismiss: Some(ctx.bind(
                     DismissAction,
@@ -219,10 +213,9 @@ fn test_modal_close_button_dismiss() {
                 actions: vec![],
                 width: Some(300.0),
             }
-            .build(ctx, view)
+            .into()
         }
     }
-
     let mut h = TestHarness::new(State {
         modal_open: true,
         ..Default::default()

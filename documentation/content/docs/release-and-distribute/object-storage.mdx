@@ -1,0 +1,37 @@
+---
+title: Object storage
+description: Publish Fission release assets and static files to S3-compatible stores and similar providers.
+---
+
+# Object storage
+
+Object storage is useful for release assets, static site files, archives, installers, screenshots, and internal distribution bundles.
+
+## 1. Package or build the asset
+
+Use a manifest-backed artifact whenever possible:
+
+```bash
+fission package --project-dir . --target linux --format run --release
+fission package --project-dir documentation --target site --format static --release
+```
+
+## 2. Configure the destination
+
+The provider configuration should name the bucket or container, prefix, public-link policy, cache headers, content-type behavior, and credential reference. Long credentials do not belong in [`fission.toml`](/reference/config/fission-toml/).
+
+## 3. Publish
+
+```bash
+fission publish \
+  --project-dir . \
+  --provider s3-compatible \
+  --artifact target/fission/release/linux/run/artifact-manifest.json \
+  --site production
+```
+
+The upload should preserve MIME types from the manifest and record public or private links in the receipt.
+
+## 4. Verify access
+
+Fetch at least one uploaded file through the expected public or private URL. Confirm cache headers, content type, size, hash, and access policy before sharing the link.

@@ -12,7 +12,7 @@ use fission_ir::{
     semantics::{
         ActionTrigger, InputFormatter, MaxLengthEnforcement, TextCapitalization, TextInputType,
     },
-    ActionEntry, ActionSet, CoreIR, NodeId, Op, Role, Semantics,
+    ActionEntry, ActionSet, CoreIR, Op, Role, Semantics, WidgetId,
 };
 use fission_layout::{
     LayoutNodeGeometry, LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot, LineMetric,
@@ -338,7 +338,7 @@ fn setup_ctx<'a>(
     }
 }
 
-fn create_text_node(id: NodeId, val: &str, multiline: bool) -> CoreIR {
+fn create_text_node(id: WidgetId, val: &str, multiline: bool) -> CoreIR {
     let mut ir = CoreIR::default();
     ir.nodes.insert(
         id,
@@ -402,7 +402,7 @@ fn create_text_node(id: NodeId, val: &str, multiline: bool) -> CoreIR {
     ir
 }
 
-fn set_read_only(ir: &mut CoreIR, id: NodeId, read_only: bool) {
+fn set_read_only(ir: &mut CoreIR, id: WidgetId, read_only: bool) {
     if let Some(node) = ir.nodes.get_mut(&id) {
         if let Op::Semantics(semantics) = &mut node.op {
             semantics.read_only = read_only;
@@ -410,7 +410,7 @@ fn set_read_only(ir: &mut CoreIR, id: NodeId, read_only: bool) {
     }
 }
 
-fn add_submit_action(ir: &mut CoreIR, id: NodeId) {
+fn add_submit_action(ir: &mut CoreIR, id: WidgetId) {
     if let Some(node) = ir.nodes.get_mut(&id) {
         if let Op::Semantics(semantics) = &mut node.op {
             semantics.actions.entries.push(ActionEntry {
@@ -422,7 +422,7 @@ fn add_submit_action(ir: &mut CoreIR, id: NodeId) {
     }
 }
 
-fn add_editing_complete_action(ir: &mut CoreIR, id: NodeId) {
+fn add_editing_complete_action(ir: &mut CoreIR, id: WidgetId) {
     if let Some(node) = ir.nodes.get_mut(&id) {
         if let Op::Semantics(semantics) = &mut node.op {
             semantics.actions.entries.push(ActionEntry {
@@ -434,7 +434,7 @@ fn add_editing_complete_action(ir: &mut CoreIR, id: NodeId) {
     }
 }
 
-fn set_masked(ir: &mut CoreIR, id: NodeId, masked: bool) {
+fn set_masked(ir: &mut CoreIR, id: WidgetId, masked: bool) {
     if let Some(node) = ir.nodes.get_mut(&id) {
         if let Op::Semantics(semantics) = &mut node.op {
             semantics.masked = masked;
@@ -442,7 +442,7 @@ fn set_masked(ir: &mut CoreIR, id: NodeId, masked: bool) {
     }
 }
 
-fn set_capitalization(ir: &mut CoreIR, id: NodeId, capitalization: TextCapitalization) {
+fn set_capitalization(ir: &mut CoreIR, id: WidgetId, capitalization: TextCapitalization) {
     if let Some(node) = ir.nodes.get_mut(&id) {
         if let Op::Semantics(semantics) = &mut node.op {
             semantics.text_capitalization = capitalization;
@@ -450,7 +450,7 @@ fn set_capitalization(ir: &mut CoreIR, id: NodeId, capitalization: TextCapitaliz
     }
 }
 
-fn set_max_length(ir: &mut CoreIR, id: NodeId, max_length: usize) {
+fn set_max_length(ir: &mut CoreIR, id: WidgetId, max_length: usize) {
     if let Some(node) = ir.nodes.get_mut(&id) {
         if let Op::Semantics(semantics) = &mut node.op {
             semantics.max_length = Some(max_length);
@@ -459,7 +459,7 @@ fn set_max_length(ir: &mut CoreIR, id: NodeId, max_length: usize) {
     }
 }
 
-fn add_formatter(ir: &mut CoreIR, id: NodeId, formatter: InputFormatter) {
+fn add_formatter(ir: &mut CoreIR, id: WidgetId, formatter: InputFormatter) {
     if let Some(node) = ir.nodes.get_mut(&id) {
         if let Op::Semantics(semantics) = &mut node.op {
             semantics.input_formatters.push(formatter);
@@ -467,7 +467,7 @@ fn add_formatter(ir: &mut CoreIR, id: NodeId, formatter: InputFormatter) {
     }
 }
 
-fn set_input_type(ir: &mut CoreIR, id: NodeId, input_type: TextInputType) {
+fn set_input_type(ir: &mut CoreIR, id: WidgetId, input_type: TextInputType) {
     if let Some(node) = ir.nodes.get_mut(&id) {
         if let Op::Semantics(semantics) = &mut node.op {
             semantics.text_input_type = input_type;
@@ -476,9 +476,9 @@ fn set_input_type(ir: &mut CoreIR, id: NodeId, input_type: TextInputType) {
 }
 
 fn create_rich_text_input_tree(
-    input_id: NodeId,
-    scroll_id: NodeId,
-    text_id: NodeId,
+    input_id: WidgetId,
+    scroll_id: WidgetId,
+    text_id: WidgetId,
     val: &str,
     multiline: bool,
 ) -> CoreIR {
@@ -613,7 +613,7 @@ fn create_rich_text_input_tree(
 
 fn attach_text_input_runtime_config(
     ir: &mut CoreIR,
-    input_id: NodeId,
+    input_id: WidgetId,
     config: TextInputRuntimeConfig,
 ) {
     ir.custom_render_objects.insert(input_id, Arc::new(config));
@@ -622,8 +622,8 @@ fn attach_text_input_runtime_config(
 fn attach_focusable_overlay_node(
     ir: &mut CoreIR,
     layout: &mut LayoutSnapshot,
-    parent_id: NodeId,
-    node_id: NodeId,
+    parent_id: WidgetId,
+    node_id: WidgetId,
     rect: LayoutRect,
 ) {
     ir.nodes.insert(
@@ -655,30 +655,33 @@ fn attach_focusable_overlay_node(
 }
 
 fn test_text_input_selection_handle_id(
-    input_id: NodeId,
+    input_id: WidgetId,
     kind: fission_core::env::TextSelectionHandleKind,
-) -> NodeId {
+) -> WidgetId {
     let suffix = match kind {
         fission_core::env::TextSelectionHandleKind::Caret => 0,
         fission_core::env::TextSelectionHandleKind::Start => 1,
         fission_core::env::TextSelectionHandleKind::End => 2,
     };
-    NodeId::derived(input_id.as_u128(), &[900, suffix])
+    WidgetId::derived(input_id.as_u128(), &[900, suffix])
 }
 
-fn test_text_input_toolbar_button_id(input_id: NodeId, action: TextContextMenuAction) -> NodeId {
+fn test_text_input_toolbar_button_id(
+    input_id: WidgetId,
+    action: TextContextMenuAction,
+) -> WidgetId {
     let suffix = match action {
         TextContextMenuAction::Copy => 0,
         TextContextMenuAction::Cut => 1,
         TextContextMenuAction::Paste => 2,
         TextContextMenuAction::SelectAll => 3,
     };
-    NodeId::derived(input_id.as_u128(), &[901, suffix])
+    WidgetId::derived(input_id.as_u128(), &[901, suffix])
 }
 
 #[test]
 fn test_text_input_typing() {
-    let node_id = NodeId::derived(1, &[0]);
+    let node_id = WidgetId::derived(1, &[0]);
     let ir = create_text_node(node_id, "Hello", false);
     let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
     let mut text_edit = TextEditStateMap::default();
@@ -719,7 +722,7 @@ fn test_text_input_typing() {
 
 #[test]
 fn test_text_input_typing_without_relayout_does_not_drop_chars() {
-    let node_id = NodeId::derived(1, &[0]);
+    let node_id = WidgetId::derived(1, &[0]);
     let ir = create_text_node(node_id, "", false);
     let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
     let mut text_edit = TextEditStateMap::default();
@@ -771,7 +774,7 @@ fn test_text_input_typing_without_relayout_does_not_drop_chars() {
 
 #[test]
 fn test_text_input_copy_paste() {
-    let node_id = NodeId::derived(1, &[0]);
+    let node_id = WidgetId::derived(1, &[0]);
     let ir = create_text_node(node_id, "SelectMe", false);
     let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
     let mut text_edit = TextEditStateMap::default();
@@ -834,7 +837,7 @@ fn test_text_input_copy_paste() {
 
 #[test]
 fn test_emoji_navigation_and_deletion() {
-    let node_id = NodeId::derived(1, &[0]);
+    let node_id = WidgetId::derived(1, &[0]);
     let initial_text = "Hi 🧘🏻‍♂️";
     let ir = create_text_node(node_id, initial_text, false);
 
@@ -907,7 +910,7 @@ fn test_emoji_navigation_and_deletion() {
 
 #[test]
 fn test_word_navigation() {
-    let node_id = NodeId::derived(1, &[0]);
+    let node_id = WidgetId::derived(1, &[0]);
     let initial_text = "hello world code";
     let ir = create_text_node(node_id, initial_text, false);
     let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
@@ -969,7 +972,7 @@ fn test_word_navigation() {
 
 #[test]
 fn test_word_navigation_skips_non_word_segments() {
-    let node_id = NodeId::derived(35, &[0]);
+    let node_id = WidgetId::derived(35, &[0]);
     let initial_text = "hi 👩‍💻 world";
     let ir = create_text_node(node_id, initial_text, false);
     let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
@@ -1010,7 +1013,7 @@ fn test_word_navigation_skips_non_word_segments() {
 
 #[test]
 fn test_selection_mechanics() {
-    let node_id = NodeId::derived(1, &[0]);
+    let node_id = WidgetId::derived(1, &[0]);
     let initial_text = "ABCD";
     let ir = create_text_node(node_id, initial_text, false);
     let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
@@ -1100,7 +1103,7 @@ fn test_selection_mechanics() {
 
 #[test]
 fn test_home_end_navigation() {
-    let node_id = NodeId::derived(1, &[0]);
+    let node_id = WidgetId::derived(1, &[0]);
     let initial_text = "Start to End";
     let ir = create_text_node(node_id, initial_text, false);
     let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
@@ -1161,7 +1164,7 @@ fn test_home_end_navigation() {
 
 #[test]
 fn test_primary_shortcut_select_all() {
-    let node_id = NodeId::derived(20, &[0]);
+    let node_id = WidgetId::derived(20, &[0]);
     let initial_text = "Select everything";
     let ir = create_text_node(node_id, initial_text, false);
     let layout = LayoutSnapshot::new(LayoutSize::new(200.0, 100.0));
@@ -1206,7 +1209,7 @@ fn test_primary_shortcut_select_all() {
 
 #[test]
 fn test_forward_delete_removes_next_grapheme() {
-    let node_id = NodeId::derived(21, &[0]);
+    let node_id = WidgetId::derived(21, &[0]);
     let ir = create_text_node(node_id, "abcd", false);
     let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
     let mut text_edit = TextEditStateMap::default();
@@ -1251,7 +1254,7 @@ fn test_apple_ctrl_bindings_cover_line_and_char_navigation() {
         return;
     }
 
-    let node_id = NodeId::derived(211, &[0]);
+    let node_id = WidgetId::derived(211, &[0]);
     let initial_text = "hello";
     let ir = create_text_node(node_id, initial_text, false);
     let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
@@ -1300,7 +1303,7 @@ fn test_apple_meta_delete_shortcuts_trim_current_line() {
         return;
     }
 
-    let node_id = NodeId::derived(213, &[0]);
+    let node_id = WidgetId::derived(213, &[0]);
     let initial_text = "hello world";
     let ir = create_text_node(node_id, initial_text, false);
     let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
@@ -1367,9 +1370,9 @@ fn test_apple_meta_delete_shortcuts_trim_current_line() {
 
 #[test]
 fn test_page_up_down_navigate_by_viewport_height() {
-    let input_id = NodeId::derived(212, &[0]);
-    let scroll_id = NodeId::derived(212, &[1]);
-    let text_id = NodeId::derived(212, &[2]);
+    let input_id = WidgetId::derived(212, &[0]);
+    let scroll_id = WidgetId::derived(212, &[1]);
+    let text_id = WidgetId::derived(212, &[2]);
     let value = "One\nTwo\nThree\nFour\nFive";
     let ir = create_rich_text_input_tree(input_id, scroll_id, text_id, value, true);
 
@@ -1437,7 +1440,7 @@ fn test_page_up_down_navigate_by_viewport_height() {
 
 #[test]
 fn test_read_only_blocks_edits_but_allows_navigation() {
-    let node_id = NodeId::derived(22, &[0]);
+    let node_id = WidgetId::derived(22, &[0]);
     let mut ir = create_text_node(node_id, "locked", false);
     set_read_only(&mut ir, node_id, true);
 
@@ -1500,7 +1503,7 @@ fn test_read_only_blocks_edits_but_allows_navigation() {
 
 #[test]
 fn test_multiline_home_end_stay_on_current_line() {
-    let node_id = NodeId::derived(23, &[0]);
+    let node_id = WidgetId::derived(23, &[0]);
     let initial_text = "aa\nbbbb\ncc";
     let ir = create_text_node(node_id, initial_text, true);
     let layout = LayoutSnapshot::new(LayoutSize::new(200.0, 100.0));
@@ -1559,7 +1562,7 @@ fn test_multiline_home_end_stay_on_current_line() {
 
 #[test]
 fn test_single_line_enter_dispatches_submit() {
-    let node_id = NodeId::derived(24, &[0]);
+    let node_id = WidgetId::derived(24, &[0]);
     let mut ir = create_text_node(node_id, "submit me", false);
     add_submit_action(&mut ir, node_id);
 
@@ -1598,7 +1601,7 @@ fn test_single_line_enter_dispatches_submit() {
 
 #[test]
 fn test_single_line_enter_dispatches_editing_complete_before_submit() {
-    let node_id = NodeId::derived(29, &[0]);
+    let node_id = WidgetId::derived(29, &[0]);
     let mut ir = create_text_node(node_id, "complete me", false);
     add_editing_complete_action(&mut ir, node_id);
     add_submit_action(&mut ir, node_id);
@@ -1643,7 +1646,7 @@ fn test_single_line_enter_dispatches_editing_complete_before_submit() {
 
 #[test]
 fn test_shift_home_preserves_anchor() {
-    let node_id = NodeId::derived(25, &[0]);
+    let node_id = WidgetId::derived(25, &[0]);
     let initial_text = "aa\nbbbb\ncc";
     let ir = create_text_node(node_id, initial_text, true);
     let layout = LayoutSnapshot::new(LayoutSize::new(200.0, 100.0));
@@ -1680,7 +1683,7 @@ fn test_shift_home_preserves_anchor() {
 
 #[test]
 fn test_max_length_enforced_on_typing() {
-    let node_id = NodeId::derived(26, &[0]);
+    let node_id = WidgetId::derived(26, &[0]);
     let mut ir = create_text_node(node_id, "abcd", false);
     set_max_length(&mut ir, node_id, 4);
     let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
@@ -1719,7 +1722,7 @@ fn test_max_length_enforced_on_typing() {
 
 #[test]
 fn test_text_capitalization_words_applies_to_inserted_text() {
-    let node_id = NodeId::derived(27, &[0]);
+    let node_id = WidgetId::derived(27, &[0]);
     let mut ir = create_text_node(node_id, "hello ", false);
     set_capitalization(&mut ir, node_id, TextCapitalization::Words);
     let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
@@ -1755,7 +1758,7 @@ fn test_text_capitalization_words_applies_to_inserted_text() {
 
 #[test]
 fn test_digits_only_formatter_filters_paste() {
-    let node_id = NodeId::derived(28, &[0]);
+    let node_id = WidgetId::derived(28, &[0]);
     let mut ir = create_text_node(node_id, "", false);
     add_formatter(&mut ir, node_id, InputFormatter::DigitsOnly);
     let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
@@ -1797,7 +1800,7 @@ fn test_digits_only_formatter_filters_paste() {
 
 #[test]
 fn test_number_input_type_filters_ime_commit() {
-    let node_id = NodeId::derived(29, &[0]);
+    let node_id = WidgetId::derived(29, &[0]);
     let mut ir = create_text_node(node_id, "", false);
     set_input_type(&mut ir, node_id, TextInputType::Number);
     let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
@@ -1832,9 +1835,9 @@ fn test_number_input_type_filters_ime_commit() {
 
 #[test]
 fn test_single_line_auto_scroll_with_rich_text_uses_local_coordinates() {
-    let input_id = NodeId::derived(10, &[0]);
-    let scroll_id = NodeId::derived(10, &[1]);
-    let text_id = NodeId::derived(10, &[2]);
+    let input_id = WidgetId::derived(10, &[0]);
+    let scroll_id = WidgetId::derived(10, &[1]);
+    let text_id = WidgetId::derived(10, &[2]);
     let value = "012345678901234567890123456789";
     let ir = create_rich_text_input_tree(input_id, scroll_id, text_id, value, false);
 
@@ -1882,9 +1885,9 @@ fn test_single_line_auto_scroll_with_rich_text_uses_local_coordinates() {
 
 #[test]
 fn test_single_line_auto_scroll_respects_scroll_padding() {
-    let input_id = NodeId::derived(210, &[0]);
-    let scroll_id = NodeId::derived(210, &[1]);
-    let text_id = NodeId::derived(210, &[2]);
+    let input_id = WidgetId::derived(210, &[0]);
+    let scroll_id = WidgetId::derived(210, &[1]);
+    let text_id = WidgetId::derived(210, &[2]);
     let value = "012345678901234567890123456789";
     let mut ir = create_rich_text_input_tree(input_id, scroll_id, text_id, value, false);
     if let Op::Semantics(semantics) = &mut ir.nodes.get_mut(&input_id).expect("input").op {
@@ -1935,9 +1938,9 @@ fn test_single_line_auto_scroll_respects_scroll_padding() {
 
 #[test]
 fn test_drag_start_behavior_down_skips_pointer_slop() {
-    let input_id = NodeId::derived(211, &[0]);
-    let scroll_id = NodeId::derived(211, &[1]);
-    let text_id = NodeId::derived(211, &[2]);
+    let input_id = WidgetId::derived(211, &[0]);
+    let scroll_id = WidgetId::derived(211, &[1]);
+    let text_id = WidgetId::derived(211, &[2]);
     let value = "abcdef";
     let mut ir = create_rich_text_input_tree(input_id, scroll_id, text_id, value, false);
     attach_text_input_runtime_config(
@@ -2010,8 +2013,8 @@ fn test_drag_start_behavior_down_skips_pointer_slop() {
 
 #[test]
 fn test_restoration_id_restores_local_edit_state() {
-    let first_id = NodeId::derived(212, &[0]);
-    let second_id = NodeId::derived(212, &[1]);
+    let first_id = WidgetId::derived(212, &[0]);
+    let second_id = WidgetId::derived(212, &[1]);
     let mut text_edit = TextEditStateMap::default();
 
     text_edit.sync_from_runtime(first_id, "", Some("search-box"), Some(8));
@@ -2029,9 +2032,9 @@ fn test_restoration_id_restores_local_edit_state() {
 
 #[test]
 fn test_undo_controller_capacity_limits_history_depth() {
-    let input_id = NodeId::derived(213, &[0]);
-    let scroll_id = NodeId::derived(213, &[1]);
-    let text_id = NodeId::derived(213, &[2]);
+    let input_id = WidgetId::derived(213, &[0]);
+    let scroll_id = WidgetId::derived(213, &[1]);
+    let text_id = WidgetId::derived(213, &[2]);
     let mut ir = create_rich_text_input_tree(input_id, scroll_id, text_id, "", false);
     attach_text_input_runtime_config(
         &mut ir,
@@ -2115,9 +2118,9 @@ fn test_undo_controller_capacity_limits_history_depth() {
 
 #[test]
 fn test_pointer_hit_test_handles_draw_rich_text_single_line() {
-    let input_id = NodeId::derived(11, &[0]);
-    let scroll_id = NodeId::derived(11, &[1]);
-    let text_id = NodeId::derived(11, &[2]);
+    let input_id = WidgetId::derived(11, &[0]);
+    let scroll_id = WidgetId::derived(11, &[1]);
+    let text_id = WidgetId::derived(11, &[2]);
     let value = "abcdefghij";
     let ir = create_rich_text_input_tree(input_id, scroll_id, text_id, value, false);
 
@@ -2171,9 +2174,9 @@ fn test_pointer_hit_test_handles_draw_rich_text_single_line() {
 
 #[test]
 fn test_shift_click_extends_selection_from_existing_anchor() {
-    let input_id = NodeId::derived(28, &[0]);
-    let scroll_id = NodeId::derived(28, &[1]);
-    let text_id = NodeId::derived(28, &[2]);
+    let input_id = WidgetId::derived(28, &[0]);
+    let scroll_id = WidgetId::derived(28, &[1]);
+    let text_id = WidgetId::derived(28, &[2]);
     let value = "abcdefghij";
     let ir = create_rich_text_input_tree(input_id, scroll_id, text_id, value, false);
 
@@ -2231,9 +2234,9 @@ fn test_shift_click_extends_selection_from_existing_anchor() {
 
 #[test]
 fn test_secondary_click_shows_text_toolbar_affordance() {
-    let input_id = NodeId::derived(31, &[0]);
-    let scroll_id = NodeId::derived(31, &[1]);
-    let text_id = NodeId::derived(31, &[2]);
+    let input_id = WidgetId::derived(31, &[0]);
+    let scroll_id = WidgetId::derived(31, &[1]);
+    let text_id = WidgetId::derived(31, &[2]);
     let value = "abcdefghij";
     let ir = create_rich_text_input_tree(input_id, scroll_id, text_id, value, false);
 
@@ -2292,9 +2295,9 @@ fn test_secondary_click_shows_text_toolbar_affordance() {
 
 #[test]
 fn test_pointer_down_outside_focused_input_clears_text_affordances() {
-    let input_id = NodeId::derived(34, &[0]);
-    let scroll_id = NodeId::derived(34, &[1]);
-    let text_id = NodeId::derived(34, &[2]);
+    let input_id = WidgetId::derived(34, &[0]);
+    let scroll_id = WidgetId::derived(34, &[1]);
+    let text_id = WidgetId::derived(34, &[2]);
     let value = "abcdefghij";
     let mut ir = create_rich_text_input_tree(input_id, scroll_id, text_id, value, false);
     if let Some(node) = ir.nodes.get_mut(&input_id) {
@@ -2375,9 +2378,9 @@ fn test_pointer_down_outside_focused_input_clears_text_affordances() {
 
 #[test]
 fn test_toolbar_copy_button_click_uses_derived_node_id() {
-    let input_id = NodeId::derived(32, &[0]);
-    let scroll_id = NodeId::derived(32, &[1]);
-    let text_id = NodeId::derived(32, &[2]);
+    let input_id = WidgetId::derived(32, &[0]);
+    let scroll_id = WidgetId::derived(32, &[1]);
+    let text_id = WidgetId::derived(32, &[2]);
     let value = "abcdefghij";
     let mut ir = create_rich_text_input_tree(input_id, scroll_id, text_id, value, false);
 
@@ -2438,9 +2441,9 @@ fn test_toolbar_copy_button_click_uses_derived_node_id() {
 
 #[test]
 fn test_selection_handle_drag_updates_selection_and_toolbar_lifecycle() {
-    let input_id = NodeId::derived(33, &[0]);
-    let scroll_id = NodeId::derived(33, &[1]);
-    let text_id = NodeId::derived(33, &[2]);
+    let input_id = WidgetId::derived(33, &[0]);
+    let scroll_id = WidgetId::derived(33, &[1]);
+    let text_id = WidgetId::derived(33, &[2]);
     let value = "abcdefghij";
     let mut ir = create_rich_text_input_tree(input_id, scroll_id, text_id, value, false);
 
@@ -2535,9 +2538,9 @@ fn test_selection_handle_drag_updates_selection_and_toolbar_lifecycle() {
 
 #[test]
 fn test_masked_pointer_hit_testing_maps_back_to_source_offsets() {
-    let input_id = NodeId::derived(30, &[0]);
-    let scroll_id = NodeId::derived(30, &[1]);
-    let text_id = NodeId::derived(30, &[2]);
+    let input_id = WidgetId::derived(30, &[0]);
+    let scroll_id = WidgetId::derived(30, &[1]);
+    let text_id = WidgetId::derived(30, &[2]);
     let value = "aé😊b";
     let mut ir = create_rich_text_input_tree(input_id, scroll_id, text_id, value, false);
     set_masked(&mut ir, input_id, true);
@@ -2595,7 +2598,7 @@ fn test_masked_pointer_hit_testing_maps_back_to_source_offsets() {
 
 #[test]
 fn test_multiline_enter_key() {
-    let node_id = NodeId::derived(1, &[0]);
+    let node_id = WidgetId::derived(1, &[0]);
     let initial_text = "Line One";
     let ir = create_text_node(node_id, initial_text, true); // Multiline
     let layout = LayoutSnapshot::new(LayoutSize::new(200.0, 100.0)); // Fixed width for wrapping and calc
@@ -2639,7 +2642,7 @@ fn test_multiline_enter_key() {
 #[test]
 #[ignore]
 fn test_multiline_vertical_navigation_up_down() {
-    let node_id = NodeId::derived(1, &[0]);
+    let node_id = WidgetId::derived(1, &[0]);
     let initial_text = "First Line\nSecond Line\nThird Line";
     let ir = create_text_node(node_id, initial_text, true); // Multiline
     let layout = LayoutSnapshot::new(LayoutSize::new(200.0, 100.0)); // Fixed width for wrapping and calc

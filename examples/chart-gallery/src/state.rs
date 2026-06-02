@@ -1,5 +1,5 @@
 use fission::charts::{ChartHitKind, ChartInteractionEvent};
-use fission::core::AppState;
+use fission::core::GlobalState;
 use fission::prelude::fission_reducer;
 use serde::{Deserialize, Serialize};
 
@@ -34,7 +34,7 @@ impl Default for GalleryState {
     }
 }
 
-impl AppState for GalleryState {}
+impl GlobalState for GalleryState {}
 
 #[fission_reducer(SelectChart)]
 pub(crate) fn select_chart(state: &mut GalleryState, category: usize, chart: usize) {

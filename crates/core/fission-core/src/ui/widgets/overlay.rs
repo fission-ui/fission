@@ -1,7 +1,7 @@
-use crate::lowering::{wrap_zstack_child, LoweringContext, NodeBuilder};
-use crate::ui::traits::Lower;
-use crate::ui::{Node, Text, TextContent};
-use fission_ir::{LayoutOp, NodeId, Op};
+use crate::internal::InternalLower;
+use crate::lowering::{wrap_zstack_child, InternalIrBuilder, InternalLoweringCx};
+use crate::ui::{Text, TextContent, Widget};
+use fission_ir::{LayoutOp, Op, WidgetId};
 use serde::{Deserialize, Serialize};
 
 /// A widget that renders an overlay layer on top of its content.
@@ -13,46 +13,44 @@ use serde::{Deserialize, Serialize};
 ///
 /// ```rust,ignore
 /// Overlay {
-///     content: Box::new(main_content),
-///     overlay: Box::new(loading_spinner),
+///     content: main_content,
+///     overlay: loading_spinner,
 ///     ..Default::default()
 /// }
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Overlay {
     /// Explicit node identity.
-    pub id: Option<NodeId>,
+    pub id: Option<WidgetId>,
     /// The primary content (drawn first / underneath).
-    pub content: Box<Node>,
+    pub content: Widget,
     /// The overlay content (drawn second / on top).
-    pub overlay: Box<Node>,
+    pub overlay: Widget,
 }
 
-impl Overlay {
-    pub fn into_node(self) -> Node {
-        Node::Overlay(self)
-    }
-}
+impl Overlay {}
 
 impl Default for Overlay {
     fn default() -> Self {
         Self {
             id: None,
-            content: Box::new(Node::Text(Text {
+            content: Text {
                 content: TextContent::Literal("".into()),
                 ..Default::default()
-            })),
-            overlay: Box::new(Node::Text(Text {
+            }
+            .into(),
+            overlay: Text {
                 content: TextContent::Literal("".into()),
                 ..Default::default()
-            })),
+            }
+            .into(),
         }
     }
 }
 
-impl Lower for Overlay {
-    fn lower(&self, cx: &mut LoweringContext) -> NodeId {
-        let id = self.id.unwrap_or_else(|| cx.next_node_id());
+impl InternalLower for Overlay {
+    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+        let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
 
         cx.push_scope(id);
 
@@ -63,7 +61,7 @@ impl Lower for Overlay {
         let overlay_child_id = self.overlay.lower(cx);
         cx.pop_scope();
         let mut overlay_fill =
-            NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::AbsoluteFill));
+            InternalIrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::AbsoluteFill));
         overlay_fill.add_child(overlay_child_id);
         let overlay_fill_id = overlay_fill.build(cx);
 
@@ -75,14 +73,14 @@ impl Lower for Overlay {
         let overlay_wrapped = wrap_zstack_child(cx, overlay_fill_id);
         cx.pop_scope();
 
-        let mut stack = NodeBuilder::new(stack_id, Op::Layout(LayoutOp::ZStack));
+        let mut stack = InternalIrBuilder::new(stack_id, Op::Layout(LayoutOp::ZStack));
         stack.add_child(content_wrapped);
         stack.add_child(overlay_wrapped);
         let stack_id = stack.build(cx);
 
         // Ensure the stack fills available space so overlay AbsoluteFill can cover
         // the full viewport even when content is small.
-        let mut stack_wrapper = NodeBuilder::new(
+        let mut stack_wrapper = InternalIrBuilder::new(
             cx.next_node_id(),
             Op::Layout(LayoutOp::Box {
                 width: None,
@@ -102,7 +100,7 @@ impl Lower for Overlay {
 
         // Wrap ZStack in a Flex container with flex_grow = 1.0
         // Flex defaults to stretching children, unlike Box which centers.
-        let mut root = NodeBuilder::new(
+        let mut root = InternalIrBuilder::new(
             id,
             Op::Layout(LayoutOp::Flex {
                 direction: fission_ir::FlexDirection::Column,

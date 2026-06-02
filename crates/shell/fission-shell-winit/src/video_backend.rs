@@ -18,7 +18,7 @@ mod mac {
 
     use core_graphics::geometry::{CGPoint, CGRect, CGSize};
 
-    use fission_ir::WidgetNodeId;
+    use fission_ir::WidgetId;
     use fission_render::LayoutRect;
     use fission_shell::VideoSurfaceFrame;
     use objc::rc::StrongPtr;
@@ -66,7 +66,7 @@ mod mac {
 
     pub struct MacVideoBackend {
         view: RetainedId,
-        layers: Mutex<HashMap<WidgetNodeId, VideoLayer>>,
+        layers: Mutex<HashMap<WidgetId, VideoLayer>>,
         registry: Arc<PlayerRegistry>,
     }
 
@@ -113,7 +113,7 @@ mod mac {
 
         fn update_video_layer(
             &self,
-            layer_map: &mut HashMap<WidgetNodeId, VideoLayer>,
+            layer_map: &mut HashMap<WidgetId, VideoLayer>,
             frame: &VideoSurfaceFrame,
             ctx: &LayerContext,
         ) {
@@ -212,7 +212,7 @@ mod mac {
     }
 
     impl VideoLayer {
-        fn new(_widget_id: WidgetNodeId, player: &RetainedId, ctx: &LayerContext) -> Self {
+        fn new(_widget_id: WidgetId, player: &RetainedId, ctx: &LayerContext) -> Self {
             unsafe {
                 let frame = CGRect::new(&CGPoint::new(0.0, 0.0), &CGSize::new(1.0, 1.0));
                 let view_alloc: id = msg_send![class!(NSView), alloc];

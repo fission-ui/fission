@@ -1,9 +1,9 @@
 use crate::stack::VStack;
 use fission_core::op::Color;
 use fission_core::ui::{
-    Column, Container, Image, Node, RichText, RichTextRun, Row, Scroll, Text, TextFontStyle,
+    Column, Container, Image, RichText, RichTextRun, Row, Scroll, Text, TextFontStyle, Widget,
 };
-use fission_core::{BuildCtx, FlexDirection, View, Widget};
+use fission_core::{build::ViewHandle, FlexDirection};
 use fission_ir::op::{AlignItems, ImageFit};
 use fission_ir::{Role, Semantics};
 use rushdown::ast::{
@@ -43,24 +43,27 @@ impl MarkdownViewer {
     }
 }
 
-impl<S: fission_core::AppState> Widget<S> for MarkdownViewer {
-    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
+impl From<MarkdownViewer> for Widget {
+    fn from(component: MarkdownViewer) -> Self {
+        let (_, view) = fission_core::build::current::<()>();
+        let this = &component;
+
         let parser = Parser::with_extensions(
             parser::Options::default(),
             parser::gfm(parser::GfmOptions::default()),
         );
-        let mut reader = BasicReader::new(&self.markdown);
+        let mut reader = BasicReader::new(&this.markdown);
         let (arena, document_ref) = parser.parse(&mut reader);
-        let renderer = MarkdownRenderer::new(&self.markdown, &arena, view);
+        let renderer = MarkdownRenderer::new(&this.markdown, &arena, view);
 
         Scroll {
-            child: Some(Box::new(renderer.document(document_ref))),
+            child: Some(renderer.document(document_ref)),
             direction: FlexDirection::Column,
-            show_scrollbar: self.show_scrollbar,
+            show_scrollbar: this.show_scrollbar,
             flex_grow: 1.0,
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 }
 
@@ -102,8 +105,8 @@ struct MarkdownRenderer<'a> {
 }
 
 impl<'a> MarkdownRenderer<'a> {
-    fn new<S: fission_core::AppState>(source: &'a str, arena: &'a Arena, view: &View<S>) -> Self {
-        let tokens = &view.env.theme.tokens;
+    fn new(source: &'a str, arena: &'a Arena, view: ViewHandle<()>) -> Self {
+        let tokens = &view.env().theme.tokens;
         Self {
             source,
             arena,
@@ -134,22 +137,22 @@ impl<'a> MarkdownRenderer<'a> {
         }
     }
 
-    fn document(&self, document_ref: NodeRef) -> Node {
+    fn document(&self, document_ref: NodeRef) -> Widget {
         VStack {
             spacing: Some(12.0),
             children: self.children_as_blocks(document_ref),
         }
-        .into_node()
+        .into()
     }
 
-    fn children_as_blocks(&self, node_ref: NodeRef) -> Vec<Node> {
+    fn children_as_blocks(&self, node_ref: NodeRef) -> Vec<Widget> {
         self.arena[node_ref]
             .children(self.arena)
             .filter_map(|child_ref| self.block(child_ref))
             .collect()
     }
 
-    fn block(&self, node_ref: NodeRef) -> Option<Node> {
+    fn block(&self, node_ref: NodeRef) -> Option<Widget> {
         match self.arena[node_ref].kind_data() {
             KindData::Document(_) => Some(self.document(node_ref)),
             KindData::Paragraph(_) => Some(self.paragraph(node_ref, self.body_size)),
@@ -176,7 +179,7 @@ impl<'a> MarkdownRenderer<'a> {
         }
     }
 
-    fn heading(&self, node_ref: NodeRef, heading: &Heading) -> Node {
+    fn heading(&self, node_ref: NodeRef, heading: &Heading) -> Widget {
         let level = heading.level().clamp(1, 6);
         let size = self.heading_sizes[(level - 1) as usize];
 
@@ -190,10 +193,10 @@ impl<'a> MarkdownRenderer<'a> {
                 "markdown-heading-{level}:{}",
                 markdown_anchor(&self.plain_text(node_ref))
             ))
-            .into_node()
+            .into()
     }
 
-    fn paragraph(&self, node_ref: NodeRef, font_size: f32) -> Node {
+    fn paragraph(&self, node_ref: NodeRef, font_size: f32) -> Widget {
         if let Some((image_ref, image)) = self.single_image(node_ref) {
             return self.image_block(image_ref, image);
         }
@@ -205,7 +208,7 @@ impl<'a> MarkdownRenderer<'a> {
                 self.palette.text_primary,
             )
         } else {
-            RichText::new(runs).into_node()
+            RichText::new(runs).into()
         }
     }
 
@@ -221,7 +224,7 @@ impl<'a> MarkdownRenderer<'a> {
         }
     }
 
-    fn image_block(&self, _node_ref: NodeRef, image: &MarkdownImage) -> Node {
+    fn image_block(&self, _node_ref: NodeRef, image: &MarkdownImage) -> Widget {
         let source = image.destination_str(self.source).to_string();
         let image = if source.starts_with("https://") || source.starts_with("http://") {
             Image::network(source)
@@ -231,10 +234,10 @@ impl<'a> MarkdownRenderer<'a> {
         image
             .size(self.image_width, self.image_height)
             .fit(ImageFit::Contain)
-            .into_node()
+            .into()
     }
 
-    fn code_block(&self, code: &CodeBlock) -> Node {
+    fn code_block(&self, code: &CodeBlock) -> Widget {
         let text = code
             .value()
             .iter(self.source)
@@ -250,7 +253,7 @@ impl<'a> MarkdownRenderer<'a> {
                     .size(11.0)
                     .color(self.palette.text_secondary)
                     .weight(600)
-                    .into_node(),
+                    .into(),
             );
         }
         children.push(
@@ -259,31 +262,28 @@ impl<'a> MarkdownRenderer<'a> {
                 .line_height(18.0)
                 .family(self.code_family.clone())
                 .color(self.palette.text_primary)
-                .into_node(),
+                .into(),
         );
 
-        let code_content = Container::new(
-            VStack {
-                spacing: Some(6.0),
-                children,
-            }
-            .into_node(),
-        )
+        let code_content = Container::new(VStack {
+            spacing: Some(6.0),
+            children,
+        })
         .bg(self.palette.surface_raised)
         .border(self.palette.border.with_alpha(130), 1.0)
         .border_radius(8.0)
         .padding_all(12.0)
-        .into_node();
+        .into();
 
         Column {
             children: vec![code_content],
             semantics: Some(markdown_code_semantics(language, text)),
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 
-    fn html_block(&self, html: &HtmlBlock) -> Node {
+    fn html_block(&self, html: &HtmlBlock) -> Widget {
         let text = html
             .value()
             .iter(self.source)
@@ -294,22 +294,22 @@ impl<'a> MarkdownRenderer<'a> {
         self.text_node(text, self.body_size, self.palette.text_secondary)
     }
 
-    fn blockquote(&self, node_ref: NodeRef) -> Node {
-        let content = VStack {
+    fn blockquote(&self, node_ref: NodeRef) -> Widget {
+        let content: Widget = VStack {
             spacing: Some(8.0),
             children: self.children_as_blocks(node_ref),
         }
-        .into_node();
+        .into();
 
         Container::new(content)
             .bg(self.palette.primary_subtle.with_alpha(40))
             .border(self.palette.border.with_alpha(160), 1.0)
             .border_radius(8.0)
             .padding([14.0, 14.0, 10.0, 10.0])
-            .into_node()
+            .into()
     }
 
-    fn list(&self, node_ref: NodeRef, ordered: bool, start: u32) -> Node {
+    fn list(&self, node_ref: NodeRef, ordered: bool, start: u32) -> Widget {
         let start = if ordered { start.max(1) } else { 0 };
         let children = self.arena[node_ref]
             .children(self.arena)
@@ -326,10 +326,10 @@ impl<'a> MarkdownRenderer<'a> {
             spacing: Some(6.0),
             children,
         }
-        .into_node()
+        .into()
     }
 
-    fn list_item(&self, item_ref: NodeRef, ordered: bool, number: u32) -> Node {
+    fn list_item(&self, item_ref: NodeRef, ordered: bool, number: u32) -> Widget {
         let marker = if ordered {
             format!("{number}.")
         } else {
@@ -342,21 +342,20 @@ impl<'a> MarkdownRenderer<'a> {
                 Container::new(
                     Text::new(marker)
                         .size(self.body_size)
-                        .color(self.palette.text_secondary)
-                        .into_node(),
+                        .color(self.palette.text_secondary),
                 )
                 .width(if ordered { 30.0 } else { 18.0 })
-                .into_node(),
-                Container::new(content).flex_grow(1.0).into_node(),
+                .into(),
+                Container::new(content).flex_grow(1.0).into(),
             ],
             gap: Some(6.0),
             align_items: AlignItems::Start,
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 
-    fn list_item_content(&self, item_ref: NodeRef) -> Node {
+    fn list_item_content(&self, item_ref: NodeRef) -> Widget {
         let mut blocks = self.children_as_blocks(item_ref);
         if blocks.len() == 1 {
             blocks.remove(0)
@@ -365,11 +364,11 @@ impl<'a> MarkdownRenderer<'a> {
                 spacing: Some(8.0),
                 children: blocks,
             }
-            .into_node()
+            .into()
         }
     }
 
-    fn table(&self, table_ref: NodeRef) -> Node {
+    fn table(&self, table_ref: NodeRef) -> Widget {
         let mut rows = Vec::new();
         for section_ref in self.arena[table_ref].children(self.arena) {
             let is_header = matches!(
@@ -383,21 +382,18 @@ impl<'a> MarkdownRenderer<'a> {
             }
         }
 
-        Container::new(
-            Column {
-                children: rows,
-                semantics: Some(markdown_semantics("markdown-table")),
-                gap: Some(0.0),
-                ..Default::default()
-            }
-            .into_node(),
-        )
+        Container::new(Column {
+            children: rows,
+            semantics: Some(markdown_semantics("markdown-table")),
+            gap: Some(0.0),
+            ..Default::default()
+        })
         .border(self.palette.border, 1.0)
         .border_radius(8.0)
-        .into_node()
+        .into()
     }
 
-    fn table_row(&self, row_ref: NodeRef, is_header: bool) -> Node {
+    fn table_row(&self, row_ref: NodeRef, is_header: bool) -> Widget {
         let cells = self.arena[row_ref]
             .children(self.arena)
             .map(|cell_ref| self.table_cell(cell_ref, is_header))
@@ -413,10 +409,10 @@ impl<'a> MarkdownRenderer<'a> {
             align_items: AlignItems::Start,
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 
-    fn table_cell(&self, cell_ref: NodeRef, is_header: bool) -> Node {
+    fn table_cell(&self, cell_ref: NodeRef, is_header: bool) -> Widget {
         let alignment = match self.arena[cell_ref].kind_data() {
             KindData::TableCell(cell) => cell.alignment(),
             _ => TableCellAlignment::None,
@@ -426,7 +422,7 @@ impl<'a> MarkdownRenderer<'a> {
             style.font_weight = Some(700);
         }
 
-        let mut cell = Container::new(RichText::new(self.inline_runs(cell_ref, style)).into_node())
+        let mut cell = Container::new(RichText::new(self.inline_runs(cell_ref, style)))
             .padding_all(8.0)
             .border(self.palette.border.with_alpha(120), 1.0)
             .flex_grow(1.0);
@@ -451,7 +447,7 @@ impl<'a> MarkdownRenderer<'a> {
             _ => "none",
         };
         Row {
-            children: vec![cell.into_node()],
+            children: vec![cell.into()],
             semantics: Some(markdown_semantics(format!(
                 "markdown-table-cell:{}:{alignment}",
                 if is_header { "header" } else { "body" }
@@ -460,10 +456,10 @@ impl<'a> MarkdownRenderer<'a> {
             align_items: AlignItems::Start,
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 
-    fn readable_plain_block(&self, node_ref: NodeRef) -> Node {
+    fn readable_plain_block(&self, node_ref: NodeRef) -> Widget {
         self.text_node(
             self.plain_text(node_ref),
             self.body_size,
@@ -471,19 +467,19 @@ impl<'a> MarkdownRenderer<'a> {
         )
     }
 
-    fn divider(&self) -> Node {
-        Container::new(VStack::default().into_node())
+    fn divider(&self) -> Widget {
+        Container::new(VStack::default())
             .height(1.0)
             .bg(self.palette.border.with_alpha(180))
-            .into_node()
+            .into()
     }
 
-    fn text_node(&self, text: String, size: f32, color: Color) -> Node {
+    fn text_node(&self, text: String, size: f32, color: Color) -> Widget {
         Text::new(text)
             .size(size)
             .line_height(self.line_height)
             .color(color)
-            .into_node()
+            .into()
     }
 
     fn inline_style(&self, font_size: f32) -> InlineStyle {

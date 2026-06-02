@@ -1,7 +1,7 @@
-use crate::lowering::{wrap_zstack_child, LoweringContext, NodeBuilder};
-use crate::ui::traits::Lower;
-use crate::ui::Node;
-use fission_ir::{LayoutOp, NodeId, Op};
+use crate::internal::InternalLower;
+use crate::lowering::{wrap_zstack_child, InternalIrBuilder, InternalLoweringCx};
+use crate::ui::Widget;
+use fission_ir::{LayoutOp, Op, WidgetId};
 use serde::{Deserialize, Serialize};
 
 /// A z-axis stacking container that layers children on top of each other.
@@ -17,13 +17,13 @@ use serde::{Deserialize, Serialize};
 /// ```rust,ignore
 /// ZStack {
 ///     children: vec![
-///         Image::asset("bg.png").into_node().into(),
+///         Image::asset("bg.png").into(),
 ///         Positioned {
 ///             bottom: Some(16.0),
 ///             right: Some(16.0),
-///             child: Some(Box::new(Text::new("Overlay").into_node())),
+///             child: Some(Text::new("Overlay").into()),
 ///             ..Default::default()
-///         }.into_node().into(),
+///         }.into(),
 ///     ],
 ///     ..Default::default()
 /// }
@@ -31,29 +31,25 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ZStack {
     /// Explicit node identity.
-    pub id: Option<NodeId>,
+    pub id: Option<WidgetId>,
     /// Children painted in order (first = bottom, last = top).
-    pub children: Vec<Node>,
+    pub children: Vec<Widget>,
 }
 
 impl ZStack {
-    pub fn children(mut self, children: Vec<Node>) -> Self {
+    pub fn children(mut self, children: Vec<Widget>) -> Self {
         self.children = children;
         self
     }
-
-    pub fn into_node(self) -> Node {
-        Node::ZStack(self)
-    }
 }
 
-impl Lower for ZStack {
-    fn lower(&self, cx: &mut LoweringContext) -> NodeId {
-        let id = self.id.unwrap_or_else(|| cx.next_node_id());
+impl InternalLower for ZStack {
+    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+        let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
 
         cx.push_scope(id);
 
-        let mut builder = NodeBuilder::new(id, Op::Layout(LayoutOp::ZStack));
+        let mut builder = InternalIrBuilder::new(id, Op::Layout(LayoutOp::ZStack));
         for child in &self.children {
             let child_id = child.lower(cx);
             builder.add_child(wrap_zstack_child(cx, child_id));

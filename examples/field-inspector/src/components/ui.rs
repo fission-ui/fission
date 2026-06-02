@@ -5,11 +5,11 @@ pub fn color(r: u8, g: u8, b: u8) -> Color {
     Color { r, g, b, a: 255 }
 }
 
-pub fn is_compact<S: AppState>(view: &View<S>) -> bool {
+pub fn is_compact<S: GlobalState>(view: ViewHandle<S>) -> bool {
     view.viewport_size().width < 760.0
 }
 
-pub fn page_padding<S: AppState>(view: &View<S>) -> f32 {
+pub fn page_padding<S: GlobalState>(view: ViewHandle<S>) -> f32 {
     if view.viewport_size().width < 520.0 {
         10.0
     } else if is_compact(view) {
@@ -19,15 +19,15 @@ pub fn page_padding<S: AppState>(view: &View<S>) -> f32 {
     }
 }
 
-pub fn usable_width<S: AppState>(view: &View<S>, reserved: f32) -> f32 {
+pub fn usable_width<S: GlobalState>(view: ViewHandle<S>, reserved: f32) -> f32 {
     (view.viewport_size().width - reserved).max(240.0)
 }
 
-pub fn responsive_grid<S: AppState>(
-    view: &View<S>,
-    children: Vec<Node>,
+pub fn responsive_grid<S: GlobalState>(
+    view: ViewHandle<S>,
+    children: Vec<Widget>,
     wide_columns: usize,
-) -> Node {
+) -> Widget {
     let columns = if is_compact(view) {
         1
     } else {
@@ -43,48 +43,52 @@ pub fn responsive_grid<S: AppState>(
             .map(|(index, child)| {
                 GridItem::new(child)
                     .cell((index / columns + 1) as i16, (index % columns + 1) as i16)
-                    .into_node()
+                    .into()
             })
             .collect(),
         ..Default::default()
     }
-    .into_node()
+    .into()
 }
 
-pub fn muted_text<S: AppState>(view: &View<S>, text: impl Into<String>) -> Node {
+pub fn muted_text<S: GlobalState>(view: ViewHandle<S>, text: impl Into<String>) -> Widget {
     let compact = is_compact(view);
     Text::new(text.into())
         .size(if compact { 12.0 } else { 13.0 })
         .line_height(if compact { 18.0 } else { 19.0 })
-        .color(view.env.theme.tokens.colors.text_secondary)
-        .into_node()
+        .color(view.env().theme.tokens.colors.text_secondary)
+        .into()
 }
 
-pub fn body_text<S: AppState>(view: &View<S>, text: impl Into<String>) -> Node {
+pub fn body_text<S: GlobalState>(view: ViewHandle<S>, text: impl Into<String>) -> Widget {
     let compact = is_compact(view);
     Text::new(text.into())
         .size(if compact { 13.0 } else { 14.0 })
         .line_height(if compact { 19.0 } else { 21.0 })
-        .color(view.env.theme.tokens.colors.text_primary)
-        .into_node()
+        .color(view.env().theme.tokens.colors.text_primary)
+        .into()
 }
 
-pub fn title_text<S: AppState>(view: &View<S>, text: impl Into<String>, size: f32) -> Node {
+pub fn title_text<S: GlobalState>(
+    view: ViewHandle<S>,
+    text: impl Into<String>,
+    size: f32,
+) -> Widget {
     let compact = is_compact(view);
     let size = if compact { size.min(22.0) } else { size };
     let mut title = Text::new(text.into())
         .size(size)
         .line_height(size + if compact { 6.0 } else { 8.0 })
         .weight(800)
-        .color(view.env.theme.tokens.colors.text_primary);
+        .color(view.env().theme.tokens.colors.text_primary);
     if compact {
         title = title.max_width(usable_width(view, 64.0));
     }
-    title.into_node()
+    title.into()
 }
 
-pub fn panel_card<S: AppState>(view: &View<S>, child: Node) -> Node {
-    let tokens = &view.env.theme.tokens;
+pub fn panel_card<S: GlobalState>(view: ViewHandle<S>, child: Widget) -> Widget {
+    let tokens = &view.env().theme.tokens;
     let compact = is_compact(view);
     Container::new(child)
         .bg(tokens.colors.surface)
@@ -101,61 +105,59 @@ pub fn panel_card<S: AppState>(view: &View<S>, child: Node) -> Node {
             blur_radius: 18.0,
             offset: (0.0, 8.0),
         })
-        .into_node()
+        .into()
 }
 
-pub fn soft_panel<S: AppState>(view: &View<S>, child: Node) -> Node {
-    let tokens = &view.env.theme.tokens;
+pub fn soft_panel<S: GlobalState>(view: ViewHandle<S>, child: Widget) -> Widget {
+    let tokens = &view.env().theme.tokens;
     let compact = is_compact(view);
     Container::new(child)
         .bg(tokens.colors.background.with_alpha(170))
         .border(tokens.colors.border.with_alpha(120), 1.0)
         .border_radius(if compact { 14.0 } else { 18.0 })
         .padding_all(if compact { 10.0 } else { 14.0 })
-        .into_node()
+        .into()
 }
 
 pub fn action_button(
     label: impl Into<String>,
     action: ActionEnvelope,
     variant: ButtonVariant,
-) -> Node {
+) -> Widget {
     Button {
-        child: Some(Box::new(Text::new(label.into()).weight(700).into_node())),
+        child: Some(Text::new(label.into()).weight(700).into()),
         on_press: Some(action),
         variant,
         min_width: Some(132.0),
         ..Default::default()
     }
-    .into_node()
+    .into()
 }
 
 pub fn small_button(
     label: impl Into<String>,
     action: ActionEnvelope,
     variant: ButtonVariant,
-) -> Node {
+) -> Widget {
     Button {
-        child: Some(Box::new(
-            Text::new(label.into()).size(13.0).weight(700).into_node(),
-        )),
+        child: Some(Text::new(label.into()).size(13.0).weight(700).into()),
         on_press: Some(action),
         variant,
         size: ComponentSize::Sm,
         ..Default::default()
     }
-    .into_node()
+    .into()
 }
 
-pub fn status_pill<S: AppState>(
-    view: &View<S>,
+pub fn status_pill<S: GlobalState>(
+    view: ViewHandle<S>,
     label: impl Into<String>,
     state: CapabilityState,
-) -> Node {
+) -> Widget {
     let (bg, fg) = match state {
         CapabilityState::Idle => (
-            view.env.theme.tokens.colors.surface,
-            view.env.theme.tokens.colors.text_secondary,
+            view.env().theme.tokens.colors.surface,
+            view.env().theme.tokens.colors.text_secondary,
         ),
         CapabilityState::Pending => (color(254, 243, 199), color(146, 64, 14)),
         CapabilityState::Ready => (color(219, 234, 254), color(29, 78, 216)),
@@ -170,8 +172,7 @@ pub fn status_pill<S: AppState>(
             .line_height(if is_compact(view) { 15.0 } else { 16.0 })
             .weight(800)
             .wrap(false)
-            .color(fg)
-            .into_node(),
+            .color(fg),
     )
     .bg(bg)
     .border_radius(999.0)
@@ -180,14 +181,14 @@ pub fn status_pill<S: AppState>(
     } else {
         [10.0, 10.0, 4.0, 4.0]
     })
-    .into_node()
+    .into()
 }
 
-pub fn metric<S: AppState>(
-    view: &View<S>,
+pub fn metric<S: GlobalState>(
+    view: ViewHandle<S>,
     label: impl Into<String>,
     value: impl Into<String>,
-) -> Node {
+) -> Widget {
     soft_panel(
         view,
         Column {
@@ -198,11 +199,11 @@ pub fn metric<S: AppState>(
                     .size(if is_compact(view) { 17.0 } else { 19.0 })
                     .line_height(if is_compact(view) { 23.0 } else { 25.0 })
                     .weight(800)
-                    .color(view.env.theme.tokens.colors.text_primary)
-                    .into_node(),
+                    .color(view.env().theme.tokens.colors.text_primary)
+                    .into(),
             ],
             ..Default::default()
         }
-        .into_node(),
+        .into(),
     )
 }

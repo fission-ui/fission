@@ -4,7 +4,7 @@ use anyhow::{anyhow, Result};
 use fission_core::scrollbar::{scrollbar_geometry_for_node, ScrollbarAxis};
 use fission_core::ScrollStateMap;
 use fission_ir::op::{Color, Fill, LayoutOp, PaintOp, TextRun};
-use fission_ir::{CoreIR, NodeId, Op, Semantics};
+use fission_ir::{CoreIR, Op, Semantics, WidgetId};
 use fission_layout::{LayoutPoint, LayoutRect, LayoutSnapshot};
 use fission_theme::Theme;
 use unicode_segmentation::UnicodeSegmentation;
@@ -48,7 +48,7 @@ impl TerminalRenderer {
 
     fn render_node(
         &self,
-        node_id: NodeId,
+        node_id: WidgetId,
         ir: &CoreIR,
         snapshot: &LayoutSnapshot,
         scroll: &ScrollStateMap,
@@ -79,7 +79,7 @@ impl TerminalRenderer {
 
     fn child_render_ctx(
         &self,
-        node_id: NodeId,
+        node_id: WidgetId,
         op: &Op,
         snapshot: &LayoutSnapshot,
         scroll: &ScrollStateMap,
@@ -117,7 +117,7 @@ impl TerminalRenderer {
 
     fn render_paint(
         &self,
-        node_id: NodeId,
+        node_id: WidgetId,
         op: &PaintOp,
         snapshot: &LayoutSnapshot,
         frame: &mut TerminalFrame,
@@ -192,7 +192,7 @@ impl TerminalRenderer {
 
     fn render_semantic_fallback(
         &self,
-        node_id: NodeId,
+        node_id: WidgetId,
         semantics: &Semantics,
         snapshot: &LayoutSnapshot,
         frame: &mut TerminalFrame,
@@ -223,7 +223,7 @@ impl TerminalRenderer {
 
     fn render_scrollbar(
         &self,
-        node_id: NodeId,
+        node_id: WidgetId,
         ir: &CoreIR,
         snapshot: &LayoutSnapshot,
         scroll: &ScrollStateMap,

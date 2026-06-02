@@ -1,6 +1,6 @@
 use fission_core::{
     env::ActiveAnimation, AnimationPropertyId, AnimationRequest, AnimationStartValue,
-    EasingFunction, Runtime, WidgetNodeId,
+    EasingFunction, Runtime, WidgetId,
 };
 
 #[test]
@@ -8,7 +8,7 @@ fn test_animation_tick() {
     let mut runtime = Runtime::default();
 
     // Manually add an active animation (Linear easing to preserve existing test expectations)
-    let widget_id = WidgetNodeId::explicit("test_anim");
+    let widget_id = WidgetId::explicit("test_anim");
     let property = AnimationPropertyId::opacity();
     runtime
         .runtime_state
@@ -61,7 +61,7 @@ fn test_animation_tick() {
 #[test]
 fn test_enqueue_animation_skips_noop_terminal_transition() {
     let mut runtime = Runtime::default();
-    let widget_id = WidgetNodeId::explicit("noop_anim");
+    let widget_id = WidgetId::explicit("noop_anim");
     let property = AnimationPropertyId::opacity();
 
     runtime
@@ -102,8 +102,8 @@ fn test_enqueue_animation_skips_noop_terminal_transition() {
 #[test]
 fn test_sync_animation_requests_removes_stale_repeating_animation() {
     let mut runtime = Runtime::default();
-    let stale_widget = WidgetNodeId::explicit("stale_anim");
-    let live_widget = WidgetNodeId::explicit("live_anim");
+    let stale_widget = WidgetId::explicit("stale_anim");
+    let live_widget = WidgetId::explicit("live_anim");
     let property = AnimationPropertyId::opacity();
 
     runtime.enqueue_animation(

@@ -10,7 +10,7 @@ use fission::prelude::DesktopApp;
 use state::GalleryState;
 
 fn main() -> anyhow::Result<()> {
-    let app = DesktopApp::new(GalleryApp)
+    let app = DesktopApp::<GalleryState, _>::new(GalleryApp)
         .with_title("Fission Chart Gallery")
         .with_sync_env(|state: &GalleryState, env: &mut fission::core::Env| {
             env.theme = if state.dark_theme {

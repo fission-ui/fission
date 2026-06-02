@@ -31,6 +31,16 @@ let item = BreadcrumbItem {
 
 Use stable, human-readable labels. Breadcrumbs are for orientation first and navigation second. If labels are cryptic ids, the trail stops helping.
 
+## Production checklist
+
+For `BreadcrumbItem`, review the fields that change behavior before treating the widget as finished: `label`, `on_click`. The goal is to make the product rule visible in state and actions, not hidden inside ad-hoc construction code.
+
+- Bind `on_click` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
+- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
+- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+
+If a screen starts repeating the same `BreadcrumbItem` setup, extract a named component around this widget. That keeps the reference API small while making product code easier to read and safer for generated code to copy.
+
 ## Related
 
 [`Breadcrumb`](/reference/widgets/breadcrumb), [`Link`](/reference/widgets/link), [`Text`](/reference/widgets/text), and [`Button`](/reference/widgets/button).

@@ -1,4 +1,3 @@
-pub mod node_id;
 pub mod op;
 pub mod semantics;
 pub mod widget_id;
@@ -8,23 +7,22 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-pub use node_id::NodeId;
 pub use op::{
     AlignItems, CompositeScalar, CompositeStyle, EmbedKind, FlexDirection, FlexWrap, GridPlacement,
     GridTrack, JustifyContent, LayoutOp, Op, PaintOp, StructuralOp,
 };
 pub use semantics::{ActionEntry, ActionSet, Role, Semantics};
-pub use widget_id::WidgetNodeId;
+pub use widget_id::WidgetId;
 
 pub const IR_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CoreNode {
-    pub id: NodeId,
+    pub id: WidgetId,
     pub op: Op,
     pub composite: CompositeStyle,
-    pub children: Vec<NodeId>,
-    pub parent: Option<NodeId>,
+    pub children: Vec<WidgetId>,
+    pub parent: Option<WidgetId>,
     pub hash: u64,
 }
 
@@ -37,13 +35,13 @@ pub type AnyRenderObject = Arc<dyn Any + Send + Sync>;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CoreIR {
-    pub nodes: HashMap<NodeId, CoreNode>,
-    pub root: Option<NodeId>,
-    /// Per-node custom render objects.  Keyed by the wrapper `NodeId` created
-    /// during lowering of a `CustomNode`.  Skipped by serde because the
+    pub nodes: HashMap<WidgetId, CoreNode>,
+    pub root: Option<WidgetId>,
+    /// Per-widget custom render objects. Keyed by the wrapper `WidgetId` created
+    /// during lowering of an `InternalRenderNode`. Skipped by serde because the
     /// concrete trait objects are not serialisable.
     #[serde(skip)]
-    pub custom_render_objects: HashMap<NodeId, AnyRenderObject>,
+    pub custom_render_objects: HashMap<WidgetId, AnyRenderObject>,
 }
 
 impl std::fmt::Debug for CoreIR {
@@ -82,16 +80,16 @@ impl CoreIR {
         Self::default()
     }
 
-    pub fn add_node(&mut self, id: NodeId, op: Op, children: Vec<NodeId>) {
+    pub fn add_node(&mut self, id: WidgetId, op: Op, children: Vec<WidgetId>) {
         self.add_node_with_composite(id, op, CompositeStyle::default(), children);
     }
 
     pub fn add_node_with_composite(
         &mut self,
-        id: NodeId,
+        id: WidgetId,
         op: Op,
         composite: CompositeStyle,
-        children: Vec<NodeId>,
+        children: Vec<WidgetId>,
     ) {
         let core_node = CoreNode {
             id,
@@ -110,7 +108,7 @@ impl CoreIR {
         }
     }
 
-    pub fn set_root(&mut self, id: NodeId) {
+    pub fn set_root(&mut self, id: WidgetId) {
         self.root = Some(id);
     }
 }

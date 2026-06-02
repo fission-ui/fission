@@ -69,11 +69,21 @@ Do not treat this struct as long-lived terminal state. Once the terminal session
 
 ## Specific guidance
 
-Create terminal sessions from a reducer, startup action, or another explicit application event. Do not call `TerminalSession::spawn(...)` from `build()`. Starting a terminal process is long-lived host work, not a pure user interface description.
+Create terminal sessions from a reducer, startup action, or another explicit application event. Do not call `TerminalSession::spawn(...)` from `component conversion`. Starting a terminal process is long-lived host work, not a pure user interface description.
 
 If the user can choose the starting folder or program, keep those choices in app state and build the `TerminalLaunchConfig` from that state when it is time to launch the session.
 
 Also remember that this is a host capability centered on local process execution. It is a strong fit for desktop-style products, but it is not the right starting point for browser-only work.
+
+## Production checklist
+
+For `TerminalLaunchConfig`, review the fields that change behavior before treating the widget as finished: `cwd`, `program`, `args`, `env`. The goal is to make the product rule visible in state and actions, not hidden inside ad-hoc construction code.
+
+- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
+- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
+- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+
+If a screen starts repeating the same `TerminalLaunchConfig` setup, extract a named component around this widget. That keeps the reference API small while making product code easier to read and safer for generated code to copy.
 
 ## Related
 

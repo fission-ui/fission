@@ -1,11 +1,11 @@
-use fission_ir::{FlexDirection as IrFlexDirection, LayoutOp as IrLayoutOp, NodeId};
+use fission_ir::{FlexDirection as IrFlexDirection, LayoutOp as IrLayoutOp, WidgetId};
 use fission_layout::{LayoutEngine, LayoutInputNode, LayoutSize};
 #[test]
 fn scroll_children_stretch_cross_axis() {
     let mut engine = LayoutEngine::new();
-    let root_id = NodeId::from_u128(1);
-    let scroll_id = NodeId::from_u128(2);
-    let child_id = NodeId::from_u128(3);
+    let root_id = WidgetId::from_u128(1);
+    let scroll_id = WidgetId::from_u128(2);
+    let child_id = WidgetId::from_u128(3);
 
     let root = LayoutInputNode {
         id: root_id,

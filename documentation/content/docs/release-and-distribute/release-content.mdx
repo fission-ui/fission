@@ -1,0 +1,52 @@
+---
+title: Release content
+description: Prepare release notes, screenshots, metadata, testers, review files, and privacy content before distribution.
+---
+
+# Release content
+
+Release content is the human-facing and provider-facing material that travels with a package: notes, screenshots, store descriptions, privacy answers, review instructions, tester groups, rollout plans, and preview media.
+
+Keep [`fission.toml`](/reference/config/fission-toml/) as the root reference, but keep long content in files.
+
+## 1. Use a versioned content folder
+
+```text
+release-content/
+  metadata/
+    1.2.3+42/
+      release.toml
+      review.toml
+      privacy.toml
+      notes/
+        en-US.md
+      screenshots/
+        android/
+        ios/
+        windows/
+```
+
+The manifest can point to those files through a release block.
+
+```toml
+[[releases]]
+version = "1.2.3+42"
+metadata = "release-content/metadata/1.2.3+42/release.toml"
+notes = "release-content/metadata/1.2.3+42/notes/en-US.md"
+```
+
+## 2. Validate before upload
+
+```bash
+fission release-content validate --project-dir . --provider app-store
+```
+
+Validation should fail early when screenshots are missing, notes are empty, privacy answers are incomplete, review credentials are absent, or localized content does not match the provider's requirements.
+
+## 3. Capture screenshots intentionally
+
+Screenshots are release assets, not random test leftovers. Capture them from the target shell and viewport the provider expects. Store them under the release-content version so the release remains reproducible.
+
+## 4. Connect release content to distribution
+
+Distribution commands should read validated content, upload the package, upload or reference release assets, and write a receipt. If metadata validation fails, fix content before retrying the upload.

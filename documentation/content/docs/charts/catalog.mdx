@@ -37,3 +37,14 @@ Do not choose a chart only because it looks impressive. A production chart shoul
 ## After choosing a chart
 
 Once you have a candidate chart, read [Series and datasets](/docs/charts/series-and-datasets/) to decide whether your data should be passed directly into series or shared through a dataset. Then read [Data and interaction](/docs/charts/data-and-interaction/) if the screen needs tooltips, brushing, zoom, event dispatch, or reducer-driven selection.
+
+## Lifecycle fit and verification
+
+This page belongs to the setup, learn, build, test, and publish lifecycle. Use it to decide the next concrete action, then verify the action before moving to the next stage.
+
+| Stage question | Verification |
+| --- | --- |
+| What file or command changes? | The page should point to the exact `fission` command, `fission.toml` section, Rust component, or generated artifact involved. |
+| What proves it worked? | Prefer a command output, generated file, screenshot, test assertion, package artifact, or deployed URL over a vague statement. |
+| What can fail safely? | Permission prompts, missing tools, unsupported hosts, invalid config, and expired credentials should produce diagnosable errors that can be retried after the cause is fixed. |
+| What should I read next? | Continue to the linked guide for step-by-step work or the reference page for exact fields and contracts. |

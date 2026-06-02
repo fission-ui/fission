@@ -7,11 +7,11 @@ use crate::model::{
 use fission::core::op::{Color, GridTrack};
 use fission::core::ui::widgets::{Clip, GestureDetector, Transform};
 use fission::core::ui::{
-    Button, ButtonVariant, Container, Grid, GridItem, Node, Positioned, Scroll, Text, TextContent,
-    ZStack,
+    Button, ButtonVariant, Container, Grid, GridItem, Positioned, Scroll, Text, TextContent,
+    Widget, ZStack,
 };
 use fission::core::{
-    reduce_with, ActionEnvelope, ActionId, BuildCtx, FlexDirection, View, Widget, WidgetNodeId,
+    reduce_with, ActionEnvelope, ActionId, BuildCtxHandle, FlexDirection, ViewHandle, WidgetId,
 };
 use fission::i18n::Locale;
 use fission::icons::material;
@@ -26,18 +26,18 @@ use std::sync::Arc;
 pub struct SettingsModal;
 
 fn theme_preview(
-    ctx: &mut BuildCtx<InboxState>,
-    view: &View<InboxState>,
+    _ctx: BuildCtxHandle<InboxState>,
+    view: ViewHandle<InboxState>,
     theme_id: ActionId,
     label: &str,
     bg: Color,
     accent: Color,
     is_active: bool,
-) -> Node {
+) -> Widget {
     let t = |key: &str| {
-        view.env
+        view.env()
             .i18n
-            .get(&view.env.locale, key)
+            .get(&view.env().locale, key)
             .map(|s| s.to_string())
             .unwrap_or_else(|| key.to_string())
     };
@@ -53,7 +53,7 @@ fn theme_preview(
                 text: t("settings.theme.active"),
                 ..Default::default()
             }
-            .build(ctx, view),
+            .into(),
         )
     } else {
         None
@@ -64,69 +64,60 @@ fn theme_preview(
             id: theme_id,
             payload: serde_json::to_vec(&SetTheme(label.to_string())).unwrap(),
         }),
-        child: Box::new(
-            Clip {
-                id: None,
-                path: Some("inset(0px round 12px)".into()),
-                child: Box::new(
-                    Container::new(
-                        ZStack {
-                            children: vec![
-                                Container::new(
-                                    fission::core::ui::widgets::Spacer::default().into_node(),
-                                )
-                                .size(160.0, 96.0)
-                                .bg(bg)
-                                .into_node(),
-                                Positioned {
-                                    top: Some(8.0),
-                                    right: Some(8.0),
-                                    child: badge.map(Box::new),
-                                    ..Default::default()
-                                }
-                                .into_node(),
-                                Positioned {
-                                    left: Some(10.0),
-                                    bottom: Some(10.0),
-                                    child: Some(Box::new(
-                                        Transform::new(
-                                            Icon::svg(material::action::check_circle::regular())
-                                                .size(18.0)
-                                                .color(accent)
-                                                .into_node(),
-                                            rotate,
-                                        )
-                                        .into_node(),
-                                    )),
-                                    ..Default::default()
-                                }
-                                .into_node(),
-                            ],
-                            ..Default::default()
-                        }
-                        .into_node(),
-                    )
-                    .size(160.0, 96.0)
-                    .into_node(),
-                ),
-            }
-            .into_node(),
-        ),
+        child: Clip {
+            id: None,
+            path: Some("inset(0px round 12px)".into()),
+            child: Container::new(ZStack {
+                children: vec![
+                    Container::new(fission::core::ui::widgets::Spacer::default())
+                        .size(160.0, 96.0)
+                        .bg(bg)
+                        .into(),
+                    Positioned {
+                        top: Some(8.0),
+                        right: Some(8.0),
+                        child: badge,
+                        ..Default::default()
+                    }
+                    .into(),
+                    Positioned {
+                        left: Some(10.0),
+                        bottom: Some(10.0),
+                        child: Some(
+                            Transform::new(
+                                Icon::svg(material::action::check_circle::regular())
+                                    .size(18.0)
+                                    .color(accent),
+                                rotate,
+                            )
+                            .into(),
+                        ),
+                        ..Default::default()
+                    }
+                    .into(),
+                ],
+                ..Default::default()
+            })
+            .size(160.0, 96.0)
+            .into(),
+        }
+        .into(),
         ..Default::default()
     }
-    .into_node()
+    .into()
 }
 
-impl Widget<InboxState> for SettingsModal {
-    fn build(&self, ctx: &mut BuildCtx<InboxState>, view: &View<InboxState>) -> Node {
-        let tokens = &view.env.theme.tokens;
+impl From<SettingsModal> for Widget {
+    fn from(_component: SettingsModal) -> Self {
+        let (ctx, view) = fission::build::current::<InboxState>();
+        let tokens = &view.env().theme.tokens;
         let viewport = view.viewport_size();
         let modal_width = (viewport.width.max(0.0) - 48.0).clamp(360.0, 640.0);
         let body_height = (viewport.height.max(0.0) - 180.0).clamp(320.0, 560.0);
         let t = |key: &str| {
-            view.env
+            view.env()
                 .i18n
-                .get(&view.env.locale, key)
+                .get(&view.env().locale, key)
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| key.to_string())
         };
@@ -356,15 +347,13 @@ impl Widget<InboxState> for SettingsModal {
                         id: drag_active_id,
                         payload: serde_json::to_vec(&SetDragInProgress(false)).unwrap(),
                     }),
-                    child: Box::new(
-                        Tag {
-                            label: (*label).into(),
-                            on_close: None,
-                        }
-                        .build(ctx, view),
-                    ),
+                    child: Tag {
+                        label: (*label).into(),
+                        on_close: None,
+                    }
+                    .into(),
                 }
-                .build(ctx, view)
+                .into()
             })
             .collect::<Vec<_>>();
 
@@ -373,46 +362,42 @@ impl Widget<InboxState> for SettingsModal {
                 id: label_drop_id,
                 payload: serde_json::to_vec(&LabelDropped("Pinned".into())).unwrap(),
             }),
-            child: Box::new(
-                Container::new(
-                    Text::new(TextContent::Key("settings.labels.drop_target".into()))
-                        .size(12.0)
-                        .into_node(),
-                )
-                .padding_all(8.0)
-                .bg(if view.state.drag_in_progress {
-                    tokens.colors.primary.with_alpha(20)
-                } else {
-                    tokens.colors.background.with_alpha(0)
-                })
-                .border(tokens.colors.border, 1.0)
-                .border_radius(8.0)
-                .into_node(),
-            ),
+            child: Container::new(
+                Text::new(TextContent::Key("settings.labels.drop_target".into())).size(12.0),
+            )
+            .padding_all(8.0)
+            .bg(if view.state().drag_in_progress {
+                tokens.colors.primary.with_alpha(20)
+            } else {
+                tokens.colors.background.with_alpha(0)
+            })
+            .border(tokens.colors.border, 1.0)
+            .border_radius(8.0)
+            .into(),
         }
-        .build(ctx, view);
+        .into();
 
-        let pinned_badge = if let Some(label) = &view.state.last_drag_label {
+        let pinned_badge = if let Some(label) = &view.state().last_drag_label {
             Badge {
                 text: format!("Pinned: {}", label),
                 ..Default::default()
             }
-            .build(ctx, view)
+            .into()
         } else {
             Text::new(TextContent::Key("settings.labels.helper".into()))
                 .size(12.0)
                 .color(tokens.colors.text_secondary)
-                .into_node()
+                .into()
         };
 
         let signature_editor = Editable {
-            id: Some(WidgetNodeId::explicit("settings_signature_editor")),
-            value: view.state.signature.clone(),
+            id: Some(WidgetId::explicit("settings_signature_editor")),
+            value: view.state().signature.clone(),
             placeholder: "Add a signature".into(),
-            is_editing: view.state.signature_editing,
+            is_editing: view.state().signature_editing,
             on_change: Some(ActionEnvelope {
                 id: signature_id,
-                payload: serde_json::to_vec(&SetSignature(view.state.signature.clone())).unwrap(),
+                payload: serde_json::to_vec(&SetSignature(view.state().signature.clone())).unwrap(),
             }),
             on_submit: Some(ActionEnvelope {
                 id: signature_edit_id,
@@ -427,25 +412,25 @@ impl Widget<InboxState> for SettingsModal {
                 payload: serde_json::to_vec(&SetSignatureEditing(false)).unwrap(),
             }),
         }
-        .build(ctx, view);
+        .into();
 
-        let theme_display = match view.state.theme_mode.as_str() {
+        let theme_display = match view.state().theme_mode.as_str() {
             "Dark" => t("settings.theme.dark"),
             "System" => t("settings.theme.system"),
             _ => t("settings.theme.light"),
         };
-        let density_display = match view.state.density_mode.as_str() {
+        let density_display = match view.state().density_mode.as_str() {
             "Compact" => t("settings.density.compact"),
             "Cozy" => t("settings.density.cozy"),
             _ => t("settings.density.comfortable"),
         };
-        let inbox_type_display = match view.state.inbox_type.as_str() {
+        let inbox_type_display = match view.state().inbox_type.as_str() {
             "Priority Inbox" => t("settings.inbox_type.priority"),
             _ => t("settings.inbox_type.default"),
         };
 
         Modal {
-            id: WidgetNodeId::explicit("settings_modal"),
+            id: WidgetId::explicit("settings_modal"),
             title: t("settings.title"),
             is_open: true,
             on_dismiss: Some(ctx.bind(
@@ -453,335 +438,307 @@ impl Widget<InboxState> for SettingsModal {
                 reduce_with!((|s: &mut InboxState, a: SetSettingsOpen, _| s.show_settings = a.0)),
             )),
             width: Some(modal_width),
-            content: Box::new(
-                Scroll {
-                    direction: FlexDirection::Column,
-                    width: None,
-                    height: Some(body_height),
-                    show_scrollbar: true,
-                    child: Some(Box::new(
-                        VStack {
-                            spacing: Some(16.0),
-                            children: vec![
-                                Text::new(TextContent::Key("settings.general".into()))
-                                    .size(14.0)
-                                    .into_node(),
-                                SegmentedControl {
-                                    options: vec![t("settings.lang_en"), t("settings.lang_es")],
-                                    selected_index: if view.state.locale.0 == "es-ES" {
-                                        1
-                                    } else {
-                                        0
-                                    },
-                                    on_change: Some(Arc::new(move |idx| {
-                                        let loc = if idx == 1 { "es-ES" } else { "en-US" };
-                                        ActionEnvelope {
-                                            id: locale_id,
-                                            payload: serde_json::to_vec(&SetLocale(Locale(
-                                                loc.into(),
-                                            )))
+            content: Scroll {
+                direction: FlexDirection::Column,
+                width: None,
+                height: Some(body_height),
+                show_scrollbar: true,
+                child: Some(
+                    VStack {
+                        spacing: Some(16.0),
+                        children: vec![
+                            Text::new(TextContent::Key("settings.general".into()))
+                                .size(14.0)
+                                .into(),
+                            SegmentedControl {
+                                options: vec![t("settings.lang_en"), t("settings.lang_es")],
+                                selected_index: if view.state().locale.0 == "es-ES" {
+                                    1
+                                } else {
+                                    0
+                                },
+                                on_change: Some(Arc::new(move |idx| {
+                                    let loc = if idx == 1 { "es-ES" } else { "en-US" };
+                                    ActionEnvelope {
+                                        id: locale_id,
+                                        payload: serde_json::to_vec(&SetLocale(Locale(loc.into())))
                                             .unwrap(),
-                                        }
-                                    })),
-                                }
-                                .build(ctx, view),
-                                FormControl {
-                                    id: None,
-                                    label: Some(t("settings.inbox_type.label")),
-                                    required: false,
-                                    error: None,
-                                    helper: Some(t("settings.inbox_type.helper")),
-                                    child: Box::new(
-                                        Select {
-                                            id: WidgetNodeId::explicit("inbox_type_select"),
-                                            selected_label: Some(inbox_type_display),
-                                            placeholder: t("settings.inbox_type.placeholder"),
-                                            is_open: view.state.show_inbox_type_select,
-                                            on_toggle: Some(ActionEnvelope {
-                                                id: inbox_type_open_id,
-                                                payload: serde_json::to_vec(
-                                                    &SetInboxTypeSelectOpen(
-                                                        !view.state.show_inbox_type_select,
-                                                    ),
-                                                )
-                                                .unwrap(),
-                                            }),
-                                            items: vec![
-                                                SelectItem {
-                                                    label: t("settings.inbox_type.default"),
-                                                    icon: None,
-                                                    on_select: ActionEnvelope {
-                                                        id: inbox_type_id,
-                                                        payload: serde_json::to_vec(&SetInboxType(
-                                                            "Default".into(),
-                                                        ))
-                                                        .unwrap(),
-                                                    },
-                                                },
-                                                SelectItem {
-                                                    label: t("settings.inbox_type.priority"),
-                                                    icon: None,
-                                                    on_select: ActionEnvelope {
-                                                        id: inbox_type_id,
-                                                        payload: serde_json::to_vec(&SetInboxType(
-                                                            "Priority Inbox".into(),
-                                                        ))
-                                                        .unwrap(),
-                                                    },
-                                                },
-                                            ],
-                                            ..Default::default()
-                                        }
-                                        .build(ctx, view),
-                                    ),
-                                }
-                                .build(ctx, view),
-                                Divider {
-                                    orientation: fission::widgets::divider::Orientation::Horizontal,
-                                }
-                                .build(ctx, view),
-                                Text::new(TextContent::Key("settings.appearance".into()))
-                                    .size(14.0)
-                                    .into_node(),
-                                FormControl {
-                                    id: None,
-                                    label: Some(t("settings.theme.label")),
-                                    required: false,
-                                    error: None,
-                                    helper: None,
-                                    child: Box::new(
-                                        Select {
-                                            id: WidgetNodeId::explicit("theme_select"),
-                                            selected_label: Some(theme_display),
-                                            placeholder: t("settings.theme.placeholder"),
-                                            is_open: view.state.show_theme_select,
-                                            on_toggle: Some(ActionEnvelope {
-                                                id: theme_open_id,
-                                                payload: serde_json::to_vec(&SetThemeSelectOpen(
-                                                    !view.state.show_theme_select,
-                                                ))
-                                                .unwrap(),
-                                            }),
-                                            items: theme_items,
-                                            ..Default::default()
-                                        }
-                                        .build(ctx, view),
-                                    ),
-                                }
-                                .build(ctx, view),
-                                FormControl {
-                                    id: None,
-                                    label: Some(t("settings.density.label")),
-                                    required: false,
-                                    error: None,
-                                    helper: Some(t("settings.density.helper")),
-                                    child: Box::new(
-                                        Select {
-                                            id: WidgetNodeId::explicit("density_select"),
-                                            selected_label: Some(density_display),
-                                            placeholder: t("settings.density.placeholder"),
-                                            is_open: view.state.show_density_select,
-                                            on_toggle: Some(ActionEnvelope {
-                                                id: density_open_id,
-                                                payload: serde_json::to_vec(&SetDensitySelectOpen(
-                                                    !view.state.show_density_select,
-                                                ))
-                                                .unwrap(),
-                                            }),
-                                            items: density_items,
-                                            ..Default::default()
-                                        }
-                                        .build(ctx, view),
-                                    ),
-                                }
-                                .build(ctx, view),
-                                FormControl {
-                                    id: None,
-                                    label: Some(t("settings.zoom.label")),
-                                    required: false,
-                                    error: None,
-                                    helper: Some(t("settings.zoom.helper")),
-                                    child: Box::new(
-                                        Slider {
-                                            id: None,
-                                            value: view.state.zoom_level,
-                                            min: 0.75,
-                                            max: 1.25,
-                                            on_change: Some(ActionEnvelope {
-                                                id: zoom_id,
-                                                payload: serde_json::to_vec(&SetZoomLevel(
-                                                    view.state.zoom_level,
-                                                ))
-                                                .unwrap(),
-                                            }),
-                                        }
-                                        .into_node(),
-                                    ),
-                                }
-                                .build(ctx, view),
-                                Grid {
-                                    id: None,
-                                    columns: vec![GridTrack::Fr(1.0), GridTrack::Fr(1.0)],
-                                    rows: vec![GridTrack::Auto],
-                                    column_gap: Some(12.0),
-                                    row_gap: Some(12.0),
-                                    padding: [0.0; 4],
-                                    children: vec![
-                                        GridItem::new(
-                                            Card {
-                                                child: Box::new(
-                                                    VStack {
-                                                        spacing: Some(8.0),
-                                                        children: vec![
-                                                            Text::new(TextContent::Key(
-                                                                "settings.theme.preview_light"
-                                                                    .into(),
-                                                            ))
-                                                            .size(12.0)
-                                                            .into_node(),
-                                                            theme_preview(
-                                                                ctx,
-                                                                view,
-                                                                theme_id,
-                                                                "Light",
-                                                                Color {
-                                                                    r: 245,
-                                                                    g: 245,
-                                                                    b: 248,
-                                                                    a: 255,
-                                                                },
-                                                                Color {
-                                                                    r: 30,
-                                                                    g: 144,
-                                                                    b: 255,
-                                                                    a: 255,
-                                                                },
-                                                                view.state.theme_mode == "Light",
-                                                            ),
-                                                        ],
-                                                    }
-                                                    .into_node(),
-                                                ),
-                                                ..Default::default()
-                                            }
-                                            .build(ctx, view),
-                                        )
-                                        .into_node(),
-                                        GridItem::new(
-                                            Card {
-                                                child: Box::new(
-                                                    VStack {
-                                                        spacing: Some(8.0),
-                                                        children: vec![
-                                                            Text::new(TextContent::Key(
-                                                                "settings.theme.preview_dark"
-                                                                    .into(),
-                                                            ))
-                                                            .size(12.0)
-                                                            .into_node(),
-                                                            theme_preview(
-                                                                ctx,
-                                                                view,
-                                                                theme_id,
-                                                                "Dark",
-                                                                Color {
-                                                                    r: 28,
-                                                                    g: 30,
-                                                                    b: 34,
-                                                                    a: 255,
-                                                                },
-                                                                Color {
-                                                                    r: 255,
-                                                                    g: 214,
-                                                                    b: 10,
-                                                                    a: 255,
-                                                                },
-                                                                view.state.theme_mode == "Dark",
-                                                            ),
-                                                        ],
-                                                    }
-                                                    .into_node(),
-                                                ),
-                                                ..Default::default()
-                                            }
-                                            .build(ctx, view),
-                                        )
-                                        .into_node(),
-                                    ],
-                                }
-                                .into_node(),
-                                Divider {
-                                    orientation: fission::widgets::divider::Orientation::Horizontal,
-                                }
-                                .build(ctx, view),
-                                Text::new(TextContent::Key("settings.signature.title".into()))
-                                    .size(14.0)
-                                    .into_node(),
-                                FormControl {
-                                    id: None,
-                                    label: Some("Signature".into()),
-                                    required: false,
-                                    error: None,
-                                    helper: Some("Displayed at the end of new emails".into()),
-                                    child: Box::new(signature_editor),
-                                }
-                                .build(ctx, view),
-                                Button {
-                                    variant: ButtonVariant::Outline,
-                                    child: Some(Box::new(
-                                        Text::new(TextContent::Key(
-                                            "settings.signature.save".into(),
+                                    }
+                                })),
+                            }
+                            .into(),
+                            FormControl {
+                                id: None,
+                                label: Some(t("settings.inbox_type.label")),
+                                required: false,
+                                error: None,
+                                helper: Some(t("settings.inbox_type.helper")),
+                                child: Select {
+                                    id: WidgetId::explicit("inbox_type_select"),
+                                    selected_label: Some(inbox_type_display),
+                                    placeholder: t("settings.inbox_type.placeholder"),
+                                    is_open: view.state().show_inbox_type_select,
+                                    on_toggle: Some(ActionEnvelope {
+                                        id: inbox_type_open_id,
+                                        payload: serde_json::to_vec(&SetInboxTypeSelectOpen(
+                                            !view.state().show_inbox_type_select,
                                         ))
-                                        .into_node(),
-                                    )),
-                                    on_press: Some(ActionEnvelope {
-                                        id: signature_edit_id,
-                                        payload: serde_json::to_vec(&SetSignatureEditing(false))
-                                            .unwrap(),
+                                        .unwrap(),
                                     }),
+                                    items: vec![
+                                        SelectItem {
+                                            label: t("settings.inbox_type.default"),
+                                            icon: None,
+                                            on_select: ActionEnvelope {
+                                                id: inbox_type_id,
+                                                payload: serde_json::to_vec(&SetInboxType(
+                                                    "Default".into(),
+                                                ))
+                                                .unwrap(),
+                                            },
+                                        },
+                                        SelectItem {
+                                            label: t("settings.inbox_type.priority"),
+                                            icon: None,
+                                            on_select: ActionEnvelope {
+                                                id: inbox_type_id,
+                                                payload: serde_json::to_vec(&SetInboxType(
+                                                    "Priority Inbox".into(),
+                                                ))
+                                                .unwrap(),
+                                            },
+                                        },
+                                    ],
                                     ..Default::default()
                                 }
-                                .into_node(),
-                                Divider {
-                                    orientation: fission::widgets::divider::Orientation::Horizontal,
+                                .into(),
+                            }
+                            .into(),
+                            Divider {
+                                orientation: fission::widgets::divider::Orientation::Horizontal,
+                            }
+                            .into(),
+                            Text::new(TextContent::Key("settings.appearance".into()))
+                                .size(14.0)
+                                .into(),
+                            FormControl {
+                                id: None,
+                                label: Some(t("settings.theme.label")),
+                                required: false,
+                                error: None,
+                                helper: None,
+                                child: Select {
+                                    id: WidgetId::explicit("theme_select"),
+                                    selected_label: Some(theme_display),
+                                    placeholder: t("settings.theme.placeholder"),
+                                    is_open: view.state().show_theme_select,
+                                    on_toggle: Some(ActionEnvelope {
+                                        id: theme_open_id,
+                                        payload: serde_json::to_vec(&SetThemeSelectOpen(
+                                            !view.state().show_theme_select,
+                                        ))
+                                        .unwrap(),
+                                    }),
+                                    items: theme_items,
+                                    ..Default::default()
                                 }
-                                .build(ctx, view),
-                                Text::new(TextContent::Key("settings.labs.title".into()))
-                                    .size(14.0)
-                                    .into_node(),
-                                Card {
-                                    child: Box::new(
-                                        VStack {
-                                            spacing: Some(12.0),
+                                .into(),
+                            }
+                            .into(),
+                            FormControl {
+                                id: None,
+                                label: Some(t("settings.density.label")),
+                                required: false,
+                                error: None,
+                                helper: Some(t("settings.density.helper")),
+                                child: Select {
+                                    id: WidgetId::explicit("density_select"),
+                                    selected_label: Some(density_display),
+                                    placeholder: t("settings.density.placeholder"),
+                                    is_open: view.state().show_density_select,
+                                    on_toggle: Some(ActionEnvelope {
+                                        id: density_open_id,
+                                        payload: serde_json::to_vec(&SetDensitySelectOpen(
+                                            !view.state().show_density_select,
+                                        ))
+                                        .unwrap(),
+                                    }),
+                                    items: density_items,
+                                    ..Default::default()
+                                }
+                                .into(),
+                            }
+                            .into(),
+                            FormControl {
+                                id: None,
+                                label: Some(t("settings.zoom.label")),
+                                required: false,
+                                error: None,
+                                helper: Some(t("settings.zoom.helper")),
+                                child: Slider {
+                                    id: None,
+                                    value: view.state().zoom_level,
+                                    min: 0.75,
+                                    max: 1.25,
+                                    on_change: Some(ActionEnvelope {
+                                        id: zoom_id,
+                                        payload: serde_json::to_vec(&SetZoomLevel(
+                                            view.state().zoom_level,
+                                        ))
+                                        .unwrap(),
+                                    }),
+                                }
+                                .into(),
+                            }
+                            .into(),
+                            Grid {
+                                id: None,
+                                columns: vec![GridTrack::Fr(1.0), GridTrack::Fr(1.0)],
+                                rows: vec![GridTrack::Auto],
+                                column_gap: Some(12.0),
+                                row_gap: Some(12.0),
+                                padding: [0.0; 4],
+                                children: vec![
+                                    GridItem::new(Card {
+                                        child: VStack {
+                                            spacing: Some(8.0),
                                             children: vec![
-                                                HStack {
-                                                    spacing: Some(8.0),
-                                                    children: vec![
+                                                Text::new(TextContent::Key(
+                                                    "settings.theme.preview_light".into(),
+                                                ))
+                                                .size(12.0)
+                                                .into(),
+                                                theme_preview(
+                                                    ctx,
+                                                    view,
+                                                    theme_id,
+                                                    "Light",
+                                                    Color {
+                                                        r: 245,
+                                                        g: 245,
+                                                        b: 248,
+                                                        a: 255,
+                                                    },
+                                                    Color {
+                                                        r: 30,
+                                                        g: 144,
+                                                        b: 255,
+                                                        a: 255,
+                                                    },
+                                                    view.state().theme_mode == "Light",
+                                                ),
+                                            ],
+                                        }
+                                        .into(),
+                                        ..Default::default()
+                                    })
+                                    .into(),
+                                    GridItem::new(Card {
+                                        child: VStack {
+                                            spacing: Some(8.0),
+                                            children: vec![
+                                                Text::new(TextContent::Key(
+                                                    "settings.theme.preview_dark".into(),
+                                                ))
+                                                .size(12.0)
+                                                .into(),
+                                                theme_preview(
+                                                    ctx,
+                                                    view,
+                                                    theme_id,
+                                                    "Dark",
+                                                    Color {
+                                                        r: 28,
+                                                        g: 30,
+                                                        b: 34,
+                                                        a: 255,
+                                                    },
+                                                    Color {
+                                                        r: 255,
+                                                        g: 214,
+                                                        b: 10,
+                                                        a: 255,
+                                                    },
+                                                    view.state().theme_mode == "Dark",
+                                                ),
+                                            ],
+                                        }
+                                        .into(),
+                                        ..Default::default()
+                                    })
+                                    .into(),
+                                ],
+                            }
+                            .into(),
+                            Divider {
+                                orientation: fission::widgets::divider::Orientation::Horizontal,
+                            }
+                            .into(),
+                            Text::new(TextContent::Key("settings.signature.title".into()))
+                                .size(14.0)
+                                .into(),
+                            FormControl {
+                                id: None,
+                                label: Some("Signature".into()),
+                                required: false,
+                                error: None,
+                                helper: Some("Displayed at the end of new emails".into()),
+                                child: signature_editor,
+                            }
+                            .into(),
+                            Button {
+                                variant: ButtonVariant::Outline,
+                                child: Some(
+                                    Text::new(TextContent::Key("settings.signature.save".into()))
+                                        .into(),
+                                ),
+                                on_press: Some(ActionEnvelope {
+                                    id: signature_edit_id,
+                                    payload: serde_json::to_vec(&SetSignatureEditing(false))
+                                        .unwrap(),
+                                }),
+                                ..Default::default()
+                            }
+                            .into(),
+                            Divider {
+                                orientation: fission::widgets::divider::Orientation::Horizontal,
+                            }
+                            .into(),
+                            Text::new(TextContent::Key("settings.labs.title".into()))
+                                .size(14.0)
+                                .into(),
+                            Card {
+                                child: VStack {
+                                    spacing: Some(12.0),
+                                    children: vec![
+                                        HStack {
+                                            spacing: Some(8.0),
+                                            children: vec![
                                                         Icon::svg(
                                                             material::action::check_circle::regular(
                                                             ),
                                                         )
                                                         .size(18.0)
-                                                        .into_node(),
+                                                        .into(),
                                                         Text::new(TextContent::Key(
                                                             "settings.labs.smart_compose".into(),
                                                         ))
-                                                        .into_node(),
+                                                        .into(),
                                                         fission::core::ui::widgets::Spacer {
                                                             flex_grow: 1.0,
                                                             ..Default::default()
                                                         }
-                                                        .into_node(),
+                                                        .into(),
                                                         Switch {
                                                             checked: view
-                                                                .state
+                                                                .state()
                                                                 .smart_compose_enabled,
                                                             on_toggle: Some(ActionEnvelope {
                                                                 id: smart_compose_id,
                                                                 payload: serde_json::to_vec(
                                                                     &SetSmartComposeEnabled(
                                                                         !view
-                                                                            .state
+                                                                            .state()
                                                                             .smart_compose_enabled,
                                                                     ),
                                                                 )
@@ -789,160 +746,154 @@ impl Widget<InboxState> for SettingsModal {
                                                             }),
                                                             ..Default::default()
                                                         }
-                                                        .into_node(),
+                                                        .into(),
                                                     ],
-                                                }
-                                                .into_node(),
-                                                HStack {
-                                                    spacing: Some(8.0),
-                                                    children: vec![
+                                        }
+                                        .into(),
+                                        HStack {
+                                            spacing: Some(8.0),
+                                            children: vec![
                                                 Icon::svg(
                                                     material::action::report_problem::regular(),
                                                 )
                                                 .size(18.0)
-                                                .into_node(),
+                                                .into(),
                                                 Text::new(TextContent::Key(
                                                     "settings.labs.offline".into(),
                                                 ))
-                                                .into_node(),
+                                                .into(),
                                                 fission::core::ui::widgets::Spacer {
                                                     flex_grow: 1.0,
                                                     ..Default::default()
                                                 }
-                                                .into_node(),
+                                                .into(),
                                                 Switch {
-                                                    checked: view.state.offline_enabled,
+                                                    checked: view.state().offline_enabled,
                                                     on_toggle: Some(ActionEnvelope {
                                                         id: offline_id,
                                                         payload: serde_json::to_vec(
                                                             &SetOfflineEnabled(
-                                                                !view.state.offline_enabled,
+                                                                !view.state().offline_enabled,
                                                             ),
                                                         )
                                                         .unwrap(),
                                                     }),
                                                     ..Default::default()
                                                 }
-                                                .into_node(),
+                                                .into(),
                                             ],
-                                                }
-                                                .into_node(),
-                                                HStack {
-                                                    spacing: Some(8.0),
-                                                    children: vec![
+                                        }
+                                        .into(),
+                                        HStack {
+                                            spacing: Some(8.0),
+                                            children: vec![
                                                 Icon::svg(material::action::info::regular())
                                                     .size(18.0)
-                                                    .into_node(),
+                                                    .into(),
                                                 Text::new(TextContent::Key(
                                                     "settings.labs.auto_advance".into(),
                                                 ))
-                                                .into_node(),
+                                                .into(),
                                                 fission::core::ui::widgets::Spacer {
                                                     flex_grow: 1.0,
                                                     ..Default::default()
                                                 }
-                                                .into_node(),
+                                                .into(),
                                                 Switch {
-                                                    checked: view.state.auto_advance_enabled,
+                                                    checked: view.state().auto_advance_enabled,
                                                     on_toggle: Some(ActionEnvelope {
                                                         id: auto_advance_id,
                                                         payload: serde_json::to_vec(
                                                             &SetAutoAdvanceEnabled(
-                                                                !view.state.auto_advance_enabled,
+                                                                !view.state().auto_advance_enabled,
                                                             ),
                                                         )
                                                         .unwrap(),
                                                     }),
                                                     ..Default::default()
                                                 }
-                                                .into_node(),
-                                            ],
-                                                }
-                                                .into_node(),
+                                                .into(),
                                             ],
                                         }
-                                        .into_node(),
-                                    ),
-                                    ..Default::default()
+                                        .into(),
+                                    ],
                                 }
-                                .build(ctx, view),
-                                Text::new(TextContent::Key("settings.labels.title".into()))
-                                    .size(12.0)
-                                    .into_node(),
-                                Wrap {
-                                    direction: fission::ir::op::FlexDirection::Row,
-                                    spacing: Some(6.0),
-                                    children: draggable_labels,
-                                }
-                                .build(ctx, view),
-                                drop_target,
-                                pinned_badge,
-                                HStack {
-                                    spacing: Some(6.0),
-                                    children: vec![
-                                        GestureDetector {
-                                            on_tap: Some(ActionEnvelope {
-                                                id: tip_id,
-                                                payload: serde_json::to_vec(&SetQuickTipOpen(true))
-                                                    .unwrap(),
-                                            }),
-                                            child: Box::new(
-                                                HStack {
-                                                    spacing: Some(6.0),
-                                                    children: vec![
+                                .into(),
+                                ..Default::default()
+                            }
+                            .into(),
+                            Text::new(TextContent::Key("settings.labels.title".into()))
+                                .size(12.0)
+                                .into(),
+                            Wrap {
+                                direction: fission::op::FlexDirection::Row,
+                                spacing: Some(6.0),
+                                children: draggable_labels,
+                            }
+                            .into(),
+                            drop_target,
+                            pinned_badge,
+                            HStack {
+                                spacing: Some(6.0),
+                                children: vec![
+                                    GestureDetector {
+                                        on_tap: Some(ActionEnvelope {
+                                            id: tip_id,
+                                            payload: serde_json::to_vec(&SetQuickTipOpen(true))
+                                                .unwrap(),
+                                        }),
+                                        child: HStack {
+                                            spacing: Some(6.0),
+                                            children: vec![
                                                 Icon::svg(material::action::info::regular())
                                                     .size(16.0)
-                                                    .into_node(),
+                                                    .into(),
                                                 Text::new(TextContent::Key(
                                                     "settings.tips.show".into(),
                                                 ))
                                                 .size(12.0)
-                                                .into_node(),
+                                                .into(),
                                             ],
-                                                }
-                                                .into_node(),
-                                            ),
-                                            ..Default::default()
                                         }
-                                        .into_node(),
-                                        Badge {
-                                            text: "Beta".into(),
-                                            ..Default::default()
-                                        }
-                                        .build(ctx, view),
-                                    ],
-                                }
-                                .into_node(),
-                                FormControl {
+                                        .into(),
+                                        ..Default::default()
+                                    }
+                                    .into(),
+                                    Badge {
+                                        text: "Beta".into(),
+                                        ..Default::default()
+                                    }
+                                    .into(),
+                                ],
+                            }
+                            .into(),
+                            FormControl {
+                                id: None,
+                                label: Some("Page size".into()),
+                                required: false,
+                                error: None,
+                                helper: Some("Rows per page".into()),
+                                child: NumberInput {
                                     id: None,
-                                    label: Some("Page size".into()),
-                                    required: false,
-                                    error: None,
-                                    helper: Some("Rows per page".into()),
-                                    child: Box::new(
-                                        NumberInput {
-                                            id: None,
-                                            value: 50.0,
-                                            min: Some(10.0),
-                                            max: Some(100.0),
-                                            step: 10.0,
-                                            on_increment: None,
-                                            on_decrement: None,
-                                            on_change: None,
-                                            ..Default::default()
-                                        }
-                                        .build(ctx, view),
-                                    ),
+                                    value: 50.0,
+                                    min: Some(10.0),
+                                    max: Some(100.0),
+                                    step: 10.0,
+                                    on_increment: None,
+                                    on_decrement: None,
+                                    on_change: None,
+                                    ..Default::default()
                                 }
-                                .build(ctx, view),
-                            ],
-                        }
-                        .into_node(),
-                    )),
-                    ..Default::default()
-                }
-                .into_node(),
-            ),
+                                .into(),
+                            }
+                            .into(),
+                        ],
+                    }
+                    .into(),
+                ),
+                ..Default::default()
+            }
+            .into(),
             actions: vec![ModalAction {
                 label: "Close".into(),
                 is_primary: true,
@@ -954,6 +905,6 @@ impl Widget<InboxState> for SettingsModal {
                 )),
             }],
         }
-        .build(ctx, view)
+        .into()
     }
 }

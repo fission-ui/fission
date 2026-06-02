@@ -16,7 +16,7 @@ fn browser_bridge_click_updates_cart_island() {
         .env("FISSION_PROJECT_DIR", project_dir)
         .current_dir(workspace)
         .status()
-        .expect("failed to start Node browser bridge E2E test");
+        .expect("failed to start JavaScript browser bridge E2E test");
 
     assert!(status.success(), "browser bridge E2E test failed: {status}");
 }

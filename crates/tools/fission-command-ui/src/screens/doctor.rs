@@ -9,12 +9,13 @@ use fission::prelude::*;
 #[derive(Clone)]
 pub struct DoctorScreen;
 
-impl Widget<UiState> for DoctorScreen {
-    fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
-        let palette = UiPalette::for_mode(view.state.theme_mode);
+impl From<DoctorScreen> for Widget {
+    fn from(_component: DoctorScreen) -> Self {
+        let (ctx, view) = fission::build::current::<UiState>();
+        let palette = UiPalette::for_mode(view.state().theme_mode);
         let doctor_all = with_reducer!(ctx, RequestCommand(UiCommand::DoctorAll), request_command);
         let strict = with_reducer!(ctx, ToggleStrict, toggle_strict);
-        let selected_target = view.state.selected_target;
+        let selected_target = view.state().selected_target;
         let selected_check = selected_target.map(|target| {
             let action = with_reducer!(
                 ctx,
@@ -24,7 +25,7 @@ impl Widget<UiState> for DoctorScreen {
             ActionButton::new(format!("Check {}", target_label(target)), action)
                 .tone(ButtonTone::Primary)
                 .width(24.0)
-                .build(ctx, view)
+                .into()
         });
 
         Column {
@@ -36,24 +37,24 @@ impl Widget<UiState> for DoctorScreen {
                     palette.accent,
                     palette.muted,
                 ),
-                KeyValueRow::new("Project", view.state.project_dir.display().to_string())
-                    .build(ctx, view),
-                TogglePill::new("Strict exit status", view.state.strict, strict).build(ctx, view),
+                KeyValueRow::new("Project", view.state().project_dir.display().to_string())
+                    .into(),
+                TogglePill::new("Strict exit status", view.state().strict, strict).into(),
                 ActionButton::new("Check all configured tooling", doctor_all)
                     .tone(ButtonTone::Primary)
                     .width(32.0)
-                    .build(ctx, view),
+                    .into(),
                 Text::new("Select one platform when you want a narrower check.")
                     .color(palette.muted)
-                    .into_node(),
+                    .into(),
                 TargetPicker {
                     configured_only: false,
                 }
-                .build(ctx, view),
-                selected_check.unwrap_or_else(|| Text::new("Select a target first.").into_node()),
+                .into(),
+                selected_check.unwrap_or_else(|| Text::new("Select a target first.").into()),
             ],
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 }

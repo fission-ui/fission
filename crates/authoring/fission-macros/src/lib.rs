@@ -4,7 +4,6 @@
 //! - `#[derive(Action)]` to generate `Action` trait implementations
 //! - `#[fission_action]` to inject the standard Fission action derives
 //! - `#[fission_reducer]` to generate an action type from an ergonomic reducer
-//! - `#[derive(Widget)]` (currently a no-op placeholder)
 
 use proc_macro::TokenStream;
 use proc_macro_crate::{crate_name, FoundCrate};
@@ -13,8 +12,8 @@ use syn::{
     parse::{Parse, ParseStream, Parser},
     parse_macro_input, parse_quote,
     punctuated::Punctuated,
-    Attribute, DeriveInput, FnArg, GenericParam, Ident, Item, ItemFn, LitStr, Meta, Pat, PatIdent,
-    PatType, Path, ReturnType, Token, Type, TypeReference, Visibility,
+    Attribute, DeriveInput, Expr, Fields, FnArg, GenericParam, Ident, Item, ItemFn, ItemStruct,
+    LitStr, Meta, Pat, PatIdent, PatType, Path, ReturnType, Token, Type, TypeReference, Visibility,
 };
 
 /// Derives the `Action` trait for a struct.
@@ -127,10 +126,49 @@ pub fn fission_reducer(attr: TokenStream, item: TokenStream) -> TokenStream {
     }
 }
 
-/// Reserved derive macro for future widget code generation. Currently a no-op.
-#[proc_macro_derive(Widget, attributes(widget))]
-pub fn derive_widget(_input: TokenStream) -> TokenStream {
-    quote!().into()
+/// Marks a struct as a Fission component and turns `#[local_state]` fields into
+/// typed accessor methods.
+///
+/// This implements the v2 authoring shape where props remain ordinary struct
+/// fields and retained local state is accessed through generated
+/// `StateField<T>` handles.
+#[proc_macro_attribute]
+pub fn fission_component(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(item as ItemStruct);
+
+    match expand_fission_component(input) {
+        Ok(tokens) => tokens.into(),
+        Err(error) => error.to_compile_error().into(),
+    }
+}
+
+/// Generates a typed read-only view wrapper for a state struct.
+///
+/// Field methods return either another generated view for nested state structs
+/// or `ValueView<T>` for scalar/collection fields. Mark a field with
+/// `#[fission(skip_view)]` to omit it from the generated view.
+#[proc_macro_derive(FissionStateView, attributes(fission))]
+pub fn derive_fission_state_view(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+
+    match expand_state_view(input, false) {
+        Ok(tokens) => tokens.into(),
+        Err(error) => error.to_compile_error().into(),
+    }
+}
+
+/// Generates a typed read-only global state view and implements `GlobalState`.
+///
+/// Use this on the root app state type. The struct must satisfy the
+/// `GlobalState` supertraits, including `Debug`, `Send`, and `Sync`.
+#[proc_macro_derive(FissionGlobalState, attributes(fission))]
+pub fn derive_fission_global_state(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+
+    match expand_state_view(input, true) {
+        Ok(tokens) => tokens.into(),
+        Err(error) => error.to_compile_error().into(),
+    }
 }
 
 fn parse_fission_action_args(attr: TokenStream) -> syn::Result<bool> {
@@ -185,6 +223,209 @@ impl Parse for FissionReducerArgs {
 struct ReducerParam {
     ident: Ident,
     ty: Type,
+}
+
+struct LocalStateField {
+    ident: Ident,
+    ty: Type,
+    default: Expr,
+}
+
+fn expand_fission_component(mut input: ItemStruct) -> syn::Result<proc_macro2::TokenStream> {
+    let component_ident = input.ident.clone();
+    let component_name = quote! { concat!(module_path!(), "::", stringify!(#component_ident)) };
+    let fission_core_path = fission_core_path();
+    let mut local_fields = Vec::new();
+
+    let Fields::Named(fields) = &mut input.fields else {
+        return Err(syn::Error::new_spanned(
+            &input.fields,
+            "#[fission_component] requires a struct with named fields",
+        ));
+    };
+
+    let mut props = Punctuated::new();
+    for mut field in std::mem::take(&mut fields.named).into_iter() {
+        if let Some(default) = take_local_state_default(&mut field.attrs)? {
+            let ident = field.ident.clone().ok_or_else(|| {
+                syn::Error::new_spanned(&field, "#[local_state] requires a named field")
+            })?;
+            local_fields.push(LocalStateField {
+                ident,
+                ty: field.ty,
+                default,
+            });
+        } else {
+            props.push(field);
+        }
+    }
+    fields.named = props;
+
+    let accessors = local_fields.iter().map(|field| {
+        let ident = &field.ident;
+        let ty = &field.ty;
+        let field_name = LitStr::new(&ident.to_string(), proc_macro2::Span::call_site());
+        let default = &field.default;
+        quote! {
+            pub fn #ident(&self) -> #fission_core_path::StateField<#ty> {
+                #fission_core_path::StateField::new_with(#component_name, #field_name, || #default)
+            }
+        }
+    });
+
+    Ok(quote! {
+        #input
+
+        impl #component_ident {
+            #(#accessors)*
+        }
+    })
+}
+
+fn expand_state_view(
+    input: DeriveInput,
+    implement_global_state: bool,
+) -> syn::Result<proc_macro2::TokenStream> {
+    if !input.generics.params.is_empty() {
+        return Err(syn::Error::new_spanned(
+            input.generics,
+            "Fission state view derives do not support generic state structs",
+        ));
+    }
+
+    let struct_ident = input.ident;
+    let vis = input.vis;
+    let view_ident = format_ident!("{}View", struct_ident);
+    let fission_core_path = fission_core_path();
+
+    let fields = match input.data {
+        syn::Data::Struct(data) => match data.fields {
+            Fields::Named(fields) => fields.named,
+            other => {
+                return Err(syn::Error::new_spanned(
+                    other,
+                    "Fission state view derives require a struct with named fields",
+                ));
+            }
+        },
+        _ => {
+            return Err(syn::Error::new_spanned(
+                struct_ident,
+                "Fission state view derives can only be used on structs",
+            ));
+        }
+    };
+
+    let mut accessors = Vec::new();
+    for field in fields {
+        if has_skip_view_attr(&field.attrs)? {
+            continue;
+        }
+        let Some(field_ident) = field.ident else {
+            continue;
+        };
+        let field_ty = field.ty;
+        accessors.push(quote! {
+            pub fn #field_ident(&self) -> <#field_ty as #fission_core_path::FissionViewField>::View<'a> {
+                <#field_ty as #fission_core_path::FissionViewField>::view_field(&self.value.#field_ident)
+            }
+        });
+    }
+
+    let global_impl = implement_global_state.then(|| {
+        quote! {
+            impl #fission_core_path::GlobalState for #struct_ident {}
+        }
+    });
+
+    Ok(quote! {
+        #[derive(Clone, Copy, Debug)]
+        #vis struct #view_ident<'a> {
+            value: &'a #struct_ident,
+        }
+
+        impl<'a> #view_ident<'a> {
+            pub fn new(value: &'a #struct_ident) -> Self {
+                Self { value }
+            }
+
+            pub fn borrow(&self) -> &'a #struct_ident {
+                self.value
+            }
+
+            pub fn get(&self) -> #struct_ident
+            where
+                #struct_ident: ::core::clone::Clone,
+            {
+                self.value.clone()
+            }
+
+            pub fn map<R>(&self, selector: impl FnOnce(&#struct_ident) -> R) -> #fission_core_path::ComputedView<R> {
+                #fission_core_path::ComputedView::new(selector(self.value))
+            }
+
+            #(#accessors)*
+        }
+
+        impl #fission_core_path::FissionViewField for #struct_ident {
+            type View<'a> = #view_ident<'a> where Self: 'a;
+
+            fn view_field<'a>(value: &'a Self) -> Self::View<'a> {
+                #view_ident::new(value)
+            }
+        }
+
+        #global_impl
+    })
+}
+
+fn has_skip_view_attr(attrs: &[Attribute]) -> syn::Result<bool> {
+    let mut skip = false;
+    for attr in attrs.iter().filter(|attr| attr.path().is_ident("fission")) {
+        attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("skip_view") {
+                skip = true;
+                Ok(())
+            } else {
+                Err(meta.error("unsupported #[fission(...)] option; supported: skip_view"))
+            }
+        })?;
+    }
+    Ok(skip)
+}
+
+fn take_local_state_default(attrs: &mut Vec<Attribute>) -> syn::Result<Option<Expr>> {
+    let Some(index) = attrs
+        .iter()
+        .position(|attr| attr.path().is_ident("local_state"))
+    else {
+        return Ok(None);
+    };
+
+    let attr = attrs.remove(index);
+    let metas = attr.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)?;
+    for meta in metas {
+        match meta {
+            Meta::NameValue(name_value) if name_value.path.is_ident("default") => {
+                return Ok(Some(name_value.value));
+            }
+            Meta::NameValue(name_value) if name_value.path.is_ident("default_with") => {
+                let expr = name_value.value;
+                return Ok(Some(parse_quote! { #expr() }));
+            }
+            other => {
+                return Err(syn::Error::new_spanned(
+                    other,
+                    "unsupported #[local_state(...)] option; supported: default, default_with",
+                ));
+            }
+        }
+    }
+
+    Err(syn::Error::new_spanned(
+        attr,
+        "#[local_state] requires `default = ...` or `default_with = ...`",
+    ))
 }
 
 fn expand_fission_reducer(

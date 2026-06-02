@@ -1,8 +1,7 @@
 use crate::stack::VStack;
 use crate::Icon;
 use fission_core::op::Color;
-use fission_core::ui::{Container, Node, Row, Text};
-use fission_core::{BuildCtx, View, Widget};
+use fission_core::ui::{Container, Row, Text, Widget};
 use fission_icons::material;
 use serde::{Deserialize, Serialize};
 
@@ -21,12 +20,15 @@ pub struct Alert {
     pub description: Option<String>,
 }
 
-impl<S: fission_core::AppState> Widget<S> for Alert {
-    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let theme = &view.env.theme.components.alert;
-        let tokens = &view.env.theme.tokens;
+impl From<Alert> for Widget {
+    fn from(component: Alert) -> Self {
+        let (_, view) = fission_core::build::current::<()>();
+        let this = &component;
 
-        let (bg, icon, color) = match self.kind {
+        let theme = &view.env().theme.components.alert;
+        let tokens = &view.env().theme.tokens;
+
+        let (bg, icon, color) = match this.kind {
             AlertKind::Info => (
                 theme.info_bg,
                 material::action::info::regular(),
@@ -54,41 +56,35 @@ impl<S: fission_core::AppState> Widget<S> for Alert {
             ),
         };
 
-        Container::new(
-            Row {
-                gap: Some(12.0),
-                align_items: fission_ir::op::AlignItems::Center,
-                children: vec![
-                    Icon::svg(icon).size(24.0).color(color).into_node(),
-                    Container::new(
-                        VStack {
-                            spacing: Some(2.0),
-                            children: vec![
-                                Text::new(self.title.clone())
-                                    .size(tokens.typography.body_large_size)
-                                    .into_node(),
-                                if let Some(desc) = &self.description {
-                                    Text::new(desc.clone())
-                                        .size(tokens.typography.body_medium_size)
-                                        .color(tokens.colors.text_secondary)
-                                        .into_node()
-                                } else {
-                                    fission_core::ui::widgets::spacer::Spacer::default().into_node()
-                                },
-                            ],
-                        }
-                        .into_node(),
-                    )
-                    .flex_grow(1.0)
-                    .into_node(),
-                ],
-                ..Default::default()
-            }
-            .into_node(),
-        )
+        Container::new(Row {
+            gap: Some(12.0),
+            align_items: fission_ir::op::AlignItems::Center,
+            children: vec![
+                Icon::svg(icon).size(24.0).color(color).into(),
+                Container::new(VStack {
+                    spacing: Some(2.0),
+                    children: vec![
+                        Text::new(this.title.clone())
+                            .size(tokens.typography.body_large_size)
+                            .into(),
+                        if let Some(desc) = &this.description {
+                            Text::new(desc.clone())
+                                .size(tokens.typography.body_medium_size)
+                                .color(tokens.colors.text_secondary)
+                                .into()
+                        } else {
+                            fission_core::ui::widgets::spacer::Spacer::default().into()
+                        },
+                    ],
+                })
+                .flex_grow(1.0)
+                .into(),
+            ],
+            ..Default::default()
+        })
         .bg(bg)
         .padding_all(12.0)
         .border_radius(theme.radius)
-        .into_node()
+        .into()
     }
 }

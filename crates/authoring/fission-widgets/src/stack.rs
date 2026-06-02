@@ -1,12 +1,10 @@
-use fission_core::ui::{Column, Node, Row};
-use fission_core::{BuildCtx, View, Widget};
+use fission_core::ui::{Column, Row, Widget};
 use serde::{Deserialize, Serialize};
 
 /// A horizontal stack that arranges children in a row with optional spacing.
 ///
-/// Convenience wrapper around [`Row`] that exposes a simpler API. Use `into_node()`
-/// to convert directly to a `Node`, or use the `Widget` implementation for
-/// state-aware building.
+/// Convenience wrapper around [`Row`] that exposes a simpler API and converts
+/// into the closed [`Widget`] tree value.
 ///
 /// # Example
 ///
@@ -14,23 +12,12 @@ use serde::{Deserialize, Serialize};
 /// HStack {
 ///     spacing: Some(8.0),
 ///     children: vec![icon_node, label_node],
-/// }.into_node()
+/// }.into()
 /// ```
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
 pub struct HStack {
-    pub children: Vec<Node>,
+    pub children: Vec<Widget>,
     pub spacing: Option<f32>,
-}
-
-impl HStack {
-    pub fn into_node(self) -> Node {
-        Row {
-            children: self.children,
-            gap: self.spacing,
-            ..Default::default()
-        }
-        .into()
-    }
 }
 
 /// A vertical stack that arranges children in a column with optional spacing.
@@ -43,33 +30,32 @@ impl HStack {
 /// VStack {
 ///     spacing: Some(12.0),
 ///     children: vec![title_node, body_node, footer_node],
-/// }.into_node()
+/// }.into()
 /// ```
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
 pub struct VStack {
-    pub children: Vec<Node>,
+    pub children: Vec<Widget>,
     pub spacing: Option<f32>,
 }
 
-impl VStack {
-    pub fn into_node(self) -> Node {
-        Column {
-            children: self.children,
-            gap: self.spacing,
+impl From<HStack> for Widget {
+    fn from(component: HStack) -> Self {
+        Row {
+            children: component.children,
+            gap: component.spacing,
             ..Default::default()
         }
         .into()
     }
 }
 
-impl<S: fission_core::AppState> Widget<S> for HStack {
-    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        self.clone().into_node()
-    }
-}
-
-impl<S: fission_core::AppState> Widget<S> for VStack {
-    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        self.clone().into_node()
+impl From<VStack> for Widget {
+    fn from(component: VStack) -> Self {
+        Column {
+            children: component.children,
+            gap: component.spacing,
+            ..Default::default()
+        }
+        .into()
     }
 }

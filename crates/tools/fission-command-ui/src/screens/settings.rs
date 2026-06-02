@@ -11,9 +11,10 @@ use fission::prelude::*;
 #[derive(Clone)]
 pub struct SettingsScreen;
 
-impl Widget<UiState> for SettingsScreen {
-    fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
-        let palette = UiPalette::for_mode(view.state.theme_mode);
+impl From<SettingsScreen> for Widget {
+    fn from(_component: SettingsScreen) -> Self {
+        let (ctx, view) = fission::build::current::<UiState>();
+        let palette = UiPalette::for_mode(view.state().theme_mode);
         let set_limit_input = with_reducer!(
             ctx,
             SetScrollbackLimitInput(String::new()),
@@ -25,13 +26,13 @@ impl Widget<UiState> for SettingsScreen {
             .map(|limit| {
                 let action = with_reducer!(ctx, SetScrollbackLimit(limit), set_scrollback_limit);
                 ActionButton::new(format_scrollback_limit(limit), action)
-                    .tone(if view.state.scrollback_limit == limit {
+                    .tone(if view.state().scrollback_limit == limit {
                         ButtonTone::Primary
                     } else {
                         ButtonTone::Neutral
                     })
                     .width(16.0)
-                    .build(ctx, view)
+                    .into()
             })
             .collect::<Vec<_>>();
 
@@ -46,15 +47,15 @@ impl Widget<UiState> for SettingsScreen {
                 ),
                 KeyValueRow::new(
                     "Density",
-                    if view.state.compact_mode {
+                    if view.state().compact_mode {
                         "Compact".to_string()
                     } else {
                         "Comfortable".to_string()
                     },
                 )
-                .build(ctx, view),
+                .into(),
                 ActionButton::new(
-                    if view.state.compact_mode {
+                    if view.state().compact_mode {
                         "Use comfortable spacing"
                     } else {
                         "Use compact spacing"
@@ -63,39 +64,38 @@ impl Widget<UiState> for SettingsScreen {
                 )
                 .tone(ButtonTone::Neutral)
                 .width(28.0)
-                .build(ctx, view),
+                .into(),
                 KeyValueRow::new(
                     "Scrollback",
-                    format!("{} lines", view.state.scrollback_limit),
+                    format!("{} lines", view.state().scrollback_limit),
                 )
-                .build(ctx, view),
+                .into(),
                 FormTextField::new(
                     "cli_ui_scrollback_limit",
                     "Scrollback lines",
-                    view.state.scrollback_limit_input.clone(),
+                    view.state().scrollback_limit_input.clone(),
                     "100000, 500k, 1m",
                     set_limit_input,
                 )
                 .width(28.0)
-                .build(ctx, view),
+                .into(),
                 Row {
                     gap: Some(1.0),
                     children: presets,
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
                 Text::new(
                     "The UI keeps a bounded ring buffer for command output. Older lines are discarded once the configured limit is reached, which keeps long-running sessions predictable instead of growing memory without limit.",
                 )
                 .color(palette.muted)
-                .into_node(),
+                .into(),
             ],
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 }
-
 fn format_scrollback_limit(limit: usize) -> String {
     if limit >= 1_000_000 && limit % 1_000_000 == 0 {
         format!("{}M", limit / 1_000_000)

@@ -1,7 +1,8 @@
 pub mod render;
+use fission_core::internal::{InternalLowerer, InternalLoweringCx, InternalRenderNode};
 use fission_core::op::Color;
-use fission_core::ui::{Container, CustomNode, Node};
-use fission_core::{BuildCtx, View, Widget};
+use fission_core::ui::{Container, Widget};
+
 use fission_ir::op::{EmbedKind, LayoutOp};
 use serde::{Deserialize, Serialize};
 
@@ -69,38 +70,41 @@ impl Scene3D {
     }
 }
 
-impl<S: fission_core::AppState> Widget<S> for Scene3D {
-    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        let mut container = Container::new(Node::Custom(CustomNode {
-            debug_tag: "fission_3d::Scene3D".into(),
-            lowerer: Some(std::sync::Arc::new(Scene3DLowerer {
-                scene: self.clone(),
-            })),
-            render_object: None,
-        }));
-        if let Some(w) = self.width {
+impl From<Scene3D> for Widget {
+    fn from(component: Scene3D) -> Self {
+        let this = &component;
+        let mut container = Container::new(fission_core::internal::custom_render_widget(
+            InternalRenderNode {
+                debug_tag: "fission_3d::Scene3D".into(),
+                lowerer: Some(std::sync::Arc::new(Scene3DInternalLowerer {
+                    scene: this.clone(),
+                })),
+                render_object: None,
+            },
+        ));
+        if let Some(w) = this.width {
             container = container.width(w);
         } else {
             container = container.flex_grow(1.0);
         }
-        if let Some(h) = self.height {
+        if let Some(h) = this.height {
             container = container.height(h);
         } else {
-            if self.width.is_none() {
+            if this.width.is_none() {
                 container = container.flex_grow(1.0);
             }
         }
-        container.into_node()
+        container.into()
     }
 }
 
 #[derive(Debug)]
-pub struct Scene3DLowerer {
+pub struct Scene3DInternalLowerer {
     pub scene: Scene3D,
 }
 
-impl fission_core::ui::traits::LowerDyn for Scene3DLowerer {
-    fn lower_dyn(&self, cx: &mut fission_core::lowering::LoweringContext) -> fission_ir::NodeId {
+impl InternalLowerer for Scene3DInternalLowerer {
+    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> fission_ir::WidgetId {
         let node_id = cx.next_node_id();
 
         let w = self
@@ -119,7 +123,7 @@ impl fission_core::ui::traits::LowerDyn for Scene3DLowerer {
         let payload = bincode::serialize(&self.scene.primitives).unwrap_or_default();
         let op = fission_ir::Op::Layout(LayoutOp::Embed {
             kind: EmbedKind::Custom(payload),
-            widget_id: fission_ir::WidgetNodeId::explicit("fission_3d_scene"),
+            widget_id: fission_ir::WidgetId::explicit("fission_3d_scene"),
             width: Some(w),
             height: Some(h),
         });

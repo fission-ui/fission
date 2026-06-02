@@ -17,7 +17,7 @@ The clipboard and input method editor contracts sit beside those two types becau
 
 ## `Env`
 
-`Env` is the read-only environment bundle exposed to widgets through `View`.
+`Env` is the read-only environment bundle exposed to widgets through `ViewHandle`.
 
 Today, the public fields include:
 
@@ -32,7 +32,7 @@ Today, the public fields include:
 
 Use `Env` for shared presentation and host-context values, not for durable product state.
 
-A widget should read environment through `View`, for example with `view.viewport_size()`, `view.theme()`, or `view.env.locale`.
+A widget should read environment through `ViewHandle`, for example with `view.viewport_size()`, `view.theme()`, or `view.env.locale`.
 
 ## How `Env` reaches the app
 
@@ -40,7 +40,7 @@ Desktop currently exposes public `with_env(...)` and `with_sync_env(...)` builde
 
 Use `with_env(...)` when you want to seed a prepared environment, such as an environment that already contains translation bundles.
 
-Use `with_sync_env(...)` when values in `AppState` should be mirrored into `Env`, such as a user-selected locale or theme mode.
+Use `with_sync_env(...)` when values in `GlobalState` should be mirrored into `Env`, such as a user-selected locale or theme mode.
 
 The important contract is that environment remains explicit and shell-managed, not hidden behind global process state.
 
@@ -95,6 +95,22 @@ Fission does not hide clipboard and input method editor support inside one deskt
 Shells provide the real platform implementations. Tests can provide mocks.
 
 That separation matters because clipboard and input method editor behavior are part of the host boundary, but they still need to plug into the shared runtime model explicitly.
+
+## Contract completeness checklist
+
+Use this checklist when wiring `Environment, input, and input method editor` into an app or shell implementation.
+
+| Requirement | Why it matters |
+| --- | --- |
+| Public entrypoint | The app code must call the documented helper, command, or configuration field rather than a platform-specific shortcut. |
+| Required setup | Native manifests, plist entries, entitlements, service-worker files, domains, protocols, credentials, or provider registration must be present before production use. |
+| Typed success and error | The implementation should return a truthful typed result. Silent success, swallowed errors, and string-only failure paths make apps unsafe to retry. |
+| Retry behavior | Operations that can fail because of permission, network, hardware, store, or packaging state should document whether retrying is useful and what must change first. |
+| Tests | Cover the happy path, unsupported host path, bad configuration path, and any security-sensitive rejection path. |
+
+## Failure behavior and safe retry
+
+Treat failures as product states, not surprises. A Fission app should be able to tell the user whether the problem is missing configuration, missing provider support, denied permission, unavailable hardware, invalid input, expired credentials, or a transient host error. Reducers should update state from typed results and keep retry buttons idempotent so pressing them twice cannot corrupt state or duplicate unsafe work.
 
 ## Related runtime-owned text state
 

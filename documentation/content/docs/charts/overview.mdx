@@ -26,7 +26,7 @@ Each family card opens the reference entry for that family. Use the guide pages 
 
 ## A chart is ordinary Fission UI
 
-The shortest useful chart creates axes, adds one or more series, and returns the chart from your widget build function. The surrounding screen can still use normal Fission layout widgets, reducers, commands, resources, and services.
+The shortest useful chart creates axes, adds one or more series, and returns the chart from component conversion. The surrounding screen can still use normal Fission layout widgets, reducers, commands, resources, and services.
 
 ```rust
 use fission::prelude::*;
@@ -35,12 +35,13 @@ use fission::charts::{Axis, BarSeries, Chart, Legend, LineSeries, Tooltip};
 #[derive(Default, Clone)]
 struct DashboardState;
 
-impl AppState for DashboardState {}
+impl GlobalState for DashboardState {}
 
 struct Dashboard;
 
-impl Widget<DashboardState> for Dashboard {
-    fn build(&self, ctx: &mut BuildCtx<DashboardState>, view: &View<DashboardState>) -> Node {
+impl From<Dashboard> for Widget {
+    fn from(component: Dashboard) -> Self {
+        let (ctx, view) = fission::build::current::<DashboardState>();
         Chart::new()
             .title("Weekly revenue")
             .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]))
@@ -56,7 +57,7 @@ impl Widget<DashboardState> for Dashboard {
                     .data(vec![120.0, 132.0, 101.0, 134.0, 90.0, 230.0, 210.0])
                     .into(),
             ])
-            .build(ctx, view)
+            .into()
     }
 }
 ```
@@ -79,3 +80,14 @@ Do not use a dramatic chart just because it looks impressive. A gauge is useful 
 ## Where the docs go next
 
 The catalog documents the chart surface that is implemented today. Every entry uses a chart-only screenshot captured from the Fission chart gallery so readers see real renderer output rather than the gallery application shell. Use the catalog for quick selection, then open the family and variant reference pages for the data shape, Rust model, interaction notes, animation behavior, and testing guidance.
+
+## Lifecycle fit and verification
+
+This page belongs to the setup, learn, build, test, and publish lifecycle. Use it to decide the next concrete action, then verify the action before moving to the next stage.
+
+| Stage question | Verification |
+| --- | --- |
+| What file or command changes? | The page should point to the exact `fission` command, `fission.toml` section, Rust component, or generated artifact involved. |
+| What proves it worked? | Prefer a command output, generated file, screenshot, test assertion, package artifact, or deployed URL over a vague statement. |
+| What can fail safely? | Permission prompts, missing tools, unsupported hosts, invalid config, and expired credentials should produce diagnosable errors that can be retried after the cause is fixed. |
+| What should I read next? | Continue to the linked guide for step-by-step work or the reference page for exact fields and contracts. |

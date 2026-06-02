@@ -14,28 +14,28 @@ Use it when the layout is already known but the real data has not arrived yet. A
 ```rust
 use fission::prelude::*;
 
-let node = VStack {
+let widget: Widget = VStack {
     spacing: Some(12.0),
     children: vec![
         Skeleton {
-            id: WidgetNodeId::explicit("profile_avatar_loading"),
+            id: WidgetId::explicit("profile_avatar_loading"),
             width: Some(48.0),
             height: Some(48.0),
             circle: true,
             animated: true,
         }
-        .build(ctx, view),
+        .into(),
         Skeleton {
-            id: WidgetNodeId::explicit("profile_name_loading"),
+            id: WidgetId::explicit("profile_name_loading"),
             width: Some(180.0),
             height: Some(18.0),
             circle: false,
             animated: true,
         }
-        .build(ctx, view),
+        .into(),
     ],
 }
-.into_node();
+.into();
 ```
 
 This keeps the loading state close to the final layout instead of replacing everything with a generic spinner.
@@ -44,7 +44,7 @@ This keeps the loading state close to the final layout instead of replacing ever
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `WidgetNodeId` | Stable identity used for animation state. | Required. Give each skeleton a unique id. |
+| `id` | `WidgetId` | Stable identity used for animation state. | Required. Give each skeleton a unique id. |
 | `width` | `Option<f32>` | Placeholder width. | Defaults to `100.0`. |
 | `height` | `Option<f32>` | Placeholder height. | Defaults to `20.0`. |
 | `circle` | `bool` | Whether to render the placeholder as a fully rounded shape. | Defaults to `false`. Useful for avatar placeholders. |
@@ -59,6 +59,18 @@ The checked-in widget animates opacity when `animated` is true, so stable ids ma
 ## Specific advice
 
 Match the skeleton shape to the eventual content as closely as is practical. A loading state feels more polished when the placeholder predicts the final layout instead of using random bars everywhere.
+
+## Production checklist
+
+For `Skeleton`, review the fields that change behavior before treating the widget as finished: `id`, `width`, `height`, `circle`, `animated`. The goal is to make the product rule visible in state and actions, not hidden inside ad-hoc construction code.
+
+- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
+- Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.
+- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
+- Prefer parent layout and design-system sizing first; use explicit size or spacing fields when the product layout requires that constraint on this widget specifically.
+- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+
+If a screen starts repeating the same `Skeleton` setup, extract a named component around this widget. That keeps the reference API small while making product code easier to read and safer for generated code to copy.
 
 ## Related
 

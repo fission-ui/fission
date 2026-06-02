@@ -1,6 +1,6 @@
 use crate::runtime::Runtime;
 use crate::{
-    reduce_with, Action, ActionEnvelope, ActionId, AppState, CapabilityType, Effect,
+    reduce_with, Action, ActionEnvelope, ActionId, CapabilityType, Effect, GlobalState,
     OperationCapability, ReducerContext,
 };
 use serde::{Deserialize, Serialize};
@@ -10,7 +10,7 @@ struct TestState {
     data: String,
     loading: bool,
 }
-impl AppState for TestState {}
+impl GlobalState for TestState {}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct UploadFileRequest {
@@ -88,7 +88,7 @@ impl Action for UploadFinished {
 fn test_capability_effect_loop() {
     let mut runtime = Runtime::default();
     runtime
-        .add_app_state(Box::new(TestState::default()))
+        .add_global_state(Box::new(TestState::default()))
         .unwrap();
 
     let mut registry = crate::registry::ActionRegistry::new();
@@ -102,7 +102,7 @@ fn test_capability_effect_loop() {
                 id: UploadRequested::static_id(),
                 payload: UploadRequested.encode(),
             },
-            crate::NodeId::from_u128(0),
+            crate::WidgetId::from_u128(0),
         )
         .unwrap();
 
@@ -111,7 +111,7 @@ fn test_capability_effect_loop() {
     runtime
         .dispatch_with_input(
             on_ok,
-            crate::NodeId::from_u128(0),
+            crate::WidgetId::from_u128(0),
             &crate::ActionInput::CapabilityOk {
                 capability: "upload-file".into(),
                 req_id: env.req_id,
@@ -120,7 +120,7 @@ fn test_capability_effect_loop() {
         )
         .unwrap();
 
-    let state = runtime.get_app_state::<TestState>().unwrap();
+    let state = runtime.get_global_state::<TestState>().unwrap();
     assert!(!state.loading);
     assert_eq!(state.data, "uploaded 11 bytes");
 }
@@ -129,7 +129,7 @@ fn test_capability_effect_loop() {
 fn test_operation_capability_effect() {
     let mut runtime = Runtime::default();
     runtime
-        .add_app_state(Box::new(TestState::default()))
+        .add_global_state(Box::new(TestState::default()))
         .unwrap();
 
     let mut registry = crate::registry::ActionRegistry::new();
@@ -142,7 +142,7 @@ fn test_operation_capability_effect() {
                 id: UploadRequested::static_id(),
                 payload: UploadRequested.encode(),
             },
-            crate::NodeId::from_u128(0),
+            crate::WidgetId::from_u128(0),
         )
         .unwrap();
 

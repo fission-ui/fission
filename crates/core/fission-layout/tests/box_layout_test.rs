@@ -1,4 +1,4 @@
-use fission_ir::{LayoutOp as IrLayoutOp, NodeId};
+use fission_ir::{LayoutOp as IrLayoutOp, WidgetId};
 use fission_layout::{LayoutEngine, LayoutInputNode, LayoutSize};
 #[test]
 fn test_box_default_stretch() {
@@ -7,8 +7,8 @@ fn test_box_default_stretch() {
     // If we changed default alignment to Stretch, children should fill cross-axis.
 
     let mut engine = LayoutEngine::new();
-    let root_id = NodeId::from_u128(1);
-    let child_id = NodeId::from_u128(2);
+    let root_id = WidgetId::from_u128(1);
+    let child_id = WidgetId::from_u128(2);
 
     let root = LayoutInputNode {
         id: root_id,

@@ -2,16 +2,14 @@ use crate::web_backend::WebSurfaceFrame;
 use anyhow::Result;
 use fission_core::diff::diff_ir;
 use fission_core::env::{AnimationStateMap, Env, VideoStateMap, WebStateMap};
-use fission_core::lowering::build_layout_tree;
+use fission_core::internal::build_layout_tree;
+use fission_core::internal::downcast_render_object;
 use fission_core::registry::AnimationPropertyId;
 use fission_core::scrollbar::scrollbar_geometry_for_node;
-use fission_core::ui::custom_render::downcast_render_object;
 use fission_core::{LayoutPoint, ScrollStateMap};
 use fission_diagnostics::prelude as diag;
 use fission_diagnostics::{SnapshotBlob, SnapshotKind, SnapshotProvider};
-use fission_ir::{
-    CompositeScalar, CoreIR, EmbedKind, FlexDirection, LayoutOp, NodeId, Op, WidgetNodeId,
-};
+use fission_ir::{CompositeScalar, CoreIR, EmbedKind, FlexDirection, LayoutOp, Op, WidgetId};
 use fission_layout::{LayoutEngine, LayoutInputNode, LayoutRect, LayoutSize, LayoutSnapshot};
 use fission_render::{
     embed_surface_id, BoxShadow, Color as RenderColor, DisplayList, DisplayOp, Fill, LayerClip,
@@ -135,12 +133,12 @@ struct TransformBinding {
 #[derive(Debug, Clone)]
 struct ScrollbarBinding {
     node_path: Vec<usize>,
-    node_id: NodeId,
+    node_id: WidgetId,
 }
 
 #[derive(Debug, Clone)]
 struct ScrollTransform {
-    node_id: NodeId,
+    node_id: WidgetId,
     direction: FlexDirection,
 }
 
@@ -171,25 +169,25 @@ pub struct CompositorTexturePlan {
 pub struct Pipeline {
     pub prev_ir: Option<CoreIR>,
     pub last_snapshot: Option<LayoutSnapshot>,
-    pub paint_cache: HashMap<NodeId, (u64, DisplayList)>,
-    boundary_cache: HashMap<NodeId, BoundaryCacheEntry>,
-    pub last_scroll_offsets: HashMap<NodeId, u32>,
+    pub paint_cache: HashMap<WidgetId, (u64, DisplayList)>,
+    boundary_cache: HashMap<WidgetId, BoundaryCacheEntry>,
+    pub last_scroll_offsets: HashMap<WidgetId, u32>,
     pub video_surfaces: Vec<VideoSurfaceFrame>,
     pub web_surfaces: Vec<WebSurfaceFrame>,
-    pub scene_3d_surfaces: Vec<(WidgetNodeId, LayoutRect, Vec<u8>)>,
+    pub scene_3d_surfaces: Vec<(WidgetId, LayoutRect, Vec<u8>)>,
     pub last_viewport: Option<LayoutRect>,
     pub layout_invariant_violation_count: u32,
     pub layout_full_rebuild_count: u32,
     retained_scene: Option<RenderScene>,
     retained_dynamic_ops: RetainedDynamicOps,
     layout_input_nodes: Vec<LayoutInputNode>,
-    pending_layout_dirty_nodes: HashSet<NodeId>,
+    pending_layout_dirty_nodes: HashSet<WidgetId>,
     pending_layout_invalidated: bool,
     pending_layout_full: bool,
-    compositor_animation_keys: HashSet<(WidgetNodeId, AnimationPropertyId)>,
-    runtime_dynamic_nodes: HashSet<NodeId>,
-    scroll_nodes: HashSet<NodeId>,
-    runtime_dynamic_subtrees: HashMap<NodeId, bool>,
+    compositor_animation_keys: HashSet<(WidgetId, AnimationPropertyId)>,
+    runtime_dynamic_nodes: HashSet<WidgetId>,
+    scroll_nodes: HashSet<WidgetId>,
+    runtime_dynamic_subtrees: HashMap<WidgetId, bool>,
     retained_texture_plans: Vec<CompositorTexturePlan>,
     retained_texture_root_transform: Option<[f32; 16]>,
 }
@@ -286,7 +284,7 @@ impl Pipeline {
 
     pub fn classify_animation_updates(
         &self,
-        changed: &[(WidgetNodeId, AnimationPropertyId)],
+        changed: &[(WidgetId, AnimationPropertyId)],
     ) -> InvalidationSet {
         let mut invalidation = InvalidationSet::default();
         for key in changed {
@@ -660,9 +658,9 @@ impl Pipeline {
 
     fn compute_runtime_dynamic_subtree(
         &self,
-        node_id: NodeId,
+        node_id: WidgetId,
         ir: &CoreIR,
-        memo: &mut HashMap<NodeId, bool>,
+        memo: &mut HashMap<WidgetId, bool>,
     ) -> bool {
         if let Some(cached) = memo.get(&node_id) {
             return *cached;
@@ -816,7 +814,7 @@ impl Pipeline {
         for (child_index, child) in split_layer.children.iter().enumerate() {
             let mut child_path = split_layer_path.clone();
             child_path.push(child_index);
-            if let Some(plan) = build_texture_plan_from_node(
+            if let Some(plan) = build_texture_plan_for_node(
                 child,
                 &child_path,
                 true,
@@ -980,13 +978,13 @@ struct TexturePlanCandidate<'a> {
     path: Vec<usize>,
 }
 
-fn build_texture_plan_from_node(
+fn build_texture_plan_for_node(
     node: &RenderNode,
     node_path: &[usize],
     force: bool,
-    runtime_dynamic_nodes: &HashSet<NodeId>,
-    scroll_nodes: &HashSet<NodeId>,
-    runtime_dynamic_subtrees: &HashMap<NodeId, bool>,
+    runtime_dynamic_nodes: &HashSet<WidgetId>,
+    scroll_nodes: &HashSet<WidgetId>,
+    runtime_dynamic_subtrees: &HashMap<WidgetId, bool>,
 ) -> Option<CompositorTexturePlan> {
     let candidate = find_nested_texture_plan_candidate(
         node,
@@ -1041,7 +1039,7 @@ fn build_texture_plan_from_node(
                         runtime_dynamic_subtrees,
                     ));
                 } else {
-                    if let Some(child_plan) = build_texture_plan_from_node(
+                    if let Some(child_plan) = build_texture_plan_for_node(
                         child,
                         &child_path,
                         false,
@@ -1103,12 +1101,12 @@ fn build_texture_plan_from_node(
 fn build_descending_wrapper_plans(
     node: &RenderNode,
     node_path: &[usize],
-    runtime_dynamic_nodes: &HashSet<NodeId>,
-    scroll_nodes: &HashSet<NodeId>,
-    runtime_dynamic_subtrees: &HashMap<NodeId, bool>,
+    runtime_dynamic_nodes: &HashSet<WidgetId>,
+    scroll_nodes: &HashSet<WidgetId>,
+    runtime_dynamic_subtrees: &HashMap<WidgetId, bool>,
 ) -> Vec<CompositorTexturePlan> {
     match node {
-        RenderNode::Paint(_) => build_texture_plan_from_node(
+        RenderNode::Paint(_) => build_texture_plan_for_node(
             node,
             node_path,
             true,
@@ -1133,7 +1131,7 @@ fn build_descending_wrapper_plans(
             }
 
             if children.is_empty() {
-                return build_texture_plan_from_node(
+                return build_texture_plan_for_node(
                     node,
                     node_path,
                     true,
@@ -1172,9 +1170,9 @@ fn find_nested_texture_plan_candidate<'a>(
     node: &'a RenderNode,
     node_path: &[usize],
     force: bool,
-    runtime_dynamic_nodes: &HashSet<NodeId>,
-    scroll_nodes: &HashSet<NodeId>,
-    runtime_dynamic_subtrees: &HashMap<NodeId, bool>,
+    runtime_dynamic_nodes: &HashSet<WidgetId>,
+    scroll_nodes: &HashSet<WidgetId>,
+    runtime_dynamic_subtrees: &HashMap<WidgetId, bool>,
 ) -> Option<TexturePlanCandidate<'a>> {
     match node {
         RenderNode::Paint(_) => force.then_some(TexturePlanCandidate {
@@ -1299,7 +1297,7 @@ fn localized_scene_for_compositor_children(
 
 fn render_node_or_subtree_is_dynamic(
     node: &RenderNode,
-    runtime_dynamic_subtrees: &HashMap<NodeId, bool>,
+    runtime_dynamic_subtrees: &HashMap<WidgetId, bool>,
 ) -> bool {
     match node {
         RenderNode::Paint(_) => false,
@@ -1469,18 +1467,18 @@ fn append_transform(current: Option<[f32; 16]>, next: [f32; 16]) -> Option<[f32;
 }
 
 fn generate_render_layer_recursive(
-    node_id: NodeId,
+    node_id: WidgetId,
     ir: &CoreIR,
     snapshot: &LayoutSnapshot,
     scroll_map: &ScrollStateMap,
     animation_map: &AnimationStateMap,
-    paint_cache: &mut HashMap<NodeId, (u64, DisplayList)>,
-    boundary_cache: &mut HashMap<NodeId, BoundaryCacheEntry>,
-    runtime_dynamic_subtrees: &HashMap<NodeId, bool>,
+    paint_cache: &mut HashMap<WidgetId, (u64, DisplayList)>,
+    boundary_cache: &mut HashMap<WidgetId, BoundaryCacheEntry>,
+    runtime_dynamic_subtrees: &HashMap<WidgetId, bool>,
     miss_count: &mut usize,
     hit_count: &mut usize,
     scene_cache_allowed: bool,
-    visited: &mut HashSet<NodeId>,
+    visited: &mut HashSet<WidgetId>,
     bindings: &mut RetainedDynamicOps,
     layer_path: Vec<usize>,
 ) -> Option<RenderLayer> {
@@ -1797,7 +1795,7 @@ fn generate_render_layer_recursive(
 
 fn push_video_surface(
     video_surfaces: &mut Vec<VideoSurfaceFrame>,
-    widget_id: WidgetNodeId,
+    widget_id: WidgetId,
     rect: LayoutRect,
     video_map: &VideoStateMap,
 ) {
@@ -1813,7 +1811,7 @@ fn push_video_surface(
 
 fn push_web_surface(
     web_surfaces: &mut Vec<WebSurfaceFrame>,
-    widget_id: WidgetNodeId,
+    widget_id: WidgetId,
     rect: LayoutRect,
     web_map: &WebStateMap,
 ) {
@@ -1830,7 +1828,7 @@ fn push_web_surface(
 }
 
 fn collect_video_surfaces(
-    node_id: NodeId,
+    node_id: WidgetId,
     ir: &CoreIR,
     snapshot: &LayoutSnapshot,
     video_map: &VideoStateMap,
@@ -1839,7 +1837,7 @@ fn collect_video_surfaces(
     accumulated_offset: LayoutPoint,
     video_surfaces: &mut Vec<VideoSurfaceFrame>,
     web_surfaces: &mut Vec<WebSurfaceFrame>,
-    scene_3d_surfaces: &mut Vec<(WidgetNodeId, LayoutRect, Vec<u8>)>,
+    scene_3d_surfaces: &mut Vec<(WidgetId, LayoutRect, Vec<u8>)>,
 ) {
     let mut visited = HashSet::new();
     collect_video_surfaces_with_visited(
@@ -1858,7 +1856,7 @@ fn collect_video_surfaces(
 }
 
 fn collect_video_surfaces_with_visited(
-    node_id: NodeId,
+    node_id: WidgetId,
     ir: &CoreIR,
     snapshot: &LayoutSnapshot,
     video_map: &VideoStateMap,
@@ -1867,8 +1865,8 @@ fn collect_video_surfaces_with_visited(
     accumulated_offset: LayoutPoint,
     video_surfaces: &mut Vec<VideoSurfaceFrame>,
     web_surfaces: &mut Vec<WebSurfaceFrame>,
-    scene_3d_surfaces: &mut Vec<(WidgetNodeId, LayoutRect, Vec<u8>)>,
-    visited: &mut HashSet<NodeId>,
+    scene_3d_surfaces: &mut Vec<(WidgetId, LayoutRect, Vec<u8>)>,
+    visited: &mut HashSet<WidgetId>,
 ) {
     if !visited.insert(node_id) {
         return;
@@ -1949,7 +1947,7 @@ fn boundary_hash(node: &fission_ir::CoreNode, rect: LayoutRect) -> u64 {
 
 fn build_local_paint_list(
     ir: &CoreIR,
-    node_id: NodeId,
+    node_id: WidgetId,
     node: &fission_ir::CoreNode,
     rect: LayoutRect,
 ) -> Option<DisplayList> {
@@ -2150,7 +2148,7 @@ fn build_local_paint_list(
 
 fn build_scrollbar_paint(
     ir: &CoreIR,
-    node_id: NodeId,
+    node_id: WidgetId,
     snapshot: &LayoutSnapshot,
     scroll_map: &ScrollStateMap,
 ) -> Option<DisplayList> {
@@ -2282,7 +2280,7 @@ fn is_identity_matrix(matrix: &[f32; 16]) -> bool {
 }
 
 #[cfg(test)]
-fn scroll_offsets_changed(prev: &HashMap<NodeId, u32>, scroll_map: &ScrollStateMap) -> bool {
+fn scroll_offsets_changed(prev: &HashMap<WidgetId, u32>, scroll_map: &ScrollStateMap) -> bool {
     if prev.len() != scroll_map.offsets.len() {
         return true;
     }
@@ -2393,8 +2391,8 @@ mod tests {
     };
     use fission_ir::semantics::ActionTrigger;
     use fission_ir::{
-        ActionEntry, CompositeScalar, CompositeStyle, CoreIR, EmbedKind, LayoutOp, NodeId, Op,
-        PaintOp, WidgetNodeId,
+        ActionEntry, CompositeScalar, CompositeStyle, CoreIR, EmbedKind, LayoutOp, Op, PaintOp,
+        WidgetId,
     };
     use fission_layout::{LayoutEngine, LayoutRect, LayoutSize};
     use fission_render::{DisplayOp, RenderScene, Renderer};
@@ -2410,9 +2408,9 @@ mod tests {
     }
 
     fn two_child_layout_ir(second_width: f32) -> CoreIR {
-        let root = NodeId::derived(50, &[0]);
-        let first = NodeId::derived(50, &[1]);
-        let second = NodeId::derived(50, &[2]);
+        let root = WidgetId::derived(50, &[0]);
+        let first = WidgetId::derived(50, &[1]);
+        let second = WidgetId::derived(50, &[2]);
         let mut ir = CoreIR::new();
         ir.add_node(
             first,
@@ -2466,7 +2464,7 @@ mod tests {
 
     #[test]
     fn unchanged_scroll_offsets_do_not_invalidate_cache() {
-        let id = NodeId::derived(1, &[0]);
+        let id = WidgetId::derived(1, &[0]);
         let mut prev = HashMap::new();
         prev.insert(id, 12.5f32.to_bits());
         let mut scroll = ScrollStateMap::default();
@@ -2476,7 +2474,7 @@ mod tests {
 
     #[test]
     fn changed_scroll_offsets_invalidate_cache() {
-        let id = NodeId::derived(2, &[0]);
+        let id = WidgetId::derived(2, &[0]);
         let mut prev = HashMap::new();
         prev.insert(id, 0.0f32.to_bits());
         let mut scroll = ScrollStateMap::default();
@@ -2517,7 +2515,7 @@ mod tests {
 
     #[test]
     fn rich_text_annotations_flow_into_display_ops() {
-        let node_id = NodeId::derived(9, &[0]);
+        let node_id = WidgetId::derived(9, &[0]);
         let mut ir = CoreIR::new();
         ir.add_node(
             node_id,
@@ -2582,7 +2580,7 @@ mod tests {
 
     #[test]
     fn draw_image_paint_ops_flow_into_display_ops() {
-        let node_id = NodeId::derived(12, &[0]);
+        let node_id = WidgetId::derived(12, &[0]);
         let request = ImageRequest {
             source: ImageSource::Network {
                 url: "https://example.com/product.webp".into(),
@@ -2631,8 +2629,8 @@ mod tests {
 
     #[test]
     fn retained_pipeline_scene_keeps_draw_image_ops() {
-        let image_id = NodeId::derived(13, &[0]);
-        let root_id = NodeId::derived(13, &[1]);
+        let image_id = WidgetId::derived(13, &[0]);
+        let root_id = WidgetId::derived(13, &[1]);
         let request = ImageRequest {
             source: ImageSource::Network {
                 url: "https://example.com/catalog/thumbnail.webp".into(),
@@ -2723,8 +2721,8 @@ mod tests {
 
     #[test]
     fn embed_layout_ops_flow_into_surface_display_ops() {
-        let node_id = NodeId::derived(14, &[0]);
-        let widget_id = WidgetNodeId::explicit("embed.surface");
+        let node_id = WidgetId::derived(14, &[0]);
+        let widget_id = WidgetId::explicit("embed.surface");
         let mut ir = CoreIR::new();
         ir.add_node(
             node_id,
@@ -2759,14 +2757,14 @@ mod tests {
     #[test]
     fn compositor_bound_opacity_animation_is_composite_only() {
         let mut ir = CoreIR::new();
-        let child = NodeId::derived(10, &[1]);
-        let root = NodeId::derived(10, &[0]);
+        let child = WidgetId::derived(10, &[1]);
+        let root = WidgetId::derived(10, &[0]);
         ir.add_node(child, Op::Layout(LayoutOp::AbsoluteFill), vec![]);
         ir.add_node_with_composite(
             root,
             Op::Structural(fission_ir::StructuralOp::Group { stable_hash: 1 }),
             CompositeStyle {
-                opacity: Some(CompositeScalar::new(0.0).animated(WidgetNodeId::explicit("fade"))),
+                opacity: Some(CompositeScalar::new(0.0).animated(WidgetId::explicit("fade"))),
                 ..Default::default()
             },
             vec![child],
@@ -2776,7 +2774,7 @@ mod tests {
         let mut pipeline = Pipeline::new();
         pipeline.replace_ir(ir, &Env::default());
         let invalidation = pipeline.classify_animation_updates(&[(
-            WidgetNodeId::explicit("fade"),
+            WidgetId::explicit("fade"),
             AnimationPropertyId::Opacity,
         )]);
         assert_eq!(
@@ -2794,7 +2792,7 @@ mod tests {
     fn unbound_custom_animation_requires_build() {
         let pipeline = Pipeline::new();
         let invalidation = pipeline.classify_animation_updates(&[(
-            WidgetNodeId::explicit("custom"),
+            WidgetId::explicit("custom"),
             AnimationPropertyId::custom("phase"),
         )]);
         assert!(invalidation.build);
@@ -2804,8 +2802,8 @@ mod tests {
     #[test]
     fn compositor_bound_translate_animation_is_composite_only() {
         let mut ir = CoreIR::new();
-        let child = NodeId::derived(11, &[1]);
-        let root = NodeId::derived(11, &[0]);
+        let child = WidgetId::derived(11, &[1]);
+        let root = WidgetId::derived(11, &[0]);
         ir.add_node(
             child,
             Op::Paint(PaintOp::DrawRect {
@@ -2836,9 +2834,7 @@ mod tests {
                 aspect_ratio: None,
             }),
             CompositeStyle {
-                translate_x: Some(
-                    CompositeScalar::new(12.0).animated(WidgetNodeId::explicit("slide")),
-                ),
+                translate_x: Some(CompositeScalar::new(12.0).animated(WidgetId::explicit("slide"))),
                 ..Default::default()
             },
             vec![child],
@@ -2848,7 +2844,7 @@ mod tests {
         let mut pipeline = Pipeline::new();
         pipeline.replace_ir(ir, &Env::default());
         let invalidation = pipeline.classify_animation_updates(&[(
-            WidgetNodeId::explicit("slide"),
+            WidgetId::explicit("slide"),
             AnimationPropertyId::TranslateX,
         )]);
         assert_eq!(
@@ -2865,8 +2861,8 @@ mod tests {
     #[test]
     fn dynamic_layer_with_static_contents_gets_content_cache_key() {
         let mut ir = CoreIR::new();
-        let child = NodeId::derived(12, &[1]);
-        let root = NodeId::derived(12, &[0]);
+        let child = WidgetId::derived(12, &[1]);
+        let root = WidgetId::derived(12, &[0]);
         ir.add_node(
             child,
             Op::Paint(PaintOp::DrawRect {
@@ -2897,9 +2893,7 @@ mod tests {
                 aspect_ratio: None,
             }),
             CompositeStyle {
-                opacity: Some(
-                    CompositeScalar::new(0.4).animated(WidgetNodeId::explicit("fade-cache")),
-                ),
+                opacity: Some(CompositeScalar::new(0.4).animated(WidgetId::explicit("fade-cache"))),
                 ..Default::default()
             },
             vec![child],
@@ -2957,12 +2951,12 @@ mod tests {
     #[test]
     fn nested_dynamic_descendant_becomes_child_texture_plan() {
         let mut ir = CoreIR::new();
-        let left_paint = NodeId::derived(13, &[0]);
-        let animated_paint = NodeId::derived(13, &[1]);
-        let animated_wrapper = NodeId::derived(13, &[2]);
-        let outer_static = NodeId::derived(13, &[3]);
-        let outer_group = NodeId::derived(13, &[4]);
-        let root = NodeId::derived(13, &[5]);
+        let left_paint = WidgetId::derived(13, &[0]);
+        let animated_paint = WidgetId::derived(13, &[1]);
+        let animated_wrapper = WidgetId::derived(13, &[2]);
+        let outer_static = WidgetId::derived(13, &[3]);
+        let outer_group = WidgetId::derived(13, &[4]);
+        let root = WidgetId::derived(13, &[5]);
 
         ir.add_node(
             left_paint,
@@ -3010,7 +3004,7 @@ mod tests {
             }),
             CompositeStyle {
                 opacity: Some(
-                    CompositeScalar::new(0.4).animated(WidgetNodeId::explicit("nested-fade")),
+                    CompositeScalar::new(0.4).animated(WidgetId::explicit("nested-fade")),
                 ),
                 ..Default::default()
             },
@@ -3105,9 +3099,9 @@ mod tests {
     #[test]
     fn resize_preview_keeps_texture_compositor_root_transform() {
         let mut ir = CoreIR::new();
-        let left = NodeId::derived(14, &[0]);
-        let right = NodeId::derived(14, &[1]);
-        let root = NodeId::derived(14, &[2]);
+        let left = WidgetId::derived(14, &[0]);
+        let right = WidgetId::derived(14, &[1]);
+        let root = WidgetId::derived(14, &[2]);
 
         ir.add_node(
             left,
@@ -3193,9 +3187,9 @@ mod tests {
     #[test]
     fn scroll_only_layers_patch_retained_transforms_after_offset_changes() {
         let mut ir = CoreIR::new();
-        let content = NodeId::derived(15, &[0]);
-        let scroll = NodeId::derived(15, &[1]);
-        let root = NodeId::derived(15, &[2]);
+        let content = WidgetId::derived(15, &[0]);
+        let scroll = WidgetId::derived(15, &[1]);
+        let root = WidgetId::derived(15, &[2]);
 
         ir.add_node(
             content,
@@ -3298,7 +3292,7 @@ mod tests {
 
         fn find_layer_by_node(
             node: &fission_render::RenderNode,
-            node_id: NodeId,
+            node_id: WidgetId,
         ) -> Option<&fission_render::RenderLayer> {
             match node {
                 fission_render::RenderNode::Paint(_) => None,
@@ -3347,10 +3341,10 @@ mod tests {
     #[test]
     fn scrollbar_thumb_patches_after_scroll_offset_changes() {
         let mut ir = CoreIR::new();
-        let fill = NodeId::derived(18, &[0]);
-        let content = NodeId::derived(18, &[1]);
-        let scroll = NodeId::derived(18, &[2]);
-        let root = NodeId::derived(18, &[3]);
+        let fill = WidgetId::derived(18, &[0]);
+        let content = WidgetId::derived(18, &[1]);
+        let scroll = WidgetId::derived(18, &[2]);
+        let root = WidgetId::derived(18, &[3]);
 
         ir.add_node(
             fill,
@@ -3464,8 +3458,8 @@ mod tests {
             "body scroll must patch the retained scrollbar thumb, before={initial_thumb_y}, after={moved_thumb_y}"
         );
 
-        fn scrollbar_thumb_y(scene: &fission_render::RenderScene, scroll: NodeId) -> Option<f32> {
-            fn find(node: &fission_render::RenderNode, scroll: NodeId) -> Option<f32> {
+        fn scrollbar_thumb_y(scene: &fission_render::RenderScene, scroll: WidgetId) -> Option<f32> {
+            fn find(node: &fission_render::RenderNode, scroll: WidgetId) -> Option<f32> {
                 match node {
                     fission_render::RenderNode::Paint(list) => list.ops.iter().find_map(|op| {
                         if let fission_render::DisplayOp::DrawRect { rect, node_id, .. } = op {
@@ -3490,10 +3484,10 @@ mod tests {
     #[test]
     fn overflowing_scroll_nodes_emit_visible_scroll_rails() {
         let mut ir = CoreIR::new();
-        let fill = NodeId::derived(16, &[0]);
-        let content = NodeId::derived(16, &[1]);
-        let scroll = NodeId::derived(16, &[2]);
-        let root = NodeId::derived(16, &[3]);
+        let fill = WidgetId::derived(16, &[0]);
+        let content = WidgetId::derived(16, &[1]);
+        let scroll = WidgetId::derived(16, &[2]);
+        let root = WidgetId::derived(16, &[3]);
 
         ir.add_node(
             fill,
@@ -3590,7 +3584,7 @@ mod tests {
             )
             .unwrap();
 
-        fn count_scroll_rails(node: &fission_render::RenderNode, scroll: NodeId) -> usize {
+        fn count_scroll_rails(node: &fission_render::RenderNode, scroll: WidgetId) -> usize {
             match node {
                 fission_render::RenderNode::Paint(list) => list
                     .ops

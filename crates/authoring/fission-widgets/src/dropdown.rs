@@ -1,8 +1,8 @@
 use crate::stack::HStack;
 use crate::Icon;
-use fission_core::action::{ActionEnvelope, AppState};
+use fission_core::action::ActionEnvelope;
 use fission_core::ui::{Button, ButtonContentAlign, Text, TextContent};
-use fission_core::{BuildCtx, Node, View, Widget};
+use fission_core::Widget;
 use fission_icons::material;
 
 /// A simplified dropdown trigger button.
@@ -19,14 +19,17 @@ pub struct DropDown {
     pub selected: Option<String>,
 }
 
-impl<S: AppState + 'static> Widget<S> for DropDown {
-    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let button_text = self.selected.as_deref().unwrap_or("Select an option");
-        let tokens = &view.env.theme.tokens;
+impl From<DropDown> for Widget {
+    fn from(component: DropDown) -> Self {
+        let (_, view) = fission_core::build::current::<()>();
+        let this = &component;
+
+        let button_text = this.selected.as_deref().unwrap_or("Select an option");
+        let tokens = &view.env().theme.tokens;
 
         Button {
             variant: fission_core::ui::ButtonVariant::Outline,
-            child: Some(Box::new(
+            child: Some(
                 HStack {
                     spacing: Some(8.0),
                     children: vec![
@@ -40,12 +43,12 @@ impl<S: AppState + 'static> Widget<S> for DropDown {
                         Icon::svg(material::navigation::expand_more::regular())
                             .size(18.0)
                             .color(tokens.colors.text_secondary)
-                            .into_node(),
+                            .into(),
                     ],
                 }
-                .into_node(),
-            )),
-            on_press: self.on_toggle.clone(),
+                .into(),
+            ),
+            on_press: this.on_toggle.clone(),
             content_align: ButtonContentAlign::Start,
             height: Some(40.0),
             padding: Some([12.0, 12.0, 0.0, 0.0]),

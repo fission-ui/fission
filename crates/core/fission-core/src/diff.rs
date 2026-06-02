@@ -1,18 +1,18 @@
-use fission_ir::{CoreIR, CoreNode, NodeId, Op, PaintOp};
+use fission_ir::{CoreIR, CoreNode, Op, PaintOp, WidgetId};
 use std::collections::HashSet;
 
 #[derive(Debug, Default)]
 pub struct FrameDiff {
-    pub dirty_layout: HashSet<NodeId>,
-    pub dirty_paint: HashSet<NodeId>,
-    pub dirty_composite: HashSet<NodeId>,
+    pub dirty_layout: HashSet<WidgetId>,
+    pub dirty_paint: HashSet<WidgetId>,
+    pub dirty_composite: HashSet<WidgetId>,
 }
 
 pub fn diff_ir(prev: &CoreIR, next: &CoreIR) -> FrameDiff {
     let mut diff = FrameDiff::default();
 
     if prev.root != next.root {
-        let all_nodes: HashSet<NodeId> = next.nodes.keys().copied().collect();
+        let all_nodes: HashSet<WidgetId> = next.nodes.keys().copied().collect();
         diff.dirty_layout = all_nodes.clone();
         diff.dirty_paint = all_nodes.clone();
         diff.dirty_composite = all_nodes;
@@ -82,11 +82,11 @@ fn paint_change_requires_layout(prev: &PaintOp, next: &PaintOp) -> bool {
 mod tests {
     use super::diff_ir;
     use fission_ir::op::Fill;
-    use fission_ir::{CompositeScalar, CompositeStyle, CoreIR, LayoutOp, NodeId, Op, PaintOp};
+    use fission_ir::{CompositeScalar, CompositeStyle, CoreIR, LayoutOp, Op, PaintOp, WidgetId};
 
     fn rect_ir(id_seed: u128, color: (u8, u8, u8, u8)) -> CoreIR {
-        let root = NodeId::derived(id_seed, &[0]);
-        let paint = NodeId::derived(id_seed, &[1]);
+        let root = WidgetId::derived(id_seed, &[0]);
+        let paint = WidgetId::derived(id_seed, &[1]);
         let mut ir = CoreIR::new();
         ir.add_node(
             paint,
@@ -176,8 +176,8 @@ mod tests {
 
     #[test]
     fn text_paint_changes_force_layout() {
-        let root = NodeId::derived(3, &[0]);
-        let text = NodeId::derived(3, &[1]);
+        let root = WidgetId::derived(3, &[0]);
+        let text = WidgetId::derived(3, &[1]);
         let mut prev = CoreIR::new();
         prev.add_node(
             text,

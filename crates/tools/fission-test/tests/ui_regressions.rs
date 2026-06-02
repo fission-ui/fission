@@ -1,60 +1,55 @@
 use fission_core::op::Color;
-use fission_core::ui::{Checkbox, Column, Container, Node, Row, Text, TextInput, ZStack};
-use fission_core::{AppState, BuildCtx, View, Widget};
+use fission_core::ui::{Checkbox, Column, Container, Row, Text, TextInput, Widget, ZStack};
+use fission_core::GlobalState;
 use fission_test::TestHarness;
 
 #[derive(Debug, Default, Clone)]
 struct State;
-impl AppState for State {}
+impl GlobalState for State {}
 
 #[test]
 fn test_modal_layout_cramping() {
     // Reproduces the "Contacts" modal cramping issue.
     // Structure: Container -> Column -> Row(Header) + Row(Item)
 
+    #[derive(Clone)]
     struct ContactsModal;
-    impl Widget<State> for ContactsModal {
-        fn build(&self, _ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
-            Container::new(
-                Column::default()
-                    .children(vec![
+    impl From<ContactsModal> for Widget {
+        fn from(_component: ContactsModal) -> Self {
+            let (_ctx, _view) = fission_core::build::current::<State>();
+            Container::new(Column::default().children(vec![
                         // Header
                         Row::default()
                             .children(vec![
-                                Container::new(Checkbox::default().into_node())
+                                Container::new(Checkbox::default())
                                     .width(40.0)
-                                    .into_node(),
-                                Container::new(Text::new("Name").into_node())
-                                    .width(150.0)
-                                    .into_node(),
-                                Container::new(Text::new("Email").into_node())
+                                    .into(),
+                                Container::new(Text::new("Name")).width(150.0).into(),
+                                Container::new(Text::new("Email"))
                                     .width(250.0)
-                                    .into_node(),
+                                    .into(),
                             ])
-                            .into_node(),
+                            .into(),
                         // Item
                         Row::default()
                             .children(vec![
-                                Container::new(Checkbox::default().into_node())
+                                Container::new(Checkbox::default())
                                     .width(40.0)
-                                    .into_node(),
-                                Container::new(Text::new("Alice").into_node())
+                                    .into(),
+                                Container::new(Text::new("Alice"))
                                     .width(150.0)
-                                    .into_node(),
-                                Container::new(Text::new("alice@example.com").into_node())
+                                    .into(),
+                                Container::new(Text::new("alice@example.com"))
                                     .width(250.0)
-                                    .into_node(),
+                                    .into(),
                             ])
-                            .into_node(),
-                    ])
-                    .into_node(),
-            )
+                            .into(),
+                    ]))
             .width(400.0)
             .padding_all(16.0)
-            .into_node()
+            .into()
         }
     }
-
     let mut h = TestHarness::new(State);
     h = h.with_root_widget(ContactsModal);
     h.pump().unwrap();
@@ -124,35 +119,31 @@ fn test_compose_form_spacing() {
     // Reproduces the "Compose" window gap issue.
     // Structure: Column(gap 16) -> Row(Label+Input) -> Row(Label+Input).
 
+    #[derive(Clone)]
     struct ComposeForm;
-    impl Widget<State> for ComposeForm {
-        fn build(&self, _ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
-            Container::new(
-                Column::default()
-                    .gap(Some(16.0))
-                    .children(vec![
+    impl From<ComposeForm> for Widget {
+        fn from(_component: ComposeForm) -> Self {
+            let (_ctx, _view) = fission_core::build::current::<State>();
+            Container::new(Column::default().gap(Some(16.0)).children(vec![
                         // Row 1: To
                         Row::default()
                             .children(vec![
-                                Text::new("To").width(50.0).into_node(),
-                                TextInput::default().value("Alice").into_node(),
+                                Text::new("To").width(50.0).into(),
+                                TextInput::default().value("Alice").into(),
                             ])
-                            .into_node(),
+                            .into(),
                         // Row 2: Subject
                         Row::default()
                             .children(vec![
-                                Text::new("Subject").width(50.0).into_node(),
-                                TextInput::default().value("Hello").into_node(),
+                                Text::new("Subject").width(50.0).into(),
+                                TextInput::default().value("Hello").into(),
                             ])
-                            .into_node(),
-                    ])
-                    .into_node(),
-            )
+                            .into(),
+                    ]))
             .width(400.0)
-            .into_node()
+            .into()
         }
     }
-
     let mut h = TestHarness::new(State);
     h = h.with_root_widget(ComposeForm);
     h.pump().unwrap();
@@ -188,24 +179,26 @@ fn test_multi_modal_stacking() {
     // Reproduces Z-order/Transparency issue.
     // Structure: ZStack -> Content, Overlay1, Overlay2.
 
+    #[derive(Clone)]
     struct MultiModal;
-    impl Widget<State> for MultiModal {
-        fn build(&self, _ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
+    impl From<MultiModal> for Widget {
+        fn from(_component: MultiModal) -> Self {
+            let (_ctx, _view) = fission_core::build::current::<State>();
             // Simulate manually stacking overlays as the App would do
             ZStack::default()
                 .children(vec![
                     // App Content
-                    Container::new(Text::new("App Content").into_node())
+                    Container::new(Text::new("App Content"))
                         .bg(Color {
                             r: 255,
                             g: 255,
                             b: 255,
                             a: 255,
                         })
-                        .into_node(),
+                        .into(),
                     // Modal 1 (Contacts)
                     Container::new(
-                        Container::new(Text::new("Modal 1").into_node())
+                        Container::new(Text::new("Modal 1"))
                             .width(300.0)
                             .height(300.0)
                             .bg(Color {
@@ -213,8 +206,7 @@ fn test_multi_modal_stacking() {
                                 g: 200,
                                 b: 200,
                                 a: 255,
-                            })
-                            .into_node(),
+                            }),
                     )
                     // Backdrop 1
                     .bg(Color {
@@ -223,7 +215,7 @@ fn test_multi_modal_stacking() {
                         b: 0,
                         a: 128,
                     })
-                    .into_node(), // Implicitly stretches to fill due to ZStack behavior?
+                    .into(), // Implicitly stretches to fill due to ZStack behavior?
                     // No, usually requires AbsoluteFill.
                     // Container lowers to Box.
                     // We should use Overlay logic or AbsoluteFill.
@@ -231,7 +223,7 @@ fn test_multi_modal_stacking() {
 
                     // Modal 2 (Settings)
                     Container::new(
-                        Container::new(Text::new("Modal 2").into_node())
+                        Container::new(Text::new("Modal 2"))
                             .width(200.0)
                             .height(200.0)
                             .bg(Color {
@@ -239,8 +231,7 @@ fn test_multi_modal_stacking() {
                                 g: 220,
                                 b: 220,
                                 a: 255,
-                            })
-                            .into_node(),
+                            }),
                     )
                     // Backdrop 2
                     .bg(Color {
@@ -249,12 +240,11 @@ fn test_multi_modal_stacking() {
                         b: 0,
                         a: 128,
                     })
-                    .into_node(),
+                    .into(),
                 ])
-                .into_node()
+                .into()
         }
     }
-
     let mut h = TestHarness::new(State);
     h = h.with_root_widget(MultiModal);
     h.pump().unwrap();

@@ -26,7 +26,7 @@ the full build-layout-paint-present cycle on every frame.
 
 ## `WinitApp`
 
-The generic `WinitApp<S: AppState, W: Widget<S>>` owns the shared application lifecycle.
+The generic `WinitApp<S, W>` owns the shared application lifecycle.
 
 ### Construction
 
@@ -84,8 +84,8 @@ WinitApp::new(MyRootWidget)
 Each `RedrawRequested` event triggers:
 
 1. **Effect drain** -- pending effects from the previous frame are dispatched.
-2. **Build** -- `root_widget.build()` produces the `Node` tree; portals are collected.
-3. **Lower** -- the `Node` tree is lowered to `CoreIR` (intermediate representation).
+2. **Build** -- the root component converts into a `Widget` tree; portals are collected.
+3. **InternalLower** -- the `Widget` tree is lowered to `CoreIR` (intermediate representation).
 4. **Pipeline update** -- IR diff, layout computation, display list generation.
 5. **Render** -- Vello rasterizes the display list to a GPU texture.
 6. **Present** -- the texture is blitted to the window surface.
@@ -105,7 +105,7 @@ The render pipeline (`Pipeline`) manages incremental updates:
 |-------|---------|
 | `prev_ir` | The CoreIR from the previous frame (used for diffing). |
 | `last_snapshot` | The most recent `LayoutSnapshot` with computed rects for every node. |
-| `paint_cache` | Per-node display list cache: `HashMap<NodeId, (hash, Vec<DisplayOp>)>`. |
+| `paint_cache` | Per-node display list cache: `HashMap<WidgetId, (hash, Vec<DisplayOp>)>`. |
 | `video_surfaces` | Video rects to hand off to the platform video backend. |
 
 ## Environment variables
@@ -114,7 +114,6 @@ The render pipeline (`Pipeline`) manages incremental updates:
 |----------|---------|---------|
 | `FISSION_MAX_FPS` | `60` | Maximum frame rate (throttled via `WaitUntil`). |
 | `FISSION_RENDERER` | `auto` | Select the renderer. Native targets accept `auto`, `native-vello-gpu`, `native-vello-cpu`, or `native-software`. Web accepts `auto`, `webgpu-vello`, or `canvas2d-software` via `globalThis.FISSION_RENDERER` or the `?fission_renderer=` query parameter. |
-| `FISSION_FORCE_SOFTWARE_RENDERER` | `false` | Native compatibility escape hatch that forces the software upload path. This should not be used for normal production runs. |
 | `FISSION_VELLO_USE_CPU` | `false` | Native compatibility escape hatch that asks Vello to use its CPU mode while still presenting through the GPU surface. |
 | `FISSION_TEXTINPUT_BLINK` | `true` | Enable/disable cursor blinking in text inputs. |
 | `FISSION_TEXTINPUT_BLINK_MS` | `530` | Cursor blink period in milliseconds. |

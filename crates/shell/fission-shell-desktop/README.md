@@ -22,7 +22,7 @@ The main entry point is `DesktopApp::new(root_widget)`, which creates a winit ev
 
 ## `DesktopApp`
 
-The generic `DesktopApp<S: AppState, W: Widget<S>>` owns the entire application lifecycle.
+The generic `DesktopApp<S, W>` owns the entire application lifecycle.
 
 ### Construction
 
@@ -80,8 +80,8 @@ DesktopApp::new(MyRootWidget)
 Each `RedrawRequested` event triggers:
 
 1. **Effect drain** -- pending effects from the previous frame are dispatched.
-2. **Build** -- `root_widget.build()` produces the `Node` tree; portals are collected.
-3. **Lower** -- the `Node` tree is lowered to `CoreIR` (intermediate representation).
+2. **Build** -- the root component converts into a `Widget` tree; portals are collected.
+3. **InternalLower** -- the `Widget` tree is lowered to `CoreIR` (intermediate representation).
 4. **Pipeline update** -- IR diff, layout computation, display list generation.
 5. **Render** -- Vello rasterizes the display list to a GPU texture.
 6. **Present** -- the texture is blitted to the window surface.
@@ -101,7 +101,7 @@ The render pipeline (`Pipeline`) manages incremental updates:
 |-------|---------|
 | `prev_ir` | The CoreIR from the previous frame (used for diffing). |
 | `last_snapshot` | The most recent `LayoutSnapshot` with computed rects for every node. |
-| `paint_cache` | Per-node display list cache: `HashMap<NodeId, (hash, Vec<DisplayOp>)>`. |
+| `paint_cache` | Per-node display list cache: `HashMap<WidgetId, (hash, Vec<DisplayOp>)>`. |
 | `video_surfaces` | Video rects to hand off to the platform video backend. |
 
 ## Environment variables

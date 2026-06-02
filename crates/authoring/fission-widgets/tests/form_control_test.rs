@@ -1,10 +1,11 @@
-use fission_core::ui::{Node, TextInput};
-use fission_core::{AppState, BuildCtx, View, Widget};
+use fission_core::internal::BuildCtx;
+use fission_core::ui::TextInput;
+use fission_core::{build, GlobalState, View};
 use fission_widgets::FormControl;
 
 #[derive(Default, Clone, Debug)]
 struct State;
-impl AppState for State {}
+impl GlobalState for State {}
 
 #[test]
 fn test_form_control_structure() {
@@ -23,18 +24,15 @@ fn test_form_control_structure() {
     let control = FormControl {
         id: None,
         label: Some("Username".into()),
-        child: Box::new(TextInput::default().into_node()),
+        child: TextInput::default().into(),
         error: Some("Required".into()),
         helper: None,
         required: true,
     };
 
-    let node = control.build(&mut ctx, &view);
+    let node = build::enter(&mut ctx, &view, || control.into());
 
-    // Should be a Column (VStack) with 3 children
-    if let Node::Column(col) = node {
-        assert_eq!(col.children.len(), 3); // Label, Input, Error
-    } else {
-        panic!("FormControl should return a Column node");
-    }
+    let col = fission_core::internal::widget_as_column(&node)
+        .expect("FormControl should return a Column node");
+    assert_eq!(col.children.len(), 3); // Label, Input, Error
 }

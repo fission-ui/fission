@@ -2,20 +2,21 @@
 
 use crate::model::*;
 use fission::core::op::Color;
-use fission::core::ui::{Container, GestureDetector, Node, Positioned, Text, ZStack};
-use fission::core::{BuildCtx, reduce_with, PortalLayer, View, Widget, WidgetNodeId};
+use fission::core::ui::{Container, GestureDetector, Widget, Positioned, Text, ZStack};
+use fission::core::{BuildCtxHandle, reduce_with, PortalLayer, ViewHandle, WidgetId};
 use fission::widgets::Spacer;
 
 pub struct HoverTooltip;
 
-impl Widget<EditorState> for HoverTooltip {
-    fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
-        if !view.state.show_hover || view.state.hover_info.is_none() {
-            return Spacer { height: Some(0.0), ..Default::default() }.into_node();
+impl From<HoverTooltip> for Widget {
+    fn from(component: HoverTooltip) -> Self {
+        let (ctx, view) = fission::build::current::<EditorState>();
+        if !view.state().show_hover || view.state().hover_info.is_none() {
+            return Spacer { height: Some(0.0), ..Default::default() }.into();
         }
 
-        let info = view.state.hover_info.as_ref().unwrap();
-        let (hover_x, hover_y) = view.state.hover_position;
+        let info = view.state().hover_info.as_ref().unwrap();
+        let (hover_x, hover_y) = view.state().hover_position;
 
         let dismiss = ctx.bind(
             DismissHover,
@@ -34,36 +35,34 @@ impl Widget<EditorState> for HoverTooltip {
             Text::new(info.as_str())
                 .size(12.0)
                 .color(text_color)
-                .into_node(),
         )
         .bg(bg)
         .border(border_color, 1.0)
         .border_radius(4.0)
         .padding_all(8.0)
         .max_width(400.0)
-        .into_node();
+        .into();
 
         // Position the tooltip at the hover location
         let positioned_tooltip = Positioned {
             left: Some(hover_x),
             top: Some(hover_y),
-            child: Some(Box::new(tooltip_card)),
+            child: Some(tooltip_card),
             ..Default::default()
         }
-        .into_node();
+        .into();
 
         // Transparent backdrop to dismiss on tap elsewhere
         let backdrop = GestureDetector {
             on_tap: Some(dismiss.clone()),
-            child: Box::new(
-                Container::new(Spacer::default().into_node())
+            child:
+                Container::new(Spacer::default())
                     .bg(Color { r: 0, g: 0, b: 0, a: 0 })
                     .flex_grow(1.0)
-                    .into_node(),
-            ),
+                    .into(),
             ..Default::default()
         }
-        .into_node();
+        .into();
 
         let overlay = Container::new(
             ZStack {
@@ -74,36 +73,36 @@ impl Widget<EditorState> for HoverTooltip {
                         right: Some(0.0),
                         top: Some(0.0),
                         bottom: Some(0.0),
-                        child: Some(Box::new(backdrop)),
+                        child: Some(backdrop),
                         ..Default::default()
                     }
-                    .into_node(),
+                    .into(),
                     // The tooltip itself
                     positioned_tooltip,
                 ],
                 ..Default::default()
             }
-            .into_node(),
         )
         .flex_grow(1.0)
-        .into_node();
+        .into();
 
         let portal_root = Positioned {
             left: Some(0.0),
             right: Some(0.0),
             top: Some(0.0),
             bottom: Some(0.0),
-            child: Some(Box::new(overlay)),
+            child: Some(overlay),
             ..Default::default()
         }
-        .into_node();
+        .into();
 
         ctx.register_portal_with_layer(
             PortalLayer::Flyout,
-            Some(WidgetNodeId::explicit("hover_tooltip")),
+            Some(WidgetId::explicit("hover_tooltip")),
             portal_root,
         );
 
-        Spacer { height: Some(0.0), ..Default::default() }.into_node()
+        Spacer { height: Some(0.0), ..Default::default() }.into()
+
     }
 }

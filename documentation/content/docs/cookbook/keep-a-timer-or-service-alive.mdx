@@ -11,7 +11,7 @@ A clock needs to tick while the screen is visible. A sync connection may need to
 
 Fission handles these cases with runtime-managed resources.
 
-This matters because repeating work is where user interface code often becomes hard to trust. People start background loops in random places, forget when they stop, or let hidden timers outlive the screen that needed them. Fission keeps the lifetime explicit: the widget declares the resource during `build()`, and the runtime keeps it alive for as long as the declaration stays present.
+This matters because repeating work is where user interface code often becomes hard to trust. People start background loops in random places, forget when they stop, or let hidden timers outlive the screen that needed them. Fission keeps the lifetime explicit: the widget declares the resource during component conversion, and the runtime keeps it alive for as long as the declaration stays present.
 
 This recipe starts with a ticking clock, because that is the easiest repeating task to understand. Then it shows when you should move up to a long-running service.
 
@@ -52,7 +52,7 @@ impl Default for DashboardState {
     }
 }
 
-impl AppState for DashboardState {}
+impl GlobalState for DashboardState {}
 ```
 
 The state stays product-focused. It stores what the user should see, not the internals of timer scheduling.
@@ -80,11 +80,12 @@ fn on_clock_tick(
 
 The reducer is still simple. The timer payload comes in through `ctx.input.timer_tick::<u64>()`, and the reducer moves that value into state.
 
-Now declare the timer during `build()`.
+Now declare the timer during component conversion.
 
 ```rust
-impl Widget<DashboardState> for DashboardScreen {
-    fn build(&self, ctx: &mut BuildCtx<DashboardState>, view: &View<DashboardState>) -> Node {
+impl From<DashboardScreen> for Widget {
+    fn from(component: DashboardScreen) -> Self {
+        let (ctx, view) = fission::build::current::<DashboardState>();
         let tick = ctx.bind(
             ClockTick,
             reduce_with!(on_clock_tick),
@@ -100,16 +101,16 @@ impl Widget<DashboardState> for DashboardScreen {
             .on_tick(tick),
         );
 
-        Text::new(format!("Seconds: {}", view.state.now_seconds)).into_node()
+        Text::new(format!("Seconds: {}", view.state().now_seconds)).into()
     }
 }
 ```
 
 This is the key pattern.
 
-You declare the timer in `build()`, but `build()` is still pure because it is only describing a runtime resource. It is not starting a thread itself. After the build pass, the runtime reconciles that declaration and keeps the timer alive while the widget remains mounted.
+You declare the timer in `component conversion`, but `component conversion` is still pure because it is only describing a runtime resource. It is not starting a thread itself. After the conversion pass, the runtime reconciles that declaration and keeps the timer alive while the widget remains mounted.
 
-The stable `ResourceKey` gives the timer identity across rebuilds. The runtime can see that this is still the same timer resource rather than a brand-new unrelated one.
+The stable `ResourceKey` gives the timer identity across reconversions. The runtime can see that this is still the same timer resource rather than a brand-new unrelated one.
 
 Use a timer when you need scheduled wakeups and nothing more.
 
@@ -196,8 +197,9 @@ pub struct SyncEventArrived;
 #[fission_action]
 pub struct SyncStartFailed;
 
-impl Widget<DashboardState> for DashboardScreen {
-    fn build(&self, ctx: &mut BuildCtx<DashboardState>, view: &View<DashboardState>) -> Node {
+impl From<DashboardScreen> for Widget {
+    fn from(component: DashboardScreen) -> Self {
+        let (ctx, view) = fission::build::current::<DashboardState>();
         let on_started = ctx.bind(
             SyncStarted,
             reduce_with!(on_sync_started),
@@ -224,7 +226,7 @@ impl Widget<DashboardState> for DashboardScreen {
             .on_start_failed(on_start_failed),
         );
 
-        Text::new(view.state.sync_status.clone()).into_node()
+        Text::new(view.state().sync_status.clone()).into()
     }
 }
 ```
@@ -297,12 +299,23 @@ If the product flow owns it, start it from the reducer.
 
 ## What to avoid
 
-Do not use a one-shot job for something that should keep running over time. You will end up rebuilding a fragile service out of repeated job calls.
+Do not use a one-shot job for something that should keep running over time. You will end up reconverting a fragile service out of repeated job calls.
 
-Do not create ad hoc background loops in `build()` or shell hooks when the runtime can own the lifecycle for you.
+Do not create ad hoc background loops in `component conversion` or shell hooks when the runtime can own the lifecycle for you.
 
 Do not forget stable resource keys. If a key changes every build, the runtime will treat the resource as new work every time.
 
 ## Where to go next
 
 If your repeating work depends on host permissions or device integrations, pair this page with [Run typed host work](/docs/cookbook/run-typed-host-work). If you want the deeper architecture behind jobs, services, resources, and `ReducerContext`, read [Resources and async](/docs/guides/resources-and-async).
+
+## Finished state and checks
+
+By the end of `Keep a timer or service alive`, you should have a runnable change, not just a set of snippets. Run the command shown in the page, exercise the feature once manually, and add or update the smallest test that protects the behavior.
+
+| Check | Expected result |
+| --- | --- |
+| Build | `cargo check` or the relevant `fission` command finishes without target-specific configuration errors. |
+| Behavior | The screen, package, server route, or test flow described by the recipe is visible and responds to input. |
+| Failure path | At least one denied, missing, invalid, or empty case renders a useful message instead of silently doing nothing. |
+| Next link | The reference page linked from the recipe explains the exact fields, commands, or types used here. |

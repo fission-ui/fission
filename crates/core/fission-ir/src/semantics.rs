@@ -184,7 +184,7 @@ pub enum MaxLengthEnforcement {
 pub enum InputFormatter {
     DigitsOnly,
     AsciiOnly,
-    Lowercase,
+    InternalLowercase,
     Uppercase,
     TrimWhitespace,
     SingleLine,
@@ -315,7 +315,7 @@ pub struct Semantics {
     pub drag_payload: Option<Vec<u8>>,
     /// An identifier for hero/shared-element transitions.
     pub hero_tag: Option<String>,
-    /// Explicit tab order index. Lower values receive focus first. `None` means
+    /// Explicit tab order index. InternalLower values receive focus first. `None` means
     /// the node follows document order.
     pub focus_index: Option<i32>,
     /// Preferred keyboard/input modality for text entry.

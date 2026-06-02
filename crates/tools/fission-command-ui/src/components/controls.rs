@@ -1,7 +1,7 @@
 use crate::density::UiDensity;
 use crate::state::UiState;
 use crate::theme::UiPalette;
-use fission::ir::op::Fill;
+use fission::op::Fill;
 use fission::prelude::*;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -41,37 +41,37 @@ impl ActionButton {
     }
 }
 
-impl Widget<UiState> for ActionButton {
-    fn build(&self, _ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
-        let palette = UiPalette::for_mode(view.state.theme_mode);
-        let (background, text) = match self.tone {
+impl From<ActionButton> for Widget {
+    fn from(component: ActionButton) -> Self {
+        let (_ctx, view) = fission::build::current::<UiState>();
+        let palette = UiPalette::for_mode(view.state().theme_mode);
+        let (background, text) = match component.tone {
             ButtonTone::Primary => (palette.accent, palette.accent_text),
             ButtonTone::Neutral => (palette.subtle, palette.text),
             ButtonTone::Success => (palette.success, palette.accent_text),
             ButtonTone::Warning => (palette.warning, palette.accent_text),
         };
-        let marker = match self.tone {
+        let marker = match component.tone {
             ButtonTone::Primary => ">",
             ButtonTone::Neutral => "-",
             ButtonTone::Success => "+",
             ButtonTone::Warning => "!",
         };
-        let label = format!("[{marker} {}]", self.label);
-        let density = UiDensity::new(view.state.compact_mode);
+        let label = format!("[{marker} {}]", component.label);
+        let density = UiDensity::new(view.state().compact_mode);
         Button {
-            on_press: Some(self.action.clone()),
-            width: self.width,
+            on_press: Some(component.action.clone()),
+            width: component.width,
             height: Some(density.control_height()),
             padding: Some(density.control_padding()),
             background_fill: Some(Fill::Solid(background)),
             text_color: Some(text),
-            child: Some(Box::new(Text::new(label).color(text).into_node())),
+            child: Some(Text::new(label).color(text).into()),
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 }
-
 #[derive(Clone)]
 pub struct TogglePill {
     pub label: String,
@@ -89,24 +89,24 @@ impl TogglePill {
     }
 }
 
-impl Widget<UiState> for TogglePill {
-    fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
-        let label = if self.enabled {
-            format!("[x] {}", self.label)
+impl From<TogglePill> for Widget {
+    fn from(component: TogglePill) -> Self {
+        let (_ctx, _view) = fission::build::current::<UiState>();
+        let label = if component.enabled {
+            format!("[x] {}", component.label)
         } else {
-            format!("[ ] {}", self.label)
+            format!("[ ] {}", component.label)
         };
-        let tone = if self.enabled {
+        let tone = if component.enabled {
             ButtonTone::Primary
         } else {
             ButtonTone::Neutral
         };
-        ActionButton::new(label, self.action.clone())
+        ActionButton::new(label, component.action.clone())
             .tone(tone)
-            .build(ctx, view)
+            .into()
     }
 }
-
 #[derive(Clone)]
 pub struct FormTextField {
     pub id: &'static str,
@@ -141,17 +141,18 @@ impl FormTextField {
     }
 }
 
-impl Widget<UiState> for FormTextField {
-    fn build(&self, _ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
-        let palette = UiPalette::for_mode(view.state.theme_mode);
-        let density = UiDensity::new(view.state.compact_mode);
+impl From<FormTextField> for Widget {
+    fn from(component: FormTextField) -> Self {
+        let (_ctx, view) = fission::build::current::<UiState>();
+        let palette = UiPalette::for_mode(view.state().theme_mode);
+        let density = UiDensity::new(view.state().compact_mode);
         TextInput {
-            id: Some(NodeId::explicit(self.id)),
-            value: self.value.clone(),
-            label: Some(self.label.clone().into()),
-            placeholder: Some(self.placeholder.clone().into()),
-            on_change: Some(self.action.clone()),
-            width: Some(self.width),
+            id: Some(WidgetId::explicit(component.id)),
+            value: component.value.clone(),
+            label: Some(component.label.clone().into()),
+            placeholder: Some(component.placeholder.clone().into()),
+            on_change: Some(component.action.clone()),
+            width: Some(component.width),
             height: Some(density.text_input_height()),
             padding: Some(density.text_input_padding()),
             background_fill: Some(Fill::Solid(palette.surface)),
@@ -163,6 +164,6 @@ impl Widget<UiState> for FormTextField {
             helper_color: Some(palette.muted),
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 }

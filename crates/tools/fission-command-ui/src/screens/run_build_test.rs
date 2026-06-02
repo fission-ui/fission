@@ -21,8 +21,9 @@ pub struct BuildScreen;
 #[derive(Clone)]
 pub struct TestScreen;
 
-impl Widget<UiState> for RunScreen {
-    fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
+impl From<RunScreen> for Widget {
+    fn from(_component: RunScreen) -> Self {
+        let (_ctx, _view) = fission::build::current::<UiState>();
         ExecutionScreen {
             title: "Run",
             description: "Launch the selected target on the selected device and attach output unless detach is enabled.",
@@ -34,12 +35,12 @@ impl Widget<UiState> for RunScreen {
             show_no_open: true,
             show_headless: true,
         }
-        .build(ctx, view)
+        .into()
     }
 }
-
-impl Widget<UiState> for BuildScreen {
-    fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
+impl From<BuildScreen> for Widget {
+    fn from(_component: BuildScreen) -> Self {
+        let (_ctx, _view) = fission::build::current::<UiState>();
         ExecutionScreen {
             title: "Build",
             description: "Build the selected target without launching it.",
@@ -51,12 +52,12 @@ impl Widget<UiState> for BuildScreen {
             show_no_open: false,
             show_headless: false,
         }
-        .build(ctx, view)
+        .into()
     }
 }
-
-impl Widget<UiState> for TestScreen {
-    fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
+impl From<TestScreen> for Widget {
+    fn from(_component: TestScreen) -> Self {
+        let (_ctx, _view) = fission::build::current::<UiState>();
         ExecutionScreen {
             title: "Test",
             description: "Run the generated smoke test for the selected target.",
@@ -68,10 +69,9 @@ impl Widget<UiState> for TestScreen {
             show_no_open: false,
             show_headless: true,
         }
-        .build(ctx, view)
+        .into()
     }
 }
-
 #[derive(Clone)]
 struct ExecutionScreen {
     title: &'static str,
@@ -85,52 +85,58 @@ struct ExecutionScreen {
     show_headless: bool,
 }
 
-impl Widget<UiState> for ExecutionScreen {
-    fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
-        let palette = UiPalette::for_mode(view.state.theme_mode);
-        let action = with_reducer!(ctx, RequestCommand(self.command.clone()), request_command);
+impl From<ExecutionScreen> for Widget {
+    fn from(component: ExecutionScreen) -> Self {
+        let (ctx, view) = fission::build::current::<UiState>();
+        let palette = UiPalette::for_mode(view.state().theme_mode);
+        let action = with_reducer!(
+            ctx,
+            RequestCommand(component.command.clone()),
+            request_command
+        );
         let mut sections = vec![
-            title_block(self.title, self.description, palette.accent, palette.muted),
+            title_block(
+                component.title,
+                component.description,
+                palette.accent,
+                palette.muted,
+            ),
             Row {
                 gap: Some(2.0),
                 children: vec![
-                    KeyValueRow::new("Target", view.state.selected_target_label()).build(ctx, view),
-                    KeyValueRow::new("Device", view.state.selected_device_label()).build(ctx, view),
+                    KeyValueRow::new("Target", view.state().selected_target_label()).into(),
+                    KeyValueRow::new("Device", view.state().selected_device_label()).into(),
                 ],
                 ..Default::default()
             }
-            .into_node(),
+            .into(),
             TargetPicker {
                 configured_only: true,
             }
-            .build(ctx, view),
+            .into(),
         ];
 
-        if self.show_devices {
-            sections.push(
-                Text::new("Runnable devices")
-                    .color(palette.accent)
-                    .into_node(),
-            );
+        if component.show_devices {
+            sections.push(Text::new("Runnable devices").color(palette.accent).into());
             sections.push(
                 DeviceTable {
                     devices: current_target_devices(view),
                     selectable: true,
                     max_rows: 7,
                 }
-                .build(ctx, view),
+                .into(),
             );
         }
 
-        if self.show_host_port {
+        if component.show_host_port {
             sections.push(network_fields(ctx, view));
         }
-        sections.push(option_toggles(self, ctx, view));
+        sections.push(option_toggles(&component, ctx, view));
         sections.push(
-            ActionButton::new(self.primary_label, action)
+            ActionButton::new(component.primary_label, action)
                 .tone(ButtonTone::Primary)
                 .width(26.0)
-                .build(ctx, view),
+                .into(),
         );
 
         Column {
@@ -138,11 +144,10 @@ impl Widget<UiState> for ExecutionScreen {
             children: sections,
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 }
-
-fn network_fields(ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
+fn network_fields(ctx: BuildCtxHandle<UiState>, view: ViewHandle<UiState>) -> Widget {
     let host = with_reducer!(ctx, SetHost(String::new()), set_host);
     let port = with_reducer!(ctx, SetPort(String::new()), set_port);
     Row {
@@ -151,29 +156,29 @@ fn network_fields(ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
             FormTextField::new(
                 "cli_ui_run_host",
                 "Host",
-                view.state.host.clone(),
+                view.state().host.clone(),
                 "127.0.0.1",
                 host,
             )
             .width(24.0)
-            .build(ctx, view),
+            .into(),
             FormTextField::new(
                 "cli_ui_run_port",
                 "Port",
-                view.state.port.clone(),
+                view.state().port.clone(),
                 "8123",
                 port,
             )
             .width(12.0)
-            .build(ctx, view),
+            .into(),
         ],
         ..Default::default()
     }
-    .into_node()
+    .into()
 }
 
-fn current_target_devices(view: &View<UiState>) -> Vec<UiDevice> {
-    view.state
+fn current_target_devices(view: ViewHandle<UiState>) -> Vec<UiDevice> {
+    view.state()
         .target_devices()
         .into_iter()
         .cloned()
@@ -182,24 +187,24 @@ fn current_target_devices(view: &View<UiState>) -> Vec<UiDevice> {
 
 fn option_toggles(
     screen: &ExecutionScreen,
-    ctx: &mut BuildCtx<UiState>,
-    view: &View<UiState>,
-) -> Node {
+    ctx: BuildCtxHandle<UiState>,
+    view: ViewHandle<UiState>,
+) -> Widget {
     let mut toggles = Vec::new();
     let release = with_reducer!(ctx, ToggleRelease, toggle_release);
-    toggles.push(TogglePill::new("Release", view.state.release, release).build(ctx, view));
+    toggles.push(TogglePill::new("Release", view.state().release, release).into());
 
     if screen.show_detach {
         let detach = with_reducer!(ctx, ToggleDetach, toggle_detach);
-        toggles.push(TogglePill::new("Detach", view.state.detach, detach).build(ctx, view));
+        toggles.push(TogglePill::new("Detach", view.state().detach, detach).into());
     }
     if screen.show_no_open {
         let no_open = with_reducer!(ctx, ToggleNoOpen, toggle_no_open);
-        toggles.push(TogglePill::new("No open", view.state.no_open, no_open).build(ctx, view));
+        toggles.push(TogglePill::new("No open", view.state().no_open, no_open).into());
     }
     if screen.show_headless {
         let headless = with_reducer!(ctx, ToggleHeadless, toggle_headless);
-        toggles.push(TogglePill::new("Headless", view.state.headless, headless).build(ctx, view));
+        toggles.push(TogglePill::new("Headless", view.state().headless, headless).into());
     }
 
     Row {
@@ -207,5 +212,5 @@ fn option_toggles(
         children: toggles,
         ..Default::default()
     }
-    .into_node()
+    .into()
 }

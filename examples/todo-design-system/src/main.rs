@@ -44,7 +44,7 @@ impl Default for TodoState {
     }
 }
 
-impl AppState for TodoState {}
+impl GlobalState for TodoState {}
 
 #[fission_reducer(UpdateDraft)]
 fn update_draft(state: &mut TodoState, value: String) {
@@ -83,13 +83,15 @@ fn set_theme_mode(state: &mut TodoState, mode: DesignMode) {
     state.theme_mode = mode;
 }
 
+#[derive(Clone)]
 struct TodoApp;
 
-impl Widget<TodoState> for TodoApp {
-    fn build(&self, ctx: &mut BuildCtx<TodoState>, view: &View<TodoState>) -> Node {
-        let colors = &view.env.theme.tokens.colors;
-        let spacing = &view.env.theme.tokens.spacing;
-        let done_count = view.state.items.iter().filter(|item| item.done).count();
+impl From<TodoApp> for Widget {
+    fn from(_component: TodoApp) -> Self {
+        let (ctx, view) = fission::build::current::<TodoState>();
+        let colors = &view.env().theme.tokens.colors;
+        let spacing = &view.env().theme.tokens.spacing;
+        let done_count = view.state().items.iter().filter(|item| item.done).count();
         let add = with_reducer!(ctx, AddTodo, add_todo);
         let update_draft = with_reducer!(ctx, UpdateDraft(String::new()), update_draft);
         let clear_done = with_reducer!(ctx, ClearDone, clear_done);
@@ -97,36 +99,33 @@ impl Widget<TodoState> for TodoApp {
         let dark = with_reducer!(ctx, SetThemeMode(DesignMode::Dark), set_theme_mode);
 
         let mut todo_rows = Vec::new();
-        for item in &view.state.items {
+        for item in &view.state().items {
             let toggle = with_reducer!(ctx, ToggleTodo(item.id), toggle_todo);
             todo_rows.push(
-                Container::new(
-                    Row {
-                        gap: Some(12.0),
-                        children: vec![
-                            Checkbox {
-                                checked: item.done,
-                                on_toggle: Some(toggle),
-                                ..Default::default()
-                            }
-                            .into_node(),
-                            Text::new(item.title.clone())
-                                .size(16.0)
-                                .color(if item.done {
-                                    colors.text_secondary
-                                } else {
-                                    colors.text_primary
-                                })
-                                .into_node(),
-                        ],
-                        ..Default::default()
-                    }
-                    .into_node(),
-                )
+                Container::new(Row {
+                    gap: Some(12.0),
+                    children: vec![
+                        Checkbox {
+                            checked: item.done,
+                            on_toggle: Some(toggle),
+                            ..Default::default()
+                        }
+                        .into(),
+                        Text::new(item.title.clone())
+                            .size(16.0)
+                            .color(if item.done {
+                                colors.text_secondary
+                            } else {
+                                colors.text_primary
+                            })
+                            .into(),
+                    ],
+                    ..Default::default()
+                })
                 .padding([16.0, 16.0, 12.0, 12.0])
                 .border(colors.border, 1.0)
-                .border_radius(view.env.theme.tokens.radii.medium)
-                .into_node(),
+                .border_radius(view.env().theme.tokens.radii.medium)
+                .into(),
             );
         }
 
@@ -134,37 +133,37 @@ impl Widget<TodoState> for TodoApp {
             gap: Some(8.0),
             children: vec![
                 Button {
-                    variant: if view.state.theme_mode == DesignMode::Light {
+                    variant: if view.state().theme_mode == DesignMode::Light {
                         ButtonVariant::Primary
                     } else {
                         ButtonVariant::SecondaryGray
                     },
                     size: ComponentSize::Sm,
-                    child: Some(Box::new(Text::new("Light").into_node())),
+                    child: Some(Text::new("Light").into()),
                     on_press: Some(light),
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
                 Button {
-                    variant: if view.state.theme_mode == DesignMode::Dark {
+                    variant: if view.state().theme_mode == DesignMode::Dark {
                         ButtonVariant::Primary
                     } else {
                         ButtonVariant::SecondaryGray
                     },
                     size: ComponentSize::Sm,
-                    child: Some(Box::new(Text::new("Dark").into_node())),
+                    child: Some(Text::new("Dark").into()),
                     on_press: Some(dark),
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
             ],
             ..Default::default()
         }
-        .into_node();
+        .into();
 
-        let content = Card {
+        let content: Widget = Card {
             pattern: CardPattern::Raised,
-            child: Box::new(
+            child:
                 Column {
                     gap: Some(20.0),
                     children: vec![
@@ -177,80 +176,78 @@ impl Widget<TodoState> for TodoApp {
                                         Text::new("Design-system todo")
                                             .size(32.0)
                                             .weight(700)
-                                            .into_node(),
+                                            .into(),
                                         Text::new("This example reads a DSP JSON package at build time and uses the generated Rust theme at runtime.")
                                             .color(colors.text_secondary)
-                                            .into_node(),
+                                            .into(),
                                     ],
                                     flex_grow: 1.0,
                                     ..Default::default()
                                 }
-                                .into_node(),
+                                .into(),
                                 Badge {
                                     text: format!("{} done", done_count),
                                     tone: BadgeTone::Success,
                                     ..Default::default()
                                 }
-                                .build(ctx, view),
+                                .into(),
                             ],
                             ..Default::default()
                         }
-                        .into_node(),
+                        .into(),
                         theme_toggle,
                         Row {
                             gap: Some(12.0),
                             children: vec![
                                 TextInput {
-                                    value: view.state.draft.clone(),
+                                    value: view.state().draft.clone(),
                                     placeholder: Some("Add a task".into()),
                                     on_change: Some(update_draft),
                                     width: Some(360.0),
                                     ..Default::default()
                                 }
-                                .into_node(),
+                                .into(),
                                 Button {
                                     variant: ButtonVariant::Primary,
-                                    child: Some(Box::new(Text::new("Add task").into_node())),
+                                    child: Some(Text::new("Add task").into()),
                                     on_press: Some(add),
                                     ..Default::default()
                                 }
-                                .into_node(),
+                                .into(),
                             ],
                             ..Default::default()
                         }
-                        .into_node(),
+                        .into(),
                         Column {
                             gap: Some(10.0),
                             children: todo_rows,
                             ..Default::default()
                         }
-                        .into_node(),
+                        .into(),
                         Button {
                             variant: ButtonVariant::TertiaryGray,
-                            child: Some(Box::new(Text::new("Clear completed").into_node())),
+                            child: Some(Text::new("Clear completed").into()),
                             on_press: Some(clear_done),
                             disabled: done_count == 0,
                             ..Default::default()
                         }
-                        .into_node(),
+                        .into(),
                     ],
                     ..Default::default()
                 }
-                .into_node(),
-            ),
+                .into(),
             ..Default::default()
         }
-        .build(ctx, view);
+        .into();
 
         Container::new(content)
             .bg(colors.background)
             .padding_all(spacing.xl)
-            .into_node()
+            .into()
     }
 }
-
 fn main() -> anyhow::Result<()> {
-    DesktopApp::new(TodoApp)
+    DesktopApp::<TodoState, _>::new(TodoApp)
         .with_design_system::<TodoDesignSystem>(DesignMode::Light)
         .with_sync_env(|state: &TodoState, env: &mut Env| {
             env.theme = TodoDesignSystem::theme(state.theme_mode);

@@ -1,10 +1,10 @@
 use crate::env::{Env, RuntimeState};
 use crate::hit_test::find_next_focus_node;
-use crate::lowering::LoweringContext;
-use crate::ui::traits::Lower;
+use crate::internal::InternalLower;
+use crate::lowering::InternalLoweringCx;
 use crate::ui::widgets::button::Button;
 use crate::ui::widgets::focus_scope::FocusScope;
-use fission_ir::{CoreIR, NodeId, Op};
+use fission_ir::{CoreIR, Op, WidgetId};
 
 #[test]
 fn test_focus_scope_traversal() {
@@ -43,16 +43,16 @@ fn test_focus_scope_traversal() {
 
     let scope = FocusScope {
         is_barrier: true,
-        children: vec![b2.into_node(), b3.into_node()],
+        children: vec![b2.into(), b3.into()],
         ..Default::default()
     };
 
     let root = crate::ui::widgets::column::Column {
-        children: vec![b1.into_node(), scope.into_node(), b4.into_node()],
+        children: vec![b1.into(), scope.into(), b4.into()],
         ..Default::default()
     };
 
-    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
+    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
     let root_id = root.lower(&mut cx);
     cx.ir.root = Some(root_id);
 
@@ -82,7 +82,7 @@ fn test_focus_scope_traversal() {
         }
     }
     let scope_id = scope_id.expect("FocusScope node not found");
-    fn collect_focusable(node_id: NodeId, ir: &CoreIR, out: &mut Vec<NodeId>) {
+    fn collect_focusable(node_id: WidgetId, ir: &CoreIR, out: &mut Vec<WidgetId>) {
         if let Some(node) = ir.nodes.get(&node_id) {
             if let Op::Semantics(s) = &node.op {
                 if s.focusable {

@@ -60,6 +60,24 @@
     });
   }
 
+  function initNav(root){
+    root.addEventListener('click',function(e){
+      var item=e.target.closest('.fission-site-nav-item[data-fission-site-nav-has-children="true"]');
+      if(!item||!root.contains(item))return;
+      var nestedMenu=e.target.closest('.fission-site-nav-menu');
+      var nestedItem=e.target.closest('.fission-site-nav-item');
+      if(nestedMenu&&nestedItem!==item)return;
+      var alreadyOpen=item.dataset.fissionSiteNavOpen==='true';
+      if(!alreadyOpen){
+        e.preventDefault();
+        root.querySelectorAll('.fission-site-nav-item[data-fission-site-nav-open="true"]').forEach(function(openItem){
+          if(openItem!==item&&!openItem.contains(item))openItem.removeAttribute('data-fission-site-nav-open');
+        });
+        item.dataset.fissionSiteNavOpen='true';
+      }
+    });
+  }
+
   document.addEventListener('click',function(e){
     var toggle=e.target.closest('[data-fission-sidebar-toggle]');
     if(toggle){
@@ -67,18 +85,30 @@
       setDrawer(!d.classList.contains('fission-site-sidebar-open'));
       return;
     }
-    if(!d.classList.contains('fission-site-sidebar-open'))return;
-    var sidebar=e.target.closest('.fission-site-doc-sidebar');
-    if(sidebar)return;
-    setDrawer(false);
+    if(!e.target.closest('.fission-site-nav-item')){
+      document.querySelectorAll('.fission-site-nav-item[data-fission-site-nav-open="true"]').forEach(function(item){
+        item.removeAttribute('data-fission-site-nav-open');
+      });
+    }
+    if(d.classList.contains('fission-site-sidebar-open')){
+      var sidebar=e.target.closest('.fission-site-doc-sidebar');
+      if(sidebar)return;
+      setDrawer(false);
+    }
   });
 
   document.addEventListener('keydown',function(e){
-    if(e.key==='Escape')setDrawer(false);
+    if(e.key==='Escape'){
+      setDrawer(false);
+      document.querySelectorAll('.fission-site-nav-item[data-fission-site-nav-open="true"]').forEach(function(item){
+        item.removeAttribute('data-fission-site-nav-open');
+      });
+    }
   });
 
   function boot(){
     document.querySelectorAll('.fission-site-doc-sidebar').forEach(initSidebar);
+    document.querySelectorAll('.fission-site-doc-nav,.fission-site-main-nav,.fission-site-mobile-global-menu').forEach(initNav);
   }
   if(document.readyState==='loading'){
     document.addEventListener('DOMContentLoaded',boot,{once:true});

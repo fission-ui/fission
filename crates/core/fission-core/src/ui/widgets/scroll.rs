@@ -1,8 +1,8 @@
-use crate::lowering::{LoweringContext, NodeBuilder};
-use crate::ui::{traits::Lower, Node};
+use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::ui::{traits::InternalLower, Widget};
 use fission_ir::{
     op::{FlexDirection, LayoutOp, Op},
-    NodeId,
+    WidgetId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -19,16 +19,16 @@ use serde::{Deserialize, Serialize};
 ///     direction: FlexDirection::Column,
 ///     show_scrollbar: true,
 ///     flex_grow: 1.0,
-///     child: Some(Box::new(long_content)),
+///     child: Some(long_content),
 ///     ..Default::default()
 /// }
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Scroll {
     /// Explicit node identity (used for scroll-offset tracking).
-    pub id: Option<NodeId>,
+    pub id: Option<WidgetId>,
     /// The scrollable content.
-    pub child: Option<Box<Node>>,
+    pub child: Option<Widget>,
     /// Scroll axis: `Column` for vertical, `Row` for horizontal.
     pub direction: FlexDirection,
     /// Fixed width in layout points.
@@ -43,11 +43,7 @@ pub struct Scroll {
     pub flex_shrink: f32,
 }
 
-impl Scroll {
-    pub fn into_node(self) -> Node {
-        Node::Scroll(self)
-    }
-}
+impl Scroll {}
 
 impl Default for Scroll {
     fn default() -> Self {
@@ -64,13 +60,13 @@ impl Default for Scroll {
     }
 }
 
-impl Lower for Scroll {
-    fn lower(&self, cx: &mut LoweringContext) -> NodeId {
-        let layout_id = self.id.unwrap_or_else(|| cx.next_node_id());
+impl InternalLower for Scroll {
+    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+        let layout_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
 
         cx.push_scope(layout_id);
 
-        let mut builder = NodeBuilder::new(
+        let mut builder = InternalIrBuilder::new(
             layout_id,
             Op::Layout(LayoutOp::Scroll {
                 direction: self.direction,
@@ -90,7 +86,7 @@ impl Lower for Scroll {
             // Wrap content in a non-shrinking Box to ensure it overflows the viewport
             // allowing scrolling to work.
             let content_id = cx.next_node_id();
-            let mut content_box = NodeBuilder::new(
+            let mut content_box = InternalIrBuilder::new(
                 content_id,
                 Op::Layout(LayoutOp::Box {
                     width: None,

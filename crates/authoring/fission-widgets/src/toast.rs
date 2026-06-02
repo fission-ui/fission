@@ -1,8 +1,8 @@
 use crate::stack::HStack;
 use crate::Icon;
 use fission_core::op::Color;
-use fission_core::ui::{Button, ButtonVariant, Container, Node, Text};
-use fission_core::{ActionEnvelope, BuildCtx, View, Widget, WidgetNodeId};
+use fission_core::ui::{Button, ButtonVariant, Container, Text, Widget};
+use fission_core::{ActionEnvelope, WidgetId};
 use fission_icons::material;
 use serde::{Deserialize, Serialize};
 
@@ -26,17 +26,24 @@ pub enum ToastKind {
 /// when `on_close` fires or after a timeout.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Toast {
-    pub id: WidgetNodeId,
+    pub id: WidgetId,
     pub kind: ToastKind,
     pub message: String,
     pub on_close: Option<ActionEnvelope>,
 }
 
-impl<S: fission_core::AppState> Widget<S> for Toast {
-    fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let tokens = &view.env.theme.tokens;
+impl From<Toast> for Widget {
+    fn from(component: Toast) -> Self {
+        let (_, view) = fission_core::build::current::<()>();
+        let mut component = component;
+        if let Some(id) = fission_core::build::current_widget_id() {
+            component.id = id;
+        }
+        let this = &component;
 
-        let (icon_path, icon_color) = match self.kind {
+        let tokens = &view.env().theme.tokens;
+
+        let (icon_path, icon_color) = match this.kind {
             ToastKind::Info => (material::action::info::regular(), tokens.colors.primary),
             ToastKind::Success => (
                 material::action::check_circle::regular(),
@@ -54,31 +61,28 @@ impl<S: fission_core::AppState> Widget<S> for Toast {
             ToastKind::Error => (material::alert::error::regular(), tokens.colors.error),
         };
 
-        let content = HStack {
+        let content: Widget = HStack {
             spacing: Some(12.0),
             children: vec![
-                Icon::svg(icon_path)
-                    .color(icon_color)
-                    .size(20.0)
-                    .into_node(),
-                Text::new(self.message.clone())
+                Icon::svg(icon_path).color(icon_color).size(20.0).into(),
+                Text::new(this.message.clone())
                     .color(tokens.colors.on_surface)
                     .flex_grow(1.0)
-                    .into_node(),
+                    .into(),
                 Button {
                     variant: ButtonVariant::Ghost,
-                    child: Some(Box::new(
+                    child: Some(
                         Icon::svg(material::navigation::close::regular())
                             .size(16.0)
-                            .into_node(),
-                    )),
-                    on_press: self.on_close.clone(),
+                            .into(),
+                    ),
+                    on_press: this.on_close.clone(),
                     ..Default::default()
                 }
                 .into(),
             ],
         }
-        .into_node();
+        .into();
 
         Container::new(content)
             .bg(tokens.colors.surface)
@@ -100,6 +104,6 @@ impl<S: fission_core::AppState> Widget<S> for Toast {
                     }),
             )
             .padding_all(12.0)
-            .into_node()
+            .into()
     }
 }

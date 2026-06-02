@@ -1,6 +1,5 @@
 use super::semantics::{ActionEntry, Semantics};
-use super::widget_id::WidgetNodeId;
-use crate::NodeId;
+use crate::WidgetId;
 use serde::{Deserialize, Serialize};
 
 // The fundamental operations that can be performed in the Core IR.
@@ -44,7 +43,7 @@ pub enum StructuralOp {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct CompositeScalar {
     pub base: f32,
-    pub animation_target: Option<WidgetNodeId>,
+    pub animation_target: Option<WidgetId>,
 }
 
 impl CompositeScalar {
@@ -55,7 +54,7 @@ impl CompositeScalar {
         }
     }
 
-    pub fn animated(mut self, target: WidgetNodeId) -> Self {
+    pub fn animated(mut self, target: WidgetId) -> Self {
         self.animation_target = Some(target);
         self
     }
@@ -448,7 +447,7 @@ pub enum LayoutOp {
     },
     Embed {
         kind: EmbedKind,
-        widget_id: WidgetNodeId,
+        widget_id: WidgetId,
         width: Option<LayoutUnit>,
         height: Option<LayoutUnit>,
     },
@@ -464,8 +463,8 @@ pub enum LayoutOp {
     ZStack,
     Align,
     Flyout {
-        anchor: NodeId,
-        content: NodeId,
+        anchor: WidgetId,
+        content: WidgetId,
     },
     Transform {
         transform: [f32; 16],

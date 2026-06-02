@@ -6,7 +6,7 @@
 use fission::prelude::*;
 use fission::{
     DesktopApp, TrayActivateBehavior, TrayConfig, TrayHostAction, TrayIconSource, TrayMenu,
-    TrayMenuAction, TrayMenuWidget, WindowCloseBehavior,
+    TrayMenuAction, TrayMenuBuilder, WindowCloseBehavior,
 };
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
@@ -14,7 +14,7 @@ struct FacadeTrayState {
     opened: bool,
 }
 
-impl AppState for FacadeTrayState {}
+impl GlobalState for FacadeTrayState {}
 
 #[fission_reducer(OpenFromTray)]
 fn on_open_from_tray(state: &mut FacadeTrayState) {
@@ -23,27 +23,33 @@ fn on_open_from_tray(state: &mut FacadeTrayState) {
 
 struct FacadeTrayMenu;
 
-impl TrayMenuWidget<FacadeTrayState> for FacadeTrayMenu {
-    fn build(
+impl TrayMenuBuilder<FacadeTrayState> for FacadeTrayMenu {
+    fn menu(
         &self,
-        ctx: &mut BuildCtx<FacadeTrayState>,
-        _view: &View<FacadeTrayState>,
+        ctx: BuildCtxHandle<FacadeTrayState>,
+        _view: ViewHandle<FacadeTrayState>,
     ) -> TrayMenu {
-        let open = ctx.bind(OpenFromTray, reduce_with!(on_open_from_tray));
+        let open = ctx.bind(OpenFromTray, reduce!(on_open_from_tray));
         TrayMenu::new()
             .item("Open", TrayMenuAction::app(open))
             .item("Exit", TrayMenuAction::host(TrayHostAction::QuitApp))
     }
 }
 
+#[derive(Clone)]
 struct FacadeTrayApp;
 
-impl Widget<FacadeTrayState> for FacadeTrayApp {
-    fn build(&self, _ctx: &mut BuildCtx<FacadeTrayState>, view: &View<FacadeTrayState>) -> Node {
-        Text::new(if view.state.opened { "Open" } else { "Closed" }).into_node()
+impl From<FacadeTrayApp> for Widget {
+    fn from(_component: FacadeTrayApp) -> Self {
+        let (_ctx, view) = fission::build::current::<FacadeTrayState>();
+        Text::new(if view.state().opened {
+            "Open"
+        } else {
+            "Closed"
+        })
+        .into()
     }
 }
-
 #[test]
 fn facade_exports_desktop_tray_api() {
     let tray = TrayConfig::<FacadeTrayState>::new(TrayIconSource::rgba(vec![0, 0, 0, 255], 1, 1))
@@ -52,5 +58,5 @@ fn facade_exports_desktop_tray_api() {
         .activate_behavior(TrayActivateBehavior::ShowMainWindow)
         .menu(FacadeTrayMenu);
 
-    let _app = DesktopApp::new(FacadeTrayApp).with_tray(tray);
+    let _app = DesktopApp::<FacadeTrayState, _>::new(FacadeTrayApp).with_tray(tray);
 }

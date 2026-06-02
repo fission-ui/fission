@@ -1,44 +1,40 @@
 use anyhow::Result;
-use fission_core::ui::{Container, Node, Text, TextContent};
-use fission_core::{BuildCtx, View, Widget};
+use fission_core::ui::{Container, Text, TextContent, Widget};
 use fission_test::TestHarness;
 use fission_widgets::LazyColumn;
-use std::sync::Arc;
 
 #[derive(Debug, Default, Clone)]
-struct AppState {}
-impl fission_core::action::AppState for AppState {}
+struct GlobalState {}
+impl fission_core::action::GlobalState for GlobalState {}
 
+#[derive(Clone)]
 struct Root;
-impl Widget<AppState> for Root {
-    fn build(&self, _ctx: &mut BuildCtx<AppState>, _view: &View<AppState>) -> Node {
+impl From<Root> for Widget {
+    fn from(_component: Root) -> Self {
+        let (_ctx, _view) = fission_core::build::current::<GlobalState>();
         let mut children = Vec::new();
         for i in 0..5 {
             children.push(
-                Container::new(
-                    Text {
-                        content: TextContent::Literal(format!("Item {}", i)),
-                        ..Default::default()
-                    }
-                    .into(),
-                )
+                Container::new(Text {
+                    content: TextContent::Literal(format!("Item {}", i)),
+                    ..Default::default()
+                })
                 .height(50.0) // Explicit height
-                .into_node(),
+                .into(),
             );
         }
 
         LazyColumn {
             id: None,
-            children: Arc::new(children),
+            children,
             item_height: 50.0,
         }
         .into()
     }
 }
-
 #[test]
 fn test_lazy_column_vertical_stacking() -> Result<()> {
-    let mut h = TestHarness::new(AppState::default()).with_root_widget(Root);
+    let mut h = TestHarness::new(GlobalState::default()).with_root_widget(Root);
     h.pump()?;
 
     let snap = h.last_snapshot.as_ref().unwrap();

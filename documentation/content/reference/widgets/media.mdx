@@ -1,13 +1,13 @@
 ---
-title: Media and custom surfaces
-description: The reference overview for image, video, web, terminal, canvas, and custom rendering widgets.
+title: Media and embed surfaces
+description: The reference overview for image, video, web, and terminal widgets.
 ---
 
-# Media and custom surfaces
+# Media and embed surfaces
 
 This family covers the parts of the widget surface that connect the shared layout and state model to richer visual or host-backed content.
 
-Some of these widgets are still ordinary display widgets with a media flavor, such as images. Others, such as video, web views, and terminal surfaces, represent deeper runtime or host integration boundaries. The custom drawing helpers sit here because they are the most direct way to go beyond the ordinary built-in widget surface without abandoning the framework model.
+Some of these widgets are ordinary display widgets with a media flavor, such as images. Others, such as video, web views, and terminal surfaces, represent deeper runtime or host integration boundaries.
 
 ## Media and embed widgets
 
@@ -20,26 +20,29 @@ Some of these widgets are still ordinary display widgets with a media flavor, su
 | `TerminalLaunchConfig` | [TerminalLaunchConfig](/reference/widgets/terminal-launch-config) | Supporting type for terminal startup configuration |
 | `TerminalSession` | [TerminalSession](/reference/widgets/terminal-session) | Supporting handle for a live terminal session |
 
-## Custom drawing and escape hatches
-
-| Widget or helper | Dedicated page | When to choose it |
-| --- | --- | --- |
-| `canvas(...)` | [canvas](/reference/widgets/canvas) | You need lightweight custom drawing without leaving the widget model |
-| `CanvasLowerer` | [CanvasLowerer](/reference/widgets/canvas-lowerer) | You are working at the lower-level helper behind `canvas(...)` |
-| `CustomNode` | [CustomNode](/reference/widgets/custom-node) | A widget needs custom lowering or a custom render object |
-| `Node` | [Node](/reference/widgets/node) | You need the erased authored node type directly |
-| `Builder` | [Builder](/reference/widgets/builder) | You need a lower-level authoring builder helper |
-
 ## How to choose within this family
 
 Use `Image` when the content is still ordinary image display. It supports typed asset, file, network, memory, and SVG sources, and it participates in layout like any other widget.
 
 Move to `Video`, `WebView`, or `TerminalView` when the surface needs runtime registration or host-backed behavior.
 
-Reach for `canvas(...)` when the built-in surface is close but you need a focused custom drawing escape hatch.
-
-Reach for `CustomNode` only when you truly need lower-level control over lowering or rendering. It is powerful, but most screens should stay in ordinary widget composition as long as they can.
 
 ## Practical cross-reference
 
 For the runtime contracts behind animation, portals, and media registration, see [Animations, portals, and media](/reference/core/animations-portals-media). For a guided explanation of these ideas in app terms, read [Media, animation, portals, and 3D](/docs/guides/media-animation-portals-and-3d). For the full widget map, return to the [Widget catalog](/reference/widgets/catalog).
+
+## Contract completeness checklist
+
+Use this checklist when wiring `Media and embed surfaces` into an app or shell implementation.
+
+| Requirement | Why it matters |
+| --- | --- |
+| Public entrypoint | The app code must call the documented helper, command, or configuration field rather than a platform-specific shortcut. |
+| Required setup | Native manifests, plist entries, entitlements, service-worker files, domains, protocols, credentials, or provider registration must be present before production use. |
+| Typed success and error | The implementation should return a truthful typed result. Silent success, swallowed errors, and string-only failure paths make apps unsafe to retry. |
+| Retry behavior | Operations that can fail because of permission, network, hardware, store, or packaging state should document whether retrying is useful and what must change first. |
+| Tests | Cover the happy path, unsupported host path, bad configuration path, and any security-sensitive rejection path. |
+
+## Failure behavior and safe retry
+
+Treat failures as product states, not surprises. A Fission app should be able to tell the user whether the problem is missing configuration, missing provider support, denied permission, unavailable hardware, invalid input, expired credentials, or a transient host error. Reducers should update state from typed results and keep retry buttons idempotent so pressing them twice cannot corrupt state or duplicate unsafe work.

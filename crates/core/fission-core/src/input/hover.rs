@@ -4,10 +4,10 @@ use crate::input::{ControllerContext, InputController};
 use crate::{ActionEnvelope, ActionId, ActionInput};
 use fission_ir::op::{PaintOp, RichTextAnnotation};
 use fission_ir::semantics::{ActionTrigger, MouseCursor};
-use fission_ir::{NodeId, Op};
+use fission_ir::{Op, WidgetId};
 use fission_layout::{LayoutPoint, LayoutRect};
 
-type ResolvedRichTextAnnotation = (NodeId, RichTextAnnotation);
+type ResolvedRichTextAnnotation = (WidgetId, RichTextAnnotation);
 
 pub struct HoverController;
 
@@ -16,7 +16,7 @@ impl HoverController {
         Self::apply_hover_path(ctx, Vec::new(), point)
     }
 
-    fn hover_path_at_point(ctx: &ControllerContext, point: LayoutPoint) -> Vec<NodeId> {
+    fn hover_path_at_point(ctx: &ControllerContext, point: LayoutPoint) -> Vec<WidgetId> {
         let Some(hit_node_id) = hit_test_with_scroll(ctx.ir, ctx.layout, ctx.scroll, point) else {
             return Vec::new();
         };
@@ -32,7 +32,7 @@ impl HoverController {
 
     fn apply_hover_path(
         ctx: &mut ControllerContext,
-        next_path: Vec<NodeId>,
+        next_path: Vec<WidgetId>,
         point: Option<LayoutPoint>,
     ) -> bool {
         let previous_path = ctx.interaction.hover_path.clone();
@@ -122,7 +122,7 @@ impl InputController for HoverController {
     }
 }
 
-fn shared_tail_len(previous_path: &[NodeId], next_path: &[NodeId]) -> usize {
+fn shared_tail_len(previous_path: &[WidgetId], next_path: &[WidgetId]) -> usize {
     previous_path
         .iter()
         .rev()
@@ -133,7 +133,7 @@ fn shared_tail_len(previous_path: &[NodeId], next_path: &[NodeId]) -> usize {
 
 fn resolve_cursor(
     ctx: &ControllerContext,
-    hover_path: &[NodeId],
+    hover_path: &[WidgetId],
     rich_text_annotation: Option<&ResolvedRichTextAnnotation>,
 ) -> MouseCursor {
     if let Some((_, annotation)) = rich_text_annotation {
@@ -172,7 +172,7 @@ fn map_rich_text_cursor(cursor: fission_ir::op::MouseCursor) -> MouseCursor {
 
 pub(crate) fn resolve_rich_text_annotation_at_point(
     ctx: &ControllerContext,
-    hover_path: &[NodeId],
+    hover_path: &[WidgetId],
     point: LayoutPoint,
 ) -> Option<ResolvedRichTextAnnotation> {
     let measurer = ctx.measurer?;
@@ -222,7 +222,7 @@ pub(crate) fn resolve_rich_text_annotation_at_point(
     None
 }
 
-fn visual_rect_for_node(ctx: &ControllerContext, node_id: NodeId) -> Option<LayoutRect> {
+fn visual_rect_for_node(ctx: &ControllerContext, node_id: WidgetId) -> Option<LayoutRect> {
     let mut rect = ctx.layout.get_node_rect(node_id)?;
     let mut current = ctx.ir.nodes.get(&node_id).and_then(|node| node.parent);
     while let Some(parent_id) = current {
@@ -243,7 +243,7 @@ fn visual_rect_for_node(ctx: &ControllerContext, node_id: NodeId) -> Option<Layo
 
 fn dispatch_hover_actions(
     ctx: &mut ControllerContext,
-    node_id: NodeId,
+    node_id: WidgetId,
     trigger: ActionTrigger,
     point: Option<LayoutPoint>,
 ) {
@@ -281,7 +281,7 @@ fn dispatch_hover_actions(
 
 fn dispatch_annotation_actions(
     ctx: &mut ControllerContext,
-    node_id: NodeId,
+    node_id: WidgetId,
     annotation: &RichTextAnnotation,
     trigger: ActionTrigger,
     point: Option<LayoutPoint>,

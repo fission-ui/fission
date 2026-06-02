@@ -4,8 +4,8 @@ use crate::model::{
     SetScheduleTime,
 };
 use chrono::Local;
-use fission::core::ui::Node;
-use fission::core::{reduce_with, ActionEnvelope, BuildCtx, NodeId, View, Widget, WidgetNodeId};
+use fission::core::ui::Widget;
+use fission::core::{reduce_with, ActionEnvelope, WidgetId};
 use fission::widgets::{
     Combobox, DatePicker, Dropzone, FileUpload, FocusScope, FormControl, Modal, ModalAction,
     TextInput, TimePicker, VStack, Wrap,
@@ -14,10 +14,12 @@ use serde_json;
 use std::collections::HashSet;
 use std::sync::Arc;
 
+#[derive(Clone)]
 pub struct ComposeModal;
 
-impl Widget<InboxState> for ComposeModal {
-    fn build(&self, ctx: &mut BuildCtx<InboxState>, view: &View<InboxState>) -> Node {
+impl From<ComposeModal> for Widget {
+    fn from(_component: ComposeModal) -> Self {
+        let (ctx, view) = fission::build::current::<InboxState>();
         let viewport_width = view.viewport_size().width.max(0.0);
         let modal_width = (viewport_width - 48.0).clamp(320.0, 760.0);
         let field_width = (modal_width - 56.0).max(240.0);
@@ -144,15 +146,11 @@ impl Widget<InboxState> for ComposeModal {
             )
             .id;
 
-        let subject_node_id = NodeId::derived(
-            WidgetNodeId::explicit("compose_subject_input").as_u128(),
-            &[],
-        );
-        let body_node_id =
-            NodeId::derived(WidgetNodeId::explicit("compose_body_input").as_u128(), &[]);
+        let subject_node_id = WidgetId::explicit("compose_subject_input");
+        let body_node_id = WidgetId::explicit("compose_body_input");
         let toggle_date_picker = ActionEnvelope {
             id: date_picker_open_id,
-            payload: serde_json::to_vec(&SetDatePickerOpen(!view.state.is_date_picker_open))
+            payload: serde_json::to_vec(&SetDatePickerOpen(!view.state().is_date_picker_open))
                 .unwrap(),
         };
         let close_date_picker = ActionEnvelope {
@@ -170,13 +168,13 @@ impl Widget<InboxState> for ComposeModal {
                     required: true,
                     error: None,
                     helper: None,
-                    child: Box::new({
+                    child: {
                         let all_recipients = vec![
                             "alice@example.com".to_string(),
                             "bob@example.com".to_string(),
                             "team@fission.rs".to_string(),
                         ];
-                        let query = view.state.compose_to.trim().to_lowercase();
+                        let query = view.state().compose_to.trim().to_lowercase();
                         let suggestions: Vec<String> = if query.is_empty() {
                             Vec::new()
                         } else {
@@ -188,11 +186,11 @@ impl Widget<InboxState> for ComposeModal {
                         };
                         let has_exact_match = all_recipients
                             .iter()
-                            .any(|item| item.eq_ignore_ascii_case(view.state.compose_to.trim()));
+                            .any(|item| item.eq_ignore_ascii_case(view.state().compose_to.trim()));
 
                         Combobox {
-                            id: WidgetNodeId::explicit("compose_to"),
-                            value: view.state.compose_to.clone(),
+                            id: WidgetId::explicit("compose_to"),
+                            value: view.state().compose_to.clone(),
                             items: suggestions,
                             is_open: !query.is_empty() && !has_exact_match,
                             width: Some(field_width),
@@ -207,10 +205,10 @@ impl Widget<InboxState> for ComposeModal {
                             })),
                             on_toggle: None,
                         }
-                        .build(ctx, view)
-                    }),
+                        .into()
+                    },
                 }
-                .build(ctx, view),
+                .into(),
                 // Subject
                 FormControl {
                     id: None,
@@ -218,30 +216,28 @@ impl Widget<InboxState> for ComposeModal {
                     required: false,
                     error: None,
                     helper: None,
-                    child: Box::new(
-                        TextInput {
-                            id: Some(subject_node_id),
-                            value: view.state.compose_subject.clone(),
-                            placeholder: Some("Subject".into()),
-                            on_change: Some(ActionEnvelope {
-                                id: subject_id,
-                                payload: Vec::new(),
-                            }),
-                            ..Default::default()
-                        }
-                        .into_node(),
-                    ),
+                    child: TextInput {
+                        id: Some(subject_node_id),
+                        value: view.state().compose_subject.clone(),
+                        placeholder: Some("Subject".into()),
+                        on_change: Some(ActionEnvelope {
+                            id: subject_id,
+                            payload: Vec::new(),
+                        }),
+                        ..Default::default()
+                    }
+                    .into(),
                 }
-                .build(ctx, view),
+                .into(),
                 // Schedule
                 Wrap {
-                    direction: fission::ir::op::FlexDirection::Row,
+                    direction: fission::op::FlexDirection::Row,
                     spacing: Some(12.0),
                     children: vec![
                         DatePicker {
-                            id: WidgetNodeId::explicit("schedule_date"),
-                            value: view.state.schedule_date,
-                            is_open: view.state.is_date_picker_open,
+                            id: WidgetId::explicit("schedule_date"),
+                            value: view.state().schedule_date,
+                            is_open: view.state().is_date_picker_open,
                             width: None,
                             on_change: Some(Arc::new(move |d| ActionEnvelope {
                                 id: date_id,
@@ -250,26 +246,26 @@ impl Widget<InboxState> for ComposeModal {
                             on_toggle: Some(toggle_date_picker.clone()),
                             on_close: Some(close_date_picker.clone()),
                         }
-                        .build(ctx, view),
+                        .into(),
                         TimePicker {
-                            hour: view.state.schedule_time.map(|(h, _)| h).unwrap_or(9),
-                            minute: view.state.schedule_time.map(|(_, m)| m).unwrap_or(0),
+                            hour: view.state().schedule_time.map(|(h, _)| h).unwrap_or(9),
+                            minute: view.state().schedule_time.map(|(_, m)| m).unwrap_or(0),
                             on_change: Some(Arc::new(move |h, m| ActionEnvelope {
                                 id: time_id,
                                 payload: serde_json::to_vec(&SetScheduleTime(h, m)).unwrap(),
                             })),
                         }
-                        .build(ctx, view),
+                        .into(),
                     ],
                 }
-                .build(ctx, view),
+                .into(),
                 // Attachments
                 FileUpload {
                     label: "Attach File".into(),
-                    selected_file: view.state.compose_attachments.first().cloned(),
+                    selected_file: view.state().compose_attachments.first().cloned(),
                     on_browse: None,
                 }
-                .build(ctx, view),
+                .into(),
                 // Message
                 FormControl {
                     id: None,
@@ -277,29 +273,27 @@ impl Widget<InboxState> for ComposeModal {
                     required: true,
                     error: None,
                     helper: Some("Markdown supported".into()),
-                    child: Box::new(
-                        TextInput {
-                            id: Some(body_node_id),
-                            value: view.state.compose_body.clone(),
-                            placeholder: Some("Type your message...".into()),
-                            on_change: Some(ActionEnvelope {
-                                id: body_id,
-                                payload: Vec::new(),
-                            }),
-                            multiline: true,
-                            height: Some(160.0),
-                            ..Default::default()
-                        }
-                        .into_node(),
-                    ),
+                    child: TextInput {
+                        id: Some(body_node_id),
+                        value: view.state().compose_body.clone(),
+                        placeholder: Some("Type your message...".into()),
+                        on_change: Some(ActionEnvelope {
+                            id: body_id,
+                            payload: Vec::new(),
+                        }),
+                        multiline: true,
+                        height: Some(160.0),
+                        ..Default::default()
+                    }
+                    .into(),
                 }
-                .build(ctx, view),
+                .into(),
             ],
         }
-        .into_node();
+        .into();
 
         Modal {
-            id: WidgetNodeId::explicit("compose_modal"),
+            id: WidgetId::explicit("compose_modal"),
             title: "New Message".into(),
             is_open: true,
             on_dismiss: Some(ctx.bind(
@@ -307,29 +301,27 @@ impl Widget<InboxState> for ComposeModal {
                 reduce_with!((|s: &mut InboxState, a: SetComposeOpen, _| s.show_compose = a.0)),
             )),
             width: Some(modal_width),
-            content: Box::new(
-                FocusScope {
-                    id: None,
-                    is_barrier: true,
-                    children: vec![Dropzone {
-                        child: Box::new(content),
-                        on_drop: Some(ctx.bind(
-                            FileSelected,
-                            reduce_with!(
-                                (|s: &mut InboxState, _a: FileSelected, ctx| {
-                                    if let Some(paths) = ctx.input.as_drop_paths() {
-                                        s.compose_attachments.extend(paths.iter().cloned());
-                                    }
-                                })
-                            ),
-                        )),
-                        on_drag_enter: None,
-                        on_drag_leave: None,
-                    }
-                    .build(ctx, view)],
+            content: FocusScope {
+                id: None,
+                is_barrier: true,
+                children: vec![Dropzone {
+                    child: content,
+                    on_drop: Some(ctx.bind(
+                        FileSelected,
+                        reduce_with!(
+                            (|s: &mut InboxState, _a: FileSelected, ctx| {
+                                if let Some(paths) = ctx.input.as_drop_paths() {
+                                    s.compose_attachments.extend(paths.iter().cloned());
+                                }
+                            })
+                        ),
+                    )),
+                    on_drag_enter: None,
+                    on_drag_leave: None,
                 }
-                .into(),
-            ),
+                .into()],
+            }
+            .into(),
             actions: vec![
                 ModalAction {
                     label: "Cancel".into(),
@@ -351,10 +343,9 @@ impl Widget<InboxState> for ComposeModal {
                 },
             ],
         }
-        .build(ctx, view)
+        .into()
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -368,12 +359,9 @@ mod tests {
         let mut h = TestHarness::new(InboxState::default()).with_root_widget(ComposeModal);
         h.pump()?;
 
-        let subject_node_id = NodeId::derived(
-            WidgetNodeId::explicit("compose_subject_input").as_u128(),
-            &[],
-        );
-        let body_node_id =
-            NodeId::derived(WidgetNodeId::explicit("compose_body_input").as_u128(), &[]);
+        let subject_node_id: fission_ir::WidgetId =
+            WidgetId::explicit("compose_subject_input").into();
+        let body_node_id: fission_ir::WidgetId = WidgetId::explicit("compose_body_input").into();
 
         let subject_rect = h
             .last_snapshot
@@ -437,10 +425,10 @@ mod tests {
             let (role, value) = focused
                 .and_then(|id| ir.nodes.get(&id))
                 .and_then(|n| match &n.op {
-                    fission::ir::Op::Semantics(s) => Some((s.role, s.value.clone())),
+                    fission_ir::Op::Semantics(s) => Some((s.role, s.value.clone())),
                     _ => None,
                 })
-                .unwrap_or((fission::ir::Role::Generic, None));
+                .unwrap_or((fission::Role::Generic, None));
             let snap = h.last_snapshot.as_ref().unwrap();
             let focused_rect = focused.and_then(|id| snap.get_node_rect(id));
             let body_rect_now = snap.get_node_rect(body_node_id);
@@ -478,7 +466,7 @@ mod tests {
             .nodes
             .iter()
             .find_map(|(id, n)| {
-                if let fission::ir::Op::Semantics(s) = &n.op {
+                if let fission_ir::Op::Semantics(s) = &n.op {
                     if s.actions
                         .entries
                         .iter()
@@ -527,7 +515,7 @@ mod tests {
             .nodes
             .iter()
             .find_map(|(id, n)| {
-                if let fission::ir::Op::Semantics(s) = &n.op {
+                if let fission_ir::Op::Semantics(s) = &n.op {
                     if s.actions
                         .entries
                         .iter()
@@ -565,7 +553,7 @@ mod tests {
             let mut cur = Some(hit);
             while let Some(id) = cur {
                 if let Some(n) = ir2.nodes.get(&id) {
-                    if let fission::ir::Op::Semantics(s) = &n.op {
+                    if let fission_ir::Op::Semantics(s) = &n.op {
                         if s.actions
                             .entries
                             .iter()
@@ -589,13 +577,13 @@ mod tests {
             let mut day_desc_drawrect_rect = None;
             while let Some(id) = q.pop() {
                 if let Some(n) = ir2.nodes.get(&id) {
-                    if let fission::ir::Op::Paint(_) = n.op {
+                    if let fission_ir::Op::Paint(_) = n.op {
                         if day_desc_paint_rect.is_none() {
                             day_desc_paint_rect = snap.get_node_rect(id);
                         }
                         if matches!(
                             n.op,
-                            fission::ir::Op::Paint(fission::ir::PaintOp::DrawRect { .. })
+                            fission_ir::Op::Paint(fission_ir::PaintOp::DrawRect { .. })
                         ) {
                             day_desc_drawrect_rect = snap.get_node_rect(id);
                             break;
@@ -610,7 +598,7 @@ mod tests {
             let hit_sem_role = hit
                 .and_then(|hid| ir2.nodes.get(&hid))
                 .and_then(|n| match &n.op {
-                    fission::ir::Op::Semantics(s) => Some(s.role),
+                    fission_ir::Op::Semantics(s) => Some(s.role),
                     _ => None,
                 });
             let hit_op = hit.and_then(|hid| ir2.nodes.get(&hid)).map(|n| &n.op);

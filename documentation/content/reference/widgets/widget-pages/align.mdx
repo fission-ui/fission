@@ -14,12 +14,11 @@ Use `Align` when centering is the main job. Do not use it for multi-child layout
 ## Example
 
 ```rust
-use fission::core::ui::{Align, Text};
-
-let node = Align::new(
-    Text::new("Nothing here yet").into_node(),
+use fission::prelude::*;
+let widget: Widget = Align::new(
+    Text::new("Nothing here yet").into(),
 )
-.into_node();
+.into();
 ```
 
 The child keeps its own natural size. `Align` changes where that child sits inside the parent, not what the child renders.
@@ -28,8 +27,8 @@ The child keeps its own natural size. `Align` changes where that child sits insi
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`, so the runtime generates an id. |
-| `child` | `Box<Node>` | The node to center. | Required. `Align` is a single-child layout wrapper. |
+| `id` | `Option<WidgetId>` | Stable widget identity. | Defaults to `None`, so the runtime generates an id. |
+| `child` | `Widget` | The widget to center. | Required. `Align` is a single-child layout wrapper. |
 
 ## Layout behavior
 
@@ -40,6 +39,18 @@ If you want the same centering behavior through a higher-level convenience widge
 ## Specific advice
 
 `Align` is a good choice when you want intent to be obvious in code. A centered child inside an `Align` is easier to read than manually building containers and spacers to fake centering.
+
+## Production checklist
+
+For `Align`, review the fields that change behavior before treating the widget as finished: `id`, `child`. The goal is to make the product rule visible in state and actions, not hidden inside ad-hoc construction code.
+
+- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
+- When child widgets are generated from data, give reordered or filtered rows an explicit `WidgetId` so retained local state and scroll behavior do not drift between items.
+- Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.
+- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
+- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+
+If a screen starts repeating the same `Align` setup, extract a named component around this widget. That keeps the reference API small while making product code easier to read and safer for generated code to copy.
 
 ## Related
 

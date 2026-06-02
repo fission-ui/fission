@@ -1,28 +1,28 @@
-use fission_core::lowering::{LoweringContext, NodeBuilder};
-use fission_core::ui::{Column, Container, Node, Row, Text};
-use fission_core::LowerDyn;
-use fission_core::{AppState, BuildCtx, View, Widget};
+use fission_core::internal::InternalLowerer;
+use fission_core::internal::{InternalIrBuilder, InternalLoweringCx};
+use fission_core::ui::{Column, Container, Row, Text, Widget};
+use fission_core::GlobalState;
 use fission_ir::{Op, Semantics};
 use fission_test::TestHarness;
 
 #[derive(Debug, Default, Clone)]
 struct State;
-impl AppState for State {}
+impl GlobalState for State {}
 
 #[derive(Debug)]
 struct MockHero {
-    child: Node,
+    child: Widget,
 }
 
-impl LowerDyn for MockHero {
-    fn lower_dyn(&self, cx: &mut LoweringContext) -> fission_ir::NodeId {
-        let child_id = self.child.lower(cx);
+impl InternalLowerer for MockHero {
+    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> fission_ir::WidgetId {
+        let child_id = fission_core::internal::lower_widget(&self.child, cx);
         let id = cx.next_node_id();
         let semantics = Semantics {
             hero_tag: Some("t".into()),
             ..Default::default()
         };
-        let mut builder = NodeBuilder::new(id, Op::Semantics(semantics));
+        let mut builder = InternalIrBuilder::new(id, Op::Semantics(semantics));
         builder.add_child(child_id);
         builder.build(cx)
     }
@@ -37,42 +37,39 @@ fn test_email_list_overlap_regression() {
     // container would fail to wrap in layout (due to flex_shrink: 0 default)
     // causing visual overlap with subsequent items.
 
+    #[derive(Clone)]
     struct EmailRow;
-    impl Widget<State> for EmailRow {
-        fn build(&self, _ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
-            Container::new(
-                Row::default()
-                    .children(vec![
-                        // Text Column
-                        Container::new(
-                            Column::default()
-                                .children(vec![
-                                    // Hero Subject
-                                    Node::Custom(fission_core::ui::CustomNode {
-                                        debug_tag: "Hero".into(),
-                                        lowerer: Some(std::sync::Arc::new(MockHero {
-                                            child: Text::new("Subject 10 Subject 10 Subject 10")
-                                                .min_width(0.0) // Ensure it can shrink
-                                                .into_node(),
-                                        })),
-                                        render_object: None,
-                                    }),
-                                    // Preview
-                                    Text::new("Short preview...").min_width(0.0).into_node(),
-                                ])
-                                .into_node(),
-                        )
-                        .min_width(0.0)
-                        .flex_grow(1.0)
-                        .into_node(),
-                    ])
-                    .into_node(),
-            )
+    impl From<EmailRow> for Widget {
+        fn from(_component: EmailRow) -> Self {
+            let (_ctx, _view) = fission_core::build::current::<State>();
+            Container::new(Row::default().children(vec![
+                    // Text Column
+                    Container::new(
+                        Column::default().children(vec![
+                            // Hero Subject
+                            fission_core::internal::custom_render_widget(
+                                fission_core::internal::InternalRenderNode {
+                                    debug_tag: "Hero".into(),
+                                    lowerer: Some(std::sync::Arc::new(MockHero {
+                                        child: Text::new("Subject 10 Subject 10 Subject 10")
+                                            .min_width(0.0) // Ensure it can shrink
+                                            .into(),
+                                    })),
+                                    render_object: None,
+                                },
+                            ),
+                            // Preview
+                            Text::new("Short preview...").min_width(0.0).into(),
+                        ]),
+                    )
+                    .min_width(0.0)
+                    .flex_grow(1.0)
+                    .into(),
+                ]))
             .width(100.0) // Constrain width
-            .into_node()
+            .into()
         }
     }
-
     let mut h = TestHarness::new(State);
     h = h.with_root_widget(EmailRow);
     h.pump().unwrap();

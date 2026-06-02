@@ -1,0 +1,38 @@
+---
+title: Web packages
+description: Package browser Fission apps as web artifacts.
+---
+
+# Web packages
+
+The web target packages a Fission app for browser delivery. It is different from the static site target: a web app is an interactive runtime app compiled for the browser, while a static site emits crawlable HTML pages.
+
+## 1. Check the browser toolchain
+
+```bash
+fission readiness package --project-dir . --target web --format static
+```
+
+Readiness should confirm the WebAssembly Rust target, browser tooling used by the generated host, output paths, app metadata, and any web capability configuration.
+
+## 2. Package the web app
+
+```bash
+fission package --project-dir . --target web --format static --release
+```
+
+The output is a browser artifact directory plus an artifact manifest. Use this when publishing the browser app to static hosting or archiving it in CI.
+
+## 3. Verify the package locally
+
+Serve the packaged output and open it in a browser. Confirm the renderer selected by diagnostics, input latency, viewport resizing, focus behavior, device-scale sharpness, and any browser capability the app uses.
+
+## 4. Do not confuse web app, static site, and server site
+
+| Output | Use it when |
+| --- | --- |
+| Web app | The route is an interactive browser app with runtime state. |
+| Static site | The route should be crawlable HTML generated at build time. |
+| Server-rendered site | The route needs request-time data, sessions, signed actions, cache policy, workers, or islands. |
+
+Choosing the right target keeps the package smaller and the validation clearer.

@@ -1,6 +1,7 @@
 use crate::build::{build_site, check_site, list_site_routes, SiteBuildOptions};
 use anyhow::{bail, Context, Result};
-use fission_core::{AppState, BuildCtx, Env, Node, RuntimeState, View, Widget};
+use fission_core::internal::BuildCtx;
+use fission_core::{Env, GlobalState, RuntimeState, View, Widget};
 use fission_layout::LayoutSize;
 use fission_theme::{DesignMode, Theme};
 use std::fs;
@@ -11,7 +12,8 @@ use std::sync::Arc;
 
 pub type ContentTransform = dyn Fn(&str, &Path, &Path) -> Result<String> + Send + Sync + 'static;
 
-type RouteRenderer = dyn for<'a> Fn(&SiteRenderContext<'a>) -> Result<Node> + Send + Sync + 'static;
+type RouteRenderer =
+    dyn for<'a> Fn(&SiteRenderContext<'a>) -> Result<Widget> + Send + Sync + 'static;
 
 /// Position where raw static-site page markup is inserted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -279,8 +281,8 @@ impl FissionSite {
         widget: W,
     ) -> Self
     where
-        S: AppState + Default + 'static,
-        W: Widget<S> + Clone + Send + Sync + 'static,
+        S: GlobalState + Default + 'static,
+        W: Clone + Into<Widget> + Send + Sync + 'static,
     {
         let widget = Arc::new(widget);
         self.custom_routes.push(CustomRoute {
@@ -295,7 +297,9 @@ impl FissionSite {
                 let state = S::default();
                 let view = View::new(&state, &runtime, &env, None);
                 let mut build_ctx = BuildCtx::<S>::new();
-                Ok(widget.as_ref().clone().build(&mut build_ctx, &view))
+                Ok(fission_core::build::enter(&mut build_ctx, &view, || {
+                    widget.as_ref().clone().into()
+                }))
             }),
         });
         self
@@ -303,12 +307,12 @@ impl FissionSite {
 
     pub fn footer_widget<S, W>(mut self, widget: W) -> Self
     where
-        S: AppState + Default + 'static,
-        W: Widget<S> + Clone + Send + Sync + 'static,
+        S: GlobalState + Default + 'static,
+        W: Clone + Into<Widget> + Send + Sync + 'static,
     {
         let widget = Arc::new(widget);
         self.footer = Some(Arc::new(move |ctx| {
-            render_widget_node::<S, W>(widget.as_ref().clone(), ctx)
+            render_widget_node::<S, W>(widget.as_ref(), ctx)
         }));
         self
     }
@@ -322,10 +326,10 @@ impl FissionSite {
     }
 }
 
-fn render_widget_node<S, W>(widget: W, ctx: &SiteRenderContext<'_>) -> Result<Node>
+fn render_widget_node<S, W>(widget: &W, ctx: &SiteRenderContext<'_>) -> Result<Widget>
 where
-    S: AppState + Default + 'static,
-    W: Widget<S>,
+    S: GlobalState + Default + 'static,
+    W: Clone + Into<Widget>,
 {
     let runtime = RuntimeState::default();
     let mut env = Env::default();
@@ -334,7 +338,9 @@ where
     let state = S::default();
     let view = View::new(&state, &runtime, &env, None);
     let mut build_ctx = BuildCtx::<S>::new();
-    Ok(widget.build(&mut build_ctx, &view))
+    Ok(fission_core::build::enter(&mut build_ctx, &view, || {
+        (*widget).clone().into()
+    }))
 }
 
 pub fn build_from_cli(site: FissionSite) -> Result<()> {

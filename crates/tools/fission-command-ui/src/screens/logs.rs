@@ -9,9 +9,10 @@ use fission::prelude::*;
 #[derive(Clone)]
 pub struct LogsScreen;
 
-impl Widget<UiState> for LogsScreen {
-    fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
-        let palette = UiPalette::for_mode(view.state.theme_mode);
+impl From<LogsScreen> for Widget {
+    fn from(_component: LogsScreen) -> Self {
+        let (ctx, view) = fission::build::current::<UiState>();
+        let palette = UiPalette::for_mode(view.state().theme_mode);
         let snapshot = with_reducer!(
             ctx,
             RequestCommand(UiCommand::LogsSnapshot),
@@ -30,46 +31,45 @@ impl Widget<UiState> for LogsScreen {
                 Row {
                     gap: Some(2.0),
                     children: vec![
-                        KeyValueRow::new("Target", view.state.selected_target_label()).build(ctx, view),
-                        KeyValueRow::new("Device", view.state.selected_device_label()).build(ctx, view),
+                        KeyValueRow::new("Target", view.state().selected_target_label()).into(),
+                        KeyValueRow::new("Device", view.state().selected_device_label()).into(),
                     ],
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
                 TargetPicker {
                     configured_only: true,
                 }
-                .build(ctx, view),
+                .into(),
                 DeviceTable {
                     devices: current_target_devices(view),
                     selectable: true,
                     max_rows: 7,
                 }
-                .build(ctx, view),
+                .into(),
                 Row {
                     gap: Some(1.0),
                     children: vec![
                         ActionButton::new("Read logs", snapshot)
                             .tone(ButtonTone::Primary)
                             .width(18.0)
-                            .build(ctx, view),
+                            .into(),
                         ActionButton::new("Follow logs", follow)
                             .tone(ButtonTone::Warning)
                             .width(18.0)
-                            .build(ctx, view),
+                            .into(),
                     ],
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
             ],
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 }
-
-fn current_target_devices(view: &View<UiState>) -> Vec<UiDevice> {
-    view.state
+fn current_target_devices(view: ViewHandle<UiState>) -> Vec<UiDevice> {
+    view.state()
         .target_devices()
         .into_iter()
         .cloned()

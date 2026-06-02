@@ -1,6 +1,6 @@
+use fission_core::build::{self, BuildCtxHandle, ViewHandle};
 use fission_core::{
-    ActionEnvelope, AppState, BuildCtx, JobRef, JobResource, JobSpec, Node, ResourceKey,
-    ResourcePolicy, View, Widget,
+    ActionEnvelope, GlobalState, JobRef, JobResource, JobSpec, ResourceKey, ResourcePolicy, Widget,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -98,8 +98,12 @@ impl<T, E> AsyncSnapshot<T, E> {
     }
 }
 
-pub type AsyncWidgetBuilder<S, T, E> =
-    Arc<dyn Fn(&mut BuildCtx<S>, &View<S>, &AsyncSnapshot<T, E>) -> Node + Send + Sync + 'static>;
+pub type AsyncWidgetBuilder<S, T, E> = Arc<
+    dyn Fn(BuildCtxHandle<S>, ViewHandle<S>, &AsyncSnapshot<T, E>) -> Widget
+        + Send
+        + Sync
+        + 'static,
+>;
 
 /// Declares one async job resource and builds UI from the current snapshot.
 ///
@@ -108,7 +112,7 @@ pub type AsyncWidgetBuilder<S, T, E> =
 /// snapshot during the next build.
 pub struct FutureBuilder<S, J>
 where
-    S: AppState,
+    S: GlobalState,
     J: JobSpec,
 {
     pub key: ResourceKey,
@@ -124,7 +128,7 @@ where
 
 impl<S, J> FutureBuilder<S, J>
 where
-    S: AppState,
+    S: GlobalState,
     J: JobSpec,
 {
     pub fn new<F>(
@@ -135,7 +139,7 @@ where
         builder: F,
     ) -> Self
     where
-        F: Fn(&mut BuildCtx<S>, &View<S>, &AsyncSnapshot<J::Ok, J::Err>) -> Node
+        F: Fn(BuildCtxHandle<S>, ViewHandle<S>, &AsyncSnapshot<J::Ok, J::Err>) -> Widget
             + Send
             + Sync
             + 'static,
@@ -180,24 +184,27 @@ where
     }
 }
 
-impl<S, J> Widget<S> for FutureBuilder<S, J>
+impl<S, J> From<FutureBuilder<S, J>> for Widget
 where
-    S: AppState,
+    S: GlobalState,
     J: JobSpec,
     J::Request: Clone,
 {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let mut resource = JobResource::new(self.key.clone(), self.job, self.request.clone());
-        resource.policy = self.policy;
-        resource.deps = self.deps.clone();
-        if let Some(action) = &self.on_ok {
+    fn from(component: FutureBuilder<S, J>) -> Self {
+        let (ctx, view) = build::current::<S>();
+        let this = &component;
+
+        let mut resource = JobResource::new(this.key.clone(), this.job, this.request.clone());
+        resource.policy = this.policy;
+        resource.deps = this.deps.clone();
+        if let Some(action) = &this.on_ok {
             resource = resource.on_ok(action.clone());
         }
-        if let Some(action) = &self.on_err {
+        if let Some(action) = &this.on_err {
             resource = resource.on_err(action.clone());
         }
-        ctx.resources.job(resource);
+        ctx.with_resources(|resources| resources.job(resource));
 
-        (self.builder)(ctx, view, &self.snapshot)
+        (this.builder)(ctx, view, &this.snapshot)
     }
 }

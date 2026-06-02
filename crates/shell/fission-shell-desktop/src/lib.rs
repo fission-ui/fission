@@ -1,7 +1,7 @@
 #![allow(unexpected_cfgs)]
 
 use anyhow::Result;
-use fission_core::{Action, ActionId, AppState, Env, Widget};
+use fission_core::{Action, ActionId, Env, GlobalState, Widget};
 use fission_shell::async_host::AsyncRegistry;
 use fission_shell_winit::WinitApp;
 
@@ -20,18 +20,36 @@ pub use fission_shell_winit::{
 #[cfg(feature = "tray")]
 pub use fission_shell_winit::{
     TrayActivateBehavior, TrayConfig, TrayHostAction, TrayIconSource, TrayMenu, TrayMenuAction,
-    TrayMenuEntry, TrayMenuItem, TrayMenuWidget, WindowCloseBehavior,
+    TrayMenuBuilder, TrayMenuEntry, TrayMenuItem, WindowCloseBehavior,
 };
 
-pub struct DesktopApp<S: AppState, W: Widget<S>> {
+pub struct DesktopApp<S: GlobalState, W>
+where
+    W: Clone + Into<Widget>,
+{
     inner: WinitApp<S, W>,
 }
 
-impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
+impl<S, W> DesktopApp<S, W>
+where
+    S: GlobalState + Default,
+    W: Clone + Into<Widget> + 'static,
+{
     pub fn new(root_widget: W) -> Self {
         Self {
             inner: WinitApp::new(root_widget),
         }
+    }
+
+    pub fn new_with_global_state(root_widget: W, global_state: S) -> Self {
+        Self {
+            inner: WinitApp::new_with_global_state(root_widget, global_state),
+        }
+    }
+
+    pub fn with_global_state(mut self, global_state: S) -> Self {
+        self.inner = self.inner.with_global_state(global_state);
+        self
     }
 
     pub fn with_key_handler<F>(mut self, handler: F) -> Self
@@ -265,7 +283,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
     pub fn register_reducer(
         &mut self,
         action_id: ActionId,
-        reducer: fn(&mut S, &fission_core::ActionEnvelope, fission_core::NodeId) -> Result<()>,
+        reducer: fission_core::action::Reducer<S>,
     ) -> Result<()> {
         self.inner.register_reducer(action_id, reducer)
     }
