@@ -103,53 +103,48 @@ fission ui
 
 ## A Small Fission App
 
-Fission apps are ordinary Rust. State is explicit, actions are typed, reducers update state, and widgets build a tree from the current state.
+Fission apps are ordinary Rust. State is explicit, actions are typed, reducers update local or global state, and components convert into a closed widget tree value.
 
 ```rust
 use fission::prelude::*;
 
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-struct CounterState {
+#[fission_component]
+struct CounterApp {
+    #[local_state(default = 0)]
     count: i32,
 }
 
-impl AppState for CounterState {}
-
 #[fission_reducer(Increment)]
-fn increment(state: &mut CounterState) {
-    state.count += 1;
+fn increment(count: &mut i32) {
+    *count += 1;
 }
 
-struct CounterApp;
+impl From<CounterApp> for Widget {
+    fn from(counter: CounterApp) -> Widget {
+        let (ctx, _) = fission::build::current::<()>();
+        let count = counter.count();
+        let increment = ctx.bind_local(Increment, count.clone(), reduce!(increment));
 
-impl Widget<CounterState> for CounterApp {
-    fn build(&self, ctx: &mut BuildCtx<CounterState>, view: &View<CounterState>) -> Node {
-        let increment = with_reducer!(ctx, Increment, increment);
-
-        Container::new(
-            Column {
-                gap: Some(20.0),
-                children: vec![
-                    Text::new("Counter").size(32.0).into_node(),
-                    Text::new(format!("{}", view.state.count)).size(56.0).into_node(),
-                    Button {
-                        on_press: Some(increment),
-                        child: Some(Box::new(Text::new("Increment").into_node())),
-                        ..Default::default()
-                    }
-                    .into_node(),
-                ],
-                ..Default::default()
-            }
-            .into_node(),
-        )
+        Container::new(Column {
+            gap: Some(20.0),
+            children: widgets![
+                Text::new("Counter").size(32.0),
+                Text::new(format!("{}", count.get())).size(56.0),
+                Button {
+                    on_press: Some(increment),
+                    child: Some(Text::new("Increment").into()),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        })
         .padding_all(32.0)
-        .into_node()
+        .into()
     }
 }
 
 fn main() -> anyhow::Result<()> {
-    DesktopApp::new(CounterApp).run()
+    DesktopApp::<(), _>::new(CounterApp {}).run()
 }
 ```
 
@@ -162,7 +157,7 @@ Use `#[fission_reducer]` for compact local actions, or `#[fission_action]` when 
 <details open>
 <summary><strong>Application framework</strong></summary>
 
-- Struct-based widget composition in Rust, with normal types implementing `Widget`.
+- Struct-based widget composition in Rust, with normal types implementing `From<T> for Widget`.
 - Typed application state, typed actions, reducers, selectors, effects, and explicit environment data.
 - GPU-accelerated rendering through the Fission rendering stack.
 - Layout, text input, input events, accessibility semantics, portals, overlays, animation support, media/embed widgets, and 3D support.

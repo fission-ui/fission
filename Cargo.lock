@@ -4126,6 +4126,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "fission",
+ "fission-ir",
  "fission-test",
  "fission-test-driver",
  "image 0.25.8",

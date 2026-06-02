@@ -75,12 +75,12 @@ let svg: &str = material::navigation::close::regular();
 let icon = Icon::svg(material::action::home::regular())
     .size(24.0)
     .color(theme.tokens.colors.on_surface)
-    .into_node();
+    .into();
 
 // Outlined variant
 let icon = Icon::svg(material::action::delete::outlined())
     .size(20.0)
-    .into_node();
+    .into();
 ```
 
 ## Reflection
