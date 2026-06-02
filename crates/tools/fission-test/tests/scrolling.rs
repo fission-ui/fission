@@ -1,4 +1,4 @@
-use fission_core::ui::{Scroll, Text, TextContent};
+use fission_core::ui::{Scroll, Text, TextContent, Widget};
 use fission_core::{Clock, InputEvent, LayoutPoint, PointerEvent};
 use fission_render::DisplayOp;
 use fission_test::TestHarness;
@@ -8,18 +8,18 @@ fn test_scroll_input_updates_display_list() {
     let mut harness = TestHarness::new_with_mock_measurer(Clock::default());
 
     // Create a scroll widget with small height to ensure content overflows
-    harness = harness.with_root_widget(Scroll {
-        child: Some(Box::new(
+    harness = harness.with_root_widget(Widget::from(Scroll {
+        child: Some(
             Text {
                 content: TextContent::Literal("Scroll Me".into()),
                 ..Default::default()
             }
             .into(),
-        )),
+        ),
         height: Some(10.0), // Viewport height
         width: Some(100.0),
         ..Default::default()
-    });
+    }));
 
     harness.pump().expect("Initial pump failed");
 

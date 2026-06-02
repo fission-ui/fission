@@ -1,6 +1,7 @@
-use fission_core::ui::{Container, CustomNode, LowerDyn, Node, Video};
-use fission_core::{AppState, BuildCtx, View, Widget, WidgetNodeId};
-use fission_ir::{EmbedKind, LayoutOp, NodeId, Op};
+use fission_core::internal::{InternalLowerer, InternalRenderNode};
+use fission_core::ui::{Container, Video, Widget};
+use fission_core::{GlobalState, WidgetId};
+use fission_ir::{EmbedKind, LayoutOp, Op};
 use fission_render::DisplayOp;
 use fission_test::TestHarness;
 use fission_widgets::WebView;
@@ -9,7 +10,7 @@ use std::sync::Arc;
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 struct EmbedState;
-impl AppState for EmbedState {}
+impl GlobalState for EmbedState {}
 
 fn display_surfaces(harness: &TestHarness<EmbedState>) -> Vec<DisplayOp> {
     harness
@@ -23,7 +24,7 @@ fn display_surfaces(harness: &TestHarness<EmbedState>) -> Vec<DisplayOp> {
 
 #[test]
 fn video_embed_registers_runtime_state_and_draws_surface() {
-    let widget_id = WidgetNodeId::explicit("test.video");
+    let widget_id = WidgetId::explicit("test.video");
     let mut harness = TestHarness::new(EmbedState).with_root_widget(Video {
         id: Some(widget_id),
         source: "fixtures/demo.mp4".into(),
@@ -66,28 +67,26 @@ fn video_embed_registers_runtime_state_and_draws_surface() {
     }
 }
 
+#[derive(Clone)]
 struct WebApp;
-impl Widget<EmbedState> for WebApp {
-    fn build(&self, ctx: &mut BuildCtx<EmbedState>, view: &View<EmbedState>) -> Node {
-        Container::new(
-            WebView {
-                id: WidgetNodeId::explicit("test.web"),
-                url: "https://example.test/docs".into(),
-                user_agent: Some("FissionTest/1".into()),
-                width: Some(320.0),
-                height: Some(180.0),
-            }
-            .build(ctx, view),
-        )
+impl From<WebApp> for Widget {
+    fn from(_component: WebApp) -> Self {
+        let (_ctx, _view) = fission_core::build::current::<EmbedState>();
+        Container::new(WebView {
+            id: WidgetId::explicit("test.web"),
+            url: "https://example.test/docs".into(),
+            user_agent: Some("FissionTest/1".into()),
+            width: Some(320.0),
+            height: Some(180.0),
+        })
         .width(320.0)
         .height(180.0)
-        .into_node()
+        .into()
     }
 }
-
 #[test]
 fn webview_embed_registers_runtime_state_and_draws_surface() {
-    let widget_id = WidgetNodeId::explicit("test.web");
+    let widget_id = WidgetId::explicit("test.web");
     let mut harness = TestHarness::new(EmbedState).with_root_widget(WebApp);
 
     harness.pump().expect("pump web embed");
@@ -115,28 +114,29 @@ fn webview_embed_registers_runtime_state_and_draws_surface() {
     assert_eq!(display_surfaces(&harness).len(), 1);
 }
 
+#[derive(Clone)]
 struct CustomEmbedApp;
-impl Widget<EmbedState> for CustomEmbedApp {
-    fn build(&self, _ctx: &mut BuildCtx<EmbedState>, _view: &View<EmbedState>) -> Node {
-        Node::Custom(CustomNode {
+impl From<CustomEmbedApp> for Widget {
+    fn from(_component: CustomEmbedApp) -> Self {
+        let (_ctx, _view) = fission_core::build::current::<EmbedState>();
+        fission_core::internal::custom_render_widget(InternalRenderNode {
             debug_tag: "TestCustomEmbed".into(),
-            lowerer: Some(Arc::new(CustomEmbedLowerer)),
+            lowerer: Some(Arc::new(CustomEmbedInternalLowerer)),
             render_object: None,
         })
     }
 }
-
 #[derive(Debug)]
-struct CustomEmbedLowerer;
+struct CustomEmbedInternalLowerer;
 
-impl LowerDyn for CustomEmbedLowerer {
-    fn lower_dyn(&self, cx: &mut fission_core::lowering::LoweringContext) -> NodeId {
+impl InternalLowerer for CustomEmbedInternalLowerer {
+    fn lower_dyn(&self, cx: &mut fission_core::internal::InternalLoweringCx) -> WidgetId {
         let node_id = cx.next_node_id();
         cx.insert_node(
             node_id,
             Op::Layout(LayoutOp::Embed {
                 kind: EmbedKind::Custom(vec![1, 2, 3]),
-                widget_id: WidgetNodeId::explicit("test.custom"),
+                widget_id: WidgetId::explicit("test.custom"),
                 width: Some(240.0),
                 height: Some(120.0),
             }),

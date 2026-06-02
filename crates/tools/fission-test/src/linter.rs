@@ -1,16 +1,16 @@
-use fission_ir::{CoreIR, LayoutOp, NodeId, Op};
+use fission_ir::{CoreIR, LayoutOp, Op, WidgetId};
 use fission_layout::{LayoutRect, LayoutSnapshot};
 
 #[derive(Debug)]
 pub enum LayoutViolation {
     Overflow {
-        parent: NodeId,
-        child: NodeId,
+        parent: WidgetId,
+        child: WidgetId,
         parent_rect: LayoutRect,
         child_rect: LayoutRect,
     },
     ZeroSizeInteractive {
-        node: NodeId,
+        node: WidgetId,
         rect: LayoutRect,
         role: String,
     },
@@ -35,7 +35,7 @@ impl<'a> LayoutLinter<'a> {
         violations
     }
 
-    fn check_recursive(&self, node_id: NodeId, violations: &mut Vec<LayoutViolation>) {
+    fn check_recursive(&self, node_id: WidgetId, violations: &mut Vec<LayoutViolation>) {
         let node = self.ir.nodes.get(&node_id).expect("Node missing in IR");
         let geom = self.snapshot.get_node_geometry(node_id);
 

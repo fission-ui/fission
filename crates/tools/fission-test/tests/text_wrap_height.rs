@@ -1,10 +1,10 @@
-use fission_core::ui::{Column, Container, Node, Row, Text};
-use fission_core::{AppState, BuildCtx, View, Widget};
+use fission_core::ui::{Column, Container, Row, Text, Widget};
+use fission_core::GlobalState;
 use fission_test::TestHarness;
 
 #[derive(Debug, Default, Clone)]
 struct State;
-impl AppState for State {}
+impl GlobalState for State {}
 
 #[test]
 fn text_wrap_increases_layout_height() {
@@ -14,38 +14,32 @@ fn text_wrap_increases_layout_height() {
     // We assert that when the text is width-constrained below its full width, its
     // layout height grows beyond a single line.
 
+    #[derive(Clone)]
     struct Root;
-    impl Widget<State> for Root {
-        fn build(&self, _ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
+    impl From<Root> for Widget {
+        fn from(_component: Root) -> Self {
+            let (_ctx, _view) = fission_core::build::current::<State>();
             let long = "This is a very long subject line that should wrap into multiple lines";
-            Container::new(
-                Row::default()
-                    .children(vec![
-                        Container::new(
-                            fission_core::ui::widgets::spacer::Spacer::default().into_node(),
-                        )
-                        .width(40.0)
-                        .height(40.0)
-                        .into_node(),
+            Container::new(Row::default().children(vec![
+                        Container::new(fission_core::ui::widgets::spacer::Spacer::default())
+                            .width(40.0)
+                            .height(40.0)
+                            .into(),
                         Container::new(
                             Column::default()
                                 .children(vec![
-                                    Text::new(long).max_width(120.0).into_node(),
-                                    Text::new("Preview").into_node(),
+                                    Text::new(long).max_width(120.0).into(),
+                                    Text::new("Preview").into(),
                                 ])
-                                .into_node(),
                         )
                         .flex_grow(1.0)
-                        .into_node(),
-                        Text::new("10:00 AM").into_node(),
-                    ])
-                    .into_node(),
-            )
+                        .into(),
+                        Text::new("10:00 AM").into(),
+                    ]))
             .width(160.0)
-            .into_node()
+            .into()
         }
     }
-
     let mut h = TestHarness::new(State).with_root_widget(Root);
     h.pump().unwrap();
 

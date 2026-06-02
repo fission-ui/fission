@@ -1,25 +1,23 @@
 use anyhow::Result;
-use fission_core::ui::{Node, TextInput};
-use fission_core::{InputEvent, LayoutPoint, View, Widget};
+use fission_core::ui::{TextInput, Widget};
+use fission_core::{InputEvent, LayoutPoint};
 use fission_ir::Role;
 use fission_test::{detect_ir_cycle, TestHarness};
 
 #[derive(Debug, Default, Clone)]
-struct AppState {
+struct GlobalState {
     _text: String,
     checked: bool,
 }
-impl fission_core::action::AppState for AppState {}
+impl fission_core::action::GlobalState for GlobalState {}
 
 #[test]
 fn text_input_focus_has_no_ir_cycles() -> Result<()> {
+    #[derive(Clone)]
     struct Root;
-    impl Widget<AppState> for Root {
-        fn build(
-            &self,
-            _ctx: &mut fission_core::BuildCtx<AppState>,
-            _view: &View<AppState>,
-        ) -> Node {
+    impl From<Root> for Widget {
+        fn from(_component: Root) -> Self {
+            let (_ctx, _view) = fission_core::build::current::<GlobalState>();
             TextInput {
                 value: String::new(),
                 placeholder: Some("type".into()),
@@ -30,8 +28,7 @@ fn text_input_focus_has_no_ir_cycles() -> Result<()> {
             .into()
         }
     }
-
-    let mut h = TestHarness::new(AppState::default()).with_root_widget(Root);
+    let mut h = TestHarness::new(GlobalState::default()).with_root_widget(Root);
     h.pump()?;
 
     // Find TextInput semantics node rect center
@@ -71,26 +68,23 @@ fn text_input_focus_has_no_ir_cycles() -> Result<()> {
 
 #[test]
 fn checkbox_toggle_has_no_ir_cycles() -> Result<()> {
-    use fission_core::view::Widget;
-    use fission_core::{BuildCtx, View};
+    use fission_core::Widget;
     use fission_widgets::Checkbox;
 
     use fission_core::event::{PointerButton, PointerEvent};
 
     #[fission_macros::fission_reducer(Toggle)]
-    fn on_toggle(state: &mut AppState) {
+    fn on_toggle(state: &mut GlobalState) {
         state.checked = !state.checked;
     }
 
+    #[derive(Clone)]
     struct Root;
-    impl Widget<AppState> for Root {
-        fn build(
-            &self,
-            ctx: &mut BuildCtx<AppState>,
-            view: &View<AppState>,
-        ) -> fission_core::ui::Node {
+    impl From<Root> for Widget {
+        fn from(_component: Root) -> Self {
+            let (ctx, view) = fission_core::build::current::<GlobalState>();
             Checkbox {
-                checked: view.state.checked,
+                checked: view.state().checked,
                 on_toggle: Some(fission_core::with_reducer!(ctx, Toggle, on_toggle)),
                 label: Some("check".into()),
                 ..Default::default()
@@ -98,8 +92,7 @@ fn checkbox_toggle_has_no_ir_cycles() -> Result<()> {
             .into()
         }
     }
-
-    let mut h = TestHarness::new(AppState::default()).with_root_widget(Root);
+    let mut h = TestHarness::new(GlobalState::default()).with_root_widget(Root);
     h.pump()?;
 
     // Locate checkbox semantics and click it (down + up)

@@ -1,8 +1,7 @@
 use anyhow::Result;
 use fission_core::event::{PointerButton, PointerEvent};
-use fission_core::ui::{Node, TextInput};
-use fission_core::{with_reducer, AppState, BuildCtx, View, Widget};
-use fission_ir::NodeId;
+use fission_core::ui::{TextInput, Widget};
+use fission_core::{with_reducer, GlobalState, WidgetId};
 use fission_test::TestHarness;
 use fission_widgets::Modal;
 
@@ -10,7 +9,7 @@ use fission_widgets::Modal;
 struct State {
     modal_open: bool,
 }
-impl AppState for State {}
+impl GlobalState for State {}
 
 #[fission_macros::fission_reducer(Dismiss)]
 fn dismiss(state: &mut State) {
@@ -19,50 +18,54 @@ fn dismiss(state: &mut State) {
 
 #[test]
 fn clicking_text_input_inside_modal_sets_focus() -> Result<()> {
-    let subject_id = NodeId::explicit("subject_input");
+    let subject_widget_id = WidgetId::explicit("subject_input");
+    let subject_id: WidgetId = subject_widget_id.into();
 
+    #[derive(Clone)]
     struct Root {
-        subject_id: NodeId,
+        subject_id: WidgetId,
     }
-    impl Widget<State> for Root {
-        fn build(&self, ctx: &mut BuildCtx<State>, view: &View<State>) -> Node {
+    impl From<Root> for Widget {
+        fn from(component: Root) -> Self {
+            let (ctx, view) = fission_core::build::current::<State>();
             let content = fission_widgets::VStack {
                 spacing: Some(8.0),
                 children: vec![
                     TextInput {
-                        id: Some(NodeId::explicit("to_input")),
+                        id: Some(WidgetId::explicit("to_input")),
                         value: "a@b.com".into(),
                         placeholder: Some(fission_core::ui::TextContent::Literal("To".into())),
                         width: Some(300.0),
                         ..Default::default()
                     }
-                    .into_node(),
+                    .into(),
                     TextInput {
-                        id: Some(self.subject_id),
+                        id: Some(component.subject_id),
                         value: "Hello".into(),
                         placeholder: Some(fission_core::ui::TextContent::Literal("Subject".into())),
                         width: Some(300.0),
                         ..Default::default()
                     }
-                    .into_node(),
+                    .into(),
                 ],
             }
-            .into_node();
+            .into();
 
             Modal {
-                id: fission_core::WidgetNodeId::explicit("modal"),
+                id: fission_core::WidgetId::explicit("modal"),
                 title: "Compose".into(),
-                content: Box::new(content),
-                is_open: view.state.modal_open,
+                content: content,
+                is_open: view.state().modal_open,
                 on_dismiss: Some(with_reducer!(ctx, Dismiss, dismiss)),
                 actions: vec![],
                 width: Some(420.0),
             }
-            .build(ctx, view)
+            .into()
         }
     }
-
-    let mut h = TestHarness::new(State { modal_open: true }).with_root_widget(Root { subject_id });
+    let mut h = TestHarness::new(State { modal_open: true }).with_root_widget(Root {
+        subject_id: subject_widget_id,
+    });
     h.pump()?;
 
     let rect = h

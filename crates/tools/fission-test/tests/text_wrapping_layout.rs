@@ -1,11 +1,11 @@
-use fission_core::ui::{Column, Container, Node, Text};
-use fission_core::{AppState, BuildCtx, View, Widget};
+use fission_core::ui::{Column, Container, Text, Widget};
+use fission_core::GlobalState;
 use fission_layout::LayoutRect;
 use fission_test::TestHarness;
 
 #[derive(Debug, Default, Clone)]
 struct State;
-impl AppState for State {}
+impl GlobalState for State {}
 
 fn text_rect(h: &TestHarness<State>, needle: &str) -> LayoutRect {
     let snap = h.last_snapshot.as_ref().unwrap();
@@ -22,24 +22,20 @@ fn text_rect(h: &TestHarness<State>, needle: &str) -> LayoutRect {
 
 #[test]
 fn text_wrap_pushes_siblings() {
+    #[derive(Clone)]
     struct WrapDemo;
-    impl Widget<State> for WrapDemo {
-        fn build(&self, _ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
+    impl From<WrapDemo> for Widget {
+        fn from(_component: WrapDemo) -> Self {
+            let (_ctx, _view) = fission_core::build::current::<State>();
             let subject = "Design review: Inbox refresh";
-            Container::new(
-                Column::default()
-                    .gap(Some(6.0))
-                    .children(vec![
-                        Text::new(subject).size(16.0).into_node(),
-                        Text::new("Preview line").size(12.0).into_node(),
-                    ])
-                    .into_node(),
-            )
+            Container::new(Column::default().gap(Some(6.0)).children(vec![
+                Text::new(subject).size(16.0).into(),
+                Text::new("Preview line").size(12.0).into(),
+            ]))
             .width(160.0)
-            .into_node()
+            .into()
         }
     }
-
     let mut h = TestHarness::new(State::default());
     h = h.with_root_widget(WrapDemo);
     h.pump().unwrap();
@@ -69,9 +65,11 @@ fn text_wrap_pushes_siblings() {
 fn menu_item_text_stays_single_line() {
     use fission_widgets::{Menu, MenuItem};
 
+    #[derive(Clone)]
     struct MenuDemo;
-    impl Widget<State> for MenuDemo {
-        fn build(&self, ctx: &mut BuildCtx<State>, view: &View<State>) -> Node {
+    impl From<MenuDemo> for Widget {
+        fn from(_component: MenuDemo) -> Self {
+            let (_ctx, _view) = fission_core::build::current::<State>();
             Menu {
                 items: vec![MenuItem {
                     label: "New event".into(),
@@ -81,10 +79,9 @@ fn menu_item_text_stays_single_line() {
                 width: Some(220.0),
                 max_height: Some(200.0),
             }
-            .build(ctx, view)
+            .into()
         }
     }
-
     let mut h = TestHarness::new(State::default());
     h = h.with_root_widget(MenuDemo);
     h.pump().unwrap();
