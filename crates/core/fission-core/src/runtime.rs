@@ -1,4 +1,4 @@
-use crate::action::{ActionEnvelope, ActionId, AppState};
+use crate::action::{ActionEnvelope, ActionId, GlobalState};
 use crate::async_runtime::ServiceStopPayload;
 use crate::effect::{ActionInput, EffectEnvelope};
 use crate::env::{ActiveAnimation, RuntimeState, VideoStatus};
@@ -13,7 +13,7 @@ use crate::{
 };
 use anyhow::{anyhow, Result};
 use fission_diagnostics::prelude as diag;
-use fission_ir::{CoreIR, FlexDirection, LayoutOp, NodeId, Op, WidgetNodeId};
+use fission_ir::{CoreIR, FlexDirection, LayoutOp, Op, WidgetId};
 use fission_layout::{LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot, TextMeasurer};
 use glam::{Mat4, Vec4};
 use serde_json;
@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 #[derive(Debug, Default, Clone)]
 pub struct TickResult {
-    pub changed_animations: Vec<(WidgetNodeId, AnimationPropertyId)>,
+    pub changed_animations: Vec<(WidgetId, AnimationPropertyId)>,
 }
 
 #[derive(Debug, Clone)]
@@ -52,7 +52,7 @@ struct ActiveResource {
 /// The core runtime that owns application state, reducers, and the effect queue.
 ///
 /// `Runtime` is the single entry point for the action/reducer pipeline. Platform
-/// shells create one `Runtime`, register their `AppState`, build the widget tree
+/// shells create one `Runtime`, register their `GlobalState`, build the widget tree
 /// each frame, absorb the resulting [`ActionRegistry`], and call
 /// [`Runtime::handle_input`] to process user events.
 ///
@@ -62,10 +62,10 @@ struct ActiveResource {
 /// 1. runtime = Runtime::default()
 ///        .with_measurer(measurer)
 ///        .with_clipboard(clipboard);
-/// 2. runtime.add_app_state(Box::new(MyState::default()))?;
+/// 2. runtime.add_global_state(Box::new(MyState::default()))?;
 /// 3. loop {
 ///        let mut ctx = BuildCtx::new();
-///        let tree = my_widget.build(&mut ctx, &view);
+///        let tree = fission_core::build::enter(&mut ctx, &view, || MyRoot.into());
 ///        runtime.clear_reducers();
 ///        runtime.absorb_registry(ctx.registry);
 ///        // lower tree -> IR -> layout -> render
@@ -78,18 +78,18 @@ struct ActiveResource {
 ///
 /// ```rust,ignore
 /// let mut runtime = Runtime::default();
-/// runtime.add_app_state(Box::new(Counter { count: 0 }))?;
+/// runtime.add_global_state(Box::new(Counter { count: 0 }))?;
 /// runtime.tick(16)?;
 /// ```
 pub struct Runtime {
     /// Per-frame reducers, cleared and re-populated every frame via
     /// [`absorb_registry`](Runtime::absorb_registry).
-    pub reducers: HashMap<ActionId, Vec<BoxedReducer>>,
+    pub(crate) reducers: HashMap<ActionId, Vec<BoxedReducer>>,
     /// Persistent reducers that survive [`clear_reducers`](Runtime::clear_reducers)
     /// calls, installed once at app startup.
-    pub persistent_reducers: HashMap<ActionId, Vec<BoxedReducer>>,
+    pub(crate) persistent_reducers: HashMap<ActionId, Vec<BoxedReducer>>,
     /// Type-indexed application state store.
-    pub app_states: HashMap<TypeId, Box<dyn AppState>>,
+    pub app_states: HashMap<TypeId, Box<dyn GlobalState>>,
     /// Mutable runtime state (interaction, scroll, text editing, animations).
     pub runtime_state: RuntimeState,
     /// Platform-provided text measurer for layout.
@@ -125,7 +125,11 @@ impl Default for Runtime {
         };
 
         runtime
-            .add_app_state(Box::new(Clock::default()))
+            .add_global_state(Box::new(runtime.runtime_state.local_widget_state.clone()))
+            .expect("Failed to add local widget state store");
+
+        runtime
+            .add_global_state(Box::new(Clock::default()))
             .expect("Failed to add Clock state");
 
         runtime.register_base_reducers();
@@ -173,28 +177,28 @@ impl Runtime {
     }
 
     // Helper for manual reducer registration (internal use)
-    pub fn register_reducer<S: AppState + 'static>(
+    pub fn register_reducer<S: GlobalState + 'static>(
         &mut self,
         action_id: ActionId,
-        reducer_fn: fn(&mut S, &ActionEnvelope, NodeId) -> Result<()>,
+        reducer_fn: crate::action::Reducer<S>,
     ) -> Result<()> {
         let state_type_id = TypeId::of::<S>();
 
         // Wrap legacy 3-arg reducer into 5-arg BoxedReducer
         let boxed_reducer: BoxedReducer = Box::new(
-            move |app_states: &mut HashMap<TypeId, Box<dyn AppState>>,
+            move |app_states: &mut HashMap<TypeId, Box<dyn GlobalState>>,
                   action: &ActionEnvelope,
-                  target: NodeId,
+                  target: WidgetId,
                   _effects: &mut Vec<EffectEnvelope>,
                   _input: &ActionInput|
                   -> Result<()> {
                 if let Some(state_box) = app_states.get_mut(&state_type_id) {
                     let concrete_state = state_box.downcast_mut::<S>().ok_or_else(|| {
-                        anyhow!("Failed to downcast AppState to concrete type for reducer")
+                        anyhow!("Failed to downcast GlobalState to concrete type for reducer")
                     })?;
-                    reducer_fn(concrete_state, action, target)
+                    reducer_fn(concrete_state, action, target.into())
                 } else {
-                    anyhow::bail!("Target AppState for reducer not found in runtime.");
+                    anyhow::bail!("Target GlobalState for reducer not found in runtime.");
                 }
             },
         );
@@ -235,7 +239,7 @@ impl Runtime {
         self.register_base_reducers();
     }
 
-    pub fn absorb_registry<S: AppState>(&mut self, registry: ActionRegistry<S>) {
+    pub fn absorb_registry<S: GlobalState>(&mut self, registry: ActionRegistry<S>) {
         let new_reducers = registry.into_runtime_reducers();
         for (id, mut list) in new_reducers {
             self.reducers.entry(id).or_default().append(&mut list);
@@ -247,7 +251,7 @@ impl Runtime {
     /// This is intended for app-level "global" handlers (e.g. system effects) that
     /// are installed once at app startup, while per-frame widget handlers are
     /// regenerated every frame via `BuildCtx` and `absorb_registry`.
-    pub fn absorb_persistent_registry<S: AppState>(&mut self, registry: ActionRegistry<S>) {
+    pub fn absorb_persistent_registry<S: GlobalState>(&mut self, registry: ActionRegistry<S>) {
         let new_reducers = registry.into_runtime_reducers();
         for (id, mut list) in new_reducers {
             self.persistent_reducers
@@ -258,31 +262,51 @@ impl Runtime {
     }
 
     pub fn clock(&self) -> &Clock {
-        self.get_app_state::<Clock>()
+        self.get_global_state::<Clock>()
             .expect("Clock state must always be present")
     }
 
-    pub fn get_app_state<S: AppState + 'static>(&self) -> Option<&S> {
+    pub fn get_global_state<S: GlobalState + 'static>(&self) -> Option<&S> {
         self.app_states
             .get(&TypeId::of::<S>())
             .and_then(|s_box| s_box.downcast_ref::<S>())
     }
 
-    pub fn get_app_state_mut<S: AppState + 'static>(&mut self) -> Option<&mut S> {
+    pub fn get_global_state_mut<S: GlobalState + 'static>(&mut self) -> Option<&mut S> {
         self.app_states
             .get_mut(&TypeId::of::<S>())
             .and_then(|s_box| s_box.downcast_mut::<S>())
     }
 
-    pub fn add_app_state<S: AppState + 'static>(&mut self, state: Box<S>) -> Result<()> {
+    pub fn add_global_state<S: GlobalState + 'static>(&mut self, state: Box<S>) -> Result<()> {
         let type_id = TypeId::of::<S>();
         if self.app_states.insert(type_id, state).is_some() {
-            anyhow::bail!("App state of this type already registered.");
+            anyhow::bail!("Global state of this type already registered.");
         }
         Ok(())
     }
 
-    pub fn dispatch(&mut self, action: ActionEnvelope, target: NodeId) -> Result<()> {
+    pub fn with_global_state<S: GlobalState + 'static>(mut self, state: S) -> Self {
+        self.app_states.insert(TypeId::of::<S>(), Box::new(state));
+        self
+    }
+
+    #[doc(hidden)]
+    pub fn get_app_state<S: GlobalState + 'static>(&self) -> Option<&S> {
+        self.get_global_state::<S>()
+    }
+
+    #[doc(hidden)]
+    pub fn get_app_state_mut<S: GlobalState + 'static>(&mut self) -> Option<&mut S> {
+        self.get_global_state_mut::<S>()
+    }
+
+    #[doc(hidden)]
+    pub fn add_app_state<S: GlobalState + 'static>(&mut self, state: Box<S>) -> Result<()> {
+        self.add_global_state(state)
+    }
+
+    pub fn dispatch(&mut self, action: ActionEnvelope, target: WidgetId) -> Result<()> {
         self.dispatch_with_input(action, target, &ActionInput::None)
     }
 
@@ -295,7 +319,20 @@ impl Runtime {
     pub fn dispatch_with_input(
         &mut self,
         action: ActionEnvelope,
-        target: NodeId,
+        target: WidgetId,
+        input: &ActionInput,
+    ) -> Result<()> {
+        self.dispatch_node_with_input(action, target.into(), input)
+    }
+
+    fn dispatch_node(&mut self, action: ActionEnvelope, target: WidgetId) -> Result<()> {
+        self.dispatch_node_with_input(action, target, &ActionInput::None)
+    }
+
+    fn dispatch_node_with_input(
+        &mut self,
+        action: ActionEnvelope,
+        target: WidgetId,
         input: &ActionInput,
     ) -> Result<()> {
         diag::emit(
@@ -374,7 +411,7 @@ impl Runtime {
         use crate::Tick;
         let action = Tick { dt };
         let envelope: ActionEnvelope = action.into();
-        self.dispatch(envelope, NodeId::derived(0, &[0]))?;
+        self.dispatch_node(envelope, WidgetId::derived(0, &[0]))?;
 
         self.tick_resource_timers()?;
 
@@ -450,9 +487,9 @@ impl Runtime {
         }
 
         for (action, payload) in ticks {
-            self.dispatch_with_input(
+            self.dispatch_node_with_input(
                 action,
-                NodeId::derived(0, &[0]),
+                WidgetId::derived(0, &[0]),
                 &ActionInput::TimerTick { payload },
             )?;
         }
@@ -460,7 +497,7 @@ impl Runtime {
         Ok(())
     }
 
-    pub fn enqueue_animation(&mut self, target: WidgetNodeId, request: AnimationRequest) {
+    pub fn enqueue_animation(&mut self, target: WidgetId, request: AnimationRequest) {
         let key = (target, request.property.clone());
 
         // Declarative deduplication: If we are already animating to this target, ignore the new request.
@@ -516,8 +553,8 @@ impl Runtime {
         self.runtime_state.animation.active.insert(key, anim);
     }
 
-    pub fn sync_animation_requests(&mut self, requests: &[(WidgetNodeId, AnimationRequest)]) {
-        let requested: HashSet<(WidgetNodeId, AnimationPropertyId)> = requests
+    pub fn sync_animation_requests(&mut self, requests: &[(WidgetId, AnimationRequest)]) {
+        let requested: HashSet<(WidgetId, AnimationPropertyId)> = requests
             .iter()
             .map(|(target, request)| (*target, request.property.clone()))
             .collect();
@@ -533,7 +570,7 @@ impl Runtime {
     }
 
     pub fn sync_video_nodes(&mut self, registrations: &[VideoRegistration]) {
-        let mut seen: HashSet<WidgetNodeId> = HashSet::new();
+        let mut seen: HashSet<WidgetId> = HashSet::new();
 
         for reg in registrations {
             seen.insert(reg.node_id);
@@ -557,7 +594,7 @@ impl Runtime {
     }
 
     pub fn sync_web_nodes(&mut self, registrations: &[crate::registry::WebRegistration]) {
-        let mut seen: HashSet<WidgetNodeId> = HashSet::new();
+        let mut seen: HashSet<WidgetId> = HashSet::new();
 
         for reg in registrations {
             seen.insert(reg.node_id);
@@ -709,8 +746,8 @@ impl Runtime {
                     // Find the custom render object for this click.  Walk up from the
                     // hit node first; if not found, check all registered render objects
                     // by rect containment (the hit may be on a wrapper node above the
-                    // CustomNode's lowered subtree).
-                    let mut target_ro: Option<(NodeId, &fission_ir::AnyRenderObject)> = None;
+                    // InternalRenderNode's lowered subtree).
+                    let mut target_ro: Option<(WidgetId, &fission_ir::AnyRenderObject)> = None;
                     {
                         let mut walk = Some(hit_node_id);
                         while let Some(nid) = walk {
@@ -787,7 +824,7 @@ impl Runtime {
                                 }
                                 // Dispatch any actions the render object produced.
                                 for (target, envelope) in result.actions {
-                                    self.dispatch(envelope, target)?;
+                                    self.dispatch_node(envelope, target)?;
                                 }
                                 return Ok(());
                             }
@@ -814,7 +851,7 @@ impl Runtime {
                             let result = render_obj.handle_event(nid, &event, node_rect);
                             if result.handled {
                                 for (target, envelope) in result.actions {
-                                    self.dispatch(envelope, target)?;
+                                    self.dispatch_node(envelope, target)?;
                                 }
                                 return Ok(());
                             }
@@ -1020,8 +1057,9 @@ impl Runtime {
                                                 node_id,
                                                 ActionInput::None,
                                             );
-                                            return self
-                                                .dispatch_with_input(envelope, node_id, &input);
+                                            return self.dispatch_node_with_input(
+                                                envelope, node_id, &input,
+                                            );
                                         }
                                     }
                                 }
@@ -1170,7 +1208,8 @@ impl Runtime {
                                             node_id,
                                             ActionInput::None,
                                         );
-                                        return self.dispatch_with_input(envelope, node_id, &input);
+                                        return self
+                                            .dispatch_node_with_input(envelope, node_id, &input);
                                     }
                                 }
                             }
@@ -1212,15 +1251,19 @@ impl Runtime {
 
     fn dispatch_input_actions(
         &mut self,
-        dispatched_actions: Vec<(NodeId, ActionEnvelope, ActionInput)>,
+        dispatched_actions: Vec<(WidgetId, ActionEnvelope, ActionInput)>,
     ) -> Result<()> {
         for (target, action, input) in dispatched_actions {
-            self.dispatch_with_input(action, target, &input)?;
+            self.dispatch_node_with_input(action, target, &input)?;
         }
         Ok(())
     }
 
-    fn clear_text_pending_on_blur(&mut self, old_focus: Option<NodeId>, new_focus: Option<NodeId>) {
+    fn clear_text_pending_on_blur(
+        &mut self,
+        old_focus: Option<WidgetId>,
+        new_focus: Option<WidgetId>,
+    ) {
         if old_focus == new_focus {
             return;
         }
@@ -1235,7 +1278,7 @@ impl Runtime {
     fn dispatch_custom_blur_actions(
         &mut self,
         ir: &CoreIR,
-        old_focus: Option<NodeId>,
+        old_focus: Option<WidgetId>,
     ) -> Result<()> {
         if let Some(old_id) = old_focus {
             if let Some(any_ro) = ir.custom_render_objects.get(&old_id) {
@@ -1246,7 +1289,7 @@ impl Runtime {
                         }
                     }
                     for (target, envelope) in render_obj.blur_actions(old_id) {
-                        self.dispatch(envelope, target)?;
+                        self.dispatch_node(envelope, target)?;
                     }
                 }
             }
@@ -1259,7 +1302,7 @@ impl Runtime {
         point: LayoutPoint,
         ir: &CoreIR,
         snapshot: &LayoutSnapshot,
-    ) -> Option<NodeId> {
+    ) -> Option<WidgetId> {
         if let Some(root) = ir.root {
             return self.hit_test_recursive(root, point, ir, snapshot);
         }
@@ -1268,11 +1311,11 @@ impl Runtime {
 
     fn hit_test_recursive(
         &self,
-        node_id: NodeId,
+        node_id: WidgetId,
         point: LayoutPoint,
         ir: &CoreIR,
         snapshot: &LayoutSnapshot,
-    ) -> Option<NodeId> {
+    ) -> Option<WidgetId> {
         if let Some(geom) = snapshot.nodes.get(&node_id) {
             if geom.rect.contains(point) {
                 if let Some(node) = ir.nodes.get(&node_id) {
@@ -1376,8 +1419,8 @@ impl Runtime {
         }
     }
 
-    fn find_autofocus_node(ir: &CoreIR) -> Option<NodeId> {
-        fn walk(ir: &CoreIR, node_id: NodeId) -> Option<NodeId> {
+    fn find_autofocus_node(ir: &CoreIR) -> Option<WidgetId> {
+        fn walk(ir: &CoreIR, node_id: WidgetId) -> Option<WidgetId> {
             let node = ir.nodes.get(&node_id)?;
             if let Op::Semantics(semantics) = &node.op {
                 if semantics.autofocus && semantics.focusable && !semantics.disabled {

@@ -5,7 +5,7 @@
 //! an [`Effects`] builder for issuing capabilities, jobs, services, and
 //! runtime-control effects plus binding callback actions.
 
-use crate::action::{Action, ActionEnvelope, AppState};
+use crate::action::{Action, ActionEnvelope, GlobalState};
 use crate::async_runtime::{
     JobRef, JobRequestPayload, JobSpec, ServiceBindings, ServiceCommandPayload, ServiceSlot,
     ServiceSpec, ServiceStartPayload, ServiceStopPayload,
@@ -86,9 +86,9 @@ use std::marker::PhantomData;
 ///
 /// ```rust,ignore
 /// fn handle_click(
-///     state: &mut AppState,
+///     state: &mut GlobalState,
 ///     action: ClickAction,
-///     ctx: &mut ReducerContext<AppState>,
+///     ctx: &mut ReducerContext<GlobalState>,
 /// ) {
 ///     // Read pointer position from the input
 ///     if let Some((x, y, _, _)) = ctx.input.as_pointer() {
@@ -98,7 +98,7 @@ use std::marker::PhantomData;
 ///     ctx.effects.capability(MY_CAPABILITY, request);
 /// }
 /// ```
-pub struct ReducerContext<'a, 'b, 'c, S: AppState> {
+pub struct ReducerContext<'a, 'b, 'c, S: GlobalState> {
     /// Mutable reference to the effects builder.
     pub effects: &'a mut Effects<'b, S>,
     /// The input data that accompanied this action dispatch.
@@ -124,7 +124,7 @@ pub struct ReducerContext<'a, 'b, 'c, S: AppState> {
 ///         .on_err(ctx.effects.bind(SaveErr, handle_save_err as fn(&mut MyState, SaveErr)));
 /// }
 /// ```
-pub struct Effects<'a, S: AppState> {
+pub struct Effects<'a, S: GlobalState> {
     /// Accumulated effect envelopes, drained by the runtime after the reducer.
     pub out: Vec<EffectEnvelope>,
     next_req_id: u64,
@@ -132,7 +132,7 @@ pub struct Effects<'a, S: AppState> {
     _phantom: PhantomData<S>,
 }
 
-impl<'a, S: AppState> Effects<'a, S> {
+impl<'a, S: GlobalState> Effects<'a, S> {
     pub fn new(next_req_id: u64, registry: &'a mut ActionRegistry<S>) -> Self {
         Self {
             out: Vec::new(),
@@ -453,11 +453,11 @@ impl<'a, S: AppState> Effects<'a, S> {
 }
 
 /// Convenience builder for the standard notification host capabilities.
-pub struct NotificationEffects<'a, 'b, S: AppState> {
+pub struct NotificationEffects<'a, 'b, S: GlobalState> {
     effects: &'a mut Effects<'b, S>,
 }
 
-impl<'a, 'b, S: AppState> NotificationEffects<'a, 'b, S> {
+impl<'a, 'b, S: GlobalState> NotificationEffects<'a, 'b, S> {
     /// Requests notification permission from the active host.
     ///
     /// `request` declares which notification features the app wants, such as
@@ -548,11 +548,11 @@ impl<'a, 'b, S: AppState> NotificationEffects<'a, 'b, S> {
 }
 
 /// Convenience builder for standard NFC host capabilities.
-pub struct NfcEffects<'a, 'b, S: AppState> {
+pub struct NfcEffects<'a, 'b, S: GlobalState> {
     effects: &'a mut Effects<'b, S>,
 }
 
-impl<'a, 'b, S: AppState> NfcEffects<'a, 'b, S> {
+impl<'a, 'b, S: GlobalState> NfcEffects<'a, 'b, S> {
     /// Queries whether NFC is supported, enabled, and which NFC modes are available.
     ///
     /// Use this before showing scan/write controls so the UI can distinguish a
@@ -597,11 +597,11 @@ impl<'a, 'b, S: AppState> NfcEffects<'a, 'b, S> {
 }
 
 /// Convenience builder for standard biometric host capabilities.
-pub struct BiometricEffects<'a, 'b, S: AppState> {
+pub struct BiometricEffects<'a, 'b, S: GlobalState> {
     effects: &'a mut Effects<'b, S>,
 }
 
-impl<'a, 'b, S: AppState> BiometricEffects<'a, 'b, S> {
+impl<'a, 'b, S: GlobalState> BiometricEffects<'a, 'b, S> {
     /// Queries local biometric support and enrollment state.
     ///
     /// Use this before presenting a biometric-only path. The result tells the app
@@ -633,11 +633,11 @@ impl<'a, 'b, S: AppState> BiometricEffects<'a, 'b, S> {
 }
 
 /// Convenience builder for standard passkey/WebAuthn host capabilities.
-pub struct PasskeyEffects<'a, 'b, S: AppState> {
+pub struct PasskeyEffects<'a, 'b, S: GlobalState> {
     effects: &'a mut Effects<'b, S>,
 }
 
-impl<'a, 'b, S: AppState> PasskeyEffects<'a, 'b, S> {
+impl<'a, 'b, S: GlobalState> PasskeyEffects<'a, 'b, S> {
     /// Queries passkey support for the active host and origin.
     ///
     /// Use this before showing passkey-specific registration or sign-in controls.
@@ -678,11 +678,11 @@ impl<'a, 'b, S: AppState> PasskeyEffects<'a, 'b, S> {
 }
 
 /// Convenience builder for standard Bluetooth host capabilities.
-pub struct BluetoothEffects<'a, 'b, S: AppState> {
+pub struct BluetoothEffects<'a, 'b, S: GlobalState> {
     effects: &'a mut Effects<'b, S>,
 }
 
-impl<'a, 'b, S: AppState> BluetoothEffects<'a, 'b, S> {
+impl<'a, 'b, S: GlobalState> BluetoothEffects<'a, 'b, S> {
     /// Queries Bluetooth adapter, permission, and mode availability.
     ///
     /// Use this before showing scan, connect, or advertise controls. The result
@@ -780,11 +780,11 @@ impl<'a, 'b, S: AppState> BluetoothEffects<'a, 'b, S> {
 }
 
 /// Convenience builder for standard barcode scanner host capabilities.
-pub struct BarcodeScannerEffects<'a, 'b, S: AppState> {
+pub struct BarcodeScannerEffects<'a, 'b, S: GlobalState> {
     effects: &'a mut Effects<'b, S>,
 }
 
-impl<'a, 'b, S: AppState> BarcodeScannerEffects<'a, 'b, S> {
+impl<'a, 'b, S: GlobalState> BarcodeScannerEffects<'a, 'b, S> {
     /// Starts a live barcode scanning session.
     ///
     /// `request.formats` should list only formats the product accepts. The host
@@ -813,11 +813,11 @@ impl<'a, 'b, S: AppState> BarcodeScannerEffects<'a, 'b, S> {
 }
 
 /// Convenience builder for standard camera host capabilities.
-pub struct CameraEffects<'a, 'b, S: AppState> {
+pub struct CameraEffects<'a, 'b, S: GlobalState> {
     effects: &'a mut Effects<'b, S>,
 }
 
-impl<'a, 'b, S: AppState> CameraEffects<'a, 'b, S> {
+impl<'a, 'b, S: GlobalState> CameraEffects<'a, 'b, S> {
     /// Queries camera permission and available camera devices.
     ///
     /// Use this before showing camera-specific controls. The result contains the
@@ -864,11 +864,11 @@ impl<'a, 'b, S: AppState> CameraEffects<'a, 'b, S> {
 }
 
 /// Convenience builder for standard clipboard host capabilities.
-pub struct ClipboardEffects<'a, 'b, S: AppState> {
+pub struct ClipboardEffects<'a, 'b, S: GlobalState> {
     effects: &'a mut Effects<'b, S>,
 }
 
-impl<'a, 'b, S: AppState> ClipboardEffects<'a, 'b, S> {
+impl<'a, 'b, S: GlobalState> ClipboardEffects<'a, 'b, S> {
     /// Reads text from the host clipboard.
     ///
     /// Use this in response to an explicit paste action. The success action
@@ -913,11 +913,11 @@ impl<'a, 'b, S: AppState> ClipboardEffects<'a, 'b, S> {
 }
 
 /// Convenience builder for standard geolocation host capabilities.
-pub struct GeolocationEffects<'a, 'b, S: AppState> {
+pub struct GeolocationEffects<'a, 'b, S: GlobalState> {
     effects: &'a mut Effects<'b, S>,
 }
 
-impl<'a, 'b, S: AppState> GeolocationEffects<'a, 'b, S> {
+impl<'a, 'b, S: GlobalState> GeolocationEffects<'a, 'b, S> {
     /// Reads the current geolocation permission state without showing a prompt.
     ///
     /// Use this to decide whether a screen should show a request button, an
@@ -952,11 +952,11 @@ impl<'a, 'b, S: AppState> GeolocationEffects<'a, 'b, S> {
 }
 
 /// Convenience builder for standard haptic host capabilities.
-pub struct HapticEffects<'a, 'b, S: AppState> {
+pub struct HapticEffects<'a, 'b, S: GlobalState> {
     effects: &'a mut Effects<'b, S>,
 }
 
-impl<'a, 'b, S: AppState> HapticEffects<'a, 'b, S> {
+impl<'a, 'b, S: GlobalState> HapticEffects<'a, 'b, S> {
     /// Plays impact-style haptic feedback.
     ///
     /// Use this for physical-feeling interactions such as completing a drag,
@@ -994,11 +994,11 @@ impl<'a, 'b, S: AppState> HapticEffects<'a, 'b, S> {
 }
 
 /// Convenience builder for standard microphone host capabilities.
-pub struct MicrophoneEffects<'a, 'b, S: AppState> {
+pub struct MicrophoneEffects<'a, 'b, S: GlobalState> {
     effects: &'a mut Effects<'b, S>,
 }
 
-impl<'a, 'b, S: AppState> MicrophoneEffects<'a, 'b, S> {
+impl<'a, 'b, S: GlobalState> MicrophoneEffects<'a, 'b, S> {
     /// Queries microphone permission and available input devices.
     ///
     /// Use this before showing recording controls. The result tells the app
@@ -1040,11 +1040,11 @@ impl<'a, 'b, S: AppState> MicrophoneEffects<'a, 'b, S> {
 }
 
 /// Convenience builder for standard Wi-Fi host capabilities.
-pub struct WifiEffects<'a, 'b, S: AppState> {
+pub struct WifiEffects<'a, 'b, S: GlobalState> {
     effects: &'a mut Effects<'b, S>,
 }
 
-impl<'a, 'b, S: AppState> WifiEffects<'a, 'b, S> {
+impl<'a, 'b, S: GlobalState> WifiEffects<'a, 'b, S> {
     /// Queries current Wi-Fi adapter and connection availability.
     ///
     /// Use this before showing scan or connect controls. The result can include
@@ -1091,11 +1091,11 @@ impl<'a, 'b, S: AppState> WifiEffects<'a, 'b, S> {
 }
 
 /// Convenience builder for standard volume-control host capabilities.
-pub struct VolumeEffects<'a, 'b, S: AppState> {
+pub struct VolumeEffects<'a, 'b, S: GlobalState> {
     effects: &'a mut Effects<'b, S>,
 }
 
-impl<'a, 'b, S: AppState> VolumeEffects<'a, 'b, S> {
+impl<'a, 'b, S: GlobalState> VolumeEffects<'a, 'b, S> {
     /// Reads the current level for one host volume stream.
     ///
     /// `stream` identifies the logical audio stream the app cares about. Hosts
@@ -1137,12 +1137,12 @@ impl<'a, 'b, S: AppState> VolumeEffects<'a, 'b, S> {
 ///     .on_err(err_envelope)
 ///     .dispatch(); // optional -- dropping also finalises
 /// ```
-pub struct EffectBuilder<'a, 'b, S: AppState> {
+pub struct EffectBuilder<'a, 'b, S: GlobalState> {
     effects: &'a mut Effects<'b, S>,
     index: usize,
 }
 
-impl<'a, 'b, S: AppState> EffectBuilder<'a, 'b, S> {
+impl<'a, 'b, S: GlobalState> EffectBuilder<'a, 'b, S> {
     pub fn on_ok(self, action: ActionEnvelope) -> Self {
         self.effects.out[self.index].on_ok = Some(action);
         self
@@ -1158,12 +1158,12 @@ impl<'a, 'b, S: AppState> EffectBuilder<'a, 'b, S> {
     }
 }
 
-pub struct ServiceStartBuilder<'a, 'b, S: AppState> {
+pub struct ServiceStartBuilder<'a, 'b, S: GlobalState> {
     effects: &'a mut Effects<'b, S>,
     index: usize,
 }
 
-impl<'a, 'b, S: AppState> ServiceStartBuilder<'a, 'b, S> {
+impl<'a, 'b, S: GlobalState> ServiceStartBuilder<'a, 'b, S> {
     pub fn on_started(self, action: ActionEnvelope) -> Self {
         if let Some(bindings) = self.effects.out[self.index].service_bindings.as_mut() {
             bindings.on_started = Some(action);

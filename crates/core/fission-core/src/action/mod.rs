@@ -7,11 +7,11 @@
 //!   the [`Runtime`](crate::Runtime).
 //! - [`ActionId`] -- a stable, content-addressed identifier derived from the
 //!   action's type name.
-//! - [`AppState`] -- trait for application state managed by the runtime.
+//! - [`GlobalState`] -- trait for application state managed by the runtime.
 
 use blake3;
 use downcast_rs::{impl_downcast, Downcast};
-use fission_ir::NodeId;
+use fission_ir::WidgetId;
 // use fission_macros::Action;
 use lazy_static::lazy_static;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -129,8 +129,8 @@ impl ActionScopeId {
 /// Contains the full new text and updated caret/selection positions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UpdateTextInput {
-    /// The IR node id of the text input that changed.
-    pub node_id: NodeId,
+    /// The widget identity of the text input that changed.
+    pub node_id: WidgetId,
     /// The complete new text value.
     pub new_text: String,
     /// Byte offset of the caret (insertion point).
@@ -213,7 +213,7 @@ pub trait Action: Serialize + DeserializeOwned + Any + Send + Sync + std::fmt::D
 ///
 /// ```rust,ignore
 /// let envelope: ActionEnvelope = my_action.into();
-/// runtime.dispatch(envelope, target_node)?;
+/// runtime.dispatch(envelope, widget_id)?;
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ActionEnvelope {
@@ -247,10 +247,13 @@ impl<T: Action> From<T> for ActionEnvelope {
     }
 }
 
-/// Trait for application state managed by the [`Runtime`](crate::Runtime).
+/// Trait for app-wide state managed by the [`Runtime`](crate::Runtime).
 ///
-/// Any type that is `Send + Sync + Debug + 'static` can serve as application
-/// state. The runtime stores at most one instance of each concrete type.
+/// `GlobalState` is for domain state that belongs to the whole app or session:
+/// documents, logged-in user data, navigation state, caches, settings, and
+/// other data that should outlive an individual widget. Transient UI details
+/// that should disappear with one widget instance belong in local widget state
+/// instead.
 ///
 /// # Example
 ///
@@ -259,18 +262,35 @@ impl<T: Action> From<T> for ActionEnvelope {
 /// struct TodoList {
 ///     items: Vec<String>,
 /// }
-/// impl AppState for TodoList {}
+/// impl GlobalState for TodoList {}
 ///
 /// // Register with the runtime:
-/// runtime.add_app_state(Box::new(TodoList::default()))?;
+/// runtime.add_global_state(Box::new(TodoList::default()))?;
 /// ```
-pub trait AppState: Any + Send + Sync + std::fmt::Debug + Downcast {}
+pub trait GlobalState: Any + Send + Sync + std::fmt::Debug + Downcast {}
 
-impl_downcast!(AppState);
+impl GlobalState for () {}
+impl GlobalState for bool {}
+impl GlobalState for String {}
+impl GlobalState for i8 {}
+impl GlobalState for i16 {}
+impl GlobalState for i32 {}
+impl GlobalState for i64 {}
+impl GlobalState for isize {}
+impl GlobalState for u8 {}
+impl GlobalState for u16 {}
+impl GlobalState for u32 {}
+impl GlobalState for u64 {}
+impl GlobalState for usize {}
+impl GlobalState for f32 {}
+impl GlobalState for f64 {}
+
+impl_downcast!(GlobalState);
 
 /// Type alias for the legacy 3-argument reducer signature used by
 /// [`Runtime::register_reducer`](crate::Runtime::register_reducer).
 ///
-/// Prefer the modern handler signature via [`BuildCtx::bind`](crate::BuildCtx::bind) which
-/// provides access to effects and input context.
-pub type Reducer<S> = fn(&mut S, &ActionEnvelope, NodeId) -> anyhow::Result<()>;
+/// Prefer the modern handler signature via `ctx.bind(...)` from
+/// [`build::current`](crate::build::current), which provides access to effects
+/// and input context without exposing internal IR node identities.
+pub type Reducer<S> = fn(&mut S, &ActionEnvelope, WidgetId) -> anyhow::Result<()>;

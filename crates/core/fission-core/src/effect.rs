@@ -13,7 +13,7 @@ use crate::async_runtime::{
 };
 use crate::capability::CapabilityInvocationPayload;
 use crate::capability::{CapabilityType, OperationCapability};
-use fission_ir::NodeId;
+use fission_ir::WidgetId;
 use serde::{Deserialize, Serialize};
 
 /// An opaque request identifier assigned to each emitted effect.
@@ -197,16 +197,16 @@ pub enum ActionInput {
     /// The action was dispatched from a subtree with a raw action scope.
     ScopedRaw {
         scope_id: u128,
-        target: NodeId,
+        target: WidgetId,
         input: Box<ActionInput>,
     },
 }
 
 impl ActionInput {
-    pub fn scoped_raw(scope_id: u128, target: NodeId, input: ActionInput) -> Self {
+    pub(crate) fn scoped_raw(scope_id: u128, target: WidgetId, input: ActionInput) -> Self {
         Self::ScopedRaw {
             scope_id,
-            target,
+            target: target.into(),
             input: Box::new(input),
         }
     }
@@ -218,7 +218,7 @@ impl ActionInput {
         }
     }
 
-    pub fn scoped_target(&self) -> Option<NodeId> {
+    pub fn scoped_target(&self) -> Option<WidgetId> {
         match self {
             ActionInput::ScopedRaw { target, .. } => Some(*target),
             _ => None,
