@@ -21,21 +21,21 @@ use fission::core::ui::{LazyColumn, Text};
 let node = LazyColumn {
     children: Arc::new(
         (0..500)
-            .map(|i| Text::new(format!("Row {i}")).into_node())
+            .map(|i| Text::new(format!("Row {i}")).into())
             .collect(),
     ),
     item_height: 40.0,
     ..Default::default()
 }
-.into_node();
+.into();
 ```
 
 ## Field table
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `Option<NodeId>` | Stable node identity used for scroll tracking. | Defaults to `None`. |
-| `children` | `Arc<Vec<Node>>` | All list items. | Required. Only the visible slice is lowered each frame when virtualization is active. |
+| `id` | `Option<WidgetId>` | Stable node identity used for scroll tracking. | Defaults to `None`. |
+| `children` | `Vec<Widget>` | All list items. | Required. Only the visible slice is lowered each frame when virtualization is active. |
 | `item_height` | `f32` | Uniform height for each item. | Required for virtualization. If `item_height <= 0.0`, virtualization is disabled. |
 
 ## How it differs from `Scroll`

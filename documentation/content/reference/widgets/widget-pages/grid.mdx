@@ -15,7 +15,7 @@ Use `Grid` when track definitions are meaningful. Do not use it when you only ne
 
 ```rust
 use fission::core::ui::{Grid, GridItem, Text};
-use fission::ir::op::GridTrack;
+use fission::op::GridTrack;
 
 let node = Grid {
     columns: vec![GridTrack::Fr(2.0), GridTrack::Fr(1.0)],
@@ -23,25 +23,25 @@ let node = Grid {
     column_gap: Some(12.0),
     row_gap: Some(12.0),
     children: vec![
-        GridItem::new(Text::new("Primary panel").into_node())
+        GridItem::new(Text::new("Primary panel").into())
             .cell(1, 1)
             .span(2, 1)
-            .into_node(),
-        GridItem::new(Text::new("Inspector").into_node())
+            .into(),
+        GridItem::new(Text::new("Inspector").into())
             .cell(1, 2)
-            .into_node(),
+            .into(),
     ],
     ..Default::default()
 }
-.into_node();
+.into();
 ```
 
 ## Field table
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
-| `children` | `Vec<Node>` | Grid children, usually `GridItem` nodes. | Defaults to an empty list. |
+| `id` | `Option<WidgetId>` | Stable node identity. | Defaults to `None`. |
+| `children` | `Vec<Widget>` | Grid children, usually `GridItem` nodes. | Defaults to an empty list. |
 | `columns` | `Vec<GridTrack>` | Column track definitions. | Defaults to an empty list, so define these explicitly in real layouts. |
 | `rows` | `Vec<GridTrack>` | Row track definitions. | Defaults to an empty list. |
 | `column_gap` | `Option<f32>` | Horizontal gap between columns. | Defaults to `None`. |

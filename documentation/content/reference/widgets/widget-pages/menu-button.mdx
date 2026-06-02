@@ -15,9 +15,9 @@ Use it when the user presses a button to reveal a short list of actions. The wid
 use fission::prelude::*;
 
 let node = MenuButton {
-id: WidgetNodeId::explicit("message_actions"),
+id: WidgetId::explicit("message_actions"),
 label: "Actions".into(),
-is_open: view.state.actions_open,
+is_open: view.state().actions_open,
 on_toggle: Some(toggle_actions_menu_action),
 items: vec![
     MenuItem {
@@ -32,7 +32,7 @@ items: vec![
     },
 ],
 }
-.build(ctx, view);
+.into();
 ```
 
 The usual reducer flow is simple: `on_toggle` flips `is_open`, and each menu item's action performs the choice and closes the menu by updating state.
@@ -41,7 +41,7 @@ The usual reducer flow is simple: `on_toggle` flips `is_open`, and each menu ite
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `WidgetNodeId` | Stable identity for the trigger and portal anchor. | Required. |
+| `id` | `WidgetId` | Stable identity for the trigger and portal anchor. | Required. |
 | `label` | `String` | Visible text on the trigger button. | Required. |
 | `items` | `Vec<MenuItem>` | Menu entries to show when open. | Required. |
 | `is_open` | `bool` | Whether the flyout menu is currently visible. | Controlled by app state. |

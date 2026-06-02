@@ -15,10 +15,10 @@ It exists so modal buttons stay explicit and state-driven. Instead of letting th
 use fission::prelude::*;
 
 let dialog = Modal {
-    id: WidgetNodeId::explicit("delete_confirm"),
+    id: WidgetId::explicit("delete_confirm"),
     title: "Delete draft?".into(),
-    content: Box::new(Text::new("This action cannot be undone.").into_node()),
-    is_open: view.state.show_delete_dialog,
+    content: Text::new("This action cannot be undone.").into(),
+    is_open: view.state().show_delete_dialog,
     on_dismiss: Some(close_dialog),
     actions: vec![
         ModalAction {

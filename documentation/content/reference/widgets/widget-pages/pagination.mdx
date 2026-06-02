@@ -16,14 +16,14 @@ use fission::prelude::*;
 use std::sync::Arc;
 
 let node = Pagination {
-    current_page: view.state.page,
-    total_pages: view.state.total_pages,
+    current_page: view.state().page,
+    total_pages: view.state().total_pages,
     on_change: Some(Arc::new(move |page| ActionEnvelope {
         id: set_page_id,
         payload: serde_json::to_vec(&SetPage(page)).unwrap(),
     })),
 }
-.build(ctx, view);
+.into();
 ```
 
 The reducer usually stores the current page and then refreshes the data set through a selector or follow-up effect.

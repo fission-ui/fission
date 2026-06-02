@@ -20,18 +20,18 @@ use fission::prelude::*;
 let node = HStack {
     spacing: Some(8.0),
     children: vec![
-        Text::new("Name").into_node(),
-        Text::new("Required").into_node(),
+        Text::new("Name").into(),
+        Text::new("Required").into(),
     ],
 }
-.into_node();
+.into();
 ```
 
 ## Field table
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `children` | `Vec<Node>` | Child nodes laid out horizontally. | Defaults to an empty list. |
+| `children` | `Vec<Widget>` | Child nodes laid out horizontally. | Defaults to an empty list. |
 | `spacing` | `Option<f32>` | Gap between children. | Defaults to `None`. Maps to `Row.gap`. |
 
 ## Behavior and advice

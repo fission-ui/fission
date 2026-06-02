@@ -30,7 +30,7 @@ items: vec![
 width: Some(220.0),
 max_height: Some(280.0),
 }
-.build(ctx, view);
+.into();
 ```
 
 `Menu` itself only renders the list. Some surrounding widget still has to decide when and where to show it.

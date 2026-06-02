@@ -16,10 +16,10 @@ Use `GridItem` together with `Grid`. Do not use it for simple wrapping galleries
 ```rust
 use fission::core::ui::{GridItem, Text};
 
-let card = GridItem::new(Text::new("Revenue").into_node())
+let card = GridItem::new(Text::new("Revenue").into())
     .cell(1, 1)
     .span(1, 2)
-    .into_node();
+    .into();
 ```
 
 This places the item at row 1, column 1, and spans two columns.
@@ -28,8 +28,8 @@ This places the item at row 1, column 1, and spans two columns.
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
-| `child` | `Box<Node>` | The content placed inside the grid. | Required. |
+| `id` | `Option<WidgetId>` | Stable node identity. | Defaults to `None`. |
+| `child` | `Widget` | The content placed inside the grid. | Required. |
 | `row_start` | `GridPlacement` | Starting row placement. | Defaults to `GridPlacement::Auto`. |
 | `row_end` | `GridPlacement` | Ending row placement or row span. | Defaults to `GridPlacement::Auto`. |
 | `col_start` | `GridPlacement` | Starting column placement. | Defaults to `GridPlacement::Auto`. |

@@ -19,24 +19,24 @@ use fission::core::ui::{Positioned, Text};
 let badge = Positioned {
     top: Some(8.0),
     right: Some(8.0),
-    child: Some(Box::new(Text::new("New").into_node())),
+    child: Some(Text::new("New").into()),
     ..Default::default()
 }
-.into_node();
+.into();
 ```
 
 ## Field table
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
+| `id` | `Option<WidgetId>` | Stable node identity. | Defaults to `None`. |
 | `left` | `Option<f32>` | Distance from the parent's left edge. | Defaults to `None`. |
 | `top` | `Option<f32>` | Distance from the parent's top edge. | Defaults to `None`. |
 | `right` | `Option<f32>` | Distance from the parent's right edge. | Defaults to `None`. |
 | `bottom` | `Option<f32>` | Distance from the parent's bottom edge. | Defaults to `None`. |
 | `width` | `Option<f32>` | Explicit width for the child region. | Defaults to `None`. |
 | `height` | `Option<f32>` | Explicit height for the child region. | Defaults to `None`. |
-| `child` | `Option<Box<Node>>` | The positioned child. | Defaults to `None`. |
+| `child` | `Option<Widget>` | The positioned child. | Defaults to `None`. |
 
 ## Placement behavior
 

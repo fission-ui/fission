@@ -9,28 +9,28 @@ slug: /widgets/modal
 
 Use it when the user needs to stop and make a decision, confirm a risky action, or complete a short focused task before returning to the underlying screen. The dialog itself does not own that workflow. Your app state owns whether the modal is open, what content it shows, and what should happen when each action button is pressed.
 
-That separation matters. If a dialog can appear or disappear from hidden side effects, debugging quickly becomes painful. In Fission, a modal is open because your state says it is open. A backdrop tap or close button dispatches `on_dismiss`, your reducer updates state, and the next `build()` pass removes the modal.
+That separation matters. If a dialog can appear or disappear from hidden side effects, debugging quickly becomes painful. In Fission, a modal is open because your state says it is open. A backdrop tap or close button dispatches `on_dismiss`, your reducer updates state, and the next `component conversion` pass removes the modal.
 
 If the user interface should stay lightweight and anchored to one control, use a [`Popover`](/reference/widgets/popover) instead. If the user interface is really a temporary side panel, use a [`Drawer`](/reference/widgets/drawer).
 
 ## Example
 
 ```rust
-use fission::core::{Handler, WidgetNodeId};
+use fission::core::{Handler, WidgetId};
 use fission::core::ui::Text;
 use fission::prelude::*;
 
 let confirm_modal = Modal {
-    id: WidgetNodeId::explicit("publish_modal"),
+    id: WidgetId::explicit("publish_modal"),
     title: "Publish this release?".into(),
-    content: Box::new(
+    content: 
         Text::new("Everyone on your team will see this version immediately.")
-            .into_node(),
-    ),
-    is_open: view.state.show_publish_modal,
+            .into(),
+    ,
+    is_open: view.state().show_publish_modal,
     on_dismiss: Some(ctx.bind(
         TogglePublishModal(false),
-        reduce_with!((|state: &mut AppState, action: TogglePublishModal, _| {
+        reduce_with!((|state: &mut GlobalState, action: TogglePublishModal, _| {
             state.show_publish_modal = action.0;
         })),
     )),
@@ -48,16 +48,16 @@ let confirm_modal = Modal {
     ],
     width: Some(520.0),
 }
-.build(ctx, view);
+.into();
 ```
 
 ## Field table
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `WidgetNodeId` | Stable identity for the modal's portal entry. | Required. Give each distinct modal a stable id. |
+| `id` | `WidgetId` | Stable identity for the modal's portal entry. | Required. Give each distinct modal a stable id. |
 | `title` | `String` | Header text shown at the top of the dialog. | Keep it short and task-specific. |
-| `content` | `Box<Node>` | Main body content for the dialog. | Build your form, explanation, or confirmation copy here. |
+| `content` | `Widget` | Main body content for the dialog. | Build your form, explanation, or confirmation copy here. |
 | `is_open` | `bool` | Whether the modal should be visible this frame. | When `false`, the widget returns an inert spacer and registers no portal. |
 | `on_dismiss` | `Option<ActionEnvelope>` | Action dispatched when the backdrop or close button is pressed. | Defaults to `None`. Use it for the standard escape path. |
 | `actions` | `Vec<ModalAction>` | Footer buttons rendered at the bottom of the dialog. | Defaults to an empty footer when you pass an empty vector. |

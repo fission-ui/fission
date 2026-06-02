@@ -19,13 +19,13 @@ use fission::prelude::*;
 let avatar = Image::asset("assets/avatar.png")
     .size(48.0, 48.0)
     .semantic_label("Sam's profile photo")
-    .into_node();
+    .into();
 
 let product = Image::network(product.thumbnail.clone())
     .size(220.0, 160.0)
     .fit(ir_op::ImageFit::Contain)
     .semantic_label(format!("{} product image", product.title))
-    .into_node();
+    .into();
 ```
 
 Use `asset` for files shipped with the app, `file` for an explicit local file path, `network` for `http` or `https` images, `memory` when you already have bytes, and `svg_text` for inline SVG content. Network images are loaded asynchronously; the widget still reserves the size you give it, then the shell repaints when the decoded image is ready.
@@ -48,12 +48,12 @@ For catalog-style screens, start with `Contain`. Users expect to see the whole p
 When `Contain` leaves empty space or `Cover` crops an edge, `alignment` decides where the image sits inside the box.
 
 ```rust
-let banner = Image::network(view.state.banner_url.clone())
+let banner = Image::network(view.state().banner_url.clone())
     .size(640.0, 240.0)
     .fit(ir_op::ImageFit::Cover)
     .alignment(ImageAlignment::TopCenter)
     .semantic_label("Spring campaign banner")
-    .into_node();
+    .into();
 ```
 
 Use centered alignment for most content. Use top, bottom, start, or end alignment when the meaningful part of the image consistently lives on one side.
@@ -63,25 +63,25 @@ Use centered alignment for most content. Use top, bottom, start, or end alignmen
 `Image::network` stores a typed network request. You can attach request headers and cache hints when the image endpoint needs them.
 
 ```rust
-let protected = Image::network(view.state.signed_url.clone())
+let protected = Image::network(view.state().signed_url.clone())
     .header("Accept", "image/webp,image/png")
     .cache_size(440, 320)
     .cache_policy(ImageCachePolicy::MemoryOnly)
     .size(220.0, 160.0)
     .fit(ir_op::ImageFit::Contain)
     .semantic_label("Invoice preview")
-    .into_node();
+    .into();
 ```
 
 `cache_size` asks the loader to decode or resize toward a target pixel size. It is useful for long lists where a thumbnail should not keep a full-size original in memory. `cache_policy` describes the intended caching behavior; shell implementations may use it differently depending on platform support.
 
-Do not perform network fetches manually inside `build()`. `build()` should only describe the UI. Put the URL in app state and let the image pipeline load the bytes.
+Do not perform network fetches manually inside `component conversion`. `component conversion` should only describe the UI. Put the URL in app state and let the image pipeline load the bytes.
 
 ## Field table
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. Most images do not need an explicit id. |
+| `id` | `Option<WidgetId>` | Stable node identity. | Defaults to `None`. Most images do not need an explicit id. |
 | `request` | `ImageRequest` | Typed image request containing an asset, file, network URL, memory buffer, or inline SVG source. | Prefer `Image::asset`, `Image::file`, `Image::network`, `Image::memory`, or `Image::svg_text`. |
 | `width` | `Option<f32>` | Fixed layout width in logical points. | Defaults to `None`. Give images explicit dimensions or place them inside a parent that constrains them. |
 | `height` | `Option<f32>` | Fixed layout height in logical points. | Defaults to `None`. Lists and grids should usually give thumbnails both width and height. |
@@ -117,18 +117,18 @@ let thumbnail = Image::network(product.thumbnail.clone())
     .size(220.0, 160.0)
     .fit(ir_op::ImageFit::Contain)
     .semantic_label(format!("Photo of {}", product.title))
-    .into_node();
+    .into();
 ```
 
 For background-like imagery, use `Cover` and choose an alignment that keeps the important region visible:
 
 ```rust
-let hero = Image::network(view.state.hero_url.clone())
+let hero = Image::network(view.state().hero_url.clone())
     .size(720.0, 320.0)
     .fit(ir_op::ImageFit::Cover)
     .alignment(ImageAlignment::Center)
     .semantic_label("Featured destination")
-    .into_node();
+    .into();
 ```
 
 The renderer clips fitted images to their widget bounds. If a `Cover` image appears outside its card, that is a renderer bug, not something app code should work around with manual clipping containers.

@@ -17,15 +17,15 @@ Most app authors should not start with `Portal` directly. Higher-level widgets s
 use fission::core::ui::{Container, Spacer, Text};
 use fission::prelude::*;
 
-let global_debug_overlay = if view.state.show_debug_banner {
+let global_debug_overlay = if view.state().show_debug_banner {
     Portal {
-        child: Container::new(Text::new("Diagnostics connected").into_node())
+        child: Container::new(Text::new("Diagnostics connected").into())
             .padding_all(12.0)
-            .into_node(),
+            .into(),
     }
-    .build(ctx, view)
+    .into()
 } else {
-    Spacer::default().into_node()
+    Spacer::default().into()
 };
 ```
 
@@ -35,13 +35,13 @@ Your app state still decides whether the portal exists. The widget only changes 
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `child` | `Node` | The subtree to place in the overlay stack. | Required. The portal itself returns an invisible spacer in normal layout. |
+| `child` | `Widget` | The subtree to place in the overlay stack. | Required. The portal itself returns an invisible spacer in normal layout. |
 
 ## Runtime boundary
 
-`Portal` uses `BuildCtx::register_portal(...)` during `build()`. That means the overlay registration is explicit and visible to the runtime, not a hidden side effect after the frame has already been built.
+`Portal` uses `BuildCtxHandle::register_portal(...)` during component conversion. That means the overlay registration is explicit and visible to the runtime, not a hidden side effect after the frame has already been built.
 
-The helper registers into the default portal layer. If you need modal, flyout, or toast ordering, use a higher-level widget or call `BuildCtx::register_portal_with_layer(...)` yourself inside a custom widget.
+The helper registers into the default portal layer. If you need modal, flyout, or toast ordering, use a higher-level widget or call `BuildCtxHandle::register_portal_with_layer(...)` yourself inside a custom widget.
 
 ## Specific advice
 

@@ -17,15 +17,15 @@ Use `GestureDetector` when you need this level of control. Do not reach for it f
 use fission::core::ui::{Container, GestureDetector, Text};
 
 let node = GestureDetector {
-    child: Box::new(
-        Container::new(Text::new("Open context menu").into_node())
+    child: 
+        Container::new(Text::new("Open context menu").into())
             .padding_all(12.0)
-            .into_node(),
-    ),
+            .into(),
+    ,
     on_secondary_click: Some(show_context_menu_action),
     ..Default::default()
 }
-.into_node();
+.into();
 ```
 
 This is a good use case because the interaction is more specific than a plain button press.
@@ -34,8 +34,8 @@ This is a good use case because the interaction is more specific than a plain bu
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
-| `child` | `Box<Node>` | The wrapped child that receives gesture detection. | Required. `Default` uses an empty spacer child. |
+| `id` | `Option<WidgetId>` | Stable node identity. | Defaults to `None`. |
+| `child` | `Widget` | The wrapped child that receives gesture detection. | Required. `Default` uses an empty spacer child. |
 | `on_tap` | `Option<ActionEnvelope>` | Action for a normal tap. | When present, the lowered semantics become focusable. |
 | `on_double_tap` | `Option<ActionEnvelope>` | Action for a double tap. | Defaults to `None`. |
 | `on_long_press` | `Option<ActionEnvelope>` | Action for a long press. | Defaults to `None`. |
@@ -64,4 +64,4 @@ For drop targets, keep the payload format documented and stable. The runtime onl
 
 ## Related
 
-[`Button`](/reference/widgets/button), [`Overlay`](/reference/widgets/overlay), [`Positioned`](/reference/widgets/positioned), and [`CustomNode`](/reference/widgets/custom-node).
+[`Button`](/reference/widgets/button), [`Overlay`](/reference/widgets/overlay), [`Positioned`](/reference/widgets/positioned), and [`Popover`](/reference/widgets/popover).

@@ -14,7 +14,7 @@ Use it when the user should see how far through a task or process the app has mo
 ```rust
 use fission::prelude::*;
 
-let node = ProgressBar { value: 0.35 }.build(ctx, view);
+let node = ProgressBar { value: 0.35 }.into();
 ```
 
 This renders a bar filled to 35 percent of its width.

@@ -14,29 +14,28 @@ The important state rule is that the popover does not decide when it is open. Yo
 ## Example
 
 ```rust
-use fission::core::{Handler, WidgetNodeId};
+use fission::core::{Handler, WidgetId};
 use fission::core::ui::{Button, Text};
 use fission::prelude::*;
 
 let popover = Popover {
-    id: WidgetNodeId::explicit("sort_popover"),
-    is_open: view.state.show_sort_menu,
+    id: WidgetId::explicit("sort_popover"),
+    is_open: view.state().show_sort_menu,
     on_toggle: None,
     on_close: Some(ctx.bind(
         ToggleSortMenu(false),
-        reduce_with!((|state: &mut AppState, action: ToggleSortMenu, _| {
+        reduce_with!((|state: &mut GlobalState, action: ToggleSortMenu, _| {
             state.show_sort_menu = action.0;
         })),
     )),
-    trigger: Box::new(
+    trigger:
         Button {
-            child: Some(Box::new(Text::new("Sort").into_node())),
+            child: Some(Text::new("Sort").into()),
             on_press: Some(toggle_sort_menu),
             ..Default::default()
         }
-        .build(ctx, view),
-    ),
-    content: Box::new(
+        .into(),
+    content:
         Menu {
             items: vec![
                 MenuItem::action("Newest", choose_newest),
@@ -44,10 +43,9 @@ let popover = Popover {
             ],
             ..Default::default()
         }
-        .build(ctx, view),
-    ),
+        .into(),
 }
-.build(ctx, view);
+.into();
 ```
 
 Notice that the trigger's own button handles the open and close action. That keeps the event flow explicit.
@@ -56,12 +54,12 @@ Notice that the trigger's own button handles the open and close action. That kee
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `WidgetNodeId` | Stable identity for the anchor and portal entry. | Required. The widget derives an internal anchor id from this value. |
+| `id` | `WidgetId` | Stable identity for the anchor and portal entry. | Required. The widget derives an internal anchor id from this value. |
 | `is_open` | `bool` | Whether the popup content should be visible. | When `false`, only the trigger is rendered. |
 | `on_toggle` | `Option<ActionEnvelope>` | Intended toggle action for the trigger. | Present on the public struct, but the current implementation does not invoke it for you. Wire trigger presses on the `trigger` node itself. |
 | `on_close` | `Option<ActionEnvelope>` | Action dispatched when the optional backdrop is tapped. | If set, the widget adds a transparent full-screen backdrop behind the popup. |
-| `trigger` | `Box<Node>` | Inline trigger content. | Always rendered in normal layout. |
-| `content` | `Box<Node>` | Popup body shown in the flyout layer when open. | Positioned relative to the trigger and clamped within the viewport. |
+| `trigger` | `Widget` | Inline trigger content. | Always rendered in normal layout. |
+| `content` | `Widget` | Popup body shown in the flyout layer when open. | Positioned relative to the trigger and clamped within the viewport. |
 
 ## Overlay behavior
 

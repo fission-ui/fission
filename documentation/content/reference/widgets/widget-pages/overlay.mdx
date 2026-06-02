@@ -17,29 +17,29 @@ Use `Overlay` when the relationship is naturally "main thing plus one covering l
 use fission::core::ui::{Container, Overlay, Text};
 
 let node = Overlay {
-    content: Box::new(Text::new("Invoice list").into_node()),
-    overlay: Box::new(
-        Container::new(Text::new("Syncing...").into_node())
+    content: Text::new("Invoice list").into(),
+    overlay: 
+        Container::new(Text::new("Syncing...").into())
             .bg(fission::core::op::Color {
                 r: 0,
                 g: 0,
                 b: 0,
                 a: 110,
             })
-            .into_node(),
-    ),
+            .into(),
+    ,
     ..Default::default()
 }
-.into_node();
+.into();
 ```
 
 ## Field table
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
-| `content` | `Box<Node>` | The base layer, drawn first. | Required. `Default` uses empty text nodes as placeholders. |
-| `overlay` | `Box<Node>` | The top layer, drawn above `content`. | Required. Internally wrapped in an absolute-fill layer. |
+| `id` | `Option<WidgetId>` | Stable node identity. | Defaults to `None`. |
+| `content` | `Widget` | The base layer, drawn first. | Required. `Default` uses empty text nodes as placeholders. |
+| `overlay` | `Widget` | The top layer, drawn above `content`. | Required. Internally wrapped in an absolute-fill layer. |
 
 ## Layout behavior
 

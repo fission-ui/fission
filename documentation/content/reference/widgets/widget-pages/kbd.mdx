@@ -17,11 +17,11 @@ use fission::prelude::*;
 let chord = HStack {
     spacing: Some(6.0),
     children: vec![
-        Kbd { text: "Ctrl".into() }.build(ctx, view),
-        Kbd { text: "C".into() }.build(ctx, view),
+        Kbd { text: "Ctrl".into() }.into(),
+        Kbd { text: "C".into() }.into(),
     ],
 }
-.into_node();
+.into();
 ```
 
 Building each key separately usually reads better than putting the whole chord in one box.

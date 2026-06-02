@@ -16,9 +16,9 @@ use fission::prelude::*;
 
 let node = Hero {
     tag: format!("email_subject_{}", email.id),
-    child: Box::new(Text::new(email.subject.clone()).into_node()),
+    child: Text::new(email.subject.clone()).into(),
 }
-.build(ctx, view);
+.into();
 ```
 
 To get a real transition, the corresponding destination view must wrap the matching element with the same `tag`.
@@ -28,7 +28,7 @@ To get a real transition, the corresponding destination view must wrap the match
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
 | `tag` | `String` | Stable identity for the shared element across navigation frames. | Required. Matching tags are what make the runtime treat two elements as the same thing. |
-| `child` | `Box<Node>` | Visual content that should participate in the transition. | Required. |
+| `child` | `Widget` | Visual content that should participate in the transition. | Required. |
 
 ## Product guidance
 
