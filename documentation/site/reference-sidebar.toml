@@ -782,8 +782,8 @@ href = "/reference/widgets/tree-view/"
 level = 2
 
 [[items]]
-title = "Media and escape hatches"
-href = "/reference/widgets/builder/"
+title = "Media and embeds"
+href = "/reference/widgets/image/"
 level = 1
 group = true
 
@@ -803,18 +803,13 @@ href = "/reference/widgets/canvas-lowerer/"
 level = 2
 
 [[items]]
-title = "Custom Node"
-href = "/reference/widgets/custom-node/"
+title = "Custom Widget"
+href = "/reference/widgets/custom-widget/"
 level = 2
 
 [[items]]
 title = "Image"
 href = "/reference/widgets/image/"
-level = 2
-
-[[items]]
-title = "Node"
-href = "/reference/widgets/node/"
 level = 2
 
 [[items]]

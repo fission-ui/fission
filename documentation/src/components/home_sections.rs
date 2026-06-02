@@ -10,13 +10,14 @@ use fission::prelude::*;
 #[derive(Clone, Debug)]
 pub(super) struct HomePageHero;
 
-impl Widget<DocsState> for HomePageHero {
-    fn build(&self, ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Node {
-        let tokens = &view.env.theme.tokens;
+impl From<HomePageHero> for Widget {
+    fn from(_component: HomePageHero) -> Self {
+        let (_ctx, view) = fission::build::current::<DocsState>();
+        let tokens = &view.env().theme.tokens;
         semantic_column(
             "site-home-hero",
             vec![
-                Pill::new("Rust application platform").build(ctx, view),
+                Pill::new("Rust application platform").into(),
                 Text::new("Build, test, package, and release production apps in Rust.")
                     .size(tokens.typography.display_md_size)
                     .family(tokens.typography.font_family_serif.clone())
@@ -30,7 +31,7 @@ impl Widget<DocsState> for HomePageHero {
                     .text_align(TextAlign::Center)
                     .semantics_identifier("site-home-hero-title")
                     .flex_shrink(1.0)
-                    .into_node(),
+                    .into(),
                 Text::new("Fission is a full application platform for desktop, mobile, web, terminal, and static site targets, with one shared app model and lifecycle tooling around it.")
                     .size(tokens.typography.font_size_lg)
                     .line_height(tokens.typography.font_size_lg * tokens.typography.line_height_relaxed)
@@ -39,7 +40,7 @@ impl Widget<DocsState> for HomePageHero {
                     .max_width(prose_width(tokens))
                     .text_align(TextAlign::Center)
                     .flex_shrink(1.0)
-                    .into_node(),
+                    .into(),
                 Text::new("Write product state as plain Rust data, render with widgets, run through target shells, then use the CLI for devices, tests, preflight checks, packages, signing, release content, and distribution.")
                     .size(tokens.typography.body_large_size)
                     .line_height(tokens.typography.body_large_size * tokens.typography.line_height_relaxed)
@@ -48,62 +49,62 @@ impl Widget<DocsState> for HomePageHero {
                     .max_width(prose_width(tokens))
                     .text_align(TextAlign::Center)
                     .flex_shrink(1.0)
-                    .into_node(),
+                    .into(),
                 Row {
                     children: vec![
                         Cta::new("Start building ->", "/docs/learn/quickstart/", true)
-                            .build(ctx, view),
+                            .into(),
                         Cta::new("Explore platform", "/product/overview/", false)
-                            .build(ctx, view),
+                            .into(),
                         NavLink::new("Release workflow ->", "/docs/release-and-distribute/overview/")
-                            .build(ctx, view),
+                            .into(),
                     ],
                     gap: Some(tokens.spacing.m),
                     wrap: FlexWrap::Wrap,
                     justify_content: JustifyContent::Center,
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
                 Row {
                     children: vec![
-                        CodeCard::new("Create an app", "fission init my-app").build(ctx, view),
+                        CodeCard::new("Create an app", "fission init my-app").into(),
                         CodeCard::new("Run on a target", "fission run --project-dir my-app")
-                            .build(ctx, view),
-                        CodeCard::new("Check release readiness", "fission readiness release --target windows --format msix --provider microsoft-store").build(ctx, view),
+                            .into(),
+                        CodeCard::new("Check release readiness", "fission readiness release --target windows --format msix --provider microsoft-store").into(),
                     ],
                     gap: Some(tokens.spacing.m),
                     wrap: FlexWrap::Wrap,
                     justify_content: JustifyContent::Center,
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
                 Row {
                     children: vec![
-                        StatusText::new("Desktop").build(ctx, view),
-                        StatusText::new("Web/WASM").build(ctx, view),
-                        StatusText::new("Android + iOS").build(ctx, view),
-                        StatusText::new("Terminal UI").build(ctx, view),
-                        StatusText::new("Static HTML").build(ctx, view),
+                        StatusText::new("Desktop").into(),
+                        StatusText::new("Web/WASM").into(),
+                        StatusText::new("Android + iOS").into(),
+                        StatusText::new("Terminal UI").into(),
+                        StatusText::new("Static HTML").into(),
                     ],
                     gap: Some(tokens.spacing.l),
                     wrap: FlexWrap::Wrap,
                     justify_content: JustifyContent::Center,
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
             ],
             Some(tokens.spacing.l),
             AlignItems::Center,
         )
     }
 }
-
 #[derive(Clone, Debug)]
 pub(super) struct ProofStrip;
 
-impl Widget<DocsState> for ProofStrip {
-    fn build(&self, ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Node {
-        let tokens = &view.env.theme.tokens;
+impl From<ProofStrip> for Widget {
+    fn from(_component: ProofStrip) -> Self {
+        let (_ctx, view) = fission::build::current::<DocsState>();
+        let tokens = &view.env().theme.tokens;
         semantic_column(
             "site-home-signals",
             vec![
@@ -112,7 +113,7 @@ impl Widget<DocsState> for ProofStrip {
                     "One platform for the whole application lifecycle.",
                     "Fission combines a Rust UI runtime, target shells, developer workflow, package readiness, release content, and distribution tooling so teams do not have to invent a platform around the framework.",
                 )
-                .build(ctx, view),
+                .into(),
                 Row {
                     children: vec![
                         LinkCard::new(
@@ -122,7 +123,7 @@ impl Widget<DocsState> for ProofStrip {
                             "Learn the model ->",
                             "/docs/learn/overview/",
                         )
-                        .build(ctx, view),
+                        .into(),
                         LinkCard::new(
                             "Run",
                             "Real target shells",
@@ -130,7 +131,7 @@ impl Widget<DocsState> for ProofStrip {
                             "See targets ->",
                             "/product/cross-platform-apps/",
                         )
-                        .build(ctx, view),
+                        .into(),
                         LinkCard::new(
                             "Verify",
                             "Tests and diagnostics",
@@ -138,7 +139,7 @@ impl Widget<DocsState> for ProofStrip {
                             "Debug path ->",
                             "/docs/test-and-debug/overview/",
                         )
-                        .build(ctx, view),
+                        .into(),
                         LinkCard::new(
                             "Ship",
                             "Post-build lifecycle",
@@ -146,27 +147,27 @@ impl Widget<DocsState> for ProofStrip {
                             "Release path ->",
                             "/product/production-lifecycle/",
                         )
-                        .build(ctx, view),
+                        .into(),
                     ],
                     gap: Some(tokens.spacing.m),
                     wrap: FlexWrap::Wrap,
                     justify_content: JustifyContent::Center,
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
             ],
             Some(tokens.spacing.xl),
             AlignItems::Center,
         )
     }
 }
-
 #[derive(Clone, Debug)]
 pub(super) struct LifecycleSection;
 
-impl Widget<DocsState> for LifecycleSection {
-    fn build(&self, ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Node {
-        let tokens = &view.env.theme.tokens;
+impl From<LifecycleSection> for Widget {
+    fn from(_component: LifecycleSection) -> Self {
+        let (_ctx, view) = fission::build::current::<DocsState>();
+        let tokens = &view.env().theme.tokens;
         ShellSection::new(
             Column {
                 children: vec![
@@ -178,33 +179,33 @@ impl Widget<DocsState> for LifecycleSection {
                                         .size(tokens.typography.font_size_sm)
                                         .weight(tokens.typography.font_weight_bold)
                                         .color(tokens.colors.secondary)
-                                        .into_node(),
+                                        .into(),
                                     Text::new("From first run to store rollout.")
                                         .size(tokens.typography.heading2_size)
                                         .family(tokens.typography.font_family_serif.clone())
                                         .line_height(tokens.typography.heading2_size * tokens.typography.line_height_heading)
                                         .weight(tokens.typography.font_weight_bold)
                                         .color(tokens.colors.heading)
-                                        .into_node(),
+                                        .into(),
                                 ],
                                 gap: Some(tokens.spacing.m),
                                 flex_grow: 1.0,
                                 ..Default::default()
                             }
-                            .into_node(),
+                            .into(),
                             Text::new("The docs now follow the path teams actually take: setup, develop, test, debug, package, sign, release, distribute, and keep receipts for automation.")
                                 .size(tokens.typography.body_large_size)
                                 .line_height(tokens.typography.body_large_size * tokens.typography.line_height_relaxed)
                                 .color(tokens.colors.text_secondary)
                                 .flex_grow(1.0)
-                                .into_node(),
+                                .into(),
                         ],
                         gap: Some(tokens.spacing.xl),
                         wrap: FlexWrap::Wrap,
                         align_items: AlignItems::Start,
                         ..Default::default()
                     }
-                    .into_node(),
+                    .into(),
                     Row {
                         children: vec![
                             lifecycle_step(tokens, "01", "Start", "init, project shape, targets"),
@@ -218,33 +219,33 @@ impl Widget<DocsState> for LifecycleSection {
                         justify_content: JustifyContent::SpaceBetween,
                         ..Default::default()
                     }
-                    .into_node(),
+                    .into(),
                     Row {
                         children: vec![
-                            Cta::new("Open lifecycle docs", "/docs/release-and-distribute/overview/", true).build(ctx, view),
-                            Cta::new("Read product page", "/product/production-lifecycle/", false).build(ctx, view),
+                            Cta::new("Open lifecycle docs", "/docs/release-and-distribute/overview/", true).into(),
+                            Cta::new("Read product page", "/product/production-lifecycle/", false).into(),
                         ],
                         gap: Some(tokens.spacing.s),
                         wrap: FlexWrap::Wrap,
                         ..Default::default()
                     }
-                    .into_node(),
+                    .into(),
                 ],
                 gap: Some(tokens.spacing.l),
                 ..Default::default()
             }
-            .into_node(),
+            .into(),
         )
-        .build(ctx, view)
+        .into()
     }
 }
-
 #[derive(Clone, Debug)]
 pub(super) struct ArchitectureSection;
 
-impl Widget<DocsState> for ArchitectureSection {
-    fn build(&self, ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Node {
-        let tokens = &view.env.theme.tokens;
+impl From<ArchitectureSection> for Widget {
+    fn from(_component: ArchitectureSection) -> Self {
+        let (ctx, view) = fission::build::current::<DocsState>();
+        let tokens = &view.env().theme.tokens;
         ShellSection::new(
             Column {
                 children: vec![
@@ -270,46 +271,46 @@ impl Widget<DocsState> for ArchitectureSection {
                         align_items: AlignItems::Stretch,
                         ..Default::default()
                     }
-                    .into_node(),
+                    .into(),
                     Row {
                         children: vec![
                             Text::new("Pipeline")
                                 .size(tokens.typography.font_size_xs)
                                 .weight(tokens.typography.font_weight_bold)
                                 .color(tokens.colors.text_muted)
-                                .into_node(),
-                            Text::new("Build -> Lower -> Layout -> Paint -> Render")
+                                .into(),
+                            Text::new("Build -> InternalLower -> Layout -> Paint -> Render")
                                 .size(tokens.typography.font_size_sm)
                                 .family(tokens.typography.font_family_mono.clone())
                                 .color(tokens.colors.text_primary)
-                                .into_node(),
+                                .into(),
                             Text::new("Same pipeline on every host.")
                                 .size(tokens.typography.font_size_sm)
                                 .color(tokens.colors.text_muted)
-                                .into_node(),
+                                .into(),
                         ],
                         gap: Some(tokens.spacing.l),
                         wrap: FlexWrap::Wrap,
                         justify_content: JustifyContent::SpaceBetween,
                         ..Default::default()
                     }
-                    .into_node(),
+                    .into(),
                 ],
                 gap: Some(tokens.spacing.l),
                 ..Default::default()
             }
-            .into_node(),
+            .into(),
         )
-        .build(ctx, view)
+        .into()
     }
 }
-
 #[derive(Clone, Debug)]
 pub(super) struct ModelSection;
 
-impl Widget<DocsState> for ModelSection {
-    fn build(&self, ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Node {
-        let tokens = &view.env.theme.tokens;
+impl From<ModelSection> for Widget {
+    fn from(_component: ModelSection) -> Self {
+        let (_ctx, view) = fission::build::current::<DocsState>();
+        let tokens = &view.env().theme.tokens;
         semantic_row(
             "site-home-model",
             vec![
@@ -319,7 +320,7 @@ impl Widget<DocsState> for ModelSection {
                             .size(tokens.typography.font_size_sm)
                             .weight(tokens.typography.font_weight_bold)
                             .color(tokens.colors.secondary)
-                            .into_node(),
+                            .into(),
                         Text::new("The important boundaries stay visible.")
                             .size(tokens.typography.heading2_size)
                             .family(tokens.typography.font_family_serif.clone())
@@ -329,44 +330,44 @@ impl Widget<DocsState> for ModelSection {
                             )
                             .weight(tokens.typography.font_weight_bold)
                             .color(tokens.colors.heading)
-                            .into_node(),
+                            .into(),
                         Text::new("Fission is strict about where state changes happen, where host work starts, and how rendering is produced.")
                             .size(tokens.typography.body_large_size)
                             .line_height(tokens.typography.body_large_size * tokens.typography.line_height_relaxed)
                             .color(tokens.colors.text_secondary)
-                            .into_node(),
+                            .into(),
                         reducer_card(tokens),
                         Row {
                             children: vec![
                                 Cta::new("Read the model", "/docs/learn/runtime-model/", true)
-                                    .build(ctx, view),
+                                    .into(),
                                 Cta::new("Browse reference", "/reference/overview/overview/", false)
-                                    .build(ctx, view),
+                                    .into(),
                             ],
                             gap: Some(tokens.spacing.s),
                             wrap: FlexWrap::Wrap,
                             ..Default::default()
                         }
-                        .into_node(),
+                        .into(),
                     ],
                     gap: Some(tokens.spacing.l),
                     flex_grow: 1.0,
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
                 Row {
                     children: vec![
-                        LinkCard::new("01", "Plain Rust data stays in charge.", "Product truth is not hidden inside widgets or host callbacks.", "State", "/docs/learn/runtime-model/").build(ctx, view),
-                        LinkCard::new("02", "Every durable change has a named cause.", "Typed actions and reducers keep behavior reviewable and testable.", "Reducers", "/docs/learn/runtime-model/").build(ctx, view),
-                        LinkCard::new("03", "Outside work has an explicit path.", "Files, timers, authentication, and services do not leak through rendering.", "Host work", "/docs/guides/resources-and-async/").build(ctx, view),
-                        LinkCard::new("04", "Layout and paint stay inspectable.", "Tests and diagnostics can inspect structure, semantics, and paint order directly.", "Render", "/docs/learn/rendering-pipeline/").build(ctx, view),
+                        LinkCard::new("01", "Plain Rust data stays in charge.", "Product truth is not hidden inside widgets or host callbacks.", "State", "/docs/learn/runtime-model/").into(),
+                        LinkCard::new("02", "Every durable change has a named cause.", "Typed actions and reducers keep behavior reviewable and testable.", "Reducers", "/docs/learn/runtime-model/").into(),
+                        LinkCard::new("03", "Outside work has an explicit path.", "Files, timers, authentication, and services do not leak through rendering.", "Host work", "/docs/guides/resources-and-async/").into(),
+                        LinkCard::new("04", "Layout and paint stay inspectable.", "Tests and diagnostics can inspect structure, semantics, and paint order directly.", "Render", "/docs/learn/rendering-pipeline/").into(),
                     ],
                     gap: Some(tokens.spacing.m),
                     wrap: FlexWrap::Wrap,
                     flex_grow: 1.0,
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
             ],
             Some(tokens.spacing.xl),
             FlexWrap::Wrap,
@@ -375,13 +376,13 @@ impl Widget<DocsState> for ModelSection {
         )
     }
 }
-
 #[derive(Clone, Debug)]
 pub(super) struct TargetsSection;
 
-impl Widget<DocsState> for TargetsSection {
-    fn build(&self, ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Node {
-        let tokens = &view.env.theme.tokens;
+impl From<TargetsSection> for Widget {
+    fn from(_component: TargetsSection) -> Self {
+        let (_ctx, view) = fission::build::current::<DocsState>();
+        let tokens = &view.env().theme.tokens;
         semantic_column(
             "site-home-targets",
             vec![
@@ -390,32 +391,32 @@ impl Widget<DocsState> for TargetsSection {
                     "Desktop, mobile, web, terminal, and static HTML are first-class outputs.",
                     "Start on the host that answers your next product question fastest, then validate on every real target your users will touch.",
                 )
-                .build(ctx, view),
+                .into(),
                 Column {
                     children: vec![
-                        TargetRowCard::new("Desktop", "First-class", "macOS - Linux - Windows", "fission run --target desktop", "Native windows, rendering, input, diagnostics, package readiness, and desktop release paths.", "/product/cross-platform-apps/", "Desktop path ->").build(ctx, view),
-                        TargetRowCard::new("Web", "First-class", "WASM", "fission run --target web", "Browser delivery with the same shared app model and web/static packaging workflow.", "/product/cross-platform-apps/", "Web path ->").build(ctx, view),
-                        TargetRowCard::new("Mobile", "First-class", "Android - iOS", "fission devices", "Generated mobile hosts, emulator/simulator workflow, APK/AAB/IPA readiness, and store publishing.", "/product/cross-platform-apps/", "Mobile path ->").build(ctx, view),
-                        TargetRowCard::new("Terminal UI", "First-class", "Windows - macOS - Linux", "fission ui", "Interactive terminal apps built from normal Fission widgets, reducers, screens, and routes.", "/product/terminal-apps/", "Terminal path ->").build(ctx, view),
-                        TargetRowCard::new("Static HTML", "First-class", "Sites - Docs - Marketing", "fission site build", "SEO-friendly static HTML from Fission widgets, Markdown content, search, metadata, and assets.", "/product/static-sites/", "Site path ->").build(ctx, view),
+                        TargetRowCard::new("Desktop", "First-class", "macOS - Linux - Windows", "fission run --target desktop", "Native windows, rendering, input, diagnostics, package readiness, and desktop release paths.", "/product/cross-platform-apps/", "Desktop path ->").into(),
+                        TargetRowCard::new("Web", "First-class", "WASM", "fission run --target web", "Browser delivery with the same shared app model and web/static packaging workflow.", "/product/cross-platform-apps/", "Web path ->").into(),
+                        TargetRowCard::new("Mobile", "First-class", "Android - iOS", "fission devices", "Generated mobile hosts, emulator/simulator workflow, APK/AAB/IPA readiness, and store publishing.", "/product/cross-platform-apps/", "Mobile path ->").into(),
+                        TargetRowCard::new("Terminal UI", "First-class", "Windows - macOS - Linux", "fission ui", "Interactive terminal apps built from normal Fission widgets, reducers, screens, and routes.", "/product/terminal-apps/", "Terminal path ->").into(),
+                        TargetRowCard::new("Static HTML", "First-class", "Sites - Docs - Marketing", "fission site build", "SEO-friendly static HTML from Fission widgets, Markdown content, search, metadata, and assets.", "/product/static-sites/", "Site path ->").into(),
                     ],
                     gap: Some(tokens.spacing.s),
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
             ],
             Some(tokens.spacing.xl),
             AlignItems::Center,
         )
     }
 }
-
 #[derive(Clone, Debug)]
 pub(super) struct ChartsSection;
 
-impl Widget<DocsState> for ChartsSection {
-    fn build(&self, ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Node {
-        let tokens = &view.env.theme.tokens;
+impl From<ChartsSection> for Widget {
+    fn from(_component: ChartsSection) -> Self {
+        let (_ctx, view) = fission::build::current::<DocsState>();
+        let tokens = &view.env().theme.tokens;
         semantic_column(
             "site-home-charts",
             vec![
@@ -427,114 +428,114 @@ impl Widget<DocsState> for ChartsSection {
                                     .size(tokens.typography.font_size_sm)
                                     .weight(tokens.typography.font_weight_bold)
                                     .color(tokens.colors.secondary)
-                                    .into_node(),
+                                    .into(),
                                 Text::new("Dashboards, analytics, finance, maps, networks, and 3D-ready visuals.")
                                     .size(tokens.typography.heading2_size)
                                     .family(tokens.typography.font_family_serif.clone())
                                     .line_height(tokens.typography.heading2_size * tokens.typography.line_height_heading)
                                     .weight(tokens.typography.font_weight_bold)
                                     .color(tokens.colors.heading)
-                                    .into_node(),
+                                    .into(),
                             ],
                             gap: Some(tokens.spacing.m),
                             flex_grow: 1.0,
                             ..Default::default()
                         }
-                        .into_node(),
+                        .into(),
                         Column {
                             children: vec![
                                 Text::new("Fission Charts is the native charting layer for Fission apps, with more than 400 renderer-backed variants covering line, bar, area, pie, scatter, heatmap, financial, relationship, map, component, dynamic, and 3D chart work - without leaving the Rust UI model.")
                                     .size(tokens.typography.body_large_size)
                                     .line_height(tokens.typography.body_large_size * tokens.typography.line_height_relaxed)
                                     .color(tokens.colors.text_secondary)
-                                    .into_node(),
+                                    .into(),
                                 Row {
                                     children: vec![
-                                        Cta::new("Explore Charts", "/reference/charts/overview/", true).build(ctx, view),
-                                        Cta::new("Open catalog", "/docs/charts/catalog/", false).build(ctx, view),
+                                        Cta::new("Explore Charts", "/reference/charts/overview/", true).into(),
+                                        Cta::new("Open catalog", "/docs/charts/catalog/", false).into(),
                                     ],
                                     gap: Some(tokens.spacing.s),
                                     wrap: FlexWrap::Wrap,
                                     ..Default::default()
                                 }
-                                .into_node(),
+                                .into(),
                             ],
                             gap: Some(tokens.spacing.m),
                             flex_grow: 1.0,
                             ..Default::default()
                         }
-                        .into_node(),
+                        .into(),
                     ],
                     gap: Some(tokens.spacing.xl),
                     wrap: FlexWrap::Wrap,
                     align_items: AlignItems::Start,
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
                 Row {
                     children: vec![
-                        ChartImageCard::new("Gradient area line", "/img/charts/line-gradient-area.png").build(ctx, view),
-                        ChartImageCard::new("Ranked bar", "/img/charts/bar-horizontal.png").build(ctx, view),
-                        ChartImageCard::new("Quarter calendar heatmap", "/img/charts/calendar-user-activity.png").build(ctx, view),
-                        ChartImageCard::new("Energy sankey", "/img/charts/sankey-energy.png").build(ctx, view),
-                        ChartImageCard::new("3D wave surface", "/img/charts/surface3d-wave.png").with_badge("3D / GL").build(ctx, view),
+                        ChartImageCard::new("Gradient area line", "/img/charts/line-gradient-area.png").into(),
+                        ChartImageCard::new("Ranked bar", "/img/charts/bar-horizontal.png").into(),
+                        ChartImageCard::new("Quarter calendar heatmap", "/img/charts/calendar-user-activity.png").into(),
+                        ChartImageCard::new("Energy sankey", "/img/charts/sankey-energy.png").into(),
+                        ChartImageCard::new("3D wave surface", "/img/charts/surface3d-wave.png").with_badge("3D / GL").into(),
                     ],
                     gap: Some(tokens.spacing.m),
                     wrap: FlexWrap::Wrap,
                     justify_content: JustifyContent::Center,
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
                 Row {
                     children: [
                         "Line", "Bar", "Area", "Pie", "Scatter", "Heatmap", "Financial",
                         "Relationship", "Map", "Component", "Dynamic", "3D",
                     ]
                     .iter()
-                    .map(|label| Chip::new(label).build(ctx, view))
+                    .map(|label| Chip::new(label).into())
                     .collect(),
                     gap: Some(tokens.spacing.s),
                     wrap: FlexWrap::Wrap,
                     justify_content: JustifyContent::Center,
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
             ],
             Some(tokens.spacing.xl),
             AlignItems::Stretch,
         )
     }
 }
-
 #[derive(Clone, Debug)]
 pub(super) struct ExamplesSection;
 
-impl Widget<DocsState> for ExamplesSection {
-    fn build(&self, ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Node {
+impl From<ExamplesSection> for Widget {
+    fn from(_component: ExamplesSection) -> Self {
+        let (_ctx, _view) = fission::build::current::<DocsState>();
         CenteredSection::new(
             "Examples",
             "Examples across the platform, not only the widget layer.",
             "Start with the smallest app, then inspect the examples that prove targets, charts, static sites, terminal tooling, and release workflow.",
             vec![
-                ExampleCard::new("Starter", "Counter", "cargo run -p counter", "The smallest complete Fission app loop: plain state, two reducers, a widget tree, and buttons bound with the public prelude macros.", "typed actions and reducers", "single-file starter app", "/docs/cookbook/build-a-counter/", "/reference/core/state-system/").build(ctx, view),
-                ExampleCard::new("Site", "Documentation", "fission site build --project-dir documentation", "This website is a Fission static site: custom homepage widgets, Markdown content routes, generated search, metadata, sidebars, and GitHub Pages output.", "static HTML shell", "content routes and custom widgets", "/docs/guides/static-sites/", "/product/static-sites/").build(ctx, view),
-                ExampleCard::new("Terminal", "Fission command UI", "fission ui --project-dir .", "The CLI includes a terminal Fission app with screens, routes, reducers, dialogs, command sessions, logs, settings, density, and theme switching.", "terminal shell", "non-blocking command workflow", "/docs/guides/terminal-user-interfaces/", "/product/terminal-apps/").build(ctx, view),
+                ExampleCard::new("Starter", "Counter", "cargo run -p counter", "The smallest complete Fission app loop: plain state, two reducers, a widget tree, and buttons bound with the public prelude macros.", "typed actions and reducers", "single-file starter app", "/docs/cookbook/build-a-counter/", "/reference/core/state-system/").into(),
+                ExampleCard::new("Site", "Documentation", "fission site build --project-dir documentation", "This website is a Fission static site: custom homepage widgets, Markdown content routes, generated search, metadata, sidebars, and GitHub Pages output.", "static HTML shell", "content routes and custom widgets", "/docs/guides/static-sites/", "/product/static-sites/").into(),
+                ExampleCard::new("Terminal", "Fission command UI", "fission ui --project-dir .", "The CLI includes a terminal Fission app with screens, routes, reducers, dialogs, command sessions, logs, settings, density, and theme switching.", "terminal shell", "non-blocking command workflow", "/docs/guides/terminal-user-interfaces/", "/product/terminal-apps/").into(),
             ],
         )
-        .build(ctx, view)
+        .into()
     }
 }
-
 #[derive(Clone, Debug)]
 pub(super) struct FinalCta;
 
-impl Widget<DocsState> for FinalCta {
-    fn build(&self, ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Node {
-        let tokens = &view.env.theme.tokens;
+impl From<FinalCta> for Widget {
+    fn from(_component: FinalCta) -> Self {
+        let (_ctx, view) = fission::build::current::<DocsState>();
+        let tokens = &view.env().theme.tokens;
         Container::new(
             Column {
                 children: vec![
-                    Pill::new("Next").build(ctx, view),
+                    Pill::new("Next").into(),
                     Text::new("Pick a lifecycle stage and keep moving.")
                         .size(tokens.typography.heading1_size)
                         .family(tokens.typography.font_family_serif.clone())
@@ -544,31 +545,30 @@ impl Widget<DocsState> for FinalCta {
                         .weight(tokens.typography.font_weight_bold)
                         .color(tokens.colors.heading)
                         .text_align(TextAlign::Center)
-                        .into_node(),
+                        .into(),
                     Text::new("Start with the app model, add the targets you need, then use Fission's tooling to verify, package, and release the product.")
                         .size(tokens.typography.body_large_size)
                         .line_height(tokens.typography.body_large_size * tokens.typography.line_height_relaxed)
                         .color(tokens.colors.text_secondary)
                         .text_align(TextAlign::Center)
-                        .into_node(),
+                        .into(),
                     Row {
                         children: vec![
-                            Cta::new("Start docs", "/docs/intro/", true).build(ctx, view),
-                            Cta::new("Product overview", "/product/overview/", false).build(ctx, view),
-                            NavLink::new("Reference ->", "/reference/overview/overview/").build(ctx, view),
+                            Cta::new("Start docs", "/docs/intro/", true).into(),
+                            Cta::new("Product overview", "/product/overview/", false).into(),
+                            NavLink::new("Reference ->", "/reference/overview/overview/").into(),
                         ],
                         gap: Some(tokens.spacing.m),
                         wrap: FlexWrap::Wrap,
                         justify_content: JustifyContent::Center,
                         ..Default::default()
                     }
-                    .into_node(),
+                    .into(),
                 ],
                 gap: Some(tokens.spacing.l),
                 align_items: AlignItems::Center,
                 ..Default::default()
             }
-            .into_node(),
         )
         .padding_all(tokens.spacing.xxxxl)
         .bg_fill(Fill::LinearGradient {
@@ -579,62 +579,56 @@ impl Widget<DocsState> for FinalCta {
                 (1.0, tokens.colors.background),
             ],
         })
-        .into_node()
+        .into()
     }
 }
-
 fn boundary_panel(
-    _ctx: &mut BuildCtx<DocsState>,
-    view: &View<DocsState>,
+    _ctx: BuildCtxHandle<DocsState>,
+    view: ViewHandle<DocsState>,
     kicker: &'static str,
     title: &'static str,
     items: &[&'static str],
-) -> Node {
-    let tokens = &view.env.theme.tokens;
-    Container::new(
-        Column {
-            children: vec![
-                Text::new(kicker)
-                    .size(tokens.typography.font_size_xs)
-                    .weight(tokens.typography.font_weight_bold)
-                    .color(tokens.colors.text_muted)
-                    .into_node(),
-                Text::new(title)
-                    .size(tokens.typography.heading_size)
-                    .family(tokens.typography.font_family_serif.clone())
-                    .line_height(
-                        tokens.typography.heading_size * tokens.typography.line_height_heading,
-                    )
-                    .weight(tokens.typography.font_weight_bold)
-                    .color(tokens.colors.heading)
-                    .into_node(),
-                Row {
-                    children: items
-                        .iter()
-                        .map(|item| {
-                            Text::new(*item)
-                                .size(tokens.typography.font_size_sm)
-                                .color(tokens.colors.text_secondary)
-                                .into_node()
-                        })
-                        .collect(),
-                    gap: Some(tokens.spacing.m),
-                    wrap: FlexWrap::Wrap,
-                    ..Default::default()
-                }
-                .into_node(),
-            ],
-            gap: Some(tokens.spacing.l),
-            ..Default::default()
-        }
-        .into_node(),
-    )
+) -> Widget {
+    let tokens = &view.env().theme.tokens;
+    Container::new(Column {
+        children: vec![
+            Text::new(kicker)
+                .size(tokens.typography.font_size_xs)
+                .weight(tokens.typography.font_weight_bold)
+                .color(tokens.colors.text_muted)
+                .into(),
+            Text::new(title)
+                .size(tokens.typography.heading_size)
+                .family(tokens.typography.font_family_serif.clone())
+                .line_height(tokens.typography.heading_size * tokens.typography.line_height_heading)
+                .weight(tokens.typography.font_weight_bold)
+                .color(tokens.colors.heading)
+                .into(),
+            Row {
+                children: items
+                    .iter()
+                    .map(|item| {
+                        Text::new(*item)
+                            .size(tokens.typography.font_size_sm)
+                            .color(tokens.colors.text_secondary)
+                            .into()
+                    })
+                    .collect(),
+                gap: Some(tokens.spacing.m),
+                wrap: FlexWrap::Wrap,
+                ..Default::default()
+            }
+            .into(),
+        ],
+        gap: Some(tokens.spacing.l),
+        ..Default::default()
+    })
     .padding_all(tokens.spacing.xl)
     .bg_fill(Fill::Solid(tokens.colors.surface))
     .border(tokens.colors.border, 1.0)
     .border_radius(tokens.radii.xxl)
     .flex_grow(1.0)
-    .into_node()
+    .into()
 }
 
 fn lifecycle_step(
@@ -642,55 +636,49 @@ fn lifecycle_step(
     number: &'static str,
     title: &'static str,
     body: &'static str,
-) -> Node {
-    Container::new(
-        Column {
-            children: vec![
-                Text::new(number)
-                    .size(tokens.typography.font_size_xs)
-                    .family(tokens.typography.font_family_mono.clone())
-                    .weight(tokens.typography.font_weight_bold)
-                    .color(tokens.colors.primary)
-                    .into_node(),
-                Text::new(title)
-                    .size(tokens.typography.font_size_lg)
-                    .weight(tokens.typography.font_weight_bold)
-                    .color(tokens.colors.heading)
-                    .into_node(),
-                Text::new(body)
-                    .size(tokens.typography.font_size_sm)
-                    .line_height(
-                        tokens.typography.font_size_sm * tokens.typography.line_height_normal,
-                    )
-                    .color(tokens.colors.text_secondary)
-                    .into_node(),
-            ],
-            gap: Some(tokens.spacing.s),
-            ..Default::default()
-        }
-        .into_node(),
-    )
+) -> Widget {
+    Container::new(Column {
+        children: vec![
+            Text::new(number)
+                .size(tokens.typography.font_size_xs)
+                .family(tokens.typography.font_family_mono.clone())
+                .weight(tokens.typography.font_weight_bold)
+                .color(tokens.colors.primary)
+                .into(),
+            Text::new(title)
+                .size(tokens.typography.font_size_lg)
+                .weight(tokens.typography.font_weight_bold)
+                .color(tokens.colors.heading)
+                .into(),
+            Text::new(body)
+                .size(tokens.typography.font_size_sm)
+                .line_height(tokens.typography.font_size_sm * tokens.typography.line_height_normal)
+                .color(tokens.colors.text_secondary)
+                .into(),
+        ],
+        gap: Some(tokens.spacing.s),
+        ..Default::default()
+    })
     .padding_all(tokens.spacing.m)
     .bg_fill(Fill::Solid(tokens.colors.surface_raised))
     .border(tokens.colors.border, 1.0)
     .border_radius(tokens.radii.large)
     .width(tokens.spacing.xxxxl * 1.85)
     .flex_shrink(1.0)
-    .into_node()
+    .into()
 }
 
-fn reducer_card(tokens: &Tokens) -> Node {
+fn reducer_card(tokens: &Tokens) -> Widget {
     Container::new(
-        Text::new("fn reduce(state: &mut AppState, action: Action) {\n  match action {\n    Action::Inc => state.count += 1,\n    Action::Reset => state.count = 0,\n  }\n}")
+        Text::new("fn reduce(state: &mut GlobalState, action: Action) {\n  match action {\n    Action::Inc => state.count += 1,\n    Action::Reset => state.count = 0,\n  }\n}")
             .size(tokens.typography.font_size_sm)
             .family(tokens.typography.font_family_mono.clone())
             .line_height(tokens.typography.font_size_sm * tokens.typography.line_height_relaxed)
             .color(tokens.colors.text_primary)
-            .into_node(),
     )
     .padding_all(tokens.spacing.l)
     .bg_fill(Fill::Solid(tokens.colors.surface_raised))
     .border(tokens.colors.border, 1.0)
     .border_radius(tokens.radii.xl)
-    .into_node()
+    .into()
 }

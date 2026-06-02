@@ -6,94 +6,91 @@ use fission::prelude::*;
 #[derive(Clone, Debug)]
 pub(crate) struct DocsFooter;
 
-impl Widget<DocsState> for DocsFooter {
-    fn build(&self, ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Node {
-        let tokens = &view.env.theme.tokens;
-        Container::new(
-            Column {
-                children: vec![
-                    Row {
-                        children: vec![
-                            FooterColumn::new(
-                                "Setup",
-                                &[
-                                    ("Quickstart", "/docs/learn/quickstart/"),
-                                    ("Add targets", "/docs/cookbook/add-platform-targets/"),
-                                    ("Project structure", "/docs/guides/app-structure/"),
-                                ],
-                            )
-                            .build(ctx, view),
-                            FooterColumn::new(
-                                "Learn",
-                                &[
-                                    ("Overview", "/docs/learn/overview/"),
-                                    ("Runtime model", "/docs/learn/runtime-model/"),
-                                    ("Widgets", "/docs/guides/layout-and-widgets/"),
-                                    ("Design systems", "/docs/guides/design-system/"),
-                                    ("Charts", "/docs/charts/overview/"),
-                                ],
-                            )
-                            .build(ctx, view),
-                            FooterColumn::new(
-                                "Build",
-                                &[
-                                    (
-                                        "Platform shells",
-                                        "/docs/guides/platform-shells-cli-and-testing/",
-                                    ),
-                                    ("Terminal UI", "/docs/guides/terminal-user-interfaces/"),
-                                    ("Static sites", "/docs/guides/static-sites/"),
-                                    ("Packaging", "/docs/build-and-package/overview/"),
-                                ],
-                            )
-                            .build(ctx, view),
-                            FooterColumn::new(
-                                "Test",
-                                &[
-                                    ("Testing lifecycle", "/docs/test-and-debug/overview/"),
-                                    ("Diagnostics", "/docs/guides/testing-and-diagnostics/"),
-                                    ("Live UI test", "/docs/cookbook/write-a-live-ui-test/"),
-                                ],
-                            )
-                            .build(ctx, view),
-                            FooterColumn::new(
-                                "Publish",
-                                &[
-                                    ("Release overview", "/docs/release-and-distribute/overview/"),
-                                    (
-                                        "Lifecycle details",
-                                        "/docs/release-and-distribute/post-build-lifecycle/",
-                                    ),
-                                    ("CLI reference", "/reference/cli/overview/"),
-                                    ("Examples", "/docs/learn/examples-and-targets/"),
-                                ],
-                            )
-                            .build(ctx, view),
-                        ],
-                        gap: Some(tokens.spacing.xxl),
-                        wrap: FlexWrap::Wrap,
-                        align_items: AlignItems::Start,
-                        justify_content: JustifyContent::Center,
-                        ..Default::default()
-                    }
-                    .into_node(),
-                    footer_identity(ctx, view),
-                ],
-                gap: Some(tokens.spacing.xxl),
-                align_items: AlignItems::Center,
-                ..Default::default()
-            }
-            .into_node(),
-        )
+impl From<DocsFooter> for Widget {
+    fn from(_component: DocsFooter) -> Self {
+        let (ctx, view) = fission::build::current::<DocsState>();
+        let tokens = &view.env().theme.tokens;
+        Container::new(Column {
+            children: vec![
+                Row {
+                    children: vec![
+                        FooterColumn::new(
+                            "Setup",
+                            &[
+                                ("Quickstart", "/docs/learn/quickstart/"),
+                                ("Add targets", "/docs/cookbook/add-platform-targets/"),
+                                ("Project structure", "/docs/guides/app-structure/"),
+                            ],
+                        )
+                        .into(),
+                        FooterColumn::new(
+                            "Learn",
+                            &[
+                                ("Overview", "/docs/learn/overview/"),
+                                ("Runtime model", "/docs/learn/runtime-model/"),
+                                ("Widgets", "/docs/guides/layout-and-widgets/"),
+                                ("Design systems", "/docs/guides/design-system/"),
+                                ("Charts", "/docs/charts/overview/"),
+                            ],
+                        )
+                        .into(),
+                        FooterColumn::new(
+                            "Build",
+                            &[
+                                (
+                                    "Platform shells",
+                                    "/docs/guides/platform-shells-cli-and-testing/",
+                                ),
+                                ("Terminal UI", "/docs/guides/terminal-user-interfaces/"),
+                                ("Static sites", "/docs/guides/static-sites/"),
+                                ("Packaging", "/docs/build-and-package/overview/"),
+                            ],
+                        )
+                        .into(),
+                        FooterColumn::new(
+                            "Test",
+                            &[
+                                ("Testing lifecycle", "/docs/test-and-debug/overview/"),
+                                ("Diagnostics", "/docs/guides/testing-and-diagnostics/"),
+                                ("Live UI test", "/docs/cookbook/write-a-live-ui-test/"),
+                            ],
+                        )
+                        .into(),
+                        FooterColumn::new(
+                            "Publish",
+                            &[
+                                ("Release overview", "/docs/release-and-distribute/overview/"),
+                                (
+                                    "Lifecycle details",
+                                    "/docs/release-and-distribute/post-build-lifecycle/",
+                                ),
+                                ("CLI reference", "/reference/cli/overview/"),
+                                ("Examples", "/docs/learn/examples-and-targets/"),
+                            ],
+                        )
+                        .into(),
+                    ],
+                    gap: Some(tokens.spacing.xxl),
+                    wrap: FlexWrap::Wrap,
+                    align_items: AlignItems::Start,
+                    justify_content: JustifyContent::Center,
+                    ..Default::default()
+                }
+                .into(),
+                footer_identity(ctx, view),
+            ],
+            gap: Some(tokens.spacing.xxl),
+            align_items: AlignItems::Center,
+            ..Default::default()
+        })
         .padding_all(tokens.spacing.xxxxl)
         .bg_fill(Fill::Solid(tokens.colors.background))
         .border(tokens.colors.border, 1.0)
-        .into_node()
+        .into()
     }
 }
-
-fn footer_identity(ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Node {
-    let tokens = &view.env.theme.tokens;
+fn footer_identity(_ctx: BuildCtxHandle<DocsState>, view: ViewHandle<DocsState>) -> Widget {
+    let tokens = &view.env().theme.tokens;
     Container::new(
         Column {
             children: vec![
@@ -102,12 +99,12 @@ fn footer_identity(ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Nod
                     vec![
                         Image::asset("/img/fission-mark.svg")
                             .size(tokens.spacing.l, tokens.spacing.l)
-                        .into_node(),
+                        .into(),
                         Text::new("Fission")
                             .size(tokens.typography.font_size_lg)
                             .weight(tokens.typography.font_weight_bold)
                             .color(tokens.colors.heading)
-                            .into_node(),
+                            .into(),
                     ],
                     Some(tokens.spacing.s),
                     FlexWrap::NoWrap,
@@ -121,12 +118,12 @@ fn footer_identity(ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Nod
                     .max_width(tokens.spacing.xxxxl * 7.0)
                     .text_align(TextAlign::Center)
                     .flex_shrink(1.0)
-                    .into_node(),
+                    .into(),
                 Text::new("Copyright (c) 2026 Fission")
                     .size(tokens.typography.font_size_sm)
                     .color(tokens.colors.text_muted)
                     .text_align(TextAlign::Center)
-                    .into_node(),
+                    .into(),
                 Text::new("Ready to use today. Widget APIs are expected to remain stable; some runtime and shell APIs may change before 1.0.0.")
                     .size(tokens.typography.font_size_sm)
                     .line_height(tokens.typography.font_size_sm * tokens.typography.line_height_normal)
@@ -134,36 +131,35 @@ fn footer_identity(ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Nod
                     .max_width(tokens.spacing.xxxxl * 8.0)
                     .text_align(TextAlign::Center)
                     .flex_shrink(1.0)
-                    .into_node(),
+                    .into(),
                 Row {
                     children: vec![
                         FooterLink::new("GitHub", "https://github.com/worka-ai/fission")
-                            .build(ctx, view),
-                        FooterLink::new("Quickstart", "/docs/learn/quickstart/").build(ctx, view),
+                            .into(),
+                        FooterLink::new("Quickstart", "/docs/learn/quickstart/").into(),
                         FooterLink::new("Reference", "/reference/overview/overview/")
-                            .build(ctx, view),
+                            .into(),
                     ],
                     gap: Some(tokens.spacing.m),
                     wrap: FlexWrap::Wrap,
                     justify_content: JustifyContent::Center,
                     ..Default::default()
                 }
-                .into_node(),
+                .into(),
                 Text::new("main - v0.1.0 alpha")
                     .size(tokens.typography.font_size_sm)
                     .family(tokens.typography.font_family_mono.clone())
                     .color(tokens.colors.text_muted)
                     .text_align(TextAlign::Center)
-                    .into_node(),
+                    .into(),
             ],
             gap: Some(tokens.spacing.m),
             align_items: AlignItems::Center,
             ..Default::default()
         }
-        .into_node(),
     )
     .padding([0.0, 0.0, tokens.spacing.l, 0.0])
-    .into_node()
+    .into()
 }
 
 #[derive(Clone, Debug)]
@@ -178,35 +174,33 @@ impl FooterColumn {
     }
 }
 
-impl Widget<DocsState> for FooterColumn {
-    fn build(&self, ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Node {
-        let tokens = &view.env.theme.tokens;
-        Container::new(
-            Column {
-                children: std::iter::once(
-                    Text::new(self.title)
-                        .size(tokens.typography.font_size_sm)
-                        .weight(tokens.typography.font_weight_bold)
-                        .color(tokens.colors.heading)
-                        .into_node(),
-                )
-                .chain(
-                    self.links
-                        .iter()
-                        .map(|(label, href)| FooterLink::new(label, href).build(ctx, view)),
-                )
-                .collect(),
-                gap: Some(tokens.spacing.s),
-                ..Default::default()
-            }
-            .into_node(),
-        )
+impl From<FooterColumn> for Widget {
+    fn from(component: FooterColumn) -> Self {
+        let (_ctx, view) = fission::build::current::<DocsState>();
+        let tokens = &view.env().theme.tokens;
+        Container::new(Column {
+            children: std::iter::once(
+                Text::new(component.title)
+                    .size(tokens.typography.font_size_sm)
+                    .weight(tokens.typography.font_weight_bold)
+                    .color(tokens.colors.heading)
+                    .into(),
+            )
+            .chain(
+                component
+                    .links
+                    .iter()
+                    .map(|(label, href)| FooterLink::new(label, href).into()),
+            )
+            .collect(),
+            gap: Some(tokens.spacing.s),
+            ..Default::default()
+        })
         .width(tokens.spacing.xxxxl * 1.75)
         .flex_shrink(1.0)
-        .into_node()
+        .into()
     }
 }
-
 #[derive(Clone, Debug)]
 struct FooterLink {
     label: &'static str,
@@ -219,19 +213,21 @@ impl FooterLink {
     }
 }
 
-impl Widget<DocsState> for FooterLink {
-    fn build(&self, _ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Node {
-        let tokens = &view.env.theme.tokens;
-        let identifier = if self.href.starts_with("http://") || self.href.starts_with("https://") {
-            format!("markdown-link:{}", self.href)
-        } else {
-            format!("site-route:{}", self.href)
-        };
-        Text::new(self.label)
+impl From<FooterLink> for Widget {
+    fn from(component: FooterLink) -> Self {
+        let (_ctx, view) = fission::build::current::<DocsState>();
+        let tokens = &view.env().theme.tokens;
+        let identifier =
+            if component.href.starts_with("http://") || component.href.starts_with("https://") {
+                format!("markdown-link:{}", component.href)
+            } else {
+                format!("site-route:{}", component.href)
+            };
+        Text::new(component.label)
             .size(tokens.typography.font_size_sm)
             .weight(tokens.typography.font_weight_medium)
             .color(tokens.colors.text_secondary)
             .semantics_identifier(identifier)
-            .into_node()
+            .into()
     }
 }

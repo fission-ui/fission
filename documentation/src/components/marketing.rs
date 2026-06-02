@@ -311,109 +311,100 @@ impl MarketingPageKind {
     }
 }
 
-impl Widget<DocsState> for ProductMarketingPage {
-    fn build(&self, ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Node {
-        let tokens = &view.env.theme.tokens;
-        let copy = self.kind.copy();
-        Container::new(
-            Column {
-                children: vec![
-                    HomePageNav.build(ctx, view),
-                    Row {
-                        children: vec![Container::new(semantic_column(
-                            "site-product-page",
-                            vec![
-                                marketing_hero(ctx, view, self.kind, copy),
-                                product_nav_strip(ctx, view),
-                                feature_showcase(view, copy),
-                                workflow_showcase(view, copy),
-                                proof_band(ctx, view, copy),
-                            ],
-                            Some(tokens.spacing.xxxl),
-                            AlignItems::Stretch,
-                        ))
-                        .max_width(content_width(tokens))
-                        .flex_grow(1.0)
-                        .flex_shrink(1.0)
-                        .padding([0.0, 0.0, tokens.spacing.xxl, tokens.spacing.xxxxl])
-                        .into_node()],
-                        justify_content: JustifyContent::Center,
-                        ..Default::default()
-                    }
-                    .into_node(),
-                ],
-                gap: Some(0.0),
-                flex_grow: 1.0,
-                ..Default::default()
-            }
-            .into_node(),
-        )
+impl From<ProductMarketingPage> for Widget {
+    fn from(component: ProductMarketingPage) -> Self {
+        let (ctx, view) = fission::build::current::<DocsState>();
+        let tokens = &view.env().theme.tokens;
+        let copy = component.kind.copy();
+        Container::new(Column {
+            children: vec![
+                HomePageNav.into(),
+                Row {
+                    children: vec![Container::new(semantic_column(
+                        "site-product-page",
+                        vec![
+                            marketing_hero(ctx, view, component.kind, copy),
+                            product_nav_strip(ctx, view),
+                            feature_showcase(view, copy),
+                            workflow_showcase(view, copy),
+                            proof_band(ctx, view, copy),
+                        ],
+                        Some(tokens.spacing.xxxl),
+                        AlignItems::Stretch,
+                    ))
+                    .max_width(content_width(tokens))
+                    .flex_grow(1.0)
+                    .flex_shrink(1.0)
+                    .padding([0.0, 0.0, tokens.spacing.xxl, tokens.spacing.xxxxl])
+                    .into()],
+                    justify_content: JustifyContent::Center,
+                    ..Default::default()
+                }
+                .into(),
+            ],
+            gap: Some(0.0),
+            flex_grow: 1.0,
+            ..Default::default()
+        })
         .min_height(tokens.spacing.xxxxl * 9.0)
         .bg_fill(page_fill(tokens))
-        .into_node()
+        .into()
     }
 }
-
 fn marketing_hero(
-    ctx: &mut BuildCtx<DocsState>,
-    view: &View<DocsState>,
+    _ctx: BuildCtxHandle<DocsState>,
+    view: ViewHandle<DocsState>,
     kind: MarketingPageKind,
     copy: PageCopy,
-) -> Node {
-    let tokens = &view.env.theme.tokens;
+) -> Widget {
+    let tokens = &view.env().theme.tokens;
     Container::new(semantic_row(
         "site-product-hero",
         vec![
-            Container::new(
-                Column {
-                    children: vec![
-                        Pill::new(copy.eyebrow).build(ctx, view),
-                        Text::new(copy.title)
-                            .size(tokens.typography.display_md_size)
-                            .family(tokens.typography.font_family_serif.clone())
-                            .line_height(
-                                tokens.typography.display_md_size
-                                    * tokens.typography.line_height_display,
-                            )
-                            .weight(tokens.typography.font_weight_bold)
-                            .color(tokens.colors.heading)
-                            .max_width(tokens.spacing.xxxxl * 5.4)
-                            .flex_shrink(1.0)
-                            .semantics_identifier("site-product-hero-title")
-                            .into_node(),
-                        Text::new(copy.body)
-                            .size(tokens.typography.font_size_lg)
-                            .line_height(
-                                tokens.typography.font_size_lg
-                                    * tokens.typography.line_height_relaxed,
-                            )
-                            .color(tokens.colors.text_secondary)
-                            .max_width(tokens.spacing.xxxxl * 5.2)
-                            .flex_shrink(1.0)
-                            .semantics_identifier("site-product-hero-body")
-                            .into_node(),
-                        semantic_row(
-                            "site-product-hero-ctas",
-                            vec![
-                                Cta::new(copy.primary_label, copy.primary_href, true)
-                                    .build(ctx, view),
-                                Cta::new(copy.secondary_label, copy.secondary_href, false)
-                                    .build(ctx, view),
-                            ],
-                            Some(tokens.spacing.m),
-                            FlexWrap::Wrap,
-                            AlignItems::Center,
-                            JustifyContent::Start,
-                        ),
-                    ],
-                    gap: Some(tokens.spacing.l),
-                    ..Default::default()
-                }
-                .into_node(),
-            )
+            Container::new(Column {
+                children: vec![
+                    Pill::new(copy.eyebrow).into(),
+                    Text::new(copy.title)
+                        .size(tokens.typography.display_md_size)
+                        .family(tokens.typography.font_family_serif.clone())
+                        .line_height(
+                            tokens.typography.display_md_size
+                                * tokens.typography.line_height_display,
+                        )
+                        .weight(tokens.typography.font_weight_bold)
+                        .color(tokens.colors.heading)
+                        .max_width(tokens.spacing.xxxxl * 5.4)
+                        .flex_shrink(1.0)
+                        .semantics_identifier("site-product-hero-title")
+                        .into(),
+                    Text::new(copy.body)
+                        .size(tokens.typography.font_size_lg)
+                        .line_height(
+                            tokens.typography.font_size_lg * tokens.typography.line_height_relaxed,
+                        )
+                        .color(tokens.colors.text_secondary)
+                        .max_width(tokens.spacing.xxxxl * 5.2)
+                        .flex_shrink(1.0)
+                        .semantics_identifier("site-product-hero-body")
+                        .into(),
+                    semantic_row(
+                        "site-product-hero-ctas",
+                        vec![
+                            Cta::new(copy.primary_label, copy.primary_href, true).into(),
+                            Cta::new(copy.secondary_label, copy.secondary_href, false).into(),
+                        ],
+                        Some(tokens.spacing.m),
+                        FlexWrap::Wrap,
+                        AlignItems::Center,
+                        JustifyContent::Start,
+                    ),
+                ],
+                gap: Some(tokens.spacing.l),
+                ..Default::default()
+            })
             .width(tokens.spacing.xxxxl * 5.45)
             .flex_shrink(1.0)
-            .into_node(),
+            .into(),
             product_visual(view, kind),
         ],
         Some(tokens.spacing.xxl),
@@ -433,46 +424,43 @@ fn marketing_hero(
     })
     .border(tokens.colors.border, 1.0)
     .border_radius(tokens.radii.xxl)
-    .into_node()
+    .into()
 }
 
-fn product_nav_strip(ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Node {
-    let tokens = &view.env.theme.tokens;
-    Container::new(
-        Row {
-            children: vec![
-                strip_link(ctx, view, "Platform", "/product/overview/"),
-                strip_link(ctx, view, "Apps", "/product/cross-platform-apps/"),
-                strip_link(ctx, view, "Terminal", "/product/terminal-apps/"),
-                strip_link(ctx, view, "Static sites", "/product/static-sites/"),
-                strip_link(ctx, view, "Lifecycle", "/product/production-lifecycle/"),
-                strip_link(ctx, view, "Dev tools", "/product/developer-tools/"),
-                strip_link(ctx, view, "Design", "/product/design-systems/"),
-                strip_link(ctx, view, "Charts", "/product/charts/"),
-            ],
-            gap: Some(tokens.spacing.s),
-            wrap: FlexWrap::Wrap,
-            justify_content: JustifyContent::Center,
-            align_items: AlignItems::Center,
-            ..Default::default()
-        }
-        .into_node(),
-    )
+fn product_nav_strip(ctx: BuildCtxHandle<DocsState>, view: ViewHandle<DocsState>) -> Widget {
+    let tokens = &view.env().theme.tokens;
+    Container::new(Row {
+        children: vec![
+            strip_link(ctx, view, "Platform", "/product/overview/"),
+            strip_link(ctx, view, "Apps", "/product/cross-platform-apps/"),
+            strip_link(ctx, view, "Terminal", "/product/terminal-apps/"),
+            strip_link(ctx, view, "Static sites", "/product/static-sites/"),
+            strip_link(ctx, view, "Lifecycle", "/product/production-lifecycle/"),
+            strip_link(ctx, view, "Dev tools", "/product/developer-tools/"),
+            strip_link(ctx, view, "Design", "/product/design-systems/"),
+            strip_link(ctx, view, "Charts", "/product/charts/"),
+        ],
+        gap: Some(tokens.spacing.s),
+        wrap: FlexWrap::Wrap,
+        justify_content: JustifyContent::Center,
+        align_items: AlignItems::Center,
+        ..Default::default()
+    })
     .padding_all(tokens.spacing.m)
     .bg_fill(Fill::Solid(tokens.colors.surface.with_alpha(232)))
     .border(tokens.colors.border, 1.0)
     .border_radius(tokens.radii.full)
-    .into_node()
+    .into()
 }
 
 fn strip_link(
-    ctx: &mut BuildCtx<DocsState>,
-    view: &View<DocsState>,
+    _ctx: BuildCtxHandle<DocsState>,
+    view: ViewHandle<DocsState>,
     label: &'static str,
     href: &'static str,
-) -> Node {
-    let tokens = &view.env.theme.tokens;
-    Container::new(NavLink::new(label, href).build(ctx, view))
+) -> Widget {
+    let tokens = &view.env().theme.tokens;
+    Container::new(NavLink::new(label, href))
         .padding([
             tokens.spacing.m,
             tokens.spacing.m,
@@ -482,11 +470,11 @@ fn strip_link(
         .bg_fill(Fill::Solid(tokens.colors.surface_raised))
         .border(tokens.colors.border, 1.0)
         .border_radius(tokens.radii.full)
-        .into_node()
+        .into()
 }
 
-fn feature_showcase(view: &View<DocsState>, copy: PageCopy) -> Node {
-    let tokens = &view.env.theme.tokens;
+fn feature_showcase(view: ViewHandle<DocsState>, copy: PageCopy) -> Widget {
+    let tokens = &view.env().theme.tokens;
     semantic_row(
         "site-product-feature-showcase",
         vec![
@@ -496,7 +484,7 @@ fn feature_showcase(view: &View<DocsState>, copy: PageCopy) -> Node {
                         .size(tokens.typography.font_size_sm)
                         .weight(tokens.typography.font_weight_bold)
                         .color(tokens.colors.secondary)
-                        .into_node(),
+                        .into(),
                     Text::new("A product surface, not a loose collection of pages.")
                         .size(tokens.typography.heading2_size)
                         .family(tokens.typography.font_family_serif.clone())
@@ -505,7 +493,7 @@ fn feature_showcase(view: &View<DocsState>, copy: PageCopy) -> Node {
                         )
                         .weight(tokens.typography.font_weight_bold)
                         .color(tokens.colors.heading)
-                        .into_node(),
+                        .into(),
                     Text::new("Each part of the platform has a clear job, and each job links back to the same Rust app model.")
                         .size(tokens.typography.body_large_size)
                         .line_height(
@@ -513,13 +501,13 @@ fn feature_showcase(view: &View<DocsState>, copy: PageCopy) -> Node {
                                 * tokens.typography.line_height_relaxed,
                         )
                         .color(tokens.colors.text_secondary)
-                        .into_node(),
+                        .into(),
                 ],
                 gap: Some(tokens.spacing.m),
                 flex_grow: 1.0,
                 ..Default::default()
             }
-            .into_node(),
+            .into(),
             Row {
                 children: copy
                     .features
@@ -533,7 +521,7 @@ fn feature_showcase(view: &View<DocsState>, copy: PageCopy) -> Node {
                 flex_grow: 1.0,
                 ..Default::default()
             }
-            .into_node(),
+            .into(),
         ],
         Some(tokens.spacing.xxl),
         FlexWrap::Wrap,
@@ -542,36 +530,33 @@ fn feature_showcase(view: &View<DocsState>, copy: PageCopy) -> Node {
     )
 }
 
-fn feature_card(view: &View<DocsState>, feature: FeatureCopy) -> Node {
-    let tokens = &view.env.theme.tokens;
-    Container::new(
-        Column {
-            children: vec![
-                Text::new(feature.label)
-                    .size(tokens.typography.font_size_xs)
-                    .family(tokens.typography.font_family_mono.clone())
-                    .weight(tokens.typography.font_weight_bold)
-                    .color(tokens.colors.primary)
-                    .into_node(),
-                Text::new(feature.title)
-                    .size(tokens.typography.heading_size)
-                    .weight(tokens.typography.font_weight_bold)
-                    .color(tokens.colors.heading)
-                    .into_node(),
-                Text::new(feature.body)
-                    .size(tokens.typography.body_medium_size)
-                    .line_height(
-                        tokens.typography.body_medium_size * tokens.typography.line_height_relaxed,
-                    )
-                    .color(tokens.colors.text_secondary)
-                    .flex_shrink(1.0)
-                    .into_node(),
-            ],
-            gap: Some(tokens.spacing.m),
-            ..Default::default()
-        }
-        .into_node(),
-    )
+fn feature_card(view: ViewHandle<DocsState>, feature: FeatureCopy) -> Widget {
+    let tokens = &view.env().theme.tokens;
+    Container::new(Column {
+        children: vec![
+            Text::new(feature.label)
+                .size(tokens.typography.font_size_xs)
+                .family(tokens.typography.font_family_mono.clone())
+                .weight(tokens.typography.font_weight_bold)
+                .color(tokens.colors.primary)
+                .into(),
+            Text::new(feature.title)
+                .size(tokens.typography.heading_size)
+                .weight(tokens.typography.font_weight_bold)
+                .color(tokens.colors.heading)
+                .into(),
+            Text::new(feature.body)
+                .size(tokens.typography.body_medium_size)
+                .line_height(
+                    tokens.typography.body_medium_size * tokens.typography.line_height_relaxed,
+                )
+                .color(tokens.colors.text_secondary)
+                .flex_shrink(1.0)
+                .into(),
+        ],
+        gap: Some(tokens.spacing.m),
+        ..Default::default()
+    })
     .width(tokens.spacing.xxxxl * 3.1)
     .min_height(tokens.spacing.xxxxl * 2.05)
     .flex_shrink(1.0)
@@ -579,89 +564,81 @@ fn feature_card(view: &View<DocsState>, feature: FeatureCopy) -> Node {
     .bg_fill(Fill::Solid(tokens.colors.surface_raised))
     .border(tokens.colors.border, 1.0)
     .border_radius(tokens.radii.xl)
-    .into_node()
+    .into()
 }
 
-fn workflow_showcase(view: &View<DocsState>, copy: PageCopy) -> Node {
-    let tokens = &view.env.theme.tokens;
-    Container::new(
-        Column {
-            children: vec![
-                Row {
-                    children: vec![
-                        Text::new("Workflow")
-                            .size(tokens.typography.font_size_sm)
-                            .weight(tokens.typography.font_weight_bold)
-                            .color(tokens.colors.primary)
-                            .into_node(),
-                        Text::new("The path stays explicit from first run to release.")
-                            .size(tokens.typography.heading_size)
-                            .weight(tokens.typography.font_weight_bold)
-                            .color(tokens.colors.heading)
-                            .into_node(),
-                    ],
-                    gap: Some(tokens.spacing.l),
-                    wrap: FlexWrap::Wrap,
-                    align_items: AlignItems::Center,
-                    ..Default::default()
-                }
-                .into_node(),
-                Row {
-                    children: copy
-                        .workflow
-                        .iter()
-                        .enumerate()
-                        .map(|(index, step)| workflow_step(view, index + 1, *step))
-                        .collect(),
-                    gap: Some(tokens.spacing.m),
-                    wrap: FlexWrap::Wrap,
-                    align_items: AlignItems::Stretch,
-                    justify_content: JustifyContent::SpaceBetween,
-                    ..Default::default()
-                }
-                .into_node(),
-            ],
-            gap: Some(tokens.spacing.l),
-            ..Default::default()
-        }
-        .into_node(),
-    )
+fn workflow_showcase(view: ViewHandle<DocsState>, copy: PageCopy) -> Widget {
+    let tokens = &view.env().theme.tokens;
+    Container::new(Column {
+        children: vec![
+            Row {
+                children: vec![
+                    Text::new("Workflow")
+                        .size(tokens.typography.font_size_sm)
+                        .weight(tokens.typography.font_weight_bold)
+                        .color(tokens.colors.primary)
+                        .into(),
+                    Text::new("The path stays explicit from first run to release.")
+                        .size(tokens.typography.heading_size)
+                        .weight(tokens.typography.font_weight_bold)
+                        .color(tokens.colors.heading)
+                        .into(),
+                ],
+                gap: Some(tokens.spacing.l),
+                wrap: FlexWrap::Wrap,
+                align_items: AlignItems::Center,
+                ..Default::default()
+            }
+            .into(),
+            Row {
+                children: copy
+                    .workflow
+                    .iter()
+                    .enumerate()
+                    .map(|(index, step)| workflow_step(view, index + 1, *step))
+                    .collect(),
+                gap: Some(tokens.spacing.m),
+                wrap: FlexWrap::Wrap,
+                align_items: AlignItems::Stretch,
+                justify_content: JustifyContent::SpaceBetween,
+                ..Default::default()
+            }
+            .into(),
+        ],
+        gap: Some(tokens.spacing.l),
+        ..Default::default()
+    })
     .padding_all(tokens.spacing.xl)
     .bg_fill(Fill::Solid(tokens.colors.surface))
     .border(tokens.colors.border, 1.0)
     .border_radius(tokens.radii.xxl)
-    .into_node()
+    .into()
 }
 
-fn workflow_step(view: &View<DocsState>, index: usize, step: StepCopy) -> Node {
-    let tokens = &view.env.theme.tokens;
-    Container::new(
-        Column {
-            children: vec![
-                Text::new(format!("{:02}", index))
-                    .size(tokens.typography.font_size_xs)
-                    .family(tokens.typography.font_family_mono.clone())
-                    .weight(tokens.typography.font_weight_bold)
-                    .color(tokens.colors.primary)
-                    .into_node(),
-                Text::new(step.label)
-                    .size(tokens.typography.font_size_lg)
-                    .weight(tokens.typography.font_weight_bold)
-                    .color(tokens.colors.heading)
-                    .into_node(),
-                Text::new(step.body)
-                    .size(tokens.typography.font_size_sm)
-                    .line_height(
-                        tokens.typography.font_size_sm * tokens.typography.line_height_normal,
-                    )
-                    .color(tokens.colors.text_secondary)
-                    .into_node(),
-            ],
-            gap: Some(tokens.spacing.s),
-            ..Default::default()
-        }
-        .into_node(),
-    )
+fn workflow_step(view: ViewHandle<DocsState>, index: usize, step: StepCopy) -> Widget {
+    let tokens = &view.env().theme.tokens;
+    Container::new(Column {
+        children: vec![
+            Text::new(format!("{:02}", index))
+                .size(tokens.typography.font_size_xs)
+                .family(tokens.typography.font_family_mono.clone())
+                .weight(tokens.typography.font_weight_bold)
+                .color(tokens.colors.primary)
+                .into(),
+            Text::new(step.label)
+                .size(tokens.typography.font_size_lg)
+                .weight(tokens.typography.font_weight_bold)
+                .color(tokens.colors.heading)
+                .into(),
+            Text::new(step.body)
+                .size(tokens.typography.font_size_sm)
+                .line_height(tokens.typography.font_size_sm * tokens.typography.line_height_normal)
+                .color(tokens.colors.text_secondary)
+                .into(),
+        ],
+        gap: Some(tokens.spacing.s),
+        ..Default::default()
+    })
     .width(tokens.spacing.xxxxl * 3.05)
     .min_height(tokens.spacing.xxxxl * 1.35)
     .flex_shrink(1.0)
@@ -669,11 +646,15 @@ fn workflow_step(view: &View<DocsState>, index: usize, step: StepCopy) -> Node {
     .bg_fill(Fill::Solid(tokens.colors.surface_raised))
     .border(tokens.colors.border, 1.0)
     .border_radius(tokens.radii.large)
-    .into_node()
+    .into()
 }
 
-fn proof_band(ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>, copy: PageCopy) -> Node {
-    let tokens = &view.env.theme.tokens;
+fn proof_band(
+    _ctx: BuildCtxHandle<DocsState>,
+    view: ViewHandle<DocsState>,
+    copy: PageCopy,
+) -> Widget {
+    let tokens = &view.env().theme.tokens;
     Container::new(semantic_row(
         "site-product-proof",
         vec![
@@ -687,7 +668,7 @@ fn proof_band(ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>, copy: PageC
                         )
                         .weight(tokens.typography.font_weight_bold)
                         .color(tokens.colors.heading)
-                        .into_node(),
+                        .into(),
                     Text::new(copy.proof_body)
                         .size(tokens.typography.body_large_size)
                         .line_height(
@@ -695,14 +676,14 @@ fn proof_band(ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>, copy: PageC
                                 * tokens.typography.line_height_relaxed,
                         )
                         .color(tokens.colors.text_secondary)
-                        .into_node(),
+                        .into(),
                 ],
                 gap: Some(tokens.spacing.m),
                 flex_grow: 1.0,
                 ..Default::default()
             }
-            .into_node(),
-            Cta::new("Open documentation", "/docs/intro/", true).build(ctx, view),
+            .into(),
+            Cta::new("Open documentation", "/docs/intro/", true).into(),
         ],
         Some(tokens.spacing.xl),
         FlexWrap::Wrap,
@@ -720,11 +701,11 @@ fn proof_band(ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>, copy: PageC
     })
     .border(tokens.colors.border, 1.0)
     .border_radius(tokens.radii.xxl)
-    .into_node()
+    .into()
 }
 
-fn product_visual(view: &View<DocsState>, kind: MarketingPageKind) -> Node {
-    let tokens = &view.env.theme.tokens;
+fn product_visual(view: ViewHandle<DocsState>, kind: MarketingPageKind) -> Widget {
+    let tokens = &view.env().theme.tokens;
     let children = match kind {
         MarketingPageKind::Charts => chart_visual(view),
         MarketingPageKind::TerminalApps => terminal_visual(view),
@@ -742,10 +723,10 @@ fn product_visual(view: &View<DocsState>, kind: MarketingPageKind) -> Node {
         .bg_fill(Fill::Solid(tokens.colors.surface_raised.with_alpha(246)))
         .border(tokens.colors.border, 1.0)
         .border_radius(tokens.radii.xxl)
-        .into_node()
+        .into()
 }
 
-fn platform_visual(view: &View<DocsState>) -> Node {
+fn platform_visual(view: ViewHandle<DocsState>) -> Widget {
     visual_stack(
         view,
         "Platform map",
@@ -757,7 +738,7 @@ fn platform_visual(view: &View<DocsState>) -> Node {
     )
 }
 
-fn target_visual(view: &View<DocsState>) -> Node {
+fn target_visual(view: ViewHandle<DocsState>) -> Widget {
     visual_stack(
         view,
         "Target matrix",
@@ -770,7 +751,7 @@ fn target_visual(view: &View<DocsState>) -> Node {
     )
 }
 
-fn terminal_visual(view: &View<DocsState>) -> Node {
+fn terminal_visual(view: ViewHandle<DocsState>) -> Widget {
     visual_stack(
         view,
         "fission ui",
@@ -783,7 +764,7 @@ fn terminal_visual(view: &View<DocsState>) -> Node {
     )
 }
 
-fn site_visual(view: &View<DocsState>) -> Node {
+fn site_visual(view: ViewHandle<DocsState>) -> Widget {
     visual_stack(
         view,
         "Static site build",
@@ -795,7 +776,7 @@ fn site_visual(view: &View<DocsState>) -> Node {
     )
 }
 
-fn lifecycle_visual(view: &View<DocsState>) -> Node {
+fn lifecycle_visual(view: ViewHandle<DocsState>) -> Widget {
     visual_stack(
         view,
         "Release pipeline",
@@ -808,7 +789,7 @@ fn lifecycle_visual(view: &View<DocsState>) -> Node {
     )
 }
 
-fn devtools_visual(view: &View<DocsState>) -> Node {
+fn devtools_visual(view: ViewHandle<DocsState>) -> Widget {
     visual_stack(
         view,
         "Inspector surface",
@@ -820,7 +801,7 @@ fn devtools_visual(view: &View<DocsState>) -> Node {
     )
 }
 
-fn design_visual(view: &View<DocsState>) -> Node {
+fn design_visual(view: ViewHandle<DocsState>) -> Widget {
     visual_stack(
         view,
         "Design system",
@@ -833,8 +814,8 @@ fn design_visual(view: &View<DocsState>) -> Node {
     )
 }
 
-fn chart_visual(view: &View<DocsState>) -> Node {
-    let tokens = &view.env.theme.tokens;
+fn chart_visual(view: ViewHandle<DocsState>) -> Widget {
+    let tokens = &view.env().theme.tokens;
     Column {
         children: vec![
             visual_header(view, "Chart surfaces"),
@@ -847,7 +828,7 @@ fn chart_visual(view: &View<DocsState>) -> Node {
                 wrap: FlexWrap::Wrap,
                 ..Default::default()
             }
-            .into_node(),
+            .into(),
             Row {
                 children: vec![
                     chart_thumb(view, "/img/charts/sankey-energy.png"),
@@ -857,20 +838,20 @@ fn chart_visual(view: &View<DocsState>) -> Node {
                 wrap: FlexWrap::Wrap,
                 ..Default::default()
             }
-            .into_node(),
+            .into(),
         ],
         gap: Some(tokens.spacing.m),
         ..Default::default()
     }
-    .into_node()
+    .into()
 }
 
 fn visual_stack(
-    view: &View<DocsState>,
+    view: ViewHandle<DocsState>,
     title: &'static str,
     rows: &[(&'static str, &'static str)],
-) -> Node {
-    let tokens = &view.env.theme.tokens;
+) -> Widget {
+    let tokens = &view.env().theme.tokens;
     Column {
         children: std::iter::once(visual_header(view, title))
             .chain(
@@ -881,11 +862,11 @@ fn visual_stack(
         gap: Some(tokens.spacing.m),
         ..Default::default()
     }
-    .into_node()
+    .into()
 }
 
-fn visual_header(view: &View<DocsState>, title: &'static str) -> Node {
-    let tokens = &view.env.theme.tokens;
+fn visual_header(view: ViewHandle<DocsState>, title: &'static str) -> Widget {
+    let tokens = &view.env().theme.tokens;
     Row {
         children: vec![
             dot(tokens.colors.error),
@@ -895,63 +876,56 @@ fn visual_header(view: &View<DocsState>, title: &'static str) -> Node {
                 .size(tokens.typography.font_size_sm)
                 .family(tokens.typography.font_family_mono.clone())
                 .color(tokens.colors.text_secondary)
-                .into_node(),
+                .into(),
         ],
         gap: Some(tokens.spacing.s),
         align_items: AlignItems::Center,
         ..Default::default()
     }
-    .into_node()
+    .into()
 }
 
-fn visual_row(view: &View<DocsState>, label: &'static str, body: &'static str) -> Node {
-    let tokens = &view.env.theme.tokens;
-    Container::new(
-        Row {
-            children: vec![
-                Text::new(label)
-                    .size(tokens.typography.font_size_sm)
-                    .weight(tokens.typography.font_weight_bold)
-                    .color(tokens.colors.heading)
-                    .into_node(),
-                Text::new(body)
-                    .size(tokens.typography.font_size_sm)
-                    .family(tokens.typography.font_family_mono.clone())
-                    .color(tokens.colors.text_secondary)
-                    .into_node(),
-            ],
-            gap: Some(tokens.spacing.m),
-            wrap: FlexWrap::Wrap,
-            justify_content: JustifyContent::SpaceBetween,
-            ..Default::default()
-        }
-        .into_node(),
-    )
+fn visual_row(view: ViewHandle<DocsState>, label: &'static str, body: &'static str) -> Widget {
+    let tokens = &view.env().theme.tokens;
+    Container::new(Row {
+        children: vec![
+            Text::new(label)
+                .size(tokens.typography.font_size_sm)
+                .weight(tokens.typography.font_weight_bold)
+                .color(tokens.colors.heading)
+                .into(),
+            Text::new(body)
+                .size(tokens.typography.font_size_sm)
+                .family(tokens.typography.font_family_mono.clone())
+                .color(tokens.colors.text_secondary)
+                .into(),
+        ],
+        gap: Some(tokens.spacing.m),
+        wrap: FlexWrap::Wrap,
+        justify_content: JustifyContent::SpaceBetween,
+        ..Default::default()
+    })
     .padding_all(tokens.spacing.m)
     .bg_fill(Fill::Solid(tokens.colors.surface))
     .border(tokens.colors.border, 1.0)
     .border_radius(tokens.radii.large)
-    .into_node()
+    .into()
 }
 
-fn chart_thumb(view: &View<DocsState>, src: &'static str) -> Node {
-    let tokens = &view.env.theme.tokens;
-    Container::new(
-        Image::asset(src)
-            .size(tokens.spacing.xxxxl * 1.85, tokens.spacing.xxxxl * 1.05)
-            .into_node(),
-    )
-    .padding_all(tokens.spacing.xs)
-    .bg_fill(Fill::Solid(tokens.colors.on_surface.with_alpha(245)))
-    .border_radius(tokens.radii.large)
-    .into_node()
+fn chart_thumb(view: ViewHandle<DocsState>, src: &'static str) -> Widget {
+    let tokens = &view.env().theme.tokens;
+    Container::new(Image::asset(src).size(tokens.spacing.xxxxl * 1.85, tokens.spacing.xxxxl * 1.05))
+        .padding_all(tokens.spacing.xs)
+        .bg_fill(Fill::Solid(tokens.colors.on_surface.with_alpha(245)))
+        .border_radius(tokens.radii.large)
+        .into()
 }
 
-fn dot(color: Color) -> Node {
-    Container::new(Text::new(" ").into_node())
+fn dot(color: Color) -> Widget {
+    Container::new(Text::new(" "))
         .width(9.0)
         .height(9.0)
         .bg_fill(Fill::Solid(color))
         .border_radius(99.0)
-        .into_node()
+        .into()
 }
