@@ -1,24 +1,21 @@
 use fission::core::op::Color;
-use fission::core::AppState;
+use fission::core::GlobalState;
 use fission::op::AlignItems;
 use fission::prelude::DesktopApp;
-use fission::widgets::{
-    BuildCtx, Column, Container, Icon, LazyColumn, Node, Row, Text, View, Widget,
-};
+use fission::widgets::{Column, Container, Icon, LazyColumn, Row, Text, Widget};
 use lazy_static::lazy_static;
-use std::sync::Arc;
 
-fn build_icon_rows() -> Vec<Node> {
+fn build_icon_rows() -> Vec<Widget> {
     let all = fission::icons::material::all_icons();
     let mut items = Vec::with_capacity(all.len());
 
     for (idx, (cat, name, variant, func)) in all.into_iter().enumerate() {
         let label = format!("{}/{}/{}", cat, name, variant);
-        let row = Row {
+        let row: Widget = Row {
             gap: Some(12.0),
             align_items: AlignItems::Center,
             children: vec![
-                Icon::svg(func()).size(24.0).into_node(),
+                Icon::svg(func()).size(24.0).into(),
                 Text::new(label)
                     .size(12.0)
                     .color(Color {
@@ -27,11 +24,11 @@ fn build_icon_rows() -> Vec<Node> {
                         b: 80,
                         a: 255,
                     })
-                    .into_node(),
+                    .into(),
             ],
             ..Default::default()
         }
-        .into_node();
+        .into();
 
         let item = Container::new(row)
             .height(56.0)
@@ -55,7 +52,7 @@ fn build_icon_rows() -> Vec<Node> {
                 },
                 1.0,
             )
-            .into_node();
+            .into();
 
         items.push(item);
     }
@@ -64,18 +61,20 @@ fn build_icon_rows() -> Vec<Node> {
 }
 
 lazy_static! {
-    static ref ICON_ROWS: Arc<Vec<Node>> = Arc::new(build_icon_rows());
+    static ref ICON_ROWS: Vec<Widget> = build_icon_rows();
 }
 
 #[derive(Default, Clone, Debug)]
 struct State;
 
-impl AppState for State {}
+impl GlobalState for State {}
 
+#[derive(Clone)]
 struct IconsApp;
 
-impl Widget<State> for IconsApp {
-    fn build(&self, _ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
+impl From<IconsApp> for Widget {
+    fn from(_component: IconsApp) -> Self {
+        let (_ctx, _view) = fission::build::current::<State>();
         let title = Text::new("Material Icons Gallery").size(32.0);
 
         let total = ICON_ROWS.len();
@@ -83,26 +82,23 @@ impl Widget<State> for IconsApp {
 
         let content = LazyColumn {
             id: None,
-            children: ICON_ROWS.clone(),
+            children: ICON_ROWS.to_vec(),
             item_height,
         }
-        .into_node();
+        .into();
 
-        Container::new(
-            Column {
-                gap: Some(24.0),
-                flex_grow: 1.0,
-                children: vec![
-                    title.into_node(),
-                    Text::new(format!("{} icon variants", total))
-                        .size(14.0)
-                        .into_node(),
-                    content,
-                ],
-                ..Default::default()
-            }
-            .into_node(),
-        )
+        Container::new(Column {
+            gap: Some(24.0),
+            flex_grow: 1.0,
+            children: vec![
+                title.into(),
+                Text::new(format!("{} icon variants", total))
+                    .size(14.0)
+                    .into(),
+                content,
+            ],
+            ..Default::default()
+        })
         .padding_all(24.0)
         .bg(Color {
             r: 245,
@@ -111,11 +107,10 @@ impl Widget<State> for IconsApp {
             a: 255,
         })
         .flex_grow(1.0)
-        .into_node()
+        .into()
     }
 }
-
 fn main() -> anyhow::Result<()> {
-    let app = DesktopApp::new(IconsApp);
+    let app = DesktopApp::<State, _>::new(IconsApp);
     app.run()
 }

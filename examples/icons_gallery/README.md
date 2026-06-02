@@ -26,4 +26,4 @@ cargo run -p icons_gallery
 
 ## Learning path
 
-Start with `build_icon_rows`. If you want to use icons in your own app, the key line is `Icon::svg(func()).size(24.0).into_node()`. The rest of the example is list layout and styling.
+Start with `build_icon_rows`. If you want to use icons in your own app, the key line is `Icon::svg(func()).size(24.0).into()`. The rest of the example is list layout and styling.

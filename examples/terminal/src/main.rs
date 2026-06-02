@@ -1,8 +1,6 @@
 use fission::core::op::Color;
-use fission::core::ui::{Container, Node, Text};
-use fission::core::{
-    Action, ActionId, AppState, BuildCtx, ReducerContext, ResourceKey, TimerResource, View, Widget,
-};
+use fission::core::ui::{Container, Text, Widget};
+use fission::core::{Action, ActionId, GlobalState, ReducerContext, ResourceKey, TimerResource};
 use fission::prelude::DesktopApp;
 use fission::widgets::{
     HStack, Spacer, TerminalLaunchConfig, TerminalSession, TerminalView, VStack,
@@ -62,7 +60,7 @@ struct TerminalExampleState {
     redraw_epoch: u64,
 }
 
-impl AppState for TerminalExampleState {}
+impl GlobalState for TerminalExampleState {}
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 struct StartTerminal;
@@ -119,14 +117,12 @@ fn poll_terminal(
     }
 }
 
+#[derive(Clone)]
 struct TerminalExampleApp;
 
-impl Widget<TerminalExampleState> for TerminalExampleApp {
-    fn build(
-        &self,
-        ctx: &mut BuildCtx<TerminalExampleState>,
-        view: &View<TerminalExampleState>,
-    ) -> Node {
+impl From<TerminalExampleApp> for Widget {
+    fn from(_component: TerminalExampleApp) -> Self {
+        let (ctx, view) = fission::build::current::<TerminalExampleState>();
         ctx.register(
             start_terminal
                 as fn(
@@ -144,109 +140,93 @@ impl Widget<TerminalExampleState> for TerminalExampleApp {
                     &mut ReducerContext<TerminalExampleState>,
                 ),
         );
-        ctx.resources.timer(
-            TimerResource::new(
-                ResourceKey::new("terminal-session-poll"),
-                Duration::from_millis(16),
-                PollTerminalTick,
-            )
-            .on_tick(poll_terminal_action),
-        );
+        ctx.with_resources(|resources| {
+            resources.timer(
+                TimerResource::new(
+                    ResourceKey::new("terminal-session-poll"),
+                    Duration::from_millis(16),
+                    PollTerminalTick,
+                )
+                .on_tick(poll_terminal_action),
+            );
+        });
 
         let title = view
-            .state
+            .state()
             .session
             .as_ref()
             .map(|session| format_terminal_title(&session.title()))
             .filter(|title| !title.trim().is_empty())
             .unwrap_or_else(|| "Shell".into());
 
-        let chrome = Container::new(
-            HStack {
-                spacing: Some(8.0),
-                children: vec![
-                    dot(RED),
-                    dot(YELLOW),
-                    dot(GREEN),
-                    Spacer {
-                        width: Some(12.0),
-                        ..Default::default()
-                    }
-                    .into_node(),
-                    VStack {
-                        spacing: Some(2.0),
-                        children: vec![
-                            Text::new(title).size(12.0).color(TEXT).into_node(),
-                            Text::new(view.state.cwd.display().to_string())
-                                .size(10.0)
-                                .color(MUTED)
-                                .into_node(),
-                        ],
-                    }
-                    .into_node(),
-                    Spacer {
-                        flex_grow: 1.0,
-                        ..Default::default()
-                    }
-                    .into_node(),
-                    Text::new("Fission Terminal")
-                        .size(11.0)
-                        .color(MUTED)
-                        .into_node(),
-                ],
-            }
-            .into_node(),
-        )
+        let chrome = Container::new(HStack {
+            spacing: Some(8.0),
+            children: vec![
+                dot(RED),
+                dot(YELLOW),
+                dot(GREEN),
+                Spacer {
+                    width: Some(12.0),
+                    ..Default::default()
+                }
+                .into(),
+                VStack {
+                    spacing: Some(2.0),
+                    children: vec![
+                        Text::new(title).size(12.0).color(TEXT).into(),
+                        Text::new(view.state().cwd.display().to_string())
+                            .size(10.0)
+                            .color(MUTED)
+                            .into(),
+                    ],
+                }
+                .into(),
+                Spacer {
+                    flex_grow: 1.0,
+                    ..Default::default()
+                }
+                .into(),
+                Text::new("Fission Terminal").size(11.0).color(MUTED).into(),
+            ],
+        })
         .bg(CHROME_BG)
         .padding_all(10.0)
-        .into_node();
+        .into();
 
         let terminal_height = (view.viewport_size().height - 52.0).max(180.0);
         let terminal_width = view.viewport_size().width.max(320.0);
-        let body = if let Some(session) = view.state.session.clone() {
+        let body = if let Some(session) = view.state().session.clone() {
             TerminalView::new(session, terminal_width, terminal_height)
                 .font_size(13.0)
                 .line_height(18.0)
                 .padding(10.0, 10.0)
-                .build(ctx, view)
+                .into()
         } else {
-            Container::new(
-                Text::new("Failed to start shell")
-                    .size(13.0)
-                    .color(TEXT)
-                    .into_node(),
-            )
-            .padding_all(16.0)
-            .bg(WINDOW_BG)
-            .into_node()
+            Container::new(Text::new("Failed to start shell").size(13.0).color(TEXT))
+                .padding_all(16.0)
+                .bg(WINDOW_BG)
+                .into()
         };
 
-        Container::new(
-            VStack {
-                spacing: Some(0.0),
-                children: vec![chrome, body],
-            }
-            .into_node(),
-        )
+        Container::new(VStack {
+            spacing: Some(0.0),
+            children: vec![chrome, body],
+        })
         .bg(WINDOW_BG)
-        .into_node()
+        .into()
     }
 }
-
-fn dot(color: Color) -> Node {
-    Container::new(
-        Spacer {
-            width: Some(12.0),
-            height: Some(12.0),
-            ..Default::default()
-        }
-        .into_node(),
-    )
+fn dot(color: Color) -> Widget {
+    Container::new(Spacer {
+        width: Some(12.0),
+        height: Some(12.0),
+        ..Default::default()
+    })
     .width(12.0)
     .height(12.0)
     .bg(color)
     .border_radius(999.0)
-    .into_node()
+    .into()
 }
 
 fn format_terminal_title(title: &str) -> String {
@@ -280,7 +260,7 @@ fn format_terminal_title(title: &str) -> String {
 
 fn main() -> anyhow::Result<()> {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    DesktopApp::new(TerminalExampleApp)
+    DesktopApp::<TerminalExampleState, _>::new(TerminalExampleApp)
         .with_title("Fission Terminal")
         .with_state_init(move |state: &mut TerminalExampleState| state.cwd = cwd.clone())
         .with_startup_action(StartTerminal)
