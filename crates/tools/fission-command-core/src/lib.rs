@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use toml_edit::{value, Array, DocumentMut, Item, Table, Value};
+use toml_edit::{value, Array, DocumentMut, InlineTable, Item, Table, Value};
 
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const DEFAULT_APP_ICON_PNG: &[u8] = include_bytes!("../assets/fission_logo.png");
@@ -218,6 +218,7 @@ pub fn init_project(
         scaffold_target_with_policy(root, &project, target, write_policy)?;
     }
     sync_platform_config(root, &project)?;
+    sync_cargo_fission_dependency(root, &project, local_path.as_deref())?;
 
     Ok(())
 }
@@ -359,9 +360,12 @@ pub fn sync_platform_config(root: &Path, project: &FissionProject) -> Result<()>
 fn apply_mobile_run_script_hardening(root: &Path, project: &FissionProject) -> Result<()> {
     if project.targets.contains(&Target::Ios) {
         apply_ios_run_script_hardening(root)?;
+        apply_ios_package_script_hardening(root)?;
     }
     if project.targets.contains(&Target::Android) {
         apply_android_run_script_hardening(root)?;
+        apply_android_package_script_hardening(root)?;
+        apply_android_manifest_hardening(root)?;
     }
     Ok(())
 }
@@ -379,6 +383,28 @@ fn apply_ios_run_script_hardening(root: &Path) -> Result<()> {
     let marker = "xcrun simctl bootstatus \"$DEVICE_ID\" -b\n";
     let insertion = "xcrun simctl bootstatus \"$DEVICE_ID\" -b\nif [[ \"${IOS_SIM_UNINSTALL_BEFORE_INSTALL:-1}\" == \"1\" ]]; then\n  xcrun simctl uninstall \"$DEVICE_ID\" \"$BUNDLE_ID\" >/dev/null 2>&1 || true\nfi\n";
     let updated = existing.replacen(marker, insertion, 1);
+    fs::write(&path, updated).with_context(|| format!("failed to write {}", path.display()))
+}
+
+fn apply_ios_package_script_hardening(root: &Path) -> Result<()> {
+    let path = root.join("platforms/ios/package-sim.sh");
+    if !path.exists() {
+        return Ok(());
+    }
+    let existing =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    if !existing.contains("import plistlib") {
+        return Ok(());
+    }
+    let Some(start) = existing.find("python3 - <<'PY' \"$SCRIPT_DIR/Info.plist\"") else {
+        return Ok(());
+    };
+    let Some(relative_end) = existing[start..].find("\nPY") else {
+        return Ok(());
+    };
+    let end = start + relative_end + "\nPY\n".len();
+    let mut updated = existing;
+    updated.replace_range(start..end, IOS_INFO_PLIST_PLUTIL_PATCH);
     fs::write(&path, updated).with_context(|| format!("failed to write {}", path.display()))
 }
 
@@ -436,6 +462,51 @@ fn apply_android_run_script_hardening(root: &Path) -> Result<()> {
     Ok(())
 }
 
+fn apply_android_package_script_hardening(root: &Path) -> Result<()> {
+    let path = root.join("platforms/android/package-apk.sh");
+    if !path.exists() {
+        return Ok(());
+    }
+    let existing =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    let mut updated = existing.clone();
+    if updated.contains("import re\nimport sys\n") && !updated.contains("import pathlib\n") {
+        updated = updated.replace(
+            "import re\nimport sys\n",
+            "import pathlib\nimport re\nimport sys\n",
+        );
+    }
+    let has_code_line = r#"has_code = "true" if pathlib.Path(dest).with_name("apk-root").joinpath("classes.dex").exists() else "false"
+manifest = re.sub(r'android:hasCode="(?:true|false)"', f'android:hasCode="{has_code}"', manifest)
+"#;
+    if !updated.contains("android:hasCode=") || !updated.contains("with_name(\"apk-root\")") {
+        updated = updated.replace(
+            "manifest = re.sub(r'android:targetSdkVersion=\"\\d+\"', f'android:targetSdkVersion=\"{target_api}\"', manifest)\n",
+            &format!(
+                "manifest = re.sub(r'android:targetSdkVersion=\"\\d+\"', f'android:targetSdkVersion=\"{{target_api}}\"', manifest)\n{has_code_line}"
+            ),
+        );
+    }
+    if updated != existing {
+        fs::write(&path, updated).with_context(|| format!("failed to write {}", path.display()))?;
+    }
+    Ok(())
+}
+
+fn apply_android_manifest_hardening(root: &Path) -> Result<()> {
+    let path = root.join("platforms/android/AndroidManifest.xml");
+    if !path.exists() {
+        return Ok(());
+    }
+    let existing =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    let updated = existing.replace(r#"android:hasCode="true""#, r#"android:hasCode="false""#);
+    if updated != existing {
+        fs::write(&path, updated).with_context(|| format!("failed to write {}", path.display()))?;
+    }
+    Ok(())
+}
+
 fn android_wait_for_boot_function() -> &'static str {
     r#"wait_for_android_boot() {
   "$ADB" wait-for-device
@@ -464,6 +535,18 @@ fn replace_android_boot_wait_after(mut text: String, marker: &str, replacement: 
     }
     text
 }
+
+const IOS_INFO_PLIST_PLUTIL_PATCH: &str = r#"cp "$SCRIPT_DIR/Info.plist" "$BUNDLE_DIR/Info.plist"
+PLUTIL=$(xcrun --find plutil 2>/dev/null || command -v plutil || true)
+if [[ -z "$PLUTIL" ]]; then
+  printf 'plutil not found. Install Xcode command line tools to package the iOS simulator app.\n' >&2
+  exit 1
+fi
+"$PLUTIL" -replace CFBundleIdentifier -string "$BUNDLE_ID" "$BUNDLE_DIR/Info.plist"
+"$PLUTIL" -replace CFBundleDisplayName -string "$DISPLAY_NAME" "$BUNDLE_DIR/Info.plist"
+"$PLUTIL" -replace CFBundleName -string "$DISPLAY_NAME" "$BUNDLE_DIR/Info.plist"
+"$PLUTIL" -replace CFBundleExecutable -string "$EXECUTABLE_NAME" "$BUNDLE_DIR/Info.plist"
+"#;
 
 fn apply_platform_capability_config(root: &Path, project: &FissionProject) -> Result<()> {
     if project.capabilities.is_empty() {
@@ -828,98 +911,195 @@ pub fn read_project_config(root: &Path) -> Result<FissionProject> {
 }
 
 fn update_cargo_fission_features(root: &Path, project: &FissionProject) -> Result<()> {
+    sync_cargo_fission_dependency(root, project, None)
+}
+
+fn sync_cargo_fission_dependency(
+    root: &Path,
+    project: &FissionProject,
+    local_path: Option<&Path>,
+) -> Result<()> {
     let path = root.join("Cargo.toml");
     let Ok(text) = fs::read_to_string(&path) else {
         return Ok(());
     };
-    let feature_list = render_fission_feature_list(&project.targets);
+
+    let mut doc = text
+        .parse::<DocumentMut>()
+        .with_context(|| format!("failed to parse {}", path.display()))?;
+    let features = fission_features_for_targets(&project.targets);
     let mut changed = false;
-    let mut out = Vec::new();
-    for line in text.lines() {
-        if let Some(updated) = update_inline_fission_dependency(line, &feature_list) {
-            changed |= updated != line;
-            out.push(updated);
-        } else {
-            out.push(line.to_string());
-        }
+
+    if !doc.get("dependencies").is_some_and(Item::is_table_like) {
+        doc["dependencies"] = Item::Table(Table::new());
+        changed = true;
     }
+
+    let use_workspace_fission = local_path.is_none()
+        && workspace_has_fission_dependency(&doc)
+        && doc
+            .get("dependencies")
+            .and_then(Item::as_table_like)
+            .is_none_or(|dependencies| !dependencies.contains_key("fission"));
+    let deps = doc["dependencies"]
+        .as_table_like_mut()
+        .expect("dependencies table was just created");
+    let dep = deps.entry("fission").or_insert(Item::None);
+    changed |= sync_fission_dependency_item(dep, &features, local_path, use_workspace_fission)?;
+
     if changed {
-        fs::write(&path, out.join("\n") + "\n")
+        fs::write(&path, doc.to_string())
             .with_context(|| format!("failed to update {}", path.display()))?;
     }
     Ok(())
 }
 
-fn update_inline_fission_dependency(line: &str, feature_list: &str) -> Option<String> {
-    let trimmed = line.trim_start();
-    if !trimmed.starts_with("fission =") {
-        return None;
-    }
-    let indent = &line[..line.len() - trimmed.len()];
-    let value = trimmed.strip_prefix("fission =")?.trim();
-    if value.starts_with('"') {
-        return Some(format!(
-            "{indent}fission = {{ version = {value}, default-features = false, features = [{feature_list}] }}"
-        ));
-    }
-    if !(value.starts_with('{') && value.ends_with('}')) {
-        return None;
-    }
-    let inner = value
-        .strip_prefix('{')
-        .and_then(|value| value.strip_suffix('}'))?
-        .trim();
-    let mut fields = split_top_level_fields(inner)
-        .into_iter()
-        .filter(|field| {
-            let key = field
-                .split_once('=')
-                .map(|(key, _)| key.trim())
-                .unwrap_or_default();
-            key != "default-features" && key != "features"
-        })
-        .collect::<Vec<_>>();
-    fields.push("default-features = false".to_string());
-    fields.push(format!("features = [{feature_list}]"));
-    Some(format!("{indent}fission = {{ {} }}", fields.join(", ")))
+fn workspace_has_fission_dependency(doc: &DocumentMut) -> bool {
+    doc.get("workspace")
+        .and_then(Item::as_table_like)
+        .and_then(|workspace| workspace.get("dependencies"))
+        .and_then(Item::as_table_like)
+        .is_some_and(|dependencies| dependencies.contains_key("fission"))
 }
 
-fn split_top_level_fields(input: &str) -> Vec<String> {
-    let mut fields = Vec::new();
-    let mut start = 0;
-    let mut bracket_depth = 0usize;
-    let mut in_string = false;
-    let mut escaped = false;
-    for (index, ch) in input.char_indices() {
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == '"' {
-                in_string = false;
-            }
-            continue;
+fn sync_fission_dependency_item(
+    item: &mut Item,
+    features: &[&'static str],
+    local_path: Option<&Path>,
+    use_workspace_fission: bool,
+) -> Result<bool> {
+    match item {
+        Item::None => {
+            *item = Item::Value(Value::InlineTable(new_fission_dependency_table(
+                features,
+                local_path,
+                use_workspace_fission,
+            )));
+            Ok(true)
         }
-        match ch {
-            '"' => in_string = true,
-            '[' => bracket_depth += 1,
-            ']' => bracket_depth = bracket_depth.saturating_sub(1),
-            ',' if bracket_depth == 0 => {
-                let field = input[start..index].trim();
-                if !field.is_empty() {
-                    fields.push(field.to_string());
-                }
-                start = index + ch.len_utf8();
-            }
-            _ => {}
+        Item::Value(Value::String(version)) => {
+            let mut table = InlineTable::new();
+            table.insert("version", Value::String(version.clone()));
+            sync_fission_inline_table(&mut table, features, local_path, use_workspace_fission);
+            *item = Item::Value(Value::InlineTable(table));
+            Ok(true)
         }
+        Item::Value(Value::InlineTable(table)) => Ok(sync_fission_inline_table(
+            table,
+            features,
+            local_path,
+            use_workspace_fission,
+        )),
+        Item::Table(table) => Ok(sync_fission_table(
+            table,
+            features,
+            local_path,
+            use_workspace_fission,
+        )),
+        _ => bail!("unsupported fission dependency format in Cargo.toml"),
     }
-    let field = input[start..].trim();
-    if !field.is_empty() {
-        fields.push(field.to_string());
+}
+
+fn new_fission_dependency_table(
+    features: &[&'static str],
+    local_path: Option<&Path>,
+    use_workspace_fission: bool,
+) -> InlineTable {
+    let mut table = InlineTable::new();
+    if let Some(root) = local_path {
+        table.insert(
+            "path",
+            Value::from(
+                root.join("crates/authoring/fission")
+                    .to_string_lossy()
+                    .to_string(),
+            ),
+        );
+    } else if use_workspace_fission {
+        table.insert("workspace", Value::from(true));
+    } else {
+        table.insert("version", Value::from(CURRENT_VERSION));
     }
-    fields
+    table.insert("default-features", Value::from(false));
+    table.insert("features", cargo_feature_array_value(features));
+    table
+}
+
+fn sync_fission_inline_table(
+    table: &mut InlineTable,
+    features: &[&'static str],
+    local_path: Option<&Path>,
+    use_workspace_fission: bool,
+) -> bool {
+    let before = table.to_string();
+    if let Some(root) = local_path {
+        table.insert(
+            "path",
+            Value::from(
+                root.join("crates/authoring/fission")
+                    .to_string_lossy()
+                    .to_string(),
+            ),
+        );
+        table.remove("version");
+        table.remove("workspace");
+    } else if use_workspace_fission
+        && !table.contains_key("path")
+        && !table.contains_key("version")
+        && !table.contains_key("git")
+    {
+        table.insert("workspace", Value::from(true));
+    } else if !table.contains_key("path")
+        && !table.contains_key("version")
+        && !table.contains_key("workspace")
+        && !table.contains_key("git")
+    {
+        table.insert("version", Value::from(CURRENT_VERSION));
+    }
+    table.insert("default-features", Value::from(false));
+    table.insert("features", cargo_feature_array_value(features));
+    table.to_string() != before
+}
+
+fn sync_fission_table(
+    table: &mut Table,
+    features: &[&'static str],
+    local_path: Option<&Path>,
+    use_workspace_fission: bool,
+) -> bool {
+    let before = table.to_string();
+    if let Some(root) = local_path {
+        table["path"] = value(
+            root.join("crates/authoring/fission")
+                .to_string_lossy()
+                .to_string(),
+        );
+        table.remove("version");
+        table.remove("workspace");
+    } else if use_workspace_fission
+        && !table.contains_key("path")
+        && !table.contains_key("version")
+        && !table.contains_key("git")
+    {
+        table["workspace"] = value(true);
+    } else if !table.contains_key("path")
+        && !table.contains_key("version")
+        && !table.contains_key("workspace")
+        && !table.contains_key("git")
+    {
+        table["version"] = value(CURRENT_VERSION);
+    }
+    table["default-features"] = value(false);
+    table["features"] = Item::Value(cargo_feature_array_value(features));
+    table.to_string() != before
+}
+
+fn cargo_feature_array_value(features: &[&'static str]) -> Value {
+    let mut array = Array::new();
+    for feature in features {
+        array.push(*feature);
+    }
+    Value::Array(array)
 }
 
 fn scaffold_target_with_policy(
@@ -1518,20 +1698,7 @@ rm -rf "$BUNDLE_DIR"
 mkdir -p "$BUNDLE_DIR"
 cp "$TARGET_DIR/$TARGET/$ARTIFACT_DIR/$PACKAGE_NAME" "$BUNDLE_DIR/$EXECUTABLE_NAME"
 chmod +x "$BUNDLE_DIR/$EXECUTABLE_NAME"
-python3 - <<'PY' "$SCRIPT_DIR/Info.plist" "$BUNDLE_DIR/Info.plist" "$BUNDLE_ID" "$DISPLAY_NAME" "$EXECUTABLE_NAME"
-import plistlib
-import sys
-
-source, dest, bundle_id, display_name, executable_name = sys.argv[1:]
-with open(source, "rb") as handle:
-    plist = plistlib.load(handle)
-plist["CFBundleIdentifier"] = bundle_id
-plist["CFBundleDisplayName"] = display_name
-plist["CFBundleName"] = display_name
-plist["CFBundleExecutable"] = executable_name
-with open(dest, "wb") as handle:
-    plistlib.dump(plist, handle, sort_keys=False)
-PY
+{plist_patch}
 shopt -s nullglob
 PLATFORM_APP_ICONS=("$SCRIPT_DIR"/AppIcon.*)
 if (( ${{#PLATFORM_APP_ICONS[@]}} == 0 )); then
@@ -1575,6 +1742,7 @@ printf '%s\n' "$BUNDLE_DIR"
         bundle_id = project.app.app_id,
         bundle_name = bundle_name,
         executable = executable,
+        plist_patch = IOS_INFO_PLIST_PLUTIL_PATCH,
     )
 }
 
@@ -1680,7 +1848,7 @@ fn render_android_manifest(project: &FissionProject) -> String {
     <application
         android:debuggable="true"
         android:extractNativeLibs="true"
-        android:hasCode="true"
+        android:hasCode="false"
         android:icon="@drawable/app_icon"
         android:label="{label}">
         <activity
@@ -2207,6 +2375,7 @@ fi
 
 BUILD_MANIFEST="$BUILD_DIR/AndroidManifest.xml"
 python3 - <<'PY' "$SCRIPT_DIR/AndroidManifest.xml" "$BUILD_MANIFEST" "$ANDROID_MIN_API_LEVEL" "$ANDROID_TARGET_API_LEVEL"
+import pathlib
 import re
 import sys
 
@@ -2214,6 +2383,8 @@ source, dest, min_api, target_api = sys.argv[1:]
 manifest = open(source, encoding="utf-8").read()
 manifest = re.sub(r'android:minSdkVersion="\d+"', f'android:minSdkVersion="{{min_api}}"', manifest)
 manifest = re.sub(r'android:targetSdkVersion="\d+"', f'android:targetSdkVersion="{{target_api}}"', manifest)
+has_code = "true" if pathlib.Path(dest).with_name("apk-root").joinpath("classes.dex").exists() else "false"
+manifest = re.sub(r'android:hasCode="(?:true|false)"', f'android:hasCode="{{has_code}}"', manifest)
 open(dest, "w", encoding="utf-8").write(manifest)
 PY
 

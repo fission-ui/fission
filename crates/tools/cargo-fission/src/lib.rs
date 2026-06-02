@@ -343,6 +343,7 @@ mod tests {
         let android_manifest =
             std::fs::read_to_string(dir.join("platforms/android/AndroidManifest.xml")).unwrap();
         assert!(android_manifest.contains("android:icon=\"@drawable/app_icon\""));
+        assert!(android_manifest.contains("android:hasCode=\"false\""));
         assert!(android_manifest.contains("android:targetSdkVersion=\"35\""));
         assert!(android_manifest.contains("android:theme=\"@style/FissionLaunchTheme\""));
         let android_styles =
@@ -363,6 +364,9 @@ mod tests {
         );
         assert!(android_package_script.contains("BUILD_MANIFEST"));
         assert!(android_package_script.contains("android:targetSdkVersion=\"{target_api}\""));
+        assert!(android_package_script.contains("import pathlib"));
+        assert!(android_package_script.contains("with_name(\"apk-root\")"));
+        assert!(android_package_script.contains("android:hasCode="));
         assert!(android_package_script.contains("cp -R \"$SCRIPT_DIR/res/.\""));
         assert!(android_package_script.contains("fission_splash_image.png"));
         assert!(android_package_script.contains("APP_ICONS"));
@@ -391,7 +395,9 @@ mod tests {
         assert!(ios_package_script.contains("BUNDLE_ID=\"${IOS_BUNDLE_ID:-com.example."));
         assert!(ios_package_script.contains("DISPLAY_NAME=\"${IOS_DISPLAY_NAME:-"));
         assert!(ios_package_script.contains("EXECUTABLE_NAME=\"${IOS_EXECUTABLE_NAME:-"));
-        assert!(ios_package_script.contains("plistlib.load"));
+        assert!(ios_package_script.contains("xcrun --find plutil"));
+        assert!(ios_package_script.contains("-replace CFBundleIdentifier -string"));
+        assert!(!ios_package_script.contains("import plistlib"));
         assert!(ios_package_script.contains("PkgInfo"));
         assert!(ios_package_script.contains("PLATFORM_APP_ICONS"));
         assert!(ios_package_script.contains("AppIcon.png"));
@@ -433,6 +439,169 @@ mod tests {
         assert!(std::fs::read_to_string(dir.join("platforms/web/README.md"))
             .unwrap()
             .contains("fission run --target web"));
+    }
+
+    #[test]
+    fn init_hardens_existing_android_native_only_scaffold() {
+        let dir = unique_dir("android-hardening");
+        run(["fission", "init", dir.to_str().unwrap()]).unwrap();
+        run([
+            "fission",
+            "add-target",
+            "android",
+            "--project-dir",
+            dir.to_str().unwrap(),
+        ])
+        .unwrap();
+
+        let manifest_path = dir.join("platforms/android/AndroidManifest.xml");
+        let package_path = dir.join("platforms/android/package-apk.sh");
+        fs::write(
+            &manifest_path,
+            fs::read_to_string(&manifest_path)
+                .unwrap()
+                .replace("android:hasCode=\"false\"", "android:hasCode=\"true\""),
+        )
+        .unwrap();
+        fs::write(
+            &package_path,
+            fs::read_to_string(&package_path)
+                .unwrap()
+                .replace("import pathlib\n", "")
+                .replace(
+                    r#"has_code = "true" if pathlib.Path(dest).with_name("apk-root").joinpath("classes.dex").exists() else "false"
+manifest = re.sub(r'android:hasCode="(?:true|false)"', f'android:hasCode="{has_code}"', manifest)
+"#,
+                    "",
+                ),
+        )
+        .unwrap();
+
+        run(["fission", "init", dir.to_str().unwrap()]).unwrap();
+
+        let manifest = fs::read_to_string(manifest_path).unwrap();
+        assert!(manifest.contains("android:hasCode=\"false\""));
+        let package_script = fs::read_to_string(package_path).unwrap();
+        assert!(package_script.contains("import pathlib"));
+        assert!(package_script.contains("with_name(\"apk-root\")"));
+        assert!(package_script.contains("android:hasCode="));
+    }
+
+    #[test]
+    fn init_hardens_existing_ios_package_script_without_replacing_user_files() {
+        let dir = unique_dir("ios-package-hardening");
+        run(["fission", "init", dir.to_str().unwrap()]).unwrap();
+        run([
+            "fission",
+            "add-target",
+            "ios",
+            "--project-dir",
+            dir.to_str().unwrap(),
+        ])
+        .unwrap();
+        let script_path = dir.join("platforms/ios/package-sim.sh");
+        let mut script = fs::read_to_string(&script_path).unwrap();
+        script = script.replace(
+            r#"cp "$SCRIPT_DIR/Info.plist" "$BUNDLE_DIR/Info.plist"
+PLUTIL=$(xcrun --find plutil 2>/dev/null || command -v plutil || true)
+if [[ -z "$PLUTIL" ]]; then
+  printf 'plutil not found. Install Xcode command line tools to package the iOS simulator app.\n' >&2
+  exit 1
+fi
+"$PLUTIL" -replace CFBundleIdentifier -string "$BUNDLE_ID" "$BUNDLE_DIR/Info.plist"
+"$PLUTIL" -replace CFBundleDisplayName -string "$DISPLAY_NAME" "$BUNDLE_DIR/Info.plist"
+"$PLUTIL" -replace CFBundleName -string "$DISPLAY_NAME" "$BUNDLE_DIR/Info.plist"
+"$PLUTIL" -replace CFBundleExecutable -string "$EXECUTABLE_NAME" "$BUNDLE_DIR/Info.plist"
+"#,
+            r#"python3 - <<'PY' "$SCRIPT_DIR/Info.plist" "$BUNDLE_DIR/Info.plist" "$BUNDLE_ID" "$DISPLAY_NAME" "$EXECUTABLE_NAME"
+import plistlib
+import sys
+
+source, dest, bundle_id, display_name, executable_name = sys.argv[1:]
+with open(source, "rb") as handle:
+    plist = plistlib.load(handle)
+plist["CFBundleIdentifier"] = bundle_id
+plist["CFBundleDisplayName"] = display_name
+plist["CFBundleName"] = display_name
+plist["CFBundleExecutable"] = executable_name
+with open(dest, "wb") as handle:
+    plistlib.dump(plist, handle, sort_keys=False)
+PY
+"#,
+        );
+        fs::write(&script_path, script).unwrap();
+
+        run(["fission", "init", dir.to_str().unwrap()]).unwrap();
+
+        let hardened = fs::read_to_string(script_path).unwrap();
+        assert!(hardened.contains("xcrun --find plutil"));
+        assert!(hardened.contains("-replace CFBundleExecutable -string"));
+        assert!(!hardened.contains("import plistlib"));
+    }
+
+    #[test]
+    fn init_existing_project_enables_features_for_detected_mobile_targets() {
+        let dir = unique_dir("init-mobile-features");
+        fs::create_dir_all(dir.join("src")).unwrap();
+        fs::create_dir_all(dir.join("platforms/android")).unwrap();
+        fs::create_dir_all(dir.join("platforms/ios")).unwrap();
+        fs::write(dir.join("src/main.rs"), "fn main() {}\n").unwrap();
+        fs::write(
+            dir.join("Cargo.toml"),
+            r#"[package]
+name = "existing-mobile"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+fission = { version = "0.4.0", default-features = false, features = ["desktop"] }
+"#,
+        )
+        .unwrap();
+
+        run(["fission", "init", dir.to_str().unwrap()]).unwrap();
+
+        let manifest = fs::read_to_string(dir.join("Cargo.toml")).unwrap();
+        assert!(manifest.contains("default-features = false"));
+        assert!(manifest.contains(r#"features = ["desktop", "android", "ios"]"#));
+    }
+
+    #[test]
+    fn add_target_updates_multiline_fission_dependency_features() {
+        let dir = unique_dir("multiline-features");
+        run(["fission", "init", dir.to_str().unwrap()]).unwrap();
+        fs::write(
+            dir.join("Cargo.toml"),
+            r#"[package]
+name = "multiline-features"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+
+[dependencies.fission]
+version = "0.4.0"
+default-features = true
+features = ["desktop"]
+"#,
+        )
+        .unwrap();
+
+        run([
+            "fission",
+            "add-target",
+            "android",
+            "ios",
+            "--project-dir",
+            dir.to_str().unwrap(),
+        ])
+        .unwrap();
+
+        let manifest = fs::read_to_string(dir.join("Cargo.toml")).unwrap();
+        assert!(manifest.contains("[dependencies.fission]"));
+        assert!(manifest.contains("default-features = false"));
+        assert!(manifest.contains(r#"features = ["desktop", "android", "ios"]"#));
     }
 
     #[test]
