@@ -1,9 +1,9 @@
-use fission_core::ui::{Composite, Node};
+use fission_core::internal::{InternalIrBuilder, InternalLowerer, InternalLoweringCx};
+use fission_core::ui::{Composite, Widget};
 use fission_core::{
-    AnimationPropertyId, AnimationRequest, AnimationStartValue, BuildCtx, EasingFunction, LowerDyn,
-    LoweringContext, NodeBuilder, View, Widget, WidgetNodeId,
+    AnimationPropertyId, AnimationRequest, AnimationStartValue, EasingFunction, WidgetId,
 };
-use fission_ir::{op::Color, LayoutOp, NodeId, Op, PaintOp};
+use fission_ir::{op::Color, LayoutOp, Op, PaintOp};
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 
@@ -11,7 +11,7 @@ const SPIN_DURATION_MS: u64 = 900;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CircularProgress {
-    pub id: WidgetNodeId,
+    pub id: WidgetId,
     pub value: Option<f32>, // 0.0 to 1.0. If None, indeterminate (spinner).
     pub size: f32,
     pub color: Option<Color>,
@@ -24,7 +24,7 @@ pub struct CircularProgress {
 impl Default for CircularProgress {
     fn default() -> Self {
         Self {
-            id: WidgetNodeId::explicit("fission.widgets.circular_progress"),
+            id: WidgetId::explicit("fission.widgets.circular_progress"),
             value: None,
             size: 40.0,
             color: None,
@@ -35,26 +35,35 @@ impl Default for CircularProgress {
     }
 }
 
-impl<S: fission_core::AppState> Widget<S> for CircularProgress {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let tokens = &view.env.theme.tokens;
-        let color = self.color.unwrap_or(tokens.colors.primary);
-        let track_color = self.track_color.unwrap_or(tokens.colors.border);
+impl From<CircularProgress> for Widget {
+    fn from(component: CircularProgress) -> Self {
+        let (ctx, view) = fission_core::build::current::<()>();
+        let mut component = component;
+        if let Some(id) = fission_core::build::current_widget_id() {
+            component.id = id;
+        }
+        let this = &component;
 
-        let node = Node::Custom(fission_core::ui::CustomNode {
-            debug_tag: "CircularProgress".into(),
-            lowerer: Some(std::sync::Arc::new(CircularProgressLowerer {
-                value: self.value,
-                size: self.size,
-                color,
-                track_color,
-                thickness: self.thickness,
-            })),
-            render_object: None,
-        });
+        let tokens = &view.env().theme.tokens;
+        let color = this.color.unwrap_or(tokens.colors.primary);
+        let track_color = this.track_color.unwrap_or(tokens.colors.border);
 
-        if self.value.is_none() && self.animated {
-            ctx.anim_for(self.id).request(AnimationRequest {
+        let node = fission_core::internal::custom_render_widget(
+            fission_core::internal::InternalRenderNode {
+                debug_tag: "CircularProgress".into(),
+                lowerer: Some(std::sync::Arc::new(CircularProgressLowerer {
+                    value: this.value,
+                    size: this.size,
+                    color,
+                    track_color,
+                    thickness: this.thickness,
+                })),
+                render_object: None,
+            },
+        );
+
+        if this.value.is_none() && this.animated {
+            ctx.anim_for(this.id).request(AnimationRequest {
                 property: AnimationPropertyId::Rotation,
                 from: AnimationStartValue::Explicit(0.0),
                 to: PI * 2.0,
@@ -66,8 +75,8 @@ impl<S: fission_core::AppState> Widget<S> for CircularProgress {
             });
             Composite::new(node)
                 .repaint_boundary(true)
-                .animated_rotation(self.id, 0.0)
-                .into_node()
+                .animated_rotation(this.id, 0.0)
+                .into()
         } else {
             node
         }
@@ -87,8 +96,8 @@ struct CircularProgressLowerer {
     thickness: f32,
 }
 
-impl LowerDyn for CircularProgressLowerer {
-    fn lower_dyn(&self, cx: &mut LoweringContext) -> NodeId {
+impl InternalLowerer for CircularProgressLowerer {
+    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
         let id = cx.next_node_id();
 
         // Track Circle
@@ -107,7 +116,7 @@ impl LowerDyn for CircularProgressLowerer {
             d = r * 2.0
         );
 
-        let track = NodeBuilder::new(
+        let track = InternalIrBuilder::new(
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawPath {
                 path: track_path,
@@ -154,7 +163,7 @@ impl LowerDyn for CircularProgressLowerer {
             y2 = y2
         );
 
-        let indicator = NodeBuilder::new(
+        let indicator = InternalIrBuilder::new(
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawPath {
                 path: arc_path,
@@ -170,7 +179,7 @@ impl LowerDyn for CircularProgressLowerer {
         )
         .build(cx);
 
-        let mut layout = NodeBuilder::new(
+        let mut layout = InternalIrBuilder::new(
             id,
             Op::Layout(LayoutOp::Box {
                 width: Some(self.size),
