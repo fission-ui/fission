@@ -1,0 +1,32 @@
+---
+title: Introducing Fission
+authors:
+  - fission
+tags:
+  - announcement
+  - architecture
+---
+
+Fission is a Rust application platform for building production user interfaces across desktop, web, mobile, terminal, static-site, and server-rendered targets from one explicit app model.
+
+The project starts from a practical observation: most application bugs are not caused by a missing button widget. They come from state living in too many places, side effects starting at surprising times, platform code leaking into product code, and tests that cannot reproduce the path a user took. Fission is designed to make those risks visible and controllable.
+
+{/* truncate */}
+
+The core model is intentionally direct. Product data lives in state. User intent travels as typed actions. Reducers update state. Widgets describe the interface from the current inputs. The runtime lowers that description into layout, semantics, display lists, and host output. Shells connect the same product model to real platforms.
+
+That makes Fission feel different from a narrow widget library. The widget catalog matters, but the framework is organized around the whole software lifecycle: set up a project, learn the app model, build features, test behavior, package artifacts, and publish releases. A developer should not have to assemble a dozen unrelated tools before they can validate a real app.
+
+The first milestone focused on proving the foundation:
+
+- a constraint-based layout engine with deterministic widget identity,
+- a GPU-backed desktop rendering path,
+- rich text and text input improvements,
+- reusable widgets and examples,
+- a live end-to-end test driver,
+- diagnostics for layout, rendering, and interaction,
+- a facade crate so application authors can start with one dependency.
+
+The implementation is still young, but the direction is stable: Fission will keep product logic explicit, host integration typed, rendering deterministic, and tests close to the actual runtime path.
+
+If you are new to the project, start with the guided documentation at [fission.rs](https://fission.rs). The docs are organized by the way an app is built and shipped: setup, learn, build, test, and publish.

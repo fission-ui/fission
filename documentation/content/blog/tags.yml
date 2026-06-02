@@ -7,3 +7,23 @@ docs:
   label: Docs
   permalink: /docs
   description: Documentation and developer experience updates
+release:
+  label: Release
+  permalink: /release
+  description: Release notes and technical changelogs
+architecture:
+  label: Architecture
+  permalink: /architecture
+  description: Design decisions and framework architecture
+platform:
+  label: Platform
+  permalink: /platform
+  description: Platform target and shell updates
+server:
+  label: Server
+  permalink: /server
+  description: Server rendering and deployment updates
+authoring:
+  label: Authoring
+  permalink: /authoring
+  description: Widget authoring and application model updates
