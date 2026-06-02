@@ -7,7 +7,7 @@ slug: /widgets/custom-widget
 
 `CustomWidget` is the main escape hatch when the built-in widget set and higher-level helpers are not enough.
 
-It lets you attach a custom lowerer, and optionally a custom render object, to a node in the widget tree. That means you can emit your own intermediate representation subtree, participate in hit-testing and event handling, and add custom painting behavior.
+It lets you attach a custom lowerer, and optionally a custom render object, to a `Widget` in the tree. That means you can emit your own intermediate representation subtree, participate in hit-testing and event handling, and add custom painting behavior.
 
 Most app authors should not start here. If ordinary layout widgets solve the problem, use them. If you only need lightweight custom drawing, use [`canvas(...)`](/reference/widgets/canvas). Reach for `CustomWidget` only when you truly need a new kind of node behavior.
 
@@ -16,7 +16,7 @@ Most app authors should not start here. If ordinary layout widgets solve the pro
 ```rust
 use std::sync::Arc;
 
-use fission::core::ui::{CustomWidget, Widget};
+use fission::prelude::*;
 
 let widget: Widget = CustomWidget {
     debug_tag: "TimelineSurface".into(),
@@ -25,14 +25,14 @@ let widget: Widget = CustomWidget {
 }.into();
 ```
 
-In this example, `MyTimelineLowerer` would implement `LowerDyn` and emit the node subtree needed for the custom surface.
+In this example, `MyTimelineLowerer` would implement Fission's internal lowering trait and emit the subtree needed for the custom surface.
 
 ## Field table
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
 | `debug_tag` | `String` | Human-readable label for the custom node. | Useful when inspecting output or debugging. |
-| `lowerer` | `Option<Arc<dyn LowerDyn>>` | Object-safe lowering implementation that emits the node subtree. | Required in practice. Lowering panics if no lowerer is set. |
+| `lowerer` | `Option<Arc<dyn InternalLowerer>>` | Object-safe lowering implementation that emits the intermediate representation subtree. | Required in practice. Lowering panics if no lowerer is set. |
 | `render_object` | `Option<Arc<dyn CustomRenderObject>>` | Optional runtime object for custom hit-testing, event handling, input method editor handling, and painting. | `None` means the node is lowering-only. |
 
 ## What problems it solves

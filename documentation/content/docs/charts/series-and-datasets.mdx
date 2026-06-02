@@ -90,7 +90,7 @@ For live data, use the normal Fission app model:
 
 1. A service, job, resource, or platform integration receives new values.
 2. A reducer updates your application state.
-3. The widget build function creates a new chart snapshot from that state.
+3. Component conversion creates a new chart snapshot from that state.
 4. The chart renderer draws the snapshot.
 
 That model keeps rendering deterministic. If a test gives the chart the same state twice, it gets the same chart twice. Network timing and storage paging stay outside the renderer where they can be retried, cancelled, throttled, tested, and logged.

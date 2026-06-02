@@ -1,45 +1,30 @@
 ---
 title: canvas
-description: Draw a lightweight custom surface by emitting nodes from a lowering closure.
+description: Draw a lightweight custom surface from a deterministic lowering closure.
 slug: /widgets/canvas
 ---
 # canvas
 
-`canvas(...)` is the practical custom-drawing helper for Fission.
+`canvas(...)` is a low-level custom-drawing helper for Fission library authors.
 
-It lets you describe a small visual surface by emitting node ids inside a lowering closure. This is useful when the built-in widget set is close to what you need, but you want a focused custom drawing without creating a full custom render object.
+It creates a fixed-size custom widget whose painter closure emits intermediate representation (IR) ids during lowering. That makes it useful for focused visual surfaces such as custom indicators, chart internals, or small decorative primitives when ordinary widget composition cannot express the shape clearly enough.
 
-Use `canvas(...)` for lightweight visual work such as charts, badges, custom indicators, or decorative graphics. Do not start with it for ordinary application layout, text, or buttons. Those cases are usually clearer and more testable with normal widgets.
+Most application authors should start with normal widgets such as [`Container`](/reference/widgets/container), [`Composite`](/reference/widgets/composite), [`Row`](/reference/widgets/row), [`Column`](/reference/widgets/column), and [`Text`](/reference/widgets/text). Those widgets are easier to theme, test, document, and make accessible. Reach for `canvas(...)` only when you need custom IR emission.
 
-## Example
+## Example shape
 
 ```rust
-use fission::core::op::{Color as IrColor, Fill, PaintOp};
-use fission::core::{NodeBuilder, Op};
 use fission::prelude::*;
 
-let node = canvas(Some(120.0), Some(24.0), |cx| {
-    let bar = NodeBuilder::new(
-        cx.next_node_id(),
-        Op::Paint(PaintOp::DrawRect {
-            fill: Some(Fill::Solid(IrColor {
-                r: 46,
-                g: 204,
-                b: 113,
-                a: 255,
-            })),
-            stroke: None,
-            corner_radius: 6.0,
-            shadow: None,
-        }),
-    )
-    .build(cx);
-
-    vec![bar]
+let surface: Widget = canvas(Some(120.0), Some(24.0), |_cx| {
+    // Emit paint or layout IR ids here and return them.
+    // Library code that uses this path normally works directly with
+    // fission_core::internal lowering helpers.
+    Vec::new()
 });
 ```
 
-This gives you a compact custom surface while still staying inside the Fission node model.
+This is intentionally an advanced shape. The public app-authoring path remains `impl From<Component> for Widget`; `canvas(...)` is not a replacement component API.
 
 ## Field table
 
@@ -47,15 +32,15 @@ This gives you a compact custom surface while still staying inside the Fission n
 | --- | --- | --- | --- |
 | `width` | `Option<f32>` | Fixed width of the canvas box. | `None` leaves width to the parent constraints. |
 | `height` | `Option<f32>` | Fixed height of the canvas box. | `None` leaves height to the parent constraints. |
-| `painter` | `Fn(&mut LoweringContext) -> Vec<WidgetId>` | Closure that emits the child node ids to group inside the canvas box. | Required. The closure should stay deterministic and purely descriptive. |
+| `painter` | `Fn(&mut InternalLoweringCx) -> Vec<WidgetId>` | Closure that emits child IR ids to group inside the canvas box. | Required. This is an advanced lowering hook, not normal app authoring. |
 
 ## Behavior and advice
 
-`canvas(...)` is still a build-time description tool. The closure runs during lowering and should not do outside work. Think of it as a lower-level way to emit paint and layout nodes, not as a back door for imperative drawing state.
+`canvas(...)` is still descriptive. The closure runs during lowering and should not start network work, mutate product state, spawn tasks, or touch host APIs. It should emit deterministic IR for the current inputs.
 
-The helper also does not automatically add semantics. If the visual surface conveys important meaning, wrap it in surrounding widgets that provide labels or interaction. If the surface needs custom input or hit-testing logic, move up to [`CustomWidget`](/reference/widgets/custom-widget).
+The helper does not automatically add semantics. If the visual surface communicates meaning, wrap it in surrounding widgets that provide labels or interaction. If the surface needs custom hit testing, event handling, input method editor behavior, or runtime painting, use [`CustomWidget`](/reference/widgets/custom-widget) and document the custom behavior carefully.
 
-If you are teaching or onboarding a team, treat `canvas(...)` as an intermediate escape hatch: more advanced than `Container` or `Composite`, but simpler than designing a full custom node stack.
+Treat `canvas(...)` as an advanced library escape hatch. It should not appear in ordinary examples that teach application structure.
 
 ## Related
 

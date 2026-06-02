@@ -55,7 +55,7 @@ The dates assume a weekly cadence starting in June 2026. If a week slips, keep t
 | 9 | 2026-07-27 | Internationalisation and readable UI | Locale switcher | What internationalisation means, where strings live, and how locale affects layout. | Planned |
 | 10 | 2026-08-03 | Accessibility from the first screen | Accessible settings app | How labels, roles, focus order, and keyboard navigation make a screen usable. | Planned |
 | 11 | 2026-08-10 | Navigation and routes in Fission | Mini mail router | How to model routes, route parameters, not-found screens, and navigation actions. | Planned |
-| 12 | 2026-08-17 | Resources and async work | Weather lookup | How to request outside work without putting side effects inside widget builds. | Planned |
+| 12 | 2026-08-17 | Resources and async work | Weather lookup | How to request outside work without putting side effects inside component conversion. | Planned |
 | 13 | 2026-08-24 | Commands, jobs, and services | Import progress app | When to use commands, long-running jobs, services, progress, cancellation, and resume. | Planned |
 | 14 | 2026-08-31 | Test a Fission UI like a product | Counter and todo tests | How to assert state, semantics, hit testing, layout, and rendered behavior. | Planned |
 | 15 | 2026-09-07 | Lists that stay fast | Inbox list | How lazy lists, row identity, selection, and scroll state work in a real list. | Planned |

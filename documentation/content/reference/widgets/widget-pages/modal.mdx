@@ -67,7 +67,7 @@ let confirm_modal = Modal {
 
 `Modal` renders into `PortalLayer::Modal`, above normal content and above default portals. The shell then wraps portal content in a viewport-sized container, which lets the modal center itself against the full screen rather than the inline layout location where you declared it.
 
-The widget builds three parts for you: a full-screen dimmed backdrop, a centered card, and a footer row of action buttons. Backdrop taps and the header close button both dispatch the same `on_dismiss` envelope, so you only need one reducer path for the ordinary exit case.
+The widget constructs three parts for you during component conversion: a full-screen dimmed backdrop, a centered card, and a footer row of action buttons. Backdrop taps and the header close button both dispatch the same `on_dismiss` envelope, so you only need one reducer path for the ordinary exit case.
 
 ## Specific advice
 

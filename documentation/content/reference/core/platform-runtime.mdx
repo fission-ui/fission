@@ -18,7 +18,7 @@ That host might be a desktop window, a browser page, an Android app, or an iOS a
 
 The shared runtime owns the behavior that should not change when you switch platforms.
 
-That includes action dispatch, reducer execution, runtime state, resource reconciliation, widget building, lowering, layout, semantics, display-list generation, and the internal structures that make deterministic testing possible.
+That includes action dispatch, reducer execution, runtime state, resource reconciliation, component conversion, lowering, layout, semantics, display-list generation, and the internal structures that make deterministic testing possible.
 
 In plainer language, the runtime owns the meaning of the app. If a button press should increment a counter, open a modal, update a form field, or request a save job, that rule belongs to the shared runtime and app model. It should not become different simply because the app is running in a browser instead of a native window.
 
