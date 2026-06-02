@@ -11,7 +11,7 @@ struct PlatformApiState {
     last_notification: Option<String>,
 }
 
-impl AppState for PlatformApiState {}
+impl GlobalState for PlatformApiState {}
 
 fn on_deep_link(state: &mut PlatformApiState, action: DeepLinkReceived) {
     state.last_link = Some(action.link.url);
@@ -21,17 +21,18 @@ fn on_notification_response(state: &mut PlatformApiState, action: NotificationRe
     state.last_notification = Some(action.response.notification_id.0);
 }
 
+#[derive(Clone)]
 struct PlatformApiApp;
 
-impl Widget<PlatformApiState> for PlatformApiApp {
-    fn build(&self, _ctx: &mut BuildCtx<PlatformApiState>, _view: &View<PlatformApiState>) -> Node {
-        Text::new("platform api").into_node()
+impl From<PlatformApiApp> for Widget {
+    fn from(_component: PlatformApiApp) -> Self {
+        let (_ctx, _view) = fission::build::current::<PlatformApiState>();
+        Text::new("platform api").into()
     }
 }
-
 #[test]
 fn facade_exports_notifications_and_deep_links() {
-    let _app = DesktopApp::new(PlatformApiApp)
+    let _app = DesktopApp::<PlatformApiState, _>::new(PlatformApiApp)
         .with_notification_host(MemoryNotificationHost)
         .with_nfc_host(MemoryNfcHost::default())
         .with_biometric_host(MemoryBiometricHost::default())

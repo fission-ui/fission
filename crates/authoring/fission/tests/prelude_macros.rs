@@ -1,11 +1,12 @@
 use fission::prelude::*;
+use fission_core::internal::BuildCtx;
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct State {
     count: u32,
 }
 
-impl AppState for State {}
+impl GlobalState for State {}
 
 #[fission_action]
 struct ManualAction;
@@ -26,7 +27,7 @@ fn prelude_exports_action_and_reducer_helpers() {
         ActionId::from_name("prelude_macros::Increment")
     );
 
-    let _handler: Handler<State, Increment> = reduce_with!(on_increment);
+    let _handler: Handler<State, Increment> = reduce!(on_increment);
 
     let mut ctx = BuildCtx::<State>::new();
     let envelope = with_reducer!(ctx, Increment, on_increment);
