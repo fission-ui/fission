@@ -123,6 +123,36 @@ impl ActionScopeId {
     }
 }
 
+/// Type-erased action emitted for widgets inside an [`ActionScope`](crate::ui::ActionScope).
+///
+/// Some widgets need to replace an [`ActionEnvelope`] payload with live control
+/// data, such as the current text in a text input. `ScopedRawAction` preserves
+/// the original action id separately from that dynamic payload so shells can
+/// route actions for mounted child apps without knowing the child's Rust action
+/// types.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScopedRawAction {
+    /// The nearest enclosing action scope.
+    pub scope_id: ActionScopeId,
+    /// The widget that emitted the action.
+    pub target: WidgetId,
+    /// The original action id emitted by the scoped widget.
+    pub action_id: ActionId,
+    /// The payload emitted by the widget. For dynamic controls this is the
+    /// live control value, not necessarily the payload originally bound.
+    pub payload: Vec<u8>,
+}
+
+impl Action for ScopedRawAction {
+    fn static_id() -> ActionId {
+        lazy_static! {
+            pub static ref SCOPED_RAW_ACTION_ID: ActionId =
+                ActionId::from_name("fission_core::ScopedRawAction");
+        }
+        *SCOPED_RAW_ACTION_ID
+    }
+}
+
 /// Action dispatched by the text-editing controller when the user modifies a
 /// [`TextInput`](crate::ui::TextInput) field.
 ///

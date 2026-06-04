@@ -1,4 +1,4 @@
-use crate::action::{ActionEnvelope, ActionId, GlobalState};
+use crate::action::{Action, ActionEnvelope, ActionId, GlobalState, ScopedRawAction};
 use crate::async_runtime::ServiceStopPayload;
 use crate::effect::{ActionInput, EffectEnvelope};
 use crate::env::{ActiveAnimation, RuntimeState, VideoStatus};
@@ -345,6 +345,13 @@ impl Runtime {
             },
         );
 
+        if let Some(scoped_action) = self.scoped_raw_action(&action, target, input) {
+            if self.has_reducers_for(ScopedRawAction::static_id()) {
+                let envelope: ActionEnvelope = scoped_action.into();
+                return self.dispatch_node_with_input(envelope, target, &ActionInput::None);
+            }
+        }
+
         // Delegate video actions to media module
         if crate::media::handle_video_action(&mut self.runtime_state.video, &action)? {
             return Ok(());
@@ -405,6 +412,34 @@ impl Runtime {
             },
         );
         Ok(())
+    }
+
+    fn scoped_raw_action(
+        &self,
+        action: &ActionEnvelope,
+        target: WidgetId,
+        input: &ActionInput,
+    ) -> Option<ScopedRawAction> {
+        if action.id == ScopedRawAction::static_id() {
+            return None;
+        }
+        let scope_id = input.action_scope_id()?;
+        Some(ScopedRawAction {
+            scope_id: crate::ActionScopeId::from_u128(scope_id),
+            target: input.scoped_target().unwrap_or(target),
+            action_id: action.id,
+            payload: action.payload.clone(),
+        })
+    }
+
+    fn has_reducers_for(&self, action_id: ActionId) -> bool {
+        self.persistent_reducers
+            .get(&action_id)
+            .is_some_and(|reducers| !reducers.is_empty())
+            || self
+                .reducers
+                .get(&action_id)
+                .is_some_and(|reducers| !reducers.is_empty())
     }
 
     pub fn tick(&mut self, dt: CurrentTime) -> Result<TickResult> {

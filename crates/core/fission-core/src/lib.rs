@@ -188,7 +188,9 @@ pub mod public {
         pub use crate::view::*;
     }
 
-    pub use crate::action::{Action, ActionEnvelope, ActionId, ActionScopeId, GlobalState};
+    pub use crate::action::{
+        Action, ActionEnvelope, ActionId, ActionScopeId, GlobalState, ScopedRawAction,
+    };
     pub use crate::async_runtime::{
         BoxFuture, JobCtx, JobRef, JobSpec, ResourceExecutionContext, ServiceBindings, ServiceCtx,
         ServiceRunner, ServiceSlot, ServiceSpec, ServiceType,
@@ -344,7 +346,7 @@ pub mod public {
 #[cfg(test)]
 mod tests;
 
-pub use action::{Action, ActionEnvelope, ActionId, ActionScopeId, GlobalState};
+pub use action::{Action, ActionEnvelope, ActionId, ActionScopeId, GlobalState, ScopedRawAction};
 pub use async_runtime::{
     BoxFuture, JobCtx, JobRef, JobSpec, ResourceExecutionContext, ServiceBindings, ServiceCtx,
     ServiceRunner, ServiceSlot, ServiceSpec, ServiceType,
