@@ -92,6 +92,26 @@ Enable Redis through the facade feature in the server app's `Cargo.toml`:
 fission = { version = "0.3", features = ["server", "server-redis"] }
 ```
 
+## Invalidate cached pages after writes
+
+Route tags are the contract between your app data and the page cache. If changing a post should refresh the blog landing page, the post page, and a topic page, tag those routes with values such as `posts`, `post:<id>`, and `topic:<slug>`.
+
+Application-owned services can use the cache handle directly when they already own the invalidation policy:
+
+```rust
+renderer
+    .cache()
+    .invalidate_tags(&[CacheTag::new("posts"), CacheTag::new("post:hello-world")])?;
+```
+
+Admin and publishing workflows can call the renderer helpers instead:
+
+```rust
+renderer.invalidate_cache_tags(["posts", "post:hello-world"])?;
+```
+
+Both paths return an `InvalidationReport` so the caller can log how many cache keys and tag indexes were removed.
+
 ## 3. Configure sessions before using private routes
 
 `ServerPrivate` routes use a cookie-backed session id. For production HTTPS deployments, sign the cookie value and mark it secure.

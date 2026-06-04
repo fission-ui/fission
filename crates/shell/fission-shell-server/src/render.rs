@@ -1,10 +1,12 @@
-use crate::app::{normalize_server_path, FissionServerApp, ServerRenderedNode, ServerRouteEntry};
+use crate::app::{
+    normalize_server_path, FissionServerApp, ServerEnvContext, ServerRenderedNode, ServerRouteEntry,
+};
 use crate::{
-    Cache, CacheEntry, CacheKey, CacheMetadata, CachePipeline, CacheScope, Freshness, MokaCache,
-    RenderedPage, ServerActionSigner, ServerBrowserArtifactConfig, ServerCacheLayerConfig,
-    ServerCacheProvider, ServerHttpConfig, ServerIslandConfig, ServerIslandPreload,
-    ServerJobRegistry, ServerRuntimeConfig, ServerSameSite, ServerSessionConfig,
-    SignedServerAction, VerifiedServerAction, WebRoute, WebRouteMode,
+    Cache, CacheEntry, CacheKey, CacheMetadata, CachePipeline, CacheScope, CacheTag, Freshness,
+    InvalidationReport, MokaCache, RenderedPage, ServerActionSigner, ServerBrowserArtifactConfig,
+    ServerCacheLayerConfig, ServerCacheProvider, ServerHttpConfig, ServerIslandConfig,
+    ServerIslandPreload, ServerJobRegistry, ServerRuntimeConfig, ServerSameSite,
+    ServerSessionConfig, SignedServerAction, VerifiedServerAction, WebRoute, WebRouteMode,
 };
 use anyhow::{anyhow, Context, Result};
 use fission_core::internal::InternalLoweringCx;
@@ -186,6 +188,28 @@ impl ServerRenderer {
         self
     }
 
+    pub fn cache(&self) -> Arc<dyn Cache> {
+        self.cache.clone()
+    }
+
+    pub fn remove_cache_entry(&self, key: &CacheKey) -> Result<()> {
+        self.cache.remove(key)?;
+        Ok(())
+    }
+
+    pub fn invalidate_cache_tag(&self, tag: impl Into<CacheTag>) -> Result<InvalidationReport> {
+        Ok(self.cache.invalidate_tag(&tag.into())?)
+    }
+
+    pub fn invalidate_cache_tags<I, T>(&self, tags: I) -> Result<InvalidationReport>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<CacheTag>,
+    {
+        let tags = tags.into_iter().map(Into::into).collect::<Vec<_>>();
+        Ok(self.cache.invalidate_tags(&tags)?)
+    }
+
     pub fn with_viewport_size(mut self, size: LayoutSize) -> Self {
         self.viewport_size = size;
         self
@@ -272,7 +296,8 @@ impl ServerRenderer {
         let session = self.session_for_request(&request)?;
 
         if let WebRouteMode::Revalidated(policy) = &route.route.mode {
-            let cache_key = self.cache_key_for_route(&route.route, &request);
+            let env = self.env_for_route(route, None, &request, &session)?;
+            let cache_key = self.cache_key_for_route(&route.route, &request, &env);
             let now = SystemTime::now();
             if let Some(entry) = self.cache.get(&cache_key)? {
                 match entry.freshness(now) {
@@ -291,7 +316,7 @@ impl ServerRenderer {
                     Freshness::Expired => {}
                 }
             }
-            let rendered = self.render_uncached(route, None, &request, &session)?;
+            let rendered = self.render_uncached_with_env(route, None, &request, &session, env)?;
             if rendered.server_action_count > 0 {
                 anyhow::bail!(
                     "revalidated route `{}` renders server action forms; use ServerPrivate/Server mode or move the interactive region into an island before caching the page",
@@ -339,22 +364,33 @@ impl ServerRenderer {
         request: &ServerRequest,
         session: &ServerSession,
     ) -> Result<RenderedServerRoute> {
+        let env = self.env_for_route(route, action, request, session)?;
+        self.render_uncached_with_env(route, action, request, session, env)
+    }
+
+    fn render_uncached_with_env(
+        &self,
+        route: &ServerRouteEntry,
+        action: Option<&VerifiedServerAction>,
+        request: &ServerRequest,
+        session: &ServerSession,
+        env: Env,
+    ) -> Result<RenderedServerRoute> {
         let ctx = crate::ServerRenderContext {
             project_dir: &self.app.project_dir,
             route_path: &route.route.path,
-            theme: &self.app.theme,
+            theme: &env.theme,
             viewport_size: self.viewport_size,
             jobs: &self.jobs,
             request,
             session,
             action,
             render_pass_limit: self.render_pass_limit,
+            default_locale: &self.default_locale,
+            env: &env,
         };
         let ServerRenderedNode { node, resources } = (route.render)(&ctx)?;
         let runtime = RuntimeState::default();
-        let mut env = Env::default();
-        env.theme = self.app.theme.clone();
-        env.viewport_size = self.viewport_size;
         let mut lowering = InternalLoweringCx::new(&env, &runtime, None, None);
         let root = fission_core::internal::lower_widget(&node, &mut lowering);
         lowering.ir.set_root(root);
@@ -377,7 +413,7 @@ impl ServerRenderer {
         )?;
         let server_action_count = action_tokens.len();
         let render_options = HtmlRenderOptions {
-            lang: self.default_locale.clone(),
+            lang: env.locale.0.clone(),
             document_title: route.route.title.clone(),
             description: route.route.description.clone(),
             canonical_url: self.canonical_url_for_route(&route.route.path, request),
@@ -385,7 +421,7 @@ impl ServerRenderer {
             favicon_href: None,
             stylesheet_href: "/site.css".to_string(),
             current_route_path: route.route.path.clone(),
-            css_variables: CssVariableMap::from_theme(&self.app.theme),
+            css_variables: CssVariableMap::from_theme(&env.theme),
             server_action_post_path: Some("/__fission/action".to_string()),
             server_action_tokens: action_tokens,
             head_end_html,
@@ -681,7 +717,34 @@ impl ServerRenderer {
         Ok(())
     }
 
-    fn cache_key_for_route(&self, route: &WebRoute, request: &ServerRequest) -> CacheKey {
+    fn env_for_route(
+        &self,
+        route: &ServerRouteEntry,
+        action: Option<&VerifiedServerAction>,
+        request: &ServerRequest,
+        session: &ServerSession,
+    ) -> Result<Env> {
+        let ctx = ServerEnvContext {
+            project_dir: &self.app.project_dir,
+            route_path: &route.route.path,
+            theme: &self.app.theme,
+            viewport_size: self.viewport_size,
+            jobs: &self.jobs,
+            request,
+            session,
+            action,
+            render_pass_limit: self.render_pass_limit,
+            default_locale: &self.default_locale,
+        };
+        self.app.env_for_context(&ctx)
+    }
+
+    fn cache_key_for_route(
+        &self,
+        route: &WebRoute,
+        request: &ServerRequest,
+        env: &Env,
+    ) -> CacheKey {
         let query = request
             .query
             .iter()
@@ -706,14 +769,14 @@ impl ServerRenderer {
                     .join("&")
             })
             .unwrap_or_default();
-        let theme_hash = blake3::hash(format!("{:?}", self.app.theme).as_bytes());
+        let theme_hash = blake3::hash(format!("{:?}", env.theme).as_bytes());
         let build_id = option_env!("FISSION_BUILD_ID").unwrap_or(env!("CARGO_PKG_VERSION"));
         let mut key = format!(
             "page:{}?{}#app:{}#locale:{}#theme:{}#build:{}",
             route.path,
             query,
             self.app.project_name,
-            self.default_locale,
+            env.locale.0,
             &theme_hash.to_hex().to_string()[..16],
             build_id
         );
@@ -1128,12 +1191,14 @@ mod tests {
         CacheError, CacheTag, InvalidationReport, MokaCache, ProgressiveWorker, RevalidationPolicy,
         WasmIsland, WebRouteMode,
     };
-    use fission_core::ui::{Button, Text};
+    use fission_core::ui::{Button, Text, TextContent};
     use fission_core::{
         Action, ActionId, GlobalState, Handler, JobRef, JobResource, JobSpec, ReducerContext,
         ResourceKey, Widget,
     };
+    use fission_i18n::TranslationBundle;
     use serde::{Deserialize, Serialize};
+    use std::collections::HashMap;
     use std::fs;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1153,6 +1218,36 @@ mod tests {
             Text::new(component.0).into()
         }
     }
+
+    #[derive(Clone)]
+    struct KeyPage(&'static str);
+
+    impl From<KeyPage> for Widget {
+        fn from(component: KeyPage) -> Self {
+            let (_ctx, _view) = fission_core::build::current::<TestState>();
+            Text::new(TextContent::Key(component.0.to_string())).into()
+        }
+    }
+
+    fn translated_env() -> Env {
+        let mut env = Env::default();
+        env.i18n.add_bundle(TranslationBundle {
+            locale: "en".into(),
+            messages: HashMap::from([
+                ("page.title".to_string(), "Hello SSR".to_string()),
+                ("catalog.title".to_string(), "Catalog".to_string()),
+            ]),
+        });
+        env.i18n.add_bundle(TranslationBundle {
+            locale: "fr".into(),
+            messages: HashMap::from([
+                ("page.title".to_string(), "Bonjour SSR".to_string()),
+                ("catalog.title".to_string(), "Catalogue".to_string()),
+            ]),
+        });
+        env
+    }
+
     #[derive(Clone)]
     struct TestActionPage;
 
@@ -1213,6 +1308,143 @@ mod tests {
         }
     }
 
+    fn default_render_env(renderer: &ServerRenderer) -> Env {
+        let mut env = renderer.app.env.clone();
+        env.theme = renderer.app.theme.clone();
+        env.locale = renderer.default_locale.as_str().into();
+        env
+    }
+
+    #[test]
+    fn server_renderer_resolves_keyed_text_from_seeded_env() {
+        let app = FissionServerApp::new("Test")
+            .with_env(translated_env())
+            .route_widget::<TestState, _>(
+                "/",
+                "Home",
+                None,
+                WebRouteMode::Server(Default::default()),
+                KeyPage("page.title"),
+            );
+        let renderer = ServerRenderer::new(app);
+
+        let response = renderer.handle(ServerRequest::get("/")).unwrap();
+
+        assert_eq!(response.status, 200);
+        assert!(response.body_string().contains("Hello SSR"));
+        assert!(!response.body_string().contains("MISSING:page.title"));
+    }
+
+    #[test]
+    fn server_renderer_uses_request_env_locale_for_html_and_text() {
+        let app = FissionServerApp::new("Test")
+            .with_env(translated_env())
+            .with_request_env(|ctx, env| {
+                if ctx.route_path.starts_with("/fr") {
+                    env.locale = "fr".into();
+                }
+                Ok(())
+            })
+            .route_widget::<TestState, _>(
+                "/fr",
+                "Home",
+                None,
+                WebRouteMode::Server(Default::default()),
+                KeyPage("page.title"),
+            );
+        let renderer = ServerRenderer::new(app);
+
+        let response = renderer.handle(ServerRequest::get("/fr")).unwrap();
+        let body = response.body_string();
+
+        assert_eq!(response.status, 200);
+        assert!(body.contains("Bonjour SSR"));
+        assert!(body.contains("lang=\"fr\""));
+    }
+
+    #[test]
+    fn revalidated_cache_keys_vary_by_resolved_locale() {
+        let cache = Arc::new(MokaCache::default());
+        let app = FissionServerApp::new("Test")
+            .with_env(translated_env())
+            .with_request_env(|ctx, env| {
+                if header_value(&ctx.request.headers, "accept-language")
+                    .is_some_and(|value| value.starts_with("fr"))
+                {
+                    env.locale = "fr".into();
+                }
+                Ok(())
+            })
+            .route_widget::<TestState, _>(
+                "/catalog",
+                "Catalog",
+                None,
+                WebRouteMode::Revalidated(
+                    RevalidationPolicy::new(Duration::from_secs(60)).tag("catalog"),
+                ),
+                KeyPage("catalog.title"),
+            );
+        let renderer = ServerRenderer::new(app).with_cache(cache);
+        let en = ServerRequest::get("/catalog");
+        let mut fr = ServerRequest::get("/catalog");
+        fr.headers
+            .insert("accept-language".to_string(), "fr-FR".to_string());
+
+        let en_first = renderer.handle(en.clone()).unwrap();
+        let fr_first = renderer.handle(fr).unwrap();
+        let en_second = renderer.handle(en).unwrap();
+
+        assert_eq!(en_first.cache_status, Some(Freshness::Expired));
+        assert!(en_first.body_string().contains("Catalog"));
+        assert_eq!(fr_first.cache_status, Some(Freshness::Expired));
+        assert!(fr_first.body_string().contains("Catalogue"));
+        assert_eq!(en_second.cache_status, Some(Freshness::Fresh));
+        assert!(en_second.body_string().contains("Catalog"));
+    }
+
+    #[test]
+    fn renderer_exposes_direct_and_helper_cache_invalidation() {
+        let app = FissionServerApp::new("Test").route_widget::<TestState, _>(
+            "/posts",
+            "Posts",
+            None,
+            WebRouteMode::Revalidated(
+                RevalidationPolicy::new(Duration::from_secs(60)).tags(["posts", "post:1"]),
+            ),
+            TestPage("Posts"),
+        );
+        let renderer = ServerRenderer::new(app);
+
+        assert_eq!(
+            renderer
+                .handle(ServerRequest::get("/posts"))
+                .unwrap()
+                .cache_status,
+            Some(Freshness::Expired)
+        );
+        let direct_report = renderer
+            .cache()
+            .invalidate_tag(&CacheTag::new("posts"))
+            .unwrap();
+        assert_eq!(direct_report.removed_keys, 1);
+        assert_eq!(
+            renderer
+                .handle(ServerRequest::get("/posts"))
+                .unwrap()
+                .cache_status,
+            Some(Freshness::Expired)
+        );
+        let helper_report = renderer.invalidate_cache_tag("post:1").unwrap();
+        assert_eq!(helper_report.removed_keys, 1);
+        assert_eq!(
+            renderer
+                .handle(ServerRequest::get("/posts"))
+                .unwrap()
+                .cache_status,
+            Some(Freshness::Expired)
+        );
+    }
+
     #[test]
     fn server_renderer_caches_revalidated_routes() {
         let cache = Arc::new(MokaCache::default());
@@ -1224,7 +1456,9 @@ mod tests {
             TestPage("Hello cache"),
         );
         let renderer = ServerRenderer::new(app).with_cache(cache.clone());
-        let key = renderer.cache_key_for_route(&renderer.routes()[0], &ServerRequest::get("/"));
+        let env = default_render_env(&renderer);
+        let key =
+            renderer.cache_key_for_route(&renderer.routes()[0], &ServerRequest::get("/"), &env);
 
         let first = renderer.handle(ServerRequest::get("/")).unwrap();
         assert_eq!(first.status, 200);
@@ -1255,7 +1489,8 @@ mod tests {
         second.query.insert("a".to_string(), "1".to_string());
         second.query.insert("b".to_string(), "2".to_string());
 
-        let first_key = renderer.cache_key_for_route(&renderer.routes()[0], &first);
+        let env = default_render_env(&renderer);
+        let first_key = renderer.cache_key_for_route(&renderer.routes()[0], &first, &env);
         assert_eq!(
             renderer.handle(first).unwrap().cache_status,
             Some(Freshness::Expired)
@@ -1287,8 +1522,9 @@ mod tests {
         fr.headers
             .insert("accept-language".to_string(), "fr-FR".to_string());
 
-        let en_key = renderer.cache_key_for_route(&renderer.routes()[0], &en);
-        let fr_key = renderer.cache_key_for_route(&renderer.routes()[0], &fr);
+        let env = default_render_env(&renderer);
+        let en_key = renderer.cache_key_for_route(&renderer.routes()[0], &en, &env);
+        let fr_key = renderer.cache_key_for_route(&renderer.routes()[0], &fr, &env);
         assert_eq!(
             renderer.handle(en).unwrap().cache_status,
             Some(Freshness::Expired)

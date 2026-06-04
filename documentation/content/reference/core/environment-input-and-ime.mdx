@@ -36,11 +36,13 @@ A widget should read environment through `ViewHandle`, for example with `view.vi
 
 ## How `Env` reaches the app
 
-Desktop currently exposes public `with_env(...)` and `with_sync_env(...)` builders. Mobile and web expose public `with_sync_env(...)`.
+Desktop currently exposes public `with_env(...)` and `with_sync_env(...)` builders. Mobile and web expose public `with_sync_env(...)`. Server-rendered apps expose `with_env(...)` and `with_request_env(...)`; static sites expose `with_env(...)`.
 
 Use `with_env(...)` when you want to seed a prepared environment, such as an environment that already contains translation bundles.
 
 Use `with_sync_env(...)` when values in `GlobalState` should be mirrored into `Env`, such as a user-selected locale or theme mode.
+
+Use `with_request_env(...)` on server-rendered apps when request data should select presentation context before rendering, such as a locale stored in a route prefix, header, cookie, or session.
 
 The important contract is that environment remains explicit and shell-managed, not hidden behind global process state.
 

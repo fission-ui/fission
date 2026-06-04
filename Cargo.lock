@@ -2798,6 +2798,7 @@ dependencies = [
  "bincode",
  "blake3",
  "fission-core",
+ "fission-i18n",
  "fission-ir",
  "fission-layout",
  "fission-shell-site",
@@ -2819,6 +2820,7 @@ version = "0.4.0"
 dependencies = [
  "anyhow",
  "fission-core",
+ "fission-i18n",
  "fission-ir",
  "fission-layout",
  "fission-theme",

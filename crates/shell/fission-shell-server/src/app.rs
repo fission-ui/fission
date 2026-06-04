@@ -17,6 +17,8 @@ use std::sync::Arc;
 
 pub(crate) type RouteRenderer =
     dyn for<'a> Fn(&ServerRenderContext<'a>) -> Result<ServerRenderedNode> + Send + Sync + 'static;
+type RequestEnvSync =
+    dyn for<'a> Fn(&ServerEnvContext<'a>, &mut Env) -> Result<()> + Send + Sync + 'static;
 type InitialStateLoader<S> =
     dyn for<'a> Fn(&ServerRenderContext<'a>) -> Result<S> + Send + Sync + 'static;
 
@@ -24,6 +26,20 @@ type InitialStateLoader<S> =
 pub(crate) struct ServerRenderedNode {
     pub node: Widget,
     pub resources: Vec<RuntimeResourceDeclaration>,
+}
+
+#[derive(Clone)]
+pub struct ServerEnvContext<'a> {
+    pub project_dir: &'a Path,
+    pub route_path: &'a str,
+    pub theme: &'a Theme,
+    pub viewport_size: LayoutSize,
+    pub jobs: &'a ServerJobRegistry,
+    pub request: &'a ServerRequest,
+    pub session: &'a ServerSession,
+    pub action: Option<&'a VerifiedServerAction>,
+    pub render_pass_limit: usize,
+    pub default_locale: &'a str,
 }
 
 #[derive(Clone)]
@@ -37,6 +53,14 @@ pub struct ServerRenderContext<'a> {
     pub session: &'a ServerSession,
     pub action: Option<&'a VerifiedServerAction>,
     pub render_pass_limit: usize,
+    pub default_locale: &'a str,
+    pub(crate) env: &'a Env,
+}
+
+impl<'a> ServerRenderContext<'a> {
+    pub fn env(&self) -> &'a Env {
+        self.env
+    }
 }
 
 #[derive(Clone)]
@@ -50,6 +74,8 @@ pub struct FissionServerApp {
     pub(crate) project_name: String,
     pub(crate) project_dir: std::path::PathBuf,
     pub(crate) theme: Theme,
+    pub(crate) env: Env,
+    pub(crate) request_env_sync: Option<Arc<RequestEnvSync>>,
     pub(crate) jobs: ServerJobRegistry,
     pub(crate) routes: Vec<ServerRouteEntry>,
 }
@@ -60,6 +86,8 @@ impl FissionServerApp {
             project_name: project_name.into(),
             project_dir: std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
             theme: Theme::default(),
+            env: Env::default(),
+            request_env_sync: None,
             jobs: ServerJobRegistry::new(),
             routes: Vec::new(),
         }
@@ -71,7 +99,22 @@ impl FissionServerApp {
     }
 
     pub fn theme(mut self, theme: Theme) -> Self {
+        self.env.theme = theme.clone();
         self.theme = theme;
+        self
+    }
+
+    pub fn with_env(mut self, env: Env) -> Self {
+        self.env = env;
+        self.env.theme = self.theme.clone();
+        self
+    }
+
+    pub fn with_request_env<F>(mut self, sync: F) -> Self
+    where
+        F: for<'a> Fn(&ServerEnvContext<'a>, &mut Env) -> Result<()> + Send + Sync + 'static,
+    {
+        self.request_env_sync = Some(Arc::new(sync));
         self
     }
 
@@ -194,6 +237,17 @@ impl FissionServerApp {
             }
         }
     }
+
+    pub(crate) fn env_for_context(&self, ctx: &ServerEnvContext<'_>) -> Result<Env> {
+        let mut env = self.env.clone();
+        env.theme = ctx.theme.clone();
+        env.viewport_size = ctx.viewport_size;
+        env.locale = ctx.default_locale.into();
+        if let Some(sync) = &self.request_env_sync {
+            sync(ctx, &mut env)?;
+        }
+        Ok(env)
+    }
 }
 
 fn render_widget_node<S, W>(
@@ -206,16 +260,14 @@ where
     W: Clone + Into<Widget>,
 {
     let runtime = RuntimeState::default();
-    let mut env = Env::default();
-    env.theme = ctx.theme.clone();
-    env.viewport_size = ctx.viewport_size;
+    let env = ctx.env();
     let mut executed_jobs = BTreeSet::new();
     let mut pending_action = ctx.action.cloned();
     let mut final_node = None;
     let mut final_resources = Vec::new();
 
     for pass in 0..=ctx.render_pass_limit {
-        let view = View::new(&state, &runtime, &env, None);
+        let view = View::new(&state, &runtime, env, None);
         let mut build_ctx = BuildCtx::<S>::new();
         let node = fission_core::build::enter(&mut build_ctx, &view, || (*widget).clone().into());
 
@@ -252,7 +304,7 @@ where
 
     Ok(ServerRenderedNode {
         node: final_node.unwrap_or_else(|| {
-            let view = View::new(&state, &runtime, &env, None);
+            let view = View::new(&state, &runtime, env, None);
             let mut build_ctx = BuildCtx::<S>::new();
             fission_core::build::enter(&mut build_ctx, &view, || (*widget).clone().into())
         }),
