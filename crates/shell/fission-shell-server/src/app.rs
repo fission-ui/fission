@@ -76,7 +76,25 @@ pub struct ServerHttpContext<'a> {
 #[derive(Clone)]
 pub(crate) struct ServerRouteEntry {
     pub route: WebRoute,
+    pub matcher: ServerRouteMatcher,
     pub render: Arc<RouteRenderer>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ServerRouteMatcher {
+    Exact,
+    Prefix { prefix: String },
+}
+
+impl ServerRouteMatcher {
+    pub(crate) fn matches(&self, route_path: &str, request_path: &str) -> bool {
+        match self {
+            Self::Exact => route_path == request_path,
+            Self::Prefix { prefix } => {
+                request_path.starts_with(prefix) && request_path.len() > prefix.len()
+            }
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -252,6 +270,42 @@ impl FissionServerApp {
                 workers: Vec::new(),
                 islands: Vec::new(),
             },
+            matcher: ServerRouteMatcher::Exact,
+            render: Arc::new(move |ctx| {
+                let state = initial_state(ctx)?;
+                render_widget_node::<S, W>(widget.as_ref(), ctx, state)
+            }),
+        });
+        self
+    }
+
+    pub fn route_prefix_widget_with_state<S, W, F>(
+        mut self,
+        path_prefix: impl Into<String>,
+        title: impl Into<String>,
+        description: impl Into<Option<String>>,
+        mode: WebRouteMode,
+        widget: W,
+        initial_state: F,
+    ) -> Self
+    where
+        S: GlobalState + 'static,
+        W: Clone + Into<Widget> + Send + Sync + 'static,
+        F: for<'a> Fn(&ServerRenderContext<'a>) -> Result<S> + Send + Sync + 'static,
+    {
+        let prefix = normalize_server_path(&path_prefix.into());
+        let widget = Arc::new(widget);
+        let initial_state: Arc<InitialStateLoader<S>> = Arc::new(initial_state);
+        self.routes.push(ServerRouteEntry {
+            route: WebRoute {
+                path: prefix.clone(),
+                title: title.into(),
+                description: description.into(),
+                mode,
+                workers: Vec::new(),
+                islands: Vec::new(),
+            },
+            matcher: ServerRouteMatcher::Prefix { prefix },
             render: Arc::new(move |ctx| {
                 let state = initial_state(ctx)?;
                 render_widget_node::<S, W>(widget.as_ref(), ctx, state)
@@ -313,7 +367,16 @@ impl FissionServerApp {
 
     pub(crate) fn find_route(&self, path: &str) -> Option<&ServerRouteEntry> {
         let path = normalize_server_path(path);
-        self.routes.iter().find(|entry| entry.route.path == path)
+        self.routes
+            .iter()
+            .find(|entry| {
+                matches!(entry.matcher, ServerRouteMatcher::Exact) && entry.route.path == path
+            })
+            .or_else(|| {
+                self.routes
+                    .iter()
+                    .find(|entry| entry.matcher.matches(&entry.route.path, &path))
+            })
     }
 
     pub(crate) fn find_http_handler(
