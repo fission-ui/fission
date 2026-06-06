@@ -278,11 +278,22 @@ impl ServerRenderer {
         }
         if let Some(handler) = self.app.find_http_handler(&request.method, &request.path) {
             let session = self.session_for_request(&request)?;
-            let mut response = (handler.handler)(&ServerHttpContext {
+            let ctx = ServerHttpContext {
                 project_dir: &self.app.project_dir,
                 request: &request,
                 session: &session,
-            })?;
+            };
+            let response = if tokio::runtime::Handle::try_current().is_ok() {
+                std::thread::scope(|scope| {
+                    scope
+                        .spawn(|| (handler.handler)(&ctx))
+                        .join()
+                        .map_err(|_| anyhow!("server HTTP handler panicked"))?
+                })
+            } else {
+                (handler.handler)(&ctx)
+            };
+            let mut response = response?;
             self.attach_session_cookie(&mut response, &session);
             return Ok(response);
         }
@@ -1474,6 +1485,30 @@ mod tests {
         assert_eq!(response.status, 200);
         assert!(body.contains("Bonjour SSR"));
         assert!(body.contains("lang=\"fr\""));
+    }
+
+    #[test]
+    fn http_handlers_can_use_blocking_clients_inside_tokio_runtime() {
+        let app = FissionServerApp::new("Test").form_post("/submit", |_ctx| {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .build()
+                .unwrap();
+            let value = runtime.block_on(async { "stored" });
+            Ok(ServerResponse::text(
+                200,
+                "text/plain; charset=utf-8",
+                value,
+            ))
+        });
+        let renderer = ServerRenderer::new(app);
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+
+        let response = runtime
+            .block_on(async { renderer.handle(ServerRequest::post("/submit", "email=a@b.test")) })
+            .unwrap();
+
+        assert_eq!(response.status, 200);
+        assert_eq!(response.body_string(), "stored");
     }
 
     #[test]
