@@ -467,6 +467,7 @@ impl ServerRenderer {
             css_variables: CssVariableMap::from_theme(&env.theme),
             server_action_post_path: Some("/__fission/action".to_string()),
             server_action_tokens: action_tokens,
+            structured_data: route.route.structured_data.clone(),
             animation_requests,
             head_end_html,
             body_end_html,

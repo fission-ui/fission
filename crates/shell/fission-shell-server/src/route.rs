@@ -182,4 +182,5 @@ pub struct WebRoute {
     pub mode: WebRouteMode,
     pub workers: Vec<ProgressiveWorker>,
     pub islands: Vec<WasmIsland>,
+    pub structured_data: Vec<String>,
 }

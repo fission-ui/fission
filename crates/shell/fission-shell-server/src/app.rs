@@ -269,6 +269,7 @@ impl FissionServerApp {
                 mode,
                 workers: Vec::new(),
                 islands: Vec::new(),
+                structured_data: Vec::new(),
             },
             matcher: ServerRouteMatcher::Exact,
             render: Arc::new(move |ctx| {
@@ -304,6 +305,7 @@ impl FissionServerApp {
                 mode,
                 workers: Vec::new(),
                 islands: Vec::new(),
+                structured_data: Vec::new(),
             },
             matcher: ServerRouteMatcher::Prefix { prefix },
             render: Arc::new(move |ctx| {
@@ -363,6 +365,21 @@ impl FissionServerApp {
             .iter()
             .map(|entry| entry.route.clone())
             .collect()
+    }
+
+    pub fn with_route_structured_data<I, S>(mut self, path: impl Into<String>, data: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        let path = normalize_server_path(&path.into());
+        let serialized = data.into_iter().map(Into::into).collect::<Vec<String>>();
+        for entry in &mut self.routes {
+            if entry.route.path == path {
+                entry.route.structured_data = serialized.clone();
+            }
+        }
+        self
     }
 
     pub(crate) fn find_route(&self, path: &str) -> Option<&ServerRouteEntry> {

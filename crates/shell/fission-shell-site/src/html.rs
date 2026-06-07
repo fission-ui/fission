@@ -250,7 +250,7 @@ fn render_document(body_html: &str, options: &HtmlRenderOptions, has_code_blocks
     }
     for json in &options.structured_data {
         metadata.push_str("\n    <script type=\"application/ld+json\">");
-        metadata.push_str(json);
+        metadata.push_str(&escape_script_data(json));
         metadata.push_str("</script>");
     }
     if let Some(favicon) = options.favicon_href.as_ref() {
@@ -332,6 +332,38 @@ fn code_highlighting_assets(options: &HtmlRenderOptions, has_code_blocks: bool) 
         escape_attr(&options.code_highlighting.stylesheet_href),
         escape_attr(&options.code_highlighting.script_src),
     )
+}
+
+fn escape_script_data(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut out = String::with_capacity(value.len() + 1);
+    let mut index = 0;
+    while index < bytes.len() {
+        let is_script_end = index + 8 <= bytes.len()
+            && bytes[index] == b'<'
+            && bytes[index + 1] == b'/'
+            && is_case_insensitive_eq(&bytes[index + 2..index + 8], b"script");
+        if is_script_end {
+            out.push_str("<\\/script");
+            index += 8;
+            continue;
+        }
+        let ch = value[index..]
+            .chars()
+            .next()
+            .expect("non-empty string slice has first char");
+        out.push(ch);
+        index += ch.len_utf8();
+    }
+    out
+}
+
+fn is_case_insensitive_eq(value: &[u8], target: &[u8]) -> bool {
+    value.len() == target.len()
+        && value
+            .iter()
+            .zip(target.iter())
+            .all(|(left, right)| left.to_ascii_lowercase() == right.to_ascii_lowercase())
 }
 
 fn search_script(options: &HtmlRenderOptions) -> String {
@@ -2661,6 +2693,18 @@ mod tests {
         assert!(rendered.html.contains("<textarea"));
         assert!(rendered.html.contains("type=\"checkbox\""));
         assert!(rendered.html.contains(">Send</button>"));
+    }
+
+    #[test]
+    fn escape_script_data_is_case_insensitive() {
+        let escaped = escape_script_data(
+            "<script>{\"value\":\"</script\",\"alt\":\"</Script\",\"upper\":\"</SCRIPT\"}</script>",
+        );
+        assert_eq!(
+            escaped,
+            "<script>{\"value\":\"<\\/script\",\"alt\":\"<\\/script\",\"upper\":\"<\\/script\"}<\\/script>",
+        );
+        assert_eq!(escaped.matches("<\\/script").count(), 4);
     }
 
     #[test]
