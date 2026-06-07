@@ -15,7 +15,7 @@ use anyhow::{bail, Context, Result};
 use fission_core::internal::BuildCtx;
 use fission_core::internal::InternalLoweringCx;
 use fission_core::ui::Column;
-use fission_core::{Env, RuntimeState, View, Widget};
+use fission_core::{AnimationRequest, Env, RuntimeState, View, Widget, WidgetId};
 use fission_layout::LayoutSize;
 use fission_theme::DesignMode;
 use serde::Deserialize;
@@ -474,6 +474,7 @@ fn render_footer_node(
     options: &SiteBuildOptions,
     site: &FissionSite,
     route_path: &str,
+    env: &Env,
 ) -> Result<Option<Widget>> {
     let Some(footer) = &site.footer else {
         return Ok(None);
@@ -481,7 +482,9 @@ fn render_footer_node(
     let ctx = SiteRenderContext {
         project_dir: &options.project_dir,
         route_path,
-        theme: &site.theme,
+        theme: &env.theme,
+        default_locale: &options.default_locale,
+        env,
     };
     Ok(Some(footer(&ctx)?))
 }
@@ -873,13 +876,16 @@ fn render_custom_routes(
 ) -> Result<Vec<ContentRoute>> {
     let mut routes = Vec::new();
     for route in &site.custom_routes {
+        let env = site_env_for_route(options, site);
         let ctx = SiteRenderContext {
             project_dir: &options.project_dir,
             route_path: &route.path,
-            theme: &site.theme,
+            theme: &env.theme,
+            default_locale: &options.default_locale,
+            env: &env,
         };
         let node = (route.render)(&ctx)?;
-        let node = append_footer(node, render_footer_node(options, site, &route.path)?);
+        let node = append_footer(node, render_footer_node(options, site, &route.path, &env)?);
         let html = render_node_to_html(
             node,
             &route.title,
@@ -890,7 +896,9 @@ fn render_custom_routes(
             &route.path,
             options,
             site,
+            &env,
             styles,
+            Vec::new(),
         )?;
         routes.push(ContentRoute {
             path: route.path.clone(),
@@ -942,9 +950,7 @@ fn render_route(
         return Ok(rendered.clone());
     }
     let runtime = RuntimeState::default();
-    let mut env = Env::default();
-    env.theme = site.theme.clone();
-    env.viewport_size = LayoutSize::new(1280.0, 900.0);
+    let env = site_env_for_route(options, site);
     let state = SitePageState;
     let view = View::new(&state, &runtime, &env, None);
     let mut build_ctx = BuildCtx::<SitePageState>::new();
@@ -958,7 +964,11 @@ fn render_route(
         all_routes: routes,
     };
     let page_node = fission_core::build::enter(&mut build_ctx, &view, || page.into());
-    let node = append_footer(page_node, render_footer_node(options, site, &route.path)?);
+    let node = append_footer(
+        page_node,
+        render_footer_node(options, site, &route.path, &env)?,
+    );
+    let animation_requests = build_ctx.take_animation_requests();
     render_node_to_html(
         node,
         &format!("{} | {}", route.title, options.site_title),
@@ -969,8 +979,18 @@ fn render_route(
         &route.path,
         options,
         site,
+        &env,
         styles,
+        animation_requests,
     )
+}
+
+fn site_env_for_route(options: &SiteBuildOptions, site: &FissionSite) -> Env {
+    let mut env = site.env.clone();
+    env.theme = site.theme.clone();
+    env.viewport_size = LayoutSize::new(1280.0, 900.0);
+    env.locale = options.default_locale.as_str().into();
+    env
 }
 
 fn render_node_to_html(
@@ -980,17 +1000,17 @@ fn render_node_to_html(
     route_path: &str,
     options: &SiteBuildOptions,
     site: &FissionSite,
+    env: &Env,
     styles: &mut StyleRegistry,
+    animation_requests: Vec<(WidgetId, AnimationRequest)>,
 ) -> Result<String> {
     let runtime = RuntimeState::default();
-    let mut env = Env::default();
-    env.theme = site.theme.clone();
-    let mut lowering = InternalLoweringCx::new(&env, &runtime, None, None);
+    let mut lowering = InternalLoweringCx::new(env, &runtime, None, None);
     let root = fission_core::internal::lower_widget(&node, &mut lowering);
     lowering.ir.set_root(root);
 
     let render_options = HtmlRenderOptions {
-        lang: options.default_locale.clone(),
+        lang: env.locale.0.clone(),
         document_title: title.to_string(),
         description: description.clone(),
         canonical_url: canonical_url_for_route(options, route_path),
@@ -1039,6 +1059,7 @@ fn render_node_to_html(
             route_path,
             SitePageElementPlacement::BodyEnd,
         ),
+        animation_requests,
         ..Default::default()
     };
     Ok(render_ir_to_html_with_styles(&lowering.ir, &render_options, styles)?.html)
@@ -1639,7 +1660,34 @@ struct SidebarManifestItem {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fission_core::ui::{Text, TextContent};
+    use fission_core::GlobalState;
+    use fission_i18n::TranslationBundle;
+    use std::collections::HashMap;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[derive(Debug, Default)]
+    struct TestState;
+    impl GlobalState for TestState {}
+
+    #[derive(Clone)]
+    struct KeyPage(&'static str);
+
+    impl From<KeyPage> for Widget {
+        fn from(component: KeyPage) -> Self {
+            let (_ctx, _view) = fission_core::build::current::<TestState>();
+            Text::new(TextContent::Key(component.0.to_string())).into()
+        }
+    }
+
+    fn translated_env() -> Env {
+        let mut env = Env::default();
+        env.i18n.add_bundle(TranslationBundle {
+            locale: "fr".into(),
+            messages: HashMap::from([("page.title".to_string(), "Bonjour static".to_string())]),
+        });
+        env
+    }
 
     #[test]
     fn route_paths_are_derived_from_content_tree() {
@@ -1656,6 +1704,20 @@ mod tests {
             route_path_from_slug("/reference", "/widgets/button"),
             "/reference/widgets/button/"
         );
+    }
+
+    #[test]
+    fn route_links_render_as_boxed_click_targets() {
+        let css = site_base_css();
+        assert!(css.contains(".fission-site-route-link {\n  cursor: pointer;"));
+        assert!(css.contains(".fission-site-route-link > .fission-site-node"));
+        assert!(css.contains(".fission-site-positioned > .fission-site-semantics"));
+        assert!(css.contains(".fission-site-svg-colored svg *"));
+        assert!(css.contains("fill: currentColor;"));
+        assert!(css.contains(".fission-site-svg-colored svg [fill=\"none\"]"));
+        assert!(!css.contains(
+            ".fission-site-route-link,\n.fission-site-heading-link { display: contents; }"
+        ));
     }
 
     #[test]
@@ -1732,6 +1794,34 @@ mod tests {
             .exists());
         let docs = fs::read_to_string(temp.join("target/fission/site/search/docs.json")).unwrap();
         assert!(docs.contains("Getting started"));
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn custom_site_routes_resolve_keyed_text_from_seeded_env() {
+        let temp = std::env::temp_dir().join(format!(
+            "fission-site-i18n-test-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&temp).unwrap();
+        fs::create_dir_all(temp.join("content")).unwrap();
+        let mut options = SiteBuildOptions::for_project(&temp, "Test site");
+        options.content_routes = Vec::new();
+        options.default_locale = "fr".to_string();
+        let site = FissionSite::new()
+            .with_env(translated_env())
+            .route_widget::<TestState, _>("/", "Home", None, KeyPage("page.title"));
+
+        let report = build_site(&options, &site).unwrap();
+        let html = fs::read_to_string(temp.join("target/fission/site/index.html")).unwrap();
+
+        assert_eq!(report.routes.len(), 1);
+        assert!(html.contains("Bonjour static"));
+        assert!(html.contains("lang=\"fr\""));
+        assert!(!html.contains("MISSING:page.title"));
         let _ = fs::remove_dir_all(temp);
     }
 

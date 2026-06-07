@@ -1,10 +1,11 @@
 use crate::stack::VStack;
 use fission_core::op::Color;
 use fission_core::ui::{
-    Column, Container, Image, RichText, RichTextRun, Row, Scroll, Text, TextFontStyle, Widget,
+    Column, Container, Image, RichText, RichTextRun, Row, Scroll, SemanticsRegion, Text,
+    TextFontStyle, Widget,
 };
 use fission_core::{build::ViewHandle, FlexDirection};
-use fission_ir::op::{AlignItems, ImageFit};
+use fission_ir::op::{AlignItems, FlexWrap, ImageFit};
 use fission_ir::{Role, Semantics};
 use rushdown::ast::{
     Arena, CodeBlock, CodeSpan, Heading, HtmlBlock, Image as MarkdownImage, KindData, Link,
@@ -104,6 +105,12 @@ struct MarkdownRenderer<'a> {
     code_family: String,
 }
 
+struct MarkdownImageBlock<'a> {
+    node_ref: NodeRef,
+    image: &'a MarkdownImage,
+    link_destination: Option<String>,
+}
+
 impl<'a> MarkdownRenderer<'a> {
     fn new(source: &'a str, arena: &'a Arena, view: ViewHandle<()>) -> Self {
         let tokens = &view.env().theme.tokens;
@@ -197,8 +204,8 @@ impl<'a> MarkdownRenderer<'a> {
     }
 
     fn paragraph(&self, node_ref: NodeRef, font_size: f32) -> Widget {
-        if let Some((image_ref, image)) = self.single_image(node_ref) {
-            return self.image_block(image_ref, image);
+        if let Some(images) = self.image_blocks(node_ref) {
+            return self.image_group(images);
         }
         let runs = self.inline_runs(node_ref, self.inline_style(font_size));
         if runs.is_empty() {
@@ -212,29 +219,112 @@ impl<'a> MarkdownRenderer<'a> {
         }
     }
 
-    fn single_image(&self, node_ref: NodeRef) -> Option<(NodeRef, &MarkdownImage)> {
-        let mut children = self.arena[node_ref].children(self.arena);
-        let child_ref = children.next()?;
-        if children.next().is_some() {
-            return None;
+    fn image_blocks(&self, node_ref: NodeRef) -> Option<Vec<MarkdownImageBlock<'a>>> {
+        let mut images = Vec::new();
+        for child_ref in self.arena[node_ref].children(self.arena) {
+            if self.is_blank_text(child_ref) {
+                continue;
+            }
+            let image = self.image_block_child(child_ref)?;
+            images.push(image);
         }
+        if images.is_empty() {
+            None
+        } else {
+            Some(images)
+        }
+    }
+
+    fn image_block_child(&self, child_ref: NodeRef) -> Option<MarkdownImageBlock<'a>> {
         match self.arena[child_ref].kind_data() {
-            KindData::Image(image) => Some((child_ref, image)),
+            KindData::Image(image) => Some(MarkdownImageBlock {
+                node_ref: child_ref,
+                image,
+                link_destination: None,
+            }),
+            KindData::Link(link) => {
+                let mut image_block = None;
+                for nested_ref in self.arena[child_ref].children(self.arena) {
+                    if self.is_blank_text(nested_ref) {
+                        continue;
+                    }
+                    let KindData::Image(image) = self.arena[nested_ref].kind_data() else {
+                        return None;
+                    };
+                    if image_block.is_some() {
+                        return None;
+                    }
+                    image_block = Some(MarkdownImageBlock {
+                        node_ref: nested_ref,
+                        image,
+                        link_destination: Some(link.destination_str(self.source).to_string()),
+                    });
+                }
+                image_block
+            }
             _ => None,
         }
     }
 
-    fn image_block(&self, _node_ref: NodeRef, image: &MarkdownImage) -> Widget {
-        let source = image.destination_str(self.source).to_string();
+    fn is_blank_text(&self, node_ref: NodeRef) -> bool {
+        match self.arena[node_ref].kind_data() {
+            KindData::Text(text) => text.str(self.source).trim().is_empty(),
+            KindData::RawHtml(raw_html) => raw_html.str(self.source).trim().is_empty(),
+            _ => false,
+        }
+    }
+
+    fn image_group(&self, images: Vec<MarkdownImageBlock<'a>>) -> Widget {
+        if images.len() == 1 {
+            return self.image_block(&images[0], self.image_width, self.image_height);
+        }
+
+        let children = images
+            .iter()
+            .map(|image| {
+                Container::new(self.image_block(
+                    image,
+                    (self.image_width * 0.36).max(180.0),
+                    (self.image_height * 0.36).max(128.0),
+                ))
+                .into()
+            })
+            .collect();
+
+        Row {
+            children,
+            gap: Some(10.0),
+            wrap: FlexWrap::Wrap,
+            align_items: AlignItems::Start,
+            ..Default::default()
+        }
+        .into()
+    }
+
+    fn image_block(&self, block: &MarkdownImageBlock<'a>, width: f32, height: f32) -> Widget {
+        let source = block.image.destination_str(self.source).to_string();
         let image = if source.starts_with("https://") || source.starts_with("http://") {
             Image::network(source)
         } else {
             Image::asset(source)
         };
-        image
-            .size(self.image_width, self.image_height)
+        let alt = self.plain_text(block.node_ref);
+        let mut widget: Widget = image
+            .size(width, height)
             .fit(ImageFit::Contain)
-            .into()
+            .semantic_label(alt.clone())
+            .into();
+        if let Some(destination) = &block.link_destination {
+            widget = SemanticsRegion::new(widget)
+                .identifier(format!("markdown-link:{destination}"))
+                .label(if alt.trim().is_empty() {
+                    "Open image".to_string()
+                } else {
+                    alt
+                })
+                .into();
+        }
+        widget
     }
 
     fn code_block(&self, code: &CodeBlock) -> Widget {

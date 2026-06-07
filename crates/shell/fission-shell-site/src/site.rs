@@ -2,7 +2,6 @@ use crate::build::{build_site, check_site, list_site_routes, SiteBuildOptions};
 use anyhow::{bail, Context, Result};
 use fission_core::internal::BuildCtx;
 use fission_core::{Env, GlobalState, RuntimeState, View, Widget};
-use fission_layout::LayoutSize;
 use fission_theme::{DesignMode, Theme};
 use std::fs;
 use std::io::{self, BufRead, Write};
@@ -178,6 +177,14 @@ pub struct SiteRenderContext<'a> {
     pub project_dir: &'a Path,
     pub route_path: &'a str,
     pub theme: &'a Theme,
+    pub default_locale: &'a str,
+    pub(crate) env: &'a Env,
+}
+
+impl<'a> SiteRenderContext<'a> {
+    pub fn env(&self) -> &'a Env {
+        self.env
+    }
 }
 
 #[derive(Clone)]
@@ -185,6 +192,7 @@ pub struct FissionSite {
     pub(crate) custom_routes: Vec<CustomRoute>,
     pub(crate) content_transform: Option<Arc<ContentTransform>>,
     pub(crate) theme: Theme,
+    pub(crate) env: Env,
     pub(crate) light_theme: Option<Theme>,
     pub(crate) dark_theme: Option<Theme>,
     pub(crate) default_theme_mode: Option<DesignMode>,
@@ -200,6 +208,7 @@ impl Default for FissionSite {
             custom_routes: Vec::new(),
             content_transform: None,
             theme: Theme::default(),
+            env: Env::default(),
             light_theme: None,
             dark_theme: None,
             default_theme_mode: None,
@@ -217,7 +226,14 @@ impl FissionSite {
     }
 
     pub fn theme(mut self, theme: Theme) -> Self {
+        self.env.theme = theme.clone();
         self.theme = theme;
+        self
+    }
+
+    pub fn with_env(mut self, env: Env) -> Self {
+        self.env = env;
+        self.env.theme = self.theme.clone();
         self
     }
 
@@ -231,6 +247,7 @@ impl FissionSite {
             DesignMode::Light => light.clone(),
             DesignMode::Dark => dark.clone(),
         };
+        self.env.theme = self.theme.clone();
         self.light_theme = Some(light);
         self.dark_theme = Some(dark);
         self.default_theme_mode = Some(default_mode);
@@ -291,11 +308,8 @@ impl FissionSite {
             description: description.into(),
             render: Arc::new(move |ctx| {
                 let runtime = RuntimeState::default();
-                let mut env = Env::default();
-                env.theme = ctx.theme.clone();
-                env.viewport_size = LayoutSize::new(1280.0, 900.0);
                 let state = S::default();
-                let view = View::new(&state, &runtime, &env, None);
+                let view = View::new(&state, &runtime, ctx.env(), None);
                 let mut build_ctx = BuildCtx::<S>::new();
                 Ok(fission_core::build::enter(&mut build_ctx, &view, || {
                     widget.as_ref().clone().into()
@@ -332,11 +346,8 @@ where
     W: Clone + Into<Widget>,
 {
     let runtime = RuntimeState::default();
-    let mut env = Env::default();
-    env.theme = ctx.theme.clone();
-    env.viewport_size = LayoutSize::new(1280.0, 900.0);
     let state = S::default();
-    let view = View::new(&state, &runtime, &env, None);
+    let view = View::new(&state, &runtime, ctx.env(), None);
     let mut build_ctx = BuildCtx::<S>::new();
     Ok(fission_core::build::enter(&mut build_ctx, &view, || {
         (*widget).clone().into()

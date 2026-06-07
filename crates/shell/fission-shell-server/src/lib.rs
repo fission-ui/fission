@@ -23,7 +23,9 @@ pub use adapters::actix_adapter;
 #[cfg(feature = "axum-adapter")]
 pub use adapters::axum_adapter;
 pub use adapters::hyper_adapter;
-pub use app::{FissionServerApp, ServerRenderContext};
+pub use app::{
+    FissionServerApp, ServerEnvContext, ServerHttpContext, ServerRenderContext, StaticMount,
+};
 pub use artifacts::{
     BrowserArtifactBuild, BrowserArtifactBuildOptions, BrowserArtifactKind, BrowserArtifactPlan,
 };

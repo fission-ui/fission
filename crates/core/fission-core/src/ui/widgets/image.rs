@@ -182,7 +182,7 @@ impl InternalLower for Image {
                 max_height: None,
                 padding: [0.0; 4],
                 flex_grow: 0.0,
-                flex_shrink: 0.0,
+                flex_shrink: 1.0,
                 aspect_ratio: None,
             }),
         );

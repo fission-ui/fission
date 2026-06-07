@@ -1,10 +1,13 @@
-use crate::app::{normalize_server_path, FissionServerApp, ServerRenderedNode, ServerRouteEntry};
+use crate::app::{
+    normalize_server_path, FissionServerApp, ServerEnvContext, ServerHttpContext,
+    ServerRenderedNode, ServerRouteEntry, StaticMount,
+};
 use crate::{
-    Cache, CacheEntry, CacheKey, CacheMetadata, CachePipeline, CacheScope, Freshness, MokaCache,
-    RenderedPage, ServerActionSigner, ServerBrowserArtifactConfig, ServerCacheLayerConfig,
-    ServerCacheProvider, ServerHttpConfig, ServerIslandConfig, ServerIslandPreload,
-    ServerJobRegistry, ServerRuntimeConfig, ServerSameSite, ServerSessionConfig,
-    SignedServerAction, VerifiedServerAction, WebRoute, WebRouteMode,
+    Cache, CacheEntry, CacheKey, CacheMetadata, CachePipeline, CacheScope, CacheTag, Freshness,
+    InvalidationReport, MokaCache, RenderedPage, ServerActionSigner, ServerBrowserArtifactConfig,
+    ServerCacheLayerConfig, ServerCacheProvider, ServerHttpConfig, ServerIslandConfig,
+    ServerIslandPreload, ServerJobRegistry, ServerRuntimeConfig, ServerSameSite,
+    ServerSessionConfig, SignedServerAction, VerifiedServerAction, WebRoute, WebRouteMode,
 };
 use anyhow::{anyhow, Context, Result};
 use fission_core::internal::InternalLoweringCx;
@@ -19,7 +22,7 @@ use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime};
 
@@ -117,6 +120,7 @@ pub struct RenderedServerRoute {
     pub css: String,
     pub resources: Vec<RuntimeResourceDeclaration>,
     pub server_action_count: usize,
+    pub status: u16,
 }
 
 pub struct ServerRenderer {
@@ -186,6 +190,28 @@ impl ServerRenderer {
         self
     }
 
+    pub fn cache(&self) -> Arc<dyn Cache> {
+        self.cache.clone()
+    }
+
+    pub fn remove_cache_entry(&self, key: &CacheKey) -> Result<()> {
+        self.cache.remove(key)?;
+        Ok(())
+    }
+
+    pub fn invalidate_cache_tag(&self, tag: impl Into<CacheTag>) -> Result<InvalidationReport> {
+        Ok(self.cache.invalidate_tag(&tag.into())?)
+    }
+
+    pub fn invalidate_cache_tags<I, T>(&self, tags: I) -> Result<InvalidationReport>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<CacheTag>,
+    {
+        let tags = tags.into_iter().map(Into::into).collect::<Vec<_>>();
+        Ok(self.cache.invalidate_tags(&tags)?)
+    }
+
     pub fn with_viewport_size(mut self, size: LayoutSize) -> Self {
         self.viewport_size = size;
         self
@@ -237,11 +263,12 @@ impl ServerRenderer {
     }
 
     pub fn render_route(&self, path: &str) -> Result<RenderedServerRoute> {
+        let path = normalize_server_path(path);
         let route = self
             .app
-            .find_route(path)
+            .find_route(&path)
             .ok_or_else(|| anyhow!("server route `{}` was not found", path))?;
-        let request = ServerRequest::get(&route.route.path);
+        let request = ServerRequest::get(path);
         let session = self.session_for_request(&request)?;
         self.render_uncached(route, None, &request, &session)
     }
@@ -251,6 +278,27 @@ impl ServerRenderer {
         {
             return self.handle_action(request);
         }
+        if let Some(handler) = self.app.find_http_handler(&request.method, &request.path) {
+            let session = self.session_for_request(&request)?;
+            let ctx = ServerHttpContext {
+                project_dir: &self.app.project_dir,
+                request: &request,
+                session: &session,
+            };
+            let response = if tokio::runtime::Handle::try_current().is_ok() {
+                std::thread::scope(|scope| {
+                    scope
+                        .spawn(|| (handler.handler)(&ctx))
+                        .join()
+                        .map_err(|_| anyhow!("server HTTP handler panicked"))?
+                })
+            } else {
+                (handler.handler)(&ctx)
+            };
+            let mut response = response?;
+            self.attach_session_cookie(&mut response, &session);
+            return Ok(response);
+        }
         if request.method != "GET" {
             return Ok(ServerResponse::text(
                 405,
@@ -259,6 +307,11 @@ impl ServerRenderer {
             ));
         }
         if let Some(response) = self.handle_asset_request(&asset_request_path(&request.path))? {
+            return Ok(response);
+        }
+        if let Some(response) =
+            self.handle_static_mount_request(&asset_request_path(&request.path))?
+        {
             return Ok(response);
         }
         let path = normalize_server_path(&request.path);
@@ -272,13 +325,15 @@ impl ServerRenderer {
         let session = self.session_for_request(&request)?;
 
         if let WebRouteMode::Revalidated(policy) = &route.route.mode {
-            let cache_key = self.cache_key_for_route(&route.route, &request);
+            let route_path = matched_route_path(route, &request);
+            let env = self.env_for_route(route, None, &request, &session)?;
+            let cache_key = self.cache_key_for_route(&route.route, &request, &env);
             let now = SystemTime::now();
             if let Some(entry) = self.cache.get(&cache_key)? {
                 match entry.freshness(now) {
                     Freshness::Fresh | Freshness::Stale => {
                         if let Some(page) = entry.rendered_page() {
-                            self.remember_route_css(&route.route.path, &page.css)?;
+                            self.remember_route_css(&route_path, &page.css)?;
                             let mut response = page_response(page, entry.freshness(now));
                             response.headers.push((
                                 "x-fission-cache".to_string(),
@@ -291,7 +346,7 @@ impl ServerRenderer {
                     Freshness::Expired => {}
                 }
             }
-            let rendered = self.render_uncached(route, None, &request, &session)?;
+            let rendered = self.render_uncached_with_env(route, None, &request, &session, env)?;
             if rendered.server_action_count > 0 {
                 anyhow::bail!(
                     "revalidated route `{}` renders server action forms; use ServerPrivate/Server mode or move the interactive region into an island before caching the page",
@@ -301,7 +356,7 @@ impl ServerRenderer {
             let page = RenderedPage {
                 html: rendered.html.clone(),
                 css: rendered.css.clone(),
-                status: 200,
+                status: rendered.status,
             };
             let entry = CacheEntry::full_page(
                 cache_key,
@@ -310,7 +365,7 @@ impl ServerRenderer {
                 policy.ttl,
                 policy.stale_while_revalidate,
                 policy.tags.clone(),
-                CacheMetadata::full_page(&route.route.path),
+                CacheMetadata::full_page(&route_path),
             );
             self.cache.put(entry)?;
             let mut response = page_response(&page, Freshness::Expired);
@@ -320,7 +375,7 @@ impl ServerRenderer {
 
         let rendered = self.render_uncached(route, None, &request, &session)?;
         let mut response = ServerResponse {
-            status: 200,
+            status: rendered.status,
             headers: vec![(
                 "content-type".to_string(),
                 "text/html; charset=utf-8".to_string(),
@@ -339,22 +394,49 @@ impl ServerRenderer {
         request: &ServerRequest,
         session: &ServerSession,
     ) -> Result<RenderedServerRoute> {
+        let env = self.env_for_route(route, action, request, session)?;
+        self.render_uncached_with_env(route, action, request, session, env)
+    }
+
+    fn render_uncached_with_env(
+        &self,
+        route: &ServerRouteEntry,
+        action: Option<&VerifiedServerAction>,
+        request: &ServerRequest,
+        session: &ServerSession,
+        env: Env,
+    ) -> Result<RenderedServerRoute> {
+        let route_path = matched_route_path(route, request);
+        let response_status = AtomicU16::new(200);
         let ctx = crate::ServerRenderContext {
             project_dir: &self.app.project_dir,
-            route_path: &route.route.path,
-            theme: &self.app.theme,
+            route_path: &route_path,
+            theme: &env.theme,
             viewport_size: self.viewport_size,
             jobs: &self.jobs,
             request,
             session,
             action,
             render_pass_limit: self.render_pass_limit,
+            default_locale: &self.default_locale,
+            env: &env,
+            response_status: &response_status,
         };
-        let ServerRenderedNode { node, resources } = (route.render)(&ctx)?;
+        let ServerRenderedNode {
+            node,
+            resources,
+            animation_requests,
+        } = if tokio::runtime::Handle::try_current().is_ok() {
+            std::thread::scope(|scope| {
+                scope
+                    .spawn(|| (route.render)(&ctx))
+                    .join()
+                    .map_err(|_| anyhow!("server route renderer panicked"))?
+            })
+        } else {
+            (route.render)(&ctx)
+        }?;
         let runtime = RuntimeState::default();
-        let mut env = Env::default();
-        env.theme = self.app.theme.clone();
-        env.viewport_size = self.viewport_size;
         let mut lowering = InternalLoweringCx::new(&env, &runtime, None, None);
         let root = fission_core::internal::lower_widget(&node, &mut lowering);
         lowering.ir.set_root(root);
@@ -371,36 +453,39 @@ impl ServerRenderer {
         }
         let action_tokens = collect_server_action_tokens(
             &lowering.ir,
-            &route.route.path,
+            &route_path,
             &self.action_signer,
             Duration::from_secs(10 * 60),
         )?;
         let server_action_count = action_tokens.len();
         let render_options = HtmlRenderOptions {
-            lang: self.default_locale.clone(),
+            lang: env.locale.0.clone(),
             document_title: route.route.title.clone(),
             description: route.route.description.clone(),
-            canonical_url: self.canonical_url_for_route(&route.route.path, request),
+            canonical_url: self.canonical_url_for_route(&route_path, request),
             site_name: Some(self.app.project_name.clone()),
             favicon_href: None,
             stylesheet_href: "/site.css".to_string(),
-            current_route_path: route.route.path.clone(),
-            css_variables: CssVariableMap::from_theme(&self.app.theme),
+            current_route_path: route_path.clone(),
+            css_variables: CssVariableMap::from_theme(&env.theme),
             server_action_post_path: Some("/__fission/action".to_string()),
             server_action_tokens: action_tokens,
+            structured_data: route.route.structured_data.clone(),
+            animation_requests,
             head_end_html,
             body_end_html,
             ..Default::default()
         };
         let rendered = render_ir_to_html_with_styles(&lowering.ir, &render_options, &mut styles)?;
         let css = rendered.css.clone();
-        self.remember_route_css(&route.route.path, &css)?;
+        self.remember_route_css(&route_path, &css)?;
         Ok(RenderedServerRoute {
             route: route.route.clone(),
             html: rendered.html,
             css,
             resources,
             server_action_count,
+            status: response_status.load(Ordering::Relaxed),
         })
     }
 
@@ -438,6 +523,10 @@ impl ServerRenderer {
         for style in styles.values() {
             css.push('\n');
             css.push_str(style);
+        }
+        for user_css in &self.app.user_css {
+            css.push('\n');
+            css.push_str(user_css);
         }
         Ok(ServerResponse::text(200, "text/css; charset=utf-8", css))
     }
@@ -496,6 +585,58 @@ impl ServerRenderer {
             "text/plain; charset=utf-8",
             "asset not found",
         ))
+    }
+
+    fn handle_static_mount_request(&self, request_path: &str) -> Result<Option<ServerResponse>> {
+        for mount in &self.app.static_mounts {
+            let Some(relative) = static_mount_relative_path(mount, request_path) else {
+                continue;
+            };
+            let Some(relative) = relative else {
+                return Ok(Some(ServerResponse::text(
+                    400,
+                    "text/plain; charset=utf-8",
+                    "invalid static path",
+                )));
+            };
+
+            let root = static_mount_root(&self.app.project_dir, mount);
+            let mut candidate = if relative.as_os_str().is_empty() {
+                match &mount.index_file {
+                    Some(index_file) => root.join(index_file),
+                    None => root.clone(),
+                }
+            } else {
+                root.join(&relative)
+            };
+
+            if candidate.is_dir() {
+                if let Some(index_file) = &mount.index_file {
+                    candidate = candidate.join(index_file);
+                }
+            }
+
+            if candidate.is_file() {
+                return Ok(Some(file_response(&candidate)?));
+            }
+
+            if mount.fallback_to_index && !looks_like_static_file_request(&relative) {
+                if let Some(index_file) = &mount.index_file {
+                    let index = root.join(index_file);
+                    if index.is_file() {
+                        return Ok(Some(file_response(&index)?));
+                    }
+                }
+            }
+
+            return Ok(Some(ServerResponse::text(
+                404,
+                "text/plain; charset=utf-8",
+                "static file not found",
+            )));
+        }
+
+        Ok(None)
     }
 
     fn handle_action(&self, request: ServerRequest) -> Result<ServerResponse> {
@@ -681,7 +822,35 @@ impl ServerRenderer {
         Ok(())
     }
 
-    fn cache_key_for_route(&self, route: &WebRoute, request: &ServerRequest) -> CacheKey {
+    fn env_for_route(
+        &self,
+        route: &ServerRouteEntry,
+        action: Option<&VerifiedServerAction>,
+        request: &ServerRequest,
+        session: &ServerSession,
+    ) -> Result<Env> {
+        let route_path = matched_route_path(route, request);
+        let ctx = ServerEnvContext {
+            project_dir: &self.app.project_dir,
+            route_path: &route_path,
+            theme: &self.app.theme,
+            viewport_size: self.viewport_size,
+            jobs: &self.jobs,
+            request,
+            session,
+            action,
+            render_pass_limit: self.render_pass_limit,
+            default_locale: &self.default_locale,
+        };
+        self.app.env_for_context(&ctx)
+    }
+
+    fn cache_key_for_route(
+        &self,
+        route: &WebRoute,
+        request: &ServerRequest,
+        env: &Env,
+    ) -> CacheKey {
         let query = request
             .query
             .iter()
@@ -706,14 +875,14 @@ impl ServerRenderer {
                     .join("&")
             })
             .unwrap_or_default();
-        let theme_hash = blake3::hash(format!("{:?}", self.app.theme).as_bytes());
-        let build_id = option_env!("FISSION_BUILD_ID").unwrap_or(env!("CARGO_PKG_VERSION"));
+        let theme_hash = blake3::hash(format!("{:?}", env.theme).as_bytes());
+        let build_id = cache_build_id();
         let mut key = format!(
             "page:{}?{}#app:{}#locale:{}#theme:{}#build:{}",
-            route.path,
+            normalize_server_path(&request.path),
             query,
             self.app.project_name,
-            self.default_locale,
+            env.locale.0,
             &theme_hash.to_hex().to_string()[..16],
             build_id
         );
@@ -722,6 +891,50 @@ impl ServerRenderer {
             key.push_str(&vary);
         }
         CacheKey::new(key)
+    }
+}
+
+fn cache_build_id() -> String {
+    cache_build_id_from(
+        std::env::var("FISSION_BUILD_ID").ok(),
+        option_env!("FISSION_BUILD_ID"),
+        env!("CARGO_PKG_VERSION"),
+    )
+}
+
+fn cache_build_id_from(
+    runtime_build_id: Option<String>,
+    compile_time_build_id: Option<&'static str>,
+    package_version: &'static str,
+) -> String {
+    runtime_build_id
+        .and_then(|value| {
+            let value = value.trim();
+            if value.is_empty() {
+                None
+            } else {
+                Some(value.to_string())
+            }
+        })
+        .or_else(|| {
+            compile_time_build_id.and_then(|value| {
+                let value = value.trim();
+                if value.is_empty() {
+                    None
+                } else {
+                    Some(value.to_string())
+                }
+            })
+        })
+        .unwrap_or_else(|| package_version.to_string())
+}
+
+fn matched_route_path(route: &ServerRouteEntry, request: &ServerRequest) -> String {
+    let request_path = normalize_server_path(&request.path);
+    if route.matcher.matches(&route.route.path, &request_path) {
+        request_path
+    } else {
+        route.route.path.clone()
     }
 }
 
@@ -976,6 +1189,42 @@ fn safe_relative_asset_path(request_path: &str) -> Option<PathBuf> {
     (!out.as_os_str().is_empty()).then_some(out)
 }
 
+fn static_mount_relative_path(mount: &StaticMount, request_path: &str) -> Option<Option<PathBuf>> {
+    let prefix = mount.url_prefix.as_str();
+    let relative = if request_path == prefix {
+        ""
+    } else if prefix == "/" {
+        request_path.trim_start_matches('/')
+    } else {
+        request_path.strip_prefix(&format!("{prefix}/"))?
+    };
+    Some(safe_relative_static_path(relative))
+}
+
+fn safe_relative_static_path(relative: &str) -> Option<PathBuf> {
+    let path = Path::new(relative);
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(segment) => out.push(segment),
+            _ => return None,
+        }
+    }
+    Some(out)
+}
+
+fn static_mount_root(project_dir: &Path, mount: &StaticMount) -> PathBuf {
+    if mount.directory.is_absolute() {
+        mount.directory.clone()
+    } else {
+        project_dir.join(&mount.directory)
+    }
+}
+
+fn looks_like_static_file_request(relative: &Path) -> bool {
+    relative.extension().is_some()
+}
+
 fn file_response(path: &Path) -> Result<ServerResponse> {
     let body = fs::read(path)?;
     Ok(ServerResponse {
@@ -996,8 +1245,9 @@ fn content_type_for_path(path: &Path) -> &'static str {
         .map(|extension| extension.to_ascii_lowercase())
         .as_deref()
     {
+        Some("html") | Some("htm") => "text/html; charset=utf-8",
         Some("css") => "text/css; charset=utf-8",
-        Some("js") => "application/javascript; charset=utf-8",
+        Some("js") | Some("mjs") => "application/javascript; charset=utf-8",
         Some("wasm") => "application/wasm",
         Some("ico") => "image/x-icon",
         Some("svg") => "image/svg+xml",
@@ -1128,12 +1378,14 @@ mod tests {
         CacheError, CacheTag, InvalidationReport, MokaCache, ProgressiveWorker, RevalidationPolicy,
         WasmIsland, WebRouteMode,
     };
-    use fission_core::ui::{Button, Text};
+    use fission_core::ui::{Button, Text, TextContent};
     use fission_core::{
         Action, ActionId, GlobalState, Handler, JobRef, JobResource, JobSpec, ReducerContext,
         ResourceKey, Widget,
     };
+    use fission_i18n::TranslationBundle;
     use serde::{Deserialize, Serialize};
+    use std::collections::HashMap;
     use std::fs;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1144,6 +1396,12 @@ mod tests {
     struct TestState;
     impl GlobalState for TestState {}
 
+    #[derive(Debug, Default)]
+    struct PathState {
+        route_path: String,
+    }
+    impl GlobalState for PathState {}
+
     #[derive(Clone)]
     struct TestPage(&'static str);
 
@@ -1153,6 +1411,46 @@ mod tests {
             Text::new(component.0).into()
         }
     }
+
+    #[derive(Clone)]
+    struct KeyPage(&'static str);
+
+    impl From<KeyPage> for Widget {
+        fn from(component: KeyPage) -> Self {
+            let (_ctx, _view) = fission_core::build::current::<TestState>();
+            Text::new(TextContent::Key(component.0.to_string())).into()
+        }
+    }
+
+    #[derive(Clone)]
+    struct PathPage;
+
+    impl From<PathPage> for Widget {
+        fn from(_: PathPage) -> Self {
+            let (_ctx, view) = fission_core::build::current::<PathState>();
+            Text::new(view.state().route_path.clone()).into()
+        }
+    }
+
+    fn translated_env() -> Env {
+        let mut env = Env::default();
+        env.i18n.add_bundle(TranslationBundle {
+            locale: "en".into(),
+            messages: HashMap::from([
+                ("page.title".to_string(), "Hello SSR".to_string()),
+                ("catalog.title".to_string(), "Catalog".to_string()),
+            ]),
+        });
+        env.i18n.add_bundle(TranslationBundle {
+            locale: "fr".into(),
+            messages: HashMap::from([
+                ("page.title".to_string(), "Bonjour SSR".to_string()),
+                ("catalog.title".to_string(), "Catalogue".to_string()),
+            ]),
+        });
+        env
+    }
+
     #[derive(Clone)]
     struct TestActionPage;
 
@@ -1213,6 +1511,276 @@ mod tests {
         }
     }
 
+    fn default_render_env(renderer: &ServerRenderer) -> Env {
+        let mut env = renderer.app.env.clone();
+        env.theme = renderer.app.theme.clone();
+        env.locale = renderer.default_locale.as_str().into();
+        env
+    }
+
+    #[test]
+    fn server_renderer_resolves_keyed_text_from_seeded_env() {
+        let app = FissionServerApp::new("Test")
+            .with_env(translated_env())
+            .route_widget::<TestState, _>(
+                "/",
+                "Home",
+                None,
+                WebRouteMode::Server(Default::default()),
+                KeyPage("page.title"),
+            );
+        let renderer = ServerRenderer::new(app);
+
+        let response = renderer.handle(ServerRequest::get("/")).unwrap();
+
+        assert_eq!(response.status, 200);
+        assert!(response.body_string().contains("Hello SSR"));
+        assert!(!response.body_string().contains("MISSING:page.title"));
+    }
+
+    #[test]
+    fn server_renderer_uses_request_env_locale_for_html_and_text() {
+        let app = FissionServerApp::new("Test")
+            .with_env(translated_env())
+            .with_request_env(|ctx, env| {
+                if ctx.route_path.starts_with("/fr") {
+                    env.locale = "fr".into();
+                }
+                Ok(())
+            })
+            .route_widget::<TestState, _>(
+                "/fr",
+                "Home",
+                None,
+                WebRouteMode::Server(Default::default()),
+                KeyPage("page.title"),
+            );
+        let renderer = ServerRenderer::new(app);
+
+        let response = renderer.handle(ServerRequest::get("/fr")).unwrap();
+        let body = response.body_string();
+
+        assert_eq!(response.status, 200);
+        assert!(body.contains("Bonjour SSR"));
+        assert!(body.contains("lang=\"fr\""));
+    }
+
+    #[test]
+    fn prefix_routes_receive_concrete_request_path() {
+        let app = FissionServerApp::new("Test").route_prefix_widget_with_state::<PathState, _, _>(
+            "/docs/",
+            "Docs",
+            None,
+            WebRouteMode::Server(Default::default()),
+            PathPage,
+            |ctx| {
+                Ok(PathState {
+                    route_path: ctx.route_path.to_string(),
+                })
+            },
+        );
+        let renderer = ServerRenderer::new(app);
+
+        let response = renderer
+            .handle(ServerRequest::get("/docs/platform"))
+            .unwrap();
+
+        assert_eq!(response.status, 200);
+        assert!(response.body_string().contains("/docs/platform/"));
+    }
+
+    #[test]
+    fn route_renderers_can_set_http_response_status() {
+        let app = FissionServerApp::new("Test").route_prefix_widget_with_state::<PathState, _, _>(
+            "/docs/",
+            "Docs",
+            None,
+            WebRouteMode::Server(Default::default()),
+            PathPage,
+            |ctx| {
+                ctx.set_response_status(404);
+                Ok(PathState {
+                    route_path: ctx.route_path.to_string(),
+                })
+            },
+        );
+        let renderer = ServerRenderer::new(app);
+
+        let rendered = renderer.render_route("/docs/missing").unwrap();
+        assert_eq!(rendered.status, 404);
+        assert!(rendered.html.contains("/docs/missing/"));
+
+        let response = renderer
+            .handle(ServerRequest::get("/docs/missing"))
+            .unwrap();
+        assert_eq!(response.status, 404);
+        assert!(response.body_string().contains("/docs/missing/"));
+    }
+
+    #[test]
+    fn exact_routes_win_over_prefix_routes() {
+        let app = FissionServerApp::new("Test")
+            .route_prefix_widget_with_state::<PathState, _, _>(
+                "/docs/",
+                "Docs",
+                None,
+                WebRouteMode::Server(Default::default()),
+                PathPage,
+                |ctx| {
+                    Ok(PathState {
+                        route_path: ctx.route_path.to_string(),
+                    })
+                },
+            )
+            .route_widget::<TestState, _>(
+                "/docs/index/",
+                "Exact",
+                None,
+                WebRouteMode::Server(Default::default()),
+                TestPage("exact docs page"),
+            );
+        let renderer = ServerRenderer::new(app);
+
+        let response = renderer.handle(ServerRequest::get("/docs/index")).unwrap();
+
+        assert_eq!(response.status, 200);
+        assert!(response.body_string().contains("exact docs page"));
+        assert!(!response.body_string().contains("/docs/index/"));
+    }
+
+    #[test]
+    fn http_handlers_can_use_blocking_clients_inside_tokio_runtime() {
+        let app = FissionServerApp::new("Test").form_post("/submit", |_ctx| {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .build()
+                .unwrap();
+            let value = runtime.block_on(async { "stored" });
+            Ok(ServerResponse::text(
+                200,
+                "text/plain; charset=utf-8",
+                value,
+            ))
+        });
+        let renderer = ServerRenderer::new(app);
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+
+        let response = runtime
+            .block_on(async { renderer.handle(ServerRequest::post("/submit", "email=a@b.test")) })
+            .unwrap();
+
+        assert_eq!(response.status, 200);
+        assert_eq!(response.body_string(), "stored");
+    }
+
+    #[test]
+    fn route_state_loaders_can_use_blocking_clients_inside_tokio_runtime() {
+        let app = FissionServerApp::new("Test").route_widget_with_state::<TestState, _, _>(
+            "/blocking",
+            "Blocking",
+            None,
+            WebRouteMode::Server(Default::default()),
+            TestPage("blocking state loaded"),
+            |_ctx| {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .build()
+                    .unwrap();
+                runtime.block_on(async { Ok(TestState) })
+            },
+        );
+        let renderer = ServerRenderer::new(app);
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+
+        let response = runtime
+            .block_on(async { renderer.handle(ServerRequest::get("/blocking")) })
+            .unwrap();
+
+        assert_eq!(response.status, 200);
+        assert!(response.body_string().contains("blocking state loaded"));
+    }
+
+    #[test]
+    fn revalidated_cache_keys_vary_by_resolved_locale() {
+        let cache = Arc::new(MokaCache::default());
+        let app = FissionServerApp::new("Test")
+            .with_env(translated_env())
+            .with_request_env(|ctx, env| {
+                if header_value(&ctx.request.headers, "accept-language")
+                    .is_some_and(|value| value.starts_with("fr"))
+                {
+                    env.locale = "fr".into();
+                }
+                Ok(())
+            })
+            .route_widget::<TestState, _>(
+                "/catalog",
+                "Catalog",
+                None,
+                WebRouteMode::Revalidated(
+                    RevalidationPolicy::new(Duration::from_secs(60)).tag("catalog"),
+                ),
+                KeyPage("catalog.title"),
+            );
+        let renderer = ServerRenderer::new(app).with_cache(cache);
+        let en = ServerRequest::get("/catalog");
+        let mut fr = ServerRequest::get("/catalog");
+        fr.headers
+            .insert("accept-language".to_string(), "fr-FR".to_string());
+
+        let en_first = renderer.handle(en.clone()).unwrap();
+        let fr_first = renderer.handle(fr).unwrap();
+        let en_second = renderer.handle(en).unwrap();
+
+        assert_eq!(en_first.cache_status, Some(Freshness::Expired));
+        assert!(en_first.body_string().contains("Catalog"));
+        assert_eq!(fr_first.cache_status, Some(Freshness::Expired));
+        assert!(fr_first.body_string().contains("Catalogue"));
+        assert_eq!(en_second.cache_status, Some(Freshness::Fresh));
+        assert!(en_second.body_string().contains("Catalog"));
+    }
+
+    #[test]
+    fn renderer_exposes_direct_and_helper_cache_invalidation() {
+        let app = FissionServerApp::new("Test").route_widget::<TestState, _>(
+            "/posts",
+            "Posts",
+            None,
+            WebRouteMode::Revalidated(
+                RevalidationPolicy::new(Duration::from_secs(60)).tags(["posts", "post:1"]),
+            ),
+            TestPage("Posts"),
+        );
+        let renderer = ServerRenderer::new(app);
+
+        assert_eq!(
+            renderer
+                .handle(ServerRequest::get("/posts"))
+                .unwrap()
+                .cache_status,
+            Some(Freshness::Expired)
+        );
+        let direct_report = renderer
+            .cache()
+            .invalidate_tag(&CacheTag::new("posts"))
+            .unwrap();
+        assert_eq!(direct_report.removed_keys, 1);
+        assert_eq!(
+            renderer
+                .handle(ServerRequest::get("/posts"))
+                .unwrap()
+                .cache_status,
+            Some(Freshness::Expired)
+        );
+        let helper_report = renderer.invalidate_cache_tag("post:1").unwrap();
+        assert_eq!(helper_report.removed_keys, 1);
+        assert_eq!(
+            renderer
+                .handle(ServerRequest::get("/posts"))
+                .unwrap()
+                .cache_status,
+            Some(Freshness::Expired)
+        );
+    }
+
     #[test]
     fn server_renderer_caches_revalidated_routes() {
         let cache = Arc::new(MokaCache::default());
@@ -1224,7 +1792,9 @@ mod tests {
             TestPage("Hello cache"),
         );
         let renderer = ServerRenderer::new(app).with_cache(cache.clone());
-        let key = renderer.cache_key_for_route(&renderer.routes()[0], &ServerRequest::get("/"));
+        let env = default_render_env(&renderer);
+        let key =
+            renderer.cache_key_for_route(&renderer.routes()[0], &ServerRequest::get("/"), &env);
 
         let first = renderer.handle(ServerRequest::get("/")).unwrap();
         assert_eq!(first.status, 200);
@@ -1255,7 +1825,8 @@ mod tests {
         second.query.insert("a".to_string(), "1".to_string());
         second.query.insert("b".to_string(), "2".to_string());
 
-        let first_key = renderer.cache_key_for_route(&renderer.routes()[0], &first);
+        let env = default_render_env(&renderer);
+        let first_key = renderer.cache_key_for_route(&renderer.routes()[0], &first, &env);
         assert_eq!(
             renderer.handle(first).unwrap().cache_status,
             Some(Freshness::Expired)
@@ -1287,8 +1858,9 @@ mod tests {
         fr.headers
             .insert("accept-language".to_string(), "fr-FR".to_string());
 
-        let en_key = renderer.cache_key_for_route(&renderer.routes()[0], &en);
-        let fr_key = renderer.cache_key_for_route(&renderer.routes()[0], &fr);
+        let env = default_render_env(&renderer);
+        let en_key = renderer.cache_key_for_route(&renderer.routes()[0], &en, &env);
+        let fr_key = renderer.cache_key_for_route(&renderer.routes()[0], &fr, &env);
         assert_eq!(
             renderer.handle(en).unwrap().cache_status,
             Some(Freshness::Expired)
@@ -1299,6 +1871,19 @@ mod tests {
         );
         assert!(cache.contains_fresh(&en_key, SystemTime::now()).unwrap());
         assert!(cache.contains_fresh(&fr_key, SystemTime::now()).unwrap());
+    }
+
+    #[test]
+    fn cache_build_id_prefers_runtime_env_over_compile_time_env() {
+        assert_eq!(
+            cache_build_id_from(Some("release-42".to_string()), Some("compile-1"), "0.0.0"),
+            "release-42"
+        );
+        assert_eq!(
+            cache_build_id_from(Some("  ".to_string()), Some("compile-1"), "0.0.0"),
+            "compile-1"
+        );
+        assert_eq!(cache_build_id_from(None, Some("  "), "0.0.0"), "0.0.0");
     }
 
     #[test]
@@ -1529,6 +2114,7 @@ same_site = "none"
         );
         let css = css.body_string();
         assert!(css.contains(".fission-site-root"));
+        assert!(css.contains(".fission-site-positioned > .fission-site-semantics"));
         assert!(css.contains(":root"));
 
         let js = renderer
@@ -1552,6 +2138,24 @@ same_site = "none"
         let runtime = runtime.body_string();
         assert!(runtime.contains("fission_bridge_alloc"));
         assert!(runtime.contains("fission-site-text-run"));
+    }
+
+    #[test]
+    fn server_renderer_appends_user_css_to_site_stylesheet() {
+        let renderer = ServerRenderer::new(
+            FissionServerApp::new("Test")
+                .user_css(".demo-hook{animation:demo 1s linear infinite;}")
+                .server_route_widget::<TestState, _>("/", "Home", None, TestPage("CSS page")),
+        );
+
+        let page = renderer.handle(ServerRequest::get("/")).unwrap();
+        assert_eq!(page.status, 200);
+
+        let css = renderer.handle(ServerRequest::get("/site.css")).unwrap();
+        assert_eq!(css.status, 200);
+        let css = css.body_string();
+        assert!(css.contains(".fission-site-root"));
+        assert!(css.contains(".demo-hook{animation:demo 1s linear infinite;}"));
     }
 
     #[test]
@@ -1597,6 +2201,83 @@ same_site = "none"
             .handle(ServerRequest::get("/assets/../secret.txt"))
             .unwrap();
         assert_eq!(traversal.status, 400);
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn server_renderer_serves_static_app_mount_with_index_and_modules() {
+        let root = temp_project_dir("server-renderer-static-app");
+        let admin_dir = root.join("assets/admin/pkg");
+        fs::create_dir_all(&admin_dir).unwrap();
+        fs::write(
+            root.join("assets/admin/index.html"),
+            "<!doctype html><script type=\"module\" src=\"./bootstrap.mjs\"></script>",
+        )
+        .unwrap();
+        fs::write(
+            root.join("assets/admin/bootstrap.mjs"),
+            "import './pkg/app.js';",
+        )
+        .unwrap();
+        fs::write(
+            root.join("assets/admin/pkg/app.js"),
+            "export const app = true;",
+        )
+        .unwrap();
+        fs::write(root.join("secret.txt"), b"secret").unwrap();
+
+        let renderer = ServerRenderer::new(
+            FissionServerApp::new("Test")
+                .project_dir(&root)
+                .static_app("/admin", "assets/admin", "index.html")
+                .server_route_widget::<TestState, _>("/", "Home", None, TestPage("Mount page")),
+        );
+
+        let index = renderer.handle(ServerRequest::get("/admin/")).unwrap();
+        assert_eq!(index.status, 200);
+        assert_eq!(
+            response_header(&index, "content-type"),
+            Some("text/html; charset=utf-8")
+        );
+        assert!(index.body_string().contains("bootstrap.mjs"));
+
+        let module = renderer
+            .handle(ServerRequest::get("/admin/bootstrap.mjs"))
+            .unwrap();
+        assert_eq!(module.status, 200);
+        assert_eq!(
+            response_header(&module, "content-type"),
+            Some("application/javascript; charset=utf-8")
+        );
+
+        let nested = renderer
+            .handle(ServerRequest::get("/admin/pkg/app.js"))
+            .unwrap();
+        assert_eq!(nested.status, 200);
+        assert_eq!(
+            response_header(&nested, "content-type"),
+            Some("application/javascript; charset=utf-8")
+        );
+
+        let spa_route = renderer
+            .handle(ServerRequest::get("/admin/content/calendar"))
+            .unwrap();
+        assert_eq!(spa_route.status, 200);
+        assert_eq!(spa_route.body, index.body);
+
+        let missing_asset = renderer
+            .handle(ServerRequest::get("/admin/pkg/missing.js"))
+            .unwrap();
+        assert_eq!(missing_asset.status, 404);
+
+        let traversal = renderer
+            .handle(ServerRequest::get("/admin/../secret.txt"))
+            .unwrap();
+        assert_eq!(traversal.status, 400);
+
+        let public_route = renderer.handle(ServerRequest::get("/")).unwrap();
+        assert_eq!(public_route.status, 200);
 
         let _ = fs::remove_dir_all(&root);
     }

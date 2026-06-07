@@ -1,5 +1,7 @@
 use fission_core::internal::BuildCtx;
 use fission_core::{build, Env, GlobalState, RuntimeState, View, Widget};
+use fission_ir::op::{ImageSource, PaintOp};
+use fission_ir::Op;
 use fission_widgets::MarkdownViewer;
 
 #[derive(Default, Debug, Clone)]
@@ -99,4 +101,52 @@ fn renders_gfm_table_as_rows_and_cells() {
         .children
         .iter()
         .all(|row| fission_core::internal::widget_kind_name(row) == "Row"));
+}
+
+#[test]
+fn renders_linked_markdown_images_as_image_links() {
+    let node = build_markdown(
+        "[![Bluetooth screenshot](https://cdn.example.com/thumb.png)](https://cdn.example.com/full.png)\n",
+    );
+    let content = scroll_content(node);
+    let ir = fission_core::internal::lower_widget_to_ir(&content);
+
+    assert!(ir.nodes.values().any(|node| matches!(
+        &node.op,
+        Op::Paint(PaintOp::DrawImage { request, .. })
+            if matches!(
+                &request.source,
+                ImageSource::Network { url, .. } if url == "https://cdn.example.com/thumb.png"
+            )
+            && request.semantic_label.as_deref() == Some("Bluetooth screenshot")
+    )));
+    assert!(ir.nodes.values().any(|node| matches!(
+        &node.op,
+        Op::Semantics(semantics)
+            if semantics.identifier.as_deref()
+                == Some("markdown-link:https://cdn.example.com/full.png")
+    )));
+}
+
+#[test]
+fn renders_image_only_paragraphs_as_wrapping_galleries() {
+    let node = build_markdown(
+        "[![One](https://cdn.example.com/one.png)](https://cdn.example.com/one-full.png) [![Two](https://cdn.example.com/two.png)](https://cdn.example.com/two-full.png)\n",
+    );
+    let content = scroll_content(node);
+
+    let column = fission_core::internal::widget_as_column(&content)
+        .expect("expected MarkdownViewer content to be a Column");
+    assert_eq!(
+        fission_core::internal::widget_kind_name(&column.children[0]),
+        "Row"
+    );
+
+    let ir = fission_core::internal::lower_widget_to_ir(&content);
+    let image_count = ir
+        .nodes
+        .values()
+        .filter(|node| matches!(&node.op, Op::Paint(PaintOp::DrawImage { .. })))
+        .count();
+    assert_eq!(image_count, 2);
 }

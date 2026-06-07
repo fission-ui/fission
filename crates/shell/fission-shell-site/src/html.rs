@@ -1,8 +1,10 @@
 use anyhow::{anyhow, bail, Result};
+use fission_core::{AnimationPropertyId, AnimationRequest, AnimationStartValue, EasingFunction};
 use fission_ir::op::{
-    decode_inline_widget_marker, AlignItems, BoxShadow, Color, Fill, FlexDirection, FlexWrap,
-    FontStyle, GridPlacement, GridTrack, ImageFit, ImageSource, JustifyContent, LayoutOp, LineCap,
-    LineJoin, Op, PaintOp, Stroke, TextAlign, TextOverflow, TextRun,
+    decode_inline_widget_marker, AlignItems, BoxShadow, Color, CompositeScalar, Fill,
+    FlexDirection, FlexWrap, FontStyle, GridPlacement, GridTrack, ImageFit, ImageSource,
+    JustifyContent, LayoutOp, LineCap, LineJoin, Op, PaintOp, Stroke, TextAlign, TextOverflow,
+    TextRun,
 };
 use fission_ir::{semantics::ActionTrigger, CoreIR, CoreNode, Role, WidgetId};
 use fission_theme::{DesignMode, Theme};
@@ -32,6 +34,7 @@ pub struct HtmlRenderOptions {
     pub head_end_html: Vec<String>,
     pub body_start_html: Vec<String>,
     pub body_end_html: Vec<String>,
+    pub animation_requests: Vec<(WidgetId, AnimationRequest)>,
 }
 
 impl Default for HtmlRenderOptions {
@@ -59,6 +62,7 @@ impl Default for HtmlRenderOptions {
             head_end_html: Vec::new(),
             body_start_html: Vec::new(),
             body_end_html: Vec::new(),
+            animation_requests: Vec::new(),
         }
     }
 }
@@ -89,6 +93,59 @@ pub struct RenderedHtml {
     pub html: String,
     pub body_html: String,
     pub css: String,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StaticFormSpec {
+    action: String,
+    #[serde(default = "default_form_method")]
+    method: String,
+    #[serde(default)]
+    fields: Vec<StaticFormField>,
+    #[serde(default)]
+    submit_label: Option<String>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StaticFormField {
+    name: String,
+    #[serde(default = "default_form_field_kind")]
+    kind: StaticFormFieldKind,
+    #[serde(default)]
+    label: Option<String>,
+    #[serde(default)]
+    placeholder: Option<String>,
+    #[serde(default)]
+    value: Option<String>,
+    #[serde(default)]
+    required: bool,
+    #[serde(default)]
+    max_length: Option<usize>,
+    #[serde(default)]
+    rows: Option<usize>,
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum StaticFormFieldKind {
+    #[default]
+    Text,
+    Email,
+    Tel,
+    Url,
+    Hidden,
+    Textarea,
+    Checkbox,
+}
+
+fn default_form_method() -> String {
+    "post".to_string()
+}
+
+fn default_form_field_kind() -> StaticFormFieldKind {
+    StaticFormFieldKind::Text
 }
 
 pub fn render_ir_to_html(ir: &CoreIR, options: &HtmlRenderOptions) -> Result<RenderedHtml> {
@@ -193,7 +250,7 @@ fn render_document(body_html: &str, options: &HtmlRenderOptions, has_code_blocks
     }
     for json in &options.structured_data {
         metadata.push_str("\n    <script type=\"application/ld+json\">");
-        metadata.push_str(json);
+        metadata.push_str(&escape_script_data(json));
         metadata.push_str("</script>");
     }
     if let Some(favicon) = options.favicon_href.as_ref() {
@@ -277,6 +334,38 @@ fn code_highlighting_assets(options: &HtmlRenderOptions, has_code_blocks: bool) 
     )
 }
 
+fn escape_script_data(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut out = String::with_capacity(value.len() + 1);
+    let mut index = 0;
+    while index < bytes.len() {
+        let is_script_end = index + 8 <= bytes.len()
+            && bytes[index] == b'<'
+            && bytes[index + 1] == b'/'
+            && is_case_insensitive_eq(&bytes[index + 2..index + 8], b"script");
+        if is_script_end {
+            out.push_str("<\\/script");
+            index += 8;
+            continue;
+        }
+        let ch = value[index..]
+            .chars()
+            .next()
+            .expect("non-empty string slice has first char");
+        out.push(ch);
+        index += ch.len_utf8();
+    }
+    out
+}
+
+fn is_case_insensitive_eq(value: &[u8], target: &[u8]) -> bool {
+    value.len() == target.len()
+        && value
+            .iter()
+            .zip(target.iter())
+            .all(|(left, right)| left.to_ascii_lowercase() == right.to_ascii_lowercase())
+}
+
 fn search_script(options: &HtmlRenderOptions) -> String {
     options
         .search_script_href
@@ -348,6 +437,7 @@ impl CssVariableMap {
 pub struct StyleRegistry {
     style_to_class: BTreeMap<String, String>,
     class_to_style: BTreeMap<String, String>,
+    raw_rules: BTreeMap<String, String>,
 }
 
 impl StyleRegistry {
@@ -382,7 +472,17 @@ impl StyleRegistry {
             out.push_str(style);
             out.push_str("}\n");
         }
+        for rule in self.raw_rules.values() {
+            out.push_str(rule);
+            if !rule.ends_with('\n') {
+                out.push('\n');
+            }
+        }
         out
+    }
+
+    pub fn raw_rule(&mut self, key: impl Into<String>, rule: impl Into<String>) {
+        self.raw_rules.insert(key.into(), rule.into());
     }
 }
 
@@ -578,9 +678,15 @@ impl HtmlRenderer<'_> {
     ) -> Result<String> {
         let mut skip = HashSet::new();
         style.extend(self.coalesced_paint_style(node, &mut skip)?);
-        style.extend(composite_style(node));
+        let (composite_style, animated) = self.composite_style(node);
+        style.extend(composite_style);
         let children = self.render_children(&node.children, &skip)?;
-        let class_name = self.class_name(class_name, style);
+        let class_name = if animated {
+            format!("{class_name} fission-site-animated")
+        } else {
+            class_name.to_string()
+        };
+        let class_name = self.class_name(&class_name, style);
         Ok(format!(
             "<{tag} class=\"{}\" data-fission-node=\"{}\">{children}</{tag}>",
             escape_attr(&class_name),
@@ -594,6 +700,191 @@ impl HtmlRenderer<'_> {
         } else {
             base.to_string()
         }
+    }
+
+    fn composite_style(&mut self, node: &CoreNode) -> (Vec<String>, bool) {
+        let mut style = Vec::new();
+        let mut animations = Vec::new();
+
+        if node.composite.clip_to_bounds {
+            style.push("overflow:hidden".to_string());
+        }
+
+        if let Some(opacity) = node.composite.opacity.as_ref() {
+            style.push(format!("opacity:{}", opacity.base));
+            if let Some(request) = self.animation_request(opacity, AnimationPropertyId::Opacity) {
+                animations.push(self.animation_css(
+                    CssAnimationProperty::Opacity,
+                    opacity.base,
+                    &request,
+                    None,
+                ));
+            }
+        }
+
+        let translate_x = node
+            .composite
+            .translate_x
+            .as_ref()
+            .map(|v| v.base)
+            .unwrap_or(0.0);
+        let translate_y = node
+            .composite
+            .translate_y
+            .as_ref()
+            .map(|v| v.base)
+            .unwrap_or(0.0);
+        let scale = node.composite.scale.as_ref().map(|v| v.base).unwrap_or(1.0);
+        let rotation = node
+            .composite
+            .rotation
+            .as_ref()
+            .map(|v| v.base)
+            .unwrap_or(0.0);
+
+        let translate_x_request = node
+            .composite
+            .translate_x
+            .as_ref()
+            .and_then(|scalar| self.animation_request(scalar, AnimationPropertyId::TranslateX));
+        let translate_y_request = node
+            .composite
+            .translate_y
+            .as_ref()
+            .and_then(|scalar| self.animation_request(scalar, AnimationPropertyId::TranslateY));
+        let scale_request = node
+            .composite
+            .scale
+            .as_ref()
+            .and_then(|scalar| self.animation_request(scalar, AnimationPropertyId::Scale));
+        let rotation_request = node
+            .composite
+            .rotation
+            .as_ref()
+            .and_then(|scalar| self.animation_request(scalar, AnimationPropertyId::Rotation));
+        let has_transform_animation = translate_x_request.is_some()
+            || translate_y_request.is_some()
+            || scale_request.is_some()
+            || rotation_request.is_some();
+
+        if has_transform_animation {
+            style.push(format!(
+                "translate:{}px {}px",
+                px(translate_x),
+                px(translate_y)
+            ));
+            style.push(format!("scale:{}", px(scale)));
+            style.push(format!("rotate:{}rad", px(rotation)));
+        } else if translate_x != 0.0
+            || translate_y != 0.0
+            || (scale - 1.0).abs() > f32::EPSILON
+            || rotation != 0.0
+        {
+            style.push(format!(
+                "transform:translate({}px,{}px) scale({}) rotate({}rad)",
+                px(translate_x),
+                px(translate_y),
+                scale,
+                rotation
+            ));
+        }
+
+        if let Some(request) = translate_x_request {
+            animations.push(self.animation_css(
+                CssAnimationProperty::TranslateX {
+                    other_axis: translate_y,
+                },
+                translate_x,
+                &request,
+                None,
+            ));
+        }
+        if let Some(request) = translate_y_request {
+            animations.push(self.animation_css(
+                CssAnimationProperty::TranslateY {
+                    other_axis: translate_x,
+                },
+                translate_y,
+                &request,
+                None,
+            ));
+        }
+        if let Some(request) = scale_request {
+            animations.push(self.animation_css(CssAnimationProperty::Scale, scale, &request, None));
+        }
+        if let Some(request) = rotation_request {
+            animations.push(self.animation_css(
+                CssAnimationProperty::Rotation,
+                rotation,
+                &request,
+                None,
+            ));
+        }
+
+        if !animations.is_empty() {
+            style.push(format!("animation:{}", animations.join(",")));
+            self.styles.raw_rule(
+                "fission-site-reduced-motion-animations",
+                "@media (prefers-reduced-motion:reduce){.fission-site-animated{animation:none!important;}}\n",
+            );
+        }
+
+        (style, !animations.is_empty())
+    }
+
+    fn animation_request(
+        &self,
+        scalar: &CompositeScalar,
+        property: AnimationPropertyId,
+    ) -> Option<AnimationRequest> {
+        let target = scalar.animation_target?;
+        self.options
+            .animation_requests
+            .iter()
+            .rev()
+            .find_map(|(candidate, request)| {
+                (*candidate == target && request.property == property).then_some(request.clone())
+            })
+    }
+
+    fn animation_css(
+        &mut self,
+        property: CssAnimationProperty,
+        base: f32,
+        request: &AnimationRequest,
+        override_from: Option<f32>,
+    ) -> String {
+        let from = override_from.unwrap_or_else(|| animation_start_value(request, base));
+        let name = self.register_animation_keyframes(property, from, request.to, request);
+        format!(
+            "{} {}ms {} {}ms {} normal both",
+            name,
+            request.duration_ms,
+            easing_css(&request.easing),
+            request.delay_ms,
+            if request.repeat { "infinite" } else { "1" }
+        )
+    }
+
+    fn register_animation_keyframes(
+        &mut self,
+        property: CssAnimationProperty,
+        from: f32,
+        to: f32,
+        request: &AnimationRequest,
+    ) -> String {
+        let key = format!(
+            "{property:?}:{from:?}:{to:?}:{:?}:{}:{}:{}",
+            request.easing, request.duration_ms, request.delay_ms, request.repeat
+        );
+        let name = format!("fission_anim_{:016x}", stable_hash(key.as_bytes()));
+        let rule = format!(
+            "@keyframes {name}{{from{{{}}}to{{{}}}}}\n",
+            property.css_declaration(from),
+            property.css_declaration(to)
+        );
+        self.styles.raw_rule(name.clone(), rule);
+        name
     }
 
     fn render_layout(&mut self, node: &CoreNode, layout: &LayoutOp) -> Result<String> {
@@ -809,6 +1100,10 @@ impl HtmlRenderer<'_> {
                 ..
             } => {
                 let mut style = self.text_style(*size, *color, *underline, *wrap);
+                if paragraph_needs_text_box(paragraph_style.as_ref()) {
+                    style.push("display:block".to_string());
+                    style.push("width:100%".to_string());
+                }
                 push_paragraph_style(&mut style, paragraph_style.as_ref());
                 let class_name = self.class_name("fission-site-text", style);
                 Ok(format!(
@@ -824,10 +1119,17 @@ impl HtmlRenderer<'_> {
                 paragraph_style,
                 ..
             } => {
-                let mut style = vec![
-                    "display:inline".to_string(),
-                    format!("white-space:{}", if *wrap { "pre-wrap" } else { "pre" }),
-                ];
+                let mut style = Vec::new();
+                if paragraph_needs_text_box(paragraph_style.as_ref()) {
+                    style.push("display:block".to_string());
+                    style.push("width:100%".to_string());
+                } else {
+                    style.push("display:inline".to_string());
+                }
+                style.push(format!(
+                    "white-space:{}",
+                    if *wrap { "pre-wrap" } else { "pre" }
+                ));
                 push_paragraph_style(&mut style, paragraph_style.as_ref());
                 let mut content = String::new();
                 for run in runs {
@@ -875,12 +1177,23 @@ impl HtmlRenderer<'_> {
             }
             PaintOp::DrawSvg {
                 content,
-                fill: _,
-                stroke: _,
-            } => Ok(format!(
-                "<span class=\"fission-site-svg\" data-fission-node=\"{}\">{}</span>",
-                node.id, content
-            )),
+                fill,
+                stroke,
+            } => {
+                let base = if fill.is_some() || stroke.is_some() {
+                    "fission-site-svg fission-site-svg-colored"
+                } else {
+                    "fission-site-svg"
+                };
+                let class_name =
+                    self.class_name(base, self.svg_paint_style(fill.as_ref(), stroke.as_ref()));
+                Ok(format!(
+                    "<span class=\"{}\" data-fission-node=\"{}\">{}</span>",
+                    escape_attr(&class_name),
+                    node.id,
+                    content
+                ))
+            }
         }
     }
 
@@ -945,6 +1258,9 @@ impl HtmlRenderer<'_> {
             }
             if let Some(language) = identifier.strip_prefix("markdown-code-block:") {
                 return self.render_markdown_code_block(node, language, semantics.value.as_deref());
+            }
+            if identifier == "site-form" || identifier.starts_with("site-form:") {
+                return self.render_static_form(node, identifier, semantics);
             }
             if identifier.starts_with("site-") {
                 return self.render_site_semantic_wrapper(
@@ -1147,6 +1463,89 @@ impl HtmlRenderer<'_> {
             node.id,
             escape_text(code)
         ))
+    }
+
+    fn render_static_form(
+        &mut self,
+        node: &CoreNode,
+        identifier: &str,
+        semantics: &fission_ir::Semantics,
+    ) -> Result<String> {
+        let Some(value) = semantics.value.as_deref() else {
+            return self.render_site_semantic_wrapper(node, identifier, semantics.label.as_deref());
+        };
+        let spec: StaticFormSpec = serde_json::from_str(value)
+            .map_err(|error| anyhow!("invalid static form spec on node {}: {error}", node.id))?;
+        let method = spec.method.to_ascii_lowercase();
+        let action = self.resolve_link_href(&spec.action);
+        let mut attrs = format!(
+            " method=\"{}\" action=\"{}\" data-fission-semantics=\"{}\"",
+            escape_attr(&method),
+            escape_attr(&action),
+            escape_attr(identifier)
+        );
+        if let Some(label) = semantics.label.as_deref() {
+            attrs.push_str(&format!(" aria-label=\"{}\"", escape_attr(label)));
+        }
+        let mut fields = String::new();
+        for field in &spec.fields {
+            fields.push_str(&self.render_static_form_field(field));
+        }
+        let submit = spec
+            .submit_label
+            .as_deref()
+            .unwrap_or_else(|| semantics.label.as_deref().unwrap_or("Submit"));
+        Ok(format!(
+            "<form class=\"fission-site-node fission-site-form {}\"{attrs} data-fission-node=\"{}\">{fields}<button class=\"fission-site-form-submit\" type=\"submit\">{}</button></form>",
+            site_semantic_class(identifier),
+            node.id,
+            escape_text(submit),
+        ))
+    }
+
+    fn render_static_form_field(&self, field: &StaticFormField) -> String {
+        match field.kind {
+            StaticFormFieldKind::Hidden => format!(
+                "<input type=\"hidden\" name=\"{}\" value=\"{}\">",
+                escape_attr(&field.name),
+                escape_attr(field.value.as_deref().unwrap_or(""))
+            ),
+            StaticFormFieldKind::Textarea => {
+                let mut attrs = static_form_input_attrs(field);
+                let rows = field.rows.unwrap_or(5).max(2);
+                attrs.push_str(&format!(" rows=\"{}\"", rows));
+                let control = format!(
+                    "<textarea class=\"fission-site-form-input fission-site-form-textarea\"{attrs}>{}</textarea>",
+                    escape_text(field.value.as_deref().unwrap_or(""))
+                );
+                static_form_label(field, control)
+            }
+            StaticFormFieldKind::Checkbox => {
+                let mut attrs = static_form_input_attrs(field);
+                attrs.push_str(" type=\"checkbox\"");
+                if field.value.as_deref() == Some("true") {
+                    attrs.push_str(" checked");
+                }
+                let control =
+                    format!("<input class=\"fission-site-form-checkbox\"{attrs} value=\"true\">");
+                static_form_label(field, control)
+            }
+            StaticFormFieldKind::Text
+            | StaticFormFieldKind::Email
+            | StaticFormFieldKind::Tel
+            | StaticFormFieldKind::Url => {
+                let input_type = match field.kind {
+                    StaticFormFieldKind::Email => "email",
+                    StaticFormFieldKind::Tel => "tel",
+                    StaticFormFieldKind::Url => "url",
+                    _ => "text",
+                };
+                let mut attrs = static_form_input_attrs(field);
+                attrs.push_str(&format!(" type=\"{}\"", input_type));
+                let control = format!("<input class=\"fission-site-form-input\"{attrs}>");
+                static_form_label(field, control)
+            }
+        }
     }
 
     fn render_site_semantic_wrapper(
@@ -1498,6 +1897,36 @@ fn site_semantic_class(identifier: &str) -> String {
     format!("fission-{suffix}")
 }
 
+fn static_form_label(field: &StaticFormField, control: String) -> String {
+    let label = field.label.as_deref().unwrap_or(field.name.as_str());
+    format!(
+        "<label class=\"fission-site-form-field\"><span class=\"fission-site-form-label\">{}</span>{control}</label>",
+        escape_text(label)
+    )
+}
+
+fn static_form_input_attrs(field: &StaticFormField) -> String {
+    let mut attrs = format!(" name=\"{}\"", escape_attr(&field.name));
+    if let Some(placeholder) = field.placeholder.as_deref() {
+        attrs.push_str(&format!(" placeholder=\"{}\"", escape_attr(placeholder)));
+    }
+    if let Some(value) = field.value.as_deref() {
+        if !matches!(
+            field.kind,
+            StaticFormFieldKind::Textarea | StaticFormFieldKind::Checkbox
+        ) {
+            attrs.push_str(&format!(" value=\"{}\"", escape_attr(value)));
+        }
+    }
+    if field.required {
+        attrs.push_str(" required");
+    }
+    if let Some(max_length) = field.max_length {
+        attrs.push_str(&format!(" maxlength=\"{}\"", max_length));
+    }
+    attrs
+}
+
 fn site_semantic_data_attrs(identifier: &str) -> String {
     if let Some(rest) = identifier.strip_prefix("site-sidebar-item:") {
         let mut parts = rest.split(':');
@@ -1576,6 +2005,13 @@ fn push_paragraph_style(
     }
 }
 
+fn paragraph_needs_text_box(paragraph: Option<&fission_ir::op::TextParagraphStyle>) -> bool {
+    matches!(
+        paragraph.map(|style| style.text_align),
+        Some(TextAlign::Center | TextAlign::Right | TextAlign::End | TextAlign::Justify)
+    )
+}
+
 fn push_box_constraints(
     style: &mut Vec<String>,
     width: Option<f32>,
@@ -1628,47 +2064,54 @@ fn push_grid_placement(style: &mut Vec<String>, name: &str, value: GridPlacement
     }
 }
 
-fn composite_style(node: &CoreNode) -> Vec<String> {
-    let mut style = Vec::new();
-    if let Some(opacity) = node.composite.opacity.as_ref() {
-        style.push(format!("opacity:{}", opacity.base));
+#[derive(Clone, Copy, Debug)]
+enum CssAnimationProperty {
+    Opacity,
+    TranslateX { other_axis: f32 },
+    TranslateY { other_axis: f32 },
+    Scale,
+    Rotation,
+}
+
+impl CssAnimationProperty {
+    fn css_declaration(self, value: f32) -> String {
+        match self {
+            Self::Opacity => format!("opacity:{}", px(value)),
+            Self::TranslateX { other_axis } => {
+                format!("translate:{}px {}px", px(value), px(other_axis))
+            }
+            Self::TranslateY { other_axis } => {
+                format!("translate:{}px {}px", px(other_axis), px(value))
+            }
+            Self::Scale => format!("scale:{}", px(value)),
+            Self::Rotation => format!("rotate:{}rad", px(value)),
+        }
     }
-    if node.composite.clip_to_bounds {
-        style.push("overflow:hidden".to_string());
+}
+
+fn animation_start_value(request: &AnimationRequest, base: f32) -> f32 {
+    match request.from {
+        AnimationStartValue::Explicit(value) => value,
+        AnimationStartValue::Current => base,
     }
-    let translate_x = node
-        .composite
-        .translate_x
-        .as_ref()
-        .map(|v| v.base)
-        .unwrap_or(0.0);
-    let translate_y = node
-        .composite
-        .translate_y
-        .as_ref()
-        .map(|v| v.base)
-        .unwrap_or(0.0);
-    let scale = node.composite.scale.as_ref().map(|v| v.base).unwrap_or(1.0);
-    let rotation = node
-        .composite
-        .rotation
-        .as_ref()
-        .map(|v| v.base)
-        .unwrap_or(0.0);
-    if translate_x != 0.0
-        || translate_y != 0.0
-        || (scale - 1.0).abs() > f32::EPSILON
-        || rotation != 0.0
-    {
-        style.push(format!(
-            "transform:translate({}px,{}px) scale({}) rotate({}rad)",
-            px(translate_x),
-            px(translate_y),
-            scale,
-            rotation
-        ));
+}
+
+fn easing_css(easing: &EasingFunction) -> String {
+    match easing {
+        EasingFunction::Linear => "linear".to_string(),
+        EasingFunction::EaseIn => "ease-in".to_string(),
+        EasingFunction::EaseOut => "ease-out".to_string(),
+        EasingFunction::EaseInOut => "ease-in-out".to_string(),
+        EasingFunction::CubicBezier(x1, y1, x2, y2) => {
+            format!(
+                "cubic-bezier({},{},{},{})",
+                px(*x1),
+                px(*y1),
+                px(*x2),
+                px(*y2)
+            )
+        }
     }
-    style
 }
 
 fn raw_color_css(color: Color) -> String {
@@ -1823,7 +2266,10 @@ fn escape_attr(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fission_ir::{ActionEntry, ActionSet, CoreIR, CoreNode, Op, Semantics, WidgetId};
+    use fission_ir::{
+        ActionEntry, ActionSet, CompositeScalar, CompositeStyle, CoreIR, CoreNode, Op, Semantics,
+        WidgetId,
+    };
 
     #[test]
     fn renders_text_from_core_ir() {
@@ -1930,6 +2376,183 @@ mod tests {
     }
 
     #[test]
+    fn repeated_rotation_animation_lowers_to_css_keyframes() {
+        let root = WidgetId::explicit("root");
+        let spinner = WidgetId::explicit("spinner-node");
+        let target = WidgetId::explicit("spinner-animation");
+        let mut ir = CoreIR::new();
+        ir.nodes.insert(
+            spinner,
+            CoreNode {
+                id: spinner,
+                op: Op::Structural(fission_ir::StructuralOp::Group { stable_hash: 7 }),
+                composite: CompositeStyle {
+                    rotation: Some(CompositeScalar::new(0.0).animated(target)),
+                    ..Default::default()
+                },
+                children: Vec::new(),
+                parent: None,
+                hash: 0,
+            },
+        );
+        ir.add_node(
+            root,
+            Op::Structural(fission_ir::StructuralOp::Group { stable_hash: 1 }),
+            vec![spinner],
+        );
+        ir.set_root(root);
+        let options = HtmlRenderOptions {
+            animation_requests: vec![(
+                target,
+                AnimationRequest {
+                    property: AnimationPropertyId::Rotation,
+                    from: AnimationStartValue::Explicit(0.0),
+                    to: std::f32::consts::TAU,
+                    duration_ms: 7000,
+                    repeat: true,
+                    delay_ms: 120,
+                    frame_interval_ms: None,
+                    easing: EasingFunction::Linear,
+                },
+            )],
+            ..Default::default()
+        };
+
+        let rendered = render_ir_to_html(&ir, &options).unwrap();
+
+        assert!(rendered.html.contains("fission-site-animated"));
+        assert!(rendered.css.contains("@keyframes fission_anim_"));
+        assert!(rendered.css.contains("rotate:0rad"));
+        assert!(rendered.css.contains("rotate:6.283rad"));
+        assert!(rendered
+            .css
+            .contains("7000ms linear 120ms infinite normal both"));
+        assert!(rendered.css.contains("prefers-reduced-motion:reduce"));
+    }
+
+    #[test]
+    fn scale_and_opacity_animations_share_one_dom_node() {
+        let root = WidgetId::explicit("root");
+        let pulse = WidgetId::explicit("pulse-node");
+        let target = WidgetId::explicit("pulse-animation");
+        let mut ir = CoreIR::new();
+        ir.nodes.insert(
+            pulse,
+            CoreNode {
+                id: pulse,
+                op: Op::Structural(fission_ir::StructuralOp::Group { stable_hash: 7 }),
+                composite: CompositeStyle {
+                    opacity: Some(CompositeScalar::new(0.72).animated(target)),
+                    scale: Some(CompositeScalar::new(0.92).animated(target)),
+                    ..Default::default()
+                },
+                children: Vec::new(),
+                parent: None,
+                hash: 0,
+            },
+        );
+        ir.add_node(
+            root,
+            Op::Structural(fission_ir::StructuralOp::Group { stable_hash: 1 }),
+            vec![pulse],
+        );
+        ir.set_root(root);
+        let options = HtmlRenderOptions {
+            animation_requests: vec![
+                (
+                    target,
+                    AnimationRequest {
+                        property: AnimationPropertyId::Opacity,
+                        from: AnimationStartValue::Explicit(0.72),
+                        to: 1.0,
+                        duration_ms: 1400,
+                        repeat: true,
+                        delay_ms: 0,
+                        frame_interval_ms: None,
+                        easing: EasingFunction::EaseInOut,
+                    },
+                ),
+                (
+                    target,
+                    AnimationRequest {
+                        property: AnimationPropertyId::Scale,
+                        from: AnimationStartValue::Explicit(0.92),
+                        to: 1.08,
+                        duration_ms: 1400,
+                        repeat: true,
+                        delay_ms: 0,
+                        frame_interval_ms: None,
+                        easing: EasingFunction::EaseInOut,
+                    },
+                ),
+            ],
+            ..Default::default()
+        };
+
+        let rendered = render_ir_to_html(&ir, &options).unwrap();
+
+        assert!(rendered.css.contains("opacity:0.720"));
+        assert!(rendered.css.contains("opacity:1"));
+        assert!(rendered.css.contains("scale:0.920"));
+        assert!(rendered.css.contains("scale:1.080"));
+        assert!(rendered.css.matches("@keyframes fission_anim_").count() >= 2);
+        assert!(rendered.css.contains(",fission_anim_"));
+    }
+
+    #[test]
+    fn centered_rich_text_lowers_to_width_bearing_block() {
+        let root = WidgetId::explicit("root");
+        let text = WidgetId::explicit("centered-text");
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            text,
+            Op::Paint(PaintOp::DrawRichText {
+                runs: vec![TextRun {
+                    text: "Centered\ncopy".into(),
+                    style: fission_ir::op::TextStyle {
+                        font_size: 24.0,
+                        color: Color::WHITE,
+                        underline: false,
+                        font_family: None,
+                        locale: None,
+                        font_weight: 700,
+                        font_style: FontStyle::Normal,
+                        line_height: Some(28.0),
+                        letter_spacing: 0.0,
+                        background_color: None,
+                    },
+                }],
+                wrap: true,
+                caret_index: None,
+                caret_color: None,
+                caret_width: None,
+                caret_height: None,
+                caret_radius: None,
+                paragraph_style: Some(fission_ir::op::TextParagraphStyle {
+                    text_align: TextAlign::Center,
+                    ..Default::default()
+                }),
+            }),
+            Vec::new(),
+        );
+        ir.add_node(
+            root,
+            Op::Structural(fission_ir::StructuralOp::Group { stable_hash: 1 }),
+            vec![text],
+        );
+        ir.set_root(root);
+
+        let rendered = render_ir_to_html(&ir, &HtmlRenderOptions::default()).unwrap();
+
+        assert!(rendered.css.contains("display:block"));
+        assert!(rendered.css.contains("width:100%"));
+        assert!(rendered.css.contains("text-align:center"));
+        assert!(!rendered
+            .css
+            .contains("display:inline;white-space:pre-wrap;text-align:center"));
+    }
+
+    #[test]
     fn relative_hrefs_are_derived_from_current_route() {
         assert_eq!(
             relative_href_for_route("/docs/learn/quickstart/", "/reference/widgets/button/#api"),
@@ -2013,6 +2636,75 @@ mod tests {
         assert!(rendered.html.contains("action=\"/__fission/action\""));
         assert!(rendered.html.contains("name=\"token\""));
         assert!(rendered.html.contains("signed-token"));
+    }
+
+    #[test]
+    fn site_form_semantics_render_native_post_form() {
+        let root = WidgetId::explicit("static-form");
+        let semantics = Semantics {
+            identifier: Some("site-form:contact".to_string()),
+            label: Some("Contact".to_string()),
+            value: Some(
+                r#"{
+                    "action": "/contact/submit",
+                    "method": "post",
+                    "submitLabel": "Send",
+                    "fields": [
+                        {"kind": "email", "name": "email", "label": "Email", "required": true, "maxLength": 320},
+                        {"kind": "textarea", "name": "message", "label": "Message", "rows": 4},
+                        {"kind": "checkbox", "name": "agree", "label": "Agree"}
+                    ]
+                }"#
+                .to_string(),
+            ),
+            ..Default::default()
+        };
+        let mut ir = CoreIR::new();
+        ir.nodes.insert(
+            root,
+            CoreNode {
+                id: root,
+                op: Op::Semantics(semantics),
+                composite: Default::default(),
+                children: Vec::new(),
+                parent: None,
+                hash: 0,
+            },
+        );
+        ir.set_root(root);
+
+        let rendered = render_ir_to_html(
+            &ir,
+            &HtmlRenderOptions {
+                current_route_path: "/contact/".to_string(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert!(rendered.html.contains("<form"));
+        assert!(rendered.html.contains("method=\"post\""));
+        assert!(rendered.html.contains("action=\"../contact/submit\""));
+        assert!(rendered
+            .html
+            .contains("data-fission-semantics=\"site-form:contact\""));
+        assert!(rendered.html.contains("type=\"email\""));
+        assert!(rendered.html.contains("name=\"message\""));
+        assert!(rendered.html.contains("<textarea"));
+        assert!(rendered.html.contains("type=\"checkbox\""));
+        assert!(rendered.html.contains(">Send</button>"));
+    }
+
+    #[test]
+    fn escape_script_data_is_case_insensitive() {
+        let escaped = escape_script_data(
+            "<script>{\"value\":\"</script\",\"alt\":\"</Script\",\"upper\":\"</SCRIPT\"}</script>",
+        );
+        assert_eq!(
+            escaped,
+            "<script>{\"value\":\"<\\/script\",\"alt\":\"<\\/script\",\"upper\":\"<\\/script\"}<\\/script>",
+        );
+        assert_eq!(escaped.matches("<\\/script").count(), 4);
     }
 
     #[test]

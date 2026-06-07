@@ -1346,7 +1346,10 @@ impl<'a> VelloRenderer<'a> {
     }
 
     fn rects_intersect(a: Rect, b: Rect) -> bool {
-        a.width() > 0.0 && a.height() > 0.0 && b.width() > 0.0 && b.height() > 0.0
+        a.width() > 0.0
+            && a.height() > 0.0
+            && b.width() > 0.0
+            && b.height() > 0.0
             && a.x1 >= b.x0
             && a.x0 <= b.x1
             && a.y1 >= b.y0
@@ -1354,7 +1357,12 @@ impl<'a> VelloRenderer<'a> {
     }
 
     fn intersect_rects(a: Rect, b: Rect) -> Rect {
-        Rect::new(a.x0.max(b.x0), a.y0.max(b.y0), a.x1.min(b.x1), a.y1.min(b.y1))
+        Rect::new(
+            a.x0.max(b.x0),
+            a.y0.max(b.y0),
+            a.x1.min(b.x1),
+            a.y1.min(b.y1),
+        )
     }
 
     fn local_rect_visible(&self, rect: Rect) -> bool {
@@ -1650,9 +1658,7 @@ impl<'a> VelloRenderer<'a> {
                         let overlap_end = range.end.min(run_text_range.end);
                         if overlap_start < overlap_end {
                             let bg_color = Color::from_rgba8(bg.r, bg.g, bg.b, bg.a);
-                            let x0 = clip
-                                .map(|clip| run_left.max(clip.left))
-                                .unwrap_or(run_left);
+                            let x0 = clip.map(|clip| run_left.max(clip.left)).unwrap_or(run_left);
                             let x1 = clip
                                 .map(|clip| run_right.min(clip.right))
                                 .unwrap_or(run_right);
@@ -1724,9 +1730,7 @@ impl<'a> VelloRenderer<'a> {
                         deco_brush.0[3],
                     );
 
-                    let x0 = clip
-                        .map(|clip| run_left.max(clip.left))
-                        .unwrap_or(run_left);
+                    let x0 = clip.map(|clip| run_left.max(clip.left)).unwrap_or(run_left);
                     let x1 = clip
                         .map(|clip| run_right.min(clip.right))
                         .unwrap_or(run_right);

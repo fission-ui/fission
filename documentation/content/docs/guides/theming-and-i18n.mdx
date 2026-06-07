@@ -290,6 +290,21 @@ DesktopApp::new(MyApp)
     .run()?;
 ```
 
+Server-rendered apps and static sites use the same `Env` data, but they resolve it at request time or build time instead of once per frame:
+
+```rust
+FissionServerApp::new("Docs")
+    .with_env(create_env()?)
+    .with_request_env(|ctx, env| {
+        if ctx.route_path.starts_with("/fr/") {
+            env.locale = "fr".into();
+        }
+        Ok(())
+    });
+```
+
+For a static site, call `FissionSite::with_env(create_env()?)`. The static-site shell seeds `env.locale` from `site.default_locale` while rendering. The server shell seeds `env.locale` from `server.default_locale` and then runs `.with_request_env(...)`, so request-owned choices such as locale from a route prefix, cookie, session, or header can override the default.
+
 This example has two separate jobs.
 
 First, `.with_env(create_env()?)` installs the base environment that already contains your translation bundles. The `?` after `create_env()` means "if building the environment fails, return the error instead of continuing."

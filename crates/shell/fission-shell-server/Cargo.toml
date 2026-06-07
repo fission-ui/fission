@@ -38,4 +38,5 @@ tokio = { version = "1.48", features = ["rt-multi-thread", "time"] }
 toml = "0.8"
 
 [dev-dependencies]
+fission-i18n = { path = "../../core/fission-i18n", version = "0.4.0" }
 fission-widgets = { path = "../../authoring/fission-widgets", version = "0.4.0", default-features = false }

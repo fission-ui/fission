@@ -18,6 +18,8 @@ pub struct SemanticsRegion {
     pub identifier: Option<String>,
     /// Optional accessible label for the region.
     pub label: Option<String>,
+    /// Optional semantic value exposed to shells and renderers.
+    pub value: Option<String>,
     /// Semantic role. Defaults to a generic region.
     pub role: Role,
     /// Actions attached to the semantic region.
@@ -62,6 +64,16 @@ impl SemanticsRegion {
         self
     }
 
+    /// Sets the semantic value exposed to shells and HTML renderers.
+    ///
+    /// Most semantic regions do not need a value. It is useful for renderer
+    /// extensions where the stable identifier names the behavior and the value
+    /// carries structured, serializable configuration.
+    pub fn value(mut self, value: impl Into<String>) -> Self {
+        self.value = Some(value.into());
+        self
+    }
+
     /// Sets the semantic role of the region.
     ///
     /// Choose the role that matches the user-visible behavior of the wrapped
@@ -93,6 +105,7 @@ impl Default for SemanticsRegion {
             id: None,
             identifier: None,
             label: None,
+            value: None,
             role: Role::Generic,
             actions: ActionSet::default(),
             child: None,
@@ -108,6 +121,7 @@ impl InternalLower for SemanticsRegion {
             role: self.role,
             identifier: self.identifier.clone(),
             label: self.label.clone(),
+            value: self.value.clone(),
             actions: self.actions.clone(),
             ..Default::default()
         };

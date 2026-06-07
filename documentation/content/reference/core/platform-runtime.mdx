@@ -111,7 +111,7 @@ The wrappers are intentionally similar, but not identical.
 - `register_reducer(...)`
 - `absorb_registry(...)`
 
-`with_env(...)` is the desktop-only public hook for replacing the default `Env` up front. `register_reducer(...)` and `absorb_registry(...)` are direct reducer-registration helpers on the desktop wrapper. `with_test_control_port(...)` is the desktop live-shell testing entrypoint.
+`with_env(...)` replaces the default `Env` up front on shells that expose a base environment, including desktop, server-rendered apps, and static sites. `register_reducer(...)` and `absorb_registry(...)` are direct reducer-registration helpers on the desktop wrapper. `with_test_control_port(...)` is the desktop live-shell testing entrypoint.
 
 `MobileApp` keeps the same overall model but exposes a smaller public surface. It currently supports:
 

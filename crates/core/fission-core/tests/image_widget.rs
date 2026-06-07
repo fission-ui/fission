@@ -74,9 +74,15 @@ fn image_lowering_keeps_sized_layout_parent_and_draw_image_child() {
     let root_id = ir.root.expect("image root");
     let root = ir.nodes.get(&root_id).expect("root node");
     match &root.op {
-        Op::Layout(fission_ir::op::LayoutOp::Box { width, height, .. }) => {
+        Op::Layout(fission_ir::op::LayoutOp::Box {
+            width,
+            height,
+            flex_shrink,
+            ..
+        }) => {
             assert_eq!(*width, Some(88.0));
             assert_eq!(*height, Some(44.0));
+            assert_eq!(*flex_shrink, 1.0);
         }
         other => panic!("expected image root to be a sized layout box, got {other:?}"),
     }

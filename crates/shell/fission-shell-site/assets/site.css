@@ -13,7 +13,42 @@ img, svg { max-width: 100%; }
 .fission-site-root { min-height: 100vh; }
 .fission-site-node { min-width: 0; }
 .fission-site-route-link,
-.fission-site-heading-link { display: contents; }
+.fission-site-heading-link {
+  display: inline-flex;
+  max-width: 100%;
+  color: inherit;
+  text-decoration: none;
+}
+.fission-site-route-link {
+  cursor: pointer;
+}
+.fission-site-route-link:hover,
+.fission-site-heading-link:hover {
+  text-decoration: none;
+}
+.fission-site-route-link > .fission-site-node,
+.fission-site-heading-link > .fission-site-node {
+  flex: 1 1 auto;
+}
+.fission-site-positioned > .fission-site-node,
+.fission-site-positioned > .fission-site-semantics,
+.fission-site-positioned > .fission-site-semantics > .fission-site-node,
+.fission-site-absolute-fill > .fission-site-node {
+  width: 100%;
+  height: 100%;
+}
+
+@media (max-width: 720px) {
+  .fission-site-root > .fission-site-box > .fission-site-column {
+    align-items: stretch !important;
+  }
+
+  .fission-site-root .fission-site-box,
+  .fission-site-root .fission-site-row,
+  .fission-site-root .fission-site-column {
+    max-width: 100% !important;
+  }
+}
 .fission-site-markdown-link { display: inline; }
 .fission-site-scroll { overflow: auto; }
 .fission-site-text,
@@ -21,6 +56,14 @@ img, svg { max-width: 100%; }
 .fission-site-rich-text span { white-space: pre-wrap; }
 .fission-site-img { display: block; height: auto; }
 .fission-site-svg svg { display: inline-block; max-width: 100%; }
+.fission-site-svg-colored svg,
+.fission-site-svg-colored svg * {
+  fill: currentColor;
+}
+
+.fission-site-svg-colored svg [fill="none"] {
+  fill: none;
+}
 
 .fission-server-action-form {
   display: contents;
