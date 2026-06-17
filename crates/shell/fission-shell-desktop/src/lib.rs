@@ -277,6 +277,7 @@ where
             + 'static,
     {
         self.inner = self.inner.on_notification_response(handler);
+        self
     }
 
     pub fn with_route_handler(
