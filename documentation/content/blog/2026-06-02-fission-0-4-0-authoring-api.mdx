@@ -10,7 +10,7 @@ categories:
   - Releases
 ---
 
-Fission 0.4.0 is the authoring API release. It changes how application and library authors write widgets, how state is accessed during component conversion, and how local retained state is modeled. The work is tracked in [PR #63](https://github.com/worka-ai/fission/pull/63).
+Fission 0.4.0 is the authoring API release. It changes how application and library authors write widgets, how state is accessed during component conversion, and how local retained state is modeled. The work is tracked in [PR #63](https://github.com/fission-ui/fission/pull/63).
 
 The short version is this: authored components are now ordinary Rust structs that convert into `Widget` with `impl From<Component> for Widget`. The old public widget-authoring-boundary shape is gone. The framework keeps the closed internal `Widget` representation, but authoring code no longer teaches language models or developers to implement a public `Widget` trait or return internal node-like forms.
 
@@ -87,6 +87,8 @@ impl From<Counter> for Widget {
 ```
 
 The local field becomes a `StateField<T>` accessor. The runtime retains it by widget identity, not by keeping the component struct object alive. If a component appears in dynamic, reorderable data, authors use `.id(WidgetId::explicit(...))` to give that identity a stable key.
+
+0.4.0 also includes the base scoped raw action primitives used by host shells that mount or compose isolated subtrees. `ActionScopeId` identifies a dispatch scope, `ActionScope` annotates a subtree in the lowered semantics tree, and `ActionInput::ScopedRaw` lets shell/runtime code inspect the nearest scope and target before recovering the original unscoped input. These primitives are intentionally low-level; they establish the raw dispatch boundary, while later shell releases can add higher-level route or guest-runtime policies on top.
 
 This release touches nearly every crate because the public boundary changed across the whole stack. Core widgets, controls, media widgets, text widgets, charts, 3D surfaces, shell integrations, static and server rendering, terminal rendering, the CLI UI, tests, examples, and documentation were all updated to the same model. The old compatibility layer was intentionally removed. Fission 0.4.0 is a breaking authoring release because keeping two authoring models would teach the wrong thing.
 

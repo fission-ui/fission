@@ -1,5 +1,5 @@
 ---
-title: Fission 0.4.1: runtime shell fixes, static server apps, and route actions
+title: Fission 0.4.1: runtime shell fixes, static server apps, and scoped route actions
 authors:
   - fission
 tags:
@@ -13,17 +13,17 @@ categories:
 
 Fission 0.4.1 is a focused patch release on top of the 0.4 authoring API. It keeps the `impl From<Component> for Widget` model intact and improves the runtime, shell, server, static-site, and mobile-target behavior needed by production hosts and generated apps.
 
-The main runtime-shell addition is route action plumbing for host shells. Fission 0.4.0 already introduced scoped raw action support with `ActionScopeId`, `ActionScope`, and `ActionInput::ScopedRaw`. Fission 0.4.1 builds on that foundation by adding shell route-change actions and route-location data that host shells can dispatch into normal application reducers.
+The main runtime-shell addition is the scoped route/action plumbing needed by host shells. Fission 0.4.0 introduced the low-level scoped raw action primitives with `ActionScopeId`, `ActionScope`, and `ActionInput::ScopedRaw`. Fission 0.4.1 builds on that foundation by adding shell route-change actions, route-location data, route handler registration, and router helpers that host shells can use to connect scoped guest dispatch to normal application reducers.
 
-## Runtime shell route actions
+## Scoped route actions for runtime shells
 
-0.4.1 adds `RouteLocation` and `ShellRouteChanged`.
+0.4.1 adds `RouteLocation` and `ShellRouteChanged`, plus shell builder APIs for registering route handlers.
 
 `RouteLocation` is a browser-compatible route location structure with a required `pathname` and optional `host`, `hash`, `hostname`, `href`, `origin`, `port`, `protocol`, and `search` fields. `ShellRouteChanged` is a built-in action that shells can dispatch when the host route changes.
 
 The desktop, mobile, web, and winit shell builders now expose `with_route_handler(...)`, allowing applications and host shells to register a reducer for route changes without inventing their own shell-specific action transport. The router widget also gained builder-style construction helpers for common route table setup.
 
-This matters for shells that mount generated or remote guest UI. Normal applications still use typed actions and reducers. Host shells can combine the existing scoped raw action surface with route-change actions to keep mounted guest UI associated with the correct runtime and route state.
+This matters for shells that mount generated or remote guest UI. Normal applications still use typed actions and reducers. Host shells can combine the 0.4.0 scoped raw action surface with the 0.4.1 route-change layer to keep mounted guest UI associated with the correct runtime and route state.
 
 0.4.1 also fixes the desktop notification-response builder so `on_notification_response(...)` correctly returns the builder for chained configuration.
 
