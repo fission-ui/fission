@@ -343,7 +343,7 @@ pub mod public {
 #[cfg(test)]
 mod tests;
 
-pub use action::{Action, ActionEnvelope, ActionId, ActionScopeId, GlobalState};
+pub use action::{Action, ActionEnvelope, ActionId, ActionScopeId, GlobalState, ShellRouteChanged};
 pub use async_runtime::{
     BoxFuture, JobCtx, JobRef, JobSpec, ResourceExecutionContext, ServiceBindings, ServiceCtx,
     ServiceRunner, ServiceSlot, ServiceSpec, ServiceType,
@@ -360,8 +360,8 @@ pub use context::{
 }; // New
 pub use effect::{ActionInput, Effect, EffectEnvelope, RuntimeEffect};
 pub use env::{
-    Clipboard, Env, ImeHandler, InteractionStateMap, RuntimeState, ScrollStateMap, WindowEnv,
-    WindowTitle,
+    Clipboard, Env, ImeHandler, InteractionStateMap, RouteLocation, RuntimeState, ScrollStateMap,
+    WindowEnv, WindowTitle,
 };
 pub use runtime::Runtime;
 pub use state::{LocalStateKey, LocalStateStore, StateField};

@@ -14,6 +14,7 @@ use crate::async_runtime::{
 use crate::capability::CapabilityInvocationPayload;
 use crate::capability::{CapabilityType, OperationCapability};
 use fission_ir::WidgetId;
+use crate::env::RouteLocation;
 use serde::{Deserialize, Serialize};
 
 /// An opaque request identifier assigned to each emitted effect.
@@ -112,6 +113,8 @@ pub struct EffectEnvelope {
 pub enum ActionInput {
     /// No extra input.
     None,
+    /// The host shell delivered a route/navigation change.
+    RouteChanged { location: RouteLocation },
     /// A typed async job completed successfully.
     JobOk {
         job_name: String,

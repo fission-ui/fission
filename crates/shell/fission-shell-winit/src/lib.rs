@@ -3444,6 +3444,21 @@ where
         self
     }
 
+    /// Register a reducer for host/shell route changes.
+    ///
+    /// The host dispatches [`fission_core::ShellRouteChanged`] when navigation
+    /// updates. Applications should store route data in state and render the
+    /// corresponding screen.
+    pub fn with_route_handler(
+        mut self,
+        handler: fission_core::registry::Handler<S, fission_core::ShellRouteChanged>,
+    ) -> Self {
+        let mut registry = ActionRegistry::<S>::new();
+        registry.register::<fission_core::ShellRouteChanged, _>(handler);
+        self.runtime.absorb_persistent_registry(registry);
+        self
+    }
+
     pub fn register_reducer(
         &mut self,
         action_id: ActionId,

@@ -37,6 +37,50 @@ impl<S: GlobalState> From<Router<S>> for Widget {
     }
 }
 
+impl<S: GlobalState> Router<S> {
+    pub fn new() -> Self {
+        Self {
+            current_path: "/".to_string(),
+            routes: Vec::new(),
+            not_found: None,
+        }
+    }
+
+    pub fn with_path(mut self, path: impl Into<String>) -> Self {
+        self.current_path = path.into();
+        self
+    }
+
+    pub fn route<W, F>(mut self, path: impl Into<String>, builder: F) -> Self
+    where
+        W: Into<Widget>,
+        F: Fn() -> W + Send + Sync + 'static,
+    {
+        self.routes.push(Route {
+            path: path.into(),
+            builder: Arc::new(move |_ctx, _view, _| builder().into()),
+        });
+        self
+    }
+
+    pub fn route_builder(mut self, path: impl Into<String>, builder: PageBuilder<S>) -> Self {
+        self.routes.push(Route {
+            path: path.into(),
+            builder,
+        });
+        self
+    }
+
+    pub fn not_found<W, F>(mut self, builder: F) -> Self
+    where
+        W: Into<Widget>,
+        F: Fn() -> W + Send + Sync + 'static,
+    {
+        self.not_found = Some(Arc::new(move |_ctx, _view, _| builder().into()));
+        self
+    }
+}
+
 // Simple route matcher: "/users/:id" matches "/users/123" -> {"id": "123"}
 fn match_route(pattern: &str, path: &str) -> Option<RouteParams> {
     let pattern_parts: Vec<&str> = pattern.split('/').filter(|s| !s.is_empty()).collect();

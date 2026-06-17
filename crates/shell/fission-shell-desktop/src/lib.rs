@@ -277,6 +277,13 @@ where
             + 'static,
     {
         self.inner = self.inner.on_notification_response(handler);
+    }
+
+    pub fn with_route_handler(
+        mut self,
+        handler: fission_core::registry::Handler<S, fission_core::ShellRouteChanged>,
+    ) -> Self {
+        self.inner = self.inner.with_route_handler(handler);
         self
     }
 

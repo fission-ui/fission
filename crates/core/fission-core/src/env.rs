@@ -51,6 +51,54 @@ pub struct WindowEnv {
     pub title: WindowTitle,
 }
 
+/// Browser-compatible route location supplied by the host shell.
+///
+/// Only `pathname` is required. The remaining fields mirror `window.location`
+/// so desktop, web, and embedded hosts can pass richer navigation context
+/// without coupling applications to a specific shell implementation.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RouteLocation {
+    pub pathname: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hostname: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub href: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub search: Option<String>,
+}
+
+impl Default for RouteLocation {
+    fn default() -> Self {
+        Self::new("/")
+    }
+}
+
+impl RouteLocation {
+    pub fn new(pathname: impl Into<String>) -> Self {
+        Self {
+            pathname: pathname.into(),
+            host: None,
+            hash: None,
+            hostname: None,
+            href: None,
+            origin: None,
+            port: None,
+            protocol: None,
+            search: None,
+        }
+    }
+}
+
 // Static environment data (Theme, I18n)
 #[derive(Clone)]
 pub struct Env {
@@ -58,6 +106,7 @@ pub struct Env {
     pub i18n: I18nRegistry,
     pub locale: Locale,
     pub window: WindowEnv,
+    pub current_route: RouteLocation,
     pub window_insets: WindowInsets,
     pub viewport_size: LayoutSize,
     pub measurer: Option<Arc<dyn fission_layout::TextMeasurer>>,
@@ -70,6 +119,7 @@ impl Default for Env {
             i18n: I18nRegistry::new(),
             locale: Locale::default(),
             window: WindowEnv::default(),
+            current_route: RouteLocation::default(),
             window_insets: WindowInsets::default(),
             viewport_size: LayoutSize::default(),
             measurer: None,
@@ -83,6 +133,7 @@ impl std::fmt::Debug for Env {
             .field("theme", &self.theme)
             .field("locale", &self.locale)
             .field("window", &self.window)
+            .field("current_route", &self.current_route)
             .field("window_insets", &self.window_insets)
             .field("viewport_size", &self.viewport_size)
             .finish()
@@ -96,6 +147,7 @@ impl Env {
             i18n: I18nRegistry::new(),
             locale: Locale::default(),
             window: WindowEnv::default(),
+            current_route: RouteLocation::default(),
             window_insets: WindowInsets::default(),
             viewport_size: LayoutSize::default(),
             measurer: Some(measurer),
