@@ -1,0 +1,85 @@
+---
+title: Fission 0.4.1: runtime shell fixes, static server apps, and scoped raw actions
+authors:
+  - fission
+tags:
+  - release
+  - platform
+  - server
+  - authoring
+categories:
+  - Releases
+---
+
+Fission 0.4.1 is a focused patch release on top of the 0.4 authoring API. It keeps the new `impl From<Component> for Widget` model intact and improves the runtime and shell behavior needed by production hosts, generated apps, server-rendered sites, and mobile targets.
+
+The most important addition is scoped raw action plumbing. Hosts that mount a Fission subtree can now tag that subtree with an action scope and receive scoped raw dispatch information without changing the typed `ActionEnvelope` model for normal applications. This is the API surface Worka needs when a host shell mounts future generated apps and routes their guest actions back into the correct runtime.
+
+## Scoped raw actions
+
+0.4.1 adds `ActionScopeId` and `ActionScope`.
+
+`ActionScopeId` is a stable identifier for raw action dispatch scope. `ActionScope` is a layout-neutral widget wrapper that adds the scope to the lowered semantics tree. When a descendant dispatches an action, the shell can see the nearest raw scope through `ActionInput::ScopedRaw`, inspect `action_scope_id()`, inspect `scoped_target()`, and then call `unscoped()` to recover the original input.
+
+This matters for host shells that mount generated or remote guest UI. A normal Fission app still uses typed actions and reducers. A shell that owns multiple mounted guests can additionally know which raw scope produced a dispatch, which target widget it came from, and which underlying input was delivered.
+
+The scoped action plumbing was added across:
+
+- `fission-core` action/input types and semantics lowering.
+- the `ActionScope` widget.
+- desktop, mobile, web, and winit shell builders.
+- the test driver surface used by live and integration tests.
+
+## Server and static rendering fixes
+
+The server and static site paths received the bulk of the patch work.
+
+0.4.1 adds server static app mounts, SSR environment hooks, cache invalidation APIs, prefix server routes, structured route data, route response status support, and safer server handler execution off runtime threads.
+
+The static and server renderers also gained better lowering for:
+
+- static forms;
+- links and responsive images;
+- SVG icon coloring;
+- animation output;
+- text output;
+- positioned layout;
+- markdown image rendering;
+- cache ids.
+
+These changes make the server shell more useful for real apps that mix static pages, server-rendered routes, forms, markdown content, route metadata, and embedded static app surfaces.
+
+## Mobile target and package fixes
+
+The CLI target scaffolding and mobile package scripts were tightened.
+
+0.4.1 fixes target feature synchronization when existing projects already contain mobile platform folders, hardens generated Android and iOS scaffolds, and adds executable mobile package script tests. The Android and iOS generated package paths now carry more of the platform metadata and script behavior needed for reliable local packaging and simulator/emulator runs.
+
+## Rendering and markdown fixes
+
+The release includes smaller rendering and content fixes that came out of the server/static work:
+
+- Vello clipping helper formatting was cleaned up.
+- Off-path image widget expectations were adjusted.
+- markdown viewer tests were expanded.
+- markdown image rendering and SSR image responsiveness were improved.
+
+## Verification added in the patch
+
+The tag includes tests for the new or fixed behavior:
+
+- mobile scaffold and executable package script coverage;
+- markdown viewer behavior;
+- shell route and deep-link handling surface;
+- test-driver scoped action support;
+- server/static rendering behavior touched by the SSR changes.
+
+## Migration notes
+
+Most 0.4.0 applications should move to 0.4.1 without code changes.
+
+Hosts that need scoped guest dispatch can wrap mounted guest content with `ActionScope::new(ActionScopeId::from_name("stable-scope"), child)` and inspect scoped raw dispatch information from `ActionInput`.
+
+Server-rendered or statically generated sites should prefer 0.4.1 when they rely on route status, structured route metadata, prefixed routes, markdown images, responsive images, static forms, or mounted static app islands.
+
+Mobile projects should regenerate or resync target scaffolds if they need the updated package scripts and target feature handling.

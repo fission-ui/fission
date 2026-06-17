@@ -1,6 +1,6 @@
 [package]
 name = "fission-shell-web"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/worka-ai/fission"
@@ -15,9 +15,9 @@ three-d = ["fission-shell-winit/three-d"]
 
 [dependencies]
 anyhow = "1.0"
-fission-core = { path = "../../core/fission-core", version = "0.4.0" }
-fission-theme = { path = "../../core/fission-theme", version = "0.4.0" }
-fission-shell = { path = "../fission-shell", version = "0.4.0" }
-fission-shell-winit = { path = "../fission-shell-winit", version = "0.4.0", default-features = false }
+fission-core = { path = "../../core/fission-core", version = "0.4.1" }
+fission-theme = { path = "../../core/fission-theme", version = "0.4.1" }
+fission-shell = { path = "../fission-shell", version = "0.4.1" }
+fission-shell-winit = { path = "../fission-shell-winit", version = "0.4.1", default-features = false }
 
 [dev-dependencies]
