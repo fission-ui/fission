@@ -1,5 +1,5 @@
 ---
-title: Fission 0.4.1: runtime shell fixes, static server apps, and scoped raw actions
+title: Fission 0.4.1: runtime shell fixes, static server apps, and route actions
 authors:
   - fission
 tags:
@@ -11,24 +11,21 @@ categories:
   - Releases
 ---
 
-Fission 0.4.1 is a focused patch release on top of the 0.4 authoring API. It keeps the new `impl From<Component> for Widget` model intact and improves the runtime and shell behavior needed by production hosts, generated apps, server-rendered sites, and mobile targets.
+Fission 0.4.1 is a focused patch release on top of the 0.4 authoring API. It keeps the `impl From<Component> for Widget` model intact and improves the runtime, shell, server, static-site, and mobile-target behavior needed by production hosts and generated apps.
 
-The most important addition is scoped raw action plumbing. Hosts that mount a Fission subtree can now tag that subtree with an action scope and receive scoped raw dispatch information without changing the typed `ActionEnvelope` model for normal applications. This is the API surface Worka needs when a host shell mounts future generated apps and routes their guest actions back into the correct runtime.
+The main runtime-shell addition is route action plumbing for host shells. Fission 0.4.0 already introduced scoped raw action support with `ActionScopeId`, `ActionScope`, and `ActionInput::ScopedRaw`. Fission 0.4.1 builds on that foundation by adding shell route-change actions and route-location data that host shells can dispatch into normal application reducers.
 
-## Scoped raw actions
+## Runtime shell route actions
 
-0.4.1 adds `ActionScopeId` and `ActionScope`.
+0.4.1 adds `RouteLocation` and `ShellRouteChanged`.
 
-`ActionScopeId` is a stable identifier for raw action dispatch scope. `ActionScope` is a layout-neutral widget wrapper that adds the scope to the lowered semantics tree. When a descendant dispatches an action, the shell can see the nearest raw scope through `ActionInput::ScopedRaw`, inspect `action_scope_id()`, inspect `scoped_target()`, and then call `unscoped()` to recover the original input.
+`RouteLocation` is a browser-compatible route location structure with a required `pathname` and optional `host`, `hash`, `hostname`, `href`, `origin`, `port`, `protocol`, and `search` fields. `ShellRouteChanged` is a built-in action that shells can dispatch when the host route changes.
 
-This matters for host shells that mount generated or remote guest UI. A normal Fission app still uses typed actions and reducers. A shell that owns multiple mounted guests can additionally know which raw scope produced a dispatch, which target widget it came from, and which underlying input was delivered.
+The desktop, mobile, web, and winit shell builders now expose `with_route_handler(...)`, allowing applications and host shells to register a reducer for route changes without inventing their own shell-specific action transport. The router widget also gained builder-style construction helpers for common route table setup.
 
-The scoped action plumbing was added across:
+This matters for shells that mount generated or remote guest UI. Normal applications still use typed actions and reducers. Host shells can combine the existing scoped raw action surface with route-change actions to keep mounted guest UI associated with the correct runtime and route state.
 
-- `fission-core` action/input types and semantics lowering.
-- the `ActionScope` widget.
-- desktop, mobile, web, and winit shell builders.
-- the test driver surface used by live and integration tests.
+0.4.1 also fixes the desktop notification-response builder so `on_notification_response(...)` correctly returns the builder for chained configuration.
 
 ## Server and static rendering fixes
 
@@ -61,24 +58,24 @@ The release includes smaller rendering and content fixes that came out of the se
 
 - Vello clipping helper formatting was cleaned up.
 - Off-path image widget expectations were adjusted.
-- markdown viewer tests were expanded.
-- markdown image rendering and SSR image responsiveness were improved.
+- Markdown viewer tests were expanded.
+- Markdown image rendering and SSR image responsiveness were improved.
 
 ## Verification added in the patch
 
-The tag includes tests for the new or fixed behavior:
+The tag includes tests or focused verification for the new or fixed behavior:
 
 - mobile scaffold and executable package script coverage;
 - markdown viewer behavior;
-- shell route and deep-link handling surface;
-- test-driver scoped action support;
-- server/static rendering behavior touched by the SSR changes.
+- image widget behavior around off-path images;
+- server/static rendering behavior touched by the SSR changes;
+- package verification for every published crate in the workspace.
 
 ## Migration notes
 
 Most 0.4.0 applications should move to 0.4.1 without code changes.
 
-Hosts that need scoped guest dispatch can wrap mounted guest content with `ActionScope::new(ActionScopeId::from_name("stable-scope"), child)` and inspect scoped raw dispatch information from `ActionInput`.
+Applications that need to react to host route changes can register a reducer with `with_route_handler(...)` and handle `ShellRouteChanged`. Hosts that mount guest UI can continue using the 0.4 scoped raw action APIs and pair them with route actions where they need route-aware dispatch.
 
 Server-rendered or statically generated sites should prefer 0.4.1 when they rely on route status, structured route metadata, prefixed routes, markdown images, responsive images, static forms, or mounted static app islands.
 
