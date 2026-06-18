@@ -4,7 +4,7 @@ use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
 use crate::ActionEnvelope;
 use fission_ir::{
     op::{Color, Fill, GridTrack, LayoutOp, Op, PaintOp},
-    FlexDirection, WidgetId,
+    WidgetId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -89,79 +89,9 @@ impl InternalLower for Slider {
 
         let layout_id = cx.next_node_id();
 
-        // Layer 1: Track
-        // A Box with height `track_height`, centered?
-        // ZStack stretches children.
-        // We can use a Column with `Justify: Center` inside ZStack layer?
-        // Or just use `padding` on a box to squish the paint?
-        // `PaintOp` `DrawRect` fills the node layout.
-        // If we want a thin line, the node layout must be thin.
-        // `LayoutOp::Flex` (Column) with `AlignItems: Stretch` and `JustifyContent: Center`.
-        // Add a child Box with height `track_height`.
         let track_layer = {
-            let track_paint = InternalIrBuilder::new(
-                cx.next_node_id(),
-                Op::Paint(PaintOp::DrawRect {
-                    fill: Some(Fill::Solid(tokens.colors.border)), // Inactive track
-                    stroke: None,
-                    corner_radius: track_height / 2.0,
-                    shadow: None,
-                }),
-            )
-            .build(cx);
-
-            let mut track_box = InternalIrBuilder::new(
-                cx.next_node_id(),
-                Op::Layout(LayoutOp::Box {
-                    width: None, // Auto width
-                    height: Some(track_height),
-                    min_width: None,
-                    max_width: None,
-                    min_height: None,
-                    max_height: None,
-                    padding: [0.0; 4],
-                    flex_grow: 0.0,
-                    flex_shrink: 0.0,
-                    aspect_ratio: None,
-                }),
-            );
-            track_box.add_child(track_paint);
-            let _track_box_id = track_box.build(cx);
-
-            // Center vertically
-            let _center_col = InternalIrBuilder::new(
-                cx.next_node_id(),
-                Op::Layout(LayoutOp::Flex {
-                    direction: FlexDirection::Row,
-                    wrap: fission_ir::op::FlexWrap::NoWrap,
-                    flex_grow: 0.0,
-                    flex_shrink: 0.0,
-                    padding: [0.0; 4],
-                    gap: None,
-                    align_items: fission_ir::op::AlignItems::Center,
-                    justify_content: fission_ir::op::JustifyContent::Start,
-                }),
-            );
-            // We need `justify_content: center`. `LayoutOp::Flex` maps to `AlignItems: Center` (cross axis) but justification?
-            // `fission-layout` hardcodes `justify_content: FlexStart`.
-            // So we can't center easily using Flex properties exposed currently.
-            // Workaround: Use `Grid` 1x1 with `AlignItems: Center`?
-            // `fission-layout` Grid mapping doesn't expose alignment yet.
-
-            // Workaround 2: Use Padding? We don't know height.
-            // Workaround 3: Make the Thumb layer determine height, and Track stretches?
-            // No, Track is thin.
-
-            // Workaround 4: Paint the track as a `DrawRect` on the ROOT node, but use `stroke` instead of `fill`?
-            // Stroke is centered on border? No, stroke is usually inset or centered.
-            // If we have `PaintOp::DrawLine`? No.
-
-            // Let's assume the Slider height IS the thumb size.
-            // We paint the track by `DrawRect` with custom logic? No, standard ops.
-
-            // Best approach given constraints:
-            // Use `LayoutOp::Box` with top/bottom padding calculated to center the track?
-            // `padding_top = (thumb_size - track_height) / 2`.
+            // Center the thin track in the thumb-height z-stack without
+            // materialising detached helper nodes in the IR.
             let p_y = (thumb_size - track_height) / 2.0;
 
             let mut track_container = InternalIrBuilder::new(
