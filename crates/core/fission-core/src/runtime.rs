@@ -352,7 +352,7 @@ impl Runtime {
 
         let action_id = action.id;
 
-        if crate::plugin_runtime::dispatch_scoped_runtime_handler(&action, target, input)? {
+        if crate::scoped_action_handlers::dispatch_scoped_action_handler(&action, target, input)? {
             return Ok(());
         }
 
