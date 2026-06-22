@@ -67,6 +67,7 @@ pub mod platform_nfc;
 pub mod platform_passkey;
 pub mod platform_volume;
 pub mod platform_wifi;
+pub mod plugin_runtime;
 pub mod registry;
 pub mod runtime;
 pub mod scrollbar;
