@@ -176,6 +176,9 @@ pub mod public {
     pub mod registry {
         pub use crate::registry::*;
     }
+    pub mod scoped_action_handlers {
+        pub use crate::scoped_action_handlers::*;
+    }
     pub mod ui {
         pub use crate::ui::widgets::*;
         pub use crate::ui::Widget;
