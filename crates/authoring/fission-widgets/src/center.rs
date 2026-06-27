@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 /// Centers its child both horizontally and vertically within the available space.
 ///
-/// A convenience wrapper around [`Align`](fission_core::ui::Align).
+/// A convenience wrapper around [`Align`].
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Center {
     pub child: Widget,

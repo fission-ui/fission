@@ -35,11 +35,13 @@
 
 pub use fission_core::ui::widgets::Icon;
 pub use fission_core::ui::{
-    Button, ButtonContentAlign, ButtonVariant, Checkbox, Column, Container, CustomWidget,
-    FocusScope, Grid, GridItem, Image, LazyColumn, Overlay, Positioned, Radio, Row, SafeArea,
-    Scroll, Slider, Spacer, Switch, Text, TextContent, TextInput, Video, Widget, ZStack,
+    Button, ButtonContentAlign, ButtonMotion, ButtonVariant, Checkbox, Column, Container,
+    CustomWidget, FocusScope, Grid, GridItem, Image, LazyColumn, Overlay, Positioned, Radio, Row,
+    SafeArea, Scroll, Slider, Spacer, Switch, Text, TextContent, TextInput, Video, Widget, ZStack,
 };
 pub use fission_core::{BuildCtxHandle, Selector, ViewHandle};
+
+mod motion_support;
 
 pub mod dropdown;
 pub use dropdown::DropDown;
@@ -66,27 +68,27 @@ pub mod progress;
 pub use progress::ProgressBar;
 
 pub mod spinner;
-pub use spinner::Spinner;
+pub use spinner::{Spinner, SpinnerMotion};
 
 pub mod tabs;
-pub use tabs::{TabItem, Tabs};
+pub use tabs::{TabItem, Tabs, TabsMotion};
 
 pub mod select;
 pub use select::{Select, SelectItem};
 
 pub mod accordion;
-pub use accordion::{Accordion, AccordionItem};
+pub use accordion::{Accordion, AccordionItem, AccordionMotion};
 
 pub mod tooltip;
-pub use tooltip::Tooltip;
+pub use tooltip::{Tooltip, TooltipMotion};
 pub mod menu;
 pub use menu::{Menu, MenuButton, MenuItem};
 
 pub mod toast;
-pub use toast::{Toast, ToastKind};
+pub use toast::{Toast, ToastKind, ToastMotion};
 
 pub mod modal;
-pub use modal::{Modal, ModalAction};
+pub use modal::{Modal, ModalAction, ModalMotion};
 
 pub mod data_table;
 pub use data_table::{DataTable, TableColumn, TableRow};
@@ -95,7 +97,7 @@ pub mod split_view;
 pub use split_view::{SplitDirection, SplitView};
 
 pub mod drawer;
-pub use drawer::{Drawer, DrawerSide};
+pub use drawer::{Drawer, DrawerMotion, DrawerSide};
 
 pub mod form_control;
 pub use form_control::FormControl;
@@ -107,7 +109,7 @@ pub mod alert;
 pub use alert::{Alert, AlertKind};
 
 pub mod skeleton;
-pub use skeleton::Skeleton;
+pub use skeleton::{Skeleton, SkeletonMotion};
 
 pub mod breadcrumb;
 pub use breadcrumb::{Breadcrumb, BreadcrumbItem};
@@ -165,9 +167,6 @@ pub use dropzone::Dropzone;
 pub mod tree_view;
 pub use tree_view::{TreeItem, TreeView};
 
-pub mod transition;
-pub use transition::Transition;
-
 pub mod simple_grid;
 pub use simple_grid::SimpleGrid;
 
@@ -193,7 +192,7 @@ pub mod stat;
 pub use stat::Stat;
 
 pub mod circular_progress;
-pub use circular_progress::CircularProgress;
+pub use circular_progress::{CircularProgress, CircularProgressMotion};
 
 pub mod future_builder;
 pub use future_builder::{AsyncConnectionState, AsyncSnapshot, AsyncWidgetBuilder, FutureBuilder};
@@ -214,7 +213,7 @@ pub mod pagination;
 pub use pagination::Pagination;
 
 pub mod popover;
-pub use popover::Popover;
+pub use popover::{Popover, PopoverMotion};
 
 pub mod router;
 pub use router::{Route, RouteParams, Router};

@@ -1,6 +1,10 @@
+use fission_core::motion::{
+    scalar, MotionDeclaration, MotionDeclarationKind, MotionEasing, MotionPhase, MotionPropertyId,
+    MotionStartValue, MotionTrack, MotionTransition,
+};
 use fission_core::op::Color;
 use fission_core::ui::{Composite, Container, Widget};
-use fission_core::{AnimationPropertyId, AnimationRequest, AnimationStartValue, WidgetId};
+use fission_core::WidgetId;
 use serde::{Deserialize, Serialize};
 
 const LOW_PRIORITY_REPEAT_FRAME_MS: u64 = 166;
@@ -23,8 +27,44 @@ pub struct Skeleton {
     pub width: Option<f32>,
     pub height: Option<f32>,
     pub circle: bool,
-    #[serde(default = "skeleton_default_animated")]
-    pub animated: bool,
+    /// Optional explicit skeleton motion. `None` emits no skeleton-owned motion declarations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub motion: Option<SkeletonMotion>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Optional motion presets owned by [`Skeleton`].
+///
+/// Skeletons are static unless [`Skeleton::motion`] is set. Use
+/// [`SkeletonMotion::Default`] or [`SkeletonMotion::Pulse`] for the standard
+/// loading pulse.
+pub enum SkeletonMotion {
+    /// Curated default skeleton motion.
+    Default,
+    /// Repeating opacity pulse.
+    Pulse,
+    /// Ordered composition of skeleton motion atoms.
+    Composition(Vec<SkeletonMotion>),
+    /// Caller-provided tracks for the skeleton surface.
+    Custom {
+        /// Tracks applied to the skeleton root.
+        tracks: Vec<MotionTrack>,
+    },
+}
+
+impl SkeletonMotion {
+    /// Creates an ordered skeleton-motion composition.
+    pub fn compose(items: impl IntoIterator<Item = Self>) -> Self {
+        Self::Composition(items.into_iter().collect())
+    }
+
+    fn tracks(&self) -> Vec<MotionTrack> {
+        match self {
+            Self::Default | Self::Pulse => vec![skeleton_pulse_track()],
+            Self::Composition(items) => items.iter().flat_map(Self::tracks).collect(),
+            Self::Custom { tracks } => tracks.clone(),
+        }
+    }
 }
 
 impl From<Skeleton> for Widget {
@@ -55,26 +95,28 @@ impl From<Skeleton> for Widget {
             .into();
         let boundary = Composite::new(base).repaint_boundary(true).into();
 
-        if this.animated {
-            ctx.anim_for(this.id).request(AnimationRequest {
-                property: AnimationPropertyId::Opacity,
-                from: AnimationStartValue::Explicit(0.4),
-                to: 0.8,
-                duration_ms: 800,
-                repeat: true,
-                delay_ms: 0,
-                frame_interval_ms: Some(LOW_PRIORITY_REPEAT_FRAME_MS),
-                easing: Default::default(),
+        if let Some(motion) = &this.motion {
+            ctx.register_motion(MotionDeclaration {
+                id: this.id,
+                kind: MotionDeclarationKind::Tracks {
+                    tracks: motion.tracks(),
+                },
             });
-            Composite::new(boundary)
-                .animated_opacity(this.id, 0.4)
-                .into()
+            Composite::new(boundary).motion_opacity(this.id, 0.4).into()
         } else {
             boundary
         }
     }
 }
 
-const fn skeleton_default_animated() -> bool {
-    true
+fn skeleton_pulse_track() -> MotionTrack {
+    MotionTrack {
+        property: MotionPropertyId::Opacity,
+        phase: MotionPhase::Composite,
+        from: MotionStartValue::Explicit(scalar(0.4)),
+        to: scalar(0.8),
+        transition: MotionTransition::tween(800, MotionEasing::EaseInOut)
+            .repeat(true)
+            .frame_interval_ms(Some(LOW_PRIORITY_REPEAT_FRAME_MS)),
+    }
 }

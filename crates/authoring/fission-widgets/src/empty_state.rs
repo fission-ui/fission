@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// Shows an optional icon, a title, an optional description, and an optional
 /// action button (e.g., "Create new item"). The entire block is centered in its
-/// parent using [`Center`](crate::Center).
+/// parent using [`Center`].
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EmptyState {
     pub icon: Option<Widget>,

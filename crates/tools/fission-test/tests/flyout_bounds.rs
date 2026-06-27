@@ -41,6 +41,7 @@ impl From<Root> for Widget {
                         .height(120.0)
                         .id(popup_id)
                         .into(),
+                    motion: None,
                 }
                 .into(),
             ),

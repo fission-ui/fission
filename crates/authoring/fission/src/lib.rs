@@ -52,6 +52,7 @@ pub mod text_engine {
 
 /// Authoring widgets — Modal, Popover, Tooltip, Menu, Combobox, SplitView, etc.
 pub mod widgets {
+    pub use fission_core::motion::*;
     pub use fission_widgets::*;
 }
 
@@ -145,29 +146,32 @@ pub mod test_driver {
     pub use fission_test_driver::*;
 }
 
+pub mod motion {
+    pub use fission_core::motion::*;
+}
+
 // ── Flat re-exports for convenience ──────────────────────────────────────
 
 // Core widget types (Button, Text, Container, Row, Column, etc.)
 pub use fission_core::ui::{
     provider, ActionScope, Align, BadgeTone, Builder, Button, ButtonContentAlign, ButtonHierarchy,
-    ButtonVariant, CardPattern, Checkbox, Column, ComponentSize, ComponentState, Composite,
-    Container, CustomWidget, FocusScope, GestureDetector, Grid, GridItem, HttpHeader, Icon, Image,
-    ImageAlignment, ImageCachePolicy, ImageErrorBehavior, ImageLoadingBehavior, ImageRequest,
-    ImageSource, LayoutBuilder, LazyColumn, Overlay, Positioned, Provider, Radio, RichText,
-    RichTextRun, Row, SafeArea, Scroll, SemanticsRegion, Slider, Spacer, Switch, Text, TextContent,
-    TextFontStyle, TextInput, TextRunStyle, Video, Widget, WidgetIdExt, ZStack,
+    ButtonMotion, ButtonVariant, CardPattern, Checkbox, Column, ComponentSize, ComponentState,
+    Composite, Container, CustomWidget, FocusScope, GestureDetector, Grid, GridItem, HttpHeader,
+    Icon, Image, ImageAlignment, ImageCachePolicy, ImageErrorBehavior, ImageLoadingBehavior,
+    ImageRequest, ImageSource, LayoutBuilder, LazyColumn, Overlay, Positioned, Provider, Radio,
+    RichText, RichTextRun, Row, SafeArea, Scroll, SemanticsRegion, Slider, Spacer, Switch, Text,
+    TextContent, TextFontStyle, TextInput, TextRunStyle, Video, Widget, WidgetIdExt, ZStack,
 };
 
 // Core action/state types
 pub use fission_core::{
-    Action, ActionEnvelope, ActionId, ActionScopeId, AnimationPropertyId, AnimationRequest,
-    AnimationStartValue, AuthenticateBiometricCapability, BiometricAuthenticateRequest,
-    BiometricAuthenticateResult, BiometricAvailability, BiometricEffects, BiometricError,
-    BiometricKind, BiometricStrength, BuildCtxHandle, CancelAllNotificationsCapability,
-    CancelBiometricAuthenticationCapability, CancelNotificationCapability,
-    CancelNotificationRequest, ComputedView, DeepLink, DeepLinkConfig, DeepLinkReceived,
-    DeepLinkSource, EasingFunction, EmulateNfcTagCapability, FissionViewField, FlexDirection,
-    GetBiometricAvailabilityCapability, GetNfcAvailabilityCapability,
+    Action, ActionEnvelope, ActionId, ActionScopeId, AuthenticateBiometricCapability,
+    BiometricAuthenticateRequest, BiometricAuthenticateResult, BiometricAvailability,
+    BiometricEffects, BiometricError, BiometricKind, BiometricStrength, BuildCtxHandle,
+    CancelAllNotificationsCapability, CancelBiometricAuthenticationCapability,
+    CancelNotificationCapability, CancelNotificationRequest, ComputedView, DeepLink,
+    DeepLinkConfig, DeepLinkReceived, DeepLinkSource, EmulateNfcTagCapability, FissionViewField,
+    FlexDirection, GetBiometricAvailabilityCapability, GetNfcAvailabilityCapability,
     GetNotificationSettingsCapability, GlobalState, Handler, NfcAvailability, NfcEffects,
     NfcEmulationRequest, NfcError, NfcRecord, NfcRecordTypeNameFormat, NfcScanRequest,
     NfcSessionReceipt, NfcTag, NfcTagDiscovered, NfcTechnology, NfcWriteRequest,
@@ -364,12 +368,13 @@ pub mod prelude {
     // Widgets
     pub use fission_core::ui::{
         ActionScope, Align, BadgeTone, Builder, Button, ButtonContentAlign, ButtonHierarchy,
-        ButtonVariant, CardPattern, Checkbox, Column, ComponentSize, ComponentState, Composite,
-        Container, CustomWidget, FocusScope, GestureDetector, Grid, GridItem, HttpHeader, Icon,
-        Image, ImageAlignment, ImageCachePolicy, ImageErrorBehavior, ImageLoadingBehavior,
-        ImageRequest, ImageSource, LayoutBuilder, LazyColumn, Overlay, Positioned, Radio, RichText,
-        RichTextRun, Row, SafeArea, Scroll, SemanticsRegion, Slider, Spacer, Switch, Text,
-        TextContent, TextFontStyle, TextInput, TextRunStyle, Video, Widget, WidgetIdExt, ZStack,
+        ButtonMotion, ButtonVariant, CardPattern, Checkbox, Column, ComponentSize, ComponentState,
+        Composite, Container, CustomWidget, FocusScope, GestureDetector, Grid, GridItem,
+        HttpHeader, Icon, Image, ImageAlignment, ImageCachePolicy, ImageErrorBehavior,
+        ImageLoadingBehavior, ImageRequest, ImageSource, LayoutBuilder, LazyColumn, Overlay,
+        Positioned, Radio, RichText, RichTextRun, Row, SafeArea, Scroll, SemanticsRegion, Slider,
+        Spacer, Switch, Text, TextContent, TextFontStyle, TextInput, TextRunStyle, Video, Widget,
+        WidgetIdExt, ZStack,
     };
     pub use fission_widgets::*;
 
@@ -379,32 +384,31 @@ pub mod prelude {
     pub use fission_core::op::{Color, Fill, PaintOp};
     pub use fission_core::{reduce, reduce_with, widgets, with_reducer};
     pub use fission_core::{
-        Action, ActionEnvelope, ActionId, ActionScopeId, AnimationPropertyId, AnimationRequest,
-        AnimationStartValue, AuthenticateBiometricCapability, BiometricAuthenticateRequest,
-        BiometricAuthenticateResult, BiometricAvailability, BiometricEffects, BiometricError,
-        BiometricKind, BiometricStrength, BuildCtxHandle, CancelAllNotificationsCapability,
-        CancelBiometricAuthenticationCapability, CancelNotificationCapability,
-        CancelNotificationRequest, ComputedView, DeepLink, DeepLinkConfig, DeepLinkReceived,
-        DeepLinkSource, Effects, EmulateNfcTagCapability, FissionViewField, FlexDirection,
-        GetBiometricAvailabilityCapability, GetNfcAvailabilityCapability,
-        GetNotificationSettingsCapability, GlobalState, Handler, NfcAvailability, NfcEffects,
-        NfcEmulationRequest, NfcError, NfcRecord, NfcRecordTypeNameFormat, NfcScanRequest,
-        NfcSessionReceipt, NfcTag, NfcTagDiscovered, NfcTechnology, NfcWriteRequest,
-        NotificationActionButton, NotificationEffects, NotificationError, NotificationId,
-        NotificationPermission, NotificationPermissionRequest, NotificationReceipt,
-        NotificationRequest, NotificationResponse, NotificationResponseReceived,
-        NotificationSchedule, NotificationSettings, NotificationSound, Op, PortalLayer, Provider,
-        PushPlatform, PushRegistration, PushRegistrationRequest, ReducerContext,
-        RegisterPushNotificationsCapability, RequestNotificationPermissionCapability, Role,
-        ScanNfcTagCapability, ScheduleNotificationCapability, Selector, Semantics,
-        SetBadgeCountCapability, SetBadgeCountRequest, ShowNotificationCapability,
-        UnregisterPushNotificationsCapability, ValueView, ViewHandle, WidgetId, WindowEnv,
-        WindowTitle, WriteNfcTagCapability, AUTHENTICATE_BIOMETRIC, CANCEL_ALL_NOTIFICATIONS,
-        CANCEL_BIOMETRIC_AUTHENTICATION, CANCEL_NFC_SESSION, CANCEL_NOTIFICATION, EMULATE_NFC_TAG,
-        GET_BIOMETRIC_AVAILABILITY, GET_NFC_AVAILABILITY, GET_NOTIFICATION_SETTINGS,
-        REGISTER_PUSH_NOTIFICATIONS, REQUEST_NOTIFICATION_PERMISSION, SCAN_NFC_TAG,
-        SCHEDULE_NOTIFICATION, SET_BADGE_COUNT, SHOW_NOTIFICATION, UNREGISTER_PUSH_NOTIFICATIONS,
-        WRITE_NFC_TAG,
+        Action, ActionEnvelope, ActionId, ActionScopeId, AuthenticateBiometricCapability,
+        BiometricAuthenticateRequest, BiometricAuthenticateResult, BiometricAvailability,
+        BiometricEffects, BiometricError, BiometricKind, BiometricStrength, BuildCtxHandle,
+        CancelAllNotificationsCapability, CancelBiometricAuthenticationCapability,
+        CancelNotificationCapability, CancelNotificationRequest, ComputedView, DeepLink,
+        DeepLinkConfig, DeepLinkReceived, DeepLinkSource, Effects, EmulateNfcTagCapability,
+        FissionViewField, FlexDirection, GetBiometricAvailabilityCapability,
+        GetNfcAvailabilityCapability, GetNotificationSettingsCapability, GlobalState, Handler,
+        NfcAvailability, NfcEffects, NfcEmulationRequest, NfcError, NfcRecord,
+        NfcRecordTypeNameFormat, NfcScanRequest, NfcSessionReceipt, NfcTag, NfcTagDiscovered,
+        NfcTechnology, NfcWriteRequest, NotificationActionButton, NotificationEffects,
+        NotificationError, NotificationId, NotificationPermission, NotificationPermissionRequest,
+        NotificationReceipt, NotificationRequest, NotificationResponse,
+        NotificationResponseReceived, NotificationSchedule, NotificationSettings,
+        NotificationSound, Op, PortalLayer, Provider, PushPlatform, PushRegistration,
+        PushRegistrationRequest, ReducerContext, RegisterPushNotificationsCapability,
+        RequestNotificationPermissionCapability, Role, ScanNfcTagCapability,
+        ScheduleNotificationCapability, Selector, Semantics, SetBadgeCountCapability,
+        SetBadgeCountRequest, ShowNotificationCapability, UnregisterPushNotificationsCapability,
+        ValueView, ViewHandle, WidgetId, WindowEnv, WindowTitle, WriteNfcTagCapability,
+        AUTHENTICATE_BIOMETRIC, CANCEL_ALL_NOTIFICATIONS, CANCEL_BIOMETRIC_AUTHENTICATION,
+        CANCEL_NFC_SESSION, CANCEL_NOTIFICATION, EMULATE_NFC_TAG, GET_BIOMETRIC_AVAILABILITY,
+        GET_NFC_AVAILABILITY, GET_NOTIFICATION_SETTINGS, REGISTER_PUSH_NOTIFICATIONS,
+        REQUEST_NOTIFICATION_PERMISSION, SCAN_NFC_TAG, SCHEDULE_NOTIFICATION, SET_BADGE_COUNT,
+        SHOW_NOTIFICATION, UNREGISTER_PUSH_NOTIFICATIONS, WRITE_NFC_TAG,
     };
     pub use fission_core::{
         AdjustVolumeLevelCapability, GetVolumeLevelCapability, SetVolumeLevelCapability,

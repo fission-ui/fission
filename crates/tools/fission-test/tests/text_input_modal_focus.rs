@@ -59,6 +59,7 @@ fn clicking_text_input_inside_modal_sets_focus() -> Result<()> {
                 on_dismiss: Some(with_reducer!(ctx, Dismiss, dismiss)),
                 actions: vec![],
                 width: Some(420.0),
+                motion: None,
             }
             .into()
         }

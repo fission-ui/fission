@@ -24,6 +24,7 @@ fn test_drawer_registers_portal_when_open() {
         on_dismiss: None,
         content: Text::new("Drawer Content").into(),
         width: Some(250.0),
+        motion: None,
     };
 
     let _: Widget = build::enter(&mut ctx, &view, || drawer.into());

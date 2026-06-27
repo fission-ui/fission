@@ -32,6 +32,7 @@ fn test_tooltip_registers_portal_when_hovered() {
         child: fission_core::ui::widgets::spacer::Spacer::default().into(),
         text: "hello".into(),
         is_visible: true,
+        motion: None,
     };
 
     let _: Widget = build::enter(&mut ctx, &view, || tooltip.into());
