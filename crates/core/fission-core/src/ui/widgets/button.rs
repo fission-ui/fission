@@ -1,5 +1,9 @@
 use crate::internal::InternalLower;
 use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::motion::{
+    hover_press, ripple_effect, scalar, MotionExpr, MotionPredicate, MotionPropertyId,
+    MotionStartValue, MotionTrack, MotionTransition, RippleFx,
+};
 use crate::ui::Widget;
 use crate::{ActionEnvelope, Env, InteractionStateMap};
 use fission_ir::{
@@ -8,6 +12,7 @@ use fission_ir::{
 };
 use fission_theme::{ButtonHierarchy, ComponentSize, ComponentState};
 use serde::{Deserialize, Serialize};
+use std::ops::Add;
 
 /// Visual style variant for a [`Button`].
 ///
@@ -80,6 +85,135 @@ pub enum ButtonContentAlign {
     End,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Optional motion presets owned by [`Button`].
+///
+/// Buttons do not animate by default. Set [`Button::motion`] to `Some(...)` to
+/// opt in to hover, press, and ripple feedback.
+///
+/// ```rust,ignore
+/// use fission::prelude::*;
+///
+/// Button {
+///     id: Some(WidgetId::explicit("save")),
+///     child: Some(Text::new("Save").into()),
+///     motion: Some(ButtonMotion::HoverScale + ButtonMotion::PressScale + ButtonMotion::Ripple),
+///     ..Default::default()
+/// };
+/// ```
+pub enum ButtonMotion {
+    /// Curated default hover/press scale feedback.
+    Default,
+    /// Scale up slightly while hovered.
+    HoverScale,
+    /// Scale down slightly while pressed.
+    PressScale,
+    /// Compound hover plus press scale feedback.
+    HoverPressScale,
+    /// Add deterministic pointer-origin ripples.
+    Ripple,
+    /// Compound hover/press scale plus ripple feedback.
+    HoverPressRipple,
+    /// Ordered composition of button motion atoms.
+    Composition(Vec<ButtonMotion>),
+    /// Caller-provided native interaction tracks and ripple configuration.
+    Custom {
+        /// Interaction tracks for the button root slot.
+        interaction: Option<Vec<MotionTrack>>,
+        /// Optional ripple effect for the ripple slot.
+        ripple: Option<RippleFx>,
+    },
+}
+
+impl ButtonMotion {
+    /// Flattens and normalizes an ordered button-motion composition.
+    pub fn compose(items: impl IntoIterator<Item = Self>) -> Self {
+        let mut out = Vec::new();
+        for item in items {
+            item.flatten_into(&mut out);
+        }
+        match out.len() {
+            0 => Self::Composition(Vec::new()),
+            1 => out.remove(0),
+            _ => Self::Composition(out),
+        }
+    }
+
+    fn flatten_into(self, out: &mut Vec<Self>) {
+        match self {
+            Self::Composition(items) => {
+                for item in items {
+                    item.flatten_into(out);
+                }
+            }
+            item => out.push(item),
+        }
+    }
+
+    /// Lowers this preset into interaction tracks for `id`.
+    pub fn interaction_tracks(&self, id: WidgetId) -> Vec<MotionTrack> {
+        let mut tracks = Vec::new();
+        self.append_interaction_tracks(id, &mut tracks);
+        crate::motion::dedupe_tracks_later_wins(tracks)
+    }
+
+    fn append_interaction_tracks(&self, id: WidgetId, out: &mut Vec<MotionTrack>) {
+        match self {
+            Self::Default | Self::HoverPressScale => out.extend(hover_press(id)),
+            Self::HoverScale => out.push(
+                MotionTrack::composite(
+                    MotionPropertyId::Scale,
+                    MotionStartValue::Current,
+                    MotionExpr::If {
+                        predicate: MotionPredicate::Hovered(id),
+                        then_expr: Box::new(scalar(1.02)),
+                        else_expr: Box::new(scalar(1.0)),
+                    },
+                )
+                .transition(MotionTransition::spring(420.0, 30.0)),
+            ),
+            Self::PressScale => out.push(
+                MotionTrack::composite(
+                    MotionPropertyId::Scale,
+                    MotionStartValue::Current,
+                    MotionExpr::If {
+                        predicate: MotionPredicate::Pressed(id),
+                        then_expr: Box::new(scalar(0.97)),
+                        else_expr: Box::new(scalar(1.0)),
+                    },
+                )
+                .transition(MotionTransition::spring(420.0, 30.0)),
+            ),
+            Self::Ripple => {}
+            Self::HoverPressRipple => out.extend(hover_press(id)),
+            Self::Composition(items) => {
+                for item in items {
+                    item.append_interaction_tracks(id, out);
+                }
+            }
+            Self::Custom { interaction, .. } => out.extend(interaction.clone().unwrap_or_default()),
+        }
+    }
+
+    /// Returns the ripple effect selected by this preset, if any.
+    pub fn ripple(&self) -> Option<RippleFx> {
+        match self {
+            Self::Ripple | Self::HoverPressRipple => Some(ripple_effect()),
+            Self::Composition(items) => items.iter().rev().find_map(Self::ripple),
+            Self::Custom { ripple, .. } => ripple.clone(),
+            _ => None,
+        }
+    }
+}
+
+impl Add for ButtonMotion {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self::compose([self, rhs])
+    }
+}
+
 /// A pressable button widget with built-in theming, hover/press states, and
 /// focus ring.
 ///
@@ -103,7 +237,8 @@ pub enum ButtonContentAlign {
 pub struct Button {
     /// Explicit node identity (auto-generated if `None`).
     pub id: Option<WidgetId>,
-    /// The button's content widget (typically [`Text`] or [`Icon`]).
+    /// The button's content widget (typically [`crate::ui::Text`] or
+    /// [`crate::ui::Icon`]).
     pub child: Option<Widget>,
     /// Action dispatched when the button is pressed.
     pub on_press: Option<ActionEnvelope>,
@@ -140,6 +275,9 @@ pub struct Button {
     /// When `true`, the button is greyed out and its `on_press` action is not
     /// attached.
     pub disabled: bool,
+    /// Optional explicit motion. `None` emits no button-owned motion declarations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub motion: Option<ButtonMotion>,
 }
 
 impl Button {
@@ -195,6 +333,7 @@ impl Default for Button {
             text_color: None,
             content_align: ButtonContentAlign::Center,
             disabled: false,
+            motion: None,
         }
     }
 }

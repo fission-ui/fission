@@ -35,8 +35,8 @@ impl Composite {
         self
     }
 
-    pub fn animated_opacity(mut self, target: WidgetId, base: f32) -> Self {
-        self.style.opacity = Some(CompositeScalar::new(base).animated(target));
+    pub fn motion_opacity(mut self, target: WidgetId, base: f32) -> Self {
+        self.style.opacity = Some(CompositeScalar::new(base).motion(target));
         self
     }
 
@@ -45,8 +45,8 @@ impl Composite {
         self
     }
 
-    pub fn animated_translate_x(mut self, target: WidgetId, base: f32) -> Self {
-        self.style.translate_x = Some(CompositeScalar::new(base).animated(target));
+    pub fn motion_translate_x(mut self, target: WidgetId, base: f32) -> Self {
+        self.style.translate_x = Some(CompositeScalar::new(base).motion(target));
         self
     }
 
@@ -55,8 +55,8 @@ impl Composite {
         self
     }
 
-    pub fn animated_translate_y(mut self, target: WidgetId, base: f32) -> Self {
-        self.style.translate_y = Some(CompositeScalar::new(base).animated(target));
+    pub fn motion_translate_y(mut self, target: WidgetId, base: f32) -> Self {
+        self.style.translate_y = Some(CompositeScalar::new(base).motion(target));
         self
     }
 
@@ -65,8 +65,8 @@ impl Composite {
         self
     }
 
-    pub fn animated_scale(mut self, target: WidgetId, base: f32) -> Self {
-        self.style.scale = Some(CompositeScalar::new(base).animated(target));
+    pub fn motion_scale(mut self, target: WidgetId, base: f32) -> Self {
+        self.style.scale = Some(CompositeScalar::new(base).motion(target));
         self
     }
 
@@ -75,8 +75,8 @@ impl Composite {
         self
     }
 
-    pub fn animated_rotation(mut self, target: WidgetId, base: f32) -> Self {
-        self.style.rotation = Some(CompositeScalar::new(base).animated(target));
+    pub fn motion_rotation(mut self, target: WidgetId, base: f32) -> Self {
+        self.style.rotation = Some(CompositeScalar::new(base).motion(target));
         self
     }
 

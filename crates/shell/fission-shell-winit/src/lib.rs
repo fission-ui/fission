@@ -1370,7 +1370,7 @@ fn apply_authoritative_resize(
 fn active_animation_keys(runtime: &Runtime) -> Vec<String> {
     let mut keys = runtime
         .runtime_state
-        .animation
+        .motion
         .active
         .iter()
         .map(|((target, property), anim)| {
@@ -1383,7 +1383,7 @@ fn active_animation_keys(runtime: &Runtime) -> Vec<String> {
 }
 
 fn repeating_animation_redraw_interval(
-    animation_map: &fission_core::env::AnimationStateMap,
+    animation_map: &fission_core::MotionStateMap,
     default_repeat_frame: Duration,
 ) -> Option<Duration> {
     animation_map
@@ -4503,7 +4503,7 @@ where
 
                         let has_finite_animation = runtime
                             .runtime_state
-                            .animation
+                            .motion
                             .active
                             .values()
                             .any(|anim| !anim.repeat);
@@ -4517,7 +4517,7 @@ where
                                 None
                             } else {
                                 repeating_animation_redraw_interval(
-                                    &runtime.runtime_state.animation,
+                                    &runtime.runtime_state.motion,
                                     repeat_animation_frame,
                                 )
                             };
@@ -4963,14 +4963,14 @@ where
                                     Ok(tick_result) => {
                                         let tick_invalidations = pipeline
                                             .classify_animation_updates(
-                                                &tick_result.changed_animations,
+                                                &tick_result.changed_motions,
                                             );
                                         invalidations.merge(tick_invalidations);
-                                        let reasons = if tick_result.changed_animations.is_empty() {
+                                        let reasons = if tick_result.changed_motions.is_empty() {
                                             Vec::new()
                                         } else {
                                             tick_result
-                                                .changed_animations
+                                                .changed_motions
                                                 .iter()
                                                 .map(|(target, property)| {
                                                     format!(
@@ -5290,7 +5290,7 @@ where
                                         node_tree,
                                         registry,
                                         resources,
-                                        anims,
+                                        motion_declarations,
                                         videos,
                                         web_views,
                                         portals,
@@ -5308,7 +5308,7 @@ where
                                                 root_widget.clone().into()
                                             });
                                         let resources = ctx.take_resources();
-                                        let anims = ctx.take_animation_requests();
+                                        let motion_declarations = ctx.take_motion_declarations();
                                         let videos = ctx.take_video_registrations();
                                         let web_views = ctx.take_web_registrations();
                                         let portals_with_ids = ctx.take_portals();
@@ -5331,7 +5331,7 @@ where
                                             node,
                                             ctx.registry,
                                             resources,
-                                            anims,
+                                            motion_declarations,
                                             videos,
                                             web_views,
                                             portals,
@@ -5376,10 +5376,10 @@ where
                                         }
                                         startup_dispatched = true;
                                     }
-                                    runtime.sync_animation_requests(&anims);
-                                    for (target, req) in anims {
-                                        runtime.enqueue_animation(target, req);
-                                    }
+                                    runtime.sync_motion_declarations(
+                                        &motion_declarations,
+                                        pipeline.last_snapshot.as_ref(),
+                                    );
                                     runtime.sync_video_nodes(&videos);
                                     runtime.sync_web_nodes(&web_views);
 
@@ -5444,7 +5444,7 @@ where
                                     target_viewport,
                                     false,
                                     &runtime.runtime_state.scroll,
-                                    &runtime.runtime_state.animation,
+                                    &runtime.runtime_state.motion,
                                     &runtime.runtime_state.video,
                                     &runtime.runtime_state.web,
                                 ) {
@@ -6954,8 +6954,8 @@ mod tests {
     };
     use crate::pipeline::CompositorTexturePlan;
     use crate::InvalidationSet;
-    use fission_core::env::{ActiveAnimation, AnimationStateMap, ScrollStateMap};
-    use fission_core::{AnimationPropertyId, DeepLinkConfig, WidgetId};
+    use fission_core::{ActiveMotion, MotionEasing, MotionStateMap, MotionValue, ScrollStateMap};
+    use fission_core::{DeepLinkConfig, MotionPropertyId, WidgetId};
     use fission_ir::semantics::MouseCursor;
     use fission_ir::{CoreIR, FlexDirection, LayoutOp, Op};
     use fission_layout::{LayoutNodeGeometry, LayoutRect, LayoutSize, LayoutSnapshot};
@@ -7138,22 +7138,19 @@ mod tests {
 
     #[test]
     fn repeat_animation_interval_uses_low_priority_hint() {
-        let mut animation = AnimationStateMap::default();
+        let mut animation = MotionStateMap::default();
         animation.active.insert(
-            (
-                WidgetId::explicit("spinner"),
-                AnimationPropertyId::opacity(),
-            ),
-            ActiveAnimation {
+            (WidgetId::explicit("spinner"), MotionPropertyId::opacity()),
+            ActiveMotion {
                 target: WidgetId::explicit("spinner"),
-                property: AnimationPropertyId::opacity(),
-                start_value: 0.3,
-                end_value: 1.0,
+                property: MotionPropertyId::opacity(),
+                start_value: MotionValue::Scalar(0.3),
+                end_value: MotionValue::Scalar(1.0),
                 start_time: 0,
                 duration: 600,
                 repeat: true,
                 frame_interval_ms: Some(166),
-                easing: fission_core::EasingFunction::Linear,
+                easing: MotionEasing::Linear,
             },
         );
         assert_eq!(
@@ -7164,36 +7161,37 @@ mod tests {
 
     #[test]
     fn repeat_animation_interval_chooses_fastest_active_repeat() {
-        let mut animation = AnimationStateMap {
+        let mut animation = MotionStateMap {
             values: HashMap::new(),
             active: HashMap::new(),
+            ..Default::default()
         };
         animation.active.insert(
-            (WidgetId::explicit("slow"), AnimationPropertyId::opacity()),
-            ActiveAnimation {
+            (WidgetId::explicit("slow"), MotionPropertyId::opacity()),
+            ActiveMotion {
                 target: WidgetId::explicit("slow"),
-                property: AnimationPropertyId::opacity(),
-                start_value: 0.3,
-                end_value: 1.0,
+                property: MotionPropertyId::opacity(),
+                start_value: MotionValue::Scalar(0.3),
+                end_value: MotionValue::Scalar(1.0),
                 start_time: 0,
                 duration: 600,
                 repeat: true,
                 frame_interval_ms: Some(200),
-                easing: fission_core::EasingFunction::Linear,
+                easing: MotionEasing::Linear,
             },
         );
         animation.active.insert(
-            (WidgetId::explicit("fast"), AnimationPropertyId::opacity()),
-            ActiveAnimation {
+            (WidgetId::explicit("fast"), MotionPropertyId::opacity()),
+            ActiveMotion {
                 target: WidgetId::explicit("fast"),
-                property: AnimationPropertyId::opacity(),
-                start_value: 0.3,
-                end_value: 1.0,
+                property: MotionPropertyId::opacity(),
+                start_value: MotionValue::Scalar(0.3),
+                end_value: MotionValue::Scalar(1.0),
                 start_time: 0,
                 duration: 600,
                 repeat: true,
                 frame_interval_ms: Some(100),
-                easing: fission_core::EasingFunction::Linear,
+                easing: MotionEasing::Linear,
             },
         );
         assert_eq!(

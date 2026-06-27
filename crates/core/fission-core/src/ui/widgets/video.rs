@@ -9,8 +9,9 @@ use serde::{Deserialize, Serialize};
 /// A platform-native video player widget.
 ///
 /// The video is rendered by the platform's native player and embedded into the
-/// Fission layout as an opaque surface. Use [`BuildCtx::video_controls`] to
-/// create play/pause/seek action envelopes.
+/// Fission layout as an opaque surface. Use
+/// [`crate::internal::BuildCtx::video_controls`] to create play/pause/seek
+/// action envelopes.
 ///
 /// # Example
 ///

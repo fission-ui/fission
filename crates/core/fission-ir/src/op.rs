@@ -43,19 +43,19 @@ pub enum StructuralOp {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct CompositeScalar {
     pub base: f32,
-    pub animation_target: Option<WidgetId>,
+    pub motion_target: Option<WidgetId>,
 }
 
 impl CompositeScalar {
     pub fn new(base: f32) -> Self {
         Self {
             base,
-            animation_target: None,
+            motion_target: None,
         }
     }
 
-    pub fn animated(mut self, target: WidgetId) -> Self {
-        self.animation_target = Some(target);
+    pub fn motion(mut self, target: WidgetId) -> Self {
+        self.motion_target = Some(target);
         self
     }
 }
@@ -63,7 +63,7 @@ impl CompositeScalar {
 impl std::hash::Hash for CompositeScalar {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.base.to_bits().hash(state);
-        self.animation_target.hash(state);
+        self.motion_target.hash(state);
     }
 }
 

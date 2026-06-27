@@ -1,10 +1,10 @@
 use crate::action::{ActionEnvelope, ActionId, GlobalState};
 use crate::async_runtime::ServiceStopPayload;
 use crate::effect::{ActionInput, EffectEnvelope};
-use crate::env::{ActiveAnimation, RuntimeState, VideoStatus};
+use crate::env::{RuntimeState, VideoStatus};
 use crate::registry::{
-    ActionRegistry, AnimationPropertyId, AnimationRequest, AnimationStartValue, ResourcePolicy,
-    RuntimeResourceDeclaration, RuntimeResourceKind, TimerResource, VideoRegistration,
+    ActionRegistry, ResourcePolicy, RuntimeResourceDeclaration, RuntimeResourceKind, TimerResource,
+    VideoRegistration,
 };
 use crate::BoxedReducer;
 use crate::{
@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 #[derive(Debug, Default, Clone)]
 pub struct TickResult {
-    pub changed_animations: Vec<(WidgetId, AnimationPropertyId)>,
+    pub changed_motions: Vec<(WidgetId, crate::MotionPropertyId)>,
 }
 
 #[derive(Debug, Clone)]
@@ -90,7 +90,7 @@ pub struct Runtime {
     pub(crate) persistent_reducers: HashMap<ActionId, Vec<BoxedReducer>>,
     /// Type-indexed application state store.
     pub app_states: HashMap<TypeId, Box<dyn GlobalState>>,
-    /// Mutable runtime state (interaction, scroll, text editing, animations).
+    /// Mutable runtime state (interaction, scroll, text editing, motions).
     pub runtime_state: RuntimeState,
     /// Platform-provided text measurer for layout.
     pub measurer: Option<Arc<dyn TextMeasurer>>,
@@ -420,50 +420,9 @@ impl Runtime {
         self.tick_resource_timers()?;
 
         let current_time = self.clock().current_time();
-
-        let mut finished = Vec::new();
-        let mut result = TickResult::default();
-        for ((target, property), anim) in self.runtime_state.animation.active.iter_mut() {
-            let elapsed = current_time.saturating_sub(anim.start_time);
-            let mut progress = if anim.duration == 0 {
-                1.0
-            } else {
-                elapsed as f32 / anim.duration as f32
-            };
-
-            if anim.repeat && progress >= 1.0 {
-                progress = progress % 1.0;
-            } else {
-                progress = progress.clamp(0.0, 1.0);
-            }
-
-            if !anim.repeat && (elapsed >= anim.duration || anim.duration == 0) {
-                finished.push((*target, property.clone()));
-            }
-
-            let eased_progress = anim.easing.apply(progress);
-            let value = anim.start_value + (anim.end_value - anim.start_value) * eased_progress;
-            // Only update and mark dirty if the value actually changed
-            let current_val = self
-                .runtime_state
-                .animation
-                .values
-                .get(&(*target, property.clone()))
-                .copied();
-            if current_val != Some(value) {
-                self.runtime_state
-                    .animation
-                    .values
-                    .insert((*target, property.clone()), value);
-                result.changed_animations.push((*target, property.clone()));
-            }
-        }
-
-        for key in finished {
-            self.runtime_state.animation.active.remove(&key);
-        }
-
-        Ok(result)
+        let changed_motions =
+            crate::motion::tick_motion(&mut self.runtime_state.motion, current_time);
+        Ok(TickResult { changed_motions })
     }
 
     fn tick_resource_timers(&mut self) -> Result<()> {
@@ -501,76 +460,21 @@ impl Runtime {
         Ok(())
     }
 
-    pub fn enqueue_animation(&mut self, target: WidgetId, request: AnimationRequest) {
-        let key = (target, request.property.clone());
-
-        // Declarative deduplication: If we are already animating to this target, ignore the new request.
-        if let Some(active) = self.runtime_state.animation.active.get(&key) {
-            // Fuzzy float comparison
-            if (active.end_value - request.to).abs() < 0.001
-                && active.duration == request.duration_ms
-                && active.repeat == request.repeat
-                && active.frame_interval_ms == request.frame_interval_ms
-                && active.easing == request.easing
-            {
-                // Continue existing animation
-                return;
-            }
-        }
-
-        let current_value = self.runtime_state.animation.values.get(&key).copied();
-        let current_value = current_value.unwrap_or_else(|| request.property.default_value());
-
-        // Declarative builds can re-emit the same terminal transition every frame.
-        // If the current visible value already matches the target and nothing is
-        // animating, treat it as satisfied instead of starting a zero-delta
-        // animation that would keep the shell redrawing forever.
-        if !request.repeat
-            && self.runtime_state.animation.values.contains_key(&key)
-            && (current_value - request.to).abs() < 0.001
-        {
-            self.runtime_state.animation.values.insert(key, request.to);
-            return;
-        }
-
-        let start_value = match request.from {
-            AnimationStartValue::Explicit(v) => v,
-            AnimationStartValue::Current => current_value,
-        };
-
-        let anim = ActiveAnimation {
-            target,
-            property: request.property.clone(),
-            start_value,
-            end_value: request.to,
-            start_time: self.clock().current_time() + request.delay_ms,
-            duration: request.duration_ms,
-            repeat: request.repeat,
-            frame_interval_ms: request.frame_interval_ms.filter(|ms| *ms > 0),
-            easing: request.easing.clone(),
-        };
-
-        self.runtime_state
-            .animation
-            .values
-            .insert(key.clone(), start_value);
-        self.runtime_state.animation.active.insert(key, anim);
-    }
-
-    pub fn sync_animation_requests(&mut self, requests: &[(WidgetId, AnimationRequest)]) {
-        let requested: HashSet<(WidgetId, AnimationPropertyId)> = requests
-            .iter()
-            .map(|(target, request)| (*target, request.property.clone()))
-            .collect();
-
-        self.runtime_state
-            .animation
-            .active
-            .retain(|key, _| requested.contains(key));
-        self.runtime_state
-            .animation
-            .values
-            .retain(|key, _| requested.contains(key));
+    pub fn sync_motion_declarations(
+        &mut self,
+        declarations: &[crate::MotionDeclaration],
+        layout: Option<&LayoutSnapshot>,
+    ) -> Vec<(WidgetId, crate::MotionPropertyId)> {
+        let current_time = self.clock().current_time();
+        let snapshot = self.runtime_state.clone();
+        let result = crate::motion::sync_motion_declarations(
+            &mut self.runtime_state.motion,
+            declarations,
+            &snapshot,
+            layout,
+            current_time,
+        );
+        result.changed
     }
 
     pub fn sync_video_nodes(&mut self, registrations: &[VideoRegistration]) {
@@ -636,7 +540,7 @@ impl Runtime {
             }
         }
 
-        // Detection logic for future flight animations
+        // Detection logic for future flight motions
         for (tag, (_new_id, new_rect)) in &current_heroes {
             if let Some((_old_id, old_rect)) = self.runtime_state.hero.positions.get(tag) {
                 if *new_rect != *old_rect {

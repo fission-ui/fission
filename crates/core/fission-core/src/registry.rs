@@ -16,7 +16,6 @@ use fission_ir::WidgetId;
 use serde::Serialize;
 use std::any::TypeId;
 use std::collections::{BTreeMap, HashMap};
-use std::sync::Arc;
 
 /// The canonical 3-argument handler signature for modern reducers.
 ///
@@ -214,135 +213,6 @@ impl<S: GlobalState> ActionRegistry<S> {
     }
 }
 
-/// Identifies which visual property an animation targets.
-///
-/// Built-in properties have well-known default values (e.g. opacity defaults
-/// to 1.0, translation defaults to 0.0). Custom properties use 0.0.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// ctx.anim_for(widget_id).request(AnimationRequest {
-///     property: AnimationPropertyId::Opacity,
-///     from: AnimationStartValue::Current,
-///     to: 0.0,
-///     duration_ms: 300,
-///     repeat: false,
-///     delay_ms: 0,
-/// });
-/// ```
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum AnimationPropertyId {
-    Opacity,
-    TranslateX,
-    TranslateY,
-    Scale,
-    Rotation,
-    Custom(Arc<str>),
-}
-
-impl AnimationPropertyId {
-    pub fn opacity() -> Self {
-        Self::Opacity
-    }
-    pub fn translate_x() -> Self {
-        Self::TranslateX
-    }
-    pub fn translate_y() -> Self {
-        Self::TranslateY
-    }
-    pub fn scale() -> Self {
-        Self::Scale
-    }
-    pub fn rotation() -> Self {
-        Self::Rotation
-    }
-    pub fn custom(name: impl Into<String>) -> Self {
-        Self::Custom(Arc::from(name.into()))
-    }
-    pub fn default_value(&self) -> f32 {
-        match self {
-            Self::Opacity => 1.0,
-            Self::Scale => 1.0,
-            Self::TranslateX | Self::TranslateY | Self::Rotation | Self::Custom(_) => 0.0,
-        }
-    }
-}
-
-/// Where an animation starts from.
-#[derive(Clone, Debug)]
-pub enum AnimationStartValue {
-    /// Start from an explicit value.
-    Explicit(f32),
-    /// Start from whatever the current animated value is.
-    Current,
-}
-
-/// A request to animate a visual property on a widget.
-///
-/// Registered via [`BuildCtx::request_animation_for`] or
-/// [`AnimCtx::request`].
-/// Easing function applied to animation progress before interpolation.
-#[derive(Clone, Debug, PartialEq)]
-pub enum EasingFunction {
-    Linear,
-    EaseIn,
-    EaseOut,
-    EaseInOut,
-    CubicBezier(f32, f32, f32, f32),
-}
-
-impl Default for EasingFunction {
-    fn default() -> Self {
-        Self::EaseInOut
-    }
-}
-
-impl EasingFunction {
-    /// Map a linear progress value `t` in [0, 1] to an eased value.
-    pub fn apply(&self, t: f32) -> f32 {
-        match self {
-            Self::Linear => t,
-            Self::EaseIn => t * t,
-            Self::EaseOut => 1.0 - (1.0 - t) * (1.0 - t),
-            Self::EaseInOut => {
-                if t < 0.5 {
-                    2.0 * t * t
-                } else {
-                    1.0 - (-2.0 * t + 2.0).powi(2) / 2.0
-                }
-            }
-            Self::CubicBezier(_x1, y1, _x2, y2) => {
-                // Simplified cubic bezier approximation (y-axis only)
-                let t2 = t * t;
-                let t3 = t2 * t;
-                3.0 * (1.0 - t) * (1.0 - t) * t * y1 + 3.0 * (1.0 - t) * t2 * y2 + t3
-            }
-        }
-    }
-}
-#[derive(Clone, Debug)]
-pub struct AnimationRequest {
-    /// The property to animate.
-    pub property: AnimationPropertyId,
-    /// Starting value.
-    pub from: AnimationStartValue,
-    /// Target value.
-    pub to: f32,
-    /// Duration in milliseconds.
-    pub duration_ms: u64,
-    /// Whether to loop the animation.
-    pub repeat: bool,
-    /// Delay before the animation starts (in milliseconds).
-    pub delay_ms: u64,
-    /// Optional preferred redraw cadence for this animation (in milliseconds).
-    ///
-    /// This is primarily useful for low-priority repeating effects such as
-    /// loading indicators that do not need full frame-rate updates.
-    pub frame_interval_ms: Option<u64>,
-    pub easing: EasingFunction,
-}
-
 /// Registration data for a [`Video`](crate::ui::Video) widget collected during
 /// widget building.
 #[derive(Clone, Debug)]
@@ -386,7 +256,7 @@ pub enum PortalLayer {
 
 /// An entry in the portal overlay stack.
 ///
-/// Created by [`BuildCtx::register_portal`] and friends.
+/// Created by [`crate::internal::BuildCtx::register_portal`] and friends.
 #[derive(Clone, Debug)]
 pub struct PortalEntry {
     /// Which overlay layer this portal belongs to.

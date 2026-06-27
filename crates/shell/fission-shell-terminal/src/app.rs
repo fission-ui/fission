@@ -362,14 +362,13 @@ where
         let tree = fission_core::build::enter(&mut ctx, &view, || self.root.clone().into());
 
         self.runtime.clear_reducers();
-        let animation_requests = ctx.take_animation_requests();
+        let motion_declarations = ctx.take_motion_declarations();
         let video_nodes = ctx.take_video_registrations();
         let web_nodes = ctx.take_web_registrations();
         let portals_with_ids = ctx.take_portals();
         self.runtime.absorb_registry(ctx.registry);
-        for (target, request) in animation_requests {
-            self.runtime.enqueue_animation(target, request);
-        }
+        self.runtime
+            .sync_motion_declarations(&motion_declarations, self.last_snapshot.as_ref());
         self.runtime.sync_video_nodes(&video_nodes);
         self.runtime.sync_web_nodes(&web_nodes);
 

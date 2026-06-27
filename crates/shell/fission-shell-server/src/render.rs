@@ -425,7 +425,7 @@ impl ServerRenderer {
         let ServerRenderedNode {
             node,
             resources,
-            animation_requests,
+            motion_declarations,
         } = if tokio::runtime::Handle::try_current().is_ok() {
             std::thread::scope(|scope| {
                 scope
@@ -471,7 +471,7 @@ impl ServerRenderer {
             server_action_post_path: Some("/__fission/action".to_string()),
             server_action_tokens: action_tokens,
             structured_data: route.route.structured_data.clone(),
-            animation_requests,
+            motion_declarations,
             head_end_html,
             body_end_html,
             ..Default::default()

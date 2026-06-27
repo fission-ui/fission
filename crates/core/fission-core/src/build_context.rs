@@ -1,6 +1,7 @@
 use crate::{
+    motion::MotionDeclaration,
     registry::{
-        ActionRegistry, AnimationRequest, IntoHandler, PortalEntry, PortalLayer, ResourceRegistry,
+        ActionRegistry, IntoHandler, PortalEntry, PortalLayer, ResourceRegistry,
         RuntimeResourceDeclaration, VideoControlCtx, VideoRegistration, WebRegistration,
     },
     ui::Widget,
@@ -16,8 +17,8 @@ use fission_ir::WidgetId;
 ///   `on_press`.
 /// - **Portals** -- [`register_portal`](BuildCtx::register_portal) places a
 ///   node in the global overlay stack (modals, toasts, flyouts).
-/// - **Animations** -- [`request_animation_for`](BuildCtx::request_animation_for)
-///   or the [`anim_for`](BuildCtx::anim_for) helper.
+/// - **Motion** -- [`register_motion`](BuildCtx::register_motion) registers
+///   declarative motion declarations.
 /// - **Video / WebView registration** -- [`register_video`](BuildCtx::register_video),
 ///   [`register_web_view`](BuildCtx::register_web_view).
 ///
@@ -37,8 +38,8 @@ pub struct BuildCtx<S: GlobalState> {
     pub registry: ActionRegistry<S>,
     /// Declarative runtime resources collected during the build phase.
     pub resources: ResourceRegistry,
-    /// Pending animation requests.
-    pub animation_requests: Vec<(WidgetId, AnimationRequest)>,
+    /// Declarative motion collected during the build phase.
+    pub motion_declarations: Vec<MotionDeclaration>,
     /// Registered video nodes.
     pub video_nodes: Vec<VideoRegistration>,
     /// Registered web view nodes.
@@ -53,7 +54,7 @@ impl<S: GlobalState> BuildCtx<S> {
         Self {
             registry: ActionRegistry::new(),
             resources: ResourceRegistry::new(),
-            animation_requests: Vec::new(),
+            motion_declarations: Vec::new(),
             video_nodes: Vec::new(),
             web_nodes: Vec::new(),
             portals: Vec::new(),
@@ -84,8 +85,8 @@ impl<S: GlobalState> BuildCtx<S> {
         self.registry.register_runtime_reducer(action_id, reducer);
     }
 
-    pub fn request_animation_for(&mut self, target: WidgetId, request: AnimationRequest) {
-        self.animation_requests.push((target, request));
+    pub fn register_motion(&mut self, declaration: MotionDeclaration) {
+        self.motion_declarations.push(declaration);
     }
 
     pub fn register_video(&mut self, registration: VideoRegistration) {
@@ -96,8 +97,8 @@ impl<S: GlobalState> BuildCtx<S> {
         self.web_nodes.push(registration);
     }
 
-    pub fn take_animation_requests(&mut self) -> Vec<(WidgetId, AnimationRequest)> {
-        std::mem::take(&mut self.animation_requests)
+    pub fn take_motion_declarations(&mut self) -> Vec<MotionDeclaration> {
+        std::mem::take(&mut self.motion_declarations)
     }
 
     pub fn take_video_registrations(&mut self) -> Vec<VideoRegistration> {
@@ -147,26 +148,7 @@ impl<S: GlobalState> BuildCtx<S> {
         entries.into_iter().map(|e| (e.id, e.node)).collect()
     }
 
-    pub fn anim_for(&mut self, target: WidgetId) -> AnimCtx<'_, S> {
-        AnimCtx { target, ctx: self }
-    }
-
     pub fn video_controls(&self, target: WidgetId) -> VideoControlCtx {
         VideoControlCtx { target }
-    }
-}
-
-pub struct AnimCtx<'a, S: GlobalState> {
-    target: WidgetId,
-    ctx: &'a mut BuildCtx<S>,
-}
-
-impl<'a, S: GlobalState> AnimCtx<'a, S> {
-    pub fn request(&mut self, request: AnimationRequest) {
-        self.ctx.request_animation_for(self.target, request);
-    }
-
-    pub fn request_for(&mut self, target: WidgetId, request: AnimationRequest) {
-        self.ctx.request_animation_for(target, request);
     }
 }
