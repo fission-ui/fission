@@ -352,6 +352,10 @@ impl Runtime {
 
         let action_id = action.id;
 
+        if crate::scoped_action_handlers::dispatch_scoped_action_handler(&action, target, input)? {
+            return Ok(());
+        }
+
         // Collect effects from this dispatch (both persistent and per-frame reducers).
         let mut effects = Vec::new();
 

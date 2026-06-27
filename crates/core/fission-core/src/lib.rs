@@ -69,6 +69,7 @@ pub mod platform_volume;
 pub mod platform_wifi;
 pub mod registry;
 pub mod runtime;
+pub mod scoped_action_handlers;
 pub mod scrollbar;
 pub mod state;
 pub mod time;
@@ -174,6 +175,9 @@ pub mod public {
     }
     pub mod registry {
         pub use crate::registry::*;
+    }
+    pub mod scoped_action_handlers {
+        pub use crate::scoped_action_handlers::*;
     }
     pub mod ui {
         pub use crate::ui::widgets::*;

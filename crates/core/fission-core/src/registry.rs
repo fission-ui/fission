@@ -118,6 +118,14 @@ impl<S: GlobalState> ActionRegistry<S> {
             .push(typed_reducer);
     }
 
+    pub fn action_ids(&self) -> Vec<ActionId> {
+        self.handlers
+            .keys()
+            .chain(self.runtime_handlers.keys())
+            .copied()
+            .collect()
+    }
+
     pub(crate) fn register_runtime_reducer(&mut self, action_id: ActionId, reducer: BoxedReducer) {
         self.runtime_handlers
             .entry(action_id)
