@@ -1180,7 +1180,16 @@ fn find_nested_texture_plan_candidate<'a>(
             path: node_path.to_vec(),
         }),
         RenderNode::Layer(layer) => {
-            if !force {
+            let own_dynamic = layer
+                .node_id
+                .map(|id| runtime_dynamic_nodes.contains(&id))
+                .unwrap_or(false);
+            let is_scroll_node = layer
+                .node_id
+                .map(|id| scroll_nodes.contains(&id))
+                .unwrap_or(false);
+
+            if !force && !own_dynamic && !is_scroll_node {
                 if let Some(child) = descend_through_plain_wrapper(layer) {
                     let mut child_path = node_path.to_vec();
                     child_path.push(0);
@@ -1196,14 +1205,6 @@ fn find_nested_texture_plan_candidate<'a>(
             }
 
             let subtree_dynamic = render_node_or_subtree_is_dynamic(node, runtime_dynamic_subtrees);
-            let own_dynamic = layer
-                .node_id
-                .map(|id| runtime_dynamic_nodes.contains(&id))
-                .unwrap_or(false);
-            let is_scroll_node = layer
-                .node_id
-                .map(|id| scroll_nodes.contains(&id))
-                .unwrap_or(false);
             if force
                 || layer_should_extract_as_plan(layer, subtree_dynamic, own_dynamic, is_scroll_node)
             {

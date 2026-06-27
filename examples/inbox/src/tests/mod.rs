@@ -453,6 +453,10 @@ fn runtime_has_motion(
         .contains_key(&(id, property))
 }
 
+fn motion_slot_id(parent: WidgetId, slot: u32) -> WidgetId {
+    WidgetId::derived(parent.as_u128(), &[slot])
+}
+
 fn display_has_image(h: &TestHarness<InboxState>) -> bool {
     h.get_last_display_list().map_or(false, |list| {
         list.ops
@@ -1364,10 +1368,10 @@ fn default_viewport_email_list_scroll_has_positive_height() -> Result<()> {
 #[test]
 fn spinner_motion_present_in_default_inbox() -> Result<()> {
     let h = pump_state(state_default())?;
-    let base = WidgetId::explicit("sync_spinner");
+    let base = motion_slot_id(WidgetId::explicit("sync_spinner"), 0x1D1_CA70);
     let mut found = 0;
-    for i in 1..=3 {
-        let sub_id = WidgetId::from_u128(base.as_u128() ^ i as u128);
+    for i in 0..3 {
+        let sub_id = WidgetId::derived(base.as_u128(), &[i]);
         if runtime_has_motion(&h, sub_id, MotionPropertyId::Opacity) {
             found += 1;
         }
@@ -1379,7 +1383,7 @@ fn spinner_motion_present_in_default_inbox() -> Result<()> {
 #[test]
 fn skeleton_motion_present_in_default_inbox() -> Result<()> {
     let h = pump_state(state_default())?;
-    let id = WidgetId::explicit("sync_skeleton");
+    let id = motion_slot_id(WidgetId::explicit("sync_skeleton"), 0x5AFA_CE);
     assert!(
         runtime_has_motion(&h, id, MotionPropertyId::Opacity),
         "default inbox should schedule skeleton opacity motion"
