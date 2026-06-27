@@ -1,5 +1,5 @@
 use crate::motion_support::{
-    dedupe, exit_for, fade_in, push_enter_with_exit, scale_in, slide_y_in,
+    dedupe, exit_for, fade_in, push_enter_with_exit, scale_in, slide_y_in, slot_id, SLOT_SURFACE,
 };
 use crate::stack::HStack;
 use crate::Icon;
@@ -239,7 +239,7 @@ impl From<Toast> for Widget {
         if let Some(motion) = &this.motion {
             let plan = motion.plan();
             toast = Presence {
-                id: this.id,
+                id: slot_id(this.id, SLOT_SURFACE),
                 visible: true,
                 enter: plan.enter,
                 exit: plan.exit,

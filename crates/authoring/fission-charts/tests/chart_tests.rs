@@ -49,7 +49,7 @@ fn lower_chart_with_animation_progress(
     let mut runtime_state = fission_core::RuntimeState::default();
     runtime_state.motion.values.insert(
         (
-            chart_id,
+            WidgetId::derived(chart_id.as_u128(), &[0xC4A7_A11A]),
             MotionPropertyId::custom("fission_charts::progress"),
         ),
         MotionValue::Scalar(progress),

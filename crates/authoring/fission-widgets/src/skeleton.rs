@@ -1,3 +1,4 @@
+use crate::motion_support::{slot_id, SLOT_SURFACE};
 use fission_core::motion::{
     scalar, MotionDeclaration, MotionDeclarationKind, MotionEasing, MotionPhase, MotionPropertyId,
     MotionStartValue, MotionTrack, MotionTransition,
@@ -96,13 +97,16 @@ impl From<Skeleton> for Widget {
         let boundary = Composite::new(base).repaint_boundary(true).into();
 
         if let Some(motion) = &this.motion {
+            let motion_id = slot_id(this.id, SLOT_SURFACE);
             ctx.register_motion(MotionDeclaration {
-                id: this.id,
+                id: motion_id,
                 kind: MotionDeclarationKind::Tracks {
                     tracks: motion.tracks(),
                 },
             });
-            Composite::new(boundary).motion_opacity(this.id, 0.4).into()
+            Composite::new(boundary)
+                .motion_opacity(motion_id, 0.4)
+                .into()
         } else {
             boundary
         }

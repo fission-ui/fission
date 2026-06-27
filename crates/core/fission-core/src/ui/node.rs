@@ -511,11 +511,12 @@ impl From<Transform> for Widget {
 impl From<Button> for Widget {
     fn from(mut w: Button) -> Self {
         if let Some(motion) = w.motion.take() {
-            let id = crate::build::current_widget_id()
+            let button_id = crate::build::current_widget_id()
                 .or(w.id)
                 .unwrap_or_else(|| WidgetId::explicit("fission.core.button.motion"));
-            w.id = Some(id);
-            let tracks = motion.interaction_tracks(id);
+            w.id = Some(button_id);
+            let motion_id = WidgetId::derived(button_id.as_u128(), &[0xB0770]);
+            let tracks = motion.interaction_tracks(button_id);
             let ripple = motion.ripple();
             let base = Self {
                 kind: Box::new(WidgetKind::Button(w)),
@@ -524,7 +525,7 @@ impl From<Button> for Widget {
                 base
             } else {
                 crate::motion::Motion {
-                    id,
+                    id: motion_id,
                     tracks,
                     child: base,
                     ..Default::default()
@@ -533,7 +534,7 @@ impl From<Button> for Widget {
             };
             return if let Some(effect) = ripple {
                 crate::motion::RippleLayer {
-                    id: WidgetId::derived(id.as_u128(), &[0xA11E]),
+                    id: WidgetId::derived(button_id.as_u128(), &[0xA11E]),
                     effect,
                     child: with_motion,
                 }

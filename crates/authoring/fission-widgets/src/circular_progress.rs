@@ -1,3 +1,4 @@
+use crate::motion_support::{slot_id, SLOT_INDICATOR};
 use fission_core::internal::{InternalIrBuilder, InternalLowerer, InternalLoweringCx};
 use fission_core::motion::{
     deg, MotionDeclaration, MotionDeclarationKind, MotionEasing, MotionPhase, MotionPropertyId,
@@ -116,15 +117,16 @@ impl From<CircularProgress> for Widget {
             let Some(motion) = &this.motion else {
                 return node;
             };
+            let motion_id = slot_id(this.id, SLOT_INDICATOR);
             ctx.register_motion(MotionDeclaration {
-                id: this.id,
+                id: motion_id,
                 kind: MotionDeclarationKind::Tracks {
                     tracks: motion.tracks(),
                 },
             });
             Composite::new(node)
                 .repaint_boundary(true)
-                .motion_rotation(this.id, 0.0)
+                .motion_rotation(motion_id, 0.0)
                 .into()
         } else {
             node

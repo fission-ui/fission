@@ -29,7 +29,10 @@ fn indeterminate_circular_progress_registers_rotation_animation() {
 
     let _ir = fission_core::internal::lower_widget_to_ir(&node);
     assert_eq!(ctx.motion_declarations.len(), 1);
-    assert_eq!(ctx.motion_declarations[0].id, id);
+    assert_eq!(
+        ctx.motion_declarations[0].id,
+        WidgetId::derived(id.as_u128(), &[0x1D1_CA70])
+    );
     let MotionDeclarationKind::Tracks { tracks } = &ctx.motion_declarations[0].kind else {
         panic!("expected circular progress motion tracks");
     };

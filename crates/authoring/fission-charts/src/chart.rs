@@ -276,11 +276,15 @@ impl From<Chart> for Widget {
 }
 
 impl Chart {
-    fn animation_id(&self) -> WidgetId {
+    fn root_id(&self) -> WidgetId {
         self.id.unwrap_or_else(|| {
             let title = self.title.as_deref().unwrap_or("untitled");
             WidgetId::explicit(&format!("fission_charts::Chart::{title}"))
         })
+    }
+
+    fn animation_id(&self) -> WidgetId {
+        WidgetId::derived(self.root_id().as_u128(), &[0xC4A7_A11A])
     }
 }
 

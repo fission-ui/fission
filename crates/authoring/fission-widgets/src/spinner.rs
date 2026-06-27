@@ -1,3 +1,4 @@
+use crate::motion_support::{slot_id, SLOT_INDICATOR};
 use crate::stack::HStack;
 use fission_core::motion::{
     scalar, MotionDeclaration, MotionDeclarationKind, MotionEasing, MotionPhase, MotionPropertyId,
@@ -80,16 +81,10 @@ impl From<Spinner> for Widget {
         let dot_size = 10.0;
 
         let mut dots = Vec::new();
+        let dot_motion_root = slot_id(this.id, SLOT_INDICATOR);
 
         for i in 0..3 {
-            // Generate stable sub-ID for animation
-            // Hacking a sub-ID by XORing? Or using a deterministic derivation if available.
-            // WidgetId doesn't expose derivation.
-            // But we can create a new explicit one if we assume `id` is unique.
-            // Or hash it.
-            // Let's assume we can construct one.
-            let sub_id_u128 = this.id.as_u128() ^ (i as u128 + 1);
-            let sub_id = WidgetId::from_u128(sub_id_u128);
+            let dot_motion_id = WidgetId::derived(dot_motion_root.as_u128(), &[i as u32]);
 
             let dot: Widget = Container::new(fission_core::ui::Row::default())
                 .size(dot_size, dot_size)
@@ -100,12 +95,14 @@ impl From<Spinner> for Widget {
 
             let node = if let Some(motion) = &this.motion {
                 ctx.register_motion(MotionDeclaration {
-                    id: sub_id,
+                    id: dot_motion_id,
                     kind: MotionDeclarationKind::Tracks {
                         tracks: motion.dot_tracks(i as u64 * 200),
                     },
                 });
-                Composite::new(boundary).motion_opacity(sub_id, 0.3).into()
+                Composite::new(boundary)
+                    .motion_opacity(dot_motion_id, 0.3)
+                    .into()
             } else {
                 boundary
             };
