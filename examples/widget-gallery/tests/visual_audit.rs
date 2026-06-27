@@ -13,8 +13,8 @@ use fission::core::{ActionEnvelope, FlexDirection};
 use fission::widgets::{
     Accordion, AccordionItem, Alert, AlertKind, Avatar, Badge, Breadcrumb, BreadcrumbItem, Card,
     CircularProgress, Code, EmptyState, Kbd, Link, MenuButton, MenuItem, NumberInput, Pagination,
-    ProgressBar, Select, Skeleton, Spinner, Stat, Stepper, TabItem, Tabs, Tag, Timeline,
-    TimelineItem, Tooltip, TreeItem, TreeView, VStack,
+    ProgressBar, Select, Skeleton, SkeletonMotion, Spinner, SpinnerMotion, Stat, Stepper, TabItem,
+    Tabs, Tag, Timeline, TimelineItem, Tooltip, TreeItem, TreeView, VStack,
 };
 use serde::{Deserialize, Serialize};
 
@@ -170,7 +170,7 @@ fn build_all_widgets(_ctx: BuildCtxHandle<GS>, _view: ViewHandle<GS>) -> Widget 
             Spinner {
                 id: WidgetId::explicit("sp"),
                 color: None,
-                animated: true,
+                motion: Some(SpinnerMotion::Default),
             }
             .into(),
             CircularProgress {
@@ -184,7 +184,7 @@ fn build_all_widgets(_ctx: BuildCtxHandle<GS>, _view: ViewHandle<GS>) -> Widget 
                 width: Some(120.0),
                 height: Some(20.0),
                 circle: false,
-                animated: true,
+                motion: Some(SkeletonMotion::Default),
             }
             .into(),
             EmptyState {
@@ -267,6 +267,7 @@ fn build_all_widgets(_ctx: BuildCtxHandle<GS>, _view: ViewHandle<GS>) -> Widget 
                         on_toggle: None,
                     },
                 ],
+                motion: None,
             }
             .into(),
             Stepper {
@@ -324,6 +325,7 @@ fn build_all_widgets(_ctx: BuildCtxHandle<GS>, _view: ViewHandle<GS>) -> Widget 
                 child: Text::new("Hover").into(),
                 text: "Tip".into(),
                 is_visible: false,
+                motion: None,
             }
             .into(),
             Select {

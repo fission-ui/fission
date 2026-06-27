@@ -1,11 +1,14 @@
-use fission::core::EasingFunction;
 use fission::prelude::DesktopApp;
 use fission::prelude::*;
-use fission::widgets::{Transition, Wrap};
+use fission::widgets::Wrap;
 use fission::{
-    op::Color as IrColor, with_reducer, AnimationPropertyId, AnimationRequest, AnimationStartValue,
-    Button, ButtonVariant, Column, Composite, Container, FlexDirection, GlobalState, Row, Scroll,
-    Text, Widget, WidgetId,
+    motion::{
+        scalar, MotionDeclaration, MotionDeclarationKind, MotionEasing, MotionPhase,
+        MotionPropertyId, MotionStartValue, MotionTrack, MotionTransition,
+    },
+    op::Color as IrColor,
+    with_reducer, Button, ButtonVariant, Column, Composite, Container, FlexDirection, GlobalState,
+    Row, Scroll, Text, Widget, WidgetId,
 };
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
@@ -68,25 +71,28 @@ impl From<AnimationGalleryApp> for Widget {
         let wide_card_width = content_width.clamp(card_width, 980.0);
 
         if custom_active {
-            ctx.anim_for(*CUSTOM_ID).request(AnimationRequest {
-                property: AnimationPropertyId::Scale,
-                from: AnimationStartValue::Explicit(0.92),
-                to: 1.08,
-                duration_ms: 1400,
-                delay_ms: 0,
-                repeat: true,
-                frame_interval_ms: None,
-                easing: EasingFunction::EaseInOut,
-            });
-            ctx.anim_for(*CUSTOM_ID).request(AnimationRequest {
-                property: AnimationPropertyId::Opacity,
-                from: AnimationStartValue::Explicit(0.72),
-                to: 1.0,
-                duration_ms: 1400,
-                delay_ms: 0,
-                repeat: true,
-                frame_interval_ms: None,
-                easing: EasingFunction::EaseInOut,
+            ctx.register_motion(MotionDeclaration {
+                id: *CUSTOM_ID,
+                kind: MotionDeclarationKind::Tracks {
+                    tracks: vec![
+                        MotionTrack {
+                            property: MotionPropertyId::Scale,
+                            phase: MotionPhase::Composite,
+                            from: MotionStartValue::Explicit(scalar(0.92)),
+                            to: scalar(1.08),
+                            transition: MotionTransition::tween(1400, MotionEasing::EaseInOut)
+                                .repeat(true),
+                        },
+                        MotionTrack {
+                            property: MotionPropertyId::Opacity,
+                            phase: MotionPhase::Composite,
+                            from: MotionStartValue::Explicit(scalar(0.72)),
+                            to: scalar(1.0),
+                            transition: MotionTransition::tween(1400, MotionEasing::EaseInOut)
+                                .repeat(true),
+                        },
+                    ],
+                },
             });
         }
 
@@ -136,69 +142,60 @@ impl From<AnimationGalleryApp> for Widget {
                         demo_card(
                             "Opacity",
                             card_width,
-                            Transition {
-                                id: *OPACITY_ID,
-                                property: AnimationPropertyId::Opacity,
-                                value: if scene_active { 0.92 } else { 0.28 },
-                                duration: 550,
-                                child: sample_block("Fade", tokens.primary),
-                                ..Default::default()
-                            }
-                            .into(),
+                            transition_motion(
+                                *OPACITY_ID,
+                                MotionPropertyId::Opacity,
+                                if scene_active { 0.92 } else { 0.28 },
+                                550,
+                                sample_block("Fade", tokens.primary),
+                            ),
                         ),
                         demo_card(
                             "Translate X",
                             card_width,
-                            Transition {
-                                id: *TRANSLATE_ID,
-                                property: AnimationPropertyId::TranslateX,
-                                value: if scene_active { 14.0 } else { -28.0 },
-                                duration: 550,
-                                child: sample_block("Slide", color(30, 136, 93, 255)),
-                                ..Default::default()
-                            }
-                            .into(),
+                            transition_motion(
+                                *TRANSLATE_ID,
+                                MotionPropertyId::TranslateX,
+                                if scene_active { 14.0 } else { -28.0 },
+                                550,
+                                sample_block("Slide", color(30, 136, 93, 255)),
+                            ),
                         ),
                         demo_card(
                             "Scale",
                             card_width,
-                            Transition {
-                                id: *SCALE_ID,
-                                property: AnimationPropertyId::Scale,
-                                value: if scene_active { 0.94 } else { 0.68 },
-                                duration: 550,
-                                child: sample_block("Zoom", color(222, 144, 35, 255)),
-                                ..Default::default()
-                            }
-                            .into(),
+                            transition_motion(
+                                *SCALE_ID,
+                                MotionPropertyId::Scale,
+                                if scene_active { 0.94 } else { 0.68 },
+                                550,
+                                sample_block("Zoom", color(222, 144, 35, 255)),
+                            ),
                         ),
                         demo_card(
                             "Rotation",
                             card_width,
-                            Transition {
-                                id: *ROTATION_ID,
-                                property: AnimationPropertyId::Rotation,
-                                value: if scene_active { -0.14 } else { 0.24 },
-                                duration: 650,
-                                child: sample_block("Rotate", color(54, 96, 168, 255)),
-                                ..Default::default()
-                            }
-                            .into(),
+                            transition_motion(
+                                *ROTATION_ID,
+                                MotionPropertyId::Rotation,
+                                if scene_active { -0.14 } else { 0.24 },
+                                650,
+                                sample_block("Rotate", color(54, 96, 168, 255)),
+                            ),
                         ),
                         demo_card(
                             "Clip + translate",
                             card_width,
-                            Composite::new(Transition {
-                                id: *CLIP_ID,
-                                property: AnimationPropertyId::TranslateX,
-                                value: if scene_active { 16.0 } else { -28.0 },
-                                duration: 700,
-                                child: Container::new(sample_block("Clipped", tokens.primary))
+                            Composite::new(transition_motion(
+                                *CLIP_ID,
+                                MotionPropertyId::TranslateX,
+                                if scene_active { 16.0 } else { -28.0 },
+                                700,
+                                Container::new(sample_block("Clipped", tokens.primary))
                                     .width(116.0)
                                     .height(64.0)
                                     .into(),
-                                ..Default::default()
-                            })
+                            ))
                             .clip_to_bounds(true)
                             .repaint_boundary(true)
                             .into(),
@@ -283,6 +280,28 @@ fn sized_demo_card(title: &str, body: Widget, width: f32) -> Widget {
     .into()
 }
 
+fn transition_motion(
+    id: WidgetId,
+    property: MotionPropertyId,
+    value: f32,
+    duration_ms: u64,
+    child: Widget,
+) -> Widget {
+    fission::motion::Motion {
+        id,
+        tracks: vec![MotionTrack {
+            property,
+            phase: MotionPhase::Composite,
+            from: MotionStartValue::Current,
+            to: scalar(value),
+            transition: MotionTransition::tween(duration_ms, MotionEasing::EaseInOut),
+        }],
+        child,
+        ..Default::default()
+    }
+    .into()
+}
+
 fn sample_block(label: &str, color: IrColor) -> Widget {
     Container::new(Text::new(label).size(18.0).color(IrColor::WHITE))
         .width(96.0)
@@ -309,8 +328,8 @@ fn custom_pulse_card(active: bool, base: IrColor) -> Widget {
 
     if active {
         Composite::new(block)
-            .animated_scale(*CUSTOM_ID, 1.0)
-            .animated_opacity(*CUSTOM_ID, 1.0)
+            .motion_scale(*CUSTOM_ID, 1.0)
+            .motion_opacity(*CUSTOM_ID, 1.0)
             .into()
     } else {
         Container::new(block)

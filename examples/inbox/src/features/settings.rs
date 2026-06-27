@@ -904,6 +904,7 @@ impl From<SettingsModal> for Widget {
                     ),
                 )),
             }],
+            motion: None,
         }
         .into()
     }

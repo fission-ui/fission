@@ -11,7 +11,8 @@ use fission::core::{reduce_with, ActionEnvelope, WidgetId};
 use fission::icons::material;
 use fission::widgets::{
     Accordion, AccordionItem, Alert, AlertKind, AspectRatio, Avatar, Card, Code, Divider, HStack,
-    Hero, Icon, Image, Kbd, Radio, SimpleGrid, Spinner, Tag, Timeline, TimelineItem, VStack, Wrap,
+    Hero, Icon, Image, Kbd, Radio, SimpleGrid, Spinner, SpinnerMotion, Tag, Timeline, TimelineItem,
+    VStack, Wrap,
 };
 use serde_json;
 
@@ -268,6 +269,7 @@ impl From<EmailDetail> for Widget {
                 .padding_all(8.0)
                 .into(),
             }],
+            motion: None,
         }
         .into();
 
@@ -303,7 +305,7 @@ impl From<EmailDetail> for Widget {
                         Spinner {
                             id: WidgetId::explicit("attachments_spinner"),
                             color: None,
-                            animated: true,
+                            motion: Some(SpinnerMotion::Default),
                         }
                         .into(),
                         Text::new(TextContent::Key("email.scanning_attachments".into()))

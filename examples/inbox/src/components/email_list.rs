@@ -356,6 +356,7 @@ impl From<EmailList> for Widget {
                                 }),
                         )
                         .into(),
+                        motion: None,
                     }
                     .into(),
                 ],
@@ -394,6 +395,7 @@ impl From<EmailList> for Widget {
                     },
                 ],
                 size: ComponentSize::Sm,
+                motion: None,
             }
             .into(),
         );

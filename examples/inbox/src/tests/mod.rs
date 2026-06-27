@@ -2,7 +2,7 @@ use super::*;
 use anyhow::Result;
 use fission::core::env::RuntimeState;
 use fission::core::event::{InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent};
-use fission::core::{Action, AnimationPropertyId, Env, LayoutSize, WidgetId};
+use fission::core::{Action, Env, LayoutSize, MotionPropertyId, WidgetId};
 use fission::layout::LayoutEngine;
 use fission::op::{FlexDirection, FlexWrap, GridTrack};
 use fission::render::{DisplayOp, LayoutRect};
@@ -441,14 +441,14 @@ fn ir_has_embed_kind(h: &TestHarness<InboxState>, kind: EmbedKind) -> bool {
     )
 }
 
-fn runtime_has_animation(
+fn runtime_has_motion(
     h: &TestHarness<InboxState>,
     id: WidgetId,
-    property: AnimationPropertyId,
+    property: MotionPropertyId,
 ) -> bool {
     h.runtime
         .runtime_state
-        .animation
+        .motion
         .active
         .contains_key(&(id, property))
 }
@@ -832,7 +832,7 @@ fn inbox_emits_root_texture_compositor_plans() -> Result<()> {
         LayoutSize::new(1200.0, 800.0),
         false,
         &runtime_state.scroll,
-        &runtime_state.animation,
+        &runtime_state.motion,
         &runtime_state.video,
         &runtime_state.web,
     )?;
@@ -867,7 +867,7 @@ fn default_viewport_retained_scene_contains_inbox_rows() -> Result<()> {
         LayoutSize::new(800.0, 600.0),
         false,
         &runtime_state.scroll,
-        &runtime_state.animation,
+        &runtime_state.motion,
         &runtime_state.video,
         &runtime_state.web,
     )?;
@@ -1362,43 +1362,40 @@ fn default_viewport_email_list_scroll_has_positive_height() -> Result<()> {
 }
 
 #[test]
-fn spinner_animation_present_in_default_inbox() -> Result<()> {
+fn spinner_motion_present_in_default_inbox() -> Result<()> {
     let h = pump_state(state_default())?;
     let base = WidgetId::explicit("sync_spinner");
     let mut found = 0;
     for i in 1..=3 {
         let sub_id = WidgetId::from_u128(base.as_u128() ^ i as u128);
-        if runtime_has_animation(&h, sub_id, AnimationPropertyId::Opacity) {
+        if runtime_has_motion(&h, sub_id, MotionPropertyId::Opacity) {
             found += 1;
         }
     }
-    assert!(
-        found > 0,
-        "default inbox should schedule spinner animations"
-    );
+    assert!(found > 0, "default inbox should schedule spinner motion");
     Ok(())
 }
 
 #[test]
-fn skeleton_animation_present_in_default_inbox() -> Result<()> {
+fn skeleton_motion_present_in_default_inbox() -> Result<()> {
     let h = pump_state(state_default())?;
     let id = WidgetId::explicit("sync_skeleton");
     assert!(
-        runtime_has_animation(&h, id, AnimationPropertyId::Opacity),
-        "default inbox should schedule skeleton opacity animation"
+        runtime_has_motion(&h, id, MotionPropertyId::Opacity),
+        "default inbox should schedule skeleton opacity motion"
     );
     Ok(())
 }
 
 #[test]
-fn transition_animation_present() -> Result<()> {
+fn transition_motion_present() -> Result<()> {
     let mut state = state_default();
     state.show_quick_tip = true;
     let h = pump_state(state)?;
     let id = WidgetId::explicit("quick_tip_fade");
     assert!(
-        runtime_has_animation(&h, id, AnimationPropertyId::Opacity),
-        "expected transition opacity animation"
+        runtime_has_motion(&h, id, MotionPropertyId::Opacity),
+        "expected transition opacity motion"
     );
     Ok(())
 }

@@ -342,6 +342,7 @@ impl From<ComposeModal> for Widget {
                     }),
                 },
             ],
+            motion: None,
         }
         .into()
     }
