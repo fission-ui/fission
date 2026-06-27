@@ -1,9 +1,9 @@
 [package]
 name = "fission-macros"
-version = "0.4.1"
+version = "0.5.0"
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/worka-ai/fission"
+repository = "https://github.com/fission-ui/fission"
 description = "Procedural macros for Fission actions, reducers, and ergonomic app authoring"
 
 homepage = "https://fission.rs"

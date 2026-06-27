@@ -2,20 +2,20 @@
 
 [![Crates.io](https://img.shields.io/crates/v/fission.svg)](https://crates.io/crates/fission)
 [![Docs](https://img.shields.io/badge/docs-fission.rs-0f766e.svg)](https://fission.rs)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/worka-ai/fission/blob/main/LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/fission-ui/fission/blob/main/LICENSE)
 
 Fission is a production-focused Rust application framework for building GPU-accelerated apps across desktop, web, Android, iOS, terminal interfaces, and static HTML sites.
 
 This crate is the public facade. Application code should normally depend on `fission` and enable the target or feature it needs from here instead of depending on the internal crates directly.
 
 **Documentation:** [fission.rs](https://fission.rs)
-**Repository:** [github.com/worka-ai/fission](https://github.com/worka-ai/fission)
+**Repository:** [github.com/fission-ui/fission](https://github.com/fission-ui/fission)
 
 ## Install
 
 ```toml
 [dependencies]
-fission = { version = "0.4.1", features = ["desktop"] }
+fission = { version = "0.5.0", features = ["desktop"] }
 ```
 
 For the full developer workflow, install the Fission command:

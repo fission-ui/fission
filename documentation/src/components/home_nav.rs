@@ -238,7 +238,7 @@ impl From<HomePageNav> for Widget {
                 .into(),
                 Row {
                     children: vec![
-                        ExternalNavLink::new("GitHub", "https://github.com/worka-ai/fission")
+                        ExternalNavLink::new("GitHub", "https://github.com/fission-ui/fission")
                             .into(),
                         ThemeToggle.into(),
                         SearchPill.into(),
