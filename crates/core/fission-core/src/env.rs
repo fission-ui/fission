@@ -1,8 +1,4 @@
-use crate::{
-    action::GlobalState,
-    registry::{AnimationPropertyId, EasingFunction},
-    state::LocalStateStore,
-};
+use crate::{action::GlobalState, motion::MotionStateMap, state::LocalStateStore};
 use fission_i18n::{I18nRegistry, Locale};
 use fission_ir::op::RichTextAnnotation;
 use fission_ir::semantics::MouseCursor;
@@ -172,7 +168,7 @@ pub struct RuntimeState {
     pub scroll: ScrollStateMap,
     pub video: VideoStateMap,
     pub web: WebStateMap,
-    pub animation: AnimationStateMap,
+    pub motion: MotionStateMap,
     pub interaction: InteractionStateMap,
     pub text_edit: TextEditStateMap,
     pub clipboard: String,
@@ -196,25 +192,6 @@ pub struct GestureState {
     pub dragging_payload: Option<Vec<u8>>,
     pub pressed_button: Option<crate::event::PointerButton>,
     pub scrollbar_drag: Option<crate::scrollbar::ScrollbarDragState>,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct AnimationStateMap {
-    pub values: HashMap<(WidgetId, AnimationPropertyId), f32>,
-    pub active: HashMap<(WidgetId, AnimationPropertyId), ActiveAnimation>,
-}
-
-#[derive(Clone, Debug)]
-pub struct ActiveAnimation {
-    pub target: WidgetId,
-    pub property: AnimationPropertyId,
-    pub start_value: f32,
-    pub end_value: f32,
-    pub start_time: u64,
-    pub duration: u64,
-    pub repeat: bool,
-    pub frame_interval_ms: Option<u64>,
-    pub easing: EasingFunction,
 }
 
 #[derive(Clone, Debug, Default)]

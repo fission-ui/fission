@@ -1,170 +1,137 @@
 use fission_core::{
-    env::ActiveAnimation, AnimationPropertyId, AnimationRequest, AnimationStartValue,
-    EasingFunction, Runtime, WidgetId,
+    scalar, ActiveMotion, MotionDeclaration, MotionDeclarationKind, MotionEasing, MotionPhase,
+    MotionPropertyId, MotionStartValue, MotionTrack, MotionTransition, MotionValue, Runtime,
+    WidgetId,
 };
 
 #[test]
-fn test_animation_tick() {
+fn test_motion_tick() {
     let mut runtime = Runtime::default();
+    let widget_id = WidgetId::explicit("test_motion");
+    let property = MotionPropertyId::opacity();
 
-    // Manually add an active animation (Linear easing to preserve existing test expectations)
-    let widget_id = WidgetId::explicit("test_anim");
-    let property = AnimationPropertyId::opacity();
     runtime
         .runtime_state
-        .animation
+        .motion
         .values
-        .insert((widget_id, property.clone()), 0.0);
-    runtime.runtime_state.animation.active.insert(
+        .insert((widget_id, property.clone()), MotionValue::Scalar(0.0));
+    runtime.runtime_state.motion.active.insert(
         (widget_id, property.clone()),
-        ActiveAnimation {
+        ActiveMotion {
             target: widget_id,
             property: property.clone(),
-            start_value: 0.0,
-            end_value: 1.0,
+            start_value: MotionValue::Scalar(0.0),
+            end_value: MotionValue::Scalar(1.0),
             start_time: 0,
             duration: 1000,
             repeat: false,
             frame_interval_ms: None,
-            easing: EasingFunction::Linear,
+            easing: MotionEasing::Linear,
         },
     );
 
-    // Tick 500ms
     runtime.tick(500).unwrap();
+    assert_eq!(
+        runtime
+            .runtime_state
+            .motion
+            .scalar_value(widget_id, property.clone()),
+        0.5
+    );
 
-    // Check value: Linear 0 -> 1 over 1000ms. At 500ms should be 0.5.
-    let val = runtime
-        .runtime_state
-        .animation
-        .values
-        .get(&(widget_id, property.clone()))
-        .unwrap();
-    assert_eq!(*val, 0.5);
-
-    // Tick another 500ms (Total 1000ms)
     runtime.tick(500).unwrap();
-    let val = runtime
-        .runtime_state
-        .animation
-        .values
-        .get(&(widget_id, property))
-        .unwrap();
-    assert_eq!(*val, 1.0);
-
-    // Check removed from active list (animation finished)
-    // Note: tick() updates THEN removes if finished.
-    // At 1000ms, progress is 1.0. finished_indices collects it.
-    assert!(runtime.runtime_state.animation.active.is_empty());
+    assert_eq!(
+        runtime
+            .runtime_state
+            .motion
+            .scalar_value(widget_id, property),
+        1.0
+    );
+    assert!(runtime.runtime_state.motion.active.is_empty());
 }
 
 #[test]
-fn test_enqueue_animation_skips_noop_terminal_transition() {
+fn test_sync_motion_declarations_skips_noop_terminal_transition() {
     let mut runtime = Runtime::default();
-    let widget_id = WidgetId::explicit("noop_anim");
-    let property = AnimationPropertyId::opacity();
+    let widget_id = WidgetId::explicit("noop_motion");
+    let property = MotionPropertyId::opacity();
 
     runtime
         .runtime_state
-        .animation
+        .motion
         .values
-        .insert((widget_id, property.clone()), 1.0);
+        .insert((widget_id, property.clone()), MotionValue::Scalar(1.0));
 
-    runtime.enqueue_animation(
-        widget_id,
-        AnimationRequest {
-            property: property.clone(),
-            from: AnimationStartValue::Explicit(0.0),
-            to: 1.0,
-            duration_ms: 300,
-            repeat: false,
-            delay_ms: 0,
-            frame_interval_ms: None,
-            easing: EasingFunction::Linear,
-        },
+    runtime.sync_motion_declarations(
+        &[MotionDeclaration {
+            id: widget_id,
+            kind: MotionDeclarationKind::Tracks {
+                tracks: vec![MotionTrack {
+                    property: property.clone(),
+                    phase: MotionPhase::Composite,
+                    from: MotionStartValue::Explicit(scalar(0.0)),
+                    to: scalar(1.0),
+                    transition: MotionTransition::tween(300, MotionEasing::Linear),
+                }],
+            },
+        }],
+        None,
     );
 
     assert!(
-        runtime.runtime_state.animation.active.is_empty(),
-        "terminal transition should not create a zero-delta active animation"
+        runtime.runtime_state.motion.active.is_empty(),
+        "terminal transition should not create a zero-delta active motion"
     );
     assert_eq!(
         runtime
             .runtime_state
-            .animation
-            .values
-            .get(&(widget_id, property))
-            .copied(),
-        Some(1.0)
+            .motion
+            .scalar_value(widget_id, property),
+        1.0
     );
 }
 
 #[test]
-fn test_sync_animation_requests_removes_stale_repeating_animation() {
+fn test_sync_motion_declarations_removes_stale_repeating_motion() {
     let mut runtime = Runtime::default();
-    let stale_widget = WidgetId::explicit("stale_anim");
-    let live_widget = WidgetId::explicit("live_anim");
-    let property = AnimationPropertyId::opacity();
+    let stale_widget = WidgetId::explicit("stale_motion");
+    let live_widget = WidgetId::explicit("live_motion");
+    let property = MotionPropertyId::opacity();
 
-    runtime.enqueue_animation(
-        stale_widget,
-        AnimationRequest {
-            property: property.clone(),
-            from: AnimationStartValue::Explicit(0.0),
-            to: 1.0,
-            duration_ms: 600,
-            repeat: true,
-            delay_ms: 0,
-            frame_interval_ms: None,
-            easing: EasingFunction::Linear,
+    let make_decl = |id| MotionDeclaration {
+        id,
+        kind: MotionDeclarationKind::Tracks {
+            tracks: vec![MotionTrack {
+                property: property.clone(),
+                phase: MotionPhase::Composite,
+                from: MotionStartValue::Explicit(scalar(0.0)),
+                to: scalar(1.0),
+                transition: MotionTransition::tween(600, MotionEasing::Linear).repeat(true),
+            }],
         },
-    );
-    runtime.enqueue_animation(
-        live_widget,
-        AnimationRequest {
-            property: property.clone(),
-            from: AnimationStartValue::Explicit(0.0),
-            to: 1.0,
-            duration_ms: 600,
-            repeat: true,
-            delay_ms: 0,
-            frame_interval_ms: None,
-            easing: EasingFunction::Linear,
-        },
-    );
+    };
 
-    runtime.sync_animation_requests(&[(
-        live_widget,
-        AnimationRequest {
-            property: property.clone(),
-            from: AnimationStartValue::Explicit(0.0),
-            to: 1.0,
-            duration_ms: 600,
-            repeat: true,
-            delay_ms: 0,
-            frame_interval_ms: None,
-            easing: EasingFunction::Linear,
-        },
-    )]);
+    runtime.sync_motion_declarations(&[make_decl(stale_widget), make_decl(live_widget)], None);
+    runtime.sync_motion_declarations(&[make_decl(live_widget)], None);
 
     assert!(!runtime
         .runtime_state
-        .animation
+        .motion
         .active
         .contains_key(&(stale_widget, property.clone())));
     assert!(!runtime
         .runtime_state
-        .animation
+        .motion
         .values
         .contains_key(&(stale_widget, property.clone())));
     assert!(runtime
         .runtime_state
-        .animation
+        .motion
         .active
         .contains_key(&(live_widget, property.clone())));
     assert!(runtime
         .runtime_state
-        .animation
+        .motion
         .values
         .contains_key(&(live_widget, property)));
 }

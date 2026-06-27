@@ -1,5 +1,8 @@
 use anyhow::{anyhow, bail, Result};
-use fission_core::{AnimationPropertyId, AnimationRequest, AnimationStartValue, EasingFunction};
+use fission_core::{
+    MotionDeclaration, MotionDeclarationKind, MotionEasing, MotionExpr, MotionPropertyId,
+    MotionStartValue, MotionTrack, MotionTransition, MotionValue,
+};
 use fission_ir::op::{
     decode_inline_widget_marker, AlignItems, BoxShadow, Color, CompositeScalar, Fill,
     FlexDirection, FlexWrap, FontStyle, GridPlacement, GridTrack, ImageFit, ImageSource,
@@ -34,7 +37,7 @@ pub struct HtmlRenderOptions {
     pub head_end_html: Vec<String>,
     pub body_start_html: Vec<String>,
     pub body_end_html: Vec<String>,
-    pub animation_requests: Vec<(WidgetId, AnimationRequest)>,
+    pub motion_declarations: Vec<MotionDeclaration>,
 }
 
 impl Default for HtmlRenderOptions {
@@ -62,7 +65,7 @@ impl Default for HtmlRenderOptions {
             head_end_html: Vec::new(),
             body_start_html: Vec::new(),
             body_end_html: Vec::new(),
-            animation_requests: Vec::new(),
+            motion_declarations: Vec::new(),
         }
     }
 }
@@ -712,7 +715,7 @@ impl HtmlRenderer<'_> {
 
         if let Some(opacity) = node.composite.opacity.as_ref() {
             style.push(format!("opacity:{}", opacity.base));
-            if let Some(request) = self.animation_request(opacity, AnimationPropertyId::Opacity) {
+            if let Some(request) = self.animation_request(opacity, MotionPropertyId::Opacity) {
                 animations.push(self.animation_css(
                     CssAnimationProperty::Opacity,
                     opacity.base,
@@ -746,22 +749,22 @@ impl HtmlRenderer<'_> {
             .composite
             .translate_x
             .as_ref()
-            .and_then(|scalar| self.animation_request(scalar, AnimationPropertyId::TranslateX));
+            .and_then(|scalar| self.animation_request(scalar, MotionPropertyId::TranslateX));
         let translate_y_request = node
             .composite
             .translate_y
             .as_ref()
-            .and_then(|scalar| self.animation_request(scalar, AnimationPropertyId::TranslateY));
+            .and_then(|scalar| self.animation_request(scalar, MotionPropertyId::TranslateY));
         let scale_request = node
             .composite
             .scale
             .as_ref()
-            .and_then(|scalar| self.animation_request(scalar, AnimationPropertyId::Scale));
+            .and_then(|scalar| self.animation_request(scalar, MotionPropertyId::Scale));
         let rotation_request = node
             .composite
             .rotation
             .as_ref()
-            .and_then(|scalar| self.animation_request(scalar, AnimationPropertyId::Rotation));
+            .and_then(|scalar| self.animation_request(scalar, MotionPropertyId::Rotation));
         let has_transform_animation = translate_x_request.is_some()
             || translate_y_request.is_some()
             || scale_request.is_some()
@@ -835,15 +838,38 @@ impl HtmlRenderer<'_> {
     fn animation_request(
         &self,
         scalar: &CompositeScalar,
-        property: AnimationPropertyId,
-    ) -> Option<AnimationRequest> {
-        let target = scalar.animation_target?;
+        property: MotionPropertyId,
+    ) -> Option<MotionTrack> {
+        let target = scalar.motion_target?;
         self.options
-            .animation_requests
+            .motion_declarations
             .iter()
             .rev()
-            .find_map(|(candidate, request)| {
-                (*candidate == target && request.property == property).then_some(request.clone())
+            .find_map(|declaration| {
+                if declaration.id != target {
+                    return None;
+                }
+                match &declaration.kind {
+                    MotionDeclarationKind::Tracks { tracks } => tracks
+                        .iter()
+                        .rev()
+                        .find(|track| track.property == property)
+                        .cloned(),
+                    MotionDeclarationKind::Presence {
+                        enter,
+                        exit,
+                        visible,
+                        ..
+                    } => {
+                        let tracks = if *visible { enter } else { exit };
+                        tracks
+                            .iter()
+                            .rev()
+                            .find(|track| track.property == property)
+                            .cloned()
+                    }
+                    MotionDeclarationKind::RippleLayer(_) => None,
+                }
             })
     }
 
@@ -851,18 +877,20 @@ impl HtmlRenderer<'_> {
         &mut self,
         property: CssAnimationProperty,
         base: f32,
-        request: &AnimationRequest,
+        request: &MotionTrack,
         override_from: Option<f32>,
     ) -> String {
         let from = override_from.unwrap_or_else(|| animation_start_value(request, base));
-        let name = self.register_animation_keyframes(property, from, request.to, request);
+        let to = motion_expr_scalar(&request.to, base);
+        let name = self.register_animation_keyframes(property, from, to, request);
+        let (duration_ms, delay_ms, easing, repeat) = transition_css_parts(&request.transition);
         format!(
             "{} {}ms {} {}ms {} normal both",
             name,
-            request.duration_ms,
-            easing_css(&request.easing),
-            request.delay_ms,
-            if request.repeat { "infinite" } else { "1" }
+            duration_ms,
+            easing_css(&easing),
+            delay_ms,
+            if repeat { "infinite" } else { "1" }
         )
     }
 
@@ -871,11 +899,12 @@ impl HtmlRenderer<'_> {
         property: CssAnimationProperty,
         from: f32,
         to: f32,
-        request: &AnimationRequest,
+        request: &MotionTrack,
     ) -> String {
+        let (duration_ms, delay_ms, easing, repeat) = transition_css_parts(&request.transition);
         let key = format!(
             "{property:?}:{from:?}:{to:?}:{:?}:{}:{}:{}",
-            request.easing, request.duration_ms, request.delay_ms, request.repeat
+            easing, duration_ms, delay_ms, repeat
         );
         let name = format!("fission_anim_{:016x}", stable_hash(key.as_bytes()));
         let rule = format!(
@@ -2089,20 +2118,43 @@ impl CssAnimationProperty {
     }
 }
 
-fn animation_start_value(request: &AnimationRequest, base: f32) -> f32 {
-    match request.from {
-        AnimationStartValue::Explicit(value) => value,
-        AnimationStartValue::Current => base,
+fn animation_start_value(request: &MotionTrack, base: f32) -> f32 {
+    match &request.from {
+        MotionStartValue::Explicit(value) => motion_expr_scalar(value, base),
+        MotionStartValue::Current => base,
     }
 }
 
-fn easing_css(easing: &EasingFunction) -> String {
+fn motion_expr_scalar(expr: &MotionExpr, fallback: f32) -> f32 {
+    match expr {
+        MotionExpr::Value(MotionValue::Scalar(value))
+        | MotionExpr::Value(MotionValue::Px(value))
+        | MotionExpr::Value(MotionValue::Deg(value)) => *value,
+        _ => fallback,
+    }
+}
+
+fn transition_css_parts(transition: &MotionTransition) -> (u64, u64, MotionEasing, bool) {
+    match transition {
+        MotionTransition::Instant => (0, 0, MotionEasing::Linear, false),
+        MotionTransition::Tween {
+            duration_ms,
+            delay_ms,
+            easing,
+            repeat,
+            ..
+        } => (*duration_ms, *delay_ms, easing.clone(), *repeat),
+        MotionTransition::Spring { delay_ms, .. } => (260, *delay_ms, MotionEasing::EaseOut, false),
+    }
+}
+
+fn easing_css(easing: &MotionEasing) -> String {
     match easing {
-        EasingFunction::Linear => "linear".to_string(),
-        EasingFunction::EaseIn => "ease-in".to_string(),
-        EasingFunction::EaseOut => "ease-out".to_string(),
-        EasingFunction::EaseInOut => "ease-in-out".to_string(),
-        EasingFunction::CubicBezier(x1, y1, x2, y2) => {
+        MotionEasing::Linear => "linear".to_string(),
+        MotionEasing::EaseIn => "ease-in".to_string(),
+        MotionEasing::EaseOut => "ease-out".to_string(),
+        MotionEasing::EaseInOut => "ease-in-out".to_string(),
+        MotionEasing::CubicBezier(x1, y1, x2, y2) => {
             format!(
                 "cubic-bezier({},{},{},{})",
                 px(*x1),
@@ -2387,7 +2439,7 @@ mod tests {
                 id: spinner,
                 op: Op::Structural(fission_ir::StructuralOp::Group { stable_hash: 7 }),
                 composite: CompositeStyle {
-                    rotation: Some(CompositeScalar::new(0.0).animated(target)),
+                    rotation: Some(CompositeScalar::new(0.0).motion(target)),
                     ..Default::default()
                 },
                 children: Vec::new(),
@@ -2402,19 +2454,20 @@ mod tests {
         );
         ir.set_root(root);
         let options = HtmlRenderOptions {
-            animation_requests: vec![(
-                target,
-                AnimationRequest {
-                    property: AnimationPropertyId::Rotation,
-                    from: AnimationStartValue::Explicit(0.0),
-                    to: std::f32::consts::TAU,
-                    duration_ms: 7000,
-                    repeat: true,
-                    delay_ms: 120,
-                    frame_interval_ms: None,
-                    easing: EasingFunction::Linear,
+            motion_declarations: vec![MotionDeclaration {
+                id: target,
+                kind: MotionDeclarationKind::Tracks {
+                    tracks: vec![MotionTrack {
+                        property: MotionPropertyId::Rotation,
+                        phase: fission_core::MotionPhase::Composite,
+                        from: MotionStartValue::Explicit(MotionExpr::Value(MotionValue::Deg(0.0))),
+                        to: MotionExpr::Value(MotionValue::Deg(std::f32::consts::TAU)),
+                        transition: MotionTransition::tween(7000, MotionEasing::Linear)
+                            .repeat(true)
+                            .delay_ms(120),
+                    }],
                 },
-            )],
+            }],
             ..Default::default()
         };
 
@@ -2442,8 +2495,8 @@ mod tests {
                 id: pulse,
                 op: Op::Structural(fission_ir::StructuralOp::Group { stable_hash: 7 }),
                 composite: CompositeStyle {
-                    opacity: Some(CompositeScalar::new(0.72).animated(target)),
-                    scale: Some(CompositeScalar::new(0.92).animated(target)),
+                    opacity: Some(CompositeScalar::new(0.72).motion(target)),
+                    scale: Some(CompositeScalar::new(0.92).motion(target)),
                     ..Default::default()
                 },
                 children: Vec::new(),
@@ -2458,34 +2511,33 @@ mod tests {
         );
         ir.set_root(root);
         let options = HtmlRenderOptions {
-            animation_requests: vec![
-                (
-                    target,
-                    AnimationRequest {
-                        property: AnimationPropertyId::Opacity,
-                        from: AnimationStartValue::Explicit(0.72),
-                        to: 1.0,
-                        duration_ms: 1400,
-                        repeat: true,
-                        delay_ms: 0,
-                        frame_interval_ms: None,
-                        easing: EasingFunction::EaseInOut,
-                    },
-                ),
-                (
-                    target,
-                    AnimationRequest {
-                        property: AnimationPropertyId::Scale,
-                        from: AnimationStartValue::Explicit(0.92),
-                        to: 1.08,
-                        duration_ms: 1400,
-                        repeat: true,
-                        delay_ms: 0,
-                        frame_interval_ms: None,
-                        easing: EasingFunction::EaseInOut,
-                    },
-                ),
-            ],
+            motion_declarations: vec![MotionDeclaration {
+                id: target,
+                kind: MotionDeclarationKind::Tracks {
+                    tracks: vec![
+                        MotionTrack {
+                            property: MotionPropertyId::Opacity,
+                            phase: fission_core::MotionPhase::Composite,
+                            from: MotionStartValue::Explicit(MotionExpr::Value(
+                                MotionValue::Scalar(0.72),
+                            )),
+                            to: MotionExpr::Value(MotionValue::Scalar(1.0)),
+                            transition: MotionTransition::tween(1400, MotionEasing::EaseInOut)
+                                .repeat(true),
+                        },
+                        MotionTrack {
+                            property: MotionPropertyId::Scale,
+                            phase: fission_core::MotionPhase::Composite,
+                            from: MotionStartValue::Explicit(MotionExpr::Value(
+                                MotionValue::Scalar(0.92),
+                            )),
+                            to: MotionExpr::Value(MotionValue::Scalar(1.08)),
+                            transition: MotionTransition::tween(1400, MotionEasing::EaseInOut)
+                                .repeat(true),
+                        },
+                    ],
+                },
+            }],
             ..Default::default()
         };
 

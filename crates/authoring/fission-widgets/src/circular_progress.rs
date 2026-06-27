@@ -1,8 +1,11 @@
+use crate::motion_support::{slot_id, SLOT_INDICATOR};
 use fission_core::internal::{InternalIrBuilder, InternalLowerer, InternalLoweringCx};
-use fission_core::ui::{Composite, Widget};
-use fission_core::{
-    AnimationPropertyId, AnimationRequest, AnimationStartValue, EasingFunction, WidgetId,
+use fission_core::motion::{
+    deg, MotionDeclaration, MotionDeclarationKind, MotionEasing, MotionPhase, MotionPropertyId,
+    MotionStartValue, MotionTrack, MotionTransition,
 };
+use fission_core::ui::{Composite, Widget};
+use fission_core::WidgetId;
 use fission_ir::{op::Color, LayoutOp, Op, PaintOp};
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
@@ -10,15 +13,63 @@ use std::f32::consts::PI;
 const SPIN_DURATION_MS: u64 = 900;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+/// Circular progress indicator.
+///
+/// When `value` is `Some(0.0..=1.0)`, the widget renders determinate progress.
+/// When `value` is `None`, it renders an indeterminate spinner and only animates
+/// when [`CircularProgress::motion`] is explicitly set.
 pub struct CircularProgress {
+    /// Stable widget identity.
     pub id: WidgetId,
+    /// Determinate progress in `0.0..=1.0`; `None` means indeterminate.
     pub value: Option<f32>, // 0.0 to 1.0. If None, indeterminate (spinner).
+    /// Indicator diameter in logical pixels.
     pub size: f32,
+    /// Foreground arc color.
     pub color: Option<Color>,
+    /// Background track color.
     pub track_color: Option<Color>,
+    /// Stroke thickness in logical pixels.
     pub thickness: f32,
-    #[serde(default = "circular_progress_default_animated")]
-    pub animated: bool,
+    /// Optional explicit motion for indeterminate progress.
+    /// Optional explicit progress motion. `None` emits no progress-owned motion declarations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub motion: Option<CircularProgressMotion>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Optional motion presets owned by [`CircularProgress`].
+///
+/// Circular progress indicators are static unless
+/// [`CircularProgress::motion`] is set. Use [`CircularProgressMotion::Default`]
+/// or [`CircularProgressMotion::Spin`] for indeterminate rotation.
+pub enum CircularProgressMotion {
+    /// Curated default circular progress motion.
+    Default,
+    /// Repeating rotation for indeterminate progress.
+    Spin,
+    /// Ordered composition of circular progress motion atoms.
+    Composition(Vec<CircularProgressMotion>),
+    /// Caller-provided tracks for the indicator root.
+    Custom {
+        /// Tracks applied to the circular progress root.
+        tracks: Vec<MotionTrack>,
+    },
+}
+
+impl CircularProgressMotion {
+    /// Creates an ordered circular-progress motion composition.
+    pub fn compose(items: impl IntoIterator<Item = Self>) -> Self {
+        Self::Composition(items.into_iter().collect())
+    }
+
+    fn tracks(&self) -> Vec<MotionTrack> {
+        match self {
+            Self::Default | Self::Spin => vec![spin_track()],
+            Self::Composition(items) => items.iter().flat_map(Self::tracks).collect(),
+            Self::Custom { tracks } => tracks.clone(),
+        }
+    }
 }
 
 impl Default for CircularProgress {
@@ -30,7 +81,7 @@ impl Default for CircularProgress {
             color: None,
             track_color: None,
             thickness: 4.0,
-            animated: true,
+            motion: None,
         }
     }
 }
@@ -62,20 +113,20 @@ impl From<CircularProgress> for Widget {
             },
         );
 
-        if this.value.is_none() && this.animated {
-            ctx.anim_for(this.id).request(AnimationRequest {
-                property: AnimationPropertyId::Rotation,
-                from: AnimationStartValue::Explicit(0.0),
-                to: PI * 2.0,
-                duration_ms: SPIN_DURATION_MS,
-                repeat: true,
-                delay_ms: 0,
-                frame_interval_ms: None,
-                easing: EasingFunction::Linear,
+        if this.value.is_none() {
+            let Some(motion) = &this.motion else {
+                return node;
+            };
+            let motion_id = slot_id(this.id, SLOT_INDICATOR);
+            ctx.register_motion(MotionDeclaration {
+                id: motion_id,
+                kind: MotionDeclarationKind::Tracks {
+                    tracks: motion.tracks(),
+                },
             });
             Composite::new(node)
                 .repaint_boundary(true)
-                .animated_rotation(this.id, 0.0)
+                .motion_rotation(motion_id, 0.0)
                 .into()
         } else {
             node
@@ -83,8 +134,14 @@ impl From<CircularProgress> for Widget {
     }
 }
 
-const fn circular_progress_default_animated() -> bool {
-    true
+fn spin_track() -> MotionTrack {
+    MotionTrack {
+        property: MotionPropertyId::Rotation,
+        phase: MotionPhase::Composite,
+        from: MotionStartValue::Explicit(deg(0.0)),
+        to: deg(PI * 2.0),
+        transition: MotionTransition::tween(SPIN_DURATION_MS, MotionEasing::Linear).repeat(true),
+    }
 }
 
 #[derive(Debug)]

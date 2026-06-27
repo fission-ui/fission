@@ -9,7 +9,7 @@
     "license": "MIT",
     "framework": {
       "name": "fission",
-      "repository": "https://github.com/worka-ai/fission",
+      "repository": "https://github.com/fission-ui/fission",
       "theme_crate": "crates/core/fission-theme"
     },
     "structure": {
@@ -395,7 +395,7 @@
     "$comment": "Upstream references this DSP was distilled from.",
     "github_repos": [
       {
-        "url": "https://github.com/worka-ai/fission",
+        "url": "https://github.com/fission-ui/fission",
         "purpose": "The framework itself. fission-theme crate defines the Material 3 token structure; documentation/ is the canonical brand surface.",
         "key_files": [
           "crates/core/fission-theme/src/lib.rs",

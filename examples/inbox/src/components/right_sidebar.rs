@@ -6,7 +6,8 @@ use fission::core::ui::{Button, ButtonVariant, Container, Row, Switch, Text, Tex
 use fission::core::{reduce_with, WidgetId};
 use fission::icons::material;
 use fission::widgets::{
-    Calendar, Card, HStack, Icon, Menu, MenuItem, Skeleton, Spinner, Stepper, VStack,
+    Calendar, Card, HStack, Icon, Menu, MenuItem, Skeleton, SkeletonMotion, Spinner, SpinnerMotion,
+    Stepper, VStack,
 };
 use serde_json;
 
@@ -147,7 +148,7 @@ impl From<RightSidebar> for Widget {
                                             Spinner {
                                                 id: WidgetId::explicit("sync_spinner"),
                                                 color: Some(tokens.colors.primary),
-                                                animated: true,
+                                                motion: Some(SpinnerMotion::Default),
                                             }
                                             .into(),
                                             Skeleton {
@@ -155,7 +156,7 @@ impl From<RightSidebar> for Widget {
                                                 width: Some(20.0),
                                                 height: Some(4.0),
                                                 circle: false,
-                                                animated: true,
+                                                motion: Some(SkeletonMotion::Default),
                                             }
                                             .into(),
                                         ],

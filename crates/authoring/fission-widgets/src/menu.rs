@@ -19,11 +19,11 @@ pub struct MenuItem {
 /// A vertical dropdown menu rendered as a scrollable list of [`MenuItem`] entries.
 ///
 /// The menu is displayed inside a bordered, elevated container with rounded corners.
-/// Items are separated by [`Divider`](crate::Divider) lines. When the total item
+/// Items are separated by [`Divider`] lines. When the total item
 /// height exceeds `max_height` (default 300px), a scrollbar appears.
 ///
 /// `Menu` is typically not used directly -- it is composed by [`MenuButton`],
-/// [`Select`], and other selection widgets.
+/// [`crate::Select`], and other selection widgets.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Menu {
     pub items: Vec<MenuItem>,

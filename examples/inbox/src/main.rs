@@ -4,7 +4,7 @@ use fission::i18n::{Locale, TranslationBundle};
 use fission::prelude::{DesignMode, DesignSystem, DesktopApp, FissionFluent2DesignSystem};
 use fission::widgets::{
     Center, Drawer, DrawerSide, Overlay, Route, Router, SafeArea, SplitDirection, SplitView, Toast,
-    ToastKind, Transition,
+    ToastKind,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -70,6 +70,7 @@ impl From<InboxApp> for Widget {
                 )),
                 content: Sidebar.into(),
                 width: Some(mobile_drawer_width),
+                motion: None,
             }
             .into();
 
@@ -89,6 +90,7 @@ impl From<InboxApp> for Widget {
                     ToggleToast(false),
                     reduce_with!((|s: &mut InboxState, _a: ToggleToast, _| s.show_toast = false)),
                 )),
+                motion: None,
             }
             .into();
 
@@ -178,12 +180,18 @@ impl From<InboxApp> for Widget {
             .into();
 
         let overlay_tip = if view.state().show_quick_tip {
-            Transition {
+            fission::motion::Motion {
                 id: WidgetId::explicit("quick_tip_fade"),
-                value: 1.0,
-                property: fission::core::AnimationPropertyId::Opacity,
-                duration: 300,
-                delay: 0,
+                tracks: vec![fission::motion::MotionTrack {
+                    property: fission::motion::MotionPropertyId::Opacity,
+                    phase: fission::motion::MotionPhase::Composite,
+                    from: fission::motion::MotionStartValue::Explicit(fission::motion::scalar(0.0)),
+                    to: fission::motion::scalar(1.0),
+                    transition: fission::motion::MotionTransition::tween(
+                        300,
+                        fission::motion::MotionEasing::EaseInOut,
+                    ),
+                }],
                 child: Center {
                     child: fission::widgets::Card {
                         child: fission::widgets::VStack {
@@ -203,6 +211,7 @@ impl From<InboxApp> for Widget {
                     .into(),
                 }
                 .into(),
+                ..Default::default()
             }
             .into()
         } else {

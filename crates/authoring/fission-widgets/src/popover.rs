@@ -1,7 +1,129 @@
+use crate::motion_support::{
+    dedupe, exit_for, fade_in, push_enter_with_exit, scale_in, slot_id, SLOT_SURFACE,
+};
+use fission_core::motion::{MotionTrack, Presence};
 use fission_core::op::Color;
 use fission_core::ui::{Container, GestureDetector, Widget};
 use fission_core::{ActionEnvelope, WidgetId, WidgetIdExt};
 use serde::{Deserialize, Serialize};
+use std::ops::Add;
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Optional motion presets owned by [`Popover`].
+///
+/// Popovers render statically unless [`Popover::motion`] is set. Presets lower
+/// to presence tracks for the stable `surface` slot; placement remains normal
+/// popover layout behavior.
+///
+/// ```rust,ignore
+/// let motion = Some(PopoverMotion::Fade + PopoverMotion::Scale);
+/// ```
+pub enum PopoverMotion {
+    /// Curated default popover motion.
+    Default,
+    /// Fade the popover surface.
+    Fade,
+    /// Scale the popover surface.
+    Scale,
+    /// Scale from the resolved placement origin where shells support it.
+    OriginAwareScale,
+    /// Ordered composition of popover motion atoms.
+    Composition(Vec<PopoverMotion>),
+    /// Caller-provided surface tracks.
+    Custom {
+        /// Surface enter tracks.
+        surface_enter: Vec<MotionTrack>,
+        /// Surface exit tracks.
+        surface_exit: Vec<MotionTrack>,
+        /// Whether the popover remains rendered after exit completes.
+        keep_rendered: bool,
+    },
+}
+
+impl PopoverMotion {
+    /// Flattens and normalizes an ordered popover-motion composition.
+    pub fn compose(items: impl IntoIterator<Item = Self>) -> Self {
+        let mut out = Vec::new();
+        for item in items {
+            item.flatten_into(&mut out);
+        }
+        match out.len() {
+            0 => Self::Composition(Vec::new()),
+            1 => out.remove(0),
+            _ => Self::Composition(out),
+        }
+    }
+
+    fn flatten_into(self, out: &mut Vec<Self>) {
+        match self {
+            Self::Composition(items) => {
+                for item in items {
+                    item.flatten_into(out);
+                }
+            }
+            item => out.push(item),
+        }
+    }
+
+    fn plan(&self) -> PopoverMotionPlan {
+        let mut plan = PopoverMotionPlan::default();
+        self.append_plan(&mut plan);
+        plan.normalize()
+    }
+
+    fn append_plan(&self, plan: &mut PopoverMotionPlan) {
+        match self {
+            Self::Default => {
+                Self::Fade.append_plan(plan);
+                Self::Scale.append_plan(plan);
+            }
+            Self::Fade => push_enter_with_exit(&mut plan.enter, &mut plan.exit, fade_in(110)),
+            Self::Scale | Self::OriginAwareScale => {
+                push_enter_with_exit(&mut plan.enter, &mut plan.exit, scale_in(0.96, 130));
+            }
+            Self::Composition(items) => {
+                for item in items {
+                    item.append_plan(plan);
+                }
+            }
+            Self::Custom {
+                surface_enter,
+                surface_exit,
+                keep_rendered,
+            } => {
+                plan.enter.extend(surface_enter.clone());
+                plan.exit.extend(surface_exit.clone());
+                plan.keep_rendered |= *keep_rendered;
+            }
+        }
+    }
+}
+
+impl Add for PopoverMotion {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self::compose([self, rhs])
+    }
+}
+
+#[derive(Default)]
+struct PopoverMotionPlan {
+    enter: Vec<MotionTrack>,
+    exit: Vec<MotionTrack>,
+    keep_rendered: bool,
+}
+
+impl PopoverMotionPlan {
+    fn normalize(mut self) -> Self {
+        if self.exit.is_empty() {
+            self.exit = exit_for(&self.enter);
+        }
+        self.enter = dedupe(self.enter);
+        self.exit = dedupe(self.exit);
+        self
+    }
+}
 
 /// An anchor-relative popup that renders content positioned next to a trigger widget.
 ///
@@ -27,6 +149,9 @@ pub struct Popover {
 
     pub trigger: Widget,
     pub content: Widget,
+    /// Optional explicit popover motion. `None` emits no popover-owned motion declarations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub motion: Option<PopoverMotion>,
 }
 
 impl From<Popover> for Widget {
@@ -49,8 +174,21 @@ impl From<Popover> for Widget {
         // Or assume trigger handles clicks.
         // Usually trigger handles clicks.
 
-        if this.is_open {
-            let content_node = this.content.clone();
+        if this.is_open || this.motion.is_some() {
+            let mut content_node = this.content.clone();
+            if let Some(motion) = &this.motion {
+                let plan = motion.plan();
+                content_node = Presence {
+                    id: slot_id(this.id, SLOT_SURFACE),
+                    visible: this.is_open,
+                    enter: plan.enter,
+                    exit: plan.exit,
+                    keep_rendered: plan.keep_rendered,
+                    child: content_node,
+                    ..Default::default()
+                }
+                .into();
+            }
             let flyout_node = crate::flyout(anchor_id, content_node);
             if this.on_close.is_some() {
                 let backdrop = GestureDetector {

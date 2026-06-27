@@ -9,8 +9,9 @@
 //! - A **unidirectional data-flow** pipeline: [`Action`] -> [`Runtime::dispatch`] -> reducer
 //!   -> mutated [`GlobalState`].
 //! - An **effect system** for async side-effects ([`Effect`], [`RuntimeEffect`]).
-//! - Built-in widgets: [`Button`], [`Text`], [`TextInput`], [`Container`], [`Row`],
-//!   [`Column`], [`Scroll`], [`ZStack`], [`Grid`], [`LazyColumn`], and more.
+//! - Built-in widgets: [`ui::Button`], [`ui::Text`], [`ui::TextInput`],
+//!   [`ui::Container`], [`ui::Row`], [`ui::Column`], [`ui::Scroll`],
+//!   [`ui::ZStack`], [`ui::Grid`], [`ui::LazyColumn`], and more.
 //!
 //! ## Getting started
 //!
@@ -54,6 +55,7 @@ pub mod hit_test;
 pub mod input;
 pub(crate) mod lowering;
 pub mod media;
+pub mod motion;
 pub mod platform;
 pub mod platform_barcode;
 pub mod platform_biometric;
@@ -218,6 +220,7 @@ pub mod public {
     pub use crate::event::{
         InputEvent, KeyCode, KeyEvent, LifecycleEvent, PointerButton, PointerEvent,
     };
+    pub use crate::motion::*;
     pub use crate::platform::{
         CancelAllNotificationsCapability, CancelNotificationCapability, CancelNotificationRequest,
         DeepLink, DeepLinkConfig, DeepLinkReceived, DeepLinkSource,
@@ -324,15 +327,15 @@ pub mod public {
         REQUEST_WIFI_PERMISSION, SCAN_WIFI_NETWORKS,
     };
     pub use crate::registry::{
-        ActionRegistry, AnimationPropertyId, AnimationRequest, AnimationStartValue, EasingFunction,
-        Handler, JobResource, PortalLayer, ResourceKey, ResourcePolicy, ResourceRegistry,
-        RuntimeResourceDeclaration, RuntimeResourceKind, ServiceResource, TimerResource,
-        VideoRegistration,
+        ActionRegistry, Handler, JobResource, PortalLayer, ResourceKey, ResourcePolicy,
+        ResourceRegistry, RuntimeResourceDeclaration, RuntimeResourceKind, ServiceResource,
+        TimerResource, VideoRegistration,
     };
     pub use crate::time::{Clock, CurrentTime};
     pub use crate::ui::{
-        provider, ActionScope, BadgeTone, Button, ButtonHierarchy, CardPattern, Column,
-        ComponentSize, ComponentState, CustomWidget, Provider, Row, Text, Widget, WidgetIdExt,
+        provider, ActionScope, BadgeTone, Button, ButtonHierarchy, ButtonMotion, CardPattern,
+        Column, ComponentSize, ComponentState, CustomWidget, Provider, Row, Text, Widget,
+        WidgetIdExt,
     };
     pub use crate::view::{ComputedView, FissionViewField, Selector, ValueView, View};
     pub use crate::{reduce, reduce_with, widgets, with_reducer};
@@ -367,6 +370,7 @@ pub use env::{
     Clipboard, Env, ImeHandler, InteractionStateMap, RouteLocation, RuntimeState, ScrollStateMap,
     WindowEnv, WindowTitle,
 };
+pub use motion::*;
 pub use runtime::Runtime;
 pub use state::{LocalStateKey, LocalStateStore, StateField};
 
@@ -481,15 +485,14 @@ pub use platform_wifi::{
     SCAN_WIFI_NETWORKS,
 };
 pub use registry::{
-    ActionRegistry, AnimationPropertyId, AnimationRequest, AnimationStartValue, EasingFunction,
-    Handler, JobResource, PortalLayer, ResourceKey, ResourcePolicy, ResourceRegistry,
-    RuntimeResourceDeclaration, RuntimeResourceKind, ServiceResource, TimerResource,
-    VideoRegistration,
+    ActionRegistry, Handler, JobResource, PortalLayer, ResourceKey, ResourcePolicy,
+    ResourceRegistry, RuntimeResourceDeclaration, RuntimeResourceKind, ServiceResource,
+    TimerResource, VideoRegistration,
 };
 pub use time::{Clock, CurrentTime};
 pub use ui::{
-    provider, ActionScope, BadgeTone, Button, ButtonHierarchy, CardPattern, Column, ComponentSize,
-    ComponentState, CustomWidget, Provider, Row, Text, Widget, WidgetIdExt,
+    provider, ActionScope, BadgeTone, Button, ButtonHierarchy, ButtonMotion, CardPattern, Column,
+    ComponentSize, ComponentState, CustomWidget, Provider, Row, Text, Widget, WidgetIdExt,
 };
 pub use view::{ComputedView, FissionViewField, Selector, ValueView, View};
 

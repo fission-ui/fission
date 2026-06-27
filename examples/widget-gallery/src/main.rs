@@ -9,8 +9,8 @@ use fission::widgets::{
     Accordion, AccordionItem, Alert, AlertKind, Avatar, Badge, Breadcrumb, BreadcrumbItem, Card,
     CircularProgress, Code, Divider, Drawer, DrawerSide, EmptyState, HStack, Kbd, Link, MenuButton,
     MenuItem, Modal, ModalAction, NumberInput, Pagination, ProgressBar, SegmentedControl, Select,
-    SelectItem, Skeleton, Spacer, Spinner, Stat, Stepper, TabItem, Tabs, Tag, Timeline,
-    TimelineItem, Toast, ToastKind, Tooltip, TreeItem, TreeView, VStack,
+    SelectItem, Skeleton, SkeletonMotion, Spacer, Spinner, SpinnerMotion, Stat, Stepper, TabItem,
+    Tabs, Tag, Timeline, TimelineItem, Toast, ToastKind, Tooltip, TreeItem, TreeView, VStack,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -401,7 +401,7 @@ impl From<GalleryApp> for Widget {
                         Spinner {
                             id: WidgetId::explicit("spinner1"),
                             color: None,
-                            animated: true,
+                            motion: Some(SpinnerMotion::Default),
                         }
                         .into(),
                         CircularProgress {
@@ -415,7 +415,7 @@ impl From<GalleryApp> for Widget {
                             width: Some(120.0),
                             height: Some(20.0),
                             circle: false,
-                            animated: true,
+                            motion: Some(SkeletonMotion::Default),
                         }
                         .into(),
                     ],
@@ -623,6 +623,7 @@ impl From<GalleryApp> for Widget {
                             )),
                         },
                     ],
+                    motion: None,
                 }
                 .into(),
                 // Stepper
@@ -764,6 +765,7 @@ impl From<GalleryApp> for Widget {
                     child: Text::new("Hover me for tooltip").into(),
                     text: "This is a tooltip!".into(),
                     is_visible: false,
+                    motion: None,
                 }
                 .into(),
                 // Select
@@ -840,6 +842,7 @@ impl From<GalleryApp> for Widget {
                     },
                 ],
                 width: None,
+                motion: None,
             }
             .into();
         }
@@ -862,6 +865,7 @@ impl From<GalleryApp> for Widget {
                 }
                 .into(),
                 width: Some(drawer_width),
+                motion: None,
             }
             .into();
         }
@@ -875,6 +879,7 @@ impl From<GalleryApp> for Widget {
                     DismissToast,
                     reduce_with!((|s: &mut GalleryState, _, _| s.show_toast = false)),
                 )),
+                motion: None,
             }
             .into();
             ctx.register_portal_with_layer(

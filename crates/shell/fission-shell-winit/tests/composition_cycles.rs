@@ -147,10 +147,8 @@ where
         let mut ctx = BuildCtx::new();
         let mut tree = fission_core::build::enter(&mut ctx, &view, || (*root).clone().into());
         runtime.clear_reducers();
-        let anim = ctx.take_animation_requests();
-        for (t, r) in anim {
-            runtime.enqueue_animation(t, r);
-        }
+        let motion = ctx.take_motion_declarations();
+        runtime.sync_motion_declarations(&motion, pipe.last_snapshot.as_ref());
         let vids = ctx.take_video_registrations();
         runtime.sync_video_nodes(&vids);
         let portals_with_ids = ctx.take_portals();

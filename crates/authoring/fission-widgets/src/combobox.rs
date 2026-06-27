@@ -128,6 +128,7 @@ impl From<Combobox> for Widget {
             on_close: this.on_toggle.clone(), // Close on click outside
             trigger: input,
             content: list_content,
+            motion: None,
         }
         .into()
     }

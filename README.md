@@ -3,14 +3,14 @@
 [![Crates.io](https://img.shields.io/crates/v/fission.svg)](https://crates.io/crates/fission)
 [![Docs](https://img.shields.io/badge/docs-fission.rs-0f766e.svg)](https://fission.rs)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![CI](https://github.com/worka-ai/fission/actions/workflows/ci.yml/badge.svg)](https://github.com/worka-ai/fission/actions/workflows/ci.yml)
+[![CI](https://github.com/fission-ui/fission/actions/workflows/platform-checks.yml/badge.svg)](https://github.com/fission-ui/fission/actions/workflows/platform-checks.yml)
 
 Fission is a production-focused Rust application framework for building GPU-accelerated apps across desktop, web, Android, iOS, terminal interfaces, static HTML sites, and server-rendered sites.
 
 It gives you the application model, widgets, rendering pipeline, platform shells, testing tools, packaging, and release workflows needed to move from a first screen to a shipped product without stitching together a new toolchain for every target.
 
 **Documentation:** [fission.rs](https://fission.rs)<br>
-**Repository:** [github.com/worka-ai/fission](https://github.com/worka-ai/fission)
+**Repository:** [github.com/fission-ui/fission](https://github.com/fission-ui/fission)
 
 ---
 

@@ -1,9 +1,9 @@
 [package]
 name = "fission-test-driver"
-version = "0.4.1"
+version = "0.5.0"
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/worka-ai/fission"
+repository = "https://github.com/fission-ui/fission"
 description = "Live app testing client and protocol helpers for Fission shells"
 
 homepage = "https://fission.rs"

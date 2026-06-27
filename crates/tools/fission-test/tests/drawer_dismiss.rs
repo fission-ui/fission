@@ -31,6 +31,7 @@ fn drawer_renders_content_and_backdrop_dismisses() -> Result<()> {
                 on_dismiss: Some(with_reducer!(ctx, DismissDrawer, dismiss)),
                 content: content,
                 width: Some(300.0),
+                motion: None,
             }
             .into()
         }

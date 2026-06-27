@@ -284,7 +284,7 @@ impl<S: GlobalState> TestHarness<S> {
                 let tree = fission_core::build::enter(&mut ctx, &view, root);
 
                 self.runtime.clear_reducers();
-                let animation_requests = ctx.take_animation_requests();
+                let motion_declarations = ctx.take_motion_declarations();
                 let video_nodes = ctx.take_video_registrations();
                 let web_nodes = ctx.take_web_registrations();
                 let portals_with_ids = ctx.take_portals();
@@ -306,9 +306,8 @@ impl<S: GlobalState> TestHarness<S> {
                     .collect::<Vec<_>>();
 
                 self.runtime.absorb_registry(ctx.registry);
-                for (target, request) in animation_requests {
-                    self.runtime.enqueue_animation(target, request);
-                }
+                self.runtime
+                    .sync_motion_declarations(&motion_declarations, self.last_snapshot.as_ref());
                 self.runtime.sync_video_nodes(&video_nodes);
                 self.runtime.sync_web_nodes(&web_nodes);
 
@@ -389,7 +388,7 @@ impl<S: GlobalState> TestHarness<S> {
         if let (Some(ir), Some(snapshot)) = (&self.last_ir, &self.last_snapshot) {
             if let Some(root_id) = ir.root {
                 let scroll_map = &self.runtime.runtime_state.scroll;
-                let animation_map = &self.runtime.runtime_state.animation;
+                let animation_map = &self.runtime.runtime_state.motion;
                 generate_display_list(
                     root_id,
                     ir,
@@ -533,7 +532,7 @@ fn generate_display_list(
     ir: &CoreIR,
     snapshot: &LayoutSnapshot,
     scroll_map: &ScrollStateMap,
-    animation_map: &fission_core::env::AnimationStateMap,
+    animation_map: &fission_core::MotionStateMap,
     list: &mut DisplayList,
 ) {
     use std::collections::HashSet;
@@ -554,7 +553,7 @@ fn generate_display_list_with_visited(
     ir: &CoreIR,
     snapshot: &LayoutSnapshot,
     scroll_map: &ScrollStateMap,
-    animation_map: &fission_core::env::AnimationStateMap,
+    animation_map: &fission_core::MotionStateMap,
     list: &mut DisplayList,
     visited: &mut std::collections::HashSet<WidgetId>,
 ) {
@@ -570,30 +569,30 @@ fn generate_display_list_with_visited(
             let opacity = resolve_composite_scalar(
                 node.composite.opacity.as_ref(),
                 animation_map,
-                fission_core::registry::AnimationPropertyId::Opacity,
+                fission_core::MotionPropertyId::Opacity,
             );
             let tx = resolve_composite_scalar(
                 node.composite.translate_x.as_ref(),
                 animation_map,
-                fission_core::registry::AnimationPropertyId::TranslateX,
+                fission_core::MotionPropertyId::TranslateX,
             )
             .unwrap_or(0.0);
             let ty = resolve_composite_scalar(
                 node.composite.translate_y.as_ref(),
                 animation_map,
-                fission_core::registry::AnimationPropertyId::TranslateY,
+                fission_core::MotionPropertyId::TranslateY,
             )
             .unwrap_or(0.0);
             let scale = resolve_composite_scalar(
                 node.composite.scale.as_ref(),
                 animation_map,
-                fission_core::registry::AnimationPropertyId::Scale,
+                fission_core::MotionPropertyId::Scale,
             )
             .unwrap_or(1.0);
             let rotation = resolve_composite_scalar(
                 node.composite.rotation.as_ref(),
                 animation_map,
-                fission_core::registry::AnimationPropertyId::Rotation,
+                fission_core::MotionPropertyId::Rotation,
             )
             .unwrap_or(0.0);
 
@@ -871,14 +870,14 @@ fn generate_display_list_with_visited(
 
 fn resolve_composite_scalar(
     scalar: Option<&fission_ir::CompositeScalar>,
-    animation_map: &fission_core::env::AnimationStateMap,
-    property: fission_core::registry::AnimationPropertyId,
+    animation_map: &fission_core::MotionStateMap,
+    property: fission_core::MotionPropertyId,
 ) -> Option<f32> {
     let scalar = scalar?;
     Some(
         scalar
-            .animation_target
-            .and_then(|target| animation_map.values.get(&(target, property)).copied())
+            .motion_target
+            .map(|target| animation_map.scalar_value(target, property))
             .unwrap_or(scalar.base),
     )
 }
@@ -897,10 +896,10 @@ fn composite_transform_matrix(
     let from_center = translation_matrix(-center_x, -center_y);
     let scale_matrix = scale_matrix(scale);
     let rotation_matrix = rotation_z_matrix(rotation);
-    let animated_translate = translation_matrix(translate_x, translate_y);
+    let motion_translate = translation_matrix(translate_x, translate_y);
 
     multiply_matrix(
-        animated_translate,
+        motion_translate,
         multiply_matrix(
             to_center,
             multiply_matrix(rotation_matrix, multiply_matrix(scale_matrix, from_center)),

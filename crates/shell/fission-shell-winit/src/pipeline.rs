@@ -1,12 +1,12 @@
 use crate::web_backend::WebSurfaceFrame;
 use anyhow::Result;
 use fission_core::diff::diff_ir;
-use fission_core::env::{AnimationStateMap, Env, VideoStateMap, WebStateMap};
+use fission_core::env::{Env, VideoStateMap, WebStateMap};
 use fission_core::internal::build_layout_tree;
 use fission_core::internal::downcast_render_object;
-use fission_core::registry::AnimationPropertyId;
 use fission_core::scrollbar::scrollbar_geometry_for_node;
 use fission_core::{LayoutPoint, ScrollStateMap};
+use fission_core::{MotionPropertyId, MotionStateMap};
 use fission_diagnostics::prelude as diag;
 use fission_diagnostics::{SnapshotBlob, SnapshotKind, SnapshotProvider};
 use fission_ir::{CompositeScalar, CoreIR, EmbedKind, FlexDirection, LayoutOp, Op, WidgetId};
@@ -184,7 +184,7 @@ pub struct Pipeline {
     pending_layout_dirty_nodes: HashSet<WidgetId>,
     pending_layout_invalidated: bool,
     pending_layout_full: bool,
-    compositor_animation_keys: HashSet<(WidgetId, AnimationPropertyId)>,
+    compositor_animation_keys: HashSet<(WidgetId, MotionPropertyId)>,
     runtime_dynamic_nodes: HashSet<WidgetId>,
     scroll_nodes: HashSet<WidgetId>,
     runtime_dynamic_subtrees: HashMap<WidgetId, bool>,
@@ -284,7 +284,7 @@ impl Pipeline {
 
     pub fn classify_animation_updates(
         &self,
-        changed: &[(WidgetId, AnimationPropertyId)],
+        changed: &[(WidgetId, MotionPropertyId)],
     ) -> InvalidationSet {
         let mut invalidation = InvalidationSet::default();
         for key in changed {
@@ -384,7 +384,7 @@ impl Pipeline {
         layout_viewport_size: LayoutSize,
         resize_preview: bool,
         scroll_map: &ScrollStateMap,
-        animation_map: &AnimationStateMap,
+        animation_map: &MotionStateMap,
         video_map: &VideoStateMap,
         web_map: &WebStateMap,
     ) -> Result<PipelineStats> {
@@ -520,7 +520,7 @@ impl Pipeline {
         resize_preview: bool,
         renderer: &mut dyn Renderer,
         scroll_map: &ScrollStateMap,
-        animation_map: &AnimationStateMap,
+        animation_map: &MotionStateMap,
         video_map: &VideoStateMap,
         web_map: &WebStateMap,
     ) -> Result<PipelineStats> {
@@ -561,7 +561,7 @@ impl Pipeline {
             false,
             renderer,
             scroll_map,
-            &AnimationStateMap::default(),
+            &MotionStateMap::default(),
             video_map,
             web_map,
         )?;
@@ -598,50 +598,50 @@ impl Pipeline {
                 .composite
                 .opacity
                 .as_ref()
-                .and_then(|value| value.animation_target)
+                .and_then(|value| value.motion_target)
             {
                 self.compositor_animation_keys
-                    .insert((target, AnimationPropertyId::Opacity));
+                    .insert((target, MotionPropertyId::Opacity));
                 node_is_runtime_dynamic = true;
             }
             if let Some(target) = node
                 .composite
                 .translate_x
                 .as_ref()
-                .and_then(|value| value.animation_target)
+                .and_then(|value| value.motion_target)
             {
                 self.compositor_animation_keys
-                    .insert((target, AnimationPropertyId::TranslateX));
+                    .insert((target, MotionPropertyId::TranslateX));
                 node_is_runtime_dynamic = true;
             }
             if let Some(target) = node
                 .composite
                 .translate_y
                 .as_ref()
-                .and_then(|value| value.animation_target)
+                .and_then(|value| value.motion_target)
             {
                 self.compositor_animation_keys
-                    .insert((target, AnimationPropertyId::TranslateY));
+                    .insert((target, MotionPropertyId::TranslateY));
                 node_is_runtime_dynamic = true;
             }
             if let Some(target) = node
                 .composite
                 .scale
                 .as_ref()
-                .and_then(|value| value.animation_target)
+                .and_then(|value| value.motion_target)
             {
                 self.compositor_animation_keys
-                    .insert((target, AnimationPropertyId::Scale));
+                    .insert((target, MotionPropertyId::Scale));
                 node_is_runtime_dynamic = true;
             }
             if let Some(target) = node
                 .composite
                 .rotation
                 .as_ref()
-                .and_then(|value| value.animation_target)
+                .and_then(|value| value.motion_target)
             {
                 self.compositor_animation_keys
-                    .insert((target, AnimationPropertyId::Rotation));
+                    .insert((target, MotionPropertyId::Rotation));
                 node_is_runtime_dynamic = true;
             }
             if node_is_runtime_dynamic {
@@ -676,31 +676,31 @@ impl Pipeline {
             .composite
             .opacity
             .as_ref()
-            .and_then(|value| value.animation_target)
+            .and_then(|value| value.motion_target)
             .is_some();
         dynamic |= node
             .composite
             .translate_x
             .as_ref()
-            .and_then(|value| value.animation_target)
+            .and_then(|value| value.motion_target)
             .is_some();
         dynamic |= node
             .composite
             .translate_y
             .as_ref()
-            .and_then(|value| value.animation_target)
+            .and_then(|value| value.motion_target)
             .is_some();
         dynamic |= node
             .composite
             .scale
             .as_ref()
-            .and_then(|value| value.animation_target)
+            .and_then(|value| value.motion_target)
             .is_some();
         dynamic |= node
             .composite
             .rotation
             .as_ref()
-            .and_then(|value| value.animation_target)
+            .and_then(|value| value.motion_target)
             .is_some();
 
         for child in &node.children {
@@ -734,7 +734,7 @@ impl Pipeline {
         layout_viewport_size: LayoutSize,
         resize_preview: bool,
         scroll_map: &ScrollStateMap,
-        animation_map: &AnimationStateMap,
+        animation_map: &MotionStateMap,
     ) {
         let Some(scene) = self.retained_scene.as_mut() else {
             return;
@@ -759,7 +759,7 @@ impl Pipeline {
 
         for binding in &self.retained_dynamic_ops.opacity {
             let alpha =
-                resolve_scalar_value(&binding.scalar, animation_map, AnimationPropertyId::Opacity);
+                resolve_scalar_value(&binding.scalar, animation_map, MotionPropertyId::Opacity);
             if let Some(layer) = layer_mut_at_path(scene, &binding.layer_path) {
                 layer.style.opacity = alpha;
             }
@@ -1180,7 +1180,16 @@ fn find_nested_texture_plan_candidate<'a>(
             path: node_path.to_vec(),
         }),
         RenderNode::Layer(layer) => {
-            if !force {
+            let own_dynamic = layer
+                .node_id
+                .map(|id| runtime_dynamic_nodes.contains(&id))
+                .unwrap_or(false);
+            let is_scroll_node = layer
+                .node_id
+                .map(|id| scroll_nodes.contains(&id))
+                .unwrap_or(false);
+
+            if !force && !own_dynamic && !is_scroll_node {
                 if let Some(child) = descend_through_plain_wrapper(layer) {
                     let mut child_path = node_path.to_vec();
                     child_path.push(0);
@@ -1196,14 +1205,6 @@ fn find_nested_texture_plan_candidate<'a>(
             }
 
             let subtree_dynamic = render_node_or_subtree_is_dynamic(node, runtime_dynamic_subtrees);
-            let own_dynamic = layer
-                .node_id
-                .map(|id| runtime_dynamic_nodes.contains(&id))
-                .unwrap_or(false);
-            let is_scroll_node = layer
-                .node_id
-                .map(|id| scroll_nodes.contains(&id))
-                .unwrap_or(false);
             if force
                 || layer_should_extract_as_plan(layer, subtree_dynamic, own_dynamic, is_scroll_node)
             {
@@ -1407,7 +1408,7 @@ fn presentation_transform_matrix(
 fn compose_dynamic_layer_transform(
     binding: &TransformBinding,
     scroll_map: &ScrollStateMap,
-    animation_map: &AnimationStateMap,
+    animation_map: &MotionStateMap,
 ) -> Option<[f32; 16]> {
     let mut matrix: Option<[f32; 16]> = None;
 
@@ -1427,22 +1428,22 @@ fn compose_dynamic_layer_transform(
     let translate_x = binding
         .translate_x
         .as_ref()
-        .map(|scalar| resolve_scalar_value(scalar, animation_map, AnimationPropertyId::TranslateX))
+        .map(|scalar| resolve_scalar_value(scalar, animation_map, MotionPropertyId::TranslateX))
         .unwrap_or(0.0);
     let translate_y = binding
         .translate_y
         .as_ref()
-        .map(|scalar| resolve_scalar_value(scalar, animation_map, AnimationPropertyId::TranslateY))
+        .map(|scalar| resolve_scalar_value(scalar, animation_map, MotionPropertyId::TranslateY))
         .unwrap_or(0.0);
     let scale = binding
         .scale
         .as_ref()
-        .map(|scalar| resolve_scalar_value(scalar, animation_map, AnimationPropertyId::Scale))
+        .map(|scalar| resolve_scalar_value(scalar, animation_map, MotionPropertyId::Scale))
         .unwrap_or(1.0);
     let rotation = binding
         .rotation
         .as_ref()
-        .map(|scalar| resolve_scalar_value(scalar, animation_map, AnimationPropertyId::Rotation))
+        .map(|scalar| resolve_scalar_value(scalar, animation_map, MotionPropertyId::Rotation))
         .unwrap_or(0.0);
 
     let has_composite_transform = translate_x.abs() > 0.001
@@ -1471,7 +1472,7 @@ fn generate_render_layer_recursive(
     ir: &CoreIR,
     snapshot: &LayoutSnapshot,
     scroll_map: &ScrollStateMap,
-    animation_map: &AnimationStateMap,
+    animation_map: &MotionStateMap,
     paint_cache: &mut HashMap<WidgetId, (u64, DisplayList)>,
     boundary_cache: &mut HashMap<WidgetId, BoundaryCacheEntry>,
     runtime_dynamic_subtrees: &HashMap<WidgetId, bool>,
@@ -1517,28 +1518,28 @@ fn generate_render_layer_recursive(
     let composite_opacity = resolve_composite_scalar(
         node.composite.opacity.as_ref(),
         animation_map,
-        AnimationPropertyId::Opacity,
+        MotionPropertyId::Opacity,
     );
     let composite_tx = resolve_composite_scalar(
         node.composite.translate_x.as_ref(),
         animation_map,
-        AnimationPropertyId::TranslateX,
+        MotionPropertyId::TranslateX,
     );
     let composite_ty = resolve_composite_scalar(
         node.composite.translate_y.as_ref(),
         animation_map,
-        AnimationPropertyId::TranslateY,
+        MotionPropertyId::TranslateY,
     );
     let composite_scale = resolve_composite_scalar(
         node.composite.scale.as_ref(),
         animation_map,
-        AnimationPropertyId::Scale,
+        MotionPropertyId::Scale,
     )
     .unwrap_or(1.0);
     let composite_rotation = resolve_composite_scalar(
         node.composite.rotation.as_ref(),
         animation_map,
-        AnimationPropertyId::Rotation,
+        MotionPropertyId::Rotation,
     )
     .unwrap_or(0.0);
 
@@ -1553,31 +1554,31 @@ fn generate_render_layer_recursive(
         .composite
         .opacity
         .as_ref()
-        .and_then(|value| value.animation_target)
+        .and_then(|value| value.motion_target)
         .is_some();
     let needs_dynamic_transform = node
         .composite
         .translate_x
         .as_ref()
-        .and_then(|value| value.animation_target)
+        .and_then(|value| value.motion_target)
         .is_some()
         || node
             .composite
             .translate_y
             .as_ref()
-            .and_then(|value| value.animation_target)
+            .and_then(|value| value.motion_target)
             .is_some()
         || node
             .composite
             .scale
             .as_ref()
-            .and_then(|value| value.animation_target)
+            .and_then(|value| value.motion_target)
             .is_some()
         || node
             .composite
             .rotation
             .as_ref()
-            .and_then(|value| value.animation_target)
+            .and_then(|value| value.motion_target)
             .is_some();
     let emit_opacity_layer = has_opacity_layer || needs_dynamic_opacity;
     let has_runtime_clip = node.composite.clip_to_bounds;
@@ -2192,8 +2193,8 @@ fn build_scrollbar_paint(
 
 fn resolve_composite_scalar(
     scalar: Option<&fission_ir::CompositeScalar>,
-    animation_map: &AnimationStateMap,
-    property: AnimationPropertyId,
+    animation_map: &MotionStateMap,
+    property: MotionPropertyId,
 ) -> Option<f32> {
     let scalar = scalar?;
     Some(resolve_scalar_value(scalar, animation_map, property))
@@ -2201,12 +2202,12 @@ fn resolve_composite_scalar(
 
 fn resolve_scalar_value(
     scalar: &fission_ir::CompositeScalar,
-    animation_map: &AnimationStateMap,
-    property: AnimationPropertyId,
+    animation_map: &MotionStateMap,
+    property: MotionPropertyId,
 ) -> f32 {
     scalar
-        .animation_target
-        .and_then(|target| animation_map.values.get(&(target, property)).copied())
+        .motion_target
+        .map(|target| animation_map.scalar_value(target, property))
         .unwrap_or(scalar.base)
 }
 
@@ -2224,10 +2225,10 @@ fn composite_transform_matrix(
     let from_center = translation_matrix(-center_x, -center_y);
     let scale_matrix = scale_matrix(scale);
     let rotation_matrix = rotation_z_matrix(rotation);
-    let animated_translate = translation_matrix(translate_x, translate_y);
+    let motion_translate = translation_matrix(translate_x, translate_y);
 
     multiply_matrix(
-        animated_translate,
+        motion_translate,
         multiply_matrix(
             to_center,
             multiply_matrix(rotation_matrix, multiply_matrix(scale_matrix, from_center)),
@@ -2383,7 +2384,7 @@ fn translate_rect(rect: LayoutRect, offset: LayoutPoint) -> LayoutRect {
 mod tests {
     use super::{build_local_paint_list, scroll_offsets_changed, InvalidationSet, Pipeline};
     use fission_core::env::Env;
-    use fission_core::registry::AnimationPropertyId;
+    use fission_core::MotionPropertyId;
     use fission_core::ScrollStateMap;
     use fission_ir::op::{
         Color, Fill, ImageAlignment, ImageFit, ImageRequest, ImageSource, RichTextAnnotation,
@@ -2764,7 +2765,7 @@ mod tests {
             root,
             Op::Structural(fission_ir::StructuralOp::Group { stable_hash: 1 }),
             CompositeStyle {
-                opacity: Some(CompositeScalar::new(0.0).animated(WidgetId::explicit("fade"))),
+                opacity: Some(CompositeScalar::new(0.0).motion(WidgetId::explicit("fade"))),
                 ..Default::default()
             },
             vec![child],
@@ -2773,10 +2774,8 @@ mod tests {
 
         let mut pipeline = Pipeline::new();
         pipeline.replace_ir(ir, &Env::default());
-        let invalidation = pipeline.classify_animation_updates(&[(
-            WidgetId::explicit("fade"),
-            AnimationPropertyId::Opacity,
-        )]);
+        let invalidation = pipeline
+            .classify_animation_updates(&[(WidgetId::explicit("fade"), MotionPropertyId::Opacity)]);
         assert_eq!(
             invalidation,
             InvalidationSet {
@@ -2793,7 +2792,7 @@ mod tests {
         let pipeline = Pipeline::new();
         let invalidation = pipeline.classify_animation_updates(&[(
             WidgetId::explicit("custom"),
-            AnimationPropertyId::custom("phase"),
+            MotionPropertyId::custom("phase"),
         )]);
         assert!(invalidation.build);
         assert!(invalidation.layout);
@@ -2834,7 +2833,7 @@ mod tests {
                 aspect_ratio: None,
             }),
             CompositeStyle {
-                translate_x: Some(CompositeScalar::new(12.0).animated(WidgetId::explicit("slide"))),
+                translate_x: Some(CompositeScalar::new(12.0).motion(WidgetId::explicit("slide"))),
                 ..Default::default()
             },
             vec![child],
@@ -2845,7 +2844,7 @@ mod tests {
         pipeline.replace_ir(ir, &Env::default());
         let invalidation = pipeline.classify_animation_updates(&[(
             WidgetId::explicit("slide"),
-            AnimationPropertyId::TranslateX,
+            MotionPropertyId::TranslateX,
         )]);
         assert_eq!(
             invalidation,
@@ -2893,7 +2892,7 @@ mod tests {
                 aspect_ratio: None,
             }),
             CompositeStyle {
-                opacity: Some(CompositeScalar::new(0.4).animated(WidgetId::explicit("fade-cache"))),
+                opacity: Some(CompositeScalar::new(0.4).motion(WidgetId::explicit("fade-cache"))),
                 ..Default::default()
             },
             vec![child],
@@ -3003,9 +3002,7 @@ mod tests {
                 aspect_ratio: None,
             }),
             CompositeStyle {
-                opacity: Some(
-                    CompositeScalar::new(0.4).animated(WidgetId::explicit("nested-fade")),
-                ),
+                opacity: Some(CompositeScalar::new(0.4).motion(WidgetId::explicit("nested-fade"))),
                 ..Default::default()
             },
             vec![animated_paint],

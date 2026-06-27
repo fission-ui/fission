@@ -1,6 +1,8 @@
 use fission_core::internal::BuildCtx;
-use fission_core::{build, AnimationPropertyId, GlobalState, View, WidgetId};
-use fission_widgets::CircularProgress;
+use fission_core::{
+    build, GlobalState, MotionDeclarationKind, MotionPropertyId, MotionTransition, View, WidgetId,
+};
+use fission_widgets::{CircularProgress, CircularProgressMotion};
 
 #[derive(Default, Debug, Clone)]
 struct State;
@@ -19,19 +21,26 @@ fn indeterminate_circular_progress_registers_rotation_animation() {
         CircularProgress {
             id,
             value: None,
+            motion: Some(CircularProgressMotion::Default),
             ..Default::default()
         }
         .into()
     });
 
     let _ir = fission_core::internal::lower_widget_to_ir(&node);
-    assert_eq!(ctx.animation_requests.len(), 1);
-    assert_eq!(ctx.animation_requests[0].0, id);
+    assert_eq!(ctx.motion_declarations.len(), 1);
     assert_eq!(
-        ctx.animation_requests[0].1.property,
-        AnimationPropertyId::Rotation
+        ctx.motion_declarations[0].id,
+        WidgetId::derived(id.as_u128(), &[0x1D1_CA70])
     );
-    assert!(ctx.animation_requests[0].1.repeat);
+    let MotionDeclarationKind::Tracks { tracks } = &ctx.motion_declarations[0].kind else {
+        panic!("expected circular progress motion tracks");
+    };
+    assert_eq!(tracks[0].property, MotionPropertyId::Rotation);
+    assert!(matches!(
+        tracks[0].transition,
+        MotionTransition::Tween { repeat: true, .. }
+    ));
 }
 
 #[test]
@@ -51,5 +60,5 @@ fn determinate_circular_progress_does_not_register_animation() {
     });
 
     let _ir = fission_core::internal::lower_widget_to_ir(&node);
-    assert!(ctx.animation_requests.is_empty());
+    assert!(ctx.motion_declarations.is_empty());
 }

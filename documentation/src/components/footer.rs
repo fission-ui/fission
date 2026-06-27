@@ -135,7 +135,7 @@ fn footer_identity(_ctx: BuildCtxHandle<DocsState>, view: ViewHandle<DocsState>)
                     .into(),
                 Row {
                     children: vec![
-                        FooterLink::new("GitHub", "https://github.com/worka-ai/fission")
+                        FooterLink::new("GitHub", "https://github.com/fission-ui/fission")
                             .into(),
                         FooterLink::new("Quickstart", "/docs/learn/quickstart/").into(),
                         FooterLink::new("Reference", "/reference/overview/overview/")

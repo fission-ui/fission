@@ -30,7 +30,7 @@ pub mod video;
 pub use action_scope::ActionScope;
 pub use align::Align;
 pub use builder::{Builder, LayoutBuilder};
-pub use button::{Button, ButtonContentAlign, ButtonVariant};
+pub use button::{Button, ButtonContentAlign, ButtonMotion, ButtonVariant};
 pub use checkbox::Checkbox;
 pub use column::Column;
 pub use composite::Composite;

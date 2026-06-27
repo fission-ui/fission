@@ -83,6 +83,7 @@ impl From<ContactsModal> for Widget {
                     ),
                 )),
             }],
+            motion: None,
         }
         .into()
     }

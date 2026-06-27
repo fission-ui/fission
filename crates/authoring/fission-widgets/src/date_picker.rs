@@ -114,6 +114,7 @@ impl From<DatePicker> for Widget {
             on_close: this.on_close.clone(),
             trigger: trigger_btn,
             content,
+            motion: None,
         }
         .into()
     }

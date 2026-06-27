@@ -509,7 +509,40 @@ impl From<Transform> for Widget {
     }
 }
 impl From<Button> for Widget {
-    fn from(w: Button) -> Self {
+    fn from(mut w: Button) -> Self {
+        if let Some(motion) = w.motion.take() {
+            let button_id = crate::build::current_widget_id()
+                .or(w.id)
+                .unwrap_or_else(|| WidgetId::explicit("fission.core.button.motion"));
+            w.id = Some(button_id);
+            let motion_id = WidgetId::derived(button_id.as_u128(), &[0xB0770]);
+            let tracks = motion.interaction_tracks(button_id);
+            let ripple = motion.ripple();
+            let base = Self {
+                kind: Box::new(WidgetKind::Button(w)),
+            };
+            let with_motion: Widget = if tracks.is_empty() {
+                base
+            } else {
+                crate::motion::Motion {
+                    id: motion_id,
+                    tracks,
+                    child: base,
+                    ..Default::default()
+                }
+                .into()
+            };
+            return if let Some(effect) = ripple {
+                crate::motion::RippleLayer {
+                    id: WidgetId::derived(button_id.as_u128(), &[0xA11E]),
+                    effect,
+                    child: with_motion,
+                }
+                .into()
+            } else {
+                with_motion
+            };
+        }
         Self {
             kind: Box::new(WidgetKind::Button(w)),
         }

@@ -1,9 +1,9 @@
 [package]
 name = "fission-command-release"
-version = "0.4.1"
+version = "0.5.0"
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/worka-ai/fission"
+repository = "https://github.com/fission-ui/fission"
 description = "Release content, store, auth, beta, and review workflows for the fission command"
 
 homepage = "https://fission.rs"
@@ -13,10 +13,10 @@ readme = "README.md"
 anyhow = "1.0"
 base64 = "0.22"
 clap = { version = "4.5", features = ["derive"] }
-fission-command-core = { path = "../fission-command-core", version = "0.4.1" }
-fission-command-package = { path = "../fission-command-package", version = "0.4.1" }
-fission-command-ui = { path = "../fission-command-ui", version = "0.4.1" }
-fission-credentials = { path = "../fission-credentials", version = "0.4.1" }
+fission-command-core = { path = "../fission-command-core", version = "0.5.0" }
+fission-command-package = { path = "../fission-command-package", version = "0.5.0" }
+fission-command-ui = { path = "../fission-command-ui", version = "0.5.0" }
+fission-credentials = { path = "../fission-credentials", version = "0.5.0" }
 jsonwebtoken = "9"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "multipart", "rustls-tls"] }
 serde = { version = "1.0", features = ["derive"] }

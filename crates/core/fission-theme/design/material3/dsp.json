@@ -8,7 +8,7 @@
     "license": "MIT",
     "framework": {
       "name": "fission",
-      "repository": "https://github.com/worka-ai/fission",
+      "repository": "https://github.com/fission-ui/fission",
       "theme_crate": "crates/core/fission-theme"
     },
     "structure": {

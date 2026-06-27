@@ -406,6 +406,7 @@ impl From<TextLabApp> for Widget {
                 },
             ],
             content: modal_content,
+            motion: None,
         }
         .into();
 

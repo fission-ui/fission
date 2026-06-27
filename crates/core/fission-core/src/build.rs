@@ -13,7 +13,7 @@ struct BuildScope {
     ctx: *mut (),
     view: *const (),
     resources: *mut crate::registry::ResourceRegistry,
-    animation_requests: *mut Vec<(crate::WidgetId, crate::AnimationRequest)>,
+    motion_declarations: *mut Vec<crate::motion::MotionDeclaration>,
     video_nodes: *mut Vec<crate::registry::VideoRegistration>,
     web_nodes: *mut Vec<crate::registry::WebRegistration>,
     portals: *mut Vec<crate::registry::PortalEntry>,
@@ -70,7 +70,7 @@ where
             ctx: (ctx as *mut BuildCtx<S>).cast::<()>(),
             view: (view as *const View<'_, S>).cast::<()>(),
             resources: &mut ctx.resources,
-            animation_requests: &mut ctx.animation_requests,
+            motion_declarations: &mut ctx.motion_declarations,
             video_nodes: &mut ctx.video_nodes,
             web_nodes: &mut ctx.web_nodes,
             portals: &mut ctx.portals,
@@ -309,6 +309,29 @@ pub fn try_register_video(registration: crate::registry::VideoRegistration) {
     }
 }
 
+pub fn try_register_motion(declaration: crate::motion::MotionDeclaration) {
+    let motion_declarations = BUILD_SCOPES.with(|scopes| {
+        scopes
+            .borrow()
+            .last()
+            .map(|scope| scope.motion_declarations)
+    });
+    if let Some(motion_declarations) = motion_declarations {
+        unsafe {
+            (*motion_declarations).push(declaration);
+        }
+    }
+}
+
+pub fn try_current_runtime_state() -> Option<&'static crate::RuntimeState> {
+    BUILD_SCOPES.with(|scopes| {
+        scopes
+            .borrow()
+            .last()
+            .map(|scope| unsafe { &*scope.runtime })
+    })
+}
+
 fn requested_common_scope<S: GlobalState>() -> bool {
     TypeId::of::<S>() == TypeId::of::<()>()
 }
@@ -444,8 +467,8 @@ impl<S: GlobalState> BuildCtxHandle<S> {
         }
     }
 
-    pub fn request_animation_for(&self, target: crate::WidgetId, request: crate::AnimationRequest) {
-        let animation_requests = BUILD_SCOPES.with(|scopes| {
+    pub fn register_motion(&self, declaration: crate::motion::MotionDeclaration) {
+        let motion_declarations = BUILD_SCOPES.with(|scopes| {
             let scopes = scopes.borrow();
             let Some(scope) = scopes.last() else {
                 panic!(
@@ -453,10 +476,10 @@ impl<S: GlobalState> BuildCtxHandle<S> {
                     type_name::<S>()
                 );
             };
-            scope.animation_requests
+            scope.motion_declarations
         });
         unsafe {
-            (*animation_requests).push((target, request));
+            (*motion_declarations).push(declaration);
         }
     }
 
@@ -544,13 +567,6 @@ impl<S: GlobalState> BuildCtxHandle<S> {
         }
     }
 
-    pub fn anim_for(&self, target: crate::WidgetId) -> ScopedAnimCtx<S> {
-        ScopedAnimCtx {
-            target,
-            _state: PhantomData,
-        }
-    }
-
     pub fn video_controls(&self, target: crate::WidgetId) -> crate::registry::VideoControlCtx {
         self.with_exact_ctx(|ctx| ctx.video_controls(target))
     }
@@ -634,38 +650,28 @@ impl<S: GlobalState> ViewHandle<S> {
         <S as crate::view::FissionViewField>::view_field(self.state())
     }
 
-    pub fn animation_value(
+    pub fn motion_value(
         &self,
         widget_id: crate::WidgetId,
-        property: &crate::AnimationPropertyId,
-    ) -> f32 {
+        property: crate::MotionPropertyId,
+    ) -> crate::MotionValue {
         self.runtime()
-            .animation
+            .motion
             .values
             .get(&(widget_id, property.clone()))
-            .copied()
+            .cloned()
             .unwrap_or_else(|| property.default_value())
+    }
+
+    pub fn motion_scalar(
+        &self,
+        widget_id: crate::WidgetId,
+        property: crate::MotionPropertyId,
+    ) -> f32 {
+        self.runtime().motion.scalar_value(widget_id, property)
     }
 
     pub fn video_state(&self, widget_id: crate::WidgetId) -> Option<&crate::env::VideoState> {
         self.runtime().video.states.get(&widget_id)
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct ScopedAnimCtx<S: GlobalState> {
-    target: crate::WidgetId,
-    _state: PhantomData<fn() -> S>,
-}
-
-impl<S: GlobalState> ScopedAnimCtx<S> {
-    pub fn request(&mut self, request: crate::AnimationRequest) {
-        let (ctx, _) = current::<S>();
-        ctx.request_animation_for(self.target, request);
-    }
-
-    pub fn request_for(&mut self, target: crate::WidgetId, request: crate::AnimationRequest) {
-        let (ctx, _) = current::<S>();
-        ctx.request_animation_for(target, request);
     }
 }

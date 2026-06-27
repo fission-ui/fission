@@ -150,6 +150,7 @@ fn test_modal_backdrop_dismiss() {
                 )),
                 actions: vec![],
                 width: Some(300.0),
+                motion: None,
             }
             .into()
         }
@@ -212,6 +213,7 @@ fn test_modal_close_button_dismiss() {
                 )),
                 actions: vec![],
                 width: Some(300.0),
+                motion: None,
             }
             .into()
         }

@@ -16,12 +16,13 @@ use fission_core::event::{InputEvent, PointerEvent};
 use fission_core::internal::{
     CustomEventResult, CustomHitResult, CustomRenderObject, InternalRenderNode,
 };
+use fission_core::motion::{
+    scalar, MotionDeclaration, MotionDeclarationKind, MotionEasing, MotionPhase, MotionPropertyId,
+    MotionStartValue, MotionTrack, MotionTransition,
+};
 use fission_core::op::Color;
 use fission_core::ui::{Container, Widget};
-use fission_core::{
-    Action, ActionEnvelope, AnimationPropertyId, AnimationRequest, AnimationStartValue,
-    EasingFunction, WidgetId,
-};
+use fission_core::{Action, ActionEnvelope, WidgetId};
 use fission_ir::op::{Fill, LayoutOp, LineCap, LineJoin, PaintOp, Stroke};
 use fission_layout::{LayoutPoint, LayoutRect};
 use serde::{Deserialize, Serialize};
@@ -224,15 +225,23 @@ impl From<Chart> for Widget {
         let (ctx, _) = fission_core::build::current::<()>();
         let this = &component;
         if this.animation.enabled {
-            ctx.anim_for(this.animation_id()).request(AnimationRequest {
-                property: chart_animation_property(),
-                from: AnimationStartValue::Explicit(0.0),
-                to: 1.0,
-                duration_ms: this.animation.duration_ms,
-                repeat: this.animation.repeat,
-                delay_ms: this.animation.delay_ms,
-                frame_interval_ms: Some(16),
-                easing: chart_easing(this.animation.easing),
+            ctx.register_motion(MotionDeclaration {
+                id: this.animation_id(),
+                kind: MotionDeclarationKind::Tracks {
+                    tracks: vec![MotionTrack {
+                        property: chart_animation_property(),
+                        phase: MotionPhase::Composite,
+                        from: MotionStartValue::Explicit(scalar(0.0)),
+                        to: scalar(1.0),
+                        transition: MotionTransition::tween(
+                            this.animation.duration_ms,
+                            chart_easing(this.animation.easing),
+                        )
+                        .repeat(this.animation.repeat)
+                        .delay_ms(this.animation.delay_ms)
+                        .frame_interval_ms(Some(16)),
+                    }],
+                },
             });
         }
 
@@ -267,24 +276,28 @@ impl From<Chart> for Widget {
 }
 
 impl Chart {
-    fn animation_id(&self) -> WidgetId {
+    fn root_id(&self) -> WidgetId {
         self.id.unwrap_or_else(|| {
             let title = self.title.as_deref().unwrap_or("untitled");
             WidgetId::explicit(&format!("fission_charts::Chart::{title}"))
         })
     }
+
+    fn animation_id(&self) -> WidgetId {
+        WidgetId::derived(self.root_id().as_u128(), &[0xC4A7_A11A])
+    }
 }
 
-fn chart_animation_property() -> AnimationPropertyId {
-    AnimationPropertyId::custom("fission_charts::progress")
+fn chart_animation_property() -> MotionPropertyId {
+    MotionPropertyId::custom("fission_charts::progress")
 }
 
-fn chart_easing(easing: crate::animation::ChartEasing) -> EasingFunction {
+fn chart_easing(easing: crate::animation::ChartEasing) -> MotionEasing {
     match easing {
-        crate::animation::ChartEasing::Linear => EasingFunction::Linear,
-        crate::animation::ChartEasing::EaseIn => EasingFunction::EaseIn,
-        crate::animation::ChartEasing::EaseOut => EasingFunction::EaseOut,
-        crate::animation::ChartEasing::EaseInOut => EasingFunction::EaseInOut,
+        crate::animation::ChartEasing::Linear => MotionEasing::Linear,
+        crate::animation::ChartEasing::EaseIn => MotionEasing::EaseIn,
+        crate::animation::ChartEasing::EaseOut => MotionEasing::EaseOut,
+        crate::animation::ChartEasing::EaseInOut => MotionEasing::EaseInOut,
     }
 }
 
@@ -568,10 +581,10 @@ impl ChartAnimationFrame {
 
         let progress = cx
             .runtime_state
-            .animation
+            .motion
             .values
             .get(&(chart.animation_id(), chart_animation_property()))
-            .copied()
+            .and_then(fission_core::MotionValue::as_scalar_like)
             .unwrap_or(1.0)
             .clamp(0.0, 1.0);
         let duration = chart.animation.duration_ms.max(1) as f32;

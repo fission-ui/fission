@@ -203,7 +203,7 @@ impl From<RefreshIndicator> for Widget {
                 color: Some(this.color.unwrap_or(tokens.colors.primary)),
                 track_color: Some(this.track_color.unwrap_or(tokens.colors.border)),
                 thickness: this.stroke_width,
-                animated: true,
+                motion: Some(crate::CircularProgressMotion::Default),
             }
             .into();
 

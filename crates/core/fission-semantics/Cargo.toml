@@ -1,16 +1,16 @@
 [package]
 name = "fission-semantics"
-version = "0.4.1"
+version = "0.5.0"
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/worka-ai/fission"
+repository = "https://github.com/fission-ui/fission"
 description = "Accessibility and semantics primitives for Fission UI trees"
 
 homepage = "https://fission.rs"
 documentation = "https://fission.rs"
 readme = "README.md"
 [dependencies]
-fission-ir = { path = "../fission-ir", version = "0.4.1" }
+fission-ir = { path = "../fission-ir", version = "0.5.0" }
 serde = { version = "1.0", features = ["derive"] }
 
 [dev-dependencies]

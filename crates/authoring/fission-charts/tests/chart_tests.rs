@@ -11,7 +11,7 @@ use fission_charts::{
 use fission_core::{
     env::Env,
     internal::{InternalLowerer, InternalLoweringCx},
-    AnimationPropertyId, WidgetId,
+    MotionPropertyId, MotionValue, WidgetId,
 };
 use fission_ir::op::{Color, Fill, LayoutOp, PaintOp};
 
@@ -47,12 +47,12 @@ fn lower_chart_with_animation_progress(
     let lowerer = ChartInternalLowerer { chart };
     let env = Env::default();
     let mut runtime_state = fission_core::RuntimeState::default();
-    runtime_state.animation.values.insert(
+    runtime_state.motion.values.insert(
         (
-            chart_id,
-            AnimationPropertyId::custom("fission_charts::progress"),
+            WidgetId::derived(chart_id.as_u128(), &[0xC4A7_A11A]),
+            MotionPropertyId::custom("fission_charts::progress"),
         ),
-        progress,
+        MotionValue::Scalar(progress),
     );
     let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
     let root_id = cx.next_node_id();

@@ -98,6 +98,7 @@ impl From<BrowserModal> for Widget {
                     ),
                 )),
             }],
+            motion: None,
         }
         .into()
     }

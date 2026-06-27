@@ -2,12 +2,12 @@
 //!
 //! During widget conversion, the framework provides a scoped [`View`] that gives
 //! read-only access to the current [`GlobalState`], theme, i18n registry,
-//! layout snapshot, and animation values. Widgets use this to decide what
+//! layout snapshot, and motion values. Widgets use this to decide what
 //! to render without side effects.
 
 use crate::{
-    env::VideoState, registry::AnimationPropertyId, Env, GlobalState, LayoutRect, LayoutSize,
-    LayoutSnapshot, RuntimeState, ViewHandle,
+    env::VideoState, Env, GlobalState, LayoutRect, LayoutSize, LayoutSnapshot, MotionPropertyId,
+    MotionValue, RuntimeState, ViewHandle,
 };
 use fission_i18n::I18nRegistry;
 use fission_ir::WidgetId;
@@ -21,7 +21,7 @@ use std::hash::{BuildHasher, Hash};
 /// `View` is the primary way widgets read data. It is parameterised over the
 /// concrete [`GlobalState`] type `S`, giving type-safe access to `state` while
 /// also exposing the theme, i18n registry, layout snapshot from the previous
-/// frame, and animation values.
+/// frame, and motion values.
 ///
 /// # Example
 ///
@@ -32,7 +32,7 @@ use std::hash::{BuildHasher, Hash};
 pub struct View<'a, S: GlobalState> {
     /// Reference to the current application state.
     pub state: &'a S,
-    /// Runtime interaction, scroll, text-edit, and animation state.
+    /// Runtime interaction, scroll, text-edit, and motion state.
     pub runtime: &'a RuntimeState,
     /// Environment (theme, i18n, viewport size, locale).
     pub env: &'a Env,
@@ -96,13 +96,17 @@ impl<'a, S: GlobalState> View<'a, S> {
         selector(self.state)
     }
 
-    pub fn animation_value(&self, widget_id: WidgetId, property: &AnimationPropertyId) -> f32 {
+    pub fn motion_value(&self, widget_id: WidgetId, property: MotionPropertyId) -> MotionValue {
         self.runtime
-            .animation
+            .motion
             .values
             .get(&(widget_id, property.clone()))
-            .copied()
+            .cloned()
             .unwrap_or_else(|| property.default_value())
+    }
+
+    pub fn motion_scalar(&self, widget_id: WidgetId, property: MotionPropertyId) -> f32 {
+        self.runtime.motion.scalar_value(widget_id, property)
     }
 
     pub fn video_state(&self, widget_id: WidgetId) -> Option<&VideoState> {
