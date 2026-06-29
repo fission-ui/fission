@@ -2787,6 +2787,7 @@ dependencies = [
  "parley",
  "peniko",
  "ureq",
+ "uuid",
  "vello",
  "wasm-bindgen",
  "wasm-bindgen-futures",
