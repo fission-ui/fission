@@ -11,7 +11,10 @@ use crate::{
 };
 use anyhow::{anyhow, Context, Result};
 use fission_core::internal::InternalLoweringCx;
-use fission_core::{ActionEnvelope, ActionId, Env, RuntimeResourceDeclaration, RuntimeState};
+use fission_core::ui::{Overlay, ZStack};
+use fission_core::{
+    ActionEnvelope, ActionId, Env, RuntimeResourceDeclaration, RuntimeState, Widget,
+};
 use fission_ir::{semantics::ActionTrigger, CoreIR, Op};
 use fission_layout::LayoutSize;
 use fission_shell_site::{
@@ -491,9 +494,12 @@ impl ServerRenderer {
             response_status: &response_status,
         };
         let ServerRenderedNode {
-            node,
+            mut node,
             resources,
             motion_declarations,
+            video_registrations,
+            web_registrations,
+            portals,
         } = if tokio::runtime::Handle::try_current().is_ok() {
             std::thread::scope(|scope| {
                 scope
@@ -504,6 +510,7 @@ impl ServerRenderer {
         } else {
             (route.render)(&ctx)
         }?;
+        node = compose_server_portals(node, portals);
         let runtime = RuntimeState::default();
         let mut lowering = InternalLoweringCx::new(&env, &runtime, None, None);
         let root = fission_core::internal::lower_widget(&node, &mut lowering);
@@ -540,6 +547,14 @@ impl ServerRenderer {
             server_action_tokens: action_tokens,
             structured_data: route.route.structured_data.clone(),
             motion_declarations,
+            video_registrations: video_registrations
+                .into_iter()
+                .map(|registration| (registration.node_id, registration))
+                .collect(),
+            web_registrations: web_registrations
+                .into_iter()
+                .map(|registration| (registration.node_id, registration))
+                .collect(),
             head_end_html,
             body_end_html,
             ..Default::default()
@@ -1429,6 +1444,25 @@ fn browser_artifact_preload_links(route: &WebRoute) -> Vec<String> {
         .collect()
 }
 
+fn compose_server_portals(
+    node: Widget,
+    portals: Vec<(Option<fission_ir::WidgetId>, Widget)>,
+) -> Widget {
+    if portals.is_empty() {
+        return node;
+    }
+    Overlay {
+        id: None,
+        content: node,
+        overlay: ZStack {
+            id: None,
+            children: portals.into_iter().map(|(_, portal)| portal).collect(),
+        }
+        .into(),
+    }
+    .into()
+}
+
 fn server_browser_runtime_script() -> String {
     "<script defer src=\"/server-runtime.js\"></script>".to_string()
 }
@@ -1451,7 +1485,7 @@ mod tests {
     use fission_core::ui::{Button, Text, TextContent};
     use fission_core::{
         Action, ActionId, GlobalState, Handler, JobRef, JobResource, JobSpec, ReducerContext,
-        ResourceKey, Widget,
+        ResourceKey, Widget, WidgetId,
     };
     use fission_i18n::TranslationBundle;
     use serde::{Deserialize, Serialize};
@@ -1479,6 +1513,17 @@ mod tests {
         fn from(component: TestPage) -> Self {
             let (_ctx, _view) = fission_core::build::current::<TestState>();
             Text::new(component.0).into()
+        }
+    }
+
+    #[derive(Clone)]
+    struct PortalPage;
+
+    impl From<PortalPage> for Widget {
+        fn from(_: PortalPage) -> Self {
+            let (ctx, _view) = fission_core::build::current::<TestState>();
+            ctx.register_portal(Text::new("Portal overlay").into());
+            Text::new("Root content").into()
         }
     }
 
@@ -1544,6 +1589,97 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Default)]
+    struct ActionJobState {
+        message: Option<String>,
+    }
+
+    impl GlobalState for ActionJobState {}
+
+    #[derive(Debug)]
+    struct ActionJob;
+
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    struct ActionJobRequest;
+
+    impl JobSpec for ActionJob {
+        type Request = ActionJobRequest;
+        type Ok = String;
+        type Err = String;
+
+        const NAME: &'static str = "server-renderer.action-job";
+    }
+
+    const ACTION_JOB: JobRef<ActionJob> = JobRef::new(ActionJob::NAME);
+
+    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+    struct StartActionJob;
+
+    impl Action for StartActionJob {
+        fn static_id() -> ActionId {
+            ActionId::from_name("server-renderer.start-action-job")
+        }
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+    struct ActionJobLoaded;
+
+    impl Action for ActionJobLoaded {
+        fn static_id() -> ActionId {
+            ActionId::from_name("server-renderer.action-job-loaded")
+        }
+    }
+
+    fn on_start_action_job(
+        _state: &mut ActionJobState,
+        _action: StartActionJob,
+        ctx: &mut ReducerContext<ActionJobState>,
+    ) {
+        ctx.effects
+            .app(ACTION_JOB, ActionJobRequest)
+            .on_ok(ActionEnvelope::from(ActionJobLoaded))
+            .dispatch();
+    }
+
+    fn on_action_job_loaded(
+        state: &mut ActionJobState,
+        _action: ActionJobLoaded,
+        ctx: &mut ReducerContext<ActionJobState>,
+    ) {
+        state.message = ctx.input.job_ok(ACTION_JOB);
+    }
+
+    #[derive(Clone)]
+    struct ActionJobPage;
+
+    impl From<ActionJobPage> for Widget {
+        fn from(_: ActionJobPage) -> Self {
+            let (ctx, view) = fission_core::build::current::<ActionJobState>();
+            ctx.register::<ActionJobLoaded, _>(
+                on_action_job_loaded as Handler<ActionJobState, ActionJobLoaded>,
+            );
+            let on_press = ctx.bind(
+                StartActionJob,
+                on_start_action_job as Handler<ActionJobState, StartActionJob>,
+            );
+            Button {
+                id: Some(WidgetId::explicit("action-job-button")),
+                child: Some(
+                    Text::new(
+                        view.state()
+                            .message
+                            .clone()
+                            .unwrap_or_else(|| "Pending job".to_string()),
+                    )
+                    .into(),
+                ),
+                on_press: Some(on_press),
+                ..Default::default()
+            }
+            .into()
+        }
+    }
+
     struct CountingCache {
         inner: MokaCache,
         puts: AtomicUsize,
@@ -1606,6 +1742,45 @@ mod tests {
         assert_eq!(response.status, 200);
         assert!(response.body_string().contains("Hello SSR"));
         assert!(!response.body_string().contains("MISSING:page.title"));
+    }
+
+    #[test]
+    fn server_renderer_mounts_portals_into_ssr_html() {
+        let renderer = ServerRenderer::new(
+            FissionServerApp::new("Test")
+                .server_route_widget::<TestState, _>("/", "Home", None, PortalPage),
+        );
+
+        let response = renderer.handle(ServerRequest::get("/")).unwrap();
+        let body = response.body_string();
+
+        assert_eq!(response.status, 200);
+        assert!(body.contains("Root content"));
+        assert!(body.contains("Portal overlay"));
+    }
+
+    #[test]
+    fn server_actions_drain_supported_job_effects_before_rendering_response() {
+        let renderer = ServerRenderer::new(
+            FissionServerApp::new("Test")
+                .jobs(
+                    ServerJobRegistry::new()
+                        .register_job(ACTION_JOB, |_request, _ctx| Ok("Job complete".to_string())),
+                )
+                .server_route_widget::<ActionJobState, _>("/", "Home", None, ActionJobPage),
+        );
+        let token = renderer.sign_action(
+            "/",
+            WidgetId::explicit("action-job-button").as_u128(),
+            StartActionJob,
+            Duration::from_secs(60),
+        );
+        let request = ServerRequest::post("/__fission/action", serde_json::to_vec(&token).unwrap());
+
+        let response = renderer.handle(request).unwrap();
+
+        assert_eq!(response.status, 200);
+        assert!(response.body_string().contains("Job complete"));
     }
 
     #[test]
