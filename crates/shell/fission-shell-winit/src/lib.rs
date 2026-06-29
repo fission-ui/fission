@@ -46,7 +46,9 @@ use fission_ir::{CoreIR, Op, WidgetId};
 use fission_layout::{LayoutEngine, LayoutSize};
 use fission_render::{LayoutPoint, LayoutRect, Renderer as _};
 use fission_render_vello::parley::FontContext;
-use fission_render_vello::{RetainedSceneCache, VelloRenderer, VelloTextMeasurer};
+use fission_render_vello::{
+    workload_profile_for_scene, RetainedSceneCache, VelloRenderer, VelloTextMeasurer,
+};
 use fission_shell::async_host::{
     AsyncMessage, AsyncRegistry, RunningServiceHandle, ServiceControlMessage,
 };
@@ -5700,6 +5702,13 @@ where
                                                                     .expect(
                                                                         "retained render scene missing before render",
                                                                     );
+                                                                let workload_profile =
+                                                                    workload_profile_for_scene(
+                                                                        retained_scene,
+                                                                        render_target_size.0,
+                                                                        render_target_size.1,
+                                                                        scale_factor,
+                                                                    );
                                                                 let mut renderer_wrapper =
                                                                     VelloRenderer::new(
                                                                         &mut presenter.scene,
@@ -5714,7 +5723,7 @@ where
                                                                         "failed to encode retained scene",
                                                                     );
                                                                 renderer
-                                                                    .render_to_texture(
+                                                                    .render_to_texture_with_workload_profile(
                                                                         &device_handle.device,
                                                                         &device_handle.queue,
                                                                         &presenter.scene,
@@ -5723,6 +5732,7 @@ where
                                                                             .surface
                                                                             .target_view,
                                                                         &render_params,
+                                                                        Some(&workload_profile),
                                                                     )
                                                                     .expect(
                                                                         "failed to render webgpu frame",
@@ -5909,6 +5919,13 @@ where
                                                         .expect(
                                                             "retained render scene missing before render",
                                                         );
+                                                        let workload_profile =
+                                                            workload_profile_for_scene(
+                                                                retained_scene,
+                                                                render_target_size.0,
+                                                                render_target_size.1,
+                                                                scale_factor,
+                                                            );
                                                         let mut renderer_wrapper =
                                                             VelloRenderer::new(
                                                                 &mut scene,
@@ -5922,12 +5939,13 @@ where
                                                                 "failed to encode retained scene",
                                                             );
                                                         renderer
-                                                            .render_to_texture(
+                                                            .render_to_texture_with_workload_profile(
                                                                 &device_handle.device,
                                                                 &device_handle.queue,
                                                                 &scene,
                                                                 &render_state.surface.target_view,
                                                                 &render_params,
+                                                                Some(&workload_profile),
                                                             )
                                                             .expect("failed to render");
                                                     } else {

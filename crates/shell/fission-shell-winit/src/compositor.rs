@@ -4,7 +4,9 @@ use bytemuck::{Pod, Zeroable};
 use fission_layout::LayoutPoint;
 use fission_render::LayerClip;
 use fission_render::Renderer as _;
-use fission_render_vello::{RetainedSceneCache, VelloRenderer, VelloTextMeasurer};
+use fission_render_vello::{
+    workload_profile_for_scene, RetainedSceneCache, VelloRenderer, VelloTextMeasurer,
+};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use vello::wgpu;
@@ -1483,6 +1485,7 @@ fn render_plan_scene(
         height,
         antialiasing_method: vello::AaConfig::Area,
     };
+    let workload_profile = workload_profile_for_scene(scene, width, height, scale_factor);
 
     if let Some(cache_key) = scene_cache_key {
         let cached_scene = retained_scene_cache.get_or_insert_with(cache_key, |scene_cache| {
@@ -1497,7 +1500,14 @@ fn render_plan_scene(
             Ok(encoded)
         })?;
         vello_renderer
-            .render_to_texture(device, queue, cached_scene, target_view, &params)
+            .render_to_texture_with_workload_profile(
+                device,
+                queue,
+                cached_scene,
+                target_view,
+                &params,
+                Some(&workload_profile),
+            )
             .map_err(|error| anyhow::anyhow!("failed to render cached scene: {error}"))?;
         return Ok(());
     }
@@ -1507,7 +1517,14 @@ fn render_plan_scene(
         VelloRenderer::new(&mut encoded, measurer, retained_scene_cache, scale_factor);
     renderer.render_scene(scene)?;
     vello_renderer
-        .render_to_texture(device, queue, &encoded, target_view, &params)
+        .render_to_texture_with_workload_profile(
+            device,
+            queue,
+            &encoded,
+            target_view,
+            &params,
+            Some(&workload_profile),
+        )
         .map_err(|error| anyhow::anyhow!("failed to render compositor scene: {error}"))?;
     Ok(())
 }

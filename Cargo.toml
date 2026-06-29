@@ -39,6 +39,7 @@ members = [
     "documentation",
     "examples/*"
 ]
+exclude = ["third_party/vello"]
 resolver = "2"
 
 [workspace.lints.rust]
@@ -56,3 +57,6 @@ panic = "abort"
 
 [patch.crates-io]
 android-activity = { path = "third_party/android-activity/android-activity" }
+vello = { path = "third_party/vello/vello" }
+vello_encoding = { path = "third_party/vello/vello_encoding" }
+vello_shaders = { path = "third_party/vello/vello_shaders" }
