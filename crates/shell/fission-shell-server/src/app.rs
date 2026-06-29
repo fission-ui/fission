@@ -9,17 +9,22 @@ use fission_core::{
     ActionInput, Effect, Env, GlobalState, MotionDeclaration, RuntimeResourceDeclaration,
     RuntimeResourceKind, RuntimeState, View, Widget, WidgetId,
 };
+use fission_i18n::{I18nRegistry, Locale, TranslationBundle};
 use fission_layout::LayoutSize;
 use fission_theme::Theme;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Arc;
+
+pub type ServerRouteParams = BTreeMap<String, String>;
 
 pub(crate) type RouteRenderer =
     dyn for<'a> Fn(&ServerRenderContext<'a>) -> Result<ServerRenderedNode> + Send + Sync + 'static;
 type RequestEnvSync =
     dyn for<'a> Fn(&ServerEnvContext<'a>, &mut Env) -> Result<()> + Send + Sync + 'static;
+type RequestLocaleResolver =
+    dyn for<'a> Fn(&ServerEnvContext<'a>) -> Result<Locale> + Send + Sync + 'static;
 type InitialStateLoader<S> =
     dyn for<'a> Fn(&ServerRenderContext<'a>) -> Result<S> + Send + Sync + 'static;
 type HttpHandler =
@@ -44,6 +49,7 @@ pub struct ServerEnvContext<'a> {
     pub action: Option<&'a VerifiedServerAction>,
     pub render_pass_limit: usize,
     pub default_locale: &'a str,
+    pub route_params: ServerRouteParams,
 }
 
 #[derive(Clone)]
@@ -58,6 +64,7 @@ pub struct ServerRenderContext<'a> {
     pub action: Option<&'a VerifiedServerAction>,
     pub render_pass_limit: usize,
     pub default_locale: &'a str,
+    pub route_params: ServerRouteParams,
     pub(crate) env: &'a Env,
     pub(crate) response_status: &'a AtomicU16,
 }
@@ -89,17 +96,40 @@ pub(crate) struct ServerRouteEntry {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ServerRouteMatcher {
     Exact,
+    Dynamic { pattern: String },
     Prefix { prefix: String },
 }
 
 impl ServerRouteMatcher {
-    pub(crate) fn matches(&self, route_path: &str, request_path: &str) -> bool {
+    pub(crate) fn match_request(
+        &self,
+        route_path: &str,
+        request_path: &str,
+    ) -> Option<ServerRouteParams> {
         match self {
-            Self::Exact => route_path == request_path,
-            Self::Prefix { prefix } => {
-                request_path.starts_with(prefix) && request_path.len() > prefix.len()
-            }
+            Self::Exact => (route_path == request_path).then(ServerRouteParams::new),
+            Self::Dynamic { pattern } => match_dynamic_route(pattern, request_path),
+            Self::Prefix { prefix } => (request_path.starts_with(prefix)
+                && request_path.len() > prefix.len())
+            .then(ServerRouteParams::new),
         }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ServerRouteMatch {
+    pub path: String,
+    pub params: ServerRouteParams,
+}
+
+impl ServerRouteEntry {
+    pub(crate) fn match_request(&self, request_path: &str) -> Option<ServerRouteMatch> {
+        self.matcher
+            .match_request(&self.route.path, request_path)
+            .map(|params| ServerRouteMatch {
+                path: request_path.to_string(),
+                params,
+            })
     }
 }
 
@@ -108,6 +138,12 @@ pub(crate) struct ServerHttpHandlerEntry {
     pub method: String,
     pub path: String,
     pub handler: Arc<HttpHandler>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CacheInvalidationEndpoint {
+    pub path: String,
+    pub bearer_token: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -125,9 +161,12 @@ pub struct FissionServerApp {
     pub(crate) theme: Theme,
     pub(crate) env: Env,
     pub(crate) request_env_sync: Option<Arc<RequestEnvSync>>,
+    pub(crate) locale_resolver: Option<Arc<RequestLocaleResolver>>,
+    pub(crate) default_locale: Locale,
     pub(crate) jobs: ServerJobRegistry,
     pub(crate) routes: Vec<ServerRouteEntry>,
     pub(crate) http_handlers: Vec<ServerHttpHandlerEntry>,
+    pub(crate) cache_invalidation_endpoints: Vec<CacheInvalidationEndpoint>,
     pub(crate) static_mounts: Vec<StaticMount>,
     pub(crate) user_css: Vec<String>,
 }
@@ -140,9 +179,12 @@ impl FissionServerApp {
             theme: Theme::default(),
             env: Env::default(),
             request_env_sync: None,
+            locale_resolver: None,
+            default_locale: Locale::from("en"),
             jobs: ServerJobRegistry::new(),
             routes: Vec::new(),
             http_handlers: Vec::new(),
+            cache_invalidation_endpoints: Vec::new(),
             static_mounts: Vec::new(),
             user_css: Vec::new(),
         }
@@ -162,6 +204,31 @@ impl FissionServerApp {
     pub fn with_env(mut self, env: Env) -> Self {
         self.env = env;
         self.env.theme = self.theme.clone();
+        self
+    }
+
+    pub fn i18n(mut self, i18n: I18nRegistry) -> Self {
+        self.env.i18n = i18n;
+        self
+    }
+
+    pub fn translation_bundle(mut self, bundle: TranslationBundle) -> Self {
+        self.env.i18n.add_bundle(bundle);
+        self
+    }
+
+    pub fn default_locale(mut self, locale: impl Into<Locale>) -> Self {
+        let locale = locale.into();
+        self.env.locale = locale.clone();
+        self.default_locale = locale;
+        self
+    }
+
+    pub fn locale_resolver<F>(mut self, resolver: F) -> Self
+    where
+        F: for<'a> Fn(&ServerEnvContext<'a>) -> Result<Locale> + Send + Sync + 'static,
+    {
+        self.locale_resolver = Some(Arc::new(resolver));
         self
     }
 
@@ -205,6 +272,19 @@ impl FissionServerApp {
         F: for<'a> Fn(&ServerHttpContext<'a>) -> Result<ServerResponse> + Send + Sync + 'static,
     {
         self.http_handler("POST", path, handler)
+    }
+
+    pub fn cache_invalidation_endpoint(
+        mut self,
+        path: impl Into<String>,
+        bearer_token: impl Into<String>,
+    ) -> Self {
+        self.cache_invalidation_endpoints
+            .push(CacheInvalidationEndpoint {
+                path: normalize_server_path(&path.into()),
+                bearer_token: bearer_token.into(),
+            });
+        self
     }
 
     pub fn static_dir(
@@ -267,9 +347,10 @@ impl FissionServerApp {
     {
         let widget = Arc::new(widget);
         let initial_state: Arc<InitialStateLoader<S>> = Arc::new(initial_state);
+        let route_path = normalize_server_path(&path.into());
         self.routes.push(ServerRouteEntry {
             route: WebRoute {
-                path: normalize_server_path(&path.into()),
+                path: route_path.clone(),
                 title: title.into(),
                 description: description.into(),
                 mode,
@@ -277,7 +358,7 @@ impl FissionServerApp {
                 islands: Vec::new(),
                 structured_data: Vec::new(),
             },
-            matcher: ServerRouteMatcher::Exact,
+            matcher: matcher_for_route_path(&route_path),
             render: Arc::new(move |ctx| {
                 let state = initial_state(ctx)?;
                 render_widget_node::<S, W>(widget.as_ref(), ctx, state)
@@ -396,9 +477,16 @@ impl FissionServerApp {
                 matches!(entry.matcher, ServerRouteMatcher::Exact) && entry.route.path == path
             })
             .or_else(|| {
-                self.routes
-                    .iter()
-                    .find(|entry| entry.matcher.matches(&entry.route.path, &path))
+                self.routes.iter().find(|entry| {
+                    matches!(entry.matcher, ServerRouteMatcher::Dynamic { .. })
+                        && entry.match_request(&path).is_some()
+                })
+            })
+            .or_else(|| {
+                self.routes.iter().find(|entry| {
+                    matches!(entry.matcher, ServerRouteMatcher::Prefix { .. })
+                        && entry.match_request(&path).is_some()
+                })
             })
     }
 
@@ -412,6 +500,16 @@ impl FissionServerApp {
         self.http_handlers
             .iter()
             .find(|entry| entry.method == method && entry.path == path)
+    }
+
+    pub(crate) fn find_cache_invalidation_endpoint(
+        &self,
+        path: &str,
+    ) -> Option<&CacheInvalidationEndpoint> {
+        let path = normalize_server_path(path);
+        self.cache_invalidation_endpoints
+            .iter()
+            .find(|entry| entry.path == path)
     }
 
     pub(crate) fn apply_default_route_mode(&mut self, mode: WebRouteMode) {
@@ -430,11 +528,54 @@ impl FissionServerApp {
         env.theme = ctx.theme.clone();
         env.viewport_size = ctx.viewport_size;
         env.locale = ctx.default_locale.into();
+        env.current_route.pathname = ctx.route_path.to_string();
+        if let Some(resolve_locale) = &self.locale_resolver {
+            env.locale = resolve_locale(ctx)?;
+        }
         if let Some(sync) = &self.request_env_sync {
             sync(ctx, &mut env)?;
         }
         Ok(env)
     }
+}
+
+fn matcher_for_route_path(path: &str) -> ServerRouteMatcher {
+    if path
+        .trim_matches('/')
+        .split('/')
+        .any(|segment| segment.starts_with(':') && segment.len() > 1)
+    {
+        ServerRouteMatcher::Dynamic {
+            pattern: path.to_string(),
+        }
+    } else {
+        ServerRouteMatcher::Exact
+    }
+}
+
+fn match_dynamic_route(pattern: &str, path: &str) -> Option<ServerRouteParams> {
+    let pattern = pattern.trim_matches('/');
+    let path = path.trim_matches('/');
+    if pattern.is_empty() || path.is_empty() {
+        return (pattern == path).then(ServerRouteParams::new);
+    }
+    let pattern_segments = pattern.split('/').collect::<Vec<_>>();
+    let path_segments = path.split('/').collect::<Vec<_>>();
+    if pattern_segments.len() != path_segments.len() {
+        return None;
+    }
+    let mut params = ServerRouteParams::new();
+    for (pattern_segment, path_segment) in pattern_segments.into_iter().zip(path_segments) {
+        if let Some(name) = pattern_segment.strip_prefix(':') {
+            if name.is_empty() {
+                return None;
+            }
+            params.insert(name.to_string(), path_segment.to_string());
+        } else if pattern_segment != path_segment {
+            return None;
+        }
+    }
+    Some(params)
 }
 
 fn render_widget_node<S, W>(
