@@ -5,6 +5,7 @@ use crate::{
 };
 use anyhow::Result;
 use fission_core::internal::BuildCtx;
+use fission_core::registry::{VideoRegistration, WebRegistration};
 use fission_core::{
     ActionInput, Effect, Env, GlobalState, MotionDeclaration, RuntimeResourceDeclaration,
     RuntimeResourceKind, RuntimeState, View, Widget, WidgetId,
@@ -35,6 +36,9 @@ pub(crate) struct ServerRenderedNode {
     pub node: Widget,
     pub resources: Vec<RuntimeResourceDeclaration>,
     pub motion_declarations: Vec<MotionDeclaration>,
+    pub video_registrations: Vec<VideoRegistration>,
+    pub web_registrations: Vec<WebRegistration>,
+    pub portals: Vec<(Option<WidgetId>, Widget)>,
 }
 
 #[derive(Clone)]
@@ -594,6 +598,9 @@ where
     let mut final_node = None;
     let mut final_resources = Vec::new();
     let mut final_motion_declarations = Vec::new();
+    let mut final_video_registrations = Vec::new();
+    let mut final_web_registrations = Vec::new();
+    let mut final_portals = Vec::new();
 
     for pass in 0..=ctx.render_pass_limit {
         let view = View::new(&state, &runtime, env, None);
@@ -601,11 +608,12 @@ where
         let node = fission_core::build::enter(&mut build_ctx, &view, || (*widget).clone().into());
 
         if let Some(action) = pending_action.take() {
-            build_ctx.registry.dispatch(
+            let effects = build_ctx.registry.dispatch(
                 &mut state,
                 &action.action,
                 WidgetId::from_u128(action.target_node),
             )?;
+            drain_effect_jobs(&effects, &mut build_ctx, &mut state, ctx.jobs)?;
             continue;
         }
 
@@ -620,6 +628,9 @@ where
         final_node = Some(node);
         final_resources = resources;
         final_motion_declarations = build_ctx.take_motion_declarations();
+        final_video_registrations = build_ctx.take_video_registrations();
+        final_web_registrations = build_ctx.take_web_registrations();
+        final_portals = build_ctx.take_portals();
         if !dispatched {
             break;
         }
@@ -640,7 +651,67 @@ where
         }),
         resources: final_resources,
         motion_declarations: final_motion_declarations,
+        video_registrations: final_video_registrations,
+        web_registrations: final_web_registrations,
+        portals: final_portals,
     })
+}
+
+fn drain_effect_jobs<S: GlobalState>(
+    effects: &[fission_core::EffectEnvelope],
+    build_ctx: &mut BuildCtx<S>,
+    state: &mut S,
+    jobs: &ServerJobRegistry,
+) -> Result<bool> {
+    let mut dispatched = false;
+    for effect in effects {
+        let Effect::Job(payload) = &effect.effect else {
+            continue;
+        };
+        jobs.require_job(&payload.job_name)?;
+        let result = jobs.run(
+            &payload.job_name,
+            payload.payload.clone(),
+            crate::ServerJobCtx {
+                req_id: effect.req_id,
+                resource_key: format!("action-effect:{}", payload.job_name),
+            },
+        );
+        match result {
+            Ok(result_payload) => {
+                if let Some(action) = &effect.on_ok {
+                    build_ctx.registry.dispatch_with_input(
+                        state,
+                        action,
+                        WidgetId::from_u128(0),
+                        &ActionInput::JobOk {
+                            job_name: payload.job_name.clone(),
+                            req_id: effect.req_id,
+                            payload: result_payload,
+                        },
+                    )?;
+                    dispatched = true;
+                }
+            }
+            Err(error) => {
+                if let Some(action) = &effect.on_err {
+                    build_ctx.registry.dispatch_with_input(
+                        state,
+                        action,
+                        WidgetId::from_u128(0),
+                        &ActionInput::JobErr {
+                            job_name: payload.job_name.clone(),
+                            req_id: effect.req_id,
+                            payload: error.payload,
+                            message: error.message,
+                        },
+                    )?;
+                    dispatched = true;
+                }
+            }
+        }
+    }
+    Ok(dispatched)
 }
 
 fn drain_server_jobs<S: GlobalState>(

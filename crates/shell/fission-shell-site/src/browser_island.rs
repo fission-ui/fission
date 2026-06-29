@@ -2,6 +2,8 @@ use crate::{render_ir_to_html_with_styles, CssVariableMap, HtmlRenderOptions, St
 use anyhow::{anyhow, Context, Result};
 use fission_core::internal::BuildCtx;
 use fission_core::internal::InternalLoweringCx;
+use fission_core::registry::{ActionRegistry, VideoRegistration, WebRegistration};
+use fission_core::ui::{Overlay, ZStack};
 use fission_core::{
     ActionEnvelope, ActionId, Env, GlobalState, RuntimeState, View, Widget, WidgetId,
 };
@@ -97,7 +99,8 @@ where
             .transpose()?
             .unwrap_or_default();
 
-        let (_node, mut registry) = self.build_widget_and_registry();
+        let output = self.build_widget();
+        let mut registry = output.registry;
         registry.dispatch(
             &mut self.state,
             &ActionEnvelope {
@@ -110,7 +113,8 @@ where
     }
 
     fn render_bridge_output(&mut self, sequence: u64) -> Result<String> {
-        let (node, _registry) = self.build_widget_and_registry();
+        let output = self.build_widget();
+        let node = compose_browser_island_portals(output.node, output.portals);
         let runtime = RuntimeState::default();
         let mut env = Env::default();
         env.theme = self.theme.clone();
@@ -126,6 +130,17 @@ where
                 root_class: "fission-browser-island-root".to_string(),
                 css_variables: CssVariableMap::from_theme(&self.theme),
                 browser_action_bindings: true,
+                motion_declarations: output.motion_declarations,
+                video_registrations: output
+                    .video_registrations
+                    .into_iter()
+                    .map(|registration| (registration.node_id, registration))
+                    .collect(),
+                web_registrations: output
+                    .web_registrations
+                    .into_iter()
+                    .map(|registration| (registration.node_id, registration))
+                    .collect(),
                 ..Default::default()
             },
             &mut styles,
@@ -161,20 +176,55 @@ where
         .to_string())
     }
 
-    fn build_widget_and_registry(
-        &self,
-    ) -> (
-        fission_core::Widget,
-        fission_core::registry::ActionRegistry<S>,
-    ) {
+    fn build_widget(&self) -> BrowserIslandBuildOutput<S> {
         let runtime = RuntimeState::default();
         let mut env = Env::default();
         env.theme = self.theme.clone();
         let view = View::new(&self.state, &runtime, &env, None);
         let mut ctx = BuildCtx::<S>::new();
         let node = fission_core::build::enter(&mut ctx, &view, || self.widget.clone().into());
-        (node, ctx.registry)
+        let motion_declarations = ctx.take_motion_declarations();
+        let video_registrations = ctx.take_video_registrations();
+        let web_registrations = ctx.take_web_registrations();
+        let portals = ctx.take_portals();
+        let registry = ctx.registry;
+        BrowserIslandBuildOutput {
+            node,
+            registry,
+            motion_declarations,
+            video_registrations,
+            web_registrations,
+            portals,
+        }
     }
+}
+
+struct BrowserIslandBuildOutput<S: GlobalState> {
+    node: Widget,
+    registry: ActionRegistry<S>,
+    motion_declarations: Vec<fission_core::MotionDeclaration>,
+    video_registrations: Vec<VideoRegistration>,
+    web_registrations: Vec<WebRegistration>,
+    portals: Vec<(Option<WidgetId>, Widget)>,
+}
+
+fn compose_browser_island_portals(
+    node: Widget,
+    portals: Vec<(Option<WidgetId>, Widget)>,
+) -> Widget {
+    if portals.is_empty() {
+        return node;
+    }
+    Overlay {
+        id: None,
+        content: node,
+        overlay: ZStack {
+            id: None,
+            children: portals.into_iter().map(|(_, portal)| portal).collect(),
+        }
+        .into(),
+    }
+    .into()
 }
 
 /// Runs or initializes a named browser island instance.
