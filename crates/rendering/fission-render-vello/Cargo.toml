@@ -20,12 +20,14 @@ fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.5
 image = "0.24"
 lazy_static = "1.5.0"
 peniko = "0.5"
+moka = { version = "0.12.15", features = ["sync"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 ureq = "2"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = "0.3"
+uuid = { version = "1", features = ["js"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 web-time = "0.2"

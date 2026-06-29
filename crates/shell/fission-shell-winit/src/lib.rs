@@ -4680,6 +4680,44 @@ where
                                 presenter.retained_scene_cache.clear();
                             }
                             invalidations.mark_paint();
+                            let stats = fission_render_vello::image_cache_stats();
+                            diag::emit(
+                                diag::DiagCategory::Raster,
+                                diag::DiagLevel::Debug,
+                                diag::DiagEventKind::ImageCacheSummary {
+                                    renderer: "vello".to_string(),
+                                    entries: stats.entries,
+                                    weighted_bytes: stats.weighted_bytes,
+                                    max_bytes: stats.max_bytes,
+                                    pending: stats.pending,
+                                    hits: stats.hits,
+                                    misses: stats.misses,
+                                    loads_started: stats.loads_started,
+                                    loads_completed: stats.loads_completed,
+                                    loads_failed: stats.loads_failed,
+                                    evictions: stats.evictions,
+                                    offscreen_skips: stats.offscreen_skips,
+                                },
+                            );
+                            let stats = software_renderer::image_cache_stats();
+                            diag::emit(
+                                diag::DiagCategory::Raster,
+                                diag::DiagLevel::Debug,
+                                diag::DiagEventKind::ImageCacheSummary {
+                                    renderer: "software".to_string(),
+                                    entries: stats.entries,
+                                    weighted_bytes: stats.weighted_bytes,
+                                    max_bytes: stats.max_bytes,
+                                    pending: stats.pending,
+                                    hits: stats.hits,
+                                    misses: stats.misses,
+                                    loads_started: stats.loads_started,
+                                    loads_completed: stats.loads_completed,
+                                    loads_failed: stats.loads_failed,
+                                    evictions: stats.evictions,
+                                    offscreen_skips: 0,
+                                },
+                            );
                             request_redraw_logged(
                                 &window,
                                 elwt,
