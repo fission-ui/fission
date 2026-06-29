@@ -89,7 +89,7 @@ Enable Redis through the facade feature in the server app's `Cargo.toml`:
 
 ```toml
 [dependencies]
-fission = { version = "0.3", features = ["server", "server-redis"] }
+fission = { version = "0.5.0", features = ["server", "server-redis"] }
 ```
 
 ## Invalidate cached pages after writes
@@ -110,7 +110,42 @@ Admin and publishing workflows can call the renderer helpers instead:
 renderer.invalidate_cache_tags(["posts", "post:hello-world"])?;
 ```
 
-Both paths return an `InvalidationReport` so the caller can log how many cache keys and tag indexes were removed.
+Both paths return an `InvalidationReport` so the caller can log how many cache keys, tag indexes, and cache layers were affected.
+
+For an external publisher, register a protected invalidation endpoint on the app:
+
+```rust
+let app = FissionServerApp::new("Docs")
+    .cache_invalidation_endpoint(
+        "/admin/cache/invalidate",
+        std::env::var("CACHE_INVALIDATION_TOKEN")?,
+    )
+    .route_widget::<DocsState, _>(
+        "/posts/:slug",
+        "Post",
+        None,
+        WebRouteMode::Revalidated(
+            RevalidationPolicy::new(Duration::from_secs(300))
+                .tags(["posts", "post:hello-world"]),
+        ),
+        PostPage,
+    );
+```
+
+Then the publishing workflow can invalidate related entries without knowing whether the active provider is Moka, Redis, or a cache pipeline:
+
+```bash
+curl -X POST https://example.com/admin/cache/invalidate \
+  -H "Authorization: Bearer $CACHE_INVALIDATION_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data '{"tags":["posts","post:hello-world"]}'
+```
+
+The endpoint also accepts explicit cache keys when a workflow owns the exact key:
+
+```json
+{"tags":["posts"],"keys":["page:/posts/?#app:Docs#..."]}
+```
 
 ## 3. Configure sessions before using private routes
 

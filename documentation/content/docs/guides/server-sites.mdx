@@ -79,6 +79,24 @@ pub fn pokemon_card_store_server() -> FissionServerApp {
 
 The route widget remains the page's source of truth. Jobs describe when data is prepared before HTML is returned. Route mode describes whether the rendered page is public, revalidated, request-rendered, or session-private. Workers and islands describe browser-side enhancement without turning the whole page into one large browser app.
 
+Server routes use the same `:param` segment syntax as the widget router. A route such as `/cards/:slug` receives extracted parameters in `ServerRenderContext::route_params`, so the initial state loader can fetch the correct product before the widget tree is built:
+
+```rust
+.route_widget_with_state::<StoreState, _, _>(
+    "/cards/:slug",
+    "Card detail",
+    None,
+    WebRouteMode::ServerPrivate(ServerPrivatePolicy::default()),
+    CardDetailPage,
+    |ctx| {
+        let slug = ctx.route_params["slug"].clone();
+        Ok(StoreState::for_card(ctx.session.id(), slug))
+    },
+)
+```
+
+Exact routes take precedence over dynamic routes, so `/cards/new` can still be registered as its own route before `/cards/:slug`.
+
 ## 3. Use a normal CLI entrypoint
 
 The binary delegates to the server shell's CLI runner.

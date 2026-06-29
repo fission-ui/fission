@@ -295,15 +295,17 @@ Server-rendered apps and static sites use the same `Env` data, but they resolve 
 ```rust
 FissionServerApp::new("Docs")
     .with_env(create_env()?)
-    .with_request_env(|ctx, env| {
-        if ctx.route_path.starts_with("/fr/") {
-            env.locale = "fr".into();
-        }
-        Ok(())
+    .default_locale("en-US")
+    .locale_resolver(|ctx| {
+        Ok(if ctx.route_path.starts_with("/fr/") {
+            "fr".into()
+        } else {
+            ctx.default_locale.into()
+        })
     });
 ```
 
-For a static site, call `FissionSite::with_env(create_env()?)`. The static-site shell seeds `env.locale` from `site.default_locale` while rendering. The server shell seeds `env.locale` from `server.default_locale` and then runs `.with_request_env(...)`, so request-owned choices such as locale from a route prefix, cookie, session, or header can override the default.
+For a static site, call `FissionSite::with_env(create_env()?)`. The static-site shell seeds `env.locale` from `site.default_locale` while rendering. The server shell seeds `env.locale` from `server.default_locale` or `.default_locale(...)`, then runs `.locale_resolver(...)` and `.with_request_env(...)`, so request-owned choices such as locale from a route prefix, cookie, session, or header can override the default.
 
 This example has two separate jobs.
 
