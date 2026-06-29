@@ -20,6 +20,7 @@ fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.5
 image = "0.24"
 lazy_static = "1.5.0"
 peniko = "0.5"
+moka = { version = "0.12.15", features = ["sync"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 ureq = "2"

@@ -92,6 +92,8 @@ fn map_stroke(s: &fission_render::Stroke) -> (vello::kurbo::Stroke, Brush) {
 
 use crate::text::ParleyBrush;
 use lazy_static::lazy_static;
+use moka::notification::RemovalCause;
+use moka::sync::Cache;
 use parley::layout::{Alignment as ParleyAlignment, AlignmentOptions, PositionedLayoutItem};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, VecDeque};
@@ -104,6 +106,7 @@ use std::sync::{
 };
 use vello::{Glyph, Scene};
 
+const DEFAULT_IMAGE_CACHE_BYTES: u64 = 50 * 1024 * 1024;
 const PARAGRAPH_FADE_SLICE_COUNT: usize = 8;
 const PARAGRAPH_FADE_MIN_SPAN: f32 = 8.0;
 const PARAGRAPH_FADE_RIGHT_MULTIPLIER: f32 = 1.5;
@@ -351,11 +354,18 @@ fn paragraph_fade(
 }
 
 lazy_static! {
-    static ref IMAGE_CACHE: Mutex<HashMap<String, ImageCacheEntry>> = Mutex::new(HashMap::new());
+    static ref IMAGE_CACHE: Cache<String, ImageCacheEntry> = build_image_cache();
     static ref SVG_CACHE: Mutex<HashMap<u64, Arc<SvgCacheEntry>>> = Mutex::new(HashMap::new());
 }
 
 static IMAGE_CACHE_GENERATION: AtomicU64 = AtomicU64::new(0);
+static IMAGE_CACHE_HITS: AtomicU64 = AtomicU64::new(0);
+static IMAGE_CACHE_MISSES: AtomicU64 = AtomicU64::new(0);
+static IMAGE_LOADS_STARTED: AtomicU64 = AtomicU64::new(0);
+static IMAGE_LOADS_COMPLETED: AtomicU64 = AtomicU64::new(0);
+static IMAGE_LOADS_FAILED: AtomicU64 = AtomicU64::new(0);
+static IMAGE_CACHE_EVICTIONS: AtomicU64 = AtomicU64::new(0);
+static IMAGE_OFFSCREEN_SKIPS: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone)]
 enum ImageCacheEntry {
@@ -364,16 +374,114 @@ enum ImageCacheEntry {
     Failed,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ImageCacheStats {
+    pub entries: u64,
+    pub weighted_bytes: u64,
+    pub max_bytes: u64,
+    pub pending: u64,
+    pub hits: u64,
+    pub misses: u64,
+    pub loads_started: u64,
+    pub loads_completed: u64,
+    pub loads_failed: u64,
+    pub evictions: u64,
+    pub offscreen_skips: u64,
+}
+
+impl ImageCacheEntry {
+    fn weight(&self) -> u32 {
+        match self {
+            Self::Ready(image) => image_byte_len(image).min(u64::from(u32::MAX)) as u32,
+            // Pending and failed entries should not consume meaningful byte budget,
+            // but keeping a non-zero weight prevents unlimited metadata growth.
+            Self::Loading | Self::Failed => 1,
+        }
+    }
+}
+
+fn build_image_cache() -> Cache<String, ImageCacheEntry> {
+    Cache::<String, ImageCacheEntry>::builder()
+        .name("fission-render-vello-images")
+        .max_capacity(configured_image_cache_bytes())
+        .weigher(|_, entry| entry.weight())
+        .eviction_listener(|_, _, cause| {
+            if matches!(cause, RemovalCause::Size) {
+                IMAGE_CACHE_EVICTIONS.fetch_add(1, Ordering::AcqRel);
+            }
+        })
+        .build()
+}
+
+fn configured_image_cache_bytes() -> u64 {
+    std::env::var("FISSION_IMAGE_CACHE_BYTES")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_IMAGE_CACHE_BYTES)
+}
+
+fn image_byte_len(image: &ImageData) -> u64 {
+    u64::from(image.width)
+        .saturating_mul(u64::from(image.height))
+        .saturating_mul(4)
+}
+
+fn image_request_with_default_cache_size(
+    request: &ImageRequest,
+    rect: Rect,
+    transform: Affine,
+) -> ImageRequest {
+    if request.cache_width.is_some() && request.cache_height.is_some() {
+        return request.clone();
+    }
+
+    let transformed = VelloRenderer::transform_rect_bounds(transform, rect);
+    if transformed.width() <= 0.0 || transformed.height() <= 0.0 {
+        return request.clone();
+    }
+
+    let mut request = request.clone();
+    request.cache_width = Some(cache_dimension_from_extent(transformed.width()));
+    request.cache_height = Some(cache_dimension_from_extent(transformed.height()));
+    request
+}
+
+fn cache_dimension_from_extent(extent: f64) -> u32 {
+    if !extent.is_finite() {
+        return 1;
+    }
+    extent.ceil().clamp(1.0, f64::from(u32::MAX)) as u32
+}
+
 pub fn image_cache_generation() -> u64 {
     IMAGE_CACHE_GENERATION.load(Ordering::Acquire)
 }
 
 pub fn image_cache_has_pending() -> bool {
     IMAGE_CACHE
-        .lock()
-        .unwrap()
-        .values()
-        .any(|entry| matches!(entry, ImageCacheEntry::Loading))
+        .iter()
+        .any(|entry| matches!(entry.1, ImageCacheEntry::Loading))
+}
+
+pub fn image_cache_stats() -> ImageCacheStats {
+    IMAGE_CACHE.run_pending_tasks();
+    ImageCacheStats {
+        entries: IMAGE_CACHE.entry_count(),
+        weighted_bytes: IMAGE_CACHE.weighted_size(),
+        max_bytes: configured_image_cache_bytes(),
+        pending: IMAGE_CACHE
+            .iter()
+            .filter(|entry| matches!(entry.1, ImageCacheEntry::Loading))
+            .count() as u64,
+        hits: IMAGE_CACHE_HITS.load(Ordering::Acquire),
+        misses: IMAGE_CACHE_MISSES.load(Ordering::Acquire),
+        loads_started: IMAGE_LOADS_STARTED.load(Ordering::Acquire),
+        loads_completed: IMAGE_LOADS_COMPLETED.load(Ordering::Acquire),
+        loads_failed: IMAGE_LOADS_FAILED.load(Ordering::Acquire),
+        evictions: IMAGE_CACHE_EVICTIONS.load(Ordering::Acquire),
+        offscreen_skips: IMAGE_OFFSCREEN_SKIPS.load(Ordering::Acquire),
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -418,8 +526,12 @@ fn decode_dynamic_image(
 }
 
 fn complete_image_load(key: String, image: Option<Arc<ImageData>>) {
-    let mut cache = IMAGE_CACHE.lock().unwrap();
-    cache.insert(
+    if image.is_some() {
+        IMAGE_LOADS_COMPLETED.fetch_add(1, Ordering::AcqRel);
+    } else {
+        IMAGE_LOADS_FAILED.fetch_add(1, Ordering::AcqRel);
+    }
+    IMAGE_CACHE.insert(
         key,
         image
             .map(ImageCacheEntry::Ready)
@@ -596,7 +708,8 @@ mod image_tests {
             ..Default::default()
         };
         let key = request.stable_cache_key();
-        IMAGE_CACHE.lock().unwrap().remove(&key);
+        IMAGE_CACHE.invalidate(&key);
+        IMAGE_CACHE.run_pending_tasks();
         let before = image_cache_generation();
 
         spawn_image_load(key.clone(), request);
@@ -606,12 +719,53 @@ mod image_tests {
             std::thread::sleep(Duration::from_millis(10));
         }
 
-        let cache = IMAGE_CACHE.lock().unwrap();
-        let Some(ImageCacheEntry::Ready(image)) = cache.get(&key) else {
+        let Some(ImageCacheEntry::Ready(image)) = IMAGE_CACHE.get(&key) else {
             panic!("expected decoded image in cache");
         };
         assert_eq!(image.width, 1);
         assert_eq!(image.height, 1);
+    }
+
+    #[test]
+    fn missing_cache_size_defaults_to_transformed_draw_rect() {
+        let request = ImageRequest {
+            source: ImageSource::Memory {
+                bytes: tiny_png(),
+                mime_type: Some("image/png".into()),
+            },
+            ..Default::default()
+        };
+
+        let resolved = image_request_with_default_cache_size(
+            &request,
+            Rect::new(0.0, 0.0, 80.2, 40.1),
+            Affine::scale(2.0),
+        );
+
+        assert_eq!(resolved.cache_width, Some(161));
+        assert_eq!(resolved.cache_height, Some(81));
+    }
+
+    #[test]
+    fn explicit_cache_size_is_preserved() {
+        let request = ImageRequest {
+            source: ImageSource::Memory {
+                bytes: tiny_png(),
+                mime_type: Some("image/png".into()),
+            },
+            cache_width: Some(320),
+            cache_height: Some(180),
+            ..Default::default()
+        };
+
+        let resolved = image_request_with_default_cache_size(
+            &request,
+            Rect::new(0.0, 0.0, 80.0, 40.0),
+            Affine::scale(2.0),
+        );
+
+        assert_eq!(resolved.cache_width, Some(320));
+        assert_eq!(resolved.cache_height, Some(180));
     }
 
     #[test]
@@ -1376,6 +1530,18 @@ impl<'a> VelloRenderer<'a> {
         Self::rects_intersect(transformed, active_clip)
     }
 
+    fn image_request_for_rect(
+        &self,
+        request: &ImageRequest,
+        rect: fission_render::LayoutRect,
+    ) -> ImageRequest {
+        image_request_with_default_cache_size(
+            request,
+            Self::layout_rect_to_rect(rect),
+            self.current_transform,
+        )
+    }
+
     fn push_clip_bounds(&mut self, rect: Rect) {
         let transformed = Self::transform_rect_bounds(self.current_transform, rect);
         let clipped = if let Some(active_clip) = self.clip_stack.last().copied() {
@@ -1407,17 +1573,19 @@ impl<'a> VelloRenderer<'a> {
 
     fn get_image(&self, request: &ImageRequest) -> Option<Arc<ImageData>> {
         let key = request.stable_cache_key();
-        {
-            let mut cache = IMAGE_CACHE.lock().unwrap();
-            if let Some(entry) = cache.get(&key) {
-                return match entry {
-                    ImageCacheEntry::Ready(img) => Some(Arc::clone(img)),
-                    ImageCacheEntry::Loading | ImageCacheEntry::Failed => None,
-                };
-            }
-            cache.insert(key.clone(), ImageCacheEntry::Loading);
+        if let Some(entry) = IMAGE_CACHE.get(&key) {
+            return match entry {
+                ImageCacheEntry::Ready(img) => {
+                    IMAGE_CACHE_HITS.fetch_add(1, Ordering::Relaxed);
+                    Some(Arc::clone(&img))
+                }
+                ImageCacheEntry::Loading | ImageCacheEntry::Failed => None,
+            };
         }
 
+        IMAGE_CACHE_MISSES.fetch_add(1, Ordering::Relaxed);
+        IMAGE_LOADS_STARTED.fetch_add(1, Ordering::Relaxed);
+        IMAGE_CACHE.insert(key.clone(), ImageCacheEntry::Loading);
         spawn_image_load(key, request.clone());
         None
     }
@@ -2804,7 +2972,12 @@ impl<'a> VelloRenderer<'a> {
                     alignment,
                     ..
                 } => {
-                    if let Some(image_data) = self.get_image(request) {
+                    if !self.local_rect_visible(Self::layout_rect_to_rect(*rect)) {
+                        IMAGE_OFFSCREEN_SKIPS.fetch_add(1, Ordering::Relaxed);
+                        continue;
+                    }
+                    let request = self.image_request_for_rect(request, *rect);
+                    if let Some(image_data) = self.get_image(&request) {
                         let rect_w = rect.size.width as f64;
                         let rect_h = rect.size.height as f64;
                         let img_w = image_data.width as f64;

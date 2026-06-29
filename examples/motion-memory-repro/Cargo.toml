@@ -1,0 +1,9 @@
+[package]
+name = "motion-memory-repro"
+version = "0.5.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0"
+fission = { path = "../../crates/authoring/fission", default-features = false, features = ["desktop"] }
+image = { version = "0.25", default-features = false, features = ["png"] }

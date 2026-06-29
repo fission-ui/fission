@@ -8,6 +8,8 @@ use fontdue::{
     layout::{CoordinateSystem, Layout, LayoutSettings, TextStyle as FontdueTextStyle},
     Font, FontSettings,
 };
+use moka::notification::RemovalCause;
+use moka::sync::Cache;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -23,6 +25,8 @@ use tiny_skia::{
     PremultipliedColorU8, Shader, SpreadMode, Stroke as TinyStroke, Transform,
 };
 use vello::kurbo::{BezPath, PathEl, Rect as KurboRect, RoundedRect, Shape};
+
+const DEFAULT_IMAGE_CACHE_BYTES: u64 = 50 * 1024 * 1024;
 
 #[derive(Clone)]
 struct DrawState {
@@ -50,15 +54,44 @@ enum SvgShape {
 }
 
 static DEFAULT_FONT: OnceLock<Font> = OnceLock::new();
-static IMAGE_CACHE: OnceLock<Mutex<HashMap<String, ImageCacheEntry>>> = OnceLock::new();
+static IMAGE_CACHE: OnceLock<Cache<String, ImageCacheEntry>> = OnceLock::new();
 static SVG_CACHE: OnceLock<Mutex<HashMap<u64, Arc<SvgCacheEntry>>>> = OnceLock::new();
 static IMAGE_CACHE_GENERATION: AtomicU64 = AtomicU64::new(0);
+static IMAGE_CACHE_HITS: AtomicU64 = AtomicU64::new(0);
+static IMAGE_CACHE_MISSES: AtomicU64 = AtomicU64::new(0);
+static IMAGE_LOADS_STARTED: AtomicU64 = AtomicU64::new(0);
+static IMAGE_LOADS_COMPLETED: AtomicU64 = AtomicU64::new(0);
+static IMAGE_LOADS_FAILED: AtomicU64 = AtomicU64::new(0);
+static IMAGE_CACHE_EVICTIONS: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone)]
 enum ImageCacheEntry {
     Ready(Arc<Pixmap>),
     Loading,
     Failed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ImageCacheStats {
+    pub entries: u64,
+    pub weighted_bytes: u64,
+    pub max_bytes: u64,
+    pub pending: u64,
+    pub hits: u64,
+    pub misses: u64,
+    pub loads_started: u64,
+    pub loads_completed: u64,
+    pub loads_failed: u64,
+    pub evictions: u64,
+}
+
+impl ImageCacheEntry {
+    fn weight(&self) -> u32 {
+        match self {
+            Self::Ready(image) => pixmap_byte_len(image).min(u64::from(u32::MAX)) as u32,
+            Self::Loading | Self::Failed => 1,
+        }
+    }
 }
 
 fn default_font() -> &'static Font {
@@ -71,8 +104,61 @@ fn default_font() -> &'static Font {
     })
 }
 
-fn image_cache() -> &'static Mutex<HashMap<String, ImageCacheEntry>> {
-    IMAGE_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+fn image_cache() -> &'static Cache<String, ImageCacheEntry> {
+    IMAGE_CACHE.get_or_init(build_image_cache)
+}
+
+fn build_image_cache() -> Cache<String, ImageCacheEntry> {
+    Cache::<String, ImageCacheEntry>::builder()
+        .name("fission-software-images")
+        .max_capacity(configured_image_cache_bytes())
+        .weigher(|_, entry| entry.weight())
+        .eviction_listener(|_, _, cause| {
+            if matches!(cause, RemovalCause::Size) {
+                IMAGE_CACHE_EVICTIONS.fetch_add(1, Ordering::AcqRel);
+            }
+        })
+        .build()
+}
+
+fn configured_image_cache_bytes() -> u64 {
+    std::env::var("FISSION_IMAGE_CACHE_BYTES")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_IMAGE_CACHE_BYTES)
+}
+
+fn pixmap_byte_len(image: &Pixmap) -> u64 {
+    u64::from(image.width())
+        .saturating_mul(u64::from(image.height()))
+        .saturating_mul(4)
+}
+
+fn image_request_with_default_cache_size(
+    request: &ImageRequest,
+    rect: fission_render::LayoutRect,
+    scale_factor: f32,
+) -> ImageRequest {
+    if request.cache_width.is_some() && request.cache_height.is_some() {
+        return request.clone();
+    }
+    if rect.width() <= 0.0 || rect.height() <= 0.0 {
+        return request.clone();
+    }
+
+    let scale = normalized_scale_factor(scale_factor).max(1.0);
+    let mut request = request.clone();
+    request.cache_width = Some(cache_dimension_from_extent(rect.width() * scale));
+    request.cache_height = Some(cache_dimension_from_extent(rect.height() * scale));
+    request
+}
+
+fn cache_dimension_from_extent(extent: f32) -> u32 {
+    if !extent.is_finite() {
+        return 1;
+    }
+    extent.ceil().clamp(1.0, u32::MAX as f32) as u32
 }
 
 pub(crate) fn image_cache_generation() -> u64 {
@@ -81,10 +167,27 @@ pub(crate) fn image_cache_generation() -> u64 {
 
 pub(crate) fn image_cache_has_pending() -> bool {
     image_cache()
-        .lock()
-        .unwrap()
-        .values()
-        .any(|entry| matches!(entry, ImageCacheEntry::Loading))
+        .iter()
+        .any(|entry| matches!(entry.1, ImageCacheEntry::Loading))
+}
+
+pub(crate) fn image_cache_stats() -> ImageCacheStats {
+    image_cache().run_pending_tasks();
+    ImageCacheStats {
+        entries: image_cache().entry_count(),
+        weighted_bytes: image_cache().weighted_size(),
+        max_bytes: configured_image_cache_bytes(),
+        pending: image_cache()
+            .iter()
+            .filter(|entry| matches!(entry.1, ImageCacheEntry::Loading))
+            .count() as u64,
+        hits: IMAGE_CACHE_HITS.load(Ordering::Acquire),
+        misses: IMAGE_CACHE_MISSES.load(Ordering::Acquire),
+        loads_started: IMAGE_LOADS_STARTED.load(Ordering::Acquire),
+        loads_completed: IMAGE_LOADS_COMPLETED.load(Ordering::Acquire),
+        loads_failed: IMAGE_LOADS_FAILED.load(Ordering::Acquire),
+        evictions: IMAGE_CACHE_EVICTIONS.load(Ordering::Acquire),
+    }
 }
 
 fn svg_cache() -> &'static Mutex<HashMap<u64, Arc<SvgCacheEntry>>> {
@@ -344,17 +447,19 @@ fn wrap_max_width(bounds_width: f32, font_size: f32, wrap: bool) -> Option<f32> 
 
 fn cached_image(request: &ImageRequest) -> Option<Arc<Pixmap>> {
     let key = request.stable_cache_key();
-    {
-        let mut cache = image_cache().lock().unwrap();
-        if let Some(entry) = cache.get(&key) {
-            return match entry {
-                ImageCacheEntry::Ready(image) => Some(Arc::clone(image)),
-                ImageCacheEntry::Loading | ImageCacheEntry::Failed => None,
-            };
-        }
-        cache.insert(key.clone(), ImageCacheEntry::Loading);
+    if let Some(entry) = image_cache().get(&key) {
+        return match entry {
+            ImageCacheEntry::Ready(image) => {
+                IMAGE_CACHE_HITS.fetch_add(1, Ordering::Relaxed);
+                Some(Arc::clone(&image))
+            }
+            ImageCacheEntry::Loading | ImageCacheEntry::Failed => None,
+        };
     }
 
+    IMAGE_CACHE_MISSES.fetch_add(1, Ordering::Relaxed);
+    IMAGE_LOADS_STARTED.fetch_add(1, Ordering::Relaxed);
+    image_cache().insert(key.clone(), ImageCacheEntry::Loading);
     spawn_image_load(key, request.clone());
     None
 }
@@ -397,8 +502,12 @@ fn decode_dynamic_image(
 }
 
 fn complete_image_load(key: String, image: Option<Arc<Pixmap>>) {
-    let mut cache = image_cache().lock().unwrap();
-    cache.insert(
+    if image.is_some() {
+        IMAGE_LOADS_COMPLETED.fetch_add(1, Ordering::AcqRel);
+    } else {
+        IMAGE_LOADS_FAILED.fetch_add(1, Ordering::AcqRel);
+    }
+    image_cache().insert(
         key,
         image
             .map(ImageCacheEntry::Ready)
@@ -588,7 +697,8 @@ mod image_tests {
             ..Default::default()
         };
         let key = request.stable_cache_key();
-        image_cache().lock().unwrap().remove(&key);
+        image_cache().invalidate(&key);
+        image_cache().run_pending_tasks();
         let before = image_cache_generation();
 
         spawn_image_load(key.clone(), request);
@@ -598,8 +708,7 @@ mod image_tests {
             std::thread::sleep(Duration::from_millis(10));
         }
 
-        let cache = image_cache().lock().unwrap();
-        let Some(ImageCacheEntry::Ready(image)) = cache.get(&key) else {
+        let Some(ImageCacheEntry::Ready(image)) = image_cache().get(&key) else {
             panic!("expected decoded image in cache");
         };
         assert_eq!(image.width(), 1);
@@ -628,7 +737,8 @@ mod image_tests {
             ..Default::default()
         };
         let key = request.stable_cache_key();
-        image_cache().lock().unwrap().remove(&key);
+        image_cache().invalidate(&key);
+        image_cache().run_pending_tasks();
         let before = image_cache_generation();
         spawn_image_load(key.clone(), request.clone());
 
@@ -709,10 +819,13 @@ mod image_tests {
                 bytes: solid_png(4, 2, [255, 0, 0, 255]),
                 mime_type: Some("image/png".into()),
             },
+            cache_width: Some(4),
+            cache_height: Some(2),
             ..Default::default()
         };
         let key = request.stable_cache_key();
-        image_cache().lock().unwrap().remove(&key);
+        image_cache().invalidate(&key);
+        image_cache().run_pending_tasks();
         let before = image_cache_generation();
         spawn_image_load(key.clone(), request.clone());
 
@@ -1276,15 +1389,20 @@ impl SoftwareRenderer {
         fit: ImageFit,
         alignment: ImageAlignment,
     ) -> Result<()> {
-        let image = match cached_image(request) {
+        let rect_w = rect.width();
+        let rect_h = rect.height();
+        if rect_w <= 0.0 || rect_h <= 0.0 {
+            return Ok(());
+        }
+
+        let request = image_request_with_default_cache_size(request, rect, self.scale_factor);
+        let image = match cached_image(&request) {
             Some(image) => image,
             None => return Ok(()),
         };
-        let rect_w = rect.width();
-        let rect_h = rect.height();
         let img_w = image.width() as f32;
         let img_h = image.height() as f32;
-        if rect_w <= 0.0 || rect_h <= 0.0 || img_w <= 0.0 || img_h <= 0.0 {
+        if img_w <= 0.0 || img_h <= 0.0 {
             return Ok(());
         }
 
