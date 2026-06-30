@@ -43,7 +43,7 @@
     <application
         android:debuggable="true"
         android:extractNativeLibs="true"
-        android:hasCode="true"
+        android:hasCode="false"
         android:icon="@drawable/app_icon"
         android:label="FieldInspector">
         <activity

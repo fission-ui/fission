@@ -18,7 +18,8 @@
             android:name="android.app.NativeActivity"
             android:configChanges="orientation|keyboardHidden|screenSize|screenLayout|smallestScreenSize|uiMode|density"
             android:exported="true"
-            android:launchMode="singleTask">
+            android:launchMode="singleTask"
+            android:theme="@style/FissionLaunchTheme">
             <meta-data
                 android:name="android.app.lib_name"
                 android:value="mobile_smoke" />
