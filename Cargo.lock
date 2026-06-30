@@ -2870,6 +2870,7 @@ name = "fission-shell-site"
 version = "0.5.1"
 dependencies = [
  "anyhow",
+ "base64",
  "fission-core",
  "fission-i18n",
  "fission-ir",

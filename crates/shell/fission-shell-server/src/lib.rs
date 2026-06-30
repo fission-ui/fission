@@ -24,7 +24,8 @@ pub use adapters::actix_adapter;
 pub use adapters::axum_adapter;
 pub use adapters::hyper_adapter;
 pub use app::{
-    FissionServerApp, ServerEnvContext, ServerHttpContext, ServerRenderContext, StaticMount,
+    FissionServerApp, ServerEnvContext, ServerHttpContext, ServerRenderContext, ServerRouteParams,
+    StaticMount,
 };
 pub use artifacts::{
     BrowserArtifactBuild, BrowserArtifactBuildOptions, BrowserArtifactKind, BrowserArtifactPlan,

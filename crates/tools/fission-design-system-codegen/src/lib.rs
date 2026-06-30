@@ -1846,8 +1846,7 @@ fn flatten_tokens(value: &Value, prefix: String, out: &mut BTreeMap<String, Toke
             format!("{prefix}.{key}")
         };
         if let Some(child_obj) = child.as_object() {
-            let value_field = child_obj.get("value").or_else(|| child_obj.get("$value"));
-            if let Some(raw_value) = value_field {
+            if let Some(raw_value) = token_object_value(child_obj) {
                 let token_value = match raw_value {
                     Value::String(s) => s.clone(),
                     Value::Number(n) => n.to_string(),
@@ -1872,6 +1871,27 @@ fn flatten_tokens(value: &Value, prefix: String, out: &mut BTreeMap<String, Toke
         }
     }
     Ok(())
+}
+
+fn token_object_value(obj: &serde_json::Map<String, Value>) -> Option<&Value> {
+    let value_field = obj.get("value").or_else(|| obj.get("$value"))?;
+    if obj.contains_key("type") || obj.contains_key("$type") {
+        return Some(value_field);
+    }
+    if value_field
+        .as_object()
+        .is_some_and(looks_like_nested_token_object)
+    {
+        return None;
+    }
+    Some(value_field)
+}
+
+fn looks_like_nested_token_object(obj: &serde_json::Map<String, Value>) -> bool {
+    obj.contains_key("value")
+        || obj.contains_key("$value")
+        || obj.contains_key("type")
+        || obj.contains_key("$type")
 }
 
 #[derive(Debug, Clone)]
@@ -2234,5 +2254,46 @@ fn f32_lit(value: f32) -> String {
             out.push_str(".0");
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn token_groups_can_have_a_child_token_named_value() {
+        let raw = json!({
+            "color": {
+                "light": {
+                    "primary": { "value": "#2563EB", "type": "color" },
+                    "value": { "value": "#A6E22E", "type": "color" },
+                    "value_text": { "value": "#365314", "type": "color" }
+                }
+            }
+        });
+
+        let tokens = TokenStore::from_value(&raw).unwrap();
+
+        assert!(tokens.contains("color.light.primary"));
+        assert!(tokens.contains("color.light.value"));
+        assert!(tokens.contains("color.light.value_text"));
+        assert_eq!(tokens.resolve("color.light.primary").unwrap(), "#2563EB");
+        assert_eq!(tokens.resolve("color.light.value").unwrap(), "#A6E22E");
+    }
+
+    #[test]
+    fn legacy_scalar_value_without_type_still_counts_as_token() {
+        let raw = json!({
+            "spacing": {
+                "small": { "value": "4px" }
+            }
+        });
+
+        let tokens = TokenStore::from_value(&raw).unwrap();
+
+        assert!(tokens.contains("spacing.small"));
+        assert_eq!(tokens.resolve("spacing.small").unwrap(), "4px");
     }
 }

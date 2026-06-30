@@ -55,13 +55,13 @@ Use a preset when it matches the platform or brand direction you want. Copy it i
 
 `Env` carries the active theme, internationalization registry, locale, and other app-wide presentation context. During component conversion, widgets can read those values through `view.env` or convenience helpers such as `view.theme()`.
 
-Desktop exposes both `with_env(...)` and `with_sync_env(...)`. Mobile and web expose `with_sync_env(...)`. SSR apps expose `with_env(...)` and `with_request_env(...)`. Static site targets expose `with_env(...)`.
+Desktop exposes both `with_env(...)` and `with_sync_env(...)`. Mobile and web expose `with_sync_env(...)`. SSR apps expose `with_env(...)`, `i18n(...)`, `translation_bundle(...)`, `default_locale(...)`, `locale_resolver(...)`, and `with_request_env(...)`. Static site targets expose `with_env(...)`.
 
 Use `with_env(...)` to seed a base environment before the first frame, such as one that already contains translation bundles.
 
 Use `with_sync_env(...)` when app state should update environment values every frame, such as mirroring a user-selected theme mode, locale, or window title into `Env`.
 
-Use `with_request_env(...)` on `FissionServerApp` when request data should select presentation context before SSR, such as choosing `env.locale` from a path prefix, header, cookie, or session. The server shell uses the resolved request `Env` for both widget building and lowering, so `TextContent::Key` resolves consistently in rendered HTML.
+Use `translation_bundle(...)` or `i18n(...)` on `FissionServerApp` to register server-side bundles. Use `default_locale(...)` for the fallback locale and `locale_resolver(...)` when request data should select the locale before SSR, such as choosing from a path prefix, route parameter, header, cookie, or session. Use `with_request_env(...)` for other request-owned `Env` values. The server shell uses the resolved request `Env` for both widget building and lowering, so `TextContent::Key` resolves consistently in rendered HTML.
 
 ```rust
 DesktopApp::new(MyApp)

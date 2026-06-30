@@ -1,15 +1,17 @@
 use anyhow::{anyhow, bail, Result};
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use fission_core::{
+    registry::{VideoRegistration, WebRegistration},
     MotionDeclaration, MotionDeclarationKind, MotionEasing, MotionExpr, MotionPropertyId,
     MotionStartValue, MotionTrack, MotionTransition, MotionValue,
 };
 use fission_ir::op::{
-    decode_inline_widget_marker, AlignItems, BoxShadow, Color, CompositeScalar, Fill,
-    FlexDirection, FlexWrap, FontStyle, GridPlacement, GridTrack, ImageFit, ImageSource,
-    JustifyContent, LayoutOp, LineCap, LineJoin, Op, PaintOp, Stroke, TextAlign, TextOverflow,
-    TextRun,
+    decode_inline_widget_marker, AlignItems, BoxShadow, Color, CompositeScalar, EmbedKind, Fill,
+    FlexDirection, FlexWrap, FontStyle, GridPlacement, GridTrack, ImageAlignment, ImageFit,
+    ImageSource, JustifyContent, LayoutOp, LineCap, LineJoin, Op, PaintOp, Stroke, TextAlign,
+    TextOverflow, TextRun,
 };
-use fission_ir::{semantics::ActionTrigger, CoreIR, CoreNode, Role, WidgetId};
+use fission_ir::{semantics::ActionTrigger, CoreIR, CoreNode, Role, Semantics, WidgetId};
 use fission_theme::{DesignMode, Theme};
 use std::collections::{BTreeMap, HashSet};
 
@@ -38,6 +40,8 @@ pub struct HtmlRenderOptions {
     pub body_start_html: Vec<String>,
     pub body_end_html: Vec<String>,
     pub motion_declarations: Vec<MotionDeclaration>,
+    pub video_registrations: BTreeMap<WidgetId, VideoRegistration>,
+    pub web_registrations: BTreeMap<WidgetId, WebRegistration>,
 }
 
 impl Default for HtmlRenderOptions {
@@ -66,6 +70,8 @@ impl Default for HtmlRenderOptions {
             body_start_html: Vec::new(),
             body_end_html: Vec::new(),
             motion_declarations: Vec::new(),
+            video_registrations: BTreeMap::new(),
+            web_registrations: BTreeMap::new(),
         }
     }
 }
@@ -607,27 +613,6 @@ fn validate_static_ir(ir: &CoreIR, allow_server_actions: bool) -> Result<()> {
                         node.id
                     );
                 }
-                match semantics.role {
-                    Role::TextInput
-                    | Role::Checkbox
-                    | Role::Switch
-                    | Role::Slider
-                    | Role::Input => {
-                        bail!(
-                            "static site renderer cannot lower interactive semantic role {:?} on node {}; provide static content or move this route to a web target",
-                            semantics.role,
-                            node.id
-                        );
-                    }
-                    _ => {}
-                }
-            }
-            Op::Layout(LayoutOp::Embed { kind, .. }) => {
-                bail!(
-                    "static site renderer cannot lower embedded surface {:?} on node {}; provide a static fallback widget for the site target",
-                    kind,
-                    node.id
-                );
             }
             _ => {}
         }
@@ -683,8 +668,10 @@ impl HtmlRenderer<'_> {
         style.extend(self.coalesced_paint_style(node, &mut skip)?);
         let (composite_style, animated) = self.composite_style(node);
         style.extend(composite_style);
+        let (motion_style, node_motion_animated) = self.node_motion_style(node.id);
+        style.extend(motion_style);
         let children = self.render_children(&node.children, &skip)?;
-        let class_name = if animated {
+        let class_name = if animated || node_motion_animated {
             format!("{class_name} fission-site-animated")
         } else {
             class_name.to_string()
@@ -777,14 +764,14 @@ impl HtmlRenderer<'_> {
                 px(translate_y)
             ));
             style.push(format!("scale:{}", px(scale)));
-            style.push(format!("rotate:{}rad", px(rotation)));
+            style.push(format!("rotate:{}deg", px(rotation)));
         } else if translate_x != 0.0
             || translate_y != 0.0
             || (scale - 1.0).abs() > f32::EPSILON
             || rotation != 0.0
         {
             style.push(format!(
-                "transform:translate({}px,{}px) scale({}) rotate({}rad)",
+                "transform:translate({}px,{}px) scale({}) rotate({}deg)",
                 px(translate_x),
                 px(translate_y),
                 scale,
@@ -835,12 +822,85 @@ impl HtmlRenderer<'_> {
         (style, !animations.is_empty())
     }
 
+    fn node_motion_style(&mut self, target: WidgetId) -> (Vec<String>, bool) {
+        let mut style = Vec::new();
+        let mut animations = Vec::new();
+
+        for (property, css_property) in [
+            (MotionPropertyId::Width, CssAnimationProperty::Width),
+            (MotionPropertyId::Height, CssAnimationProperty::Height),
+            (
+                MotionPropertyId::CornerRadius,
+                CssAnimationProperty::CornerRadius,
+            ),
+        ] {
+            let Some(track) = self.motion_track_for_target(target, property.clone()) else {
+                continue;
+            };
+            if let Some(final_value) = motion_expr_length_css(&track.to) {
+                style.push(format!("{}:{final_value}", css_property.property_name()));
+            }
+            if let (Some(from), Some(to)) = (
+                animation_start_scalar(&track, 0.0),
+                motion_expr_scalar_value(&track.to),
+            ) {
+                animations.push(self.animation_css(css_property, to, &track, Some(from)));
+            }
+        }
+
+        for (property, css_property) in [
+            (
+                MotionPropertyId::BackgroundColor,
+                CssColorAnimationProperty::BackgroundColor,
+            ),
+            (
+                MotionPropertyId::BorderColor,
+                CssColorAnimationProperty::BorderColor,
+            ),
+            (
+                MotionPropertyId::TextColor,
+                CssColorAnimationProperty::TextColor,
+            ),
+        ] {
+            let Some(track) = self.motion_track_for_target(target, property.clone()) else {
+                continue;
+            };
+            if let Some(final_color) = motion_expr_color_value(&track.to) {
+                style.push(format!(
+                    "{}:{}",
+                    css_property.property_name(),
+                    self.color_css(final_color)
+                ));
+                let from = animation_start_color(&track).unwrap_or(final_color);
+                animations.push(self.color_animation_css(css_property, from, final_color, &track));
+            }
+        }
+
+        if !animations.is_empty() {
+            style.push(format!("animation:{}", animations.join(",")));
+            self.styles.raw_rule(
+                "fission-site-reduced-motion-animations",
+                "@media (prefers-reduced-motion:reduce){.fission-site-animated{animation:none!important;}}\n",
+            );
+        }
+
+        (style, !animations.is_empty())
+    }
+
     fn animation_request(
         &self,
         scalar: &CompositeScalar,
         property: MotionPropertyId,
     ) -> Option<MotionTrack> {
         let target = scalar.motion_target?;
+        self.motion_track_for_target(target, property)
+    }
+
+    fn motion_track_for_target(
+        &self,
+        target: WidgetId,
+        property: MotionPropertyId,
+    ) -> Option<MotionTrack> {
         self.options
             .motion_declarations
             .iter()
@@ -911,6 +971,47 @@ impl HtmlRenderer<'_> {
             "@keyframes {name}{{from{{{}}}to{{{}}}}}\n",
             property.css_declaration(from),
             property.css_declaration(to)
+        );
+        self.styles.raw_rule(name.clone(), rule);
+        name
+    }
+
+    fn color_animation_css(
+        &mut self,
+        property: CssColorAnimationProperty,
+        from: Color,
+        to: Color,
+        request: &MotionTrack,
+    ) -> String {
+        let name = self.register_color_animation_keyframes(property, from, to, request);
+        let (duration_ms, delay_ms, easing, repeat) = transition_css_parts(&request.transition);
+        format!(
+            "{} {}ms {} {}ms {} normal both",
+            name,
+            duration_ms,
+            easing_css(&easing),
+            delay_ms,
+            if repeat { "infinite" } else { "1" }
+        )
+    }
+
+    fn register_color_animation_keyframes(
+        &mut self,
+        property: CssColorAnimationProperty,
+        from: Color,
+        to: Color,
+        request: &MotionTrack,
+    ) -> String {
+        let (duration_ms, delay_ms, easing, repeat) = transition_css_parts(&request.transition);
+        let key = format!(
+            "{property:?}:{from:?}:{to:?}:{:?}:{}:{}:{}",
+            easing, duration_ms, delay_ms, repeat
+        );
+        let name = format!("fission_anim_{:016x}", stable_hash(key.as_bytes()));
+        let rule = format!(
+            "@keyframes {name}{{from{{{}}}to{{{}}}}}\n",
+            property.css_declaration(self, from),
+            property.css_declaration(self, to)
         );
         self.styles.raw_rule(name.clone(), rule);
         name
@@ -1009,7 +1110,12 @@ impl HtmlRenderer<'_> {
                 push_grid_placement(&mut style, "grid-row-end", *row_end);
                 push_grid_placement(&mut style, "grid-column-start", *col_start);
                 push_grid_placement(&mut style, "grid-column-end", *col_end);
-                self.render_element("div", node, "fission-site-node fission-site-grid-item", style)
+                self.render_element(
+                    "div",
+                    node,
+                    "fission-site-node fission-site-grid-item",
+                    style,
+                )
             }
             LayoutOp::Scroll {
                 direction,
@@ -1042,7 +1148,12 @@ impl HtmlRenderer<'_> {
                 push_flex_item(&mut style, *flex_grow, *flex_shrink);
                 self.render_element("div", node, "fission-site-node fission-site-scroll", style)
             }
-            LayoutOp::Embed { .. } => unreachable!("embed ops are rejected before rendering"),
+            LayoutOp::Embed {
+                kind,
+                widget_id,
+                width,
+                height,
+            } => self.render_embed(node, kind, *widget_id, *width, *height),
             LayoutOp::AbsoluteFill => self.render_element(
                 "div",
                 node,
@@ -1064,7 +1175,12 @@ impl HtmlRenderer<'_> {
                 push_optional_px(&mut style, "bottom", *bottom);
                 push_optional_px(&mut style, "width", *width);
                 push_optional_px(&mut style, "height", *height);
-                self.render_element("div", node, "fission-site-node fission-site-positioned", style)
+                self.render_element(
+                    "div",
+                    node,
+                    "fission-site-node fission-site-positioned",
+                    style,
+                )
             }
             LayoutOp::ZStack => self.render_element(
                 "div",
@@ -1082,10 +1198,24 @@ impl HtmlRenderer<'_> {
                     "justify-content:center".to_string(),
                 ],
             ),
-            LayoutOp::Flyout { .. } => bail!(
-                "static site renderer cannot lower flyout layout on node {}; render open dialog content as normal page content for site output",
-                node.id
-            ),
+            LayoutOp::Flyout { anchor, content } => {
+                let children = self.render_children(&node.children, &HashSet::new())?;
+                let class_name = self.class_name(
+                    "fission-site-node fission-site-flyout",
+                    vec![
+                        "position:absolute".to_string(),
+                        "z-index:1000".to_string(),
+                        "inset:auto".to_string(),
+                    ],
+                );
+                Ok(format!(
+                    "<div class=\"{}\" data-fission-flyout-anchor=\"{}\" data-fission-flyout-content=\"{}\" data-fission-node=\"{}\">{children}</div>",
+                    escape_attr(&class_name),
+                    anchor,
+                    content,
+                    node.id
+                ))
+            }
             LayoutOp::Transform { transform } => self.render_element(
                 "div",
                 node,
@@ -1100,6 +1230,96 @@ impl HtmlRenderer<'_> {
                 self.render_element("div", node, "fission-site-node fission-site-clip", style)
             }
         }
+    }
+
+    fn render_embed(
+        &mut self,
+        node: &CoreNode,
+        kind: &EmbedKind,
+        widget_id: WidgetId,
+        width: Option<f32>,
+        height: Option<f32>,
+    ) -> Result<String> {
+        let mut style = vec!["display:block".to_string()];
+        if let Some(width) = width {
+            style.push(format!("width:{}px", px(width)));
+        } else {
+            style.push("width:100%".to_string());
+        }
+        if let Some(height) = height {
+            style.push(format!("height:{}px", px(height)));
+        } else {
+            style.push("height:100%".to_string());
+        }
+        let class_name = self.class_name("fission-site-node fission-site-embed", style);
+        match kind {
+            EmbedKind::Video => {
+                if let Some(video) = self.options.video_registrations.get(&widget_id) {
+                    let mut attrs = format!(
+                        " class=\"{}\" src=\"{}\" controls playsinline data-fission-video=\"{}\" data-fission-node=\"{}\"",
+                        escape_attr(&class_name),
+                        escape_attr(&self.resolve_asset_src(&video.source)),
+                        widget_id,
+                        node.id
+                    );
+                    if video.autoplay {
+                        attrs.push_str(" autoplay muted");
+                    }
+                    if video.loop_playback {
+                        attrs.push_str(" loop");
+                    }
+                    Ok(format!("<video{attrs}></video>"))
+                } else {
+                    Ok(self.render_embed_fallback(
+                        node,
+                        &class_name,
+                        "video",
+                        "Video embed unavailable during static render",
+                    ))
+                }
+            }
+            EmbedKind::Web => {
+                if let Some(web) = self.options.web_registrations.get(&widget_id) {
+                    Ok(format!(
+                        "<iframe class=\"{}\" src=\"{}\" title=\"{}\" loading=\"lazy\" referrerpolicy=\"strict-origin-when-cross-origin\" data-fission-web-view=\"{}\" data-fission-node=\"{}\"></iframe>",
+                        escape_attr(&class_name),
+                        escape_attr(&web.url),
+                        "Embedded web content",
+                        widget_id,
+                        node.id
+                    ))
+                } else {
+                    Ok(self.render_embed_fallback(
+                        node,
+                        &class_name,
+                        "web",
+                        "Web embed unavailable during static render",
+                    ))
+                }
+            }
+            EmbedKind::Custom(_) => Ok(self.render_embed_fallback(
+                node,
+                &class_name,
+                "custom",
+                "Custom embedded surface is not available in static HTML",
+            )),
+        }
+    }
+
+    fn render_embed_fallback(
+        &self,
+        node: &CoreNode,
+        class_name: &str,
+        kind: &str,
+        message: &str,
+    ) -> String {
+        format!(
+            "<div class=\"{}\" data-fission-embed-kind=\"{}\" data-fission-node=\"{}\">{}</div>",
+            escape_attr(class_name),
+            escape_attr(kind),
+            node.id,
+            escape_text(message)
+        )
     }
 
     fn render_paint(&mut self, node: &CoreNode, paint: &PaintOp) -> Result<String> {
@@ -1175,13 +1395,18 @@ impl HtmlRenderer<'_> {
                     node.id
                 ))
             }
-            PaintOp::DrawImage { request, fit, .. } => {
+            PaintOp::DrawImage {
+                request,
+                fit,
+                alignment,
+            } => {
                 let class_name = self.class_name(
                     "fission-site-img",
                     vec![
                         "width:100%".to_string(),
                         "height:100%".to_string(),
                         format!("object-fit:{}", image_fit_css(*fit)),
+                        format!("object-position:{}", image_alignment_css(*alignment)),
                     ],
                 );
                 Ok(format!(
@@ -1299,6 +1524,9 @@ impl HtmlRenderer<'_> {
                 );
             }
         }
+        if is_native_control_role(semantics.role) {
+            return self.render_native_control_semantics(node, semantics);
+        }
         if let Some(html) = self.render_server_action_semantics(node, semantics)? {
             return Ok(html);
         }
@@ -1313,7 +1541,7 @@ impl HtmlRenderer<'_> {
             Role::Dialog => "section",
             Role::Text | Role::Generic => "div",
             Role::TextInput | Role::Checkbox | Role::Switch | Role::Slider | Role::Input => {
-                unreachable!("interactive roles are rejected before rendering")
+                unreachable!("interactive controls are rendered before generic semantics")
             }
         };
         let tag = semantics
@@ -1342,6 +1570,96 @@ impl HtmlRenderer<'_> {
             "<{tag} class=\"fission-site-node fission-site-semantics\"{attrs} data-fission-node=\"{}\">{children}</{tag}>",
             node.id
         ))
+    }
+
+    fn render_native_control_semantics(
+        &mut self,
+        node: &CoreNode,
+        semantics: &Semantics,
+    ) -> Result<String> {
+        let mut attrs = self.native_control_attrs(node, semantics);
+        let children = self.render_children(&node.children, &HashSet::new())?;
+        let label_text = semantics.label.as_deref().unwrap_or_default();
+        match semantics.role {
+            Role::TextInput | Role::Input if semantics.multiline => {
+                let value = semantics.value.as_deref().unwrap_or_default();
+                Ok(format!(
+                    "<label class=\"fission-site-node fission-site-control\" data-fission-node=\"{}\"><span class=\"fission-site-control-label\">{}</span><textarea class=\"fission-site-input\"{attrs}>{}</textarea>{children}</label>",
+                    node.id,
+                    escape_text(label_text),
+                    escape_text(value)
+                ))
+            }
+            Role::TextInput | Role::Input => {
+                attrs.push_str(&format!(
+                    " type=\"{}\" value=\"{}\"",
+                    html_text_input_type(semantics),
+                    escape_attr(semantics.value.as_deref().unwrap_or_default())
+                ));
+                Ok(format!(
+                    "<label class=\"fission-site-node fission-site-control\" data-fission-node=\"{}\"><span class=\"fission-site-control-label\">{}</span><input class=\"fission-site-input\"{attrs}>{children}</label>",
+                    node.id,
+                    escape_text(label_text)
+                ))
+            }
+            Role::Checkbox | Role::Switch => {
+                if semantics.role == Role::Switch {
+                    attrs.push_str(" role=\"switch\"");
+                }
+                if semantics.checked.unwrap_or(false) {
+                    attrs.push_str(" checked");
+                }
+                Ok(format!(
+                    "<label class=\"fission-site-node fission-site-control\" data-fission-node=\"{}\"><input class=\"fission-site-checkbox\" type=\"checkbox\"{attrs}><span class=\"fission-site-control-label\">{}</span>{children}</label>",
+                    node.id,
+                    escape_text(label_text)
+                ))
+            }
+            Role::Slider => {
+                if let Some(value) = semantics.min_value {
+                    attrs.push_str(&format!(" min=\"{}\"", px(value)));
+                }
+                if let Some(value) = semantics.max_value {
+                    attrs.push_str(&format!(" max=\"{}\"", px(value)));
+                }
+                if let Some(value) = semantics.current_value {
+                    attrs.push_str(&format!(" value=\"{}\"", px(value)));
+                }
+                Ok(format!(
+                    "<label class=\"fission-site-node fission-site-control\" data-fission-node=\"{}\"><span class=\"fission-site-control-label\">{}</span><input class=\"fission-site-range\" type=\"range\"{attrs}>{children}</label>",
+                    node.id,
+                    escape_text(label_text)
+                ))
+            }
+            _ => unreachable!("native control role checked by caller"),
+        }
+    }
+
+    fn native_control_attrs(&self, node: &CoreNode, semantics: &Semantics) -> String {
+        let mut attrs = format!(" data-fission-node=\"{}\"", node.id);
+        if let Some(label) = &semantics.label {
+            attrs.push_str(&format!(" aria-label=\"{}\"", escape_attr(label)));
+        }
+        if let Some(identifier) = &semantics.identifier {
+            attrs.push_str(&format!(
+                " data-fission-semantics=\"{}\" name=\"{}\"",
+                escape_attr(identifier),
+                escape_attr(identifier)
+            ));
+        }
+        if semantics.disabled {
+            attrs.push_str(" disabled");
+        }
+        if semantics.read_only {
+            attrs.push_str(" readonly");
+        }
+        if semantics.autofocus {
+            attrs.push_str(" autofocus");
+        }
+        if let Some(max_length) = semantics.max_length {
+            attrs.push_str(&format!(" maxlength=\"{max_length}\""));
+        }
+        attrs
     }
 
     fn render_server_action_semantics(
@@ -1664,7 +1982,17 @@ impl HtmlRenderer<'_> {
                 self.resolve_asset_src(path)
             }
             ImageSource::Network { url, .. } => url.clone(),
-            ImageSource::Memory { .. } | ImageSource::SvgText { .. } => String::new(),
+            ImageSource::Memory { bytes, mime_type } => format!(
+                "data:{};base64,{}",
+                mime_type.as_deref().unwrap_or("application/octet-stream"),
+                BASE64_STANDARD.encode(bytes)
+            ),
+            ImageSource::SvgText { content } => {
+                format!(
+                    "data:image/svg+xml;base64,{}",
+                    BASE64_STANDARD.encode(content)
+                )
+            }
         }
     }
 
@@ -1826,6 +2154,14 @@ impl HtmlRenderer<'_> {
         if let Some(stroke) = stroke {
             style.push(format!("stroke:{}", self.stroke_css(stroke)));
             style.push(format!("stroke-width:{}", px(stroke.width)));
+            if let Some(dash_array) = stroke.dash_array.as_ref() {
+                let values = dash_array
+                    .iter()
+                    .map(|value| px(*value))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                style.push(format!("stroke-dasharray:{values}"));
+            }
             style.push(format!("stroke-linecap:{}", line_cap_css(stroke.line_cap)));
             style.push(format!(
                 "stroke-linejoin:{}",
@@ -2100,9 +2436,24 @@ enum CssAnimationProperty {
     TranslateY { other_axis: f32 },
     Scale,
     Rotation,
+    Width,
+    Height,
+    CornerRadius,
 }
 
 impl CssAnimationProperty {
+    fn property_name(self) -> &'static str {
+        match self {
+            Self::Opacity => "opacity",
+            Self::TranslateX { .. } | Self::TranslateY { .. } => "translate",
+            Self::Scale => "scale",
+            Self::Rotation => "rotate",
+            Self::Width => "width",
+            Self::Height => "height",
+            Self::CornerRadius => "border-radius",
+        }
+    }
+
     fn css_declaration(self, value: f32) -> String {
         match self {
             Self::Opacity => format!("opacity:{}", px(value)),
@@ -2113,7 +2464,35 @@ impl CssAnimationProperty {
                 format!("translate:{}px {}px", px(other_axis), px(value))
             }
             Self::Scale => format!("scale:{}", px(value)),
-            Self::Rotation => format!("rotate:{}rad", px(value)),
+            Self::Rotation => format!("rotate:{}deg", px(value)),
+            Self::Width => format!("width:{}px", px(value)),
+            Self::Height => format!("height:{}px", px(value)),
+            Self::CornerRadius => format!("border-radius:{}px", px(value)),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum CssColorAnimationProperty {
+    BackgroundColor,
+    BorderColor,
+    TextColor,
+}
+
+impl CssColorAnimationProperty {
+    fn property_name(self) -> &'static str {
+        match self {
+            Self::BackgroundColor => "background-color",
+            Self::BorderColor => "border-color",
+            Self::TextColor => "color",
+        }
+    }
+
+    fn css_declaration(self, renderer: &HtmlRenderer<'_>, color: Color) -> String {
+        match self {
+            Self::BackgroundColor => format!("background-color:{}", renderer.color_css(color)),
+            Self::BorderColor => format!("border-color:{}", renderer.color_css(color)),
+            Self::TextColor => format!("color:{}", renderer.color_css(color)),
         }
     }
 }
@@ -2125,12 +2504,97 @@ fn animation_start_value(request: &MotionTrack, base: f32) -> f32 {
     }
 }
 
+fn animation_start_scalar(request: &MotionTrack, base: f32) -> Option<f32> {
+    match &request.from {
+        MotionStartValue::Explicit(value) => motion_expr_scalar_value(value),
+        MotionStartValue::Current => Some(base),
+    }
+}
+
+fn animation_start_color(request: &MotionTrack) -> Option<Color> {
+    match &request.from {
+        MotionStartValue::Explicit(value) => motion_expr_color_value(value),
+        MotionStartValue::Current => None,
+    }
+}
+
 fn motion_expr_scalar(expr: &MotionExpr, fallback: f32) -> f32 {
+    motion_expr_scalar_value(expr).unwrap_or(fallback)
+}
+
+fn motion_expr_scalar_value(expr: &MotionExpr) -> Option<f32> {
     match expr {
         MotionExpr::Value(MotionValue::Scalar(value))
         | MotionExpr::Value(MotionValue::Px(value))
-        | MotionExpr::Value(MotionValue::Deg(value)) => *value,
-        _ => fallback,
+        | MotionExpr::Value(MotionValue::Deg(value)) => Some(*value),
+        MotionExpr::Neg(value) => motion_expr_scalar_value(value).map(|value| -value),
+        MotionExpr::Abs(value) => motion_expr_scalar_value(value).map(f32::abs),
+        MotionExpr::Add(left, right) => {
+            Some(motion_expr_scalar_value(left)? + motion_expr_scalar_value(right)?)
+        }
+        MotionExpr::Sub(left, right) => {
+            Some(motion_expr_scalar_value(left)? - motion_expr_scalar_value(right)?)
+        }
+        MotionExpr::Mul(left, right) => {
+            Some(motion_expr_scalar_value(left)? * motion_expr_scalar_value(right)?)
+        }
+        MotionExpr::Div(left, right) => {
+            let right = motion_expr_scalar_value(right)?;
+            if right.abs() <= f32::EPSILON {
+                motion_expr_scalar_value(left)
+            } else {
+                Some(motion_expr_scalar_value(left)? / right)
+            }
+        }
+        MotionExpr::Min(left, right) => {
+            Some(motion_expr_scalar_value(left)?.min(motion_expr_scalar_value(right)?))
+        }
+        MotionExpr::Max(left, right) => {
+            Some(motion_expr_scalar_value(left)?.max(motion_expr_scalar_value(right)?))
+        }
+        MotionExpr::Clamp { value, min, max } => Some(motion_expr_scalar_value(value)?.clamp(
+            motion_expr_scalar_value(min)?,
+            motion_expr_scalar_value(max)?,
+        )),
+        MotionExpr::Lerp { from, to, t } => {
+            let from = motion_expr_scalar_value(from)?;
+            let to = motion_expr_scalar_value(to)?;
+            let t = motion_expr_scalar_value(t)?.clamp(0.0, 1.0);
+            Some(from + (to - from) * t)
+        }
+        MotionExpr::MapRange {
+            value,
+            from_start,
+            from_end,
+            to_start,
+            to_end,
+            clamp,
+        } => {
+            let denominator = from_end - from_start;
+            if denominator.abs() <= f32::EPSILON {
+                return Some(*to_start);
+            }
+            let mut t = (motion_expr_scalar_value(value)? - from_start) / denominator;
+            if *clamp {
+                t = t.clamp(0.0, 1.0);
+            }
+            Some(*to_start + (*to_end - *to_start) * t)
+        }
+        _ => None,
+    }
+}
+
+fn motion_expr_length_css(expr: &MotionExpr) -> Option<String> {
+    match expr {
+        MotionExpr::IntrinsicWidth | MotionExpr::IntrinsicHeight => Some("auto".to_string()),
+        _ => motion_expr_scalar_value(expr).map(|value| format!("{}px", px(value))),
+    }
+}
+
+fn motion_expr_color_value(expr: &MotionExpr) -> Option<Color> {
+    match expr {
+        MotionExpr::Value(MotionValue::Color(value)) => Some(*value),
+        _ => None,
     }
 }
 
@@ -2231,12 +2695,46 @@ fn justify_content_css(justify: JustifyContent) -> &'static str {
     }
 }
 
+fn is_native_control_role(role: Role) -> bool {
+    matches!(
+        role,
+        Role::TextInput | Role::Checkbox | Role::Switch | Role::Slider | Role::Input
+    )
+}
+
+fn html_text_input_type(semantics: &Semantics) -> &'static str {
+    if semantics.masked {
+        return "password";
+    }
+    match semantics.text_input_type {
+        fission_ir::semantics::TextInputType::Number => "number",
+        fission_ir::semantics::TextInputType::EmailAddress => "email",
+        fission_ir::semantics::TextInputType::Url => "url",
+        fission_ir::semantics::TextInputType::Phone => "tel",
+        _ => "text",
+    }
+}
+
 fn image_fit_css(fit: ImageFit) -> &'static str {
     match fit {
         ImageFit::Contain => "contain",
         ImageFit::Cover => "cover",
         ImageFit::Fill => "fill",
         ImageFit::None => "none",
+    }
+}
+
+fn image_alignment_css(alignment: ImageAlignment) -> &'static str {
+    match alignment {
+        ImageAlignment::TopStart => "left top",
+        ImageAlignment::TopCenter => "center top",
+        ImageAlignment::TopEnd => "right top",
+        ImageAlignment::CenterStart => "left center",
+        ImageAlignment::Center => "center center",
+        ImageAlignment::CenterEnd => "right center",
+        ImageAlignment::BottomStart => "left bottom",
+        ImageAlignment::BottomCenter => "center bottom",
+        ImageAlignment::BottomEnd => "right bottom",
     }
 }
 
@@ -2397,6 +2895,166 @@ mod tests {
     }
 
     #[test]
+    fn data_images_alignment_and_svg_dash_arrays_lower_to_html() {
+        let root = WidgetId::explicit("root");
+        let image = WidgetId::explicit("image");
+        let path = WidgetId::explicit("path");
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            image,
+            Op::Paint(PaintOp::DrawImage {
+                request: fission_ir::op::ImageRequest {
+                    source: ImageSource::SvgText {
+                        content: "<svg viewBox=\"0 0 1 1\"></svg>".into(),
+                    },
+                    semantic_label: Some("Inline icon".into()),
+                    ..Default::default()
+                },
+                fit: ImageFit::Contain,
+                alignment: ImageAlignment::BottomEnd,
+            }),
+            Vec::new(),
+        );
+        ir.add_node(
+            path,
+            Op::Paint(PaintOp::DrawPath {
+                path: "M0 0 L10 10".into(),
+                fill: None,
+                stroke: Some(Stroke {
+                    fill: Fill::Solid(Color::BLACK),
+                    width: 2.0,
+                    dash_array: Some(vec![4.0, 2.0]),
+                    line_cap: LineCap::Round,
+                    line_join: LineJoin::Round,
+                }),
+            }),
+            Vec::new(),
+        );
+        ir.add_node(
+            root,
+            Op::Structural(fission_ir::StructuralOp::Group { stable_hash: 1 }),
+            vec![image, path],
+        );
+        ir.set_root(root);
+
+        let rendered = render_ir_to_html(&ir, &HtmlRenderOptions::default()).unwrap();
+
+        assert!(rendered.html.contains("data:image/svg+xml;base64,"));
+        assert!(rendered.css.contains("object-position:right bottom"));
+        assert!(rendered.css.contains("stroke-dasharray:4 2"));
+    }
+
+    #[test]
+    fn embeds_and_native_controls_lower_without_static_rejection() {
+        let root = WidgetId::explicit("root");
+        let video_node = WidgetId::explicit("video-node");
+        let video_widget = WidgetId::explicit("video-widget");
+        let input = WidgetId::explicit("search-input");
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            video_node,
+            Op::Layout(LayoutOp::Embed {
+                kind: EmbedKind::Video,
+                widget_id: video_widget,
+                width: Some(320.0),
+                height: Some(180.0),
+            }),
+            Vec::new(),
+        );
+        ir.add_node(
+            input,
+            Op::Semantics(Semantics {
+                role: Role::TextInput,
+                label: Some("Search".into()),
+                identifier: Some("search".into()),
+                value: Some("fission".into()),
+                ..Default::default()
+            }),
+            Vec::new(),
+        );
+        ir.add_node(
+            root,
+            Op::Structural(fission_ir::StructuralOp::Group { stable_hash: 1 }),
+            vec![video_node, input],
+        );
+        ir.set_root(root);
+        let mut options = HtmlRenderOptions::default();
+        options.video_registrations.insert(
+            video_widget,
+            VideoRegistration {
+                node_id: video_widget,
+                source: "/media/demo.mp4".into(),
+                autoplay: true,
+                loop_playback: true,
+            },
+        );
+
+        let rendered = render_ir_to_html(&ir, &options).unwrap();
+
+        assert!(rendered.html.contains("<video"));
+        assert!(rendered.html.contains("src=\"media/demo.mp4\""));
+        assert!(rendered.html.contains("autoplay muted"));
+        assert!(rendered.html.contains("loop"));
+        assert!(rendered.html.contains("<input"));
+        assert!(rendered.html.contains("value=\"fission\""));
+    }
+
+    #[test]
+    fn layout_and_paint_motion_lower_to_css_keyframes() {
+        let root = WidgetId::explicit("root");
+        let panel = WidgetId::explicit("motion-panel");
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            panel,
+            Op::Structural(fission_ir::StructuralOp::Group { stable_hash: 7 }),
+            Vec::new(),
+        );
+        ir.add_node(
+            root,
+            Op::Structural(fission_ir::StructuralOp::Group { stable_hash: 1 }),
+            vec![panel],
+        );
+        ir.set_root(root);
+        let options = HtmlRenderOptions {
+            motion_declarations: vec![MotionDeclaration {
+                id: panel,
+                kind: MotionDeclarationKind::Tracks {
+                    tracks: vec![
+                        MotionTrack {
+                            property: MotionPropertyId::Width,
+                            phase: fission_core::MotionPhase::Layout,
+                            from: MotionStartValue::Explicit(MotionExpr::Value(MotionValue::Px(
+                                0.0,
+                            ))),
+                            to: MotionExpr::Value(MotionValue::Px(240.0)),
+                            transition: MotionTransition::tween(180, MotionEasing::EaseOut),
+                        },
+                        MotionTrack {
+                            property: MotionPropertyId::BackgroundColor,
+                            phase: fission_core::MotionPhase::Paint,
+                            from: MotionStartValue::Explicit(MotionExpr::Value(
+                                MotionValue::Color(Color::WHITE),
+                            )),
+                            to: MotionExpr::Value(MotionValue::Color(Color::BLACK)),
+                            transition: MotionTransition::tween(180, MotionEasing::EaseOut),
+                        },
+                    ],
+                },
+            }],
+            ..Default::default()
+        };
+
+        let rendered = render_ir_to_html(&ir, &options).unwrap();
+
+        assert!(rendered.html.contains("fission-site-animated"));
+        assert!(rendered.css.contains("width:0px"));
+        assert!(rendered.css.contains("width:240px"));
+        assert!(rendered.css.contains("background-color:#ffffff"));
+        assert!(rendered.css.contains("background-color:#000000"));
+        assert!(rendered.css.matches("@keyframes fission_anim_").count() >= 2);
+    }
+
+    #[test]
     fn style_registry_deduplicates_normalized_styles() {
         let mut styles = StyleRegistry::default();
         let first = styles
@@ -2461,7 +3119,7 @@ mod tests {
                         property: MotionPropertyId::Rotation,
                         phase: fission_core::MotionPhase::Composite,
                         from: MotionStartValue::Explicit(MotionExpr::Value(MotionValue::Deg(0.0))),
-                        to: MotionExpr::Value(MotionValue::Deg(std::f32::consts::TAU)),
+                        to: MotionExpr::Value(MotionValue::Deg(360.0)),
                         transition: MotionTransition::tween(7000, MotionEasing::Linear)
                             .repeat(true)
                             .delay_ms(120),
@@ -2475,8 +3133,8 @@ mod tests {
 
         assert!(rendered.html.contains("fission-site-animated"));
         assert!(rendered.css.contains("@keyframes fission_anim_"));
-        assert!(rendered.css.contains("rotate:0rad"));
-        assert!(rendered.css.contains("rotate:6.283rad"));
+        assert!(rendered.css.contains("rotate:0deg"));
+        assert!(rendered.css.contains("rotate:360deg"));
         assert!(rendered
             .css
             .contains("7000ms linear 120ms infinite normal both"));

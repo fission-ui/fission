@@ -186,10 +186,11 @@ pub enum Freshness {
     Expired,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InvalidationReport {
     pub removed_keys: usize,
     pub removed_tags: usize,
+    pub layers_affected: usize,
 }
 
 pub trait Cache: Send + Sync + 'static {
@@ -204,6 +205,7 @@ pub trait Cache: Send + Sync + 'static {
             let report = self.invalidate_tag(tag)?;
             out.removed_keys += report.removed_keys;
             out.removed_tags += report.removed_tags;
+            out.layers_affected += report.layers_affected;
         }
         Ok(out)
     }
@@ -301,6 +303,7 @@ impl Cache for MokaCache {
         Ok(InvalidationReport {
             removed_keys: keys.len(),
             removed_tags: usize::from(!keys.is_empty()),
+            layers_affected: usize::from(!keys.is_empty()),
         })
     }
 }
@@ -421,6 +424,7 @@ impl Cache for RedisCache {
         Ok(InvalidationReport {
             removed_keys: keys.len(),
             removed_tags: usize::from(!keys.is_empty()),
+            layers_affected: usize::from(!keys.is_empty()),
         })
     }
 }
@@ -491,6 +495,7 @@ impl Cache for CachePipeline {
             let report = layer.invalidate_tag(tag)?;
             out.removed_keys += report.removed_keys;
             out.removed_tags += report.removed_tags;
+            out.layers_affected += report.layers_affected;
         }
         Ok(out)
     }
@@ -536,6 +541,7 @@ mod tests {
         assert!(cache.get(&key).unwrap().is_some());
         let report = cache.invalidate_tag(&CacheTag::new("catalog")).unwrap();
         assert_eq!(report.removed_keys, 1);
+        assert_eq!(report.layers_affected, 1);
         assert!(cache.get(&key).unwrap().is_none());
     }
 
@@ -627,6 +633,7 @@ mod tests {
         let report = pipeline.invalidate_tag(&CacheTag::new("catalog")).unwrap();
 
         assert_eq!(report.removed_keys, 2);
+        assert_eq!(report.layers_affected, 2);
         assert!(hot.get(&key).unwrap().is_none());
         assert!(shared.get(&key).unwrap().is_none());
     }
