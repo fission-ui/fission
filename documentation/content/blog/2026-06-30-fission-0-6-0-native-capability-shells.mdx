@@ -1,0 +1,82 @@
+---
+title: Fission 0.6.0: native capability project shells
+authors:
+  - fission
+tags:
+  - release
+  - platform
+  - authoring
+categories:
+  - Releases
+---
+
+Fission 0.6.0 is the native capability shell release. It takes the mobile target work from [issue #83](https://github.com/fission-ui/fission/issues/83) and turns generated Android and iOS targets into real extension points for app-owned native SDK integrations.
+
+The goal is not to bake payments, camera, scanner, or other product-specific SDKs into Fission core. The goal is to give Fission apps a supported native project shape where capability crates and applications can add platform sources, dependencies, permissions, framework links, and manifest entries without hand-maintaining a parallel mobile project.
+
+## Native project shells
+
+The `fission add-target` flow now generates richer Android and iOS platform directories.
+
+For Android, generated targets include:
+
+- a Gradle application shell;
+- a `FissionActivity` host activity;
+- project-level repository configuration;
+- an app build file with JVM and AndroidX defaults;
+- a `native-modules.gradle` overlay;
+- a native module directory layout for app-owned Java/Kotlin sources and metadata.
+
+For iOS, generated targets include:
+
+- a SwiftPM host package;
+- a `NativeModules` SwiftPM package;
+- a native capability registry;
+- copied Swift module source support;
+- package/framework hooks for app-owned native adapters.
+
+This raises the ceiling for mobile Fission apps. A generated app can now grow into integrations such as Stripe PaymentSheet, Google Pay, Apple Pay, camera/scanner SDKs, and other native capability modules without abandoning the Fission target structure.
+
+## Generic native module config
+
+0.6.0 adds generic native module declarations to `fission.toml`.
+
+The model is capability-agnostic. A module can describe Android source directories, Maven dependencies, repositories, permissions, and manifest entries. It can also describe iOS Swift package products, source directories, and linked frameworks.
+
+Fission then projects that metadata into the generated Android/iOS shell. The capability crate or application remains responsible for the SDK-specific code and runtime behavior.
+
+## Regenerated examples
+
+The examples that already carried Android or iOS targets were regenerated with the current CLI so the repository shows the new target structure directly:
+
+- `examples/field-inspector`
+- `examples/mobile-smoke`
+- `examples/web-smoke`
+
+Those examples now include the generated Gradle and SwiftPM shell files alongside the existing package/run scripts.
+
+## Documentation cleanup
+
+The release also tightens the documented i18n recommendation.
+
+Fission's runtime contract is still `TranslationBundle`, but the documentation now consistently recommends YAML translation files embedded with `include_str!` and parsed into `Env` at startup. That keeps first render deterministic across desktop, web, mobile, terminal, static site, and SSR targets.
+
+## Migration notes
+
+Applications using 0.5.1 can update the Rust dependency in the usual way:
+
+```toml
+fission = { version = "0.6.0", default-features = false, features = ["desktop"] }
+```
+
+For mobile apps, re-run target generation so your checked-in platform directories receive the new shell structure:
+
+```bash
+fission add-target --project-dir . android ios
+```
+
+Review the generated platform diffs before committing, especially if the app already had custom Android or iOS files. The generator is designed to preserve existing app-owned platform files where possible, but native SDK integrations should still be reviewed like ordinary platform code.
+
+## Verification
+
+The release preparation regenerates the repository mobile examples and runs the same tooling checks used by the native shell PR: formatting, package/check coverage for the command crates, and command crate tests for `fission add-target`, package, run, and CLI behavior.

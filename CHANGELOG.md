@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-06-30
+
+### Added
+
+- **Native capability project shells** - `fission add-target` now generates Android Gradle and iOS SwiftPM project shells that can host app-owned native SDK integrations.
+- **Generic native module config** - `fission.toml` can describe Android/iOS native sources, dependencies, repositories, permissions, manifest entries, Swift package products, and linked frameworks without making Fission core SDK-specific.
+
+### Changed
+
+- **Mobile generated targets** - Regenerated `field-inspector`, `mobile-smoke`, and `web-smoke` Android/iOS targets so examples carry the new Gradle, SwiftPM, native-module, and capability-registry structure.
+- **i18n documentation** - Standardized the recommended translation workflow on YAML files embedded with `include_str!` and parsed into `TranslationBundle` values at startup.
+
+### Fixed
+
+- **Mobile integration ceiling** - Generated mobile projects no longer force applications that need native SDKs to hand-maintain unsupported Android/iOS project shells outside Fission.
+
 ## [0.5.1] - 2026-06-30
 
 ### Added
