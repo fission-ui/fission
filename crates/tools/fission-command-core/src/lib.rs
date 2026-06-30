@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use toml_edit::{value, Array, DocumentMut, InlineTable, Item, Table, Value};
 
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
+const ANDROID_GRADLE_PLUGIN_VERSION: &str = "8.13.2";
 const DEFAULT_APP_ICON_PNG: &[u8] = include_bytes!("../assets/fission_logo.png");
 
 mod icons;
@@ -141,6 +142,8 @@ pub struct FissionProject {
     pub targets: BTreeSet<Target>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub capabilities: BTreeSet<PlatformCapability>,
+    #[serde(default, skip_serializing_if = "NativeConfig::is_empty")]
+    pub native: NativeConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -150,6 +153,79 @@ pub struct AppConfig {
     pub app_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub splash: Option<SplashConfig>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeConfig {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub modules: Vec<NativeModuleConfig>,
+}
+
+impl NativeConfig {
+    pub fn is_empty(&self) -> bool {
+        self.modules.is_empty()
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeModuleConfig {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "NativeAndroidModuleConfig::is_empty")]
+    pub android: NativeAndroidModuleConfig,
+    #[serde(default, skip_serializing_if = "NativeIosModuleConfig::is_empty")]
+    pub ios: NativeIosModuleConfig,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeAndroidModuleConfig {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub repositories: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub gradle_dependencies: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub source_dirs: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub permissions: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub manifest_application_entries: Vec<String>,
+}
+
+impl NativeAndroidModuleConfig {
+    pub fn is_empty(&self) -> bool {
+        self.repositories.is_empty()
+            && self.gradle_dependencies.is_empty()
+            && self.source_dirs.is_empty()
+            && self.permissions.is_empty()
+            && self.manifest_application_entries.is_empty()
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeIosModuleConfig {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub swift_packages: Vec<NativeIosSwiftPackageConfig>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub source_dirs: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub linked_frameworks: Vec<String>,
+}
+
+impl NativeIosModuleConfig {
+    pub fn is_empty(&self) -> bool {
+        self.swift_packages.is_empty()
+            && self.source_dirs.is_empty()
+            && self.linked_frameworks.is_empty()
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeIosSwiftPackageConfig {
+    pub url: String,
+    pub product: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -278,6 +354,10 @@ fn initial_project_config(
             .as_ref()
             .map(|project| project.capabilities.clone())
             .unwrap_or_default(),
+        native: existing
+            .as_ref()
+            .map(|project| project.native.clone())
+            .unwrap_or_default(),
     })
 }
 
@@ -351,9 +431,161 @@ pub fn add_capabilities(project_dir: &Path, capabilities: &[PlatformCapability])
 
 pub fn sync_platform_config(root: &Path, project: &FissionProject) -> Result<()> {
     apply_platform_capability_config(root, project)?;
+    apply_native_module_config(root, project)?;
     splash::apply_platform_splash_config(root, project)?;
     icons::apply_platform_icon_config(root, project)?;
     apply_mobile_run_script_hardening(root, project)?;
+    Ok(())
+}
+
+fn apply_native_module_config(root: &Path, project: &FissionProject) -> Result<()> {
+    if project.targets.contains(&Target::Android) {
+        write_file(
+            &root.join("platforms/android/native-modules.gradle"),
+            &render_android_native_modules_gradle(project),
+        )?;
+        apply_android_settings_gradle_hardening(root, project)?;
+        apply_android_native_manifest_entries(root, project)?;
+    }
+    if project.targets.contains(&Target::Ios) {
+        write_file(
+            &root.join("platforms/ios/NativeModules/Package.swift"),
+            &render_ios_native_modules_package(project),
+        )?;
+        write_file(
+            &root.join(
+                "platforms/ios/NativeModules/Sources/FissionNativeModules/FissionNativeCapabilities.swift",
+            ),
+            render_ios_native_capabilities_swift(),
+        )?;
+        sync_ios_native_module_sources(root, project)?;
+    }
+    Ok(())
+}
+
+fn apply_android_native_manifest_entries(root: &Path, project: &FissionProject) -> Result<()> {
+    let entries = render_android_native_application_entries(project);
+    if entries.trim().is_empty() {
+        return Ok(());
+    }
+    let path = root.join("platforms/android/AndroidManifest.xml");
+    if !path.exists() {
+        return Ok(());
+    }
+    let existing =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    let missing = entries
+        .lines()
+        .filter(|entry| !entry.trim().is_empty() && !existing.contains(entry.trim()))
+        .collect::<Vec<_>>();
+    if missing.is_empty() {
+        return Ok(());
+    }
+
+    let insertion = format!("{}\n", missing.join("\n"));
+    let marker =
+        "        <activity\n            android:name=\"rs.fission.runtime.FissionActivity\"";
+    let updated = if let Some(index) = existing.find(marker) {
+        let mut updated = existing.clone();
+        updated.insert_str(index, &insertion);
+        updated
+    } else if let Some(index) = existing.find("</application>") {
+        let mut updated = existing.clone();
+        updated.insert_str(index, &insertion);
+        updated
+    } else {
+        existing
+    };
+
+    if updated != fs::read_to_string(&path)? {
+        fs::write(&path, updated).with_context(|| format!("failed to write {}", path.display()))?;
+    }
+    Ok(())
+}
+
+fn sync_ios_native_module_sources(root: &Path, project: &FissionProject) -> Result<()> {
+    let generated_root = root.join("platforms/ios/NativeModules/Sources/FissionNativeModules");
+    fs::create_dir_all(&generated_root)
+        .with_context(|| format!("failed to create {}", generated_root.display()))?;
+
+    for module in &project.native.modules {
+        let module_dir = generated_root.join(swift_module_source_dir_name(&module.name));
+        if module_dir.exists() {
+            fs::remove_dir_all(&module_dir)
+                .with_context(|| format!("failed to remove {}", module_dir.display()))?;
+        }
+        if module.ios.source_dirs.is_empty() {
+            continue;
+        }
+        fs::create_dir_all(&module_dir)
+            .with_context(|| format!("failed to create {}", module_dir.display()))?;
+        for source_dir in &module.ios.source_dirs {
+            let source_dir = source_dir.trim();
+            if source_dir.is_empty() {
+                continue;
+            }
+            let source = resolve_project_path(root, source_dir);
+            copy_dir_contents(&source, &module_dir).with_context(|| {
+                format!(
+                    "failed to copy iOS native module source {} into {}",
+                    source.display(),
+                    module_dir.display()
+                )
+            })?;
+        }
+    }
+    Ok(())
+}
+
+fn resolve_project_path(root: &Path, value: &str) -> PathBuf {
+    let path = Path::new(value);
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        root.join(path)
+    }
+}
+
+fn swift_module_source_dir_name(name: &str) -> String {
+    let mut output = String::new();
+    for ch in name.chars() {
+        if ch.is_ascii_alphanumeric() {
+            output.push(ch);
+        } else if !output.ends_with('_') {
+            output.push('_');
+        }
+    }
+    let output = output.trim_matches('_');
+    if output.is_empty() {
+        "module".to_string()
+    } else {
+        output.to_string()
+    }
+}
+
+fn copy_dir_contents(source: &Path, dest: &Path) -> Result<()> {
+    if source.is_file() {
+        let file_name = source
+            .file_name()
+            .ok_or_else(|| anyhow::anyhow!("source file has no file name"))?;
+        fs::create_dir_all(dest)?;
+        fs::copy(source, dest.join(file_name))?;
+        return Ok(());
+    }
+    fs::create_dir_all(dest)?;
+    for entry in fs::read_dir(source)
+        .with_context(|| format!("failed to read native source dir {}", source.display()))?
+    {
+        let entry = entry?;
+        let path = entry.path();
+        let target = dest.join(entry.file_name());
+        if path.is_dir() {
+            copy_dir_contents(&path, &target)?;
+        } else if path.is_file() {
+            fs::copy(&path, &target)
+                .with_context(|| format!("failed to copy {}", path.display()))?;
+        }
+    }
     Ok(())
 }
 
@@ -366,6 +598,9 @@ fn apply_mobile_run_script_hardening(root: &Path, project: &FissionProject) -> R
         apply_android_run_script_hardening(root)?;
         apply_android_package_script_hardening(root)?;
         apply_android_manifest_hardening(root)?;
+        apply_android_root_build_gradle_hardening(root)?;
+        apply_android_app_build_gradle_hardening(root)?;
+        apply_android_gradle_properties_hardening(root)?;
     }
     Ok(())
 }
@@ -415,6 +650,9 @@ fn apply_android_run_script_hardening(root: &Path) -> Result<()> {
     }
     let existing =
         fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    if existing.contains(":app:assemble") {
+        return Ok(());
+    }
     let mut updated = existing.clone();
     let wait_function = android_wait_for_boot_function();
     if let Some(start) = updated.find("wait_for_android_boot() {") {
@@ -500,11 +738,140 @@ fn apply_android_manifest_hardening(root: &Path) -> Result<()> {
     }
     let existing =
         fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    if existing.contains("rs.fission.runtime.FissionActivity") {
+        return Ok(());
+    }
     let updated = existing.replace(r#"android:hasCode="true""#, r#"android:hasCode="false""#);
     if updated != existing {
         fs::write(&path, updated).with_context(|| format!("failed to write {}", path.display()))?;
     }
     Ok(())
+}
+
+fn apply_android_root_build_gradle_hardening(root: &Path) -> Result<()> {
+    let path = root.join("platforms/android/build.gradle.kts");
+    if !path.exists() {
+        return Ok(());
+    }
+    let existing =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    let mut updated = String::new();
+    for line in existing.lines() {
+        if line
+            .trim_start()
+            .starts_with("id(\"com.android.application\") version ")
+        {
+            let indent = line
+                .chars()
+                .take_while(|ch| ch.is_whitespace())
+                .collect::<String>();
+            updated.push_str(&format!(
+                "{indent}id(\"com.android.application\") version \"{ANDROID_GRADLE_PLUGIN_VERSION}\" apply false\n"
+            ));
+        } else {
+            updated.push_str(line);
+            updated.push('\n');
+        }
+    }
+    if updated != existing {
+        fs::write(&path, updated).with_context(|| format!("failed to write {}", path.display()))?;
+    }
+    Ok(())
+}
+
+fn apply_android_app_build_gradle_hardening(root: &Path) -> Result<()> {
+    let path = root.join("platforms/android/app/build.gradle.kts");
+    if !path.exists() {
+        return Ok(());
+    }
+    let existing =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    let mut updated = existing.replace("../native-modules.gradle.kts", "../native-modules.gradle");
+    if !updated.contains("../native-modules.gradle") {
+        updated.push_str("\napply(from = \"../native-modules.gradle\")\n");
+    }
+    if updated != existing {
+        fs::write(&path, updated).with_context(|| format!("failed to write {}", path.display()))?;
+    }
+    Ok(())
+}
+
+fn apply_android_gradle_properties_hardening(root: &Path) -> Result<()> {
+    let path = root.join("platforms/android/gradle.properties");
+    if !path.exists() {
+        return fs::write(&path, render_android_gradle_properties())
+            .with_context(|| format!("failed to write {}", path.display()));
+    }
+    let existing =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    let mut saw_androidx = false;
+    let mut saw_jvmargs = false;
+    let mut saw_compile_warning = false;
+    let mut updated = String::new();
+    for line in existing.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("android.useAndroidX=") {
+            updated.push_str("android.useAndroidX=true\n");
+            saw_androidx = true;
+        } else if trimmed.starts_with("org.gradle.jvmargs=") {
+            updated.push_str(line);
+            updated.push('\n');
+            saw_jvmargs = true;
+        } else if trimmed.starts_with("android.javaCompile.suppressSourceTargetDeprecationWarning=")
+        {
+            updated.push_str(line);
+            updated.push('\n');
+            saw_compile_warning = true;
+        } else {
+            updated.push_str(line);
+            updated.push('\n');
+        }
+    }
+    if !saw_androidx {
+        if !updated.ends_with('\n') {
+            updated.push('\n');
+        }
+        updated.push_str("android.useAndroidX=true\n");
+    }
+    if !saw_jvmargs {
+        updated.push_str("org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8\n");
+    }
+    if !saw_compile_warning {
+        updated.push_str("android.javaCompile.suppressSourceTargetDeprecationWarning=true\n");
+    }
+    if updated != existing {
+        fs::write(&path, updated).with_context(|| format!("failed to write {}", path.display()))?;
+    }
+    Ok(())
+}
+
+fn apply_android_settings_gradle_hardening(root: &Path, project: &FissionProject) -> Result<()> {
+    let path = root.join("platforms/android/settings.gradle.kts");
+    if !path.exists() {
+        return Ok(());
+    }
+    let existing =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    let missing = android_dependency_repositories(project)
+        .into_iter()
+        .filter(|repository| !existing.contains(repository))
+        .collect::<Vec<_>>();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    let marker = "    repositories {\n";
+    let Some(index) = existing.find(marker) else {
+        return Ok(());
+    };
+    let mut insertion = String::new();
+    for repository in missing {
+        insertion.push_str("        ");
+        insertion.push_str(&repository);
+        insertion.push('\n');
+    }
+    let mut updated = existing;
+    updated.insert_str(index + marker.len(), &insertion);
+    fs::write(&path, updated).with_context(|| format!("failed to write {}", path.display()))
 }
 
 fn android_wait_for_boot_function() -> &'static str {
@@ -1114,7 +1481,7 @@ fn scaffold_target_with_policy(
             scaffold_android_bundle(root, project, write_policy)?;
             platform_readme(
                 "Android",
-                "Runnable emulator target. The CLI generates a NativeActivity manifest plus shell scripts that build, install, and launch the Fission app on an Android emulator.",
+                "Runnable emulator target. The CLI generates a Gradle Android project shell plus scripts that build, install, and launch the Fission app on an Android emulator.",
                 &[
                     "Install the Rust target: `rustup target add aarch64-linux-android`.",
                     "Run `fission doctor android --project-dir .` to check SDK, NDK, emulator, and Rust target setup.",
@@ -1259,6 +1626,34 @@ fn scaffold_ios_bundle(
     let test_script = render_ios_test_script();
 
     write_file_with_policy(&root.join("platforms/ios/Info.plist"), &plist, write_policy)?;
+    write_file_with_policy(
+        &root.join("platforms/ios/Package.swift"),
+        &render_ios_host_package(project),
+        write_policy,
+    )?;
+    write_file_with_policy(
+        &root.join("platforms/ios/Sources/FissionHost/FissionNativeCapabilities.swift"),
+        render_ios_host_native_capabilities_swift(),
+        write_policy,
+    )?;
+    write_file_with_policy(
+        &root.join("platforms/ios/NativeModules/README.md"),
+        IOS_NATIVE_MODULES_README,
+        write_policy,
+    )?;
+    write_file_with_policy(
+        &root.join("platforms/ios/NativeModules/Package.swift"),
+        &render_ios_native_modules_package(project),
+        write_policy,
+    )?;
+    write_file_with_policy(
+        &root.join(
+            "platforms/ios/NativeModules/Sources/FissionNativeModules/FissionNativeCapabilities.swift",
+        ),
+        render_ios_native_capabilities_swift(),
+        write_policy,
+    )?;
+    sync_ios_native_module_sources(root, project)?;
     if project.capabilities.contains(&PlatformCapability::Nfc)
         || project.capabilities.contains(&PlatformCapability::Wifi)
     {
@@ -1311,6 +1706,31 @@ fn scaffold_android_bundle(
     let test_script = render_android_test_script();
 
     write_file_with_policy(
+        &root.join("platforms/android/settings.gradle.kts"),
+        &render_android_settings_gradle(project),
+        write_policy,
+    )?;
+    write_file_with_policy(
+        &root.join("platforms/android/build.gradle.kts"),
+        &render_android_root_build_gradle(),
+        write_policy,
+    )?;
+    write_file_with_policy(
+        &root.join("platforms/android/gradle.properties"),
+        render_android_gradle_properties(),
+        write_policy,
+    )?;
+    write_file_with_policy(
+        &root.join("platforms/android/app/build.gradle.kts"),
+        &render_android_app_build_gradle(project),
+        write_policy,
+    )?;
+    write_file_with_policy(
+        &root.join("platforms/android/native-modules.gradle"),
+        &render_android_native_modules_gradle(project),
+        write_policy,
+    )?;
+    write_file_with_policy(
         &root.join("platforms/android/AndroidManifest.xml"),
         &manifest,
         write_policy,
@@ -1328,6 +1748,16 @@ fn scaffold_android_bundle(
     write_file_with_policy(
         &root.join("platforms/android/test-emulator.sh"),
         &test_script,
+        write_policy,
+    )?;
+    write_file_with_policy(
+        &root.join("platforms/android/java/rs/fission/runtime/FissionActivity.java"),
+        render_android_activity_java(),
+        write_policy,
+    )?;
+    write_file_with_policy(
+        &root.join("platforms/android/native-modules/README.md"),
+        ANDROID_NATIVE_MODULES_README,
         write_policy,
     )?;
     #[cfg(unix)]
@@ -1548,6 +1978,406 @@ fn ios_bundle_name(project: &FissionProject) -> String {
 fn android_library_name(project: &FissionProject) -> String {
     project.app.name.replace('-', "_")
 }
+
+fn android_root_project_name(project: &FissionProject) -> String {
+    project.app.name.replace('-', "_")
+}
+
+fn render_android_settings_gradle(project: &FissionProject) -> String {
+    let repositories = android_dependency_repositories(project)
+        .into_iter()
+        .map(|repository| format!("        {repository}\n"))
+        .collect::<String>();
+    format!(
+        r#"pluginManagement {{
+    repositories {{
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }}
+}}
+
+dependencyResolutionManagement {{
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {{
+{repositories}
+    }}
+}}
+
+rootProject.name = "{name}-android"
+include(":app")
+"#,
+        name = android_root_project_name(project),
+    )
+}
+
+fn render_android_root_build_gradle() -> String {
+    format!(
+        r#"plugins {{
+    id("com.android.application") version "{ANDROID_GRADLE_PLUGIN_VERSION}" apply false
+}}
+"#
+    )
+}
+
+fn render_android_gradle_properties() -> &'static str {
+    "android.useAndroidX=true\norg.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8\nandroid.javaCompile.suppressSourceTargetDeprecationWarning=true\n"
+}
+
+fn render_android_app_build_gradle(project: &FissionProject) -> String {
+    format!(
+        r#"plugins {{
+    id("com.android.application")
+}}
+
+android {{
+    namespace = "{app_id}"
+    compileSdk = (System.getenv("ANDROID_TARGET_API_LEVEL") ?: "35").toInt()
+
+    defaultConfig {{
+        applicationId = "{app_id}"
+        minSdk = (System.getenv("ANDROID_MIN_API_LEVEL") ?: "24").toInt()
+        targetSdk = (System.getenv("ANDROID_TARGET_API_LEVEL") ?: "35").toInt()
+        versionCode = 1
+        versionName = "0.1.0"
+    }}
+
+    sourceSets {{
+        getByName("main") {{
+            manifest.srcFile("../AndroidManifest.xml")
+            java.srcDirs("../java")
+            res.srcDirs("../res", "src/main/res")
+            jniLibs.srcDirs("src/main/jniLibs")
+        }}
+    }}
+}}
+
+apply(from = "../native-modules.gradle")
+"#,
+        app_id = project.app.app_id,
+    )
+}
+
+fn render_android_native_modules_gradle(project: &FissionProject) -> String {
+    let mut dependencies = Vec::new();
+    let mut source_dirs = Vec::new();
+    for module in &project.native.modules {
+        for dependency in &module.android.gradle_dependencies {
+            if let Some(dependency) = normalize_gradle_dependency(dependency) {
+                dependencies.push((module.name.as_str(), dependency));
+            }
+        }
+        for source_dir in &module.android.source_dirs {
+            let source_dir = source_dir.trim();
+            if !source_dir.is_empty() {
+                source_dirs.push((module.name.as_str(), source_dir.to_string()));
+            }
+        }
+    }
+
+    let mut out = String::from(
+        "// Generated by Fission. Native capability modules append Android SDK wiring here.\n",
+    );
+    if dependencies.is_empty() && source_dirs.is_empty() {
+        out.push_str("// No Android native modules are configured in fission.toml.\n");
+        return out;
+    }
+    if !source_dirs.is_empty() {
+        out.push_str("\ndef fissionProjectDir = rootProject.projectDir.toPath().resolve('../..').normalize().toFile()\n");
+        out.push_str("android {\n");
+        out.push_str("    sourceSets {\n");
+        out.push_str("        main {\n");
+        for (module, source_dir) in &source_dirs {
+            out.push_str("            // ");
+            out.push_str(module);
+            out.push('\n');
+            out.push_str("            java.srcDir(new File(fissionProjectDir, ");
+            out.push_str(&groovy_string_literal(source_dir));
+            out.push_str("))\n");
+        }
+        out.push_str("        }\n");
+        out.push_str("    }\n");
+        out.push_str("}\n");
+    }
+    if !dependencies.is_empty() {
+        out.push_str("\ndependencies {\n");
+        for (module, dependency) in dependencies {
+            out.push_str("    // ");
+            out.push_str(module);
+            out.push('\n');
+            out.push_str("    ");
+            out.push_str(&dependency);
+            out.push('\n');
+        }
+        out.push_str("}\n");
+    }
+    out
+}
+
+fn android_dependency_repositories(project: &FissionProject) -> BTreeSet<String> {
+    let mut repositories = BTreeSet::new();
+    repositories.insert("google()".to_string());
+    repositories.insert("mavenCentral()".to_string());
+    for module in &project.native.modules {
+        for repository in &module.android.repositories {
+            if let Some(repository) = normalize_gradle_repository(repository) {
+                repositories.insert(repository);
+            }
+        }
+    }
+    repositories
+}
+
+fn normalize_gradle_repository(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+    match value {
+        "google" | "google()" => Some("google()".to_string()),
+        "mavenCentral" | "mavenCentral()" => Some("mavenCentral()".to_string()),
+        "gradlePluginPortal" | "gradlePluginPortal()" => Some("gradlePluginPortal()".to_string()),
+        _ if value.contains('(') => Some(value.to_string()),
+        _ => Some(format!("maven(\"{value}\")")),
+    }
+}
+
+fn normalize_gradle_dependency(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+    if let Some((configuration, dependency)) = split_gradle_dependency_invocation(value) {
+        Some(format!("{configuration} {}", dependency.trim()))
+    } else if value.contains('(') {
+        Some(format!("implementation {value}"))
+    } else {
+        Some(format!("implementation {}", groovy_string_literal(value)))
+    }
+}
+
+fn split_gradle_dependency_invocation(value: &str) -> Option<(&str, &str)> {
+    let open = value.find('(')?;
+    if !value.ends_with(')') {
+        return None;
+    }
+    let configuration = value[..open].trim();
+    if !is_gradle_dependency_configuration(configuration) {
+        return None;
+    }
+    let dependency = value[open + 1..value.len() - 1].trim();
+    if dependency.is_empty() {
+        return None;
+    }
+    Some((configuration, dependency))
+}
+
+fn is_gradle_dependency_configuration(value: &str) -> bool {
+    matches!(
+        value,
+        "implementation"
+            | "api"
+            | "compileOnly"
+            | "runtimeOnly"
+            | "testImplementation"
+            | "testCompileOnly"
+            | "testRuntimeOnly"
+            | "androidTestImplementation"
+            | "androidTestCompileOnly"
+            | "androidTestRuntimeOnly"
+            | "debugImplementation"
+            | "debugCompileOnly"
+            | "debugRuntimeOnly"
+            | "releaseImplementation"
+            | "releaseCompileOnly"
+            | "releaseRuntimeOnly"
+            | "kapt"
+            | "ksp"
+    )
+}
+
+fn groovy_string_literal(value: &str) -> String {
+    format!("'{}'", value.replace('\\', "\\\\").replace('\'', "\\'"))
+}
+
+fn render_android_activity_java() -> &'static str {
+    r#"package rs.fission.runtime;
+
+public final class FissionActivity extends android.app.NativeActivity {
+}
+"#
+}
+
+const ANDROID_NATIVE_MODULES_README: &str = r#"# Android native modules
+
+This directory is reserved for native capability module sources copied or owned by the app shell.
+
+Generic dependency and repository wiring is generated into `../native-modules.gradle` from
+`fission.toml` `[native]` module declarations. Fission does not ship payment, camera-addon,
+scanner-addon, or other app-specific modules in core; those crates provide their native adapters.
+"#;
+
+fn render_ios_host_package(project: &FissionProject) -> String {
+    format!(
+        r#"// swift-tools-version: 5.9
+import PackageDescription
+
+let package = Package(
+    name: "{name}FissionHost",
+    platforms: [
+        .iOS(.v16),
+    ],
+    products: [
+        .library(name: "FissionHost", targets: ["FissionHost"]),
+    ],
+    dependencies: [
+        .package(path: "NativeModules"),
+    ],
+    targets: [
+        .target(
+            name: "FissionHost",
+            dependencies: [
+                .product(name: "FissionNativeModules", package: "NativeModules"),
+            ],
+            path: "Sources/FissionHost"
+        ),
+    ]
+)
+"#,
+        name = ios_bundle_name(project),
+    )
+}
+
+fn render_ios_native_modules_package(project: &FissionProject) -> String {
+    let package_dependencies = project
+        .native
+        .modules
+        .iter()
+        .flat_map(|module| module.ios.swift_packages.iter())
+        .map(render_ios_swift_package_dependency)
+        .collect::<Vec<_>>();
+    let target_dependencies = project
+        .native
+        .modules
+        .iter()
+        .flat_map(|module| module.ios.swift_packages.iter())
+        .map(render_ios_swift_product_dependency)
+        .collect::<Vec<_>>();
+
+    let dependencies = if package_dependencies.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\n        {}\n    ",
+            package_dependencies.join(",\n        ")
+        )
+    };
+    let target_dependencies = if target_dependencies.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\n                {}\n            ",
+            target_dependencies.join(",\n                ")
+        )
+    };
+
+    format!(
+        r#"// swift-tools-version: 5.9
+import PackageDescription
+
+let package = Package(
+    name: "NativeModules",
+    platforms: [
+        .iOS(.v16),
+    ],
+    products: [
+        .library(name: "FissionNativeModules", targets: ["FissionNativeModules"]),
+    ],
+    dependencies: [{dependencies}],
+    targets: [
+        .target(
+            name: "FissionNativeModules",
+            dependencies: [{target_dependencies}],
+            path: "Sources/FissionNativeModules"
+        ),
+    ]
+)
+"#
+    )
+}
+
+fn render_ios_swift_package_dependency(package: &NativeIosSwiftPackageConfig) -> String {
+    let version = package
+        .from
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("0.0.0");
+    format!(".package(url: {:?}, from: {:?})", package.url, version)
+}
+
+fn render_ios_swift_product_dependency(package: &NativeIosSwiftPackageConfig) -> String {
+    let package_name = package
+        .url
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .unwrap_or(package.product.as_str())
+        .trim_end_matches(".git");
+    format!(
+        ".product(name: {:?}, package: {:?})",
+        package.product, package_name
+    )
+}
+
+fn render_ios_host_native_capabilities_swift() -> &'static str {
+    r#"import Foundation
+import FissionNativeModules
+
+public enum FissionHostNativeCapabilities {
+    public static func present(name: String, requestID: UInt64, payload: Data, completion: @escaping (Result<Data, Error>) -> Void) -> Bool {
+        FissionNativeCapabilityRegistry.shared.present(name: name, requestID: requestID, payload: payload, completion: completion)
+    }
+}
+"#
+}
+
+fn render_ios_native_capabilities_swift() -> &'static str {
+    r#"import Foundation
+
+public protocol FissionNativeCapability {
+    var name: String { get }
+    func present(requestID: UInt64, payload: Data, completion: @escaping (Result<Data, Error>) -> Void)
+}
+
+public final class FissionNativeCapabilityRegistry {
+    public static let shared = FissionNativeCapabilityRegistry()
+    private var capabilities: [String: FissionNativeCapability] = [:]
+
+    private init() {}
+
+    public func register(_ capability: FissionNativeCapability) {
+        capabilities[capability.name] = capability
+    }
+
+    public func present(name: String, requestID: UInt64, payload: Data, completion: @escaping (Result<Data, Error>) -> Void) -> Bool {
+        guard let capability = capabilities[name] else {
+            return false
+        }
+        capability.present(requestID: requestID, payload: payload, completion: completion)
+        return true
+    }
+}
+"#
+}
+
+const IOS_NATIVE_MODULES_README: &str = r#"# iOS native modules
+
+This Swift package is the app-owned integration point for native capability modules.
+
+Fission generates `Package.swift` from `fission.toml` `[native]` module declarations. Capability
+crates can provide Swift sources or package dependencies here without adding product-specific
+logic to Fission itself.
+"#;
 
 fn render_ios_plist(project: &FissionProject, executable: &str) -> String {
     let capability_entries = render_ios_info_plist_capability_entries(project);
@@ -1833,6 +2663,7 @@ PY
 
 fn render_android_manifest(project: &FissionProject) -> String {
     let capability_entries = render_android_capability_manifest_entries(project);
+    let native_application_entries = render_android_native_application_entries(project);
     format!(
         r#"<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
@@ -1848,11 +2679,12 @@ fn render_android_manifest(project: &FissionProject) -> String {
     <application
         android:debuggable="true"
         android:extractNativeLibs="true"
-        android:hasCode="false"
+        android:hasCode="true"
         android:icon="@drawable/app_icon"
         android:label="{label}">
+{native_application_entries}
         <activity
-            android:name="android.app.NativeActivity"
+            android:name="rs.fission.runtime.FissionActivity"
             android:configChanges="orientation|keyboardHidden|screenSize|screenLayout|smallestScreenSize|uiMode|density"
             android:exported="true"
             android:launchMode="singleTask"
@@ -1873,7 +2705,26 @@ fn render_android_manifest(project: &FissionProject) -> String {
         label = ios_bundle_name(project),
         lib_name = android_library_name(project),
         capability_entries = capability_entries,
+        native_application_entries = native_application_entries,
     )
+}
+
+fn render_android_native_application_entries(project: &FissionProject) -> String {
+    let mut out = String::new();
+    for module in &project.native.modules {
+        for entry in &module.android.manifest_application_entries {
+            let entry = entry.trim();
+            if entry.is_empty() {
+                continue;
+            }
+            out.push_str("        ");
+            out.push_str(entry);
+            if !entry.ends_with('\n') {
+                out.push('\n');
+            }
+        }
+    }
+    out
 }
 
 fn render_android_capability_manifest_entries(project: &FissionProject) -> String {
@@ -1931,7 +2782,24 @@ fn render_android_capability_manifest_entries(project: &FissionProject) -> Strin
     if project.capabilities.contains(&PlatformCapability::Wifi) {
         out.push_str(&render_android_wifi_manifest_entries());
     }
+    for permission in android_native_module_permissions(project) {
+        out.push_str(&format!(
+            "    <uses-permission android:name=\"{}\" />\n",
+            permission
+        ));
+    }
     out
+}
+
+fn android_native_module_permissions(project: &FissionProject) -> BTreeSet<String> {
+    project
+        .native
+        .modules
+        .iter()
+        .flat_map(|module| module.android.permissions.iter())
+        .map(|permission| permission.trim().to_string())
+        .filter(|permission| !permission.is_empty())
+        .collect()
 }
 
 fn render_android_nfc_manifest_entries() -> String {
@@ -2251,20 +3119,6 @@ detect_latest_android_api() {{
     | tail -1
 }}
 
-detect_build_tools_dir() {{
-  if [[ -n "${{ANDROID_BUILD_TOOLS:-}}" ]]; then
-    if [[ -d "$ANDROID_BUILD_TOOLS" ]]; then
-      printf '%s\n' "$ANDROID_BUILD_TOOLS"
-      return
-    fi
-    if [[ -d "$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS" ]]; then
-      printf '%s\n' "$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS"
-      return
-    fi
-  fi
-  find "$ANDROID_HOME/build-tools" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | sort -V | tail -1
-}}
-
 ANDROID_TARGET_API_LEVEL="${{ANDROID_TARGET_API_LEVEL:-$(detect_latest_android_api)}}"
 if [[ -z "$ANDROID_TARGET_API_LEVEL" ]]; then
   printf 'No Android platform found under %s/platforms. Install one with sdkmanager "platforms;android-35" or newer.\n' "$ANDROID_HOME" >&2
@@ -2280,32 +3134,27 @@ CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="${{CARGO_TARGET_AARCH64_LINUX_ANDROID_AR:
 export ANDROID_HOME ANDROID_NDK ANDROID_MIN_API_LEVEL ANDROID_TARGET_API_LEVEL ANDROID_TOOLCHAIN CC_aarch64_linux_android AR_aarch64_linux_android
 export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER CARGO_TARGET_AARCH64_LINUX_ANDROID_AR
 
-BUILD_TOOLS=$(detect_build_tools_dir)
-if [[ -z "$BUILD_TOOLS" || ! -d "$BUILD_TOOLS" ]]; then
-  printf 'Android build-tools not found. Install them with sdkmanager "build-tools;35.0.0" or set ANDROID_BUILD_TOOLS.\n' >&2
-  exit 1
-fi
-ANDROID_JAR="$ANDROID_HOME/platforms/android-$ANDROID_TARGET_API_LEVEL/android.jar"
-if [[ ! -f "$ANDROID_JAR" ]]; then
-  printf 'Android platform android-%s not found. Install it with sdkmanager "platforms;android-%s" or set ANDROID_TARGET_API_LEVEL.\n' "$ANDROID_TARGET_API_LEVEL" "$ANDROID_TARGET_API_LEVEL" >&2
-  exit 1
-fi
-AAPT="$BUILD_TOOLS/aapt"
-D8="$BUILD_TOOLS/d8"
-ZIPALIGN="$BUILD_TOOLS/zipalign"
-APKSIGNER="$BUILD_TOOLS/apksigner"
-for tool in "$AAPT" "$ZIPALIGN" "$APKSIGNER"; do
-  if [[ ! -x "$tool" ]]; then
-    printf 'Required Android build tool is missing or not executable: %s\n' "$tool" >&2
+if [[ -n "${{FISSION_GRADLE:-}}" ]]; then
+  read -r -a GRADLE_CMD <<< "$FISSION_GRADLE"
+elif [[ -x "$SCRIPT_DIR/gradlew" ]]; then
+  GRADLE_CMD=("$SCRIPT_DIR/gradlew")
+else
+  if ! command -v gradle >/dev/null 2>&1; then
+    printf 'Gradle is required for the generated Android project shell. Install Gradle or add a wrapper under %s.\n' "$SCRIPT_DIR" >&2
     exit 1
   fi
-done
+  GRADLE_CMD=(gradle)
+fi
 
 BUILD_ARGS=(build --manifest-path "$PROJECT_DIR/Cargo.toml" --lib --target "$TARGET" --package "$PACKAGE_NAME")
 ARTIFACT_DIR=debug
+GRADLE_VARIANT=Debug
+GRADLE_OUTPUT_DIR=debug
 if [[ "$PROFILE" == "release" ]]; then
   BUILD_ARGS+=(--release)
   ARTIFACT_DIR=release
+  GRADLE_VARIANT=Release
+  GRADLE_OUTPUT_DIR=release
 fi
 
 cargo "${{BUILD_ARGS[@]}}"
@@ -2325,97 +3174,31 @@ PY
 )
 
 SO_PATH="$TARGET_DIR/$TARGET/$ARTIFACT_DIR/lib$LIB_NAME.so"
-BUILD_DIR="$SCRIPT_DIR/build/$PROFILE"
-APK_ROOT="$BUILD_DIR/apk-root"
-UNALIGNED_APK="$BUILD_DIR/$PACKAGE_NAME-unaligned.apk"
-ALIGNED_APK="$BUILD_DIR/$PACKAGE_NAME-aligned.apk"
-SIGNED_APK="$BUILD_DIR/$PACKAGE_NAME.apk"
-KEYSTORE="${{ANDROID_DEBUG_KEYSTORE:-$HOME/.android/debug.keystore}}"
-
-rm -rf "$APK_ROOT"
-mkdir -p "$APK_ROOT/lib/arm64-v8a" "$APK_ROOT/res/drawable-nodpi" "$BUILD_DIR"
-cp "$SO_PATH" "$APK_ROOT/lib/arm64-v8a/lib$LIB_NAME.so"
+JNI_DIR="$SCRIPT_DIR/app/src/main/jniLibs/arm64-v8a"
+GENERATED_RES_DIR="$SCRIPT_DIR/app/src/main/res/drawable-nodpi"
+mkdir -p "$JNI_DIR" "$GENERATED_RES_DIR"
+cp "$SO_PATH" "$JNI_DIR/lib$LIB_NAME.so"
 shopt -s nullglob
 APP_ICONS=("$SCRIPT_DIR"/res/drawable-nodpi/app_icon.* "$SCRIPT_DIR"/res/drawable/app_icon.*)
 if (( ${{#APP_ICONS[@]}} == 0 )); then
-  cp "$PROJECT_DIR/assets/app-icon.png" "$APK_ROOT/res/drawable-nodpi/app_icon.png"
+  cp "$PROJECT_DIR/assets/app-icon.png" "$GENERATED_RES_DIR/app_icon.png"
 fi
 shopt -u nullglob
 shopt -s nullglob
 SPLASH_IMAGES=("$SCRIPT_DIR"/res/drawable-nodpi/fission_splash_image.*)
 if (( ${{#SPLASH_IMAGES[@]}} == 0 )); then
-  cp "$PROJECT_DIR/assets/app-icon.png" "$APK_ROOT/res/drawable-nodpi/fission_splash_image.png"
+  cp "$PROJECT_DIR/assets/app-icon.png" "$GENERATED_RES_DIR/fission_splash_image.png"
 fi
 shopt -u nullglob
-if [[ -d "$SCRIPT_DIR/res" ]]; then
-  mkdir -p "$APK_ROOT/res"
-  cp -R "$SCRIPT_DIR/res/." "$APK_ROOT/res/"
+
+"${{GRADLE_CMD[@]}}" -p "$SCRIPT_DIR" ":app:assemble$GRADLE_VARIANT"
+
+APK="$SCRIPT_DIR/app/build/outputs/apk/$GRADLE_OUTPUT_DIR/app-$GRADLE_OUTPUT_DIR.apk"
+if [[ ! -f "$APK" ]]; then
+  printf 'Gradle did not produce the expected APK: %s\n' "$APK" >&2
+  exit 1
 fi
-
-JAVA_SRC_DIR="$SCRIPT_DIR/java"
-if [[ -d "$JAVA_SRC_DIR" ]] && find "$JAVA_SRC_DIR" -name '*.java' -print -quit | grep -q .; then
-  if ! command -v javac >/dev/null 2>&1; then
-    printf 'Java compiler not found. Install a JDK or remove Android Java capability helpers under %s.\n' "$JAVA_SRC_DIR" >&2
-    exit 1
-  fi
-  if [[ ! -x "$D8" ]]; then
-    printf 'Required Android dexer is missing or not executable: %s\n' "$D8" >&2
-    exit 1
-  fi
-  CLASSES_DIR="$BUILD_DIR/java-classes"
-  DEX_DIR="$BUILD_DIR/dex"
-  rm -rf "$CLASSES_DIR" "$DEX_DIR"
-  mkdir -p "$CLASSES_DIR" "$DEX_DIR"
-  mapfile -t JAVA_SOURCES < <(find "$JAVA_SRC_DIR" -name '*.java' | sort)
-  javac -encoding UTF-8 -source 11 -target 11 -classpath "$ANDROID_JAR" -d "$CLASSES_DIR" "${{JAVA_SOURCES[@]}}"
-  mapfile -t CLASS_FILES < <(find "$CLASSES_DIR" -name '*.class' | sort)
-  "$D8" --classpath "$ANDROID_JAR" --min-api "$ANDROID_MIN_API_LEVEL" --output "$DEX_DIR" "${{CLASS_FILES[@]}}"
-  cp "$DEX_DIR/classes.dex" "$APK_ROOT/classes.dex"
-fi
-
-BUILD_MANIFEST="$BUILD_DIR/AndroidManifest.xml"
-python3 - <<'PY' "$SCRIPT_DIR/AndroidManifest.xml" "$BUILD_MANIFEST" "$ANDROID_MIN_API_LEVEL" "$ANDROID_TARGET_API_LEVEL"
-import pathlib
-import re
-import sys
-
-source, dest, min_api, target_api = sys.argv[1:]
-manifest = open(source, encoding="utf-8").read()
-manifest = re.sub(r'android:minSdkVersion="\d+"', f'android:minSdkVersion="{{min_api}}"', manifest)
-manifest = re.sub(r'android:targetSdkVersion="\d+"', f'android:targetSdkVersion="{{target_api}}"', manifest)
-has_code = "true" if pathlib.Path(dest).with_name("apk-root").joinpath("classes.dex").exists() else "false"
-manifest = re.sub(r'android:hasCode="(?:true|false)"', f'android:hasCode="{{has_code}}"', manifest)
-open(dest, "w", encoding="utf-8").write(manifest)
-PY
-
-"$AAPT" package -f -F "$UNALIGNED_APK" -M "$BUILD_MANIFEST" -S "$APK_ROOT/res" -I "$ANDROID_JAR"
-(cd "$APK_ROOT" && zip -qr "$UNALIGNED_APK" lib)
-if [[ -f "$APK_ROOT/classes.dex" ]]; then
-  (cd "$APK_ROOT" && zip -q "$UNALIGNED_APK" classes.dex)
-fi
-"$ZIPALIGN" -f 4 "$UNALIGNED_APK" "$ALIGNED_APK"
-
-if [[ ! -f "$KEYSTORE" ]]; then
-  mkdir -p "$(dirname "$KEYSTORE")"
-  keytool -genkeypair -v \
-    -keystore "$KEYSTORE" \
-    -storepass android \
-    -alias androiddebugkey \
-    -keypass android \
-    -dname "CN=Android Debug,O=Android,C=US" \
-    -keyalg RSA \
-    -keysize 2048 \
-    -validity 10000 >/dev/null 2>&1
-fi
-
-"$APKSIGNER" sign \
-  --ks "$KEYSTORE" \
-  --ks-pass pass:android \
-  --key-pass pass:android \
-  --out "$SIGNED_APK" \
-  "$ALIGNED_APK"
-
-printf '%s\n' "$SIGNED_APK"
+printf '%s\n' "$APK"
 "#,
         package_name = project.app.name,
         lib_name = lib_name,
@@ -2518,7 +3301,7 @@ APK=$("$SCRIPT_DIR/package-apk.sh")
 read -r -a ADB_INSTALL_FLAGS <<< "${{ADB_INSTALL_FLAGS:---no-streaming -r}}"
 "$ADB" install "${{ADB_INSTALL_FLAGS[@]}}" "$APK"
 "$ADB" forward "tcp:$HOST_PORT" "tcp:$DEVICE_PORT"
-"$ADB" shell am start -n {app_id}/android.app.NativeActivity >/dev/null
+"$ADB" shell am start -n {app_id}/rs.fission.runtime.FissionActivity >/dev/null
 printf 'APK=%s\n' "$APK"
 "#,
         app_id = project.app.app_id,
