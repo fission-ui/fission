@@ -67,31 +67,27 @@ This is the right place for the user's preference because it is part of product 
 
 Now create the environment that holds translation bundles.
 
-Start by adding checked-in translation files such as `i18n/en-US.json` and `i18n/es-ES.json`.
+Start by adding checked-in translation files such as `i18n/en-US.yaml` and `i18n/es-ES.yaml`.
 
 A minimal pair might look like this:
 
-```json
-{
-  "settings.title": "Settings",
-  "settings.theme": "Theme",
-  "settings.locale": "Language",
-  "settings.theme.light": "Light",
-  "settings.theme.dark": "Dark"
-}
+```yaml
+settings.title: "Settings"
+settings.theme: "Theme"
+settings.locale: "Language"
+settings.theme.light: "Light"
+settings.theme.dark: "Dark"
 ```
 
-```json
-{
-  "settings.title": "Configuracion",
-  "settings.theme": "Tema",
-  "settings.locale": "Idioma",
-  "settings.theme.light": "Claro",
-  "settings.theme.dark": "Oscuro"
-}
+```yaml
+settings.title: "Configuracion"
+settings.theme: "Tema"
+settings.locale: "Idioma"
+settings.theme.light: "Claro"
+settings.theme.dark: "Oscuro"
 ```
 
-With those files in place, load them into `Env` during startup.
+With those files in place, add `serde_yaml = "0.9"` to your app and load the YAML into `Env` during startup.
 
 ```rust
 use std::collections::HashMap;
@@ -99,9 +95,9 @@ use std::collections::HashMap;
 use fission::i18n::{Locale, TranslationBundle};
 use fission::prelude::*;
 
-fn load_bundle(locale: &str, raw: &str) -> TranslationBundle {
+fn load_bundle(locale: &str, raw_yaml: &str) -> TranslationBundle {
     let messages: HashMap<String, String> =
-        serde_json::from_str(raw).expect("valid translation json");
+        serde_yaml::from_str(raw_yaml).expect("valid translation yaml");
 
     TranslationBundle {
         locale: Locale(locale.to_string()),
@@ -114,11 +110,11 @@ fn create_env() -> Env {
 
     env.i18n.add_bundle(load_bundle(
         "en-US",
-        include_str!("../i18n/en-US.json"),
+        include_str!("../i18n/en-US.yaml"),
     ));
     env.i18n.add_bundle(load_bundle(
         "es-ES",
-        include_str!("../i18n/es-ES.json"),
+        include_str!("../i18n/es-ES.yaml"),
     ));
 
     env
