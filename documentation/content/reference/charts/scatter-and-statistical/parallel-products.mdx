@@ -12,7 +12,7 @@ Rows crossing multiple dimensions. Use it for multidimensional comparison. The s
 
 ## What the chart is for
 
-Product parallel coordinates belongs to the **Scatter and statistical** family. Its job is to make this data shape readable: `Vec<Vec<f32>> observations.` In a production interface, choose this chart when the visual form makes the user's question faster to answer than a table or a simpler chart would.
+Product parallel coordinates is part of the **Scatter and statistical** chart family and is intended for `Vec<Vec<f32>> observations`. Use it when the visual form makes the user's question faster to answer than a table or a simpler chart would.
 
 Avoid it when the visual form makes the user estimate more than necessary; choose the simplest chart that answers the product question.
 
@@ -89,6 +89,5 @@ Keep expensive data loading outside component conversion. A reducer, job, servic
 | Performance | Prefer summarized or windowed data for very large datasets; keep full raw history in the data layer. | Profile frame time and interaction latency with representative data volumes. |
 
 Tags: `parallel`, `dimensions`.
-
 
 [Scatter and statistical family overview](./overview)

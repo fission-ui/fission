@@ -55,7 +55,7 @@ Use a preset when it matches the platform or brand direction you want. Copy it i
 
 `Env` carries the active theme, internationalization registry, locale, and other app-wide presentation context. During component conversion, widgets can read those values through `view.env` or convenience helpers such as `view.theme()`.
 
-Desktop exposes both `with_env(...)` and `with_sync_env(...)`. Mobile and web expose `with_sync_env(...)`. Server-rendered apps expose `with_env(...)` and `with_request_env(...)`. Static sites expose `with_env(...)`.
+Desktop exposes both `with_env(...)` and `with_sync_env(...)`. Mobile and web expose `with_sync_env(...)`. SSR apps expose `with_env(...)` and `with_request_env(...)`. Static site targets expose `with_env(...)`.
 
 Use `with_env(...)` to seed a base environment before the first frame, such as one that already contains translation bundles.
 
@@ -95,22 +95,6 @@ Keep loaded theme objects and translation bundles in `Env` because widgets need 
 Avoid hard-coding unrelated color, spacing, and typography values inside widgets. If a value should be consistent across the product, it belongs in the design system or active theme.
 
 Use `TextContent::Key` for product copy and `TextContent::Literal` for data. A label such as `settings.title` should be keyed. A user name, file path, generated count, or pasted message should usually be literal.
-
-## Contract completeness checklist
-
-Use this checklist when wiring `Theming and internationalization` into an app or shell implementation.
-
-| Requirement | Why it matters |
-| --- | --- |
-| Public entrypoint | The app code must call the documented helper, command, or configuration field rather than a platform-specific shortcut. |
-| Required setup | Native manifests, plist entries, entitlements, service-worker files, domains, protocols, credentials, or provider registration must be present before production use. |
-| Typed success and error | The implementation should return a truthful typed result. Silent success, swallowed errors, and string-only failure paths make apps unsafe to retry. |
-| Retry behavior | Operations that can fail because of permission, network, hardware, store, or packaging state should document whether retrying is useful and what must change first. |
-| Tests | Cover the happy path, unsupported host path, bad configuration path, and any security-sensitive rejection path. |
-
-## Failure behavior and safe retry
-
-Treat failures as product states, not surprises. A Fission app should be able to tell the user whether the problem is missing configuration, missing provider support, denied permission, unavailable hardware, invalid input, expired credentials, or a transient host error. Reducers should update state from typed results and keep retry buttons idempotent so pressing them twice cannot corrupt state or duplicate unsafe work.
 
 ## Related pages
 

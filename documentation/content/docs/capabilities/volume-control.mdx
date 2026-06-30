@@ -17,11 +17,13 @@ Add the smallest state fields the screen needs to render honestly. For this flow
 
 ```rust
 #[derive(Default)]
-struct GlobalState {
+struct VolumeControlState {
     // Add these fields to your existing app state.
-volume: Option<VolumeLevel>,
+    volume: Option<VolumeLevel>,
     volume_error: Option<String>,
 }
+
+impl GlobalState for VolumeControlState {}
 ```
 
 State is the source of truth for the UI. Do not store whether the host "probably" succeeded; wait for the typed success action and store the returned value.
@@ -52,13 +54,13 @@ Capability work finishes later, after the reducer that started it has returned. 
 
 ```rust
 #[fission_reducer(VolumeChanged)]
-fn on_volume_changed(state: &mut GlobalState, level: VolumeLevel) {
+fn on_volume_changed(state: &mut VolumeControlState, level: VolumeLevel) {
     state.volume = Some(level);
     state.volume_error = None;
 }
 
 #[fission_reducer(VolumeChangeFailed)]
-fn on_volume_change_failed(state: &mut GlobalState, error: VolumeError) {
+fn on_volume_change_failed(state: &mut VolumeControlState, error: VolumeError) {
     state.volume_error = Some(error.message);
 }
 ```
@@ -87,7 +89,7 @@ ctx.effects
     ));
 ```
 
-The call does not run the OS API directly. It records a typed host request. That keeps shared app logic portable across desktop, web, Android, iOS, static-site previews where applicable, and tests.
+The call does not run the OS API directly. It records a typed host request. That keeps shared app logic portable across Fission targets where the capability applies, plus static-site previews and tests.
 
 ## 5. Trigger the reducer from the UI
 
@@ -98,7 +100,7 @@ struct RaiseVolumeButton;
 
 impl From<RaiseVolumeButton> for Widget {
     fn from(component: RaiseVolumeButton) -> Self {
-        let (ctx, view) = fission::build::current::<GlobalState>();
+        let (ctx, view) = fission::build::current::<VolumeControlState>();
         let run = with_reducer!(ctx, RaiseVolume, on_raise_volume);
 
         Button::new("Raise volume")

@@ -85,7 +85,7 @@ What varies today is the backend implementation for this particular media surfac
 
 In the checked-in winit shell path, macOS uses a real AVFoundation-backed player layer. Other current targets use the mock backend path that preserves the runtime contract and playback-state flow without providing the same native media implementation.
 
-The right way to read that difference is very narrow: it tells you how far the current checked-in `Video` backend is implemented on each host. It does not say that Fission's overall desktop, web, Android, or iOS app model is not ready. It says that embedded video playback, like any specialized media surface, must be evaluated on the exact host backend you plan to ship.
+The right way to read that difference is very narrow: it tells you how far the current checked-in `Video` backend is implemented on each host. It does not say that Fission's overall macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, or SSR app model is not ready. It says that embedded video playback, like any specialized media surface, must be evaluated on the exact host backend you plan to ship.
 
 ## Specific guidance
 

@@ -12,7 +12,7 @@ Product trend dataset uses Fission Charts typed Rust data to render a production
 
 ## What the chart is for
 
-Product trend dataset belongs to the **Dataset** family. Its job is to make this data shape readable: `Tabular data encoded into line series.` In a production interface, choose this chart when the visual form makes the user's question faster to answer than a table or a simpler chart would.
+Product trend dataset is part of the **Dataset** chart family and is intended for `Tabular data encoded into line series`. Use it when the visual form makes the user's question faster to answer than a table or a simpler chart would.
 
 Avoid it when the visual form makes the user estimate more than necessary; choose the simplest chart that answers the product question.
 
@@ -89,6 +89,5 @@ Keep expensive data loading outside component conversion. A reducer, job, servic
 | Performance | Prefer summarized or windowed data for very large datasets; keep full raw history in the data layer. | Profile frame time and interaction latency with representative data volumes. |
 
 Tags: `dataset`, `line`.
-
 
 [Dataset family overview](./overview)

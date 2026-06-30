@@ -2,7 +2,7 @@ targets = ["server"]
 
 [app]
 name = "Pokemon Card Store"
-app_id = "ai.worka.fission.examples.pokemon-card-store"
+app_id = "rs.fission.examples.pokemon_card_store"
 
 [server]
 entry = "pokemon_card_store::pokemon_card_store_server"
@@ -19,7 +19,7 @@ preload = "route"
 
 [package.docker]
 port = 8080
-tags = ["ghcr.io/worka-ai/fission-pokemon-card-store:0.1.0"]
+tags = ["ghcr.io/fission-ui/fission-pokemon-card-store:0.5.1"]
 
 [distribution.docker_registry.production]
-tags = ["ghcr.io/worka-ai/fission-pokemon-card-store:0.1.0"]
+tags = ["ghcr.io/fission-ui/fission-pokemon-card-store:0.5.1"]

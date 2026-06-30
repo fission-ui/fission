@@ -49,11 +49,11 @@ A target is the output family you want to run or build. A shell is the host laye
 | Does the screen composition make sense? | Desktop or web | Fast visual iteration with the normal widget tree. |
 | Does the layout adapt to browser sizes? | Web | The browser host answers viewport, focus, clipboard, and page-integration questions. |
 | Does touch, safe area, or mobile density feel right? | Android or iOS | Mobile hosts answer mobile input and presentation questions. |
-| Does a command-line workflow need persistent interaction? | Terminal UI | The terminal shell proves keyboard, mouse, logs, and scrollback behavior. |
+| Does a command-line workflow need persistent interaction? | Terminal | The terminal shell proves keyboard, mouse, logs, and scrollback behavior. |
 | Does documentation or marketing content render as crawlable pages? | Static site | The site target answers routing, generated HTML, metadata, search, and link-validation questions. |
 | Does an ecommerce, account, dashboard, or portal page need request-time data? | Server-rendered site | The server target answers sessions, cache policy, server jobs, signed actions, workers, and islands. |
 
-Do not treat desktop as the only real loop. It is often the fastest place to start, but browser, mobile, terminal, static site, and server-rendered site targets are first-class delivery paths. Choose the host that can actually answer the current question.
+Do not treat desktop as the only real loop. It is often the fastest place to start, but Web, Android, iOS, Terminal, Static site, and SSR targets are first-class delivery paths. Choose the host that can actually answer the current question.
 
 ## Keep host details at the edge
 

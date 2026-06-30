@@ -17,7 +17,7 @@ fn site_app() -> FissionSite {
             "/",
             "Fission",
             Some(
-                "Build, test, package, and release production Rust apps across desktop, mobile, web, terminal, static site, and server-rendered site targets."
+                "Build, test, package, and release production Rust apps across macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR targets."
                     .to_string(),
             ),
             RoutedHomePage::new("/"),
@@ -31,7 +31,7 @@ fn site_app() -> FissionSite {
         .route_widget::<DocsState, _>(
             "/product/cross-platform-apps/",
             "Cross-platform apps",
-            Some("Build desktop, mobile, and web apps from one shared Rust application model.".to_string()),
+            Some("Build across macOS, Windows, Linux, Web, Android, and iOS from one shared Rust application model.".to_string()),
             ProductMarketingPage::new(MarketingPageKind::CrossPlatformApps),
         )
         .route_widget::<DocsState, _>(
@@ -43,7 +43,7 @@ fn site_app() -> FissionSite {
         .route_widget::<DocsState, _>(
             "/product/static-sites/",
             "Static sites",
-            Some("Generate SEO-friendly static HTML sites from Fission widgets, Markdown content, and explicit site routing.".to_string()),
+            Some("Generate SEO-friendly Static site targets from Fission widgets, Markdown content, and explicit site routing.".to_string()),
             ProductMarketingPage::new(MarketingPageKind::StaticSites),
         )
         .route_widget::<DocsState, _>(

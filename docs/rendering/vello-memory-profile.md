@@ -106,3 +106,38 @@ Resize test using Fission test-control screenshots after the final profile/grow 
 Screenshot sanity checks with ImageMagick reported non-flat images (`colors` = 917, 1393, 1335 respectively), and manual inspection of the 1600x1200 screenshot showed the inbox UI rendered rather than a grey/blank frame.
 
 The 2400x1800 logical resize maps to a 4800x3600 physical render target on this display. It no longer allocates the original fixed 165 MiB for ordinary scenes, but it still exposes a Vello coarse-pass high-DPI edge case around repeated/inverted tile segment state. Vello now reports `DynamicBufferAllocationFailed` instead of silently producing grey output or unbounded allocation; the current Fission shell still panics because it expects render success. A full upstream fix likely needs Vello to preserve segment counts separately from allocated segment offsets or split very large render targets into bounded tiles.
+
+## WGPU memory-hint follow-up
+
+Change set:
+
+- Upgraded the shell stack to `winit 0.30.13`, which admits `android-activity 0.6.1`.
+- Set `wgpu::MemoryHints::MemoryUsage` in Vello's `RenderContext` device creation path.
+
+Release-build measurements on the same host using `FISSION_RENDERER=native-vello-gpu`:
+
+| Case | Physical footprint | Peak | Notes |
+| --- | ---: | ---: | --- |
+| `examples/inbox` | 62.5 MiB | 88.6 MiB | 800x600 one-shot launch. |
+| `examples/counter` | 52.5 MiB | 81.2 MiB | 800x600 one-shot launch. |
+| `examples/motion-memory-repro` | 78.9 MiB | 90.6 MiB | `FISSION_REPRO_SCENARIO=motion`. |
+
+On this macOS/Metal host, `MemoryHints::MemoryUsage` did not reduce the previously measured footprint. It may still matter on Vulkan/DX12 backends where WGPU's allocator chunk sizing is the larger contributor.
+
+## Direct WGPU2D prototype comparison
+
+Change set:
+
+- Added a selectable `fission-render-wgpu2d` prototype via `FISSION_RENDERER=native-wgpu2d`.
+- The prototype currently clears the target and renders solid rectangle quads, stroke quads, cached scene recursion, and placeholders for text, images, paths, SVG, surfaces, gradients, clips, transforms, and opacity.
+- Screenshot sanity check: `/tmp/fission-wgpu2d-shots/inbox.png`.
+
+Release-build measurements on the same host:
+
+| Case | Physical footprint | Peak | Notes |
+| --- | ---: | ---: | --- |
+| `examples/inbox` | 84.8 MiB | 98.1 MiB | Placeholder-heavy renderer, 800x600 one-shot launch. |
+| `examples/counter` | 57.0 MiB | 86.7 MiB | Placeholder-heavy renderer, 800x600 one-shot launch. |
+| `examples/motion-memory-repro` | 111.0 MiB | 163.3 MiB | `FISSION_REPRO_SCENARIO=motion`; placeholder-heavy renderer. |
+
+This prototype is useful to prove shell selectability and isolate the direct-WGPU path, but it is not yet a fair final memory comparison. The retained Winit/WGPU surface setup remains the same, while text/images/path rendering are placeholders and the prototype uploads a fresh vertex buffer each frame without atlases, retained batches, or clipping. A meaningful renderer comparison requires implementing real text glyph atlases, image atlases, CPU tessellated paths/rounded rects, retained buffers, and bounded clip/opacity handling.

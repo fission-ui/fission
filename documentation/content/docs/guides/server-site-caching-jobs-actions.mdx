@@ -53,7 +53,7 @@ stale_while_revalidate = "1m"
 
 ## What you should have working
 
-After this guide, you should be able to explain where `Server caching, jobs, and actions` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test. If any of those pieces are missing, treat the page as unfinished work: add the smallest runnable example, then add the diagnostic step that proves it works.
+After this guide, you should be able to explain where `Server caching, jobs, and actions` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test.
 
 ## Common mistakes to check
 
@@ -89,7 +89,7 @@ Enable Redis through the facade feature in the server app's `Cargo.toml`:
 
 ```toml
 [dependencies]
-fission = { version = "0.3", features = ["server", "server-redis"] }
+fission = { version = "0.5.1", features = ["server", "server-redis"] }
 ```
 
 ## Invalidate cached pages after writes

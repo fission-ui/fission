@@ -12,7 +12,7 @@ Multiple metrics plotted around a circular axis set. Use it for profile comparis
 
 ## What the chart is for
 
-Radar belongs to the **Radial and polar** family. Its job is to make this data shape readable: `Vec<Vec<f32>> where each row is one profile.` In a production interface, choose this chart when the visual form makes the user's question faster to answer than a table or a simpler chart would.
+Radar is part of the **Radial and polar** chart family and is intended for `Vec<Vec<f32>> where each row is one profile`. Use it when the visual form makes the user's question faster to answer than a table or a simpler chart would.
 
 Avoid it when the visual form makes the user estimate more than necessary; choose the simplest chart that answers the product question.
 
@@ -81,6 +81,5 @@ Keep expensive data loading outside component conversion. A reducer, job, servic
 | Performance | Prefer summarized or windowed data for very large datasets; keep full raw history in the data layer. | Profile frame time and interaction latency with representative data volumes. |
 
 Tags: `radar`, `profile`.
-
 
 [Radial and polar family overview](./overview)

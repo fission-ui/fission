@@ -1,17 +1,17 @@
 ---
 title: Terminal user interfaces
-description: Build terminal applications with the same Fission widget, reducer, and shell model used by desktop, web, mobile, static site, and server-rendered site targets.
+description: Build terminal applications with the same Fission widget, reducer, and shell model used by macOS, Windows, Linux, Web, Android, iOS, Static site, and SSR targets.
 ---
 
 # Terminal user interfaces
 
 Fission can render a normal Fission application inside a terminal. This is not a separate terminal UI framework bolted onto the side of the project. The terminal shell builds your widget tree, lowers it to Fission Core IR, computes layout, verifies that the result can be represented in a terminal, and then paints the frame into terminal cells.
 
-That distinction matters. You still write state, actions, reducers, selectors, screens, routes, and widgets in the same style you would use for a desktop or mobile app. The terminal shell only changes the final presentation surface. It gives you a fast keyboard-first interface for command tools, dashboards, setup flows, diagnostics, and local developer workflows without making you learn a second application model.
+That distinction matters. You still write state, actions, reducers, selectors, screens, routes, and widgets in the same style you would use for a desktop or mobile app. The terminal shell only changes the final presentation layer. It gives you a fast keyboard-first interface for command tools, dashboards, setup flows, diagnostics, and local developer workflows without making you learn a second application model.
 
 ## When to choose the terminal shell
 
-A terminal user interface is a good fit when the user is already working in a shell and the task benefits from a persistent interactive surface. Running checks, choosing devices, selecting targets, following logs, editing a small set of settings, and launching build workflows are all better experiences when the user can see state, navigate between screens, and keep command output visible.
+A terminal user interface is a good fit when the user is already working in a shell and the task benefits from a persistent interactive view. Running checks, choosing devices, selecting targets, following logs, editing a small set of settings, and launching build workflows are all better experiences when the user can see state, navigate between screens, and keep command output visible.
 
 It is not the right target for highly visual interfaces, freeform graphics, media playback, canvas-heavy content, or flows that depend on exact pointer positioning. The terminal shell deliberately verifies the lowered output and reports unsupported Core IR instead of pretending every widget can be faithfully translated to cells.
 
@@ -21,12 +21,12 @@ Use the Fission facade crate and enable the terminal shell feature for tools tha
 
 ```toml
 [dependencies]
-fission = { path = "../crates/authoring/fission", features = ["terminal-shell"] }
+fission = { version = "0.5.1", features = ["terminal-shell"] }
 ```
 
 ## What you should have working
 
-After this guide, you should be able to explain where `Terminal user interfaces` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test. If any of those pieces are missing, treat the page as unfinished work: add the smallest runnable example, then add the diagnostic step that proves it works.
+After this guide, you should be able to explain where `Terminal user interfaces` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test.
 
 ## Common mistakes to check
 

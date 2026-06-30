@@ -7,7 +7,7 @@ Run, build, test, logs, devices, and doctor workflows for the `fission` command.
 ## What it contains
 
 - `fission doctor` checks for Rust targets, SDKs, emulators, simulators, browsers, and host tools.
-- `fission devices` detects runnable desktop, web, Android, iOS, and other configured targets.
+- `fission devices` detects runnable macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, SSR, and other configured targets where the command has a host workflow.
 - `fission run` builds, launches, and attaches to app output where the platform supports it.
 - `fission run --target web` prints the renderer selected by the browser runtime, for example `webgpu-vello` or the `canvas2d-software` fallback with its fallback reason.
 - `fission build`, `fission test`, and `fission logs` shared execution helpers.

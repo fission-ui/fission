@@ -12,7 +12,7 @@ Build confidence gauge uses Fission Charts typed Rust data to render a productio
 
 ## What the chart is for
 
-Build confidence gauge belongs to the **Radial** family. Its job is to make this data shape readable: `One confidence score on a gauge arc.` In a production interface, choose this chart when the visual form makes the user's question faster to answer than a table or a simpler chart would.
+Build confidence gauge is part of the **Radial** chart family and is intended for `One confidence score on a gauge arc`. Use it when the visual form makes the user's question faster to answer than a table or a simpler chart would.
 
 Avoid it when the visual form makes the user estimate more than necessary; choose the simplest chart that answers the product question.
 
@@ -87,6 +87,5 @@ Keep expensive data loading outside component conversion. A reducer, job, servic
 | Performance | Prefer summarized or windowed data for very large datasets; keep full raw history in the data layer. | Profile frame time and interaction latency with representative data volumes. |
 
 Tags: `gauge`, `build`.
-
 
 [Radial family overview](./overview)

@@ -12,7 +12,7 @@ A raised mesh surface for terrain-like continuous data. Use it for terrain, elev
 
 ## What the chart is for
 
-Terrain surface belongs to the **3D and GL** family. Its job is to make this data shape readable: `Grid-generated mesh vertices and triangle indices.` In a production interface, choose this chart when spatial data is genuinely easier to understand in a 3D viewport.
+Terrain surface is part of the **3D and GL** chart family and is intended for `Grid-generated mesh vertices and triangle indices`. Use it when spatial data is genuinely easier to understand in a 3D viewport.
 
 Avoid it when a two-dimensional chart answers the question more directly; 3D should clarify spatial data, not decorate ordinary comparisons.
 
@@ -85,6 +85,5 @@ Keep expensive data loading outside component conversion. A reducer, job, servic
 | Performance | Prefer summarized or windowed data for very large datasets; keep full raw history in the data layer. | Profile frame time and interaction latency with representative data volumes. |
 
 Tags: `3d`, `terrain`.
-
 
 [3D and GL family overview](./overview)

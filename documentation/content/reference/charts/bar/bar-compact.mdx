@@ -12,7 +12,7 @@ Small category comparison with a clean vertical bar layout. Use it for short lis
 
 ## What the chart is for
 
-Compact category bars belongs to the **Bar** family. Its job is to make this data shape readable: `Vec<f32> aligned to categories.` In a production interface, choose this chart when the visual form makes the user's question faster to answer than a table or a simpler chart would.
+Compact category bars is part of the **Bar** chart family and is intended for `Vec<f32> aligned to categories`. Use it when the visual form makes the user's question faster to answer than a table or a simpler chart would.
 
 Avoid it when the visual form makes the user estimate more than necessary; choose the simplest chart that answers the product question.
 
@@ -89,6 +89,5 @@ Keep expensive data loading outside component conversion. A reducer, job, servic
 | Performance | Prefer summarized or windowed data for very large datasets; keep full raw history in the data layer. | Profile frame time and interaction latency with representative data volumes. |
 
 Tags: `bar`, `category`.
-
 
 [Bar family overview](./overview)

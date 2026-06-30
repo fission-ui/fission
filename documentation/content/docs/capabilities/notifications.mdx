@@ -17,11 +17,13 @@ Add the smallest state fields the screen needs to render honestly. For this flow
 
 ```rust
 #[derive(Default)]
-struct GlobalState {
+struct NotificationState {
     // Add these fields to your existing app state.
-last_notification_id: Option<NotificationId>,
+    last_notification_id: Option<NotificationId>,
     notification_error: Option<String>,
 }
+
+impl GlobalState for NotificationState {}
 ```
 
 State is the source of truth for the UI. Do not store whether the host "probably" succeeded; wait for the typed success action and store the returned value.
@@ -46,13 +48,13 @@ Capability work finishes later, after the reducer that started it has returned. 
 
 ```rust
 #[fission_reducer(NotificationShown)]
-fn on_notification_shown(state: &mut GlobalState, receipt: NotificationReceipt) {
+fn on_notification_shown(state: &mut NotificationState, receipt: NotificationReceipt) {
     state.last_notification_id = Some(receipt.id);
     state.notification_error = None;
 }
 
 #[fission_reducer(NotificationFailed)]
-fn on_notification_failed(state: &mut GlobalState, error: NotificationError) {
+fn on_notification_failed(state: &mut NotificationState, error: NotificationError) {
     state.notification_error = Some(error.message);
 }
 ```
@@ -83,7 +85,7 @@ ctx.effects
     ));
 ```
 
-The call does not run the OS API directly. It records a typed host request. That keeps shared app logic portable across desktop, web, Android, iOS, static-site previews where applicable, and tests.
+The call does not run the OS API directly. It records a typed host request. That keeps shared app logic portable across Fission targets where the capability applies, plus static-site previews and tests.
 
 ## 5. Trigger the reducer from the UI
 
@@ -94,7 +96,7 @@ struct ShowSyncNotificationButton;
 
 impl From<ShowSyncNotificationButton> for Widget {
     fn from(component: ShowSyncNotificationButton) -> Self {
-        let (ctx, view) = fission::build::current::<GlobalState>();
+        let (ctx, view) = fission::build::current::<NotificationState>();
         let run = with_reducer!(ctx, ShowSyncNotification, on_show_sync_notification);
 
         Button::new("Show sync notification")

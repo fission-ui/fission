@@ -46,14 +46,14 @@ my-app/
     main.rs
 ```
 
-If you only want to try the workflow first, point your app at Fission's bundled package instead of copying it:
+Once the package is in `design/`, generate the Rust theme from that app-local input:
 
 ```rust title="build.rs"
 use std::path::PathBuf;
 
 fn main() {
     let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
-    let dsp_path = manifest_dir.join("../../crates/core/fission-theme/design/default/dsp.json");
+    let dsp_path = manifest_dir.join("design/dsp.json");
 
     fission_design_system_codegen::generate(fission_design_system_codegen::Config {
         dsp_path,
@@ -69,15 +69,15 @@ Add the generator as a build dependency:
 
 ```toml title="Cargo.toml"
 [dependencies]
-fission = { path = "../../crates/authoring/fission", default-features = false, features = ["desktop"] }
+fission = { version = "0.5.1", default-features = false, features = ["desktop"] }
 
 [build-dependencies]
-fission-design-system-codegen = { path = "../../crates/tools/fission-design-system-codegen" }
+fission-design-system-codegen = "0.5.1"
 ```
 
 ## What you should have working
 
-After this guide, you should be able to explain where `Design system` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test. If any of those pieces are missing, treat the page as unfinished work: add the smallest runnable example, then add the diagnostic step that proves it works.
+After this guide, you should be able to explain where `Design system` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test.
 
 ## Common mistakes to check
 

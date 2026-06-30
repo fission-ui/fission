@@ -9,7 +9,7 @@ A beginner does not need to memorize the full rendering pipeline on day one, but
 
 If a button shows the wrong text, that is usually a state or component-conversion problem. If the text is correct but the button is too narrow, that is usually a layout problem. If the size is correct but the pixels are wrong, that is usually a rendering problem. If everything inside the runtime looks right but the app still behaves differently on one host, that points to the shell boundary.
 
-Fission makes those layers explicit on purpose. The framework is easier to debug, easier to test, and more consistent across desktop, web, Android, and iOS because it does not treat "draw the screen" as one opaque step.
+Fission makes those layers explicit on purpose. The framework is easier to debug, easier to test, and more consistent across targets because it does not treat "draw the screen" as one opaque step.
 
 This page follows one frame from start to finish. The exact internal data structures matter less than the job each stage performs.
 
@@ -76,7 +76,7 @@ That is why Fission also derives a semantics tree. A semantics tree describes wh
 
 Semantics matter for at least three reasons.
 
-First, accessibility is not added later as a shell-only guess. The core runtime defines the meaning. Second, tests can ask questions like "is there a button labeled Save?" instead of depending only on pixels. Third, shells can translate the same core meaning into desktop, browser, Android, or iOS accessibility interfaces without inventing different behavior on each platform.
+First, accessibility is not added later as a shell-only guess. The core runtime defines the meaning. Second, tests can ask questions like "is there a button labeled Save?" instead of depending only on pixels. Third, shells can translate the same core meaning into the accessibility interfaces each target supports without inventing different behavior on each platform.
 
 If your button paints correctly but does not show up to a screen reader, the semantics stage gives you a place to investigate that problem directly.
 
@@ -94,7 +94,7 @@ This separation is a big reason rendering stays testable. Many tests can assert 
 
 The last stage is shell presentation. A shell is the thin platform-specific layer that connects the shared runtime to a real host.
 
-On desktop, that means creating a native window, forwarding raw input, and presenting rendered pixels. On the web, it means attaching the app to a browser surface. On Android and iOS, it means integrating with the mobile app host, lifecycle, and surface management.
+On desktop, that means creating a native window, forwarding raw input, and presenting rendered pixels. On Web, it means attaching the app to the browser renderer. On Android and iOS, it means integrating with the mobile app host and lifecycle. On Terminal, Static site, and SSR targets, it means producing terminal cells, static HTML, or request-time HTML through the matching shell.
 
 The shell is important, but it is intentionally not the place where your app meaning changes. It should not decide layout rules, invent accessibility labels, or mutate product state independently. Its job is to host the frame the runtime already defined.
 
@@ -110,7 +110,7 @@ Reducer tests can stop before any of these stages. Headless harness tests can in
 
 ## Where to go next
 
-If this page gave you the outline but you still want the mental model for app code itself, read [Runtime model](/docs/learn/runtime-model) next. If you want to understand how examples and generated hosts fit into desktop, web, Android, and iOS work, continue to [Examples and targets](/docs/learn/examples-and-targets).
+If this page gave you the outline but you still want the mental model for app code itself, read [Runtime model](/docs/learn/runtime-model) next. If you want to understand how examples and generated hosts fit into target work, continue to [Examples and targets](/docs/learn/examples-and-targets).
 
 ## What you should be able to do next
 

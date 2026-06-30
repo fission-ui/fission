@@ -14,6 +14,8 @@ members = [
     "crates/core/fission-core",
     "crates/authoring/fission",
     "crates/rendering/fission-render",
+    # Prototype parked for later; keep the crate in-tree but out of the release workspace.
+    # "crates/rendering/fission-render-wgpu2d",
     "crates/rendering/fission-render-vello",
     "crates/shell/fission-shell",
     "crates/shell/fission-shell-desktop",
@@ -57,6 +59,3 @@ panic = "abort"
 
 [patch.crates-io]
 android-activity = { path = "third_party/android-activity/android-activity" }
-vello = { path = "third_party/vello/vello" }
-vello_encoding = { path = "third_party/vello/vello_encoding" }
-vello_shaders = { path = "third_party/vello/vello_shaders" }

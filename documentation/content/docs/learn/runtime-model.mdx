@@ -5,7 +5,7 @@ description: "Learn the core mental model of a Fission app: state, actions, redu
 
 # Runtime model
 
-A Fission app follows one steady loop no matter whether it runs on desktop, web, Android, or iOS. Your app keeps its important data in `GlobalState`. User intent becomes an `Action`. A reducer updates the state. A `Widget` reads the current inputs and describes the interface in `component conversion`. The runtime turns that description into layout, semantics, and pixels, and the platform shell hosts the result inside a real window, browser surface, or mobile app.
+A Fission app follows one steady loop no matter whether it runs on macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, or SSR. Your app keeps its important data in `GlobalState`. User intent becomes an `Action`. A reducer updates the state. A `Widget` reads the current inputs and describes the interface in `component conversion`. The runtime turns that description into layout, semantics, and output the platform shell can host.
 
 That sentence is the heart of the framework. This page slows it down so each part is understandable on its own.
 
@@ -313,7 +313,7 @@ Selectors can also read from `view.runtime` or `view.env` when the derived value
 
 ## The whole model in one pass
 
-When the note editor runs, the loop looks like this. `NoteState` holds the draft and save status. Typing produces an `UpdateDraft` action. The reducer updates the draft in state. The `NoteEditor` component converts again. It reads the latest inputs through `ViewHandle`, uses `BuildCtxHandle` to bind events to actions, and returns a new user interface description. If the user presses Save, the reducer uses `ReducerContext` to mark the app as saving and request the actual save effect through the runtime. A selector prepares tidy display values for the screen. The same model works inside desktop, web, Android, and iOS shells because the product logic lives in the shared core instead of being scattered across platform code.
+When the note editor runs, the loop looks like this. `NoteState` holds the draft and save status. Typing produces an `UpdateDraft` action. The reducer updates the draft in state. The `NoteEditor` component converts again. It reads the latest inputs through `ViewHandle`, uses `BuildCtxHandle` to bind events to actions, and returns a new user interface description. If the user presses Save, the reducer uses `ReducerContext` to mark the app as saving and request the actual save effect through the runtime. A selector prepares tidy display values for the screen. The same model works across Fission targets because the product logic lives in the shared core instead of being scattered across platform code.
 
 If you keep that flow in mind, the rest of Fission becomes much easier to place.
 

@@ -12,7 +12,7 @@ Scatter points where bubble size carries a third numeric dimension. Use it when 
 
 ## What the chart is for
 
-Bubble scatter belongs to the **Statistical and finance** family. Its job is to make this data shape readable: `Vec<(x, y, size)>.` In a production interface, choose this chart when the visual form makes the user's question faster to answer than a table or a simpler chart would.
+Bubble scatter is part of the **Statistical and finance** chart family and is intended for `Vec<(x, y, size)>`. Use it when the visual form makes the user's question faster to answer than a table or a simpler chart would.
 
 Avoid it when the visual form makes the user estimate more than necessary; choose the simplest chart that answers the product question.
 
@@ -93,6 +93,5 @@ Keep expensive data loading outside component conversion. A reducer, job, servic
 | Performance | Prefer summarized or windowed data for very large datasets; keep full raw history in the data layer. | Profile frame time and interaction latency with representative data volumes. |
 
 Tags: `scatter`, `bubble`.
-
 
 [Statistical and finance family overview](./overview)

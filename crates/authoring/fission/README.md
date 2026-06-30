@@ -4,7 +4,7 @@
 [![Docs](https://img.shields.io/badge/docs-fission.rs-0f766e.svg)](https://fission.rs)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/fission-ui/fission/blob/main/LICENSE)
 
-Fission is a production-focused Rust application framework for building GPU-accelerated apps across desktop, web, Android, iOS, terminal interfaces, and static HTML sites.
+Fission is a production-focused Rust application framework for building GPU-accelerated apps across macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR targets.
 
 This crate is the public facade. Application code should normally depend on `fission` and enable the target or feature it needs from here instead of depending on the internal crates directly.
 
@@ -15,7 +15,7 @@ This crate is the public facade. Application code should normally depend on `fis
 
 ```toml
 [dependencies]
-fission = { version = "0.5.0", features = ["desktop"] }
+fission = { version = "0.5.1", features = ["desktop"] }
 ```
 
 For the full developer workflow, install the Fission command:
@@ -33,7 +33,7 @@ fission run
 | --- | --- |
 | Application model | `GlobalState`, `Widget`, `BuildCtxHandle`, `ViewHandle`, typed actions, reducers, selectors, effects, jobs, services, and capabilities. |
 | UI authoring | Core widgets, high-level widgets, icons, layout, portals, overlays, media/embed widgets, charts, 3D scenes, and design-system support. |
-| Targets | Desktop, web/WASM, Android, iOS, terminal UI, and static site shells behind feature flags. |
+| Targets | macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR shells behind feature flags. |
 | Platform integration | Notifications, deep links, NFC, biometrics, passkeys, barcode scanning, camera, clipboard, geolocation, haptics, microphone, Bluetooth, Wi-Fi, and volume control where the host supports them. |
 | Tooling | The companion `fission` command handles setup, devices, run, test, package, static-site generation, release content, and distribution workflows. |
 
@@ -43,11 +43,12 @@ Enable only what your app needs:
 
 | Feature | Purpose |
 | --- | --- |
-| `desktop` | Desktop shell for Windows, macOS, and Linux. |
+| `desktop` | Desktop shell for macOS, Windows, and Linux. |
 | `web` | Browser/WASM shell. |
 | `android` / `ios` / `mobile` | Mobile shell exports for Android and iOS targets. |
-| `site` | Static HTML site shell. |
-| `terminal-shell` | Terminal UI shell. |
+| `site` | Static site shell. |
+| `server` | SSR shell. |
+| `terminal-shell` | Terminal shell. |
 | `charts` | Fission Charts widgets and data-visualization primitives. |
 | `three-d` | 3D scene and embed primitives. |
 | `test-driver` | Live app testing client support. |

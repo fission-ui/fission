@@ -12,7 +12,7 @@ Bars extending above and below the zero baseline. Use it for deltas, profit/loss
 
 ## What the chart is for
 
-Positive and negative bar belongs to the **Cartesian** family. Its job is to make this data shape readable: `BarSeries values that may be positive or negative.` In a production interface, choose this chart when the visual form makes the user's question faster to answer than a table or a simpler chart would.
+Positive and negative bar is part of the **Cartesian** chart family and is intended for `BarSeries values that may be positive or negative`. Use it when the visual form makes the user's question faster to answer than a table or a simpler chart would.
 
 Avoid it when the visual form makes the user estimate more than necessary; choose the simplest chart that answers the product question.
 
@@ -84,6 +84,5 @@ Keep expensive data loading outside component conversion. A reducer, job, servic
 | Performance | Prefer summarized or windowed data for very large datasets; keep full raw history in the data layer. | Profile frame time and interaction latency with representative data volumes. |
 
 Tags: `bar`, `negative`.
-
 
 [Cartesian family overview](./overview)

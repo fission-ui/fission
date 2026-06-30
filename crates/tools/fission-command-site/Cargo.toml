@@ -1,6 +1,6 @@
 [package]
 name = "fission-command-site"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/fission-ui/fission"
@@ -11,6 +11,6 @@ documentation = "https://fission.rs"
 readme = "README.md"
 [dependencies]
 anyhow = "1.0"
-fission-shell-site = { path = "../../shell/fission-shell-site", version = "0.5.0" }
+fission-shell-site = { path = "../../shell/fission-shell-site", version = "0.5.1" }
 serde_json = "1"
 toml = "0.8"

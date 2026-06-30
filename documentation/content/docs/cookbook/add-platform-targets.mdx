@@ -27,7 +27,7 @@ If your product is browser-first, add the web target first because browser packa
 
 If your product is mobile-first, add Android or iOS as soon as touch layout, safe-area assumptions, soft-keyboard behavior, or mobile packaging become important.
 
-If your current question is still mostly about shared reducers, widgets, selectors, and layout logic, you may continue using the desktop host heavily because it is often the shortest general-purpose loop on many machines. That is a workflow convenience, not the identity of the framework. Fission's app model is meant for desktop, web, Android, and iOS alike.
+If your current question is still mostly about shared reducers, widgets, selectors, and layout logic, you may continue using the desktop host heavily because it is often the shortest general-purpose loop on many machines. That is a workflow convenience, not the identity of the framework. Fission's app model is meant for macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR alike.
 
 The practical rule is simple: add the host that can prove the behavior you care about next.
 
@@ -185,7 +185,7 @@ The shared architecture should carry most product behavior, but every real host 
 
 ## What to avoid
 
-Do not fork your app model too early. The value of Fission is that desktop, web, Android, and iOS share one core runtime model.
+Do not fork your app model too early. The value of Fission is that macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR share one core runtime model.
 
 Do not treat the generated host output as disposable noise. Read the target README files and use the scripts as intended so you understand how each host launches and what it needs.
 

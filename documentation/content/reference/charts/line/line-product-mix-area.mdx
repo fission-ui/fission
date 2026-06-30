@@ -12,7 +12,7 @@ Product mix area uses Fission Charts typed Rust data to render a production-read
 
 ## What the chart is for
 
-Product mix area belongs to the **Line** family. Its job is to make this data shape readable: `Stacked product series over ordered buckets.` In a production interface, choose this chart when the visual form makes the user's question faster to answer than a table or a simpler chart would.
+Product mix area is part of the **Line** chart family and is intended for `Stacked product series over ordered buckets`. Use it when the visual form makes the user's question faster to answer than a table or a simpler chart would.
 
 Avoid it when the visual form makes the user estimate more than necessary; choose the simplest chart that answers the product question.
 
@@ -89,6 +89,5 @@ Keep expensive data loading outside component conversion. A reducer, job, servic
 | Performance | Prefer summarized or windowed data for very large datasets; keep full raw history in the data layer. | Profile frame time and interaction latency with representative data volumes. |
 
 Tags: `area`, `product`.
-
 
 [Line family overview](./overview)

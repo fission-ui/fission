@@ -17,12 +17,14 @@ Add the smallest state fields the screen needs to render honestly. For this flow
 
 ```rust
 #[derive(Default)]
-struct GlobalState {
+struct CameraDemoState {
     // Add these fields to your existing app state.
-profile_photo: Option<Vec<u8>>,
+    profile_photo: Option<Vec<u8>>,
     camera_error: Option<String>,
     capturing: bool,
 }
+
+impl GlobalState for CameraDemoState {}
 ```
 
 State is the source of truth for the UI. Do not store whether the host "probably" succeeded; wait for the typed success action and store the returned value.
@@ -53,14 +55,14 @@ Capability work finishes later, after the reducer that started it has returned. 
 
 ```rust
 #[fission_reducer(PhotoCaptured)]
-fn on_photo_captured(state: &mut GlobalState, capture: CameraCapture) {
+fn on_photo_captured(state: &mut CameraDemoState, capture: CameraCapture) {
     state.capturing = false;
     state.profile_photo = Some(capture.bytes);
     state.camera_error = None;
 }
 
 #[fission_reducer(PhotoCaptureFailed)]
-fn on_photo_capture_failed(state: &mut GlobalState, error: CameraError) {
+fn on_photo_capture_failed(state: &mut CameraDemoState, error: CameraError) {
     state.capturing = false;
     state.camera_error = Some(error.message);
 }
@@ -94,7 +96,7 @@ ctx.effects
     ));
 ```
 
-The call does not run the OS API directly. It records a typed host request. That keeps shared app logic portable across desktop, web, Android, iOS, static-site previews where applicable, and tests.
+The call does not run the OS API directly. It records a typed host request. That keeps shared app logic portable across Fission targets where the capability applies, plus static-site previews and tests.
 
 ## 5. Trigger the reducer from the UI
 
@@ -105,7 +107,7 @@ struct CaptureProfilePhotoButton;
 
 impl From<CaptureProfilePhotoButton> for Widget {
     fn from(component: CaptureProfilePhotoButton) -> Self {
-        let (ctx, view) = fission::build::current::<GlobalState>();
+        let (ctx, view) = fission::build::current::<CameraDemoState>();
         let run = with_reducer!(ctx, CaptureProfilePhoto, on_capture_profile_photo);
 
         Button::new("Take photo")

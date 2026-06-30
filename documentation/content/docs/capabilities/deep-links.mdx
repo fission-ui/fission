@@ -17,11 +17,13 @@ Add the smallest state fields the screen needs to render honestly. For this flow
 
 ```rust
 #[derive(Default)]
-struct GlobalState {
+struct DeepLinkState {
     // Add these fields to your existing app state.
-pending_route: Option<String>,
+    pending_route: Option<String>,
     route_error: Option<String>,
 }
+
+impl GlobalState for DeepLinkState {}
 ```
 
 State is the source of truth for the UI. Do not store whether the host "probably" succeeded; wait for the typed success action and store the returned value.
@@ -45,7 +47,7 @@ If the API exists but the provider is missing, the request returns a typed unsup
 Capability work finishes later, after the reducer that started it has returned. You therefore need one reducer for the successful result and one reducer for the error path.
 
 ```rust
-fn on_deep_link(state: &mut GlobalState, action: DeepLinkReceived) {
+fn on_deep_link(state: &mut DeepLinkState, action: DeepLinkReceived) {
     if let Some(id) = action.link.url.strip_prefix("fission://document/") {
         state.pending_route = Some(format!("document:{id}"));
         state.route_error = None;
@@ -72,7 +74,7 @@ DesktopApp::new(App)
     .on_deep_link(reduce_with!(on_deep_link));
 ```
 
-The call does not run the OS API directly. It records a typed host request. That keeps shared app logic portable across desktop, web, Android, iOS, static-site previews where applicable, and tests.
+The call does not run the OS API directly. It records a typed host request. That keeps shared app logic portable across Fission targets where the capability applies, plus static-site previews and tests.
 
 ## 5. Render from the routed state
 
@@ -83,7 +85,7 @@ struct CurrentRoute;
 
 impl From<CurrentRoute> for Widget {
     fn from(component: CurrentRoute) -> Self {
-        let (ctx, view) = fission::build::current::<GlobalState>();
+        let (ctx, view) = fission::build::current::<DeepLinkState>();
         match view.state().pending_route.as_deref() {
             Some(route) if route.starts_with("document:") => {
                 DocumentScreen::new(route.to_owned()).into()

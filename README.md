@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![CI](https://github.com/fission-ui/fission/actions/workflows/platform-checks.yml/badge.svg)](https://github.com/fission-ui/fission/actions/workflows/platform-checks.yml)
 
-Fission is a production-focused Rust application framework for building GPU-accelerated apps across desktop, web, Android, iOS, terminal interfaces, static HTML sites, and server-rendered sites.
+Fission is a production-focused Rust application framework for building GPU-accelerated apps across macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR targets.
 
 It gives you the application model, widgets, rendering pipeline, platform shells, testing tools, packaging, and release workflows needed to move from a first screen to a shipped product without stitching together a new toolchain for every target.
 
@@ -24,7 +24,7 @@ Fission is built around that full lifecycle:
 | --- | --- |
 | Setup | `fission init`, target scaffolding, setup checks, project manifests, and platform notes. |
 | Learn | A guided documentation site, cookbook pages, reference pages, and examples that use the same public API as applications. |
-| Build | Declarative widgets, typed actions and reducers, design systems, charts, media/embed widgets, 3D scenes, terminal UI, static site rendering, and server-rendered sites. |
+| Build | Declarative widgets, typed actions and reducers, design systems, charts, media/embed widgets, 3D scenes, Terminal, Static site rendering, and SSR. |
 | Test | Unit tests, widget tests, live app tests, device/simulator smoke paths, diagnostics, static route/link checks, and server route checks. |
 | Publish | Package outputs, readiness checks, release content validation, GitHub Pages, GitHub Releases, cloud/static providers, and store distribution flows. |
 
@@ -47,7 +47,7 @@ These screenshots come from checked-in Fission examples and the Fission document
   </tr>
   <tr>
     <td><img src="documentation/static/img/examples/widget-gallery.png" alt="Fission widget gallery example" /><br><strong>Widget gallery</strong></td>
-    <td><img src="documentation/static/img/examples/terminal-ui.png" alt="Fission terminal user interface example" /><br><strong>Terminal UI</strong></td>
+    <td><img src="documentation/static/img/examples/terminal-ui.png" alt="Fission terminal user interface example" /><br><strong>Terminal</strong></td>
   </tr>
   <tr>
     <td><img src="documentation/static/img/charts/line-gradient-area.png" alt="Fission gradient area line chart" /><br><strong>Charts</strong></td>
@@ -168,19 +168,19 @@ Use `#[fission_reducer]` for compact local actions, or `#[fission_action]` when 
 <details open>
 <summary><strong>Targets and shells</strong></summary>
 
-- Desktop apps for Windows, macOS, and Linux.
-- Web/WASM apps that run in the browser.
-- Android emulator/device and iOS simulator/device workflows.
-- Terminal user interfaces built from Fission widgets.
-- Static HTML sites generated from custom widget routes plus Markdown/MDX content routes.
-- Server-rendered sites for request-time HTML, sessions, signed actions, jobs, cache policy, workers, and islands.
+- macOS, Windows, and Linux native apps through the desktop shell.
+- Web apps compiled to WebAssembly and hosted in the browser.
+- Android and iOS apps through mobile host projects, emulator/simulator workflows, and device validation.
+- Terminal user interfaces built from Fission widgets and reducers.
+- Static sites generated from custom widget routes plus Markdown/MDX content routes.
+- SSR apps for request-time HTML, sessions, signed actions, jobs, cache policy, workers, and islands.
 
 </details>
 
 <details open>
 <summary><strong>Built-in product features</strong></summary>
 
-- A broad widget catalog for layout, text, buttons, forms, navigation, surfaces, overlays, media, and embeds.
+- A broad widget catalog for layout, text, buttons, forms, navigation, cards, overlays, media, and embeds.
 - Fission Charts for dashboards and data-heavy applications.
 - Platform capabilities for notifications, deep links, NFC, biometrics, passkeys, barcode scanning, camera, clipboard, geolocation, haptics, microphone, Bluetooth, Wi-Fi, and volume control where the host platform supports them.
 - Static-site features including sidebars, table-of-contents links, favicons, generated CSS, optional code highlighting, client-side search, sitemap, robots output, JSON-LD, route-filtered page elements, and internal-link validation.
@@ -203,15 +203,17 @@ Use `#[fission_reducer]` for compact local actions, or `#[fission_action]` when 
 
 ## Platform Status
 
-| Target | Status | Entry point |
+| Target | Shell family | Entry point |
 | --- | --- | --- |
-| Windows, macOS, Linux | First-class desktop app targets | `fission run --target macos`, `fission run --target windows`, `fission run --target linux`, or `cargo run` |
-| Web/WASM | Browser host and smoke path | `fission run --target web` |
-| Android | Emulator/device workflow | `fission run --target android` |
-| iOS | Simulator/device workflow | `fission run --target ios` |
-| Terminal UI | Widget-based terminal shell | `fission ui` and `examples/terminal` |
-| Static HTML site | Build and serve static content | `fission site serve --project-dir documentation` |
-| Server-rendered site | Run dynamic Fission HTML routes | `fission server serve --project-dir examples/pokemon-card-store` |
+| macOS | Desktop | `fission run --target macos` or `cargo run` |
+| Windows | Desktop | `fission run --target windows` |
+| Linux | Desktop | `fission run --target linux` or `cargo run` |
+| Web | Web | `fission run --target web` |
+| Android | Mobile | `fission run --target android` |
+| iOS | Mobile | `fission run --target ios` |
+| Terminal | Terminal | `fission ui` and terminal app crates |
+| Static site | Site | `fission site serve --project-dir documentation` |
+| SSR | Server | `fission server serve --project-dir examples/pokemon-card-store` |
 
 Some host APIs depend on platform support. The capability matrix in the docs shows where each built-in capability is available and which app-store or platform configuration files are generated.
 
@@ -253,7 +255,7 @@ fission distribute --project-dir . --provider github-releases --artifact target/
 | --- | --- |
 | `crates/core` | Core runtime, layout, text, theme, 3D, and IR crates. |
 | `crates/authoring` | Public facade crate, widgets, charts, icons, and macros. |
-| `crates/shell` | Desktop, mobile, web, terminal, static site, and server-rendered site shells. |
+| `crates/shell` | Desktop, Web, Mobile, Terminal, Static site, and SSR shell crates. |
 | `crates/tools` | `fission` command modules, diagnostics, credentials, packaging, release, and test tooling. |
 | `examples` | Runnable apps that exercise real framework features. |
 | `documentation` | The Fission documentation and product site, built by the Fission static site shell. |

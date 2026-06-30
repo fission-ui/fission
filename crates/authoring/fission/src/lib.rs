@@ -7,7 +7,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! fission = { path = "...", default-features = false, features = ["desktop"] }
+//! fission = { version = "0.5.1", default-features = false, features = ["desktop"] }
 //! ```
 //!
 //! Then use via:
@@ -79,7 +79,7 @@ pub mod icons {
     pub use fission_icons::*;
 }
 
-/// Platform shells — desktop, mobile, and web wrappers over the shared runtime.
+/// Platform shells for desktop, Web, mobile, Terminal, Static site, and SSR hosts.
 pub mod shell {
     #[cfg(all(
         any(feature = "desktop", feature = "platform-shells"),

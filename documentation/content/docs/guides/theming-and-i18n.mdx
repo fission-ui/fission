@@ -11,7 +11,7 @@ It needs to control how the interface looks, and it needs to control what langua
 
 In Fission, both concerns are explicit. Theme values and translated text do not live in hidden global state. They live in `Env`, the shared environment that widgets read through `ViewHandle`.
 
-That design matters for the same reason explicit state matters elsewhere in the framework. If the current theme and locale are visible inputs, the user interface stays predictable, tests can provide known values, and the same app model can behave consistently across desktop, web, Android, and iOS.
+That design matters for the same reason explicit state matters elsewhere in the framework. If the current theme and locale are visible inputs, the user interface stays predictable, tests can provide known values, and the same app model can behave consistently across macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR.
 
 This page covers both the architecture and the Rust you need to make it work. You do not need to know all of Rust before reading it. Whenever the examples use Rust-specific syntax, the prose will explain what that syntax is doing.
 
@@ -84,7 +84,7 @@ For most apps, a strong first pattern is:
 6. keep the current locale in app state when the user can change it,
 7. mirror that locale into `env.locale` with `.with_sync_env(...)`.
 
-This pattern is simple and deterministic. The same translations are bundled into the app on desktop, web, Android, and iOS. You do not need an early network request just to render the first screen in the right language.
+This pattern is simple and deterministic. The same translations are bundled into the app on macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR. You do not need an early network request just to render the first screen in the right language.
 
 ## The translation files themselves
 
@@ -127,7 +127,7 @@ serde_yaml = "0.9"
 
 ## What you should have working
 
-After this guide, you should be able to explain where `Theming and internationalization` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test. If any of those pieces are missing, treat the page as unfinished work: add the smallest runnable example, then add the diagnostic step that proves it works.
+After this guide, you should be able to explain where `Theming and internationalization` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test.
 
 ## Common mistakes to check
 
@@ -290,7 +290,7 @@ DesktopApp::new(MyApp)
     .run()?;
 ```
 
-Server-rendered apps and static sites use the same `Env` data, but they resolve it at request time or build time instead of once per frame:
+SSR apps and Static site targets use the same `Env` data, but they resolve it at request time or build time instead of once per frame:
 
 ```rust
 FissionServerApp::new("Docs")

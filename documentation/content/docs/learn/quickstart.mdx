@@ -60,9 +60,9 @@ Before you run anything, it helps to know what the important files are for.
 | `src/main.rs` | The default desktop entrypoint. When you run `cargo run` on Windows, macOS, or Linux, this is the file that starts the app. |
 | `src/app.rs` | The shared app itself. This is the most important file to open first. The starter project keeps the counter state, the increment action, the reducer, and the widget tree here. |
 | [`fission.toml`](/reference/config/fission-toml/) | The Fission project manifest. It records project information such as the app identifier and which extra targets you have generated. The command-line interface updates this file when you add more platforms. |
-| `platforms/<target>/...` | Generated platform-specific wrapper files. These are created when you add a target such as web, Android, or iOS. They include small helper files, platform notes, and host scripts for building and launching on that target. |
+| `platforms/<target>/...` | Generated platform-specific wrapper files. These are created when you add a target such as Web, Android, iOS, Static site, or SSR. They include small helper files, platform notes, and host scripts for building and launching on that target. |
 
-You will also see `src/lib.rs`. It contains shared entry helpers so the same app can be wired into desktop, web, and mobile hosts without copying the app logic into several places.
+You will also see `src/lib.rs`. It contains shared entry helpers so the same app can be wired into target hosts without copying the app logic into several places.
 
 ## 5. Run the app on desktop
 

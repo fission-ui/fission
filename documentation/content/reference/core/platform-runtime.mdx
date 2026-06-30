@@ -1,6 +1,6 @@
 ---
 title: Platform runtime
-description: The boundary between Fission's shared runtime and the public desktop, mobile, and web shell wrappers.
+description: The boundary between Fission's shared runtime and the public target shell wrappers.
 ---
 
 # Platform runtime
@@ -12,7 +12,7 @@ The short version is this:
 - the core runtime decides what the user interface means,
 - the shell decides how that user interface is attached to a real host.
 
-That host might be a desktop window, a browser page, an Android app, or an iOS app. Fission keeps the shell layer thin on purpose so that the shared app model stays the same across those targets.
+That host might be a macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, or SSR target. Fission keeps the shell layer thin on purpose so that the shared app model stays the same across those targets.
 
 ## What the shared runtime owns
 
@@ -28,9 +28,9 @@ This is why Fission can talk seriously about cross-platform parity. The importan
 
 A shell owns the platform-facing work that depends on a real host environment.
 
-That includes creating the host surface, forwarding input, presenting rendered output, bridging clipboard and input method editor behavior, running the shell-owned async host, and exposing host-level testing hooks where supported.
+That includes creating the host output, forwarding input, presenting rendered output, bridging clipboard and input method editor behavior, running the shell-owned async host, and exposing host-level testing hooks where supported.
 
-So when the app is launched in a browser, the shell deals with the browser host. When the app is launched in an Android or iOS host project, the shell deals with that mobile host. When the app runs on desktop, the shell owns the native window and desktop-specific integration.
+So when the app is launched in a browser, the shell deals with the browser host. When the app is launched in an Android or iOS host project, the shell deals with that mobile host. When the app runs on macOS, Windows, or Linux, the shell owns the native window and desktop-specific integration. When the app runs as Terminal, Static site, or SSR output, the matching shell owns terminal cells, static HTML generation, or request-time rendering.
 
 The shell is not where product logic is supposed to leak. It is the adapter around the shared runtime, not the place where your app gets redefined.
 
@@ -56,19 +56,22 @@ The current public shell wrappers are:
 - `DesktopApp<S, W>`
 - `MobileApp<S, W>`
 - `WebApp<S, W>`
+- `TerminalApp<S, W>`
+- `FissionSite`
+- `FissionServerApp<S, W>`
 
-All three wrap the same shared runtime. The type parameters mean:
+They host the same shared runtime model. Where a wrapper has type parameters, they mean:
 
 - `S` is your app state type,
 - `W` is your root widget type.
 
-If you are new to Rust generics, you can read those wrappers more simply as "desktop shell for my app," "mobile shell for my app," and "web shell for my app."
+If you are new to Rust generics, you can read those wrappers more simply as "desktop shell for my app," "mobile shell for my app," "web shell for my app," "terminal shell for my app," "static site shell," and "SSR shell for my app."
 
-The important thing they share is more valuable than the differences: each wrapper boots the same state-driven runtime model. You still provide a root widget. You still have app state. You still use reducers, actions, selectors, and widgets the same way.
+The important thing they share is more valuable than the differences: each wrapper keeps product behavior in the shared app model. You still provide root widgets or routes. You still have app state where the target needs runtime state. You still use reducers, actions, selectors, and widgets the same way.
 
 ## How the wrappers are meant to be used
 
-The wrappers are configuration surfaces for the host, not alternate application models.
+The wrappers configure the host; they are not alternate application models.
 
 In practice, that means their methods mostly answer questions like:
 
@@ -97,13 +100,13 @@ Even though the wrappers do not expose identical method sets, several concepts r
 
 `with_frame_hook(...)` gives you a per-frame hook when you genuinely need host-side polling or wakeups. It exists, but it should stay the exception rather than becoming your primary app architecture.
 
-Those concepts matter more than memorizing every wrapper surface immediately, because they tell you how the shell participates in the runtime boundary.
+Those concepts matter more than memorizing every wrapper method immediately, because they tell you how the shell participates in the runtime boundary.
 
-## Desktop, mobile, and web wrapper differences
+## Wrapper differences
 
 The wrappers are intentionally similar, but not identical.
 
-`DesktopApp` currently has the richest public surface. In addition to the common startup and environment hooks, it exposes:
+`DesktopApp` currently has the richest public setup API. In addition to the common startup and environment hooks, it exposes:
 
 - `with_key_handler(...)`
 - `with_test_control_port(...)`
@@ -111,9 +114,9 @@ The wrappers are intentionally similar, but not identical.
 - `register_reducer(...)`
 - `absorb_registry(...)`
 
-`with_env(...)` replaces the default `Env` up front on shells that expose a base environment, including desktop, server-rendered apps, and static sites. `register_reducer(...)` and `absorb_registry(...)` are direct reducer-registration helpers on the desktop wrapper. `with_test_control_port(...)` is the desktop live-shell testing entrypoint.
+`with_env(...)` replaces the default `Env` up front on shells that expose a base environment, including desktop, SSR apps, and Static site targets. `register_reducer(...)` and `absorb_registry(...)` are direct reducer-registration helpers on the desktop wrapper. `with_test_control_port(...)` is the desktop live-shell testing entrypoint.
 
-`MobileApp` keeps the same overall model but exposes a smaller public surface. It currently supports:
+`MobileApp` keeps the same overall model but exposes a smaller public setup API. It currently supports:
 
 - `with_key_handler(...)`
 - `with_test_control_port(...)`
@@ -139,7 +142,7 @@ It does not currently expose public `with_env(...)`, `register_reducer(...)`, or
 
 It does not currently expose public `with_key_handler(...)` or `with_test_control_port(...)`.
 
-These differences matter for reference work, but they should be read as wrapper-surface differences, not as different application architectures. The same shared runtime is still underneath.
+These differences matter for reference work, but they should be read as wrapper API differences, not as different application architectures. The same shared runtime is still underneath.
 
 ## Practical boundary guidance
 
@@ -149,7 +152,7 @@ Should this rule change because the host changed?
 
 If the answer is no, it probably belongs in the shared runtime or app model.
 
-If the answer is yes because the work depends on a real host surface, operating-system lifecycle, browser environment, or shell-side integration, it belongs in the shell layer.
+If the answer is yes because the work depends on a real target, operating-system lifecycle, browser environment, terminal environment, server request, or shell-side integration, it belongs in the shell layer.
 
 For example:
 
@@ -159,22 +162,6 @@ For example:
 - the existence of a live test-control port belongs to the shell wrapper.
 
 That is the runtime boundary in practice.
-
-## Contract completeness checklist
-
-Use this checklist when wiring `Platform runtime` into an app or shell implementation.
-
-| Requirement | Why it matters |
-| --- | --- |
-| Public entrypoint | The app code must call the documented helper, command, or configuration field rather than a platform-specific shortcut. |
-| Required setup | Native manifests, plist entries, entitlements, service-worker files, domains, protocols, credentials, or provider registration must be present before production use. |
-| Typed success and error | The implementation should return a truthful typed result. Silent success, swallowed errors, and string-only failure paths make apps unsafe to retry. |
-| Retry behavior | Operations that can fail because of permission, network, hardware, store, or packaging state should document whether retrying is useful and what must change first. |
-| Tests | Cover the happy path, unsupported host path, bad configuration path, and any security-sensitive rejection path. |
-
-## Failure behavior and safe retry
-
-Treat failures as product states, not surprises. A Fission app should be able to tell the user whether the problem is missing configuration, missing provider support, denied permission, unavailable hardware, invalid input, expired credentials, or a transient host error. Reducers should update state from typed results and keep retry buttons idempotent so pressing them twice cannot corrupt state or duplicate unsafe work.
 
 ## Related reference pages
 

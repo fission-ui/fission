@@ -14,7 +14,7 @@ This documentation site is the real-world example. The project under `documentat
 
 Use the site target when a route can be decided at conversion time and the user should receive a fast, crawlable document. Good fits include product landing pages, documentation, API reference pages, blog posts, changelogs, legal pages, and chart galleries that can show static screenshots with links into richer examples.
 
-Do not use the site target as a replacement for the normal web app target. If a page needs continuous runtime state, canvas rendering, device APIs, live collaboration, background workers, or heavy in-page interaction, use the web target for that surface. A static site can still contain light progressive enhancement such as search, theme switching, collapsible sidebars, and code highlighting, but the base page should remain useful as static HTML.
+Do not use the site target as a replacement for the normal web app target. If a page needs continuous runtime state, canvas rendering, device APIs, live collaboration, background workers, or heavy in-page interaction, use the web target for that app. A static site can still contain light progressive enhancement such as search, theme switching, collapsible sidebars, and code highlighting, but the base page should remain useful as static HTML.
 
 ## What the static site shell does
 
@@ -73,7 +73,7 @@ generate_robots = true
 
 ## What you should have working
 
-After this guide, you should be able to explain where `Static sites` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test. If any of those pieces are missing, treat the page as unfinished work: add the smallest runnable example, then add the diagnostic step that proves it works.
+After this guide, you should be able to explain where `Static sites` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test.
 
 ## Common mistakes to check
 
@@ -221,7 +221,7 @@ Use front matter to describe each post:
 
 ```mdx
 ---
-title: Fission 0.5.0
+title: Fission 0.5.1
 description: A release note for the authoring API update.
 authors:
   - fission
@@ -232,7 +232,7 @@ tags:
   - authoring
 ---
 
-# Fission 0.5.0
+# Fission 0.5.1
 
 Write the post body here.
 ```
@@ -382,7 +382,7 @@ Do not commit `dist/site`. It is build output and should be reproducible from th
 
 The static site target is intentionally conservative about interactivity. Theme switching, sidebar expansion, search, and code highlighting are supported as progressive enhancement. General Fission actions are not translated into arbitrary browser-side application logic during static export.
 
-That boundary keeps the target understandable. Static routes produce static documents. Real applications still use the normal desktop, web, Android, or iOS targets. When a product needs both, keep the marketing and documentation routes static, then link into a Fission web app for the live experience.
+That boundary keeps the target understandable. Static routes produce static documents. Interactive applications still use the matching runtime targets such as macOS, Windows, Linux, Web, Android, iOS, Terminal, or SSR. When a product needs both, keep the marketing and documentation routes static, then link into a Fission Web or SSR app for the live experience.
 
 ## Where to go next
 

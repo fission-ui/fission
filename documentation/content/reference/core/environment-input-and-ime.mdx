@@ -36,7 +36,7 @@ A widget should read environment through `ViewHandle`, for example with `view.vi
 
 ## How `Env` reaches the app
 
-Desktop currently exposes public `with_env(...)` and `with_sync_env(...)` builders. Mobile and web expose public `with_sync_env(...)`. Server-rendered apps expose `with_env(...)` and `with_request_env(...)`; static sites expose `with_env(...)`.
+Desktop currently exposes public `with_env(...)` and `with_sync_env(...)` builders. Mobile and web expose public `with_sync_env(...)`. SSR apps expose `with_env(...)` and `with_request_env(...)`; Static site targets expose `with_env(...)`.
 
 Use `with_env(...)` when you want to seed a prepared environment, such as an environment that already contains translation bundles.
 
@@ -97,22 +97,6 @@ Fission does not hide clipboard and input method editor support inside one deskt
 Shells provide the real platform implementations. Tests can provide mocks.
 
 That separation matters because clipboard and input method editor behavior are part of the host boundary, but they still need to plug into the shared runtime model explicitly.
-
-## Contract completeness checklist
-
-Use this checklist when wiring `Environment, input, and input method editor` into an app or shell implementation.
-
-| Requirement | Why it matters |
-| --- | --- |
-| Public entrypoint | The app code must call the documented helper, command, or configuration field rather than a platform-specific shortcut. |
-| Required setup | Native manifests, plist entries, entitlements, service-worker files, domains, protocols, credentials, or provider registration must be present before production use. |
-| Typed success and error | The implementation should return a truthful typed result. Silent success, swallowed errors, and string-only failure paths make apps unsafe to retry. |
-| Retry behavior | Operations that can fail because of permission, network, hardware, store, or packaging state should document whether retrying is useful and what must change first. |
-| Tests | Cover the happy path, unsupported host path, bad configuration path, and any security-sensitive rejection path. |
-
-## Failure behavior and safe retry
-
-Treat failures as product states, not surprises. A Fission app should be able to tell the user whether the problem is missing configuration, missing provider support, denied permission, unavailable hardware, invalid input, expired credentials, or a transient host error. Reducers should update state from typed results and keep retry buttons idempotent so pressing them twice cannot corrupt state or duplicate unsafe work.
 
 ## Related runtime-owned text state
 

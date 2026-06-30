@@ -44,7 +44,7 @@ same_site = "lax"
 
 ## What you should have working
 
-After this guide, you should be able to explain where `Server security` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test. If any of those pieces are missing, treat the page as unfinished work: add the smallest runnable example, then add the diagnostic step that proves it works.
+After this guide, you should be able to explain where `Server security` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test.
 
 ## Common mistakes to check
 
@@ -78,14 +78,14 @@ Hyper is available with the normal `server` feature:
 
 ```toml
 [dependencies]
-fission = { version = "0.3", features = ["server"] }
+fission = { version = "0.5.1", features = ["server"] }
 ```
 
 Axum and Actix adapters are feature-gated to avoid pulling those dependencies into projects that do not use them:
 
 ```toml
 [dependencies]
-fission = { version = "0.3", features = ["server", "server-axum"] }
+fission = { version = "0.5.1", features = ["server", "server-axum"] }
 tower = "0.5"
 ```
 

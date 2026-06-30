@@ -5,7 +5,7 @@ description: Organize a Fission app around typed state, explicit reducers, reusa
 
 # App structure
 
-A Fission app is easiest to maintain when each file has one job. State describes what the product knows. Reducers describe how that state changes. Widgets describe what the user sees. Shell entrypoints start the same shared app on desktop, web, mobile, terminal, static-site, or server-rendered site targets.
+A Fission app is easiest to maintain when each file has one job. State describes what the product knows. Reducers describe how that state changes. Widgets describe what the user sees. Shell entrypoints start the same shared app on macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, or SSR targets.
 
 By the end of this guide, you should know where to put the first screen, where to put actions and reducers, when to split widgets into modules, and what should stay out of `main.rs`.
 
@@ -157,7 +157,7 @@ fn main() -> anyhow::Result<()> {
 }
 ```
 
-As targets are added, generated host entrypoints should also call into the shared app instead of duplicating screens or reducers. That keeps desktop, web, Android, iOS, terminal, and test entrypoints running the same product behavior.
+As targets are added, generated host entrypoints should also call into the shared app instead of duplicating screens or reducers. That keeps macOS, Windows, Linux, Web, Android, iOS, Terminal, and test entrypoints running the same product behavior.
 
 ## 7. Add target-specific code only at the host boundary
 
@@ -183,7 +183,7 @@ Read [Runtime model](/docs/learn/runtime-model/) for the state-action-reducer lo
 
 ## What you should have working
 
-After this guide, you should be able to explain where `App structure` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test. If any of those pieces are missing, treat the page as unfinished work: add the smallest runnable example, then add the diagnostic step that proves it works.
+After this guide, you should be able to explain where `App structure` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test.
 
 ## Common mistakes to check
 

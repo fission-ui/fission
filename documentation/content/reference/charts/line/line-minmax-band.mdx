@@ -12,7 +12,7 @@ Trend line with upper and lower guide marks. Use it to show expected bounds arou
 
 ## What the chart is for
 
-Min/max band belongs to the **Line** family. Its job is to make this data shape readable: `Vec<f32> plus mark lines.` In a production interface, choose this chart when the visual form makes the user's question faster to answer than a table or a simpler chart would.
+Min/max band is part of the **Line** chart family and is intended for `Vec<f32> plus mark lines`. Use it when the visual form makes the user's question faster to answer than a table or a simpler chart would.
 
 Avoid it when the visual form makes the user estimate more than necessary; choose the simplest chart that answers the product question.
 
@@ -89,6 +89,5 @@ Keep expensive data loading outside component conversion. A reducer, job, servic
 | Performance | Prefer summarized or windowed data for very large datasets; keep full raw history in the data layer. | Profile frame time and interaction latency with representative data volumes. |
 
 Tags: `line`, `bounds`.
-
 
 [Line family overview](./overview)

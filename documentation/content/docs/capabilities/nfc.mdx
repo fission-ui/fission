@@ -17,12 +17,14 @@ Add the smallest state fields the screen needs to render honestly. For this flow
 
 ```rust
 #[derive(Default)]
-struct GlobalState {
+struct NfcState {
     // Add these fields to your existing app state.
-nfc_text: Option<String>,
+    nfc_text: Option<String>,
     nfc_error: Option<String>,
     scanning_nfc: bool,
 }
+
+impl GlobalState for NfcState {}
 ```
 
 State is the source of truth for the UI. Do not store whether the host "probably" succeeded; wait for the typed success action and store the returned value.
@@ -53,14 +55,14 @@ Capability work finishes later, after the reducer that started it has returned. 
 
 ```rust
 #[fission_reducer(TagScanned)]
-fn on_tag_scanned(state: &mut GlobalState, tag: NfcTag) {
+fn on_tag_scanned(state: &mut NfcState, tag: NfcTag) {
     state.scanning_nfc = false;
     state.nfc_text = tag.records.first().map(|record| String::from_utf8_lossy(&record.payload).to_string());
     state.nfc_error = None;
 }
 
 #[fission_reducer(TagScanFailed)]
-fn on_tag_scan_failed(state: &mut GlobalState, error: NfcError) {
+fn on_tag_scan_failed(state: &mut NfcState, error: NfcError) {
     state.scanning_nfc = false;
     state.nfc_error = Some(error.message);
 }
@@ -92,7 +94,7 @@ ctx.effects
     ));
 ```
 
-The call does not run the OS API directly. It records a typed host request. That keeps shared app logic portable across desktop, web, Android, iOS, static-site previews where applicable, and tests.
+The call does not run the OS API directly. It records a typed host request. That keeps shared app logic portable across Fission targets where the capability applies, plus static-site previews and tests.
 
 ## 5. Trigger the reducer from the UI
 
@@ -103,7 +105,7 @@ struct ScanNfcTagButton;
 
 impl From<ScanNfcTagButton> for Widget {
     fn from(component: ScanNfcTagButton) -> Self {
-        let (ctx, view) = fission::build::current::<GlobalState>();
+        let (ctx, view) = fission::build::current::<NfcState>();
         let run = with_reducer!(ctx, ScanNfcTag, on_scan_nfc_tag);
 
         Button::new("Scan tag")

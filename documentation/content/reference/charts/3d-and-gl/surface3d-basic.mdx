@@ -12,7 +12,7 @@ A gridded surface lowered into a native 3D mesh. Use it for terrain, response su
 
 ## What the chart is for
 
-3D surface belongs to the **3D and GL** family. Its job is to make this data shape readable: `Mesh vertices and triangle indices generated from sampled z values.` In a production interface, choose this chart when the visual form makes the user's question faster to answer than a table or a simpler chart would.
+3D surface is part of the **3D and GL** chart family and is intended for `Mesh vertices and triangle indices generated from sampled z values`. Use it when the visual form makes the user's question faster to answer than a table or a simpler chart would.
 
 Avoid it when a two-dimensional chart answers the question more directly; 3D should clarify spatial data, not decorate ordinary comparisons.
 
@@ -86,6 +86,5 @@ Keep expensive data loading outside component conversion. A reducer, job, servic
 | Performance | Prefer summarized or windowed data for very large datasets; keep full raw history in the data layer. | Profile frame time and interaction latency with representative data volumes. |
 
 Tags: `3d`, `surface`.
-
 
 [3D and GL family overview](./overview)

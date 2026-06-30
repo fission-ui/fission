@@ -17,11 +17,13 @@ Add the smallest state fields the screen needs to render honestly. For this flow
 
 ```rust
 #[derive(Default)]
-struct GlobalState {
+struct BiometricsState {
     // Add these fields to your existing app state.
-export_unlocked: bool,
+    export_unlocked: bool,
     biometric_error: Option<String>,
 }
+
+impl GlobalState for BiometricsState {}
 ```
 
 State is the source of truth for the UI. Do not store whether the host "probably" succeeded; wait for the typed success action and store the returned value.
@@ -52,13 +54,13 @@ Capability work finishes later, after the reducer that started it has returned. 
 
 ```rust
 #[fission_reducer(UserVerified)]
-fn on_user_verified(state: &mut GlobalState, result: BiometricAuthenticateResult) {
+fn on_user_verified(state: &mut BiometricsState, result: BiometricAuthenticateResult) {
     state.export_unlocked = result.verified;
     state.biometric_error = None;
 }
 
 #[fission_reducer(UserVerificationFailed)]
-fn on_user_verification_failed(state: &mut GlobalState, error: BiometricError) {
+fn on_user_verification_failed(state: &mut BiometricsState, error: BiometricError) {
     state.export_unlocked = false;
     state.biometric_error = Some(error.message);
 }
@@ -90,7 +92,7 @@ ctx.effects
     ));
 ```
 
-The call does not run the OS API directly. It records a typed host request. That keeps shared app logic portable across desktop, web, Android, iOS, static-site previews where applicable, and tests.
+The call does not run the OS API directly. It records a typed host request. That keeps shared app logic portable across Fission targets where the capability applies, plus static-site previews and tests.
 
 ## 5. Trigger the reducer from the UI
 
@@ -101,7 +103,7 @@ struct ConfirmExportButton;
 
 impl From<ConfirmExportButton> for Widget {
     fn from(component: ConfirmExportButton) -> Self {
-        let (ctx, view) = fission::build::current::<GlobalState>();
+        let (ctx, view) = fission::build::current::<BiometricsState>();
         let run = with_reducer!(ctx, ConfirmExport, on_confirm_export);
 
         Button::new("Confirm export")

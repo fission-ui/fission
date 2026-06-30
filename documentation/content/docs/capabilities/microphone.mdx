@@ -17,12 +17,14 @@ Add the smallest state fields the screen needs to render honestly. For this flow
 
 ```rust
 #[derive(Default)]
-struct GlobalState {
+struct MicrophoneState {
     // Add these fields to your existing app state.
-voice_note: Option<Vec<u8>>,
+    voice_note: Option<Vec<u8>>,
     microphone_error: Option<String>,
     recording: bool,
 }
+
+impl GlobalState for MicrophoneState {}
 ```
 
 State is the source of truth for the UI. Do not store whether the host "probably" succeeded; wait for the typed success action and store the returned value.
@@ -53,14 +55,14 @@ Capability work finishes later, after the reducer that started it has returned. 
 
 ```rust
 #[fission_reducer(AudioCaptured)]
-fn on_audio_captured(state: &mut GlobalState, capture: MicrophoneCapture) {
+fn on_audio_captured(state: &mut MicrophoneState, capture: MicrophoneCapture) {
     state.recording = false;
     state.voice_note = Some(capture.bytes);
     state.microphone_error = None;
 }
 
 #[fission_reducer(AudioCaptureFailed)]
-fn on_audio_capture_failed(state: &mut GlobalState, error: MicrophoneError) {
+fn on_audio_capture_failed(state: &mut MicrophoneState, error: MicrophoneError) {
     state.recording = false;
     state.microphone_error = Some(error.message);
 }
@@ -93,7 +95,7 @@ ctx.effects
     ));
 ```
 
-The call does not run the OS API directly. It records a typed host request. That keeps shared app logic portable across desktop, web, Android, iOS, static-site previews where applicable, and tests.
+The call does not run the OS API directly. It records a typed host request. That keeps shared app logic portable across Fission targets where the capability applies, plus static-site previews and tests.
 
 ## 5. Trigger the reducer from the UI
 
@@ -104,7 +106,7 @@ struct RecordVoiceNoteButton;
 
 impl From<RecordVoiceNoteButton> for Widget {
     fn from(component: RecordVoiceNoteButton) -> Self {
-        let (ctx, view) = fission::build::current::<GlobalState>();
+        let (ctx, view) = fission::build::current::<MicrophoneState>();
         let run = with_reducer!(ctx, RecordVoiceNote, on_record_voice_note);
 
         Button::new("Record voice note")

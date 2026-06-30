@@ -1,6 +1,6 @@
 [package]
 name = "fission-render-vello"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/fission-ui/fission"
@@ -10,13 +10,13 @@ homepage = "https://fission.rs"
 documentation = "https://fission.rs"
 readme = "README.md"
 [dependencies]
-fission-render = { path = "../fission-render", version = "0.5.0" }
-fission-layout = { path = "../../core/fission-layout", version = "0.5.0" }
-fission-ir = { path = "../../core/fission-ir", version = "0.5.0" }
+fission-render = { path = "../fission-render", version = "0.5.1" }
+fission-layout = { path = "../../core/fission-layout", version = "0.5.1" }
+fission-ir = { path = "../../core/fission-ir", version = "0.5.1" }
 anyhow = "1.0"
-vello = { version = "0.6.0", features = ["wgpu"] }
+vello = { package = "fission-vello", path = "../../../third_party/vello/vello", version = "0.6.0-fission.1", features = ["wgpu"] }
 parley = "0.7.0"
-fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.5.0" }
+fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.5.1" }
 image = "0.24"
 lazy_static = "1.5.0"
 peniko = "0.5"
@@ -30,5 +30,5 @@ js-sys = "0.3"
 uuid = { version = "1", features = ["js"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-web-time = "0.2"
+web-time = "1.1"
 web-sys = { version = "0.3", features = ["Headers", "Request", "RequestInit", "RequestMode", "Response", "Window"] }

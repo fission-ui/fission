@@ -12,7 +12,7 @@ Incident volume calendar uses Fission Charts typed Rust data to render a product
 
 ## What the chart is for
 
-Incident volume calendar belongs to the **Heatmap** family. Its job is to make this data shape readable: `Daily incident counts over a date range.` In a production interface, choose this chart when the visual form makes the user's question faster to answer than a table or a simpler chart would.
+Incident volume calendar is part of the **Heatmap** chart family and is intended for `Daily incident counts over a date range`. Use it when the visual form makes the user's question faster to answer than a table or a simpler chart would.
 
 Avoid it when the visual form makes the user estimate more than necessary; choose the simplest chart that answers the product question.
 
@@ -91,6 +91,5 @@ Keep expensive data loading outside component conversion. A reducer, job, servic
 | Performance | Prefer summarized or windowed data for very large datasets; keep full raw history in the data layer. | Profile frame time and interaction latency with representative data volumes. |
 
 Tags: `calendar`, `incident`.
-
 
 [Heatmap family overview](./overview)

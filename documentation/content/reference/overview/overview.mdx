@@ -26,7 +26,7 @@ The fastest way to use this reference well is to identify the layer your questio
 
 If your question is about app behavior, start in the core runtime pages. That is where the shared contracts live: widgets, state, reducers, effects, resources, environment, input, the rendering pipeline, testing, and diagnostics.
 
-If your question is about how the app reaches desktop, web, Android, iOS, terminal, static HTML, or server-rendered HTML output, move to the platform pages. Those pages explain shells, targets, target-level testing, and where platform responsibility begins and ends.
+If your question is about how the app reaches macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, or SSR output, move to the platform pages. Those pages explain shells, targets, target-level testing, and where platform responsibility begins and ends.
 
 If your question is about scaffolding or day-to-day project setup, go to the command-line interface page. If your question is about authoring user interface, go to the widget catalog and then into the relevant widget family.
 
@@ -34,7 +34,7 @@ In other words, treat the reference as a subsystem map. Do not search for type n
 
 ## Core runtime reference
 
-The core runtime is the heart of Fission. These pages describe the shared model that stays consistent across desktop, web, Android, iOS, terminal, static site, and server-rendered site targets.
+The core runtime is the heart of Fission. These pages describe the shared model that stays consistent across macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR targets.
 
 Start with [Widget authoring boundary](/reference/core/widget-authoring-boundary) when you need to confirm what a component is, what conversion is allowed to do, or how `BuildCtxHandle` and `ViewHandle` divide responsibility.
 
@@ -50,27 +50,11 @@ Round that out with [Platform runtime](/reference/core/platform-runtime), [Testi
 
 The platform pages explain what happens after the shared runtime reaches a real host.
 
-## Contract completeness checklist
-
-Use this checklist when wiring `Reference overview` into an app or shell implementation.
-
-| Requirement | Why it matters |
-| --- | --- |
-| Public entrypoint | The app code must call the documented helper, command, or configuration field rather than a platform-specific shortcut. |
-| Required setup | Native manifests, plist entries, entitlements, service-worker files, domains, protocols, credentials, or provider registration must be present before production use. |
-| Typed success and error | The implementation should return a truthful typed result. Silent success, swallowed errors, and string-only failure paths make apps unsafe to retry. |
-| Retry behavior | Operations that can fail because of permission, network, hardware, store, or packaging state should document whether retrying is useful and what must change first. |
-| Tests | Cover the happy path, unsupported host path, bad configuration path, and any security-sensitive rejection path. |
-
-## Failure behavior and safe retry
-
-Treat failures as product states, not surprises. A Fission app should be able to tell the user whether the problem is missing configuration, missing provider support, denied permission, unavailable hardware, invalid input, expired credentials, or a transient host error. Reducers should update state from typed results and keep retry buttons idempotent so pressing them twice cannot corrupt state or duplicate unsafe work.
-
-[Targets](/reference/platform/targets) is the page to open when you need to understand generated host output, target folders, and the practical expectations for desktop, web, Android, iOS, terminal, static site, and server-rendered site targets.
+[Targets](/reference/platform/targets) is the page to open when you need to understand generated host output, target folders, and the practical expectations for macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR targets.
 
 [Accessibility and internationalization](/reference/platform/accessibility-and-i18n) focuses on how semantic meaning and locale-sensitive behavior connect to platform adapters and testing.
 
-[Testing](/reference/platform/testing) explains target-level validation: what can be proved headlessly, what needs a live shell, and what the current host-level test surfaces look like.
+[Testing](/reference/platform/testing) explains target-level validation: what can be proved headlessly, what needs a live shell, and what the current host-level test APIs look like.
 
 ## command-line interface reference
 

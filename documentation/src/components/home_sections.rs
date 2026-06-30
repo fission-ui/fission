@@ -32,7 +32,7 @@ impl From<HomePageHero> for Widget {
                     .semantics_identifier("site-home-hero-title")
                     .flex_shrink(1.0)
                     .into(),
-                Text::new("Fission is a full application platform for desktop, mobile, web, terminal, static site, and server-rendered site targets, with one shared app model and lifecycle tooling around it.")
+                Text::new("Fission is a full application platform for macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR targets, with one shared app model and lifecycle tooling around it.")
                     .size(tokens.typography.font_size_lg)
                     .line_height(tokens.typography.font_size_lg * tokens.typography.line_height_relaxed)
                     .color(tokens.colors.text_secondary)
@@ -83,9 +83,9 @@ impl From<HomePageHero> for Widget {
                         StatusText::new("Desktop").into(),
                         StatusText::new("Web/WASM").into(),
                         StatusText::new("Android + iOS").into(),
-                        StatusText::new("Terminal UI").into(),
-                        StatusText::new("Static HTML").into(),
-                        StatusText::new("Server HTML").into(),
+                        StatusText::new("Terminal").into(),
+                        StatusText::new("Static site").into(),
+                        StatusText::new("SSR").into(),
                     ],
                     gap: Some(tokens.spacing.l),
                     wrap: FlexWrap::Wrap,
@@ -128,7 +128,7 @@ impl From<ProofStrip> for Widget {
                         LinkCard::new(
                             "Run",
                             "Real target shells",
-                            "Desktop, web, mobile, terminal, static site, and server-rendered site shells host the same app model.",
+                            "Desktop, Web, Mobile, Terminal, Static site, and SSR shells host the same app model.",
                             "See targets ->",
                             "/product/cross-platform-apps/",
                         )
@@ -263,8 +263,8 @@ impl From<ArchitectureSection> for Widget {
                                 ctx,
                                 view,
                                 "Owned by each shell",
-                                "Windows, browser surfaces, package shape, lifecycle hooks, and host-specific integration.",
-                                &["Windows and surfaces", "Browser canvas", "Package shape", "Lifecycle hooks", "OS integration", "Capability brokering"],
+                                "Native windows, browser canvas, package shape, lifecycle hooks, and host-specific integration.",
+                                &["Native windows", "Browser canvas", "Package shape", "Lifecycle hooks", "OS integration", "Capability brokering"],
                             ),
                         ],
                         gap: Some(tokens.spacing.l),
@@ -389,18 +389,21 @@ impl From<TargetsSection> for Widget {
             vec![
                 SectionHeader::new(
                     "Targets",
-                    "Desktop, mobile, web, terminal, static HTML, and server-rendered HTML are first-class outputs.",
+                    "macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR are first-class targets.",
                     "Start on the host that answers your next product question fastest, then validate on every real target your users will touch.",
                 )
                 .into(),
                 Column {
                     children: vec![
-                        TargetRowCard::new("Desktop", "First-class", "macOS - Linux - Windows", "fission run --target desktop", "Native windows, rendering, input, diagnostics, package readiness, and desktop release paths.", "/product/cross-platform-apps/", "Desktop path ->").into(),
-                        TargetRowCard::new("Web", "First-class", "WASM", "fission run --target web", "Browser delivery with the same shared app model and web/static packaging workflow.", "/product/cross-platform-apps/", "Web path ->").into(),
-                        TargetRowCard::new("Mobile", "First-class", "Android - iOS", "fission devices", "Generated mobile hosts, emulator/simulator workflow, APK/AAB/IPA readiness, and store publishing.", "/product/cross-platform-apps/", "Mobile path ->").into(),
-                        TargetRowCard::new("Terminal UI", "First-class", "Windows - macOS - Linux", "fission ui", "Interactive terminal apps built from normal Fission widgets, reducers, screens, and routes.", "/product/terminal-apps/", "Terminal path ->").into(),
-                        TargetRowCard::new("Static HTML", "First-class", "Sites - Docs - Marketing", "fission site build", "SEO-friendly static HTML from Fission widgets, Markdown content, search, metadata, and assets.", "/product/static-sites/", "Site path ->").into(),
-                        TargetRowCard::new("Server HTML", "First-class", "Dynamic sites", "fission server serve", "Request-time Fission HTML with jobs, sessions, signed actions, cache policy, workers, and islands.", "/product/server-rendered-sites/", "Server path ->").into(),
+                        TargetRowCard::new("macOS", "First-class", "Desktop shell", "fission run --target macos", "Native windows, rendering, input, diagnostics, package readiness, and macOS release paths.", "/product/cross-platform-apps/", "macOS path ->").into(),
+                        TargetRowCard::new("Windows", "First-class", "Desktop shell", "fission run --target windows", "Native windows, rendering, input, diagnostics, package readiness, and Windows release paths.", "/product/cross-platform-apps/", "Windows path ->").into(),
+                        TargetRowCard::new("Linux", "First-class", "Desktop shell", "fission run --target linux", "Native windows, rendering, input, diagnostics, package readiness, and Linux package paths.", "/product/cross-platform-apps/", "Linux path ->").into(),
+                        TargetRowCard::new("Web", "First-class", "Web shell", "fission run --target web", "Browser delivery with the same shared app model and WebAssembly packaging workflow.", "/product/cross-platform-apps/", "Web path ->").into(),
+                        TargetRowCard::new("Android", "First-class", "Mobile shell", "fission run --target android", "Generated Android host, emulator/device workflow, APK/AAB readiness, and Play distribution.", "/product/cross-platform-apps/", "Android path ->").into(),
+                        TargetRowCard::new("iOS", "First-class", "Mobile shell", "fission run --target ios", "Generated iOS host, simulator/device workflow, IPA readiness, and App Store distribution.", "/product/cross-platform-apps/", "iOS path ->").into(),
+                        TargetRowCard::new("Terminal", "First-class", "Terminal shell", "fission ui", "Interactive terminal apps built from normal Fission widgets, reducers, screens, and routes.", "/product/terminal-apps/", "Terminal path ->").into(),
+                        TargetRowCard::new("Static site", "First-class", "Site shell", "fission site build", "SEO-friendly Static site output from Fission widgets, Markdown content, search, metadata, and assets.", "/product/static-sites/", "Static site path ->").into(),
+                        TargetRowCard::new("SSR", "First-class", "Server shell", "fission server serve", "Request-time Fission HTML with jobs, sessions, signed actions, cache policy, workers, and islands.", "/product/server-rendered-sites/", "SSR path ->").into(),
                     ],
                     gap: Some(tokens.spacing.s),
                     ..Default::default()
@@ -517,10 +520,10 @@ impl From<ExamplesSection> for Widget {
         CenteredSection::new(
             "Examples",
             "Examples across the platform, not only the widget layer.",
-            "Start with the smallest app, then inspect the examples that prove targets, charts, static sites, server-rendered sites, terminal tooling, and release workflow.",
+            "Start with the smallest app, then inspect the examples that prove targets, charts, Static site, SSR, Terminal tooling, and release workflow.",
             vec![
                 ExampleCard::new("Starter", "Counter", "cargo run -p counter", "The smallest complete Fission app loop: plain state, two reducers, a widget tree, and buttons bound with the public prelude macros.", "typed actions and reducers", "single-file starter app", "/docs/cookbook/build-a-counter/", "/reference/core/state-system/").into(),
-                ExampleCard::new("Site", "Documentation", "fission site build --project-dir documentation", "This website is a Fission static site: custom homepage widgets, Markdown content routes, generated search, metadata, sidebars, and GitHub Pages output.", "static HTML shell", "content routes and custom widgets", "/docs/guides/static-sites/", "/product/static-sites/").into(),
+                ExampleCard::new("Site", "Documentation", "fission site build --project-dir documentation", "This website is a Fission static site: custom homepage widgets, Markdown content routes, generated search, metadata, sidebars, and GitHub Pages output.", "Static site shell", "content routes and custom widgets", "/docs/guides/static-sites/", "/product/static-sites/").into(),
                 ExampleCard::new("Server", "Pokemon card store", "fission server serve --project-dir examples/pokemon-card-store", "The server-rendered store demonstrates request-time routes, sessions, signed actions, server jobs, cache policy, generated workers, and focused islands.", "server shell", "dynamic Fission HTML", "/docs/guides/server-sites/", "/product/server-rendered-sites/").into(),
                 ExampleCard::new("Terminal", "Fission command UI", "fission ui --project-dir .", "The CLI includes a terminal Fission app with screens, routes, reducers, dialogs, command sessions, logs, settings, density, and theme switching.", "terminal shell", "non-blocking command workflow", "/docs/guides/terminal-user-interfaces/", "/product/terminal-apps/").into(),
             ],

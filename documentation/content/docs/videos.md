@@ -35,7 +35,7 @@ The two-year plan rotates through these pillars so the channel does not become r
 | Apps | Fission can build complete products, not only isolated controls. |
 | Charts | Fission can handle serious dashboards and data-heavy UI. |
 | Platform capabilities | Desktop, web, Android, and iOS apps can access host capabilities through a consistent Rust API. |
-| Shells | Desktop, mobile, web, terminal, static site, and server-rendered site targets are first-class outcomes. |
+| Shells | macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR targets are first-class outcomes. |
 | Production lifecycle | The CLI supports setup, running, testing, packaging, release, and publishing workflows. |
 
 ## Two-year schedule
@@ -94,7 +94,7 @@ The dates assume a weekly cadence starting in June 2026. If a week slips, keep t
 | 48 | 2027-04-26 | Desktop tray apps | Menu bar timer | How tray icons, close behavior, menus, and exit actions work. | Planned |
 | 49 | 2027-05-03 | Web and WASM target | Browser counter | How the web target runs, fills the page, handles input, and fits deployment. | Planned |
 | 50 | 2027-05-10 | Android and iOS from one app model | Mobile todo | How mobile shell setup, safe areas, screen size, and package targets work. | Planned |
-| 51 | 2027-05-17 | Terminal UI with Fission | CLI dashboard | How terminal rendering differs while still using Fission widgets and state. | Planned |
+| 51 | 2027-05-17 | Terminal with Fission | CLI dashboard | How terminal rendering differs while still using Fission widgets and state. | Planned |
 | 52 | 2027-05-24 | Static sites with Fission | Documentation site | How content, templates, generated HTML, search, metadata, and assets are built. | Planned |
 | 53 | 2027-05-31 | Build a habit tracker | Habit tracker | How to structure a small daily-use app with history, streaks, and charts. | Planned |
 | 54 | 2027-06-07 | Build a personal finance app | Budget planner | How forms, categories, charts, filters, and local state form a practical app. | Planned |
@@ -115,7 +115,7 @@ The dates assume a weekly cadence starting in June 2026. If a week slips, keep t
 | 69 | 2027-09-20 | Logging and tracing for UI bugs | Trace viewer | How to collect useful traces without turning the app into noise. | Planned |
 | 70 | 2027-09-27 | Performance profiling | Large dashboard | How to spot slow reconversions, heavy layouts, expensive paint, and unnecessary work. | Planned |
 | 71 | 2027-10-04 | Golden, smoke, and interaction tests | Widget test suite | How to choose the right test type for each UI risk. | Planned |
-| 72 | 2027-10-11 | CI for Fission apps | GitHub workflow | How to run checks for desktop, web, mobile package smoke, and static sites. | Planned |
+| 72 | 2027-10-11 | CI for Fission apps | GitHub workflow | How to run checks for macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR checks. | Planned |
 | 73 | 2027-10-18 | Package for Linux | Linux release demo | How readiness checks, metadata, icons, artifacts, and distribution fit together. | Planned |
 | 74 | 2027-10-25 | Package for macOS | macOS release demo | How app bundles, signing readiness, icons, package output, and verification work. | Planned |
 | 75 | 2027-11-01 | Package for Windows | Windows release demo | How installer metadata, icons, MSIX readiness, and app identity work. | Planned |
@@ -145,7 +145,7 @@ The dates assume a weekly cadence starting in June 2026. If a week slips, keep t
 | 99 | 2028-04-17 | Capstone: mobile layout | Product launch planner | How the same app adapts to phone-size screens without becoming a separate product. | Planned |
 | 100 | 2028-04-24 | Capstone: web and static companion site | Product launch planner | How the app target and static documentation/landing target can share Fission concepts. | Planned |
 | 101 | 2028-05-01 | Capstone: tests and diagnostics | Product launch planner | How to add coverage for reducers, widgets, routing, semantics, and flows. | Planned |
-| 102 | 2028-05-08 | Capstone: package every target | Product launch planner | How to prepare desktop, web, Android, iOS, terminal, static, and server-rendered outputs. | Planned |
+| 102 | 2028-05-08 | Capstone: package every target | Product launch planner | How to prepare macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR outputs. | Planned |
 | 103 | 2028-05-15 | Capstone: release and publish | Product launch planner | How to run readiness checks, generate artifacts, publish releases, and verify output. | Planned |
 | 104 | 2028-05-22 | Two years of Fission apps | Showcase reel | What the example library proves and where new viewers should start. | Planned |
 

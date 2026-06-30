@@ -17,12 +17,14 @@ Add the smallest state fields the screen needs to render honestly. For this flow
 
 ```rust
 #[derive(Default)]
-struct GlobalState {
+struct GeolocationState {
     // Add these fields to your existing app state.
-position: Option<GeolocationPosition>,
+    position: Option<GeolocationPosition>,
     location_error: Option<String>,
     locating: bool,
 }
+
+impl GlobalState for GeolocationState {}
 ```
 
 State is the source of truth for the UI. Do not store whether the host "probably" succeeded; wait for the typed success action and store the returned value.
@@ -53,14 +55,14 @@ Capability work finishes later, after the reducer that started it has returned. 
 
 ```rust
 #[fission_reducer(PositionLoaded)]
-fn on_position_loaded(state: &mut GlobalState, position: GeolocationPosition) {
+fn on_position_loaded(state: &mut GeolocationState, position: GeolocationPosition) {
     state.locating = false;
     state.position = Some(position);
     state.location_error = None;
 }
 
 #[fission_reducer(PositionFailed)]
-fn on_position_failed(state: &mut GlobalState, error: GeolocationError) {
+fn on_position_failed(state: &mut GeolocationState, error: GeolocationError) {
     state.locating = false;
     state.location_error = Some(error.message);
 }
@@ -91,7 +93,7 @@ ctx.effects
     ));
 ```
 
-The call does not run the OS API directly. It records a typed host request. That keeps shared app logic portable across desktop, web, Android, iOS, static-site previews where applicable, and tests.
+The call does not run the OS API directly. It records a typed host request. That keeps shared app logic portable across Fission targets where the capability applies, plus static-site previews and tests.
 
 ## 5. Trigger the reducer from the UI
 
@@ -102,7 +104,7 @@ struct FindNearbyStoresButton;
 
 impl From<FindNearbyStoresButton> for Widget {
     fn from(component: FindNearbyStoresButton) -> Self {
-        let (ctx, view) = fission::build::current::<GlobalState>();
+        let (ctx, view) = fission::build::current::<GeolocationState>();
         let run = with_reducer!(ctx, FindNearbyStores, on_find_nearby_stores);
 
         Button::new("Find nearby stores")

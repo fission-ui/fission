@@ -12,7 +12,7 @@ A dense ordered series rendered as a continuous trend without changing the app m
 
 ## What the chart is for
 
-Large line belongs to the **Cartesian** family. Its job is to make this data shape readable: `A longer Vec<f32> aligned to ordered category samples.` In a production interface, choose this chart when the visual form makes the user's question faster to answer than a table or a simpler chart would.
+Large line is part of the **Cartesian** chart family and is intended for `A longer Vec<f32> aligned to ordered category samples`. Use it when the visual form makes the user's question faster to answer than a table or a simpler chart would.
 
 Avoid it when the visual form makes the user estimate more than necessary; choose the simplest chart that answers the product question.
 
@@ -85,6 +85,5 @@ Keep expensive data loading outside component conversion. A reducer, job, servic
 | Performance | Prefer summarized or windowed data for very large datasets; keep full raw history in the data layer. | Profile frame time and interaction latency with representative data volumes. |
 
 Tags: `line`, `large`.
-
 
 [Cartesian family overview](./overview)

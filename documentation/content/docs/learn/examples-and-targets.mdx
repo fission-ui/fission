@@ -9,7 +9,7 @@ As you start building with Fission, you will keep seeing two ideas: examples and
 
 They are related, but they solve different problems.
 
-An example is a teaching app. It exists to show you how a Fission app is structured and to prove that a feature works in real code. A target is a host for your app. It is the platform-specific wrapper that runs the same shared app model on desktop, web, Android, or iOS.
+An example is a teaching app. It exists to show you how a Fission app is structured and to prove that a feature works in real code. A target is a host for your app. It is the platform-specific wrapper that runs the same shared app model on macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, or SSR.
 
 That distinction is worth learning early because beginners often open the wrong thing for the question they actually have. If you want to understand reducers, widgets, selectors, or layout, an example is usually the right place to look. If you want to understand how the app launches in a browser, installs into an Android emulator, or runs in an iOS simulator, you are asking a target question.
 
@@ -31,15 +31,15 @@ In Fission, a target is a real production host for the shared app model.
 
 Your shared app code owns the things that make the app feel like your app: state, actions, reducers, selectors, widgets, layout, and most of the behavior users actually experience. The target host owns the platform-facing work: startup, packaging, launch scripts, browser serving, mobile host setup, and the bridge into the platform shell.
 
-So when people say "add the web target" or "generate the Android target," they do not mean "rewrite the app for that platform." They mean "generate the host wrapper that lets the same app run there."
+So when people say "add the Web target," "generate the Android target," or "build the Static site target," they do not mean "rewrite the app for that platform." They mean "use the host wrapper that lets the same app model run there."
 
-That is why Fission can aim for one app model across desktop, web, Android, and iOS. The app stays shared. The host changes.
+That is why Fission can aim for one app model across macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR. The app stays shared. The host changes.
 
 ## What a host project or host script is
 
 A host project is the platform-specific folder that knows how to launch your shared app on one target.
 
-When you add targets with the command-line interface, Fission generates folders such as `platforms/web/`, `platforms/android/`, or `platforms/ios/`. Those folders contain the files and scripts that belong to that host.
+When you add scaffolded targets with the command-line interface, Fission generates folders such as `platforms/web/`, `platforms/android/`, `platforms/ios/`, `platforms/site/`, or `platforms/server/`. Those folders contain the files and scripts that belong to that host. Terminal apps use the terminal shell and package path rather than a mobile-style generated host folder.
 
 A host script is just a helper that runs the repeated platform commands for you. On web, that means building and serving the WebAssembly output. WebAssembly is the compiled format that lets your Rust app run in the browser. On Android and iOS, that means packaging and launching through the documented emulator or simulator path instead of making you remember every step manually.
 
@@ -47,15 +47,15 @@ So if the shared app is the thing you are building, the host project is the thin
 
 ## One app model, multiple real hosts
 
-It is important not to think of desktop as the only "real" target and everything else as a later add-on. Fission is intended to power real desktop, web, Android, and iOS apps. Those are all genuine hosts for the same runtime.
+It is important not to think of desktop as the only "real" target and everything else as a later add-on. Fission is intended to power real macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR output. Those are all genuine targets for the same runtime model, with different host responsibilities.
 
 What does vary is the local development experience.
 
-Desktop is often the easiest first loop because many developers can run it immediately and iterate quickly there. That makes it a very practical way to learn reducers, layout, selectors, and shared user interface behavior. But that convenience should not be confused with status. Web is not a lesser host because it runs through a browser. Android is not a lesser host because it needs emulator setup. iOS is not a lesser host because simulator and device validation are distinct steps. They are all real delivery environments.
+Desktop is often the easiest first loop because many developers can run it immediately and iterate quickly there. That makes it a very practical way to learn reducers, layout, selectors, and shared user interface behavior. But that convenience should not be confused with status. Web is not a lesser target because it runs through a browser. Android is not a lesser target because it needs emulator setup. iOS is not a lesser target because simulator and device validation are distinct steps. Terminal, Static site, and SSR are not side modes; they are real targets with different validation rules.
 
 The better way to think about target strategy is this: you have one shared app model and several real production hosts, and you choose the first validation path that best fits your product and your machine.
 
-If your product is browser-first, the web target may belong in your loop from the beginning. If your app is touch-heavy, phone-shaped, or depends on mobile presentation details, Android or iOS should enter the loop early. If you are still learning the framework and want the least host friction first, desktop is often the easiest place to begin. All of those choices are reasonable.
+If your product is browser-first, the Web target may belong in your loop from the beginning. If your app is touch-heavy, phone-shaped, or depends on mobile presentation details, Android or iOS should enter the loop early. If your product is documentation or marketing, Static site should be the loop. If it needs request-time data, sessions, signed actions, workers, or islands, SSR should be in the loop. If it is a command workflow, Terminal should be validated as Terminal. If you are still learning the framework and want the least host friction first, desktop is often the easiest place to begin. All of those choices are reasonable.
 
 ## A practical beginner strategy
 
@@ -63,7 +63,7 @@ For many beginners, the smoothest path is to start by getting the shared app mod
 
 Once the shared behavior is understandable, bring in the host that can answer the next real question.
 
-Bring in web when browser serving, browser viewport behavior, or browser integration details matter. Bring in Android when emulator packaging, mobile viewport behavior, or Android-specific validation matters. Bring in iOS when simulator behavior, iOS packaging, or mobile presentation details matter there.
+Bring in Web when browser serving, browser viewport behavior, or browser integration details matter. Bring in Android when emulator packaging, mobile viewport behavior, or Android-specific validation matters. Bring in iOS when simulator behavior, iOS packaging, or mobile presentation details matter there. Bring in Terminal when terminal cells, keyboard navigation, command sessions, and scrollback matter. Bring in Static site when crawlable output, metadata, search, sitemap, and route generation matter. Bring in SSR when request lifecycle, cache policy, sessions, signed actions, workers, or islands matter.
 
 That way, you are not delaying serious platforms. You are choosing the host that proves the behavior you care about at each step.
 
@@ -75,13 +75,19 @@ This repository already contains concrete, runnable host proofs.
 
 `mobile-smoke` is the checked-in mobile path. It includes an Android emulator launcher under `examples/mobile-smoke/platforms/android/run-emulator.sh` and an iOS simulator launcher under `examples/mobile-smoke/platforms/ios/run-sim.sh`. Those examples matter because they keep the platform claims grounded in runnable hosts, not just abstract diagrams.
 
-The command-line interface can generate equivalent host folders for your own app with `fission add-target ...`, so you are not limited to the checked-in examples when you move into your own project.
+`examples/terminal` and `fission ui` are the checked-in Terminal paths. They prove that Terminal is a real target built from the same app model, not a separate command prompt wrapper.
+
+The documentation site is the checked-in Static site path. It is built by the site shell from custom Fission widgets, Markdown content routes, generated search, metadata, and assets.
+
+`examples/pokemon-card-store` is the checked-in SSR path. It demonstrates request-time routes, sessions, signed actions, cache policy, server jobs, workers, and islands.
+
+The command-line interface can generate scaffolded host folders for targets that need them with `fission add-target ...`, so you are not limited to the checked-in examples when you move into your own project.
 
 ## What to keep in mind as you grow
 
 Examples help you learn the app model. Targets help you run that model on real platforms. The shared runtime remains the center of gravity in both cases.
 
-If you keep that structure in mind, the site becomes much easier to navigate. Open examples when you want to learn how a concept looks in an app. Open target and shell docs when you want to understand how that app is launched, packaged, or validated on desktop, web, Android, or iOS.
+If you keep that structure in mind, the site becomes much easier to navigate. Open examples when you want to learn how a concept looks in an app. Open target and shell docs when you want to understand how that app is launched, packaged, or validated on macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, or SSR.
 
 ## Where to go next
 

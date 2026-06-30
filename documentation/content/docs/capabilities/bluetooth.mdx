@@ -17,12 +17,14 @@ Add the smallest state fields the screen needs to render honestly. For this flow
 
 ```rust
 #[derive(Default)]
-struct GlobalState {
+struct BluetoothState {
     // Add these fields to your existing app state.
-devices: Vec<BluetoothDevice>,
+    devices: Vec<BluetoothDevice>,
     bluetooth_error: Option<String>,
     scanning_bluetooth: bool,
 }
+
+impl GlobalState for BluetoothState {}
 ```
 
 State is the source of truth for the UI. Do not store whether the host "probably" succeeded; wait for the typed success action and store the returned value.
@@ -53,14 +55,14 @@ Capability work finishes later, after the reducer that started it has returned. 
 
 ```rust
 #[fission_reducer(BluetoothDevicesFound)]
-fn on_bluetooth_devices_found(state: &mut GlobalState, result: BluetoothScanResult) {
+fn on_bluetooth_devices_found(state: &mut BluetoothState, result: BluetoothScanResult) {
     state.scanning_bluetooth = false;
     state.devices = result.devices;
     state.bluetooth_error = None;
 }
 
 #[fission_reducer(BluetoothScanFailed)]
-fn on_bluetooth_scan_failed(state: &mut GlobalState, error: BluetoothError) {
+fn on_bluetooth_scan_failed(state: &mut BluetoothState, error: BluetoothError) {
     state.scanning_bluetooth = false;
     state.bluetooth_error = Some(error.message);
 }
@@ -92,7 +94,7 @@ ctx.effects
     ));
 ```
 
-The call does not run the OS API directly. It records a typed host request. That keeps shared app logic portable across desktop, web, Android, iOS, static-site previews where applicable, and tests.
+The call does not run the OS API directly. It records a typed host request. That keeps shared app logic portable across Fission targets where the capability applies, plus static-site previews and tests.
 
 ## 5. Trigger the reducer from the UI
 
@@ -103,7 +105,7 @@ struct ScanBluetoothDevicesButton;
 
 impl From<ScanBluetoothDevicesButton> for Widget {
     fn from(component: ScanBluetoothDevicesButton) -> Self {
-        let (ctx, view) = fission::build::current::<GlobalState>();
+        let (ctx, view) = fission::build::current::<BluetoothState>();
         let run = with_reducer!(ctx, ScanBluetoothDevices, on_scan_bluetooth_devices);
 
         Button::new("Scan devices")

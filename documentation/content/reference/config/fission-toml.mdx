@@ -22,23 +22,6 @@ name = "my-app"
 app_id = "com.example.my_app"
 ```
 
-## Contract completeness checklist
-
-Use this checklist when wiring `fission.toml manifest` into an app or shell implementation.
-
-| Requirement | Why it matters |
-| --- | --- |
-| Public entrypoint | The app code must call the documented helper, command, or configuration field rather than a platform-specific shortcut. |
-| Required setup | Native manifests, plist entries, entitlements, service-worker files, domains, protocols, credentials, or provider registration must be present before production use. |
-| Typed success and error | The implementation should return a truthful typed result. Silent success, swallowed errors, and string-only failure paths make apps unsafe to retry. |
-| Retry behavior | Operations that can fail because of permission, network, hardware, store, or packaging state should document whether retrying is useful and what must change first. |
-| Tests | Cover the happy path, unsupported host path, bad configuration path, and any security-sensitive rejection path. |
-
-## Failure behavior and safe retry
-
-Treat failures as product states, not surprises. A Fission app should be able to tell the user whether the problem is missing configuration, missing provider support, denied permission, unavailable hardware, invalid input, expired credentials, or a transient host error. Reducers should update state from typed results and keep retry buttons idempotent so pressing them twice cannot corrupt state or duplicate unsafe work.
-
-
 `fission init` writes this file for you. `fission add-target` and `fission add-capability` update it idempotently.
 
 ## Parsing rules
@@ -60,12 +43,12 @@ Root fields appear before any table header.
 
 | Field | Type | Required | Accepted values | Meaning |
 | --- | --- | --- | --- | --- |
-| `targets` | array of strings | Yes for app/package commands | `android`, `ios`, `linux`, `macos`, `server`, `site`, `web`, `windows` | Declares which generated hosts belong to the project. Commands use it to reject packaging/running a target that has not been added. |
+| `targets` | array of strings | Yes for app/package commands | `android`, `ios`, `linux`, `macos`, `server`, `site`, `web`, `windows` | Declares which generated or packaged hosts belong to the project. Commands use it to reject packaging/running a configured host target that has not been added. |
 | `capabilities` | array of strings | No | `barcode-scanner`, `biometric`, `bluetooth`, `camera`, `geolocation`, `haptics`, `microphone`, `nfc`, `notifications`, `passkeys`, `volume-control`, `wifi` | Declares host capabilities the app intends to use. `fission add-capability` updates this list and generated Android/iOS files where the configuration is deterministic. |
 
 Clipboard and deep-link APIs are runtime/platform capabilities, but they are not currently accepted values in the root `capabilities` array. Deep-link routes still need product-owned native or web routing configuration, and clipboard currently does not require root manifest declaration.
 
-The terminal user interface shell is currently a shell/tooling surface rather than a root `targets` value, so `terminal` and `tui` are not accepted in `targets`.
+Terminal is a public Fission target exposed through `TerminalApp`, the terminal shell crate, and `fission ui`. The root `targets` array currently records generated or packaged host targets, so it accepts `site` for Static site and `server` for SSR, while Terminal uses the terminal shell workflow instead of a generated host folder.
 
 ## `[app]`
 
@@ -81,9 +64,9 @@ The terminal user interface shell is currently a shell/tooling surface rather th
 
 ### `[app.splash]`
 
-`[app.splash]` controls the platform-owned launch surface shown before the first Fission frame is ready. This is not an in-app loading page; it is native startup configuration generated into the Android activity theme and the iOS launch storyboard so the operating system has something branded to draw while the process, renderer, and app code start.
+`[app.splash]` controls the platform-owned launch screen shown before the first Fission frame is ready. This is not an in-app loading page; it is native startup configuration generated into the Android activity theme and the iOS launch storyboard so the operating system has something branded to draw while the process, renderer, and app code start.
 
-Use it when mobile startup currently shows a blank or black screen, or when the app needs a product-specific launch mark. Keep the content simple. The launch surface should introduce the app, not perform onboarding, advertising, account selection, or any work that belongs in the real Fission widget tree.
+Use it when mobile startup currently shows a blank or black screen, or when the app needs a product-specific launch mark. Keep the content simple. The launch screen should introduce the app, not perform onboarding, advertising, account selection, or any work that belongs in the real Fission widget tree.
 
 | Field | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
@@ -205,7 +188,7 @@ Example:
 
 ```mdx
 ---
-title: Fission 0.5.0
+title: Fission 0.5.1
 description: A release note for the authoring API update.
 authors:
   - fission
@@ -217,7 +200,7 @@ tags:
 show_adjacent_posts: true
 ---
 
-# Fission 0.5.0
+# Fission 0.5.1
 
 Write the post body here.
 ```
@@ -480,7 +463,7 @@ allow_upscale = false
 
 ### `[package.docker]`
 
-`[package.docker]` configures `fission package --format docker-image` for static sites and server-rendered sites.
+`[package.docker]` configures `fission package --format docker-image` for Static site and SSR targets.
 
 | Field | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
@@ -944,7 +927,7 @@ targets = ["server"]
 
 [app]
 name = "pokemon-card-store"
-app_id = "ai.worka.fission.examples.pokemon-card-store"
+app_id = "rs.fission.examples.pokemon_card_store"
 
 [server]
 entry = "pokemon_card_store::pokemon_card_store_server"

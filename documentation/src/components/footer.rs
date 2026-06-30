@@ -41,7 +41,7 @@ impl From<DocsFooter> for Widget {
                                     "Platform shells",
                                     "/docs/guides/platform-shells-cli-and-testing/",
                                 ),
-                                ("Terminal UI", "/docs/guides/terminal-user-interfaces/"),
+                                ("Terminal", "/docs/guides/terminal-user-interfaces/"),
                                 ("Static sites", "/docs/guides/static-sites/"),
                                 ("Server sites", "/docs/guides/server-sites/"),
                                 ("Packaging", "/docs/build-and-package/overview/"),
@@ -147,7 +147,7 @@ fn footer_identity(_ctx: BuildCtxHandle<DocsState>, view: ViewHandle<DocsState>)
                     ..Default::default()
                 }
                 .into(),
-                Text::new("main - v0.1.0 alpha")
+                Text::new("Fission 0.5.1")
                     .size(tokens.typography.font_size_sm)
                     .family(tokens.typography.font_family_mono.clone())
                     .color(tokens.colors.text_muted)

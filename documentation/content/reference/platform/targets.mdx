@@ -1,74 +1,73 @@
 ---
 title: Targets
-description: The reference contract for generated target hosts, checked-in smoke paths, and practical expectations across desktop, web, Android, iOS, static site, and server-rendered site output.
+description: The reference contract for generated target hosts, checked-in smoke paths, and practical expectations across macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR.
 ---
 
 # Targets
 
-A target in Fission is a generated platform host around shared app code.
+A target in Fission is a host for shared app code.
 
-The target does not own your reducers, selectors, widgets, or product state model. It owns the files, packaging steps, and launch path needed to run that shared app on a specific host.
+The target does not own your reducers, selectors, widgets, or product state model. It owns the files, packaging steps, launch path, rendering mode, and host checks needed to run that shared app in one delivery environment.
 
-That is why generated target output matters. It is the host wrapper around your app, not a second copy of your app.
+That is why target output matters. It is the host wrapper around your app, not a second copy of your app.
+
+## Public target set
+
+Use these names in user-facing documentation:
+
+| Target | Identifier or entry point | Shell family |
+| --- | --- | --- |
+| macOS | `macos` | Desktop |
+| Windows | `windows` | Desktop |
+| Linux | `linux` | Desktop |
+| Web | `web` | Web |
+| Android | `android` | Mobile |
+| iOS | `ios` | Mobile |
+| Terminal | `TerminalApp` / `fission ui` | Terminal |
+| Static site | `site` | Site |
+| SSR | `server` | Server |
+
+Use the lowercase identifiers when referring to manifest values, generated target folders, or command arguments for scaffolded and packaged hosts. The `server` identifier is the SSR target.
+
+A fresh `fission init` project starts with the desktop family scaffolded. You add scaffolded hosts with `fission add-target ...` when the product or host you care about requires them. Terminal uses the terminal shell and package workflow rather than a mobile-style generated host folder.
 
 ## What generated host output means
 
-The command-line interface generates platform folders under `platforms/<target>/`. Those folders contain host-specific notes, scripts, and supporting files for packaging and launch.
+The command-line interface generates platform folders under `platforms/<target>/` for scaffolded targets. Those folders contain host-specific notes, scripts, and supporting files for packaging and launch.
 
 In practice, a generated host may include a launcher script, bundle or manifest metadata, and a target-specific `README.md` file that explains prerequisites and current caveats.
 
 The important contract is that generated target output stays thin. Your product logic remains in shared Rust code, while the target folder owns host setup.
 
-## Targets the command-line interface can scaffold
-
-The current command-line interface target set includes:
-
-- `windows`
-- `macos`
-- `linux`
-- `web`
-- `site`
-- `server`
-- `ios`
-- `android`
-
-A fresh `fission init` project starts with the desktop family scaffolded. You add other targets with `fission add-target ...` when the product or host you care about requires them.
-
 ## Choosing a target in practice
 
 Target choice should follow product need.
 
-If your app is browser-first, the web target belongs early because browser hosting, browser packaging, and browser behavior are part of the real product.
+If your app is browser-first, the Web target belongs early because browser hosting, browser packaging, and browser behavior are part of the real product.
 
 If your app is mobile-first, Android and iOS belong early because touch layout, safe areas, text entry, packaging, emulator flow, and simulator flow are part of the real product.
+
+If your app is command-workflow-first, Terminal belongs early because terminal cells, keyboard navigation, scrollback, and command sessions are the real product constraints.
+
+If your output is documentation, marketing, reference, or blog pages, Static site belongs early because crawlable HTML, metadata, search, sitemap, and route generation are the target.
+
+If your output needs request-time data, sessions, signed actions, server jobs, workers, or islands, SSR belongs early because the server request lifecycle is the target.
 
 If your current question is still mostly about shared reducers, widgets, selectors, and layout behavior, the desktop host is often the shortest general loop on many machines. That is a workflow convenience, not the identity of the framework.
 
 ## Desktop expectations
 
-The desktop targets are real shipping targets, not only preview hosts.
+macOS, Windows, and Linux are real shipping targets, not only preview hosts.
 
 They are usually the lightest local loop because `cargo run` can launch them directly without a separate browser or mobile packaging step. That makes them convenient for broad shared-runtime work, but desktop is only one host family among several real targets.
 
 ## Web expectations
 
-The web target generates a browser host around the shared runtime. In practice, that means a WebAssembly build plus a local browser-serving path.
+The Web target generates a browser host around the shared runtime. In practice, that means a WebAssembly build plus a local browser-serving path.
 
 The checked-in proof path is `examples/web-smoke/`, and generated apps use the same style of launcher through `./platforms/web/run-browser.sh`.
 
-Treat the web target as a real browser host with its own validation needs, not as a cosmetic variation of desktop.
-
-## Static site expectations
-
-The `site` target renders Fission widgets and Markdown content into static HTML, CSS, search assets, sitemap files, robots files, and copied assets. Use it for documentation, marketing, reference, blog, and other mostly-read pages where crawlable output matters.
-
-Static sites are validated with `fission site check`, built with `fission site build`, and packaged with `fission package --target site --format static` or `--format docker-image`.
-
-## Server-rendered expectations
-
-The `server` target runs a Fission server app that renders HTML at request time or through revalidated cache entries. Use it when pages need server jobs, request-time data, signed actions, cache invalidation, progressive workers, or focused WASM islands.
-
-Server apps are validated with `fission server check`, run locally with `fission server serve`, and packaged as Docker images with `fission package --target server --format docker-image`.
+Treat the Web target as a real browser host with its own validation needs, not as a cosmetic variation of desktop.
 
 ## Android expectations
 
@@ -86,6 +85,24 @@ In practice, that means simulator prerequisites, generated bundle support, and t
 
 The checked-in smoke examples and public docs treat the iOS simulator path as the current concrete validation path. As with Android, this host boundary has its own prerequisites and should be validated directly.
 
+## Terminal expectations
+
+The Terminal target runs through the terminal shell. It is useful for command tools, setup flows, diagnostics, admin workflows, and developer tooling that should be interactive without becoming a graphical app.
+
+Terminal validation should check cell layout, keyboard navigation, pointer support where available, bounded scrollback, command sessions, logs, and screenshots captured from the terminal renderer.
+
+## Static site expectations
+
+The `site` target renders Fission widgets and Markdown content into static HTML, CSS, search assets, sitemap files, robots files, and copied assets. Use it for documentation, marketing, reference, blog, and other mostly-read pages where crawlable output matters.
+
+Static sites are validated with `fission site check`, built with `fission site build`, and packaged with `fission package --target site --format static` or `--format docker-image`.
+
+## SSR expectations
+
+The `server` target is the SSR target. It runs a Fission server app that renders HTML at request time or through revalidated cache entries. Use it when pages need server jobs, request-time data, signed actions, cache invalidation, progressive workers, or focused WASM islands.
+
+SSR apps are validated with `fission server check`, run locally with `fission server serve`, and packaged as Docker images with `fission package --target server --format docker-image`.
+
 ## Files and paths worth knowing
 
 When you inspect generated output, the most important files are usually:
@@ -101,31 +118,17 @@ Use the host that matches the behavior you need to prove.
 
 Use desktop heavily when the question is mostly about shared runtime behavior and you want a short local loop.
 
-Use web when browser hosting, browser layout, browser packaging, or browser-specific behavior matters.
+Use Web when browser hosting, browser layout, browser packaging, or browser-specific behavior matters.
 
 Use Android and iOS when mobile packaging, mobile layout, simulator or emulator launch, or other mobile host behavior matters.
 
-Use the site target when the output must be crawlable static HTML for documentation, marketing, reference, or blog pages.
+Use Terminal when terminal cells, command workflow, keyboard behavior, and terminal-compatible presentation matter.
 
-Use the server target when the page needs request-time data, sessions, signed actions, cache revalidation, progressive workers, or focused browser islands.
+Use Static site when the output must be crawlable static HTML for documentation, marketing, reference, or blog pages.
+
+Use SSR when the page needs request-time data, sessions, signed actions, cache revalidation, progressive workers, or focused browser islands.
 
 Use the checked-in smoke examples and generated target folders together. The examples prove the repository's current host paths, and the generated folders show how that host shape reaches your own project.
-
-## Contract completeness checklist
-
-Use this checklist when wiring `Targets` into an app or shell implementation.
-
-| Requirement | Why it matters |
-| --- | --- |
-| Public entrypoint | The app code must call the documented helper, command, or configuration field rather than a platform-specific shortcut. |
-| Required setup | Native manifests, plist entries, entitlements, service-worker files, domains, protocols, credentials, or provider registration must be present before production use. |
-| Typed success and error | The implementation should return a truthful typed result. Silent success, swallowed errors, and string-only failure paths make apps unsafe to retry. |
-| Retry behavior | Operations that can fail because of permission, network, hardware, store, or packaging state should document whether retrying is useful and what must change first. |
-| Tests | Cover the happy path, unsupported host path, bad configuration path, and any security-sensitive rejection path. |
-
-## Failure behavior and safe retry
-
-Treat failures as product states, not surprises. A Fission app should be able to tell the user whether the problem is missing configuration, missing provider support, denied permission, unavailable hardware, invalid input, expired credentials, or a transient host error. Reducers should update state from typed results and keep retry buttons idempotent so pressing them twice cannot corrupt state or duplicate unsafe work.
 
 ## Related reference pages
 

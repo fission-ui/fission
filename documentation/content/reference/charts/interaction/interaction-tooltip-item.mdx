@@ -12,7 +12,7 @@ Item tooltip uses Fission Charts typed Rust data to render a production-ready in
 
 ## What the chart is for
 
-Item tooltip belongs to the **Interaction** family. Its job is to make this data shape readable: `Series data with item-level tooltip intent.` In a production interface, choose this chart when the visual form makes the user's question faster to answer than a table or a simpler chart would.
+Item tooltip is part of the **Interaction** chart family and is intended for `Series data with item-level tooltip intent`. Use it when the visual form makes the user's question faster to answer than a table or a simpler chart would.
 
 Avoid it when the visual form makes the user estimate more than necessary; choose the simplest chart that answers the product question.
 
@@ -87,6 +87,5 @@ Keep expensive data loading outside component conversion. A reducer, job, servic
 | Performance | Prefer summarized or windowed data for very large datasets; keep full raw history in the data layer. | Profile frame time and interaction latency with representative data volumes. |
 
 Tags: `tooltip`, `item`.
-
 
 [Interaction family overview](./overview)

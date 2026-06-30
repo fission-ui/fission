@@ -1,6 +1,6 @@
 [package]
 name = "fission-test"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/fission-ui/fission"
@@ -10,22 +10,22 @@ homepage = "https://fission.rs"
 documentation = "https://fission.rs"
 readme = "README.md"
 [dependencies]
-fission-core = { path = "../../core/fission-core", version = "0.5.0" }
-fission-ir = { path = "../../core/fission-ir", version = "0.5.0" }
-fission-layout = { path = "../../core/fission-layout", version = "0.5.0" }
-fission-render = { path = "../../rendering/fission-render", version = "0.5.0" }
-fission-shell = { path = "../../shell/fission-shell", version = "0.5.0" }
-fission-widgets = { path = "../../authoring/fission-widgets", version = "0.5.0" }
-fission-semantics = { path = "../../core/fission-semantics", version = "0.5.0" }
+fission-core = { path = "../../core/fission-core", version = "0.5.1" }
+fission-ir = { path = "../../core/fission-ir", version = "0.5.1" }
+fission-layout = { path = "../../core/fission-layout", version = "0.5.1" }
+fission-render = { path = "../../rendering/fission-render", version = "0.5.1" }
+fission-shell = { path = "../../shell/fission-shell", version = "0.5.1" }
+fission-widgets = { path = "../../authoring/fission-widgets", version = "0.5.1" }
+fission-semantics = { path = "../../core/fission-semantics", version = "0.5.1" }
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 lazy_static = "1.4"
-fission-macros = { path = "../../authoring/fission-macros", version = "0.5.0" }
-fission-diagnostics = { path = "../fission-diagnostics", version = "0.5.0" }
-fission-render-vello = { path = "../../rendering/fission-render-vello", version = "0.5.0" }
-fission-theme = { path = "../../core/fission-theme", version = "0.5.0" }
+fission-macros = { path = "../../authoring/fission-macros", version = "0.5.1" }
+fission-diagnostics = { path = "../fission-diagnostics", version = "0.5.1" }
+fission-render-vello = { path = "../../rendering/fission-render-vello", version = "0.5.1" }
+fission-theme = { path = "../../core/fission-theme", version = "0.5.1" }
 fontique = "0.7"
 serde_json = "1.0"
 
 [dev-dependencies]
-fission-shell-desktop = { path = "../../shell/fission-shell-desktop", version = "0.5.0" }
+fission-shell-desktop = { path = "../../shell/fission-shell-desktop", version = "0.5.1" }

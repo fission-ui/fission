@@ -80,7 +80,7 @@ struct StepCopy {
 
 const OVERVIEW_FEATURES: &[FeatureCopy] = &[
     FeatureCopy { label: "Runtime", title: "One app model", body: "State, actions, reducers, selectors, widgets, resources, jobs, services, capabilities, and design systems stay in shared Rust." },
-    FeatureCopy { label: "Targets", title: "Every major surface", body: "Desktop, web, Android, iOS, terminal UI, static HTML, and server-rendered site targets are treated as product outputs, not side projects." },
+    FeatureCopy { label: "Targets", title: "Every major target", body: "macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR targets are treated as product outputs, not side projects." },
     FeatureCopy { label: "Lifecycle", title: "Tooling after build", body: "Readiness checks, packages, signing, release content, app stores, static hosting, GitHub Releases, rollouts, and receipts are part of the platform." },
 ];
 
@@ -101,12 +101,12 @@ const OVERVIEW_STEPS: &[StepCopy] = &[
 
 const OVERVIEW_DETAILS: &[DetailCopy] = &[
     DetailCopy { label: "Shared runtime", title: "One application shape", body: "A product keeps one model for state, actions, reducers, components, resources, jobs, services, capabilities, and themes. Targets host that model; they do not fork it.", href: "/docs/learn/runtime-model/", link_label: "Runtime model" },
-    DetailCopy { label: "Target breadth", title: "More than windowed apps", body: "Fission treats desktop, browser, mobile, terminal, static HTML, and server-rendered HTML as first-class delivery surfaces for the same product architecture.", href: "/reference/platform/targets/", link_label: "Targets reference" },
+    DetailCopy { label: "Target breadth", title: "More than windowed apps", body: "Fission treats macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR as first-class targets for the same product architecture.", href: "/reference/platform/targets/", link_label: "Targets reference" },
     DetailCopy { label: "Lifecycle tooling", title: "The work after build is covered", body: "The platform story includes readiness checks, packaging, signing, release content, distribution providers, receipts, and CI-friendly automation.", href: "/docs/release-and-distribute/overview/", link_label: "Release docs" },
 ];
 
 const CROSS_FEATURES: &[FeatureCopy] = &[
-    FeatureCopy { label: "Desktop", title: "Native app loop", body: "Windows, macOS, and Linux provide the fast local loop for product UI, diagnostics, and desktop packaging paths." },
+    FeatureCopy { label: "Desktop", title: "Native app loop", body: "macOS, Windows, and Linux provide the fast local loop for product UI, diagnostics, and desktop packaging paths." },
     FeatureCopy { label: "Mobile", title: "Real host projects", body: "Android and iOS hosts keep the shared model intact while validating touch, lifecycle, safe areas, keyboards, package outputs, and stores." },
     FeatureCopy { label: "Web", title: "Browser delivery", body: "The web shell compiles the app for browser delivery without moving product behavior into a separate JavaScript application." },
 ];
@@ -118,7 +118,7 @@ const CROSS_STEPS: &[StepCopy] = &[
 ];
 
 const CROSS_DETAILS: &[DetailCopy] = &[
-    DetailCopy { label: "Desktop", title: "Use the fastest local host", body: "Windows, macOS, and Linux keep the iteration loop short while still exercising layout, rendering, input, capabilities, and packaging expectations.", href: "/docs/build-and-package/desktop-packages/", link_label: "Desktop packages" },
+    DetailCopy { label: "Desktop", title: "Use the fastest local host", body: "macOS, Windows, and Linux keep the iteration loop short while still exercising layout, rendering, input, capabilities, and packaging expectations.", href: "/docs/build-and-package/desktop-packages/", link_label: "Desktop packages" },
     DetailCopy { label: "Mobile", title: "Validate mobile as mobile", body: "Android and iOS runs cover touch input, safe areas, keyboard behavior, app metadata, permissions, icons, launch screens, and store-bound package formats.", href: "/docs/build-and-package/mobile-packages/", link_label: "Mobile packages" },
     DetailCopy { label: "Browser", title: "Ship the app to the web", body: "The web target keeps application behavior in Rust while the browser host owns WebAssembly loading, renderer selection, assets, and web-specific diagnostics.", href: "/docs/build-and-package/web-packages/", link_label: "Web packages" },
 ];
@@ -136,7 +136,7 @@ const TERMINAL_STEPS: &[StepCopy] = &[
 ];
 
 const TERMINAL_DETAILS: &[DetailCopy] = &[
-    DetailCopy { label: "Information architecture", title: "Screens before command lists", body: "A good terminal app should present tasks, status, confirmation dialogs, settings, logs, and scrollback progressively instead of dumping every command upfront.", href: "/docs/guides/terminal-user-interfaces/", link_label: "TUI guide" },
+    DetailCopy { label: "Information architecture", title: "Screens before command lists", body: "A good terminal app should present tasks, status, confirmation dialogs, settings, logs, and scrollback progressively instead of dumping every command upfront.", href: "/docs/guides/terminal-user-interfaces/", link_label: "Terminal guide" },
     DetailCopy { label: "Interaction", title: "Keyboard first, pointer aware", body: "The shell supports keyboard navigation and pointer input where terminals expose it, while keeping the interface usable when only keys are available.", href: "/reference/widgets/terminal-view/", link_label: "Terminal widgets" },
     DetailCopy { label: "Packaging", title: "Treat terminal apps as products", body: "Terminal apps can be packaged as command-line tools, installers, or release assets, with configuration and docs alongside graphical targets.", href: "/docs/build-and-package/terminal-packages/", link_label: "Package terminal apps" },
 ];
@@ -258,7 +258,7 @@ const DESIGN_STEPS: &[StepCopy] = &[
     },
     StepCopy {
         label: "Apply",
-        body: "Let widgets, charts, shells, and product surfaces consume the same tokens.",
+        body: "Let widgets, charts, shells, and product targets consume the same tokens.",
     },
 ];
 
@@ -270,7 +270,7 @@ const DESIGN_DETAILS: &[DetailCopy] = &[
 
 const CHART_FEATURES: &[FeatureCopy] = &[
     FeatureCopy { label: "Breadth", title: "Large chart catalog", body: "Line, bar, area, pie, scatter, heatmap, financial, relationship, map, component, dynamic, and 3D-oriented families." },
-    FeatureCopy { label: "Product fit", title: "Dashboards and analytics", body: "Build monitoring, finance, operations, reporting, planning, and decision-support surfaces without leaving Fission." },
+    FeatureCopy { label: "Product fit", title: "Dashboards and analytics", body: "Build monitoring, finance, operations, reporting, planning, and decision-support views without leaving Fission." },
     FeatureCopy { label: "Design", title: "Theme-aware visuals", body: "Charts consume the design system palette, typography, backgrounds, dark mode, and interaction rules." },
 ];
 
@@ -317,7 +317,7 @@ impl MarketingPageKind {
                 features: OVERVIEW_FEATURES,
                 details_label: "How it fits",
                 details_title: "A framework boundary for the whole application lifecycle.",
-                details_body: "The overview page connects the major surfaces. Use the deeper product pages when you need the details for a specific output or workflow.",
+                details_body: "The overview page connects the major targets. Use the deeper product pages when you need the details for a specific output or workflow.",
                 details: OVERVIEW_DETAILS,
                 workflow_label: "Lifecycle path",
                 workflow_title: "From project setup to release receipts.",
@@ -325,14 +325,14 @@ impl MarketingPageKind {
             },
             MarketingPageKind::CrossPlatformApps => PageCopy {
                 eyebrow: "Cross-platform apps",
-                title: "One Rust app model across desktop, mobile, and web.",
+                title: "One Rust app model across every Fission target.",
                 body: "Fission keeps state, reducers, widgets, resources, jobs, services, design systems, and charts shared while shells host the product on each platform.",
                 primary_label: "Read shell guide",
                 primary_href: "/docs/guides/platform-shells-cli-and-testing/",
                 secondary_label: "Browse targets",
                 secondary_href: "/docs/learn/examples-and-targets/",
                 proof_label: "Real targets",
-                proof_body: "Desktop, web, Android, and iOS are positioned as production targets with host-specific validation where the platform boundary matters.",
+                proof_body: "macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR are production targets with host-specific validation where the platform boundary matters.",
                 proof_cta_label: "Read target expectations",
                 proof_cta_href: "/reference/platform/targets/",
                 feature_label: "Host coverage",
@@ -341,16 +341,16 @@ impl MarketingPageKind {
                 features: CROSS_FEATURES,
                 details_label: "Target model",
                 details_title: "Use the fastest loop until the host itself matters.",
-                details_body: "Desktop, web, Android, and iOS should all be tested as real outputs. The right target depends on the behavior you are proving.",
+                details_body: "macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR should all be tested as real outputs. The right target depends on the behavior you are proving.",
                 details: CROSS_DETAILS,
                 workflow_label: "Run loop",
                 workflow_title: "Move between hosts without rewriting product code.",
                 workflow: CROSS_STEPS,
             },
             MarketingPageKind::TerminalApps => PageCopy {
-                eyebrow: "Terminal UI",
+                eyebrow: "Terminal",
                 title: "Build terminal apps without leaving Fission.",
-                body: "Terminal UI is for production command tools, setup flows, diagnostics, admin panels, and developer workflows that need an interactive shell surface.",
+                body: "Terminal is for production command tools, setup flows, diagnostics, admin panels, and developer workflows that need an interactive shell target.",
                 primary_label: "Build a terminal app",
                 primary_href: "/docs/guides/terminal-user-interfaces/",
                 secondary_label: "Try fission ui",
@@ -365,7 +365,7 @@ impl MarketingPageKind {
                 features: TERMINAL_FEATURES,
                 details_label: "Terminal UX",
                 details_title: "Progressive disclosure matters even in cells.",
-                details_body: "Terminal UI should be compact and task-led, but it should still have the same product discipline as a graphical app.",
+                details_body: "Terminal apps should be compact and task-led, but it should still have the same product discipline as a graphical app.",
                 details: TERMINAL_DETAILS,
                 workflow_label: "Interaction path",
                 workflow_title: "Navigate, run work, inspect logs, and change settings.",
@@ -470,7 +470,7 @@ impl MarketingPageKind {
             MarketingPageKind::DesignSystems => PageCopy {
                 eyebrow: "Design systems",
                 title: "Bring a real design system into Rust UI code.",
-                body: "Fission reads design system package JSON at build time and generates typed theme code for widgets, charts, shells, and product surfaces.",
+                body: "Fission reads design system package JSON at build time and generates typed theme code for widgets, charts, shells, and product targets.",
                 primary_label: "Read design guide",
                 primary_href: "/docs/guides/design-system/",
                 secondary_label: "Theme docs",
@@ -493,14 +493,14 @@ impl MarketingPageKind {
             },
             MarketingPageKind::Charts => PageCopy {
                 eyebrow: "Charts",
-                title: "Beautiful data visualization as a first-class product surface.",
+                title: "Beautiful data visualization as a first-class product feature.",
                 body: "Fission Charts is the native charting layer for dashboards, analytics, finance, maps, networks, dynamic data, and 3D-ready visuals.",
                 primary_label: "Browse catalog",
                 primary_href: "/docs/charts/catalog/",
                 secondary_label: "Chart reference",
                 secondary_href: "/reference/charts/overview/",
                 proof_label: "Built for dashboards",
-                proof_body: "The chart catalog is broad because production apps need reporting, monitoring, planning, financial, and decision-support surfaces.",
+                proof_body: "The chart catalog is broad because production apps need reporting, monitoring, planning, financial, and decision-support views.",
                 proof_cta_label: "Browse chart families",
                 proof_cta_href: "/docs/charts/catalog/",
                 feature_label: "Visualization",
@@ -1047,7 +1047,10 @@ fn platform_visual(view: ViewHandle<DocsState>) -> Widget {
         "Platform map",
         &[
             ("App model", "State / reducers / widgets"),
-            ("Targets", "Desktop / Web / Mobile / TUI / Site / Server"),
+            (
+                "Targets",
+                "macOS / Windows / Linux / Web / Android / iOS / Terminal / Static / SSR",
+            ),
             ("Lifecycle", "Package / sign / release / receipts"),
         ],
     )
@@ -1058,10 +1061,11 @@ fn target_visual(view: ViewHandle<DocsState>) -> Widget {
         view,
         "Target matrix",
         &[
-            ("Desktop", "Windows  macOS  Linux"),
+            ("Desktop", "macOS  Windows  Linux"),
             ("Mobile", "Android  iOS"),
             ("Web", "WASM browser shell"),
-            ("Specialized", "Terminal UI  Static HTML  Server HTML"),
+            ("Document", "Static site  SSR"),
+            ("Terminal", "Terminal app shell"),
         ],
     )
 }
@@ -1120,7 +1124,7 @@ fn lifecycle_visual(view: ViewHandle<DocsState>) -> Widget {
 fn devtools_visual(view: ViewHandle<DocsState>) -> Widget {
     visual_stack(
         view,
-        "Inspector surface",
+        "Inspector view",
         &[
             ("Widget tree", "routes / screens / components"),
             ("Core IR", "layout / semantics / paint"),
@@ -1146,7 +1150,7 @@ fn chart_visual(view: ViewHandle<DocsState>) -> Widget {
     let tokens = &view.env().theme.tokens;
     Column {
         children: vec![
-            visual_header(view, "Chart surfaces"),
+            visual_header(view, "Chart views"),
             Row {
                 children: vec![
                     chart_thumb(view, "/img/charts/line-gradient-area.png"),

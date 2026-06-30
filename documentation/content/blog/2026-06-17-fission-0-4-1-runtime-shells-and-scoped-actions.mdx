@@ -21,7 +21,7 @@ The main runtime-shell addition is the scoped route/action plumbing needed by ho
 
 `RouteLocation` is a browser-compatible route location structure with a required `pathname` and optional `host`, `hash`, `hostname`, `href`, `origin`, `port`, `protocol`, and `search` fields. `ShellRouteChanged` is a built-in action that shells can dispatch when the host route changes.
 
-The desktop, mobile, web, and winit shell builders now expose `with_route_handler(...)`, allowing applications and host shells to register a reducer for route changes without inventing their own shell-specific action transport. The router widget also gained builder-style construction helpers for common route table setup.
+Runtime shell builders now expose `with_route_handler(...)`, allowing applications and host shells to register a reducer for route changes without inventing their own shell-specific action transport. The router widget also gained builder-style construction helpers for common route table setup.
 
 This matters for shells that mount generated or remote guest UI. Normal applications still use typed actions and reducers. Host shells can combine the 0.4.0 scoped raw action surface with the 0.4.1 route-change layer to keep mounted guest UI associated with the correct runtime and route state.
 

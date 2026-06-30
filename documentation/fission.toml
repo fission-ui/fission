@@ -2,7 +2,7 @@ targets = ["site"]
 
 [app]
 name = "fission-documentation"
-app_id = "io.github.worka-ai.fission"
+app_id = "rs.fission.documentation"
 
 [site]
 entry = "crate::site_app"
@@ -16,7 +16,7 @@ pretty_urls = true
 generate_sitemap = true
 generate_robots = true
 title = "Fission"
-description = "Build, test, package, and release production Rust apps across desktop, mobile, web, terminal, static site, and server-rendered site targets."
+description = "Build, test, package, and release production Rust apps across macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR targets."
 logo = "/img/fission-mark.svg"
 favicon = "/img/fission-mark.svg"
 asset_dirs = ["static"]
@@ -32,7 +32,7 @@ placement = "head-end"
 file = "site/google-analytics.html"
 
 [distribution.github_pages.production]
-owner = "worka-ai"
+owner = "fission-ui"
 repo = "fission"
 mode = "actions"
 source = "github-actions"

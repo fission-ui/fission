@@ -17,10 +17,12 @@ Add the smallest state fields the screen needs to render honestly. For this flow
 
 ```rust
 #[derive(Default)]
-struct GlobalState {
+struct HapticsState {
     // Add these fields to your existing app state.
-haptic_error: Option<String>,
+    haptic_error: Option<String>,
 }
+
+impl GlobalState for HapticsState {}
 ```
 
 State is the source of truth for the UI. Do not store whether the host "probably" succeeded; wait for the typed success action and store the returned value.
@@ -51,7 +53,7 @@ Capability work finishes later, after the reducer that started it has returned. 
 
 ```rust
 #[fission_reducer(HapticFailed)]
-fn on_haptic_failed(state: &mut GlobalState, error: HapticError) {
+fn on_haptic_failed(state: &mut HapticsState, error: HapticError) {
     state.haptic_error = Some(error.message);
 }
 ```
@@ -74,7 +76,7 @@ ctx.effects
     ));
 ```
 
-The call does not run the OS API directly. It records a typed host request. That keeps shared app logic portable across desktop, web, Android, iOS, static-site previews where applicable, and tests.
+The call does not run the OS API directly. It records a typed host request. That keeps shared app logic portable across Fission targets where the capability applies, plus static-site previews and tests.
 
 ## 5. Trigger the reducer from the UI
 
@@ -85,7 +87,7 @@ struct PlayHapticFeedbackButton;
 
 impl From<PlayHapticFeedbackButton> for Widget {
     fn from(component: PlayHapticFeedbackButton) -> Self {
-        let (ctx, view) = fission::build::current::<GlobalState>();
+        let (ctx, view) = fission::build::current::<HapticsState>();
         let run = with_reducer!(ctx, PlaySuccessHaptic, on_play_success_haptic);
 
         Button::new("Play feedback")

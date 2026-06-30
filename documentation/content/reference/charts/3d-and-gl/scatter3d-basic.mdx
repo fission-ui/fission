@@ -12,7 +12,7 @@ Points positioned in three dimensions with native scene primitives. Use it when 
 
 ## What the chart is for
 
-3D scatter belongs to the **3D and GL** family. Its job is to make this data shape readable: `Vec<(x, y, z, radius)> lowered into Scene3D spheres.` In a production interface, choose this chart when the visual form makes the user's question faster to answer than a table or a simpler chart would.
+3D scatter is part of the **3D and GL** chart family and is intended for `Vec<(x, y, z, radius)> lowered into Scene3D spheres`. Use it when the visual form makes the user's question faster to answer than a table or a simpler chart would.
 
 Avoid it when a two-dimensional chart answers the question more directly; 3D should clarify spatial data, not decorate ordinary comparisons.
 
@@ -86,6 +86,5 @@ Keep expensive data loading outside component conversion. A reducer, job, servic
 | Performance | Prefer summarized or windowed data for very large datasets; keep full raw history in the data layer. | Profile frame time and interaction latency with representative data volumes. |
 
 Tags: `3d`, `scatter`.
-
 
 [3D and GL family overview](./overview)

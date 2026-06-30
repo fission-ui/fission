@@ -17,12 +17,14 @@ Add the smallest state fields the screen needs to render honestly. For this flow
 
 ```rust
 #[derive(Default)]
-struct GlobalState {
+struct WifiState {
     // Add these fields to your existing app state.
-networks: Vec<WifiNetwork>,
+    networks: Vec<WifiNetwork>,
     wifi_error: Option<String>,
     scanning_wifi: bool,
 }
+
+impl GlobalState for WifiState {}
 ```
 
 State is the source of truth for the UI. Do not store whether the host "probably" succeeded; wait for the typed success action and store the returned value.
@@ -53,14 +55,14 @@ Capability work finishes later, after the reducer that started it has returned. 
 
 ```rust
 #[fission_reducer(WifiNetworksFound)]
-fn on_wifi_networks_found(state: &mut GlobalState, result: WifiScanResult) {
+fn on_wifi_networks_found(state: &mut WifiState, result: WifiScanResult) {
     state.scanning_wifi = false;
     state.networks = result.networks;
     state.wifi_error = None;
 }
 
 #[fission_reducer(WifiScanFailed)]
-fn on_wifi_scan_failed(state: &mut GlobalState, error: WifiError) {
+fn on_wifi_scan_failed(state: &mut WifiState, error: WifiError) {
     state.scanning_wifi = false;
     state.wifi_error = Some(error.message);
 }
@@ -91,7 +93,7 @@ ctx.effects
     ));
 ```
 
-The call does not run the OS API directly. It records a typed host request. That keeps shared app logic portable across desktop, web, Android, iOS, static-site previews where applicable, and tests.
+The call does not run the OS API directly. It records a typed host request. That keeps shared app logic portable across Fission targets where the capability applies, plus static-site previews and tests.
 
 ## 5. Trigger the reducer from the UI
 
@@ -102,7 +104,7 @@ struct ScanWifiNetworksButton;
 
 impl From<ScanWifiNetworksButton> for Widget {
     fn from(component: ScanWifiNetworksButton) -> Self {
-        let (ctx, view) = fission::build::current::<GlobalState>();
+        let (ctx, view) = fission::build::current::<WifiState>();
         let run = with_reducer!(ctx, ScanWifiNetworks, on_scan_wifi_networks);
 
         Button::new("Scan networks")

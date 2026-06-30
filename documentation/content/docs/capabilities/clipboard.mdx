@@ -17,12 +17,14 @@ Add the smallest state fields the screen needs to render honestly. For this flow
 
 ```rust
 #[derive(Default)]
-struct GlobalState {
+struct ClipboardState {
     // Add these fields to your existing app state.
-share_url: String,
+    share_url: String,
     copied: bool,
     clipboard_error: Option<String>,
 }
+
+impl GlobalState for ClipboardState {}
 ```
 
 State is the source of truth for the UI. Do not store whether the host "probably" succeeded; wait for the typed success action and store the returned value.
@@ -47,13 +49,13 @@ Capability work finishes later, after the reducer that started it has returned. 
 
 ```rust
 #[fission_reducer(LinkCopied)]
-fn on_link_copied(state: &mut GlobalState) {
+fn on_link_copied(state: &mut ClipboardState) {
     state.copied = true;
     state.clipboard_error = None;
 }
 
 #[fission_reducer(CopyFailed)]
-fn on_copy_failed(state: &mut GlobalState, error: ClipboardError) {
+fn on_copy_failed(state: &mut ClipboardState, error: ClipboardError) {
     state.copied = false;
     state.clipboard_error = Some(error.message);
 }
@@ -81,7 +83,7 @@ ctx.effects
     ));
 ```
 
-The call does not run the OS API directly. It records a typed host request. That keeps shared app logic portable across desktop, web, Android, iOS, static-site previews where applicable, and tests.
+The call does not run the OS API directly. It records a typed host request. That keeps shared app logic portable across Fission targets where the capability applies, plus static-site previews and tests.
 
 ## 5. Trigger the reducer from the UI
 
@@ -92,7 +94,7 @@ struct CopyShareLinkButton;
 
 impl From<CopyShareLinkButton> for Widget {
     fn from(component: CopyShareLinkButton) -> Self {
-        let (ctx, view) = fission::build::current::<GlobalState>();
+        let (ctx, view) = fission::build::current::<ClipboardState>();
         let run = with_reducer!(ctx, CopyShareLink, on_copy_share_link);
 
         Button::new("Copy link")
@@ -115,7 +117,7 @@ A useful first test creates the app with the memory host, dispatches the start a
 
 ## Platform expectations
 
-Clipboard is broadly available on desktop, mobile, and web. Browser clipboard access usually requires a secure context and user gesture. Linux depends on the active display server and clipboard backend.
+Clipboard is broadly available on macOS, Windows, Linux, Web, Android, and iOS. Browser clipboard access usually requires a secure context and user gesture. Linux depends on the active display server and clipboard backend.
 
 For a cross-platform summary, read the [capability matrix](/docs/capabilities/matrix/). For exact request fields, provider traits, and generated configuration, see the [Clipboard reference](/reference/capabilities/clipboard/).
 

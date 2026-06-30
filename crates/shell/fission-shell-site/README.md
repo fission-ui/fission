@@ -1,12 +1,12 @@
 # fission-shell-site
 
-Static HTML shell for Fission applications and documentation sites.
+Static site shell for Fission applications and documentation sites.
 
 `fission-shell-site` lowers real Fission widget trees and Markdown/MDX content routes into static HTML, CSS, and search metadata. It powers the Fission documentation site itself. Application developers normally use it through the `fission` facade with the `site` feature and through the `fission site` command:
 
 ```toml
 [dependencies]
-fission = { version = "0.5.0", features = ["site"] }
+fission = { version = "0.5.1", features = ["site"] }
 ```
 
 ```sh
