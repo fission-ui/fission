@@ -14,11 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **iOS native renderer path** - iOS now stays on the Vello GPU renderer instead of falling back to the software upload renderer when the adapter lacks indirect execution support.
 - **Mobile generated targets** - Regenerated `field-inspector`, `mobile-smoke`, and `web-smoke` Android/iOS targets so examples carry the new Gradle, SwiftPM, native-module, and capability-registry structure.
 - **i18n documentation** - Standardized the recommended translation workflow on YAML files embedded with `include_str!` and parsed into `TranslationBundle` values at startup.
 
 ### Fixed
 
+- **iOS Vello black screen** - Passed adapter indirect-dispatch capability into the Fission Vello fork and direct-dispatched the affected stages when indirect execution is unavailable, keeping iOS GPU rendering usable for image content and interactions.
 - **Mobile integration ceiling** - Generated mobile projects no longer force applications that need native SDKs to hand-maintain unsupported Android/iOS project shells outside Fission.
 
 ## [0.5.1] - 2026-06-30
