@@ -447,31 +447,43 @@ fn ensure_android_package_script_copies_resources(root: &Path) -> Result<()> {
     {
         return Ok(());
     }
-    let marker =
-        "cp \"$PROJECT_DIR/assets/app-icon.png\" \"$APK_ROOT/res/drawable-nodpi/app_icon.png\"\n";
+    let (marker, fallback_icon) = if existing
+        .contains("cp \"$ICON_SOURCE\" \"$APK_ROOT/res/drawable-nodpi/app_icon.png\"\n")
+    {
+        (
+            "cp \"$ICON_SOURCE\" \"$APK_ROOT/res/drawable-nodpi/app_icon.png\"\n",
+            "$ICON_SOURCE",
+        )
+    } else {
+        (
+            "cp \"$PROJECT_DIR/assets/app-icon.png\" \"$APK_ROOT/res/drawable-nodpi/app_icon.png\"\n",
+            "$PROJECT_DIR/assets/app-icon.png",
+        )
+    };
     let insertion = r#"shopt -s nullglob
 SPLASH_IMAGES=("$SCRIPT_DIR"/res/drawable-nodpi/fission_splash_image.*)
 if (( ${#SPLASH_IMAGES[@]} == 0 )); then
-  cp "$PROJECT_DIR/assets/app-icon.png" "$APK_ROOT/res/drawable-nodpi/fission_splash_image.png"
+  cp "__FALLBACK_ICON__" "$APK_ROOT/res/drawable-nodpi/fission_splash_image.png"
 fi
 shopt -u nullglob
 if [[ -d "$SCRIPT_DIR/res" ]]; then
   mkdir -p "$APK_ROOT/res"
   cp -R "$SCRIPT_DIR/res/." "$APK_ROOT/res/"
 fi
-"#;
+"#
+    .replace("__FALLBACK_ICON__", fallback_icon);
     let old_start = "if [[ -d \"$SCRIPT_DIR/res\" ]]; then\n";
     let updated = if let Some(start) = existing.find(old_start) {
         if let Some(relative_end) = existing[start..].find("fi\n") {
             let end = start + relative_end + "fi\n".len();
             let mut updated = existing.clone();
-            updated.replace_range(start..end, insertion);
+            updated.replace_range(start..end, &insertion);
             updated
         } else {
-            existing.replacen(marker, &(marker.to_string() + insertion), 1)
+            existing.replacen(marker, &(marker.to_string() + &insertion), 1)
         }
     } else {
-        existing.replacen(marker, &(marker.to_string() + insertion), 1)
+        existing.replacen(marker, &(marker.to_string() + &insertion), 1)
     };
     fs::write(&path, updated).with_context(|| format!("failed to write {}", path.display()))
 }

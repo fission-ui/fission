@@ -142,6 +142,16 @@ rm -rf "$APK_ROOT"
 mkdir -p "$APK_ROOT/lib/arm64-v8a" "$APK_ROOT/res/drawable-nodpi" "$BUILD_DIR"
 cp "$SO_PATH" "$APK_ROOT/lib/arm64-v8a/lib$LIB_NAME.so"
 cp "$ICON_SOURCE" "$APK_ROOT/res/drawable-nodpi/app_icon.png"
+shopt -s nullglob
+SPLASH_IMAGES=("$SCRIPT_DIR"/res/drawable-nodpi/fission_splash_image.*)
+if (( ${#SPLASH_IMAGES[@]} == 0 )); then
+  cp "$ICON_SOURCE" "$APK_ROOT/res/drawable-nodpi/fission_splash_image.png"
+fi
+shopt -u nullglob
+if [[ -d "$SCRIPT_DIR/res" ]]; then
+  mkdir -p "$APK_ROOT/res"
+  cp -R "$SCRIPT_DIR/res/." "$APK_ROOT/res/"
+fi
 
 BUILD_MANIFEST="$BUILD_DIR/AndroidManifest.xml"
 python3 - <<'PY' "$SCRIPT_DIR/AndroidManifest.xml" "$BUILD_MANIFEST" "$ANDROID_MIN_API_LEVEL" "$ANDROID_TARGET_API_LEVEL"
