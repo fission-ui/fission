@@ -2001,6 +2001,7 @@ mod tests {
                 PlatformCapability::Geolocation,
                 PlatformCapability::Microphone,
             ]),
+            native: Default::default(),
         };
 
         let plist = render_info_plist(

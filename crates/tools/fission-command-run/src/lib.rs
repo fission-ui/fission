@@ -708,7 +708,10 @@ fn run_android(project: &FissionProject, options: &RunOptions, device: &Device) 
             .arg("am")
             .arg("start")
             .arg("-n")
-            .arg(format!("{}/android.app.NativeActivity", project.app.app_id)),
+            .arg(format!(
+                "{}/rs.fission.runtime.FissionActivity",
+                project.app.app_id
+            )),
         "Android launch",
     )?;
     if !options.detach {
@@ -1794,6 +1797,7 @@ mod tests {
             },
             targets: BTreeSet::new(),
             capabilities: BTreeSet::new(),
+            native: Default::default(),
         }
     }
 

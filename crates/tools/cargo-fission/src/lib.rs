@@ -521,6 +521,39 @@ for entry in "${entries[@]}"; do
     printf 'APK_ENTRY=%s\n' "$entry" >> "$archive"
   fi
 done
+	"#,
+        );
+        write_executable(
+            fake_bin.join("gradle"),
+            r#"#!/usr/bin/env bash
+set -euo pipefail
+project=""
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+  if [[ "${args[$i]}" == "-p" ]]; then
+    project="${args[$((i + 1))]}"
+  fi
+done
+if [[ -z "$project" ]]; then
+  printf 'fake gradle missing -p project\n' >&2
+  exit 2
+fi
+variant="debug"
+for arg in "$@"; do
+  if [[ "$arg" == *"assembleRelease"* ]]; then
+    variant="release"
+  fi
+done
+apk="$project/app/build/outputs/apk/$variant/app-$variant.apk"
+mkdir -p "$(dirname "$apk")"
+{
+  printf 'GRADLE_MANIFEST_BEGIN\n'
+  cat "$project/AndroidManifest.xml"
+  printf '\nGRADLE_MANIFEST_END\n'
+  if [[ -d "$project/app/src/main/jniLibs" ]]; then
+    (cd "$project/app/src/main/jniLibs" && find . -type f | sort | sed 's#^\./#APK_ENTRY=lib/#')
+  fi
+} > "$apk"
 "#,
         );
     }
@@ -591,8 +624,28 @@ done
         assert!(dir.join("platforms/ios/package-sim.sh").exists());
         assert!(dir.join("platforms/ios/run-sim.sh").exists());
         assert!(dir.join("platforms/ios/test-sim.sh").exists());
+        assert!(dir.join("platforms/ios/Package.swift").exists());
+        assert!(dir
+            .join("platforms/ios/Sources/FissionHost/FissionNativeCapabilities.swift")
+            .exists());
+        assert!(dir
+            .join(
+                "platforms/ios/NativeModules/Sources/FissionNativeModules/FissionNativeCapabilities.swift"
+            )
+            .exists());
         assert!(dir.join("platforms/android/README.md").exists());
         assert!(dir.join("platforms/android/AndroidManifest.xml").exists());
+        assert!(dir.join("platforms/android/settings.gradle.kts").exists());
+        assert!(dir.join("platforms/android/build.gradle.kts").exists());
+        assert!(dir.join("platforms/android/gradle.properties").exists());
+        assert!(dir.join("platforms/android/app/build.gradle.kts").exists());
+        assert!(dir.join("platforms/android/native-modules.gradle").exists());
+        assert!(dir
+            .join("platforms/android/java/rs/fission/runtime/FissionActivity.java")
+            .exists());
+        assert!(dir
+            .join("platforms/android/native-modules/README.md")
+            .exists());
         assert!(dir.join("platforms/android/res/values/colors.xml").exists());
         assert!(dir.join("platforms/android/res/values/styles.xml").exists());
         assert!(dir
@@ -604,9 +657,10 @@ done
         let android_manifest =
             std::fs::read_to_string(dir.join("platforms/android/AndroidManifest.xml")).unwrap();
         assert!(android_manifest.contains("android:icon=\"@drawable/app_icon\""));
-        assert!(android_manifest.contains("android:hasCode=\"false\""));
+        assert!(android_manifest.contains("android:hasCode=\"true\""));
         assert!(android_manifest.contains("android:targetSdkVersion=\"35\""));
         assert!(android_manifest.contains("android:theme=\"@style/FissionLaunchTheme\""));
+        assert!(android_manifest.contains("rs.fission.runtime.FissionActivity"));
         let android_styles =
             std::fs::read_to_string(dir.join("platforms/android/res/values/styles.xml")).unwrap();
         assert!(android_styles.contains("android:windowBackground"));
@@ -623,15 +677,11 @@ done
         assert!(
             android_package_script.contains("aarch64-linux-android${ANDROID_MIN_API_LEVEL}-clang")
         );
-        assert!(android_package_script.contains("BUILD_MANIFEST"));
-        assert!(android_package_script.contains("android:targetSdkVersion=\"{target_api}\""));
-        assert!(android_package_script.contains("import pathlib"));
-        assert!(android_package_script.contains("with_name(\"apk-root\")"));
-        assert!(android_package_script.contains("android:hasCode="));
-        assert!(android_package_script.contains("cp -R \"$SCRIPT_DIR/res/.\""));
-        assert!(android_package_script.contains("fission_splash_image.png"));
-        assert!(android_package_script.contains("APP_ICONS"));
-        assert!(android_package_script.contains("res/drawable-nodpi/app_icon.*"));
+        assert!(android_package_script.contains("GRADLE_CMD"));
+        assert!(android_package_script.contains(":app:assemble"));
+        assert!(android_package_script.contains("app/src/main/jniLibs/arm64-v8a"));
+        assert!(android_package_script.contains("FISSION_GRADLE"));
+        assert!(android_package_script.contains("Gradle is required"));
         let android_run_script =
             std::fs::read_to_string(dir.join("platforms/android/run-emulator.sh")).unwrap();
         assert!(android_run_script.contains("ANDROID_EMULATOR_API_LEVEL"));
@@ -639,6 +689,7 @@ done
         assert!(android_run_script.contains("wait_for_android_boot()"));
         assert!(android_run_script.contains("cmd package list packages"));
         assert!(android_run_script.contains("ADB_INSTALL_FLAGS:---no-streaming -r"));
+        assert!(android_run_script.contains("rs.fission.runtime.FissionActivity"));
         assert!(!android_run_script.contains("wait_for_android_boot() {\n  wait_for_android_boot"));
         assert!(!android_run_script.contains("  wait_for_android_boot\n  wait_for_android_boot"));
         assert!(
@@ -719,9 +770,10 @@ done
         let package_path = dir.join("platforms/android/package-apk.sh");
         fs::write(
             &manifest_path,
-            fs::read_to_string(&manifest_path)
-                .unwrap()
-                .replace("android:hasCode=\"false\"", "android:hasCode=\"true\""),
+            fs::read_to_string(&manifest_path).unwrap().replace(
+                "rs.fission.runtime.FissionActivity",
+                "android.app.NativeActivity",
+            ),
         )
         .unwrap();
         fs::write(
@@ -742,10 +794,11 @@ manifest = re.sub(r'android:hasCode="(?:true|false)"', f'android:hasCode="{has_c
 
         let manifest = fs::read_to_string(manifest_path).unwrap();
         assert!(manifest.contains("android:hasCode=\"false\""));
+        assert!(manifest.contains("android.app.NativeActivity"));
         let package_script = fs::read_to_string(package_path).unwrap();
-        assert!(package_script.contains("import pathlib"));
-        assert!(package_script.contains("with_name(\"apk-root\")"));
-        assert!(package_script.contains("android:hasCode="));
+        assert!(package_script.contains(":app:assemble"));
+        assert!(package_script.contains("app/src/main/jniLibs/arm64-v8a"));
+        assert!(!package_script.contains("import pathlib"));
     }
 
     #[test]
@@ -912,7 +965,7 @@ PY
         let apk = String::from_utf8(output.stdout).unwrap();
         let apk = PathBuf::from(apk.trim());
         let apk_payload = fs::read_to_string(apk).unwrap();
-        assert!(apk_payload.contains("android:hasCode=\"false\""));
+        assert!(apk_payload.contains("android:hasCode=\"true\""));
         assert!(apk_payload.contains("android:minSdkVersion=\"24\""));
         assert!(apk_payload.contains("android:targetSdkVersion=\"35\""));
         assert!(apk_payload.contains("APK_ENTRY=lib/arm64-v8a/libandroid_package_e2e.so"));
