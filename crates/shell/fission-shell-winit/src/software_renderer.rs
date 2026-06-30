@@ -138,7 +138,6 @@ fn pixmap_byte_len(image: &Pixmap) -> u64 {
 fn image_request_with_default_cache_size(
     request: &ImageRequest,
     rect: fission_render::LayoutRect,
-    scale_factor: f32,
 ) -> ImageRequest {
     if request.cache_width.is_some() && request.cache_height.is_some() {
         return request.clone();
@@ -147,10 +146,12 @@ fn image_request_with_default_cache_size(
         return request.clone();
     }
 
-    let scale = normalized_scale_factor(scale_factor).max(1.0);
+    // tiny-skia applies the renderer scale through the draw transform. Keeping
+    // cache dimensions in logical pixels prevents high-DPI images from being
+    // over-sized and then clipped as pattern fills.
     let mut request = request.clone();
-    request.cache_width = Some(cache_dimension_from_extent(rect.width() * scale));
-    request.cache_height = Some(cache_dimension_from_extent(rect.height() * scale));
+    request.cache_width = Some(cache_dimension_from_extent(rect.width()));
+    request.cache_height = Some(cache_dimension_from_extent(rect.height()));
     request
 }
 
@@ -665,6 +666,24 @@ mod image_tests {
         bytes.into_inner()
     }
 
+    fn centered_mark_png(width: u32, height: u32) -> Vec<u8> {
+        let mut image = image::RgbaImage::from_pixel(width, height, image::Rgba([8, 8, 12, 255]));
+        let mark_x0 = width / 3;
+        let mark_x1 = width - mark_x0;
+        let mark_y0 = height / 3;
+        let mark_y1 = height - mark_y0;
+        for y in mark_y0..mark_y1 {
+            for x in mark_x0..mark_x1 {
+                image.put_pixel(x, y, image::Rgba([245, 245, 245, 255]));
+            }
+        }
+        let mut bytes = Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(image)
+            .write_to(&mut bytes, image::ImageFormat::Png)
+            .expect("encode centered mark png");
+        bytes.into_inner()
+    }
+
     fn serve_once(body: Vec<u8>) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind test image server");
         let url = format!("http://{}", listener.local_addr().expect("local addr"));
@@ -865,6 +884,71 @@ mod image_tests {
         assert!(
             pixel_at(4, 4)[3] > 0 && pixel_at(4, 4)[0] > 0,
             "expected destination rect to contain image pixels"
+        );
+    }
+
+    #[test]
+    fn scaled_memory_image_paints_center_pixels() {
+        let rect = fission_render::LayoutRect::new(40.0, 161.55, 144.0, 144.0);
+        let request = ImageRequest {
+            source: ImageSource::Memory {
+                bytes: centered_mark_png(256, 256),
+                mime_type: Some("image/png".into()),
+            },
+            ..Default::default()
+        };
+        let request = image_request_with_default_cache_size(&request, rect);
+        let key = request.stable_cache_key();
+        image_cache().invalidate(&key);
+        image_cache().run_pending_tasks();
+        let before = image_cache_generation();
+        spawn_image_load(key.clone(), request.clone());
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while image_cache_generation() == before && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        let mut display_list =
+            DisplayList::new(fission_render::LayoutRect::new(0.0, 0.0, 320.0, 480.0));
+        display_list.push(DisplayOp::DrawImage {
+            rect,
+            request,
+            fit: ImageFit::Contain,
+            alignment: ImageAlignment::Center,
+            bounds: rect,
+            node_id: None,
+        });
+        let scene = RenderScene::from_display_list(display_list);
+        let pixels = SoftwareRenderer::render(
+            &scene,
+            960,
+            1440,
+            RenderColor {
+                r: 34,
+                g: 39,
+                b: 52,
+                a: 255,
+            },
+            3.0,
+        )
+        .expect("render scale probe");
+
+        let mut bright_pixels = 0;
+        for y in 660..735 {
+            for x in 300..375 {
+                let offset = ((y * 960 + x) * 4) as usize;
+                let r = pixels[offset];
+                let g = pixels[offset + 1];
+                let b = pixels[offset + 2];
+                if r > 200 && g > 200 && b > 200 {
+                    bright_pixels += 1;
+                }
+            }
+        }
+        assert!(
+            bright_pixels > 500,
+            "expected scaled image center to remain visible, found {bright_pixels} bright pixels"
         );
     }
 }
@@ -1395,7 +1479,7 @@ impl SoftwareRenderer {
             return Ok(());
         }
 
-        let request = image_request_with_default_cache_size(request, rect, self.scale_factor);
+        let request = image_request_with_default_cache_size(request, rect);
         let image = match cached_image(&request) {
             Some(image) => image,
             None => return Ok(()),
@@ -1434,7 +1518,6 @@ impl SoftwareRenderer {
             }
             ImageFit::None => (1.0, 1.0, rect.origin.x, rect.origin.y),
         };
-
         let transform = self.device_transform(
             self.current_state()
                 .transform

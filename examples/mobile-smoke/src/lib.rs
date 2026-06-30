@@ -1,5 +1,7 @@
 use fission::prelude::*;
 
+const FISSION_LOGO_PNG: &[u8] = include_bytes!("../../../docs/fission_logo.png");
+
 #[cfg(target_os = "android")]
 const ANDROID_TEST_CONTROL_PORT: u16 = 48761;
 
@@ -56,6 +58,28 @@ impl From<MobileSmokeApp> for Widget {
                     .color(body)
                     .max_width(content_width)
                     .into(),
+                Text::new("Image probe")
+                    .size(14.0)
+                    .color(body)
+                    .max_width(content_width)
+                    .into(),
+                Container::new(
+                    Image::memory(FISSION_LOGO_PNG.to_vec())
+                        .size(144.0, 144.0)
+                        .fit(fission::core::op::ImageFit::Contain)
+                        .semantic_label("Fission logo image probe"),
+                )
+                .size(content_width, 176.0)
+                .padding_all(16.0)
+                .bg(Color {
+                    r: 34,
+                    g: 39,
+                    b: 52,
+                    a: 255,
+                })
+                .border(accent, 1.0)
+                .border_radius(20.0)
+                .into(),
                 Text::new(format!("Taps: {}", view.state().taps))
                     .size(22.0)
                     .color(accent)

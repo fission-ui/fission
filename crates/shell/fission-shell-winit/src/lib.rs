@@ -736,27 +736,8 @@ fn create_native_main_renderer(
         ));
     }
 
-    if matches!(request, RendererRequest::Auto)
-        && cfg!(target_os = "ios")
-        && !supports_indirect_execution
-    {
-        return Ok((
-            MainRenderer::Software,
-            RendererReport::new(
-                "native-software-upload",
-                request,
-                backend,
-                adapter,
-                Some("ios_adapter_missing_indirect_execution".to_string()),
-                width,
-                height,
-                scale_factor,
-            ),
-        ));
-    }
-
     let cpu_requested = matches!(request, RendererRequest::NativeVelloCpu);
-    match create_vello_main_renderer(device_handle, cpu_requested) {
+    match create_vello_main_renderer(device_handle, cpu_requested, supports_indirect_execution) {
         Ok(renderer) => {
             let active = if cpu_requested {
                 "native-vello-cpu"
@@ -774,6 +755,8 @@ fn create_native_main_renderer(
                     adapter,
                     if matches!(request, RendererRequest::NativeVelloCpu) {
                         Some("forced_cpu_vello".to_string())
+                    } else if !supports_indirect_execution {
+                        Some("direct_dispatch_fallback".to_string())
                     } else if cpu_requested {
                         Some("missing_indirect_execution".to_string())
                     } else {
@@ -788,7 +771,7 @@ fn create_native_main_renderer(
         Err(gpu_error) if request.is_explicit_gpu() => Err(anyhow::anyhow!(
             "requested native Vello GPU renderer but initialization failed: {gpu_error}"
         )),
-        Err(gpu_error) => match create_vello_main_renderer(device_handle, true) {
+        Err(gpu_error) => match create_vello_main_renderer(device_handle, true, true) {
             Ok(renderer) => Ok((
                 renderer,
                 RendererReport::new(
@@ -825,11 +808,13 @@ fn create_native_main_renderer(
 fn create_vello_main_renderer(
     device_handle: &vello::util::DeviceHandle,
     use_cpu: bool,
+    use_indirect_dispatch: bool,
 ) -> anyhow::Result<MainRenderer> {
     let renderer = VelloSceneRenderer::new(
         &device_handle.device,
         RendererOptions {
             use_cpu,
+            use_indirect_dispatch,
             antialiasing_support: AaSupport::all(),
             num_init_threads: None,
             pipeline_cache: None,
@@ -951,6 +936,7 @@ fn create_webgpu_main_renderer(
         &device_handle.device,
         RendererOptions {
             use_cpu: false,
+            use_indirect_dispatch: true,
             antialiasing_support: AaSupport::all(),
             num_init_threads: None,
             pipeline_cache: None,
