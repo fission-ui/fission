@@ -19,7 +19,7 @@ preload = "route"
 
 [package.docker]
 port = 8080
-tags = ["ghcr.io/fission-ui/fission-pokemon-card-store:0.5.1"]
+tags = ["ghcr.io/fission-ui/fission-pokemon-card-store:0.6.1"]
 
 [distribution.docker_registry.production]
-tags = ["ghcr.io/fission-ui/fission-pokemon-card-store:0.5.1"]
+tags = ["ghcr.io/fission-ui/fission-pokemon-card-store:0.6.1"]

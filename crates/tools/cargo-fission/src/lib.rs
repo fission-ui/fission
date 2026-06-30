@@ -802,6 +802,46 @@ manifest = re.sub(r'android:hasCode="(?:true|false)"', f'android:hasCode="{has_c
     }
 
     #[test]
+    fn init_hardens_existing_android_raw_package_script_resources() {
+        let dir = unique_dir("android-raw-resources");
+        run(["fission", "init", dir.to_str().unwrap()]).unwrap();
+        run([
+            "fission",
+            "add-target",
+            "android",
+            "--project-dir",
+            dir.to_str().unwrap(),
+        ])
+        .unwrap();
+
+        let package_path = dir.join("platforms/android/package-apk.sh");
+        fs::write(
+            &package_path,
+            r#"#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR=$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+ICON_SOURCE="${FISSION_APP_ICON:-$SCRIPT_DIR/icon.png}"
+APK_ROOT="$SCRIPT_DIR/build/debug/apk-root"
+SO_PATH="$SCRIPT_DIR/libexample.so"
+LIB_NAME="example"
+mkdir -p "$APK_ROOT/lib/arm64-v8a" "$APK_ROOT/res/drawable-nodpi"
+cp "$SO_PATH" "$APK_ROOT/lib/arm64-v8a/lib$LIB_NAME.so"
+cp "$ICON_SOURCE" "$APK_ROOT/res/drawable-nodpi/app_icon.png"
+"#,
+        )
+        .unwrap();
+
+        run(["fission", "init", dir.to_str().unwrap()]).unwrap();
+
+        let package_script = fs::read_to_string(package_path).unwrap();
+        assert!(package_script.contains("SPLASH_IMAGES"));
+        assert!(package_script.contains(
+            "cp \"$ICON_SOURCE\" \"$APK_ROOT/res/drawable-nodpi/fission_splash_image.png\""
+        ));
+        assert!(package_script.contains("cp -R \"$SCRIPT_DIR/res/.\" \"$APK_ROOT/res/\""));
+    }
+
+    #[test]
     fn init_hardens_existing_ios_package_script_without_replacing_user_files() {
         let dir = unique_dir("ios-package-hardening");
         run(["fission", "init", dir.to_str().unwrap()]).unwrap();
@@ -987,7 +1027,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-fission = { version = "0.5.1", default-features = false, features = ["desktop"] }
+fission = { version = "0.6.1", default-features = false, features = ["desktop"] }
 "#,
         )
         .unwrap();
@@ -1014,7 +1054,7 @@ edition = "2021"
 anyhow = "1"
 
 [dependencies.fission]
-version = "0.5.1"
+version = "0.6.1"
 default-features = true
 features = ["desktop"]
 "#,

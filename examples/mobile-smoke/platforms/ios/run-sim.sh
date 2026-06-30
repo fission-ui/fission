@@ -31,6 +31,9 @@ fi
 
 xcrun simctl boot "$DEVICE_ID" >/dev/null 2>&1 || true
 xcrun simctl bootstatus "$DEVICE_ID" -b
+if [[ "${IOS_SIM_UNINSTALL_BEFORE_INSTALL:-1}" == "1" ]]; then
+  xcrun simctl uninstall "$DEVICE_ID" "$BUNDLE_ID" >/dev/null 2>&1 || true
+fi
 xcrun simctl install "$DEVICE_ID" "$BUNDLE_DIR"
 
 if [[ -n "${FISSION_TEST_CONTROL_PORT:-}" ]]; then

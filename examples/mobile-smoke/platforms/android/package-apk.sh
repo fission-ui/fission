@@ -142,9 +142,20 @@ rm -rf "$APK_ROOT"
 mkdir -p "$APK_ROOT/lib/arm64-v8a" "$APK_ROOT/res/drawable-nodpi" "$BUILD_DIR"
 cp "$SO_PATH" "$APK_ROOT/lib/arm64-v8a/lib$LIB_NAME.so"
 cp "$ICON_SOURCE" "$APK_ROOT/res/drawable-nodpi/app_icon.png"
+shopt -s nullglob
+SPLASH_IMAGES=("$SCRIPT_DIR"/res/drawable-nodpi/fission_splash_image.*)
+if (( ${#SPLASH_IMAGES[@]} == 0 )); then
+  cp "$ICON_SOURCE" "$APK_ROOT/res/drawable-nodpi/fission_splash_image.png"
+fi
+shopt -u nullglob
+if [[ -d "$SCRIPT_DIR/res" ]]; then
+  mkdir -p "$APK_ROOT/res"
+  cp -R "$SCRIPT_DIR/res/." "$APK_ROOT/res/"
+fi
 
 BUILD_MANIFEST="$BUILD_DIR/AndroidManifest.xml"
 python3 - <<'PY' "$SCRIPT_DIR/AndroidManifest.xml" "$BUILD_MANIFEST" "$ANDROID_MIN_API_LEVEL" "$ANDROID_TARGET_API_LEVEL"
+import pathlib
 import re
 import sys
 
@@ -152,6 +163,8 @@ source, dest, min_api, target_api = sys.argv[1:]
 manifest = open(source, encoding="utf-8").read()
 manifest = re.sub(r'android:minSdkVersion="\d+"', f'android:minSdkVersion="{min_api}"', manifest)
 manifest = re.sub(r'android:targetSdkVersion="\d+"', f'android:targetSdkVersion="{target_api}"', manifest)
+has_code = "true" if pathlib.Path(dest).with_name("apk-root").joinpath("classes.dex").exists() else "false"
+manifest = re.sub(r'android:hasCode="(?:true|false)"', f'android:hasCode="{has_code}"', manifest)
 open(dest, "w", encoding="utf-8").write(manifest)
 PY
 

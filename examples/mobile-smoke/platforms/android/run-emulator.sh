@@ -20,6 +20,21 @@ android_system_image_path() {
   printf '%s/system-images/%s\n' "$ANDROID_HOME" "${image//;/\/}"
 }
 
+wait_for_android_boot() {
+  "$ADB" wait-for-device
+  until "$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' | grep -q '^1$'; do
+    sleep 1
+  done
+  local deadline=$((SECONDS + 180))
+  until "$ADB" shell cmd package list packages >/dev/null 2>&1; do
+    if (( SECONDS > deadline )); then
+      printf 'Android package manager did not become available. Restart the emulator with ANDROID_EMULATOR_RESTART=1 and try again.\n' >&2
+      exit 1
+    fi
+    sleep 1
+  done
+}
+
 ANDROID_EMULATOR_API_LEVEL="${ANDROID_EMULATOR_API_LEVEL:-$(detect_latest_emulator_api)}"
 if [[ -z "$ANDROID_EMULATOR_API_LEVEL" ]]; then
   printf 'No Android arm64 google_apis emulator image found under %s/system-images.\nInstall one with sdkmanager "system-images;android-35;google_apis;arm64-v8a" or set ANDROID_SYSTEM_IMAGE.\n' "$ANDROID_HOME" >&2
@@ -63,19 +78,18 @@ if [[ -z "$RUNNING_EMULATOR" ]]; then
   fi
   printf 'Launching emulator %s (%s)\n' "$AVD_NAME" "$([[ "$HEADLESS" == "1" ]] && echo headless || echo visible)"
   "$EMULATOR_BIN" "${EMULATOR_ARGS[@]}" >/tmp/fission-android-emulator.log 2>&1 &
-  "$ADB" wait-for-device
-  until "$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' | grep -q '^1$'; do
-    sleep 1
-  done
+  wait_for_android_boot
 else
   printf 'Using existing emulator %s\n' "$RUNNING_EMULATOR"
+  wait_for_android_boot
   if [[ "$HEADLESS" != "1" ]]; then
     printf 'If the window is not visible, restart with ANDROID_EMULATOR_RESTART=1 to relaunch a visible emulator.\n'
   fi
 fi
 
 APK=$("$SCRIPT_DIR/package-apk.sh")
-"$ADB" install -r "$APK"
+read -r -a ADB_INSTALL_FLAGS <<< "${ADB_INSTALL_FLAGS:---no-streaming -r}"
+"$ADB" install "${ADB_INSTALL_FLAGS[@]}" "$APK"
 "$ADB" forward "tcp:$HOST_PORT" "tcp:$DEVICE_PORT"
 "$ADB" shell am start -n ai.worka.fission.mobile.smoke/android.app.NativeActivity >/dev/null
 printf 'APK=%s\n' "$APK"

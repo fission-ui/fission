@@ -147,7 +147,7 @@ fn footer_identity(_ctx: BuildCtxHandle<DocsState>, view: ViewHandle<DocsState>)
                     ..Default::default()
                 }
                 .into(),
-                Text::new("Fission 0.5.1")
+                Text::new("Fission 0.6.1")
                     .size(tokens.typography.font_size_sm)
                     .family(tokens.typography.font_family_mono.clone())
                     .color(tokens.colors.text_muted)

@@ -1,6 +1,6 @@
 [package]
 name = "fission-render-wgpu2d"
-version = "0.5.1"
+version = "0.6.1"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/fission-ui/fission"
@@ -9,7 +9,7 @@ homepage = "https://fission.rs"
 documentation = "https://fission.rs"
 
 [dependencies]
-fission-render = { path = "../fission-render", version = "0.5.1" }
+fission-render = { path = "../fission-render", version = "0.6.1" }
 anyhow = "1.0"
 bytemuck = { version = "1.16", features = ["derive"] }
 wgpu = { version = "26.0.1", default-features = false, features = ["std", "wgsl"] }

@@ -1,0 +1,9 @@
+targets = [
+    "android",
+    "ios",
+]
+
+[app]
+name = "mobile-smoke"
+app_id = "ai.worka.fission.mobile.smoke"
+

@@ -174,6 +174,7 @@ fi
 
 BUILD_MANIFEST="$BUILD_DIR/AndroidManifest.xml"
 python3 - <<'PY' "$SCRIPT_DIR/AndroidManifest.xml" "$BUILD_MANIFEST" "$ANDROID_MIN_API_LEVEL" "$ANDROID_TARGET_API_LEVEL"
+import pathlib
 import re
 import sys
 
@@ -181,6 +182,8 @@ source, dest, min_api, target_api = sys.argv[1:]
 manifest = open(source, encoding="utf-8").read()
 manifest = re.sub(r'android:minSdkVersion="\d+"', f'android:minSdkVersion="{min_api}"', manifest)
 manifest = re.sub(r'android:targetSdkVersion="\d+"', f'android:targetSdkVersion="{target_api}"', manifest)
+has_code = "true" if pathlib.Path(dest).with_name("apk-root").joinpath("classes.dex").exists() else "false"
+manifest = re.sub(r'android:hasCode="(?:true|false)"', f'android:hasCode="{has_code}"', manifest)
 open(dest, "w", encoding="utf-8").write(manifest)
 PY
 

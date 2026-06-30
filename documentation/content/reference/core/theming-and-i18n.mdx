@@ -82,9 +82,9 @@ DesktopApp::new(MyApp)
 | `TextContent::Key` | Text content resolved through the active locale | Use for product copy that should be translated. |
 | `TextContent::Literal` | Text content rendered exactly as given | Use for already-translated strings, user data, file names, ids, or counts. |
 
-Fission does not force a particular translation file format. YAML, JSON, TOML, Fluent, gettext-style catalogs, or generated Rust can all work if the app ultimately provides `TranslationBundle` values.
+The recommended translation file format for application code is YAML. Keep translation files in the repository, embed them with `include_str!`, parse them at startup into `TranslationBundle` values, add those bundles to `env.i18n`, and store the current locale choice in `GlobalState`.
 
-The recommended simple path is to keep translation files in the repository, load them with `include_str!`, parse them at startup, add them to `env.i18n`, and store the current locale choice in `GlobalState`.
+The runtime contract is still `TranslationBundle`, not YAML itself. Advanced applications may generate bundles another way, but Fission documentation and examples use YAML plus `include_str!` as the default because it is deterministic, readable, and works consistently across every target.
 
 ## Practical rules
 

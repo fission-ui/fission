@@ -40,20 +40,16 @@ rm -rf "$BUNDLE_DIR"
 mkdir -p "$BUNDLE_DIR"
 cp "$TARGET_DIR/$TARGET/$ARTIFACT_DIR/$PACKAGE_NAME" "$BUNDLE_DIR/$EXECUTABLE_NAME"
 chmod +x "$BUNDLE_DIR/$EXECUTABLE_NAME"
-python3 - <<'PY' "$SCRIPT_DIR/Info.plist" "$BUNDLE_DIR/Info.plist" "$BUNDLE_ID" "$DISPLAY_NAME" "$EXECUTABLE_NAME"
-import plistlib
-import sys
-
-source, dest, bundle_id, display_name, executable_name = sys.argv[1:]
-with open(source, "rb") as handle:
-    plist = plistlib.load(handle)
-plist["CFBundleIdentifier"] = bundle_id
-plist["CFBundleDisplayName"] = display_name
-plist["CFBundleName"] = display_name
-plist["CFBundleExecutable"] = executable_name
-with open(dest, "wb") as handle:
-    plistlib.dump(plist, handle, sort_keys=False)
-PY
+cp "$SCRIPT_DIR/Info.plist" "$BUNDLE_DIR/Info.plist"
+PLUTIL=$(xcrun --find plutil 2>/dev/null || command -v plutil || true)
+if [[ -z "$PLUTIL" ]]; then
+  printf 'plutil not found. Install Xcode command line tools to package the iOS simulator app.\n' >&2
+  exit 1
+fi
+"$PLUTIL" -replace CFBundleIdentifier -string "$BUNDLE_ID" "$BUNDLE_DIR/Info.plist"
+"$PLUTIL" -replace CFBundleDisplayName -string "$DISPLAY_NAME" "$BUNDLE_DIR/Info.plist"
+"$PLUTIL" -replace CFBundleName -string "$DISPLAY_NAME" "$BUNDLE_DIR/Info.plist"
+"$PLUTIL" -replace CFBundleExecutable -string "$EXECUTABLE_NAME" "$BUNDLE_DIR/Info.plist"
 cp "$PROJECT_DIR/assets/app-icon.png" "$BUNDLE_DIR/AppIcon.png"
 shopt -s nullglob
 SPLASH_IMAGES=("$SCRIPT_DIR"/SplashImage.*)

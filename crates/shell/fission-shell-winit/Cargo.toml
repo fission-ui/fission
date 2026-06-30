@@ -1,6 +1,6 @@
 [package]
 name = "fission-shell-winit"
-version = "0.5.1"
+version = "0.6.1"
 edition = "2021"
 description = "Shared winit shell runtime for desktop and mobile Fission hosts"
 
@@ -15,18 +15,18 @@ tray = ["dep:tray-icon"]
 three-d = ["dep:fission-3d"]
 
 [dependencies]
-fission-shell = { path = "../fission-shell", version = "0.5.1" }
-fission-render = { path = "../../rendering/fission-render", version = "0.5.1" }
-fission-render-vello = { path = "../../rendering/fission-render-vello", version = "0.5.1" }
-fission-core = { path = "../../core/fission-core", version = "0.5.1" }
-fission-layout = { path = "../../core/fission-layout", version = "0.5.1" }
-fission-ir = { path = "../../core/fission-ir", version = "0.5.1" }
-fission-semantics = { path = "../../core/fission-semantics", version = "0.5.1" }
-fission-theme = { path = "../../core/fission-theme", version = "0.5.1" }
-fission-3d = { path = "../../core/fission-3d", optional = true, version = "0.5.1" }
+fission-shell = { path = "../fission-shell", version = "0.6.1" }
+fission-render = { path = "../../rendering/fission-render", version = "0.6.1" }
+fission-render-vello = { path = "../../rendering/fission-render-vello", version = "0.6.1" }
+fission-core = { path = "../../core/fission-core", version = "0.6.1" }
+fission-layout = { path = "../../core/fission-layout", version = "0.6.1" }
+fission-ir = { path = "../../core/fission-ir", version = "0.6.1" }
+fission-semantics = { path = "../../core/fission-semantics", version = "0.6.1" }
+fission-theme = { path = "../../core/fission-theme", version = "0.6.1" }
+fission-3d = { path = "../../core/fission-3d", optional = true, version = "0.6.1" }
 winit = "0.30.13"
-fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.5.1" }
-fission-test-driver = { path = "../../tools/fission-test-driver", version = "0.5.1" }
+fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.6.1" }
+fission-test-driver = { path = "../../tools/fission-test-driver", version = "0.6.1" }
 image = "0.25"
 tiny-skia = "0.11.4"
 fontdue = "0.9.3"
@@ -34,7 +34,7 @@ anyhow = "1.0"
 raw-window-handle = "0.6"
 bytemuck = "1.16"
 serde_json = "1"
-vello = { package = "fission-vello", path = "../../../third_party/vello/vello", version = "0.6.0-fission.1" }
+vello = { package = "fission-vello", path = "../../../third_party/vello/vello", version = "0.6.0-fission.2" }
 pollster = "0.3"
 fontique = "0.7"
 serde = { version = "1.0", features = ["derive"] }
@@ -77,6 +77,6 @@ dispatch = "0.2"
 
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }
-fission-macros = { path = "../../authoring/fission-macros", version = "0.5.1" }
-fission-widgets = { path = "../../authoring/fission-widgets", version = "0.5.1" }
+fission-macros = { path = "../../authoring/fission-macros", version = "0.6.1" }
+fission-widgets = { path = "../../authoring/fission-widgets", version = "0.6.1" }
 lazy_static = "1"
