@@ -1,6 +1,6 @@
 [package]
 name = "fission-semantics"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/fission-ui/fission"
@@ -10,7 +10,7 @@ homepage = "https://fission.rs"
 documentation = "https://fission.rs"
 readme = "README.md"
 [dependencies]
-fission-ir = { path = "../fission-ir", version = "0.6.0" }
+fission-ir = { path = "../fission-ir", version = "0.6.1" }
 serde = { version = "1.0", features = ["derive"] }
 
 [dev-dependencies]

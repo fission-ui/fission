@@ -1,5 +1,5 @@
 ---
-title: Fission 0.6.0: native capability shells and iOS GPU rendering
+title: Fission 0.6.1: native capability shells and iOS GPU rendering
 authors:
   - fission
 tags:
@@ -10,11 +10,11 @@ categories:
   - Releases
 ---
 
-Fission 0.6.0 is the native capability shell and iOS GPU rendering release. It takes the mobile target work from [issue #83](https://github.com/fission-ui/fission/issues/83), turns generated Android and iOS targets into real extension points for app-owned native SDK integrations, and keeps iOS on the Vello GPU renderer instead of falling back to the software upload path.
+Fission 0.6.1 is the native capability shell and iOS GPU rendering release. It takes the mobile target work from [issue #83](https://github.com/fission-ui/fission/issues/83), turns generated Android and iOS targets into real extension points for app-owned native SDK integrations, and keeps iOS on the Vello GPU renderer instead of falling back to the software upload path.
 
 The goal is not to bake payments, camera, scanner, or other product-specific SDKs into Fission core. The goal is to give Fission apps a supported native project shape where capability crates and applications can add platform sources, dependencies, permissions, framework links, and manifest entries without hand-maintaining a parallel mobile project.
 
-The iOS renderer change comes from [PR #82](https://github.com/fission-ui/fission/pull/82). It fixes the black-screen path that appeared when the iOS simulator adapter did not support indirect execution.
+The iOS renderer change comes from [PR #82](https://github.com/fission-ui/fission/pull/82). It fixes the black-screen path that appeared when the iOS simulator adapter did not support indirect execution. The renderer crates in this release use `fission-vello 0.6.0-fission.2`.
 
 ## Native project shells
 
@@ -41,7 +41,7 @@ This raises the ceiling for mobile Fission apps. A generated app can now grow in
 
 ## iOS Vello GPU rendering
 
-0.6.0 keeps iOS on the native Vello GPU renderer.
+0.6.1 keeps iOS on the native Vello GPU renderer.
 
 Before this release, Fission could fall back to the software renderer on iOS when the adapter lacked indirect execution support. That avoided one GPU failure mode, but it made real mobile usage impractically slow and left image-heavy screens behind the desktop/native path.
 
@@ -53,7 +53,7 @@ The result is that iOS can stay on the GPU renderer, render image content, and k
 
 ## Generic native module config
 
-0.6.0 adds generic native module declarations to `fission.toml`.
+0.6.1 adds generic native module declarations to `fission.toml`.
 
 The model is capability-agnostic. A module can describe Android source directories, Maven dependencies, repositories, permissions, and manifest entries. It can also describe iOS Swift package products, source directories, and linked frameworks.
 
@@ -80,7 +80,7 @@ Fission's runtime contract is still `TranslationBundle`, but the documentation n
 Applications using 0.5.1 can update the Rust dependency in the usual way:
 
 ```toml
-fission = { version = "0.6.0", default-features = false, features = ["desktop"] }
+fission = { version = "0.6.1", default-features = false, features = ["desktop"] }
 ```
 
 For mobile apps, re-run target generation so your checked-in platform directories receive the new shell structure:

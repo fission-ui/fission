@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.6.0] - 2026-06-30
+## [0.6.1] - 2026-06-30
 
 ### Added
 
@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Fission Vello fork version** - Renderer crates now depend on `fission-vello 0.6.0-fission.2`, which contains the indirect-dispatch fallback API required by the iOS GPU fix.
 - **iOS native renderer path** - iOS now stays on the Vello GPU renderer instead of falling back to the software upload renderer when the adapter lacks indirect execution support.
 - **Mobile generated targets** - Regenerated `field-inspector`, `mobile-smoke`, and `web-smoke` Android/iOS targets so examples carry the new Gradle, SwiftPM, native-module, and capability-registry structure.
 - **i18n documentation** - Standardized the recommended translation workflow on YAML files embedded with `include_str!` and parsed into `TranslationBundle` values at startup.
@@ -22,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **iOS Vello black screen** - Passed adapter indirect-dispatch capability into the Fission Vello fork and direct-dispatched the affected stages when indirect execution is unavailable, keeping iOS GPU rendering usable for image content and interactions.
 - **Mobile integration ceiling** - Generated mobile projects no longer force applications that need native SDKs to hand-maintain unsupported Android/iOS project shells outside Fission.
+- **Android raw APK packaging** - Legacy/raw Android package scripts now stage generated launch-theme resources before `aapt`, fixing `@style/FissionLaunchTheme` resolution.
 
 ## [0.5.1] - 2026-06-30
 
