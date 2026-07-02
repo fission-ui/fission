@@ -24,6 +24,25 @@ Fission widgets can carry semantic metadata. That metadata is used by tests, dia
 
 Accessibility should be visible in tests. A test that finds a button by semantic label is usually stronger than a test that depends on an internal node path.
 
+## Current shell support
+
+The winit shell exposes Fission semantics through AccessKit on supported native targets. The bridge is built from the same `CoreIR` and layout snapshot used for rendering, so the accessibility tree follows the rendered widget tree instead of being maintained as a separate app-specific model.
+
+The bridge currently exports:
+
+| Fission semantic data | AccessKit output |
+| --- | --- |
+| Roles | Buttons, labels, text inputs, password inputs, multiline inputs, email/number/phone/URL inputs, images, checkboxes, switches, dialogs, sliders, lists, and list items. |
+| Labels and values | Explicit semantic labels, descendant text labels, text input values, numeric values, and toggle state. |
+| Bounds | Layout bounds converted into platform accessibility coordinates. |
+| Focus | Runtime focus is mirrored into the accessibility tree. Focus and blur actions update Fission focus. |
+| Text input actions | Replace selected text, set value, and set text selection dispatch through Fission's text input pipeline. |
+| Control actions | Click/default action, increment/decrement, set numeric value, and scroll actions dispatch through semantics and runtime state. |
+
+Android is intentionally excluded from this AccessKit bridge for now because the current `accesskit_winit` Android adapter requires winit's GameActivity path, while Fission's Android shell uses NativeActivity. Web, Static site, SSR, and Terminal targets do not use the winit AccessKit bridge; they need target-specific accessibility output appropriate to those hosts.
+
+The native bridge is best understood as a shell integration. App code should still use normal Fission widgets and semantics. The shell translates those semantics into the host accessibility tree.
+
 ## Internationalization contract
 
 Internationalization, often shortened to i18n, means making the app capable of supporting multiple languages and locale-sensitive behavior. Localization means providing the actual translated content for a locale.
