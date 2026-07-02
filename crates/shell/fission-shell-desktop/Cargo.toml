@@ -19,7 +19,7 @@ fission-shell = { path = "../fission-shell", version = "0.6.1" }
 fission-shell-winit = { path = "../fission-shell-winit", default-features = false, version = "0.6.1" }
 fission-core = { path = "../../core/fission-core", version = "0.6.1" }
 fission-theme = { path = "../../core/fission-theme", version = "0.6.1" }
-winit = "0.30.13"
+winit = { package = "fission-winit", version = "0.30.13-fission.1" }
 anyhow = "1.0"
 
 [dev-dependencies]

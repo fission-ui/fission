@@ -6,6 +6,3 @@
 	path = third_party/vello
 	url = git@github.com:worka-ai/vello.git
 	branch = worka/dynamic-gpu-buffers
-[submodule "third_party/winit"]
-	path = third_party/winit
-	url = git@github.com:worka-ai/winit.git
