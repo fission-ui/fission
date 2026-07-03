@@ -157,6 +157,25 @@ pub struct PickOpenFilesError {
     pub message: String,
 }
 
+impl PickOpenFilesError {
+    /// Creates a portable file-picker error payload.
+    pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            code: code.into(),
+            message: message.into(),
+        }
+    }
+
+    /// Creates a portable unsupported-operation error.
+    pub fn unsupported(operation: impl Into<String>) -> Self {
+        let operation = operation.into();
+        Self::new(
+            "unsupported",
+            format!("file picker operation `{operation}` is not supported by this host"),
+        )
+    }
+}
+
 pub struct PickOpenFilesCapability;
 
 impl OperationCapability for PickOpenFilesCapability {
