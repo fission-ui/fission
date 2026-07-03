@@ -51,6 +51,11 @@ impl InputController for TextInputController {
                                         Self::selection_handle_hit(ctx.ir, focused_id, hit_node_id)
                                     {
                                         let value = sem.value.as_deref().unwrap_or("").to_string();
+                                        if matches!(button, crate::event::PointerButton::Primary) {
+                                            ctx.interaction.pressed.clear();
+                                            ctx.interaction.set_pressed(focused_id, true);
+                                            ctx.interaction.last_down_point = Some(*point);
+                                        }
                                         let state = ctx.text_edit.get_mut_or_default(focused_id);
                                         state.affordances.active_handle = Some(handle_kind);
                                         state.affordances.toolbar_visible = false;
@@ -218,12 +223,17 @@ impl InputController for TextInputController {
                                     focused_id,
                                     sem.multiline,
                                 );
-                                if let Some((scroll_id, _text_op_node_id, _scroll_direction)) =
+                                if let Some((scroll_id, _text_op_node_id, scroll_direction)) =
                                     scroll_result
                                 {
                                     if let Some(scroll_geom) =
                                         ctx.layout.get_node_geometry(scroll_id)
                                     {
+                                        if matches!(button, crate::event::PointerButton::Primary) {
+                                            ctx.interaction.pressed.clear();
+                                            ctx.interaction.set_pressed(focused_id, true);
+                                            ctx.interaction.last_down_point = Some(*point);
+                                        }
                                         let value = sem.value.as_deref().unwrap_or("");
                                         let display_value =
                                             Self::display_value_for_metrics(ctx, focused_id, value);
@@ -232,45 +242,15 @@ impl InputController for TextInputController {
                                         } else {
                                             display_value.clone()
                                         };
-                                        let offset = ctx.scroll.get_offset(scroll_id);
-
-                                        // Accumulate ancestor scroll offsets to convert
-                                        // screen coordinates to local content coordinates.
-                                        let mut ancestor_scroll_y = 0.0f32;
-                                        let mut ancestor_scroll_x = 0.0f32;
-                                        {
-                                            let mut walk =
-                                                ctx.ir.nodes.get(&scroll_id).and_then(|n| n.parent);
-                                            while let Some(pid) = walk {
-                                                if let Some(pnode) = ctx.ir.nodes.get(&pid) {
-                                                    if let Op::Layout(LayoutOp::Scroll {
-                                                        direction,
-                                                        ..
-                                                    }) = &pnode.op
-                                                    {
-                                                        let poff = ctx.scroll.get_offset(pid);
-                                                        match direction {
-                                                            FlexDirection::Row => {
-                                                                ancestor_scroll_x += poff
-                                                            }
-                                                            FlexDirection::Column => {
-                                                                ancestor_scroll_y += poff
-                                                            }
-                                                        }
-                                                    }
-                                                    walk = pnode.parent;
-                                                } else {
-                                                    break;
-                                                }
-                                            }
-                                        }
 
                                         let caret = if let Some(measurer) = ctx.measurer {
-                                            let local_x = point.x - scroll_geom.rect.origin.x
-                                                + offset
-                                                + ancestor_scroll_x;
-                                            let local_y = point.y - scroll_geom.rect.origin.y
-                                                + ancestor_scroll_y;
+                                            let local_point = Self::text_local_point_from_screen(
+                                                ctx,
+                                                scroll_id,
+                                                scroll_direction,
+                                                scroll_geom,
+                                                *point,
+                                            );
 
                                             let masked_caret = Self::hit_test_text(
                                                 measurer,
@@ -279,8 +259,8 @@ impl InputController for TextInputController {
                                                 sem.masked,
                                                 &metric_text,
                                                 scroll_geom,
-                                                local_x,
-                                                local_y,
+                                                local_point.x,
+                                                local_point.y,
                                             );
                                             if sem.masked {
                                                 Self::source_byte_offset_from_masked(
@@ -301,7 +281,7 @@ impl InputController for TextInputController {
                                                 scroll_geom.rect.origin.x,
                                                 scroll_geom.rect.size.width,
                                                 scroll_geom.content_size.width,
-                                                offset,
+                                                ctx.scroll.get_offset(scroll_id),
                                                 point.x,
                                             )
                                         };
@@ -339,7 +319,7 @@ impl InputController for TextInputController {
                                     .get(&focused_id)
                                     .and_then(|state| state.affordances.active_handle);
                                 if let Some(active_handle) = active_handle {
-                                    if let Some((scroll_id, _text_op_node_id, _scroll_direction)) =
+                                    if let Some((scroll_id, _text_op_node_id, scroll_direction)) =
                                         Self::find_scroll_container_and_text_op(
                                             ctx.ir,
                                             focused_id,
@@ -358,11 +338,15 @@ impl InputController for TextInputController {
                                             } else {
                                                 display_value.clone()
                                             };
-                                            let offset = ctx.scroll.get_offset(scroll_id);
                                             let new_caret = if let Some(measurer) = ctx.measurer {
-                                                let local_x =
-                                                    point.x - scroll_geom.rect.origin.x + offset;
-                                                let local_y = point.y - scroll_geom.rect.origin.y;
+                                                let local_point =
+                                                    Self::text_local_point_from_screen(
+                                                        ctx,
+                                                        scroll_id,
+                                                        scroll_direction,
+                                                        scroll_geom,
+                                                        *point,
+                                                    );
                                                 let masked_caret = Self::hit_test_text(
                                                     measurer,
                                                     ctx.ir,
@@ -370,8 +354,8 @@ impl InputController for TextInputController {
                                                     sem.masked,
                                                     &metric_text,
                                                     scroll_geom,
-                                                    local_x,
-                                                    local_y,
+                                                    local_point.x,
+                                                    local_point.y,
                                                 );
                                                 if sem.masked {
                                                     Self::source_byte_offset_from_masked(
@@ -422,7 +406,7 @@ impl InputController for TextInputController {
                                     return true;
                                 }
 
-                                if !ctx.interaction.pressed.is_empty() {
+                                if ctx.interaction.is_pressed(focused_id) {
                                     let moved_enough =
                                         match Self::drag_start_behavior(ctx, focused_id) {
                                             DragStartBehavior::Down => true,
@@ -443,7 +427,7 @@ impl InputController for TextInputController {
                                         if let Some((
                                             scroll_id,
                                             _text_op_node_id,
-                                            _scroll_direction,
+                                            scroll_direction,
                                         )) = Self::find_scroll_container_and_text_op(
                                             ctx.ir,
                                             focused_id,
@@ -461,54 +445,16 @@ impl InputController for TextInputController {
                                                 } else {
                                                     display_value.clone()
                                                 };
-                                                let offset = ctx.scroll.get_offset(scroll_id);
                                                 let new_caret = if let Some(measurer) = ctx.measurer
                                                 {
-                                                    // Accumulate ancestor scroll offsets for
-                                                    // pointer-move the same way as pointer-down.
-                                                    let mut anc_scroll_y = 0.0f32;
-                                                    let mut anc_scroll_x = 0.0f32;
-                                                    {
-                                                        let mut walk = ctx
-                                                            .ir
-                                                            .nodes
-                                                            .get(&scroll_id)
-                                                            .and_then(|n| n.parent);
-                                                        while let Some(pid) = walk {
-                                                            if let Some(pnode) =
-                                                                ctx.ir.nodes.get(&pid)
-                                                            {
-                                                                if let Op::Layout(
-                                                                    LayoutOp::Scroll {
-                                                                        direction,
-                                                                        ..
-                                                                    },
-                                                                ) = &pnode.op
-                                                                {
-                                                                    let poff =
-                                                                        ctx.scroll.get_offset(pid);
-                                                                    match direction {
-                                                                        FlexDirection::Row => {
-                                                                            anc_scroll_x += poff
-                                                                        }
-                                                                        FlexDirection::Column => {
-                                                                            anc_scroll_y += poff
-                                                                        }
-                                                                    }
-                                                                }
-                                                                walk = pnode.parent;
-                                                            } else {
-                                                                break;
-                                                            }
-                                                        }
-                                                    }
-                                                    let local_x = point.x
-                                                        - scroll_geom.rect.origin.x
-                                                        + offset
-                                                        + anc_scroll_x;
-                                                    let local_y = point.y
-                                                        - scroll_geom.rect.origin.y
-                                                        + anc_scroll_y;
+                                                    let local_point =
+                                                        Self::text_local_point_from_screen(
+                                                            ctx,
+                                                            scroll_id,
+                                                            scroll_direction,
+                                                            scroll_geom,
+                                                            *point,
+                                                        );
 
                                                     let masked_caret = Self::hit_test_text(
                                                         measurer,
@@ -517,8 +463,8 @@ impl InputController for TextInputController {
                                                         sem.masked,
                                                         &metric_text,
                                                         scroll_geom,
-                                                        local_x,
-                                                        local_y,
+                                                        local_point.x,
+                                                        local_point.y,
                                                     );
                                                     if sem.masked {
                                                         Self::source_byte_offset_from_masked(
@@ -539,7 +485,7 @@ impl InputController for TextInputController {
                                                         scroll_geom.rect.origin.x,
                                                         scroll_geom.rect.size.width,
                                                         scroll_geom.content_size.width,
-                                                        offset,
+                                                        ctx.scroll.get_offset(scroll_id),
                                                         point.x,
                                                     )
                                                 };
@@ -1283,6 +1229,42 @@ impl TextInputController {
     ) -> Option<&'a fission_layout::LayoutNodeGeometry> {
         let wrapper_id = ctx.ir.nodes.get(&focused_id)?.children.first().copied()?;
         ctx.layout.get_node_geometry(wrapper_id)
+    }
+
+    fn text_local_point_from_screen(
+        ctx: &ControllerContext<'_>,
+        scroll_id: WidgetId,
+        scroll_direction: FlexDirection,
+        scroll_geom: &fission_layout::LayoutNodeGeometry,
+        point: fission_layout::LayoutPoint,
+    ) -> fission_layout::LayoutPoint {
+        let mut ancestor_scroll_x = 0.0f32;
+        let mut ancestor_scroll_y = 0.0f32;
+        let mut walk = ctx.ir.nodes.get(&scroll_id).and_then(|node| node.parent);
+        while let Some(parent_id) = walk {
+            if let Some(parent_node) = ctx.ir.nodes.get(&parent_id) {
+                if let Op::Layout(LayoutOp::Scroll { direction, .. }) = &parent_node.op {
+                    let offset = ctx.scroll.get_offset(parent_id);
+                    match direction {
+                        FlexDirection::Row => ancestor_scroll_x += offset,
+                        FlexDirection::Column => ancestor_scroll_y += offset,
+                    }
+                }
+                walk = parent_node.parent;
+            } else {
+                break;
+            }
+        }
+
+        let own_scroll_offset = ctx.scroll.get_offset(scroll_id);
+        let mut local_x = point.x - scroll_geom.rect.origin.x + ancestor_scroll_x;
+        let mut local_y = point.y - scroll_geom.rect.origin.y + ancestor_scroll_y;
+        match scroll_direction {
+            FlexDirection::Row => local_x += own_scroll_offset,
+            FlexDirection::Column => local_y += own_scroll_offset,
+        }
+
+        fission_layout::LayoutPoint::new(local_x, local_y)
     }
 
     fn line_metric_for_index<'a>(

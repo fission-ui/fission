@@ -100,21 +100,18 @@ impl TextMeasurer for MockTextMeasurer {
                 if current_y + line_height > target_line_y && current_y <= target_line_y {
                     // This is the target line
                     let char_idx_on_line = (x / char_width).floor() as usize;
-                    let mut current_char_count = 0;
                     let mut byte_offset_on_line = current_line_start_byte_idx;
 
-                    for (g_offset, g) in text[current_line_start_byte_idx..].grapheme_indices(true)
+                    for (current_char_count, (g_offset, g)) in text[current_line_start_byte_idx..]
+                        .grapheme_indices(true)
+                        .enumerate()
                     {
-                        if current_char_count >= char_idx_on_line
-                            || current_line_start_byte_idx + g_offset >= text.len()
-                            || g == "\n"
-                        {
+                        if current_char_count >= char_idx_on_line || g == "\n" {
                             break;
                         }
-                        byte_offset_on_line = current_line_start_byte_idx + g_offset;
-                        current_char_count += 1;
+                        byte_offset_on_line = current_line_start_byte_idx + g_offset + g.len();
                     }
-                    return byte_offset_on_line;
+                    return byte_offset_on_line.min(text.len());
                 }
                 let g_width = grapheme.len() as f32 * char_width;
                 if current_line_width_chars + g_width > aw {
@@ -253,6 +250,18 @@ impl TextMeasurer for MockTextMeasurer {
             }
         }
         (current_x, current_y + line_height * 0.8) // Return baseline y
+    }
+
+    fn hit_test_rich(
+        &self,
+        runs: &[TextRun],
+        available_width: Option<f32>,
+        x: f32,
+        y: f32,
+    ) -> usize {
+        let text: String = runs.iter().map(|run| run.text.as_str()).collect();
+        let font_size = runs.first().map(|run| run.style.font_size).unwrap_or(16.0);
+        self.hit_test(&text, font_size, available_width, x, y)
     }
 }
 
@@ -2000,8 +2009,11 @@ fn test_drag_start_behavior_down_skips_pointer_slop() {
         modifiers: 0,
     });
     assert!(controller.handle_event(&mut ctx, &down));
-    ctx.interaction.pressed.insert(input_id, true);
-    ctx.interaction.last_down_point = Some(LayoutPoint::new(200.0, 44.0));
+    assert!(ctx.interaction.is_pressed(input_id));
+    assert_eq!(
+        ctx.interaction.last_down_point,
+        Some(LayoutPoint::new(200.0, 44.0))
+    );
 
     let drag = InputEvent::Pointer(PointerEvent::Move {
         point: LayoutPoint::new(201.0, 44.0),
@@ -2011,6 +2023,66 @@ fn test_drag_start_behavior_down_skips_pointer_slop() {
 
     let state = ctx.text_edit.get(input_id).expect("text state");
     assert_eq!(state.caret, 1);
+}
+
+#[test]
+fn test_multiline_pointer_hit_test_applies_vertical_scroll_offset() {
+    let input_id = WidgetId::derived(214, &[0]);
+    let scroll_id = WidgetId::derived(214, &[1]);
+    let text_id = WidgetId::derived(214, &[2]);
+    let value = "aa\nbb\ncc";
+    let ir = create_rich_text_input_tree(input_id, scroll_id, text_id, value, true);
+
+    let mut layout = LayoutSnapshot::new(LayoutSize::new(800.0, 600.0));
+    layout.nodes.insert(
+        scroll_id,
+        LayoutNodeGeometry {
+            rect: LayoutRect::new(200.0, 40.0, 120.0, 24.0),
+            content_size: LayoutSize::new(120.0, 80.0),
+        },
+    );
+    layout.nodes.insert(
+        input_id,
+        LayoutNodeGeometry {
+            rect: LayoutRect::new(180.0, 30.0, 180.0, 44.0),
+            content_size: LayoutSize::new(180.0, 44.0),
+        },
+    );
+
+    let mut text_edit = TextEditStateMap::default();
+    let mut interaction = InteractionStateMap::default();
+    let mut scroll = ScrollStateMap::default();
+    let mut gesture = fission_core::env::GestureState::default();
+    let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
+    let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
+
+    interaction.set_focused(Some(input_id));
+    scroll.set_offset(scroll_id, 20.0);
+
+    let mut controller = TextInputController;
+    let mut ctx = setup_ctx(
+        &ir,
+        &layout,
+        &mut text_edit,
+        &mut interaction,
+        &mut scroll,
+        &mut gesture,
+        &clipboard,
+        Some(&measurer),
+    );
+
+    let down = InputEvent::Pointer(PointerEvent::Down {
+        point: LayoutPoint::new(205.0, 40.0),
+        button: PointerButton::Primary,
+        modifiers: 0,
+    });
+    assert!(controller.handle_event(&mut ctx, &down));
+
+    let caret = ctx.text_edit.get(input_id).expect("text state").caret;
+    assert!(
+        caret >= 3,
+        "vertical scroll offset should hit the second visible line, got {caret}"
+    );
 }
 
 #[test]
@@ -2585,7 +2657,7 @@ fn test_masked_pointer_hit_testing_maps_back_to_source_offsets() {
         Some(&measurer),
     );
     let event = InputEvent::Pointer(PointerEvent::Down {
-        point: LayoutPoint::new(235.0, 44.0),
+        point: LayoutPoint::new(225.0, 44.0),
         button: PointerButton::Primary,
         modifiers: 0,
     });
