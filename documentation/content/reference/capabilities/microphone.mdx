@@ -27,12 +27,14 @@ This reference is for the exact API shape. If you are wiring the feature into an
 | --- | --- | --- | --- |
 | `availability` | Read microphone permission and visible input devices. | `()` | `MicrophoneAvailability` |
 | `request_permission` | Ask the host to request microphone permission. | `MicrophonePermissionRequest` | `MicrophonePermission` |
-| `capture_audio` | Capture a bounded audio sample. | `MicrophoneCaptureRequest` | `MicrophoneCapture` |
+| `capture_audio` | Capture a bounded audio sample as a stream. | `MicrophoneCaptureRequest` | `MicrophoneCapture` |
 | `cancel_capture` | Cancel an active recording. | `()` | `()` |
 
 ## Provider contract
 
 Register a `MicrophoneHost` with `.with_microphone_host(...)`. Use `MemoryMicrophoneHost` in tests. Providers should keep capture bounded and return typed errors for denied permission, no input devices, and unsupported formats.
+
+`MicrophoneCapture` returns a `DataStreamId` plus metadata such as byte length, content type, sample rate, channel count, sample format, and duration. The provider should register the audio stream through `CapabilityCtx::register_data_stream(...)`; reducers should pass that handle to a job or service for decoding, upload, or storage.
 
 Providers should return typed errors for unsupported operations, denied permissions, unavailable hardware, cancellation, timeouts, and platform policy restrictions. Silent success is not acceptable because reducers need a truthful result to update state and explain what happened.
 

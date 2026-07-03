@@ -21,7 +21,7 @@ When the user presses it, three different kinds of work may happen.
 
 First, the app needs the host to show a native picker so the user can choose a file. That is host work.
 
-Second, once the bytes come back, the app may want to parse the file contents or transform them into domain data. That is ordinary app-owned async work.
+Second, once the picker returns a stream handle, the app may want to parse the file contents or transform them into domain data. That is ordinary app-owned async work.
 
 Third, if the import screen later needs something that should stay alive while the screen is mounted, such as a polling timer or a background watch session, that becomes resource-owned work.
 
@@ -116,6 +116,11 @@ When the picker completes, the reducer receives the callback action together wit
 ```rust
 struct ParseImportedText;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ParseImportedTextRequest {
+    stream: DataStreamId,
+}
+
 fn on_files_picked(
     state: &mut ImportState,
     _action: FilesPicked,
@@ -134,7 +139,7 @@ fn on_files_picked(
     };
 
     ctx.effects
-        .app(PARSE_IMPORTED_TEXT_JOB, file.bytes)
+        .app(PARSE_IMPORTED_TEXT_JOB, ParseImportedTextRequest { stream: file.stream })
         .on_ok(ctx.effects.bind(
             ImportParsed,
             reduce_with!(on_import_parsed),
@@ -150,9 +155,9 @@ This step is where the distinction between capability and job becomes useful.
 
 The file picker was host-owned, so it was a capability.
 
-Parsing the returned bytes is ordinary app work, so it becomes a job. That could mean decoding text, validating a format, or transforming the file into your domain model.
+Parsing the returned stream is ordinary app work, so it becomes a job. The job can call `JobCtx::open_data_stream(request.stream)` and consume the `FissionDataStream` asynchronously while the reducer stays synchronous.
 
-Why not keep using a capability here? Because the host is no longer the right owner. Once the bytes are in your app, the work belongs to your application logic.
+Why not keep using a capability here? Because the host is no longer the right owner. Once the host has granted a stream handle, parsing belongs to your application logic.
 
 ## Step 5: finish the reducer loop cleanly
 
@@ -230,7 +235,7 @@ This recipe used both a capability and a job because the feature crosses two bou
 
 Use a capability when only the host can do the work. Native file pickers, opening external web addresses, payment handoffs, authentication handoffs, and similar device or operating-system tasks belong here. Fission ships `OPEN_URL` and `PICK_OPEN_FILES`; app-specific operations should define their own `OperationCapability` and register a provider in the shell.
 
-Use a job when the work is app-owned, one-shot, and request-and-response shaped. Parsing imported bytes, saving a document, loading one response from a web service, or generating one export all fit that shape.
+Use a job when the work is app-owned, one-shot, and request-and-response shaped. Parsing an imported data stream, saving a document, loading one response from a web service, or generating one export all fit that shape.
 
 Use a resource when the work should exist while a widget subtree exists. A timer that keeps a dashboard fresh, a background watcher that should stay mounted while a screen is visible, or a long-lived service session tied to one route are resource-shaped problems.
 

@@ -3,7 +3,7 @@ pub mod components;
 pub mod data;
 pub mod model;
 
-use api::{fetch_weather, WEATHER_JOB};
+use api::{collect_stream_bytes, fetch_weather, STREAM_BYTES_JOB, WEATHER_JOB};
 use components::app::FieldInspectorApp;
 use fission::prelude::*;
 use model::{
@@ -30,6 +30,9 @@ macro_rules! configure_field_inspector_app {
             .with_async(|asyncs| {
                 asyncs.register_job(WEATHER_JOB, |request, _| async move {
                     fetch_weather(request).await
+                });
+                asyncs.register_job(STREAM_BYTES_JOB, |request, ctx| async move {
+                    collect_stream_bytes(request, ctx).await
                 });
             })
             .with_state_init(move |state: &mut FieldInspectorState| {

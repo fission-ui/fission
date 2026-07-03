@@ -1,4 +1,4 @@
-use fission::core::{JobRef, JobSpec};
+use fission::core::{collect_data_stream, DataStreamId, JobCtx, JobRef, JobSpec};
 use serde::{Deserialize, Serialize};
 
 const WEATHER_API: &str = "https://api.open-meteo.com/v1/forecast";
@@ -50,6 +50,44 @@ impl JobSpec for WeatherJob {
 }
 
 pub const WEATHER_JOB: JobRef<WeatherJob> = JobRef::new(WeatherJob::NAME);
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StreamBytesRequest {
+    pub stream: DataStreamId,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StreamBytes {
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Debug)]
+pub struct StreamBytesJob;
+
+impl JobSpec for StreamBytesJob {
+    type Request = StreamBytesRequest;
+    type Ok = StreamBytes;
+    type Err = ApiError;
+
+    const NAME: &'static str = "field-inspector.stream-bytes";
+}
+
+pub const STREAM_BYTES_JOB: JobRef<StreamBytesJob> = JobRef::new(StreamBytesJob::NAME);
+
+pub async fn collect_stream_bytes(
+    request: StreamBytesRequest,
+    ctx: JobCtx,
+) -> Result<StreamBytes, ApiError> {
+    let stream = ctx
+        .open_data_stream(request.stream)
+        .map_err(|error| ApiError::new(error.to_string()))?;
+    let bytes = collect_data_stream(stream)
+        .await
+        .map_err(|error| ApiError::new(error.to_string()))?;
+    Ok(StreamBytes {
+        bytes: bytes.to_vec(),
+    })
+}
 
 #[derive(Debug, Deserialize)]
 struct OpenMeteoResponse {

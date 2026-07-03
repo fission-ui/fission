@@ -35,6 +35,8 @@ This reference is for the exact API shape. If you are wiring the feature into an
 
 Register a `CameraHost` with `.with_camera_host(...)`. Use `MemoryCameraHost` in tests. A provider should expose availability, permission, capture, flashlight, and cancellation separately so apps can degrade gracefully.
 
+`CameraCapture` returns a `DataStreamId` plus metadata such as content type, byte length, dimensions, and camera id. The provider should register the image stream through `CapabilityCtx::register_data_stream(...)`; app reducers should pass that handle to a job or service if they need to consume the captured bytes.
+
 Providers should return typed errors for unsupported operations, denied permissions, unavailable hardware, cancellation, timeouts, and platform policy restrictions. Silent success is not acceptable because reducers need a truthful result to update state and explain what happened.
 
 ## Platform configuration

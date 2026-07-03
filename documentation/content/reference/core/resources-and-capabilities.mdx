@@ -21,6 +21,10 @@ Examples include opening a web address, opening a user-granted file picker, capt
 
 The public types behind this surface include `OperationCapability`, `CapabilityType<C>`, and `CapabilityCtx`.
 
+Large binary capability payloads use `FissionDataStream`, `DataStreamId`, and `DataStreamRegistry` instead of `Vec<u8>`. A host provider registers a stream with `CapabilityCtx::register_data_stream(...)` and returns the resulting `DataStreamId` in the typed success payload. Reducers stay synchronous: they store the handle or pass it to a job or service. The async side then calls `JobCtx::open_data_stream(...)`, `ServiceCtx::open_data_stream(...)`, or `CapabilityCtx::open_data_stream(...)` and consumes the standard `Stream<Item = Result<Bytes, FissionDataStreamError>>` implementation.
+
+Built-in APIs that can carry large binary data follow this rule: file picker results, camera captures, microphone captures, rich clipboard content, and barcode image decode requests carry stream handles. Small bounded protocol values such as passkey challenges, NFC records, Bluetooth characteristic values, barcode raw payloads, action payloads, and internal test/control messages can still use byte vectors because they are protocol data, not large user-owned files.
+
 Native operating-system alerts are deliberately not built in as a generic alert capability. If you need an in-app alert, use normal Fission UI such as `Modal`, `Drawer`, `Toast`, or your own overlay. If you need a true host-owned prompt or a product-specific host flow, define a custom capability and register a shell provider for the hosts that support it.
 
 A capability invocation is the act of requesting one of these operations through `ctx.effects.capability(...)` with a typed request payload. The reducer chooses that operation explicitly, and the runtime routes the eventual success or error back through follow-up actions.

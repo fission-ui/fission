@@ -22,6 +22,8 @@ Use this page when you need the exact names. If you are adding a feature to an a
 
 The API, provider, and packaging configuration are separate. The API lets app code express intent. The provider performs the host call. Packaging configuration is the native metadata that lets the platform permit the call in a packaged app. A complete production feature usually needs all three.
 
+Large binary data crosses this boundary as `FissionDataStream` handles. File picking, camera capture, microphone capture, rich clipboard content, and barcode image decode requests use `DataStreamId` plus metadata instead of embedding `Vec<u8>` in reducer payloads. Reducers can store the handle or pass it to app-owned async work; jobs and services consume the stream with their runtime context.
+
 ## Built-in groups
 
 | Group | Effect helper or entrypoint | Provider trait or host contract | Test provider or test entrypoint | Detailed reference |

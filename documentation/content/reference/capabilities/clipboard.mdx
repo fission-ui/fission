@@ -27,13 +27,15 @@ This reference is for the exact API shape. If you are wiring the feature into an
 | --- | --- | --- | --- |
 | `read_text` | Read plain text from the clipboard. | `()` | `ClipboardText` |
 | `write_text` | Write plain text to the clipboard. | `ClipboardWriteTextRequest` | `()` |
-| `read_content` | Read typed clipboard items with content types and bytes. | `()` | `ClipboardContent` |
+| `read_content` | Read typed clipboard items with content types and stream handles. | `()` | `ClipboardContent` |
 | `write_content` | Write typed clipboard items. | `ClipboardContent` | `()` |
 | `clear` | Clear app-visible clipboard content where allowed. | `()` | `()` |
 
 ## Provider contract
 
 Register a `ClipboardHost` with `.with_clipboard_host(...)` when the default shell is not enough. Use `MemoryClipboardHost` in tests. The provider should return typed errors for denied gestures, missing focus, unsupported rich content, or unavailable host clipboard.
+
+Rich clipboard content uses `ClipboardItem::stream`. Reading content registers one stream per item; writing content lets the provider open each stream with `CapabilityCtx::open_data_stream(...)`. Plain text remains separate as `ClipboardText` and `ClipboardWriteTextRequest`.
 
 Providers should return typed errors for unsupported operations, denied permissions, unavailable hardware, cancellation, timeouts, and platform policy restrictions. Silent success is not acceptable because reducers need a truthful result to update state and explain what happened.
 

@@ -67,13 +67,13 @@ Do not store optimistic success. Store the request state, the returned result, a
 ```rust
 #[derive(Default)]
 struct ProfileState {
-    photo: Option<Vec<u8>>,
+    photo_stream: Option<DataStreamId>,
     camera_error: Option<String>,
     capturing_photo: bool,
 }
 ```
 
-`capturing_photo` lets the UI disable the button while the host owns the camera flow. `photo` stores the returned image bytes. `camera_error` gives the UI something specific to show when permission is denied, no camera exists, or the host is unsupported.
+`capturing_photo` lets the UI disable the button while the host owns the camera flow. `photo_stream` stores the returned stream handle. A job or service can consume that stream if the app needs to decode, upload, or preview the image. `camera_error` gives the UI something specific to show when permission is denied, no camera exists, or the host is unsupported.
 
 ## 5. Add callback reducers
 
@@ -85,7 +85,7 @@ use fission::prelude::*;
 #[fission_reducer(PhotoCaptured)]
 fn on_photo_captured(state: &mut ProfileState, capture: CameraCapture) {
     state.capturing_photo = false;
-    state.photo = Some(capture.bytes);
+    state.photo_stream = Some(capture.stream);
     state.camera_error = None;
 }
 
