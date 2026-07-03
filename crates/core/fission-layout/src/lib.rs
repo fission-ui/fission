@@ -594,8 +594,13 @@ impl LayoutGraphState {
 
 #[cfg(test)]
 mod tests {
-    use super::{LayoutEngine, LayoutGraphState, LayoutInputNode};
+    use super::{
+        LayoutEngine, LayoutGraphState, LayoutInputNode, TextMeasurer,
+        DEFAULT_RICH_TEXT_HIT_TEST_FONT_SIZE,
+    };
+    use fission_ir::op::{Color, FontStyle, TextRun, TextStyle};
     use fission_ir::{LayoutOp, WidgetId};
+    use std::sync::atomic::{AtomicU32, Ordering};
 
     fn box_node(
         id: WidgetId,
@@ -624,6 +629,46 @@ mod tests {
             flex_grow: 0.0,
             flex_shrink: 0.0,
             rich_text: None,
+        }
+    }
+
+    struct RecordingMeasurer {
+        last_font_size_bits: AtomicU32,
+    }
+
+    impl RecordingMeasurer {
+        fn new() -> Self {
+            Self {
+                last_font_size_bits: AtomicU32::new(f32::NAN.to_bits()),
+            }
+        }
+
+        fn last_font_size(&self) -> f32 {
+            f32::from_bits(self.last_font_size_bits.load(Ordering::SeqCst))
+        }
+    }
+
+    impl TextMeasurer for RecordingMeasurer {
+        fn measure(
+            &self,
+            _text: &str,
+            _font_size: f32,
+            _available_width: Option<f32>,
+        ) -> (f32, f32) {
+            (0.0, 0.0)
+        }
+
+        fn hit_test(
+            &self,
+            _text: &str,
+            font_size: f32,
+            _available_width: Option<f32>,
+            _x: f32,
+            _y: f32,
+        ) -> usize {
+            self.last_font_size_bits
+                .store(font_size.to_bits(), Ordering::SeqCst);
+            0
         }
     }
 
@@ -673,6 +718,42 @@ mod tests {
             .map(|node| node.id)
             .collect::<Vec<_>>();
         assert_eq!(ordered, vec![root, second, first]);
+    }
+
+    #[test]
+    fn rich_text_hit_test_uses_body_font_size_when_runs_are_empty() {
+        let measurer = RecordingMeasurer::new();
+
+        measurer.hit_test_rich(&[], None, 4.0, 2.0);
+
+        assert_eq!(
+            measurer.last_font_size(),
+            DEFAULT_RICH_TEXT_HIT_TEST_FONT_SIZE
+        );
+    }
+
+    #[test]
+    fn rich_text_hit_test_uses_first_run_font_size_when_present() {
+        let measurer = RecordingMeasurer::new();
+        let runs = vec![TextRun {
+            text: "Hello".to_string(),
+            style: TextStyle {
+                font_size: 18.0,
+                color: Color::BLACK,
+                underline: false,
+                font_family: None,
+                locale: None,
+                font_weight: 400,
+                font_style: FontStyle::Normal,
+                line_height: None,
+                letter_spacing: 0.0,
+                background_color: None,
+            },
+        }];
+
+        measurer.hit_test_rich(&runs, None, 4.0, 2.0);
+
+        assert_eq!(measurer.last_font_size(), 18.0);
     }
 }
 
@@ -901,6 +982,8 @@ pub struct RichTextLayoutInfo {
 /// * [`get_line_metrics`](TextMeasurer::get_line_metrics) -- needed for multi-line cursor navigation.
 /// * [`get_caret_position`](TextMeasurer::get_caret_position) -- needed for drawing the text cursor.
 /// * [`measure_rich_text`](TextMeasurer::measure_rich_text) -- needed for mixed-style text.
+const DEFAULT_RICH_TEXT_HIT_TEST_FONT_SIZE: f32 = 14.0;
+
 pub trait TextMeasurer: Send + Sync {
     /// Measures single-style text and returns `(width, height)` in logical pixels.
     ///
@@ -990,9 +1073,13 @@ pub trait TextMeasurer: Send + Sync {
         x: f32,
         y: f32,
     ) -> usize {
-        // Default: concatenate text and use plain hit_test
+        // Preserve the normal body-text fallback when no run is available, so
+        // fallback hit testing never asks a backend to shape zero-sized text.
         let text: String = runs.iter().map(|r| r.text.as_str()).collect();
-        let font_size = runs.first().map(|r| r.style.font_size).unwrap_or(13.0);
+        let font_size = runs
+            .first()
+            .map(|r| r.style.font_size)
+            .unwrap_or(DEFAULT_RICH_TEXT_HIT_TEST_FONT_SIZE);
         self.hit_test(&text, font_size, None, x, y)
     }
 
@@ -1599,9 +1686,9 @@ impl LayoutEngine {
                     let mut target_h = *height;
 
                     if target_w.is_some() && target_h.is_none() {
-                        target_h = Some(target_w.unwrap() / ratio);
+                        target_h = target_w.map(|w| w / ratio);
                     } else if target_h.is_some() && target_w.is_none() {
-                        target_w = Some(target_h.unwrap() * ratio);
+                        target_w = target_h.map(|h| h * ratio);
                     } else if target_w.is_none() && target_h.is_none() {
                         if local.is_width_bounded() || local.is_height_bounded() {
                             let (mut w, mut h) = if local.is_width_bounded() {
@@ -1659,20 +1746,24 @@ impl LayoutEngine {
                             })
                             .unwrap_or((None, None, None, None));
                         let mut child_constraints = base_child_constraints;
-                        let stretch_width = child_constraints.min_w == child_constraints.max_w
-                            && child_width.is_none()
-                            && child_max_width.is_none();
+                        let tight_width = child_constraints.min_w == child_constraints.max_w;
+                        let stretch_width =
+                            tight_width && child_width.is_none() && child_max_width.is_none();
                         if stretch_width {
                             child_constraints.min_w = child_constraints.max_w;
-                        } else {
+                        } else if tight_width
+                            && (child_width.is_some() || child_max_width.is_some())
+                        {
                             child_constraints.min_w = 0.0;
                         }
-                        let stretch_height = child_constraints.min_h == child_constraints.max_h
-                            && child_height.is_none()
-                            && child_max_height.is_none();
+                        let tight_height = child_constraints.min_h == child_constraints.max_h;
+                        let stretch_height =
+                            tight_height && child_height.is_none() && child_max_height.is_none();
                         if stretch_height {
                             child_constraints.min_h = child_constraints.max_h;
-                        } else {
+                        } else if tight_height
+                            && (child_height.is_some() || child_max_height.is_some())
+                        {
                             child_constraints.min_h = 0.0;
                         }
                         let child_size = self.layout_node_constraints(
@@ -2187,7 +2278,9 @@ impl LayoutEngine {
                         // SHRINK logic
                         let mut total_shrink_scaled = 0.0f32;
                         for entry in &measured {
-                            let child = self.graph_state.node(entry.id).unwrap();
+                            let Some(child) = self.graph_state.node(entry.id) else {
+                                continue;
+                            };
                             let main_size = if is_row {
                                 entry.size.width
                             } else {
@@ -2199,7 +2292,9 @@ impl LayoutEngine {
                         if total_shrink_scaled > 0.0 {
                             let overflow = (final_children_main + gap_total) - max_main;
                             for entry in &mut measured {
-                                let child = self.graph_state.node(entry.id).unwrap();
+                                let Some(child) = self.graph_state.node(entry.id) else {
+                                    continue;
+                                };
                                 let main_size = if is_row {
                                     entry.size.width
                                 } else {
@@ -2517,7 +2612,9 @@ impl LayoutEngine {
                 let mut auto_col = 0;
 
                 for child_id in &flow_children {
-                    let child = self.graph_state.node(*child_id).unwrap();
+                    let Some(child) = self.graph_state.node(*child_id) else {
+                        continue;
+                    };
                     let (row, col) = if let LayoutOp::GridItem {
                         row_start,
                         col_start,
