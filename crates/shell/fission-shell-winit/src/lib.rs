@@ -77,6 +77,8 @@ use web_time::Instant;
 
 mod compositor;
 use compositor::TextureLayerCompositor;
+mod accessibility;
+use accessibility::AccessibilityBridge;
 mod pipeline;
 pub use pipeline::{InvalidationSet, Pipeline};
 mod renderer_diagnostics;
@@ -1152,6 +1154,11 @@ fn build_window_attributes(
     }
     if background_test_mode {
         window_attributes = window_attributes.with_active(false).with_visible(false);
+    } else if accessibility::window_must_start_hidden() {
+        // AccessKit's winit adapter has to be installed before the native
+        // window is ever shown. The Resumed handler creates the adapter and
+        // then makes the window visible.
+        window_attributes = window_attributes.with_visible(false);
     }
     Ok(window_attributes)
 }
@@ -3546,6 +3553,7 @@ where
             .build()
             .map_err(|e| anyhow::anyhow!("Event loop error: {}", e))?;
         let event_proxy = event_loop.create_proxy();
+        let mut accessibility_bridge = AccessibilityBridge::new(event_proxy.clone());
         #[cfg(feature = "tray")]
         let tray_event_rx = self
             .tray_config
@@ -4156,6 +4164,24 @@ where
                     }
                     TestEvent::Wake => {
                         if let Some(window) = platform_window.active_window() {
+                            if accessibility_bridge.drain_events(
+                                &mut runtime,
+                                pipeline.prev_ir.as_ref(),
+                                pipeline.last_snapshot.as_ref(),
+                            ) {
+                                invalidations.mark_build();
+                                if process_pending_effects(
+                                    &mut runtime,
+                                    &effect_result_tx,
+                                    &event_proxy,
+                                    &async_registry,
+                                    &mut active_services,
+                                    &mut service_bindings,
+                                    &mut next_service_instance_id,
+                                ) {
+                                    invalidations.mark_build();
+                                }
+                            }
                             request_redraw_logged(
                                 window,
                                 elwt,
@@ -4236,6 +4262,10 @@ where
                     let Some(window) = platform_window.active_window() else {
                         return;
                     };
+                    accessibility_bridge.ensure_adapter(elwt, window);
+                    if accessibility::window_must_start_hidden() && !background_test_mode {
+                        window.set_visible(true);
+                    }
                     let current_viewport = WindowViewportState::from_window(window);
                     #[cfg(not(target_os = "android"))]
                     {
@@ -4926,6 +4956,7 @@ where
                     let Some(window) = platform_window.active_window() else {
                         return;
                     };
+                    accessibility_bridge.process_window_event(window, &event);
                     match event {
                         WindowEvent::Resized(size) => {
                             if size.width > 0 && size.height > 0 {
@@ -5465,6 +5496,16 @@ where
                                 {
                                     runtime.post_layout_hook(ir, layout);
                                 }
+                            }
+                            if let (Some(ir), Some(layout)) =
+                                (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref())
+                            {
+                                accessibility_bridge.update_tree(
+                                    ir,
+                                    layout,
+                                    &runtime,
+                                    scale_factor,
+                                );
                             }
 
                             match pipeline.prepare_current(
