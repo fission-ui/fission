@@ -48,6 +48,15 @@ pub enum TestCommand {
     TypeText {
         text: String,
     },
+    ImePreedit {
+        text: String,
+        cursor_start: Option<usize>,
+        cursor_end: Option<usize>,
+    },
+    ImeCommit {
+        text: String,
+    },
+    ImeCancel {},
     PressKey {
         key: String,
         modifiers: u8,
@@ -116,6 +125,14 @@ pub enum TestEvent {
     TextInput {
         text: String,
     },
+    ImePreedit {
+        text: String,
+        cursor: Option<(usize, usize)>,
+    },
+    ImeCommit {
+        text: String,
+    },
+    ImeCancel,
     Scroll {
         x: f32,
         y: f32,
@@ -329,6 +346,30 @@ impl LiveTestClient {
         self.send(TestCommand::TypeText {
             text: text.to_string(),
         })?;
+        Ok(())
+    }
+
+    pub fn ime_preedit(&self, text: &str, cursor: Option<(usize, usize)>) -> Result<()> {
+        self.send(TestCommand::ImePreedit {
+            text: text.to_string(),
+            cursor_start: cursor.map(|range| range.0),
+            cursor_end: cursor.map(|range| range.1),
+        })?;
+        self.pump()?;
+        Ok(())
+    }
+
+    pub fn ime_commit(&self, text: &str) -> Result<()> {
+        self.send(TestCommand::ImeCommit {
+            text: text.to_string(),
+        })?;
+        self.pump()?;
+        Ok(())
+    }
+
+    pub fn ime_cancel(&self) -> Result<()> {
+        self.send(TestCommand::ImeCancel {})?;
+        self.pump()?;
         Ok(())
     }
 

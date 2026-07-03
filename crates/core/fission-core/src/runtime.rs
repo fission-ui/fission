@@ -734,6 +734,7 @@ impl Runtime {
                                 for (target, envelope) in result.actions {
                                     self.dispatch_node(envelope, target)?;
                                 }
+                                self.update_focused_ime_state(ir, layout);
                                 return Ok(());
                             }
                         }
@@ -761,6 +762,7 @@ impl Runtime {
                                 for (target, envelope) in result.actions {
                                     self.dispatch_node(envelope, target)?;
                                 }
+                                self.update_focused_ime_state(ir, layout);
                                 return Ok(());
                             }
                         }
@@ -808,6 +810,7 @@ impl Runtime {
                 self.runtime_state.interaction.pressed.clear();
                 self.runtime_state.interaction.last_down_point = None;
             }
+            self.update_focused_ime_state(ir, layout);
             return Ok(());
         }
 
@@ -1133,6 +1136,7 @@ impl Runtime {
             }
             _ => {}
         }
+        self.update_focused_ime_state(ir, layout);
         Ok(())
     }
 
@@ -1168,6 +1172,92 @@ impl Runtime {
             self.dispatch_node_with_input(action, target, &input)?;
         }
         Ok(())
+    }
+
+    fn update_focused_ime_state(&mut self, ir: &CoreIR, layout: &LayoutSnapshot) {
+        let Some(ime_handler) = self.ime_handler.clone() else {
+            return;
+        };
+        let Some(focused_id) = self.runtime_state.interaction.focused else {
+            ime_handler.set_ime_allowed(false);
+            return;
+        };
+
+        let mut walk = Some(focused_id);
+        while let Some(node_id) = walk {
+            if let Some(any_ro) = ir.custom_render_objects.get(&node_id) {
+                if let Some(render_obj) = crate::ui::custom_render::downcast_render_object(any_ro) {
+                    let accepts_text = render_obj.accepts_text_input();
+                    ime_handler.set_ime_allowed(accepts_text);
+                    if accepts_text {
+                        let rect =
+                            Self::visual_node_rect(ir, layout, &self.runtime_state.scroll, node_id)
+                                .unwrap_or(LayoutRect::new(0.0, 0.0, 0.0, 0.0));
+                        if let Some(cursor_area) = render_obj.ime_cursor_area(rect) {
+                            ime_handler.set_ime_cursor_area(cursor_area);
+                        }
+                    }
+                    return;
+                }
+            }
+            walk = ir.nodes.get(&node_id).and_then(|node| node.parent);
+        }
+
+        let accepts_text = ir
+            .nodes
+            .get(&focused_id)
+            .and_then(|node| match &node.op {
+                Op::Semantics(semantics) => {
+                    Some(semantics.role == fission_ir::semantics::Role::TextInput)
+                }
+                _ => None,
+            })
+            .unwrap_or(false);
+        ime_handler.set_ime_allowed(accepts_text);
+
+        if accepts_text {
+            let cursor_area = {
+                let mut ctx = crate::input::ControllerContext {
+                    ir,
+                    layout,
+                    text_edit: &mut self.runtime_state.text_edit,
+                    interaction: &mut self.runtime_state.interaction,
+                    scroll: &mut self.runtime_state.scroll,
+                    gesture: &mut self.runtime_state.gesture,
+                    clipboard: self.clipboard_backend.as_ref(),
+                    measurer: self.measurer.as_ref(),
+                    dispatched_actions: Vec::new(),
+                };
+                crate::input::text::TextInputController::ime_cursor_area(&mut ctx, focused_id)
+            };
+            if let Some(cursor_area) = cursor_area {
+                ime_handler.set_ime_cursor_area(cursor_area);
+            }
+        }
+    }
+
+    fn visual_node_rect(
+        ir: &CoreIR,
+        layout: &LayoutSnapshot,
+        scroll: &crate::env::ScrollStateMap,
+        node_id: WidgetId,
+    ) -> Option<LayoutRect> {
+        let mut rect = layout.get_node_rect(node_id)?;
+        let mut walk = ir.nodes.get(&node_id).and_then(|node| node.parent);
+        while let Some(parent_id) = walk {
+            let Some(parent) = ir.nodes.get(&parent_id) else {
+                break;
+            };
+            if let Op::Layout(LayoutOp::Scroll { direction, .. }) = &parent.op {
+                let offset = scroll.get_offset(parent_id);
+                match direction {
+                    FlexDirection::Row => rect.origin.x -= offset,
+                    FlexDirection::Column => rect.origin.y -= offset,
+                }
+            }
+            walk = parent.parent;
+        }
+        Some(rect)
     }
 
     fn clear_text_pending_on_blur(

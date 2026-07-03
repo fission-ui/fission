@@ -325,6 +325,13 @@ pub struct Semantics {
     pub input_mask: Option<InputMask>,
     /// The byte range of IME pre-edit (composition) text, if any.
     pub ime_preedit_range: Option<(usize, usize)>,
+    /// The active byte range within [`Semantics::ime_preedit_range`], if the
+    /// platform IME exposes a pre-edit cursor or marked sub-range.
+    #[serde(default)]
+    pub ime_preedit_cursor_range: Option<(usize, usize)>,
+    /// Editable text selection as byte offsets `(anchor, focus)`.
+    #[serde(default)]
+    pub text_selection: Option<(usize, usize)>,
     /// For checkboxes and switches: `Some(true)` = checked, `Some(false)` = unchecked,
     /// `None` = not a toggle.
     pub checked: Option<bool>,
@@ -403,6 +410,8 @@ impl std::hash::Hash for Semantics {
         self.masked.hash(state);
         self.input_mask.hash(state);
         self.ime_preedit_range.hash(state);
+        self.ime_preedit_cursor_range.hash(state);
+        self.text_selection.hash(state);
         self.checked.hash(state);
         self.disabled.hash(state);
         self.read_only.hash(state);
@@ -453,6 +462,8 @@ impl Default for Semantics {
             masked: false,
             input_mask: None,
             ime_preedit_range: None,
+            ime_preedit_cursor_range: None,
+            text_selection: None,
             checked: None,
             disabled: false,
             read_only: false,

@@ -269,6 +269,7 @@ pub struct TextInputAffordanceState {
 pub struct TextPreeditState {
     pub text: String,
     pub range: (usize, usize),
+    pub cursor: Option<(usize, usize)>,
 }
 
 #[derive(Clone, Debug)]
@@ -452,20 +453,23 @@ impl TextEditState {
         self.preedit = None;
     }
 
-    pub fn set_preedit(&mut self, text: String) {
+    pub fn set_preedit(&mut self, text: String, cursor: Option<(usize, usize)>) {
         if text.is_empty() {
             self.preedit = None;
             return;
         }
+        let cursor = normalize_preedit_cursor(&text, cursor);
 
         if let Some(preedit) = &mut self.preedit {
             preedit.text = text;
+            preedit.cursor = cursor;
             return;
         }
 
         self.preedit = Some(TextPreeditState {
             text,
             range: self.selection_range(),
+            cursor,
         });
     }
 
@@ -485,6 +489,13 @@ impl TextEditState {
         display.push_str(&preedit.text);
         display.push_str(&committed[end..]);
         (display, Some((start, start + preedit.text.len())))
+    }
+
+    pub fn display_preedit_cursor_range(&self) -> Option<(usize, usize)> {
+        let preedit = self.preedit.as_ref()?;
+        let cursor = preedit.cursor?;
+        let start = preedit.range.0.min(self.buffer.len_bytes());
+        Some((start + cursor.0, start + cursor.1))
     }
 
     pub fn apply_edit(
@@ -533,6 +544,26 @@ impl TextEditState {
         self.pending_model_sync = true;
         Some((self.buffer.to_string(), caret, anchor))
     }
+}
+
+fn normalize_preedit_cursor(text: &str, cursor: Option<(usize, usize)>) -> Option<(usize, usize)> {
+    let (mut start, mut end) = cursor?;
+    start = start.min(text.len());
+    end = end.min(text.len());
+    if start > end {
+        std::mem::swap(&mut start, &mut end);
+    }
+    start = floor_char_boundary(text, start);
+    end = floor_char_boundary(text, end);
+    Some((start, end))
+}
+
+fn floor_char_boundary(text: &str, mut idx: usize) -> usize {
+    idx = idx.min(text.len());
+    while idx > 0 && !text.is_char_boundary(idx) {
+        idx -= 1;
+    }
+    idx
 }
 
 #[derive(Clone, Debug, Default)]

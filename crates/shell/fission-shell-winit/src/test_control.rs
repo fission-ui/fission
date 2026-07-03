@@ -191,6 +191,26 @@ fn dispatch_command(cmd: TestCommand, injector: &EventInjector) -> TestResponse 
             inject_event(injector, TestEvent::TextInput { text });
             TestResponse::Ok {}
         }
+        TestCommand::ImePreedit {
+            text,
+            cursor_start,
+            cursor_end,
+        } => {
+            let cursor = match (cursor_start, cursor_end) {
+                (Some(start), Some(end)) => Some((start, end)),
+                _ => None,
+            };
+            inject_event(injector, TestEvent::ImePreedit { text, cursor });
+            TestResponse::Ok {}
+        }
+        TestCommand::ImeCommit { text } => {
+            inject_event(injector, TestEvent::ImeCommit { text });
+            TestResponse::Ok {}
+        }
+        TestCommand::ImeCancel {} => {
+            inject_event(injector, TestEvent::ImeCancel);
+            TestResponse::Ok {}
+        }
         TestCommand::PressKey { key, modifiers } => {
             inject_event(
                 injector,

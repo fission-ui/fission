@@ -3996,6 +3996,117 @@ where
                             }
                         }
                     }
+                    TestEvent::ImePreedit { text, cursor } => {
+                        let Some(window) = platform_window.active_window() else {
+                            return;
+                        };
+                        if let (Some(ir), Some(layout)) =
+                            (&pipeline.prev_ir, &pipeline.last_snapshot)
+                        {
+                            let target = focused_text_input_id(&runtime, pipeline.prev_ir.as_ref());
+                            let trace_seq = start_text_trace(
+                                text_trace_enabled && target.is_some(),
+                                &mut pending_text_traces,
+                                &mut next_text_trace_seq,
+                                format!("test_ime_preedit:{}", text.chars().count()),
+                                target,
+                                presented_frames,
+                            );
+                            runtime
+                                .handle_input(
+                                    InputEvent::Ime(fission_core::event::ImeEvent::Preedit {
+                                        text,
+                                        cursor,
+                                    }),
+                                    ir,
+                                    layout,
+                                )
+                                .ok();
+                            invalidations.mark_build();
+                            mark_text_trace_handled(&mut pending_text_traces, trace_seq);
+                            request_redraw_logged(
+                                window,
+                                elwt,
+                                &mut last_redraw_at,
+                                min_frame,
+                                &mut redraw_pending,
+                                &mut frame_trace,
+                                "test_ime_preedit",
+                            );
+                        }
+                    }
+                    TestEvent::ImeCommit { text } => {
+                        let Some(window) = platform_window.active_window() else {
+                            return;
+                        };
+                        if let (Some(ir), Some(layout)) =
+                            (&pipeline.prev_ir, &pipeline.last_snapshot)
+                        {
+                            let target = focused_text_input_id(&runtime, pipeline.prev_ir.as_ref());
+                            let trace_seq = start_text_trace(
+                                text_trace_enabled && target.is_some(),
+                                &mut pending_text_traces,
+                                &mut next_text_trace_seq,
+                                format!("test_ime_commit:{}", text.chars().count()),
+                                target,
+                                presented_frames,
+                            );
+                            runtime
+                                .handle_input(
+                                    InputEvent::Ime(fission_core::event::ImeEvent::Commit { text }),
+                                    ir,
+                                    layout,
+                                )
+                                .ok();
+                            invalidations.mark_build();
+                            mark_text_trace_handled(&mut pending_text_traces, trace_seq);
+                            request_redraw_logged(
+                                window,
+                                elwt,
+                                &mut last_redraw_at,
+                                min_frame,
+                                &mut redraw_pending,
+                                &mut frame_trace,
+                                "test_ime_commit",
+                            );
+                        }
+                    }
+                    TestEvent::ImeCancel => {
+                        let Some(window) = platform_window.active_window() else {
+                            return;
+                        };
+                        if let (Some(ir), Some(layout)) =
+                            (&pipeline.prev_ir, &pipeline.last_snapshot)
+                        {
+                            let target = focused_text_input_id(&runtime, pipeline.prev_ir.as_ref());
+                            let trace_seq = start_text_trace(
+                                text_trace_enabled && target.is_some(),
+                                &mut pending_text_traces,
+                                &mut next_text_trace_seq,
+                                "test_ime_cancel".to_string(),
+                                target,
+                                presented_frames,
+                            );
+                            runtime
+                                .handle_input(
+                                    InputEvent::Ime(fission_core::event::ImeEvent::Cancel),
+                                    ir,
+                                    layout,
+                                )
+                                .ok();
+                            invalidations.mark_build();
+                            mark_text_trace_handled(&mut pending_text_traces, trace_seq);
+                            request_redraw_logged(
+                                window,
+                                elwt,
+                                &mut last_redraw_at,
+                                min_frame,
+                                &mut redraw_pending,
+                                &mut frame_trace,
+                                "test_ime_cancel",
+                            );
+                        }
+                    }
                     TestEvent::Scroll { x, y, dx, dy } => {
                         let Some(window) = platform_window.active_window() else {
                             return;
@@ -6524,13 +6635,20 @@ where
                                         )),
                                         Some(format!("ime_commit:{}", text.chars().count())),
                                     ),
-                                    Ime::Preedit(text, _) => (
+                                    Ime::Preedit(text, cursor) => (
                                         Some(InputEvent::Ime(
                                             fission_core::event::ImeEvent::Preedit {
                                                 text: text.clone(),
+                                                cursor,
                                             },
                                         )),
                                         Some(format!("ime_preedit:{}", text.chars().count())),
+                                    ),
+                                    Ime::Disabled => (
+                                        Some(InputEvent::Ime(
+                                            fission_core::event::ImeEvent::Cancel,
+                                        )),
+                                        Some("ime_cancel".to_string()),
                                     ),
                                     _ => (None, None),
                                 };

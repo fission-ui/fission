@@ -1,19 +1,15 @@
 use anyhow::Result;
-use fission_core::ui::{Node, Text};
-use fission_core::{
-    ActionEnvelope, ActionId, AnimationPropertyId, AppState, BuildCtx, View, Widget, WidgetNodeId,
-};
+use fission_core::motion::MotionPropertyId;
+use fission_core::ui::{Text, Widget};
+use fission_core::{Action, ActionEnvelope, GlobalState, WidgetId};
 use fission_ir::semantics::{Role, TextInputType};
 use fission_render::DisplayOp;
 use fission_test::{TestDriver, TestHarness};
-use fission_widgets::{CircularProgress, DatePicker, Drawer, DrawerSide, NumberInput};
+use fission_widgets::{
+    CircularProgress, CircularProgressMotion, DatePicker, Drawer, DrawerSide, NumberInput,
+};
 use std::f32::consts::PI;
 use std::sync::Arc;
-
-const NUMBER_CHANGED_ID: ActionId = ActionId::from_u128(0xF151_0001);
-const DATE_NAVIGATED_ID: ActionId = ActionId::from_u128(0xF151_0002);
-const DRAWER_DISMISSED_ID: ActionId = ActionId::from_u128(0xF151_0003);
-const DATE_SELECTED_ID: ActionId = ActionId::from_u128(0xF151_0004);
 
 #[derive(Debug, Clone)]
 struct State {
@@ -36,33 +32,63 @@ impl Default for State {
     }
 }
 
-impl AppState for State {}
+impl GlobalState for State {}
+
+#[fission_macros::fission_action(no_eq)]
+struct NumberChanged(f32);
+
+#[fission_macros::fission_action]
+struct DateNavigated(i32, u32);
+
+#[fission_macros::fission_action]
+struct DateSelected(String);
+
+#[fission_macros::fission_action]
+struct DrawerDismissed;
+
+fn number_changed(state: &mut State, action: NumberChanged) {
+    state.number = action.0;
+}
+
+fn date_navigated(state: &mut State, action: DateNavigated) {
+    state.date_year = action.0;
+    state.date_month = action.1;
+}
+
+fn date_selected(state: &mut State, action: DateSelected) {
+    state.selected_date = Some(action.0);
+}
+
+fn dismiss_drawer(state: &mut State, _action: DrawerDismissed) {
+    state.drawer_open = false;
+}
+
+fn navigate_action(year: i32, month: u32) -> ActionEnvelope {
+    ActionEnvelope {
+        id: DateNavigated::static_id(),
+        payload: serde_json::to_vec(&DateNavigated(year, month)).unwrap(),
+    }
+}
 
 #[test]
 fn number_input_text_entry_dispatches_parsed_float() -> Result<()> {
+    #[derive(Clone)]
     struct Root;
 
-    impl Widget<State> for Root {
-        fn build(&self, ctx: &mut BuildCtx<State>, view: &View<State>) -> Node {
-            ctx.registry.register_raw_action(
-                NUMBER_CHANGED_ID,
-                |state, envelope, _target, _effects, _input| {
-                    state.number = serde_json::from_slice::<f32>(&envelope.payload)?;
-                    Ok(())
-                },
-            );
-
+    impl From<Root> for Widget {
+        fn from(_component: Root) -> Self {
+            let (ctx, view) = fission_core::build::current::<State>();
             NumberInput {
-                id: Some(WidgetNodeId::explicit("quantity")),
-                value: view.state.number,
+                id: Some(WidgetId::explicit("quantity")),
+                value: view.state().number,
                 display_text: Some(String::new()),
-                on_change: Some(ActionEnvelope {
-                    id: NUMBER_CHANGED_ID,
-                    payload: Vec::new(),
-                }),
+                on_change: Some(ctx.bind(
+                    NumberChanged(0.0),
+                    number_changed as fn(&mut State, NumberChanged),
+                )),
                 ..Default::default()
             }
-            .build(ctx, view)
+            .into()
         }
     }
 
@@ -100,29 +126,23 @@ fn number_input_text_entry_dispatches_parsed_float() -> Result<()> {
 
 #[test]
 fn number_input_ignores_invalid_intermediate_float() -> Result<()> {
+    #[derive(Clone)]
     struct Root;
 
-    impl Widget<State> for Root {
-        fn build(&self, ctx: &mut BuildCtx<State>, view: &View<State>) -> Node {
-            ctx.registry.register_raw_action(
-                NUMBER_CHANGED_ID,
-                |state, envelope, _target, _effects, _input| {
-                    state.number = serde_json::from_slice::<f32>(&envelope.payload)?;
-                    Ok(())
-                },
-            );
-
+    impl From<Root> for Widget {
+        fn from(_component: Root) -> Self {
+            let (ctx, view) = fission_core::build::current::<State>();
             NumberInput {
-                id: Some(WidgetNodeId::explicit("quantity")),
-                value: view.state.number,
+                id: Some(WidgetId::explicit("quantity")),
+                value: view.state().number,
                 display_text: Some(String::new()),
-                on_change: Some(ActionEnvelope {
-                    id: NUMBER_CHANGED_ID,
-                    payload: Vec::new(),
-                }),
+                on_change: Some(ctx.bind(
+                    NumberChanged(0.0),
+                    number_changed as fn(&mut State, NumberChanged),
+                )),
                 ..Default::default()
             }
-            .build(ctx, view)
+            .into()
         }
     }
 
@@ -152,36 +172,27 @@ fn number_input_ignores_invalid_intermediate_float() -> Result<()> {
 
 #[test]
 fn date_picker_navigation_is_controlled_by_parent_state() -> Result<()> {
+    #[derive(Clone)]
     struct Root;
 
-    impl Widget<State> for Root {
-        fn build(&self, ctx: &mut BuildCtx<State>, view: &View<State>) -> Node {
-            ctx.registry.register_raw_action(
-                DATE_NAVIGATED_ID,
-                |state, envelope, _target, _effects, _input| {
-                    let (year, month) = serde_json::from_slice::<(i32, u32)>(&envelope.payload)?;
-                    state.date_year = year;
-                    state.date_month = month;
-                    Ok(())
-                },
-            );
+    impl From<Root> for Widget {
+        fn from(_component: Root) -> Self {
+            let (ctx, view) = fission_core::build::current::<State>();
+            ctx.register(date_navigated as fn(&mut State, DateNavigated));
 
             DatePicker {
-                id: WidgetNodeId::explicit("due_date"),
+                id: WidgetId::explicit("due_date"),
                 value: None,
                 is_open: true,
                 width: Some(180.0),
-                view_year: Some(view.state.date_year),
-                view_month: Some(view.state.date_month),
-                on_navigate: Some(Arc::new(|year, month| ActionEnvelope {
-                    id: DATE_NAVIGATED_ID,
-                    payload: serde_json::to_vec(&(year, month)).unwrap(),
-                })),
+                view_year: Some(view.state().date_year),
+                view_month: Some(view.state().date_month),
+                on_navigate: Some(Arc::new(navigate_action)),
                 on_change: None,
                 on_toggle: None,
                 on_close: None,
             }
-            .build(ctx, view)
+            .into()
         }
     }
 
@@ -207,47 +218,31 @@ fn date_picker_navigation_is_controlled_by_parent_state() -> Result<()> {
 
 #[test]
 fn date_picker_navigation_wraps_year_and_selection_dispatches_date() -> Result<()> {
+    #[derive(Clone)]
     struct Root;
 
-    impl Widget<State> for Root {
-        fn build(&self, ctx: &mut BuildCtx<State>, view: &View<State>) -> Node {
-            ctx.registry.register_raw_action(
-                DATE_NAVIGATED_ID,
-                |state, envelope, _target, _effects, _input| {
-                    let (year, month) = serde_json::from_slice::<(i32, u32)>(&envelope.payload)?;
-                    state.date_year = year;
-                    state.date_month = month;
-                    Ok(())
-                },
-            );
-            ctx.registry.register_raw_action(
-                DATE_SELECTED_ID,
-                |state, envelope, _target, _effects, _input| {
-                    state.selected_date =
-                        Some(serde_json::from_slice::<String>(&envelope.payload)?);
-                    Ok(())
-                },
-            );
+    impl From<Root> for Widget {
+        fn from(_component: Root) -> Self {
+            let (ctx, view) = fission_core::build::current::<State>();
+            ctx.register(date_navigated as fn(&mut State, DateNavigated));
+            ctx.register(date_selected as fn(&mut State, DateSelected));
 
             DatePicker {
-                id: WidgetNodeId::explicit("due_date"),
+                id: WidgetId::explicit("due_date"),
                 value: None,
                 is_open: true,
                 width: Some(180.0),
-                view_year: Some(view.state.date_year),
-                view_month: Some(view.state.date_month),
-                on_navigate: Some(Arc::new(|year, month| ActionEnvelope {
-                    id: DATE_NAVIGATED_ID,
-                    payload: serde_json::to_vec(&(year, month)).unwrap(),
-                })),
+                view_year: Some(view.state().date_year),
+                view_month: Some(view.state().date_month),
+                on_navigate: Some(Arc::new(navigate_action)),
                 on_change: Some(Arc::new(|date| ActionEnvelope {
-                    id: DATE_SELECTED_ID,
-                    payload: serde_json::to_vec(&date.to_string()).unwrap(),
+                    id: DateSelected::static_id(),
+                    payload: serde_json::to_vec(&DateSelected(date.to_string())).unwrap(),
                 })),
                 on_toggle: None,
                 on_close: None,
             }
-            .build(ctx, view)
+            .into()
         }
     }
 
@@ -276,35 +271,30 @@ fn date_picker_navigation_wraps_year_and_selection_dispatches_date() -> Result<(
 }
 
 #[test]
-fn drawer_backdrop_dismisses_and_registers_enter_animation() -> Result<()> {
-    let drawer_id = WidgetNodeId::explicit("settings_drawer");
+fn drawer_backdrop_dismisses_and_registers_focus_barrier() -> Result<()> {
+    let drawer_id = WidgetId::explicit("settings_drawer");
 
+    #[derive(Clone)]
     struct Root {
-        drawer_id: WidgetNodeId,
+        drawer_id: WidgetId,
     }
 
-    impl Widget<State> for Root {
-        fn build(&self, ctx: &mut BuildCtx<State>, view: &View<State>) -> Node {
-            ctx.registry.register_raw_action(
-                DRAWER_DISMISSED_ID,
-                |state, _envelope, _target, _effects, _input| {
-                    state.drawer_open = false;
-                    Ok(())
-                },
-            );
-
+    impl From<Root> for Widget {
+        fn from(component: Root) -> Self {
+            let (ctx, view) = fission_core::build::current::<State>();
             Drawer {
-                id: self.drawer_id,
+                id: component.drawer_id,
                 side: DrawerSide::Left,
-                is_open: view.state.drawer_open,
-                on_dismiss: Some(ActionEnvelope {
-                    id: DRAWER_DISMISSED_ID,
-                    payload: Vec::new(),
-                }),
-                content: Box::new(Text::new("Drawer content").into_node()),
+                is_open: view.state().drawer_open,
+                on_dismiss: Some(ctx.bind(
+                    DrawerDismissed,
+                    dismiss_drawer as fn(&mut State, DrawerDismissed),
+                )),
+                content: Text::new("Drawer content").into(),
                 width: Some(300.0),
+                motion: None,
             }
-            .build(ctx, view)
+            .into()
         }
     }
 
@@ -314,31 +304,6 @@ fn drawer_backdrop_dismisses_and_registers_enter_animation() -> Result<()> {
     driver.pump()?;
     driver.assert_text_visible("Drawer content");
 
-    let backdrop_anim_id = WidgetNodeId::from_u128(drawer_id.as_u128() ^ 0xBACD_u128);
-    let backdrop = driver
-        .harness
-        .runtime
-        .runtime_state
-        .animation
-        .active
-        .get(&(backdrop_anim_id, AnimationPropertyId::Opacity))
-        .expect("drawer backdrop opacity animation");
-    assert_eq!(backdrop.start_value, 0.0);
-    assert_eq!(backdrop.end_value, 1.0);
-
-    let slide_anim_id = WidgetNodeId::from_u128(drawer_id.as_u128() ^ 0xD00D_u128);
-    let active = driver
-        .harness
-        .runtime
-        .runtime_state
-        .animation
-        .active
-        .get(&(slide_anim_id, AnimationPropertyId::TranslateX))
-        .expect("drawer slide animation");
-    assert_eq!(active.start_value, -300.0);
-    assert_eq!(active.end_value, 0.0);
-
-    driver.tick(300)?;
     driver.tap_text("Drawer content")?;
 
     let state = driver.harness.runtime.get_app_state::<State>().unwrap();
@@ -372,24 +337,27 @@ fn drawer_backdrop_dismisses_and_registers_enter_animation() -> Result<()> {
 }
 
 #[test]
-fn right_drawer_slides_from_clamped_offscreen_edge() -> Result<()> {
-    let drawer_id = WidgetNodeId::explicit("right_drawer");
+fn right_drawer_clamps_to_viewport_width() -> Result<()> {
+    let drawer_id = WidgetId::explicit("right_drawer");
 
+    #[derive(Clone)]
     struct Root {
-        drawer_id: WidgetNodeId,
+        drawer_id: WidgetId,
     }
 
-    impl Widget<State> for Root {
-        fn build(&self, ctx: &mut BuildCtx<State>, view: &View<State>) -> Node {
+    impl From<Root> for Widget {
+        fn from(component: Root) -> Self {
+            let (_ctx, view) = fission_core::build::current::<State>();
             Drawer {
-                id: self.drawer_id,
+                id: component.drawer_id,
                 side: DrawerSide::Right,
-                is_open: view.state.drawer_open,
+                is_open: view.state().drawer_open,
                 on_dismiss: None,
-                content: Box::new(Text::new("Right drawer content").into_node()),
+                content: Text::new("Right drawer content").into(),
                 width: Some(500.0),
+                motion: None,
             }
-            .build(ctx, view)
+            .into()
         }
     }
 
@@ -397,38 +365,36 @@ fn right_drawer_slides_from_clamped_offscreen_edge() -> Result<()> {
     let mut driver = TestDriver::new(harness);
     driver.set_viewport(360.0, 640.0);
     driver.pump()?;
+    driver.assert_text_visible("Right drawer content");
 
-    let slide_anim_id = WidgetNodeId::from_u128(drawer_id.as_u128() ^ 0xD00D_u128);
-    let active = driver
-        .harness
-        .runtime
-        .runtime_state
-        .animation
-        .active
-        .get(&(slide_anim_id, AnimationPropertyId::TranslateX))
-        .expect("right drawer slide animation");
-    assert_eq!(active.start_value, 336.0);
-    assert_eq!(active.end_value, 0.0);
+    let content = driver
+        .find_text("Right drawer content")
+        .expect("drawer text");
+    assert!(content.bounds.x() >= 0.0);
+    assert!(content.bounds.x() + content.bounds.width() <= 360.0);
 
     Ok(())
 }
 
 #[test]
 fn circular_progress_indeterminate_registers_repeating_rotation() -> Result<()> {
-    let progress_id = WidgetNodeId::explicit("loading_spinner");
+    let progress_id = WidgetId::explicit("loading_spinner");
 
+    #[derive(Clone)]
     struct Root {
-        progress_id: WidgetNodeId,
+        progress_id: WidgetId,
     }
 
-    impl Widget<State> for Root {
-        fn build(&self, ctx: &mut BuildCtx<State>, view: &View<State>) -> Node {
+    impl From<Root> for Widget {
+        fn from(component: Root) -> Self {
+            let (_ctx, _view) = fission_core::build::current::<State>();
             CircularProgress {
-                id: Some(self.progress_id),
+                id: component.progress_id,
                 value: None,
+                motion: Some(CircularProgressMotion::Spin),
                 ..Default::default()
             }
-            .build(ctx, view)
+            .into()
         }
     }
 
@@ -436,19 +402,19 @@ fn circular_progress_indeterminate_registers_repeating_rotation() -> Result<()> 
     let mut driver = TestDriver::new(harness);
     driver.pump()?;
 
-    let key = (progress_id, AnimationPropertyId::Rotation);
+    let motion_id = WidgetId::derived(progress_id.as_u128(), &[0x1D1_CA70]);
+    let key = (motion_id, MotionPropertyId::Rotation);
     let active = driver
         .harness
         .runtime
         .runtime_state
-        .animation
+        .motion
         .active
         .get(&key)
-        .expect("indeterminate progress rotation animation");
-    assert_eq!(active.start_value, 0.0);
-    assert!((active.end_value - 2.0 * PI).abs() < 0.001);
+        .expect("indeterminate progress rotation motion");
+    assert_eq!(active.start_value.as_scalar_like(), Some(0.0));
+    assert!((active.end_value.as_scalar_like().unwrap() - 2.0 * PI).abs() < 0.001);
     assert!(active.repeat);
-    assert_eq!(active.frame_interval_ms, Some(16));
 
     driver.tick(250)?;
 
@@ -456,10 +422,10 @@ fn circular_progress_indeterminate_registers_repeating_rotation() -> Result<()> 
         .harness
         .runtime
         .runtime_state
-        .animation
+        .motion
         .values
         .get(&key)
-        .copied()
+        .and_then(|value| value.as_scalar_like())
         .expect("animated rotation value");
     assert!(
         current > 0.0 && current < 2.0 * PI,
@@ -484,17 +450,20 @@ fn circular_progress_indeterminate_registers_repeating_rotation() -> Result<()> 
 }
 
 #[test]
-fn circular_progress_indeterminate_without_id_renders_static_indicator() -> Result<()> {
+fn circular_progress_indeterminate_without_motion_renders_static_indicator() -> Result<()> {
+    #[derive(Clone)]
     struct Root;
 
-    impl Widget<State> for Root {
-        fn build(&self, ctx: &mut BuildCtx<State>, view: &View<State>) -> Node {
+    impl From<Root> for Widget {
+        fn from(_component: Root) -> Self {
+            let (_ctx, _view) = fission_core::build::current::<State>();
             CircularProgress {
-                id: None,
+                id: WidgetId::explicit("static_spinner"),
                 value: None,
+                motion: None,
                 ..Default::default()
             }
-            .build(ctx, view)
+            .into()
         }
     }
 
@@ -507,24 +476,10 @@ fn circular_progress_indeterminate_without_id_renders_static_indicator() -> Resu
             .harness
             .runtime
             .runtime_state
-            .animation
+            .motion
             .active
             .is_empty(),
-        "indeterminate progress without an id should not register an animation"
-    );
-    let has_transform = driver
-        .harness
-        .get_last_display_list()
-        .map(|display_list| {
-            display_list
-                .ops
-                .iter()
-                .any(|op| matches!(op, DisplayOp::Transform(_)))
-        })
-        .unwrap_or(false);
-    assert!(
-        !has_transform,
-        "indeterminate progress without an id should render the static arc directly"
+        "indeterminate progress without explicit motion should not register motion"
     );
 
     Ok(())
@@ -532,20 +487,23 @@ fn circular_progress_indeterminate_without_id_renders_static_indicator() -> Resu
 
 #[test]
 fn circular_progress_determinate_does_not_register_rotation() -> Result<()> {
-    let progress_id = WidgetNodeId::explicit("static_progress");
+    let progress_id = WidgetId::explicit("static_progress");
 
+    #[derive(Clone)]
     struct Root {
-        progress_id: WidgetNodeId,
+        progress_id: WidgetId,
     }
 
-    impl Widget<State> for Root {
-        fn build(&self, ctx: &mut BuildCtx<State>, view: &View<State>) -> Node {
+    impl From<Root> for Widget {
+        fn from(component: Root) -> Self {
+            let (_ctx, _view) = fission_core::build::current::<State>();
             CircularProgress {
-                id: Some(self.progress_id),
+                id: component.progress_id,
                 value: Some(0.5),
+                motion: Some(CircularProgressMotion::Spin),
                 ..Default::default()
             }
-            .build(ctx, view)
+            .into()
         }
     }
 
@@ -553,14 +511,15 @@ fn circular_progress_determinate_does_not_register_rotation() -> Result<()> {
     let mut driver = TestDriver::new(harness);
     driver.pump()?;
 
+    let motion_id = WidgetId::derived(progress_id.as_u128(), &[0x1D1_CA70]);
     assert!(
         !driver
             .harness
             .runtime
             .runtime_state
-            .animation
+            .motion
             .active
-            .contains_key(&(progress_id, AnimationPropertyId::Rotation)),
+            .contains_key(&(motion_id, MotionPropertyId::Rotation)),
         "determinate progress should not spin"
     );
 

@@ -93,7 +93,7 @@ impl From<NumberInput> for Widget {
                         // input payloads.
                         keyboard_type: fission_ir::semantics::TextInputType::Number,
                         change_payload: TextInputChangePayload::Number,
-                        on_change: self.on_change.clone(),
+                        on_change: this.on_change.clone(),
                         ..Default::default()
                     }
                     .into(),

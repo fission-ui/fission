@@ -1,9 +1,9 @@
 use fission_core::{
-    hit_test::hit_test_with_scroll, ActionEnvelope, ActionId, AppState, InputEvent, LayoutPoint,
+    hit_test::hit_test_with_scroll, ActionEnvelope, ActionId, GlobalState, InputEvent, LayoutPoint,
     PointerButton, PointerEvent, Runtime,
 };
 use fission_ir::op::{Color, Fill, LayoutOp, PaintOp};
-use fission_ir::{ActionEntry, CoreIR, NodeId, Op, Semantics};
+use fission_ir::{ActionEntry, CoreIR, Op, Semantics, WidgetId};
 use fission_layout::{LayoutNodeGeometry, LayoutRect, LayoutSize, LayoutSnapshot};
 
 fn geometry(rect: LayoutRect) -> LayoutNodeGeometry {
@@ -18,25 +18,25 @@ struct BackdropState {
     dismissals: usize,
 }
 
-impl AppState for BackdropState {}
+impl GlobalState for BackdropState {}
 
 const DISMISS_ACTION_ID: ActionId = ActionId::from_u128(1);
 
 fn dismiss_backdrop(
     state: &mut BackdropState,
     _action: &ActionEnvelope,
-    _target: NodeId,
+    _target: WidgetId,
 ) -> anyhow::Result<()> {
     state.dismissals += 1;
     Ok(())
 }
 
-fn backdrop_scene() -> (CoreIR, LayoutSnapshot, NodeId, NodeId) {
-    let root_id = NodeId::explicit("root");
-    let backdrop_id = NodeId::explicit("backdrop_semantics");
-    let backdrop_paint_id = NodeId::explicit("backdrop_paint");
-    let panel_id = NodeId::explicit("panel");
-    let panel_paint_id = NodeId::explicit("panel_paint");
+fn backdrop_scene() -> (CoreIR, LayoutSnapshot, WidgetId, WidgetId) {
+    let root_id = WidgetId::explicit("root");
+    let backdrop_id = WidgetId::explicit("backdrop_semantics");
+    let backdrop_paint_id = WidgetId::explicit("backdrop_paint");
+    let panel_id = WidgetId::explicit("panel");
+    let panel_paint_id = WidgetId::explicit("panel_paint");
 
     let mut backdrop_semantics = Semantics::default();
     backdrop_semantics.actions.entries.push(ActionEntry {

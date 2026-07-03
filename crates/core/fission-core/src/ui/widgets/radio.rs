@@ -240,6 +240,8 @@ impl InternalLower for Radio {
             masked: false,
             input_mask: None,
             ime_preedit_range: None,
+            ime_preedit_cursor_range: None,
+            text_selection: None,
             checked: Some(self.checked),
             disabled: false,
             read_only: false,

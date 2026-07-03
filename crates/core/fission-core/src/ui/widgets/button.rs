@@ -630,6 +630,8 @@ fn default_button_semantics() -> Semantics {
         masked: false,
         input_mask: None,
         ime_preedit_range: None,
+        ime_preedit_cursor_range: None,
+        text_selection: None,
         checked: None,
         disabled: false,
         read_only: false,
