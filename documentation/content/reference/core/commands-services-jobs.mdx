@@ -21,6 +21,8 @@ Use `ctx.effects.app(job, request)` when you need one request and one eventual s
 
 Public types in this area include `JobSpec`, `JobRef<J>`, and `JobCtx`.
 
+Jobs are also the normal place to consume large binary streams returned by host capabilities. A reducer should pass a `DataStreamId` in the typed job request, then the job opens it with `JobCtx::open_data_stream(...)` and reads the resulting `FissionDataStream`. SSR/server jobs expose the same stream handle contract through `ServerJobCtx`.
+
 Why does the distinction matter? Because a job has no long-lived identity after it completes. If your work should stay alive, stream events, or accept later commands, it is not job-shaped anymore.
 
 ## Services
@@ -30,6 +32,8 @@ A service is the long-lived async unit.
 Use `ctx.effects.start_service(slot, config)` when the work should remain alive after it starts and may emit multiple events over time. Examples include a language server, a background sync channel, or another continuing external conversation.
 
 Public types in this area include `ServiceSpec`, `ServiceType<Svc>`, `ServiceSlot<Svc>`, `ServiceCtx<Svc>`, and `ServiceBindings`.
+
+Services can consume large streams in the same way as jobs through `ServiceCtx::open_data_stream(...)`. Use this when the stream belongs to a long-lived conversation, such as upload progress, import progress, or an editor/language-service workflow that should keep emitting events.
 
 The slot concept matters because a service needs identity over time. A slot tells the runtime which logical service instance you mean, such as a singleton background service or a keyed per-document service.
 

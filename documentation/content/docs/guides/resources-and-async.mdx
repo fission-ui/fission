@@ -117,6 +117,8 @@ fn on_pick_file(
 
 `PICK_OPEN_FILES` returns `PickedFile` values with metadata plus a `DataStreamId`. It does not put the selected file contents in the reducer payload. If you need to parse, preview, upload, or transform the file, pass the stream handle to a job or service and consume it there with `JobCtx::open_data_stream(...)` or `ServiceCtx::open_data_stream(...)`.
 
+The default desktop shell provider streams selected files from disk in chunks. Web, mobile, server, static-site, and terminal targets can supply their own provider when file picking makes sense for that host.
+
 Why keep capabilities separate from reducers? For the same reason as jobs: reducers stay pure and replayable. They decide that a picker should open. They do not open it themselves.
 
 Do not use a capability for ordinary application background work that could run as a job or service. If the work does not need the host boundary, a capability is usually the wrong abstraction.

@@ -38,6 +38,8 @@ The widget handles presentation only. The full flow usually looks like this: the
 
 File contents are exposed as a `FissionDataStream`, not as a `Vec<u8>` in the reducer payload. Pass the `PickedFile::stream` handle to a job or service if the app needs to parse, upload, or preview the file.
 
+The desktop shell provides a default `PICK_OPEN_FILES` provider on macOS, Windows, and Linux. Other shells may register their own provider; when no native picker is available, the capability reports an unsupported host error rather than fabricating bytes.
+
 This separation is why file picking remains deterministic inside the core runtime. The widget describes intent, while the host interaction happens explicitly outside the reducer.
 
 ## Specific advice
