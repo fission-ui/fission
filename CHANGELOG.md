@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-07-03
+
+### Added
+
+- **Framework-wide data streams** - Added `FissionDataStream`, `DataStreamId`, `DataStreamRegistry`, `BoxFissionDataStream`, and stream error types so large user-owned payloads move through runtime handles instead of reducer byte buffers.
+- **Stream-aware capability and async contexts** - `CapabilityCtx`, `JobCtx`, `ServiceCtx`, and `ServerJobCtx` can register, open, and release runtime-owned streams, making streamed file, media, clipboard, and barcode flows available to native, web, and server-side async hosts.
+- **Desktop file picker provider** - macOS, Windows, and Linux now have a default `PICK_OPEN_FILES` provider that opens the native file picker and returns `PickedFile` metadata plus chunked file streams.
+- **Upload and async architecture docs** - Added guides for file uploads and for why reducers are synchronous, with explicit guidance on jobs, services, capabilities, resources, and stream handles.
+
+### Changed
+
+- **Large binary capability payloads** - File picker results, camera captures, microphone captures, rich clipboard content, and barcode image decode requests now use `DataStreamId` handles rather than exposing large `Vec<u8>` payloads through reducer-facing data.
+- **Server and SSR async parity** - Server job registries now carry the same stream registry contract as native async hosts so server-rendered and SSR workflows can consume large runtime streams without special casing.
+- **Generated dependency snippets** - Current examples, documentation snippets, README fragments, and `fission init` templates now point at `0.7.0`.
+
+### Fixed
+
+- **Reducer memory pressure for uploads** - File uploads no longer require reducers or action payloads to hold whole selected files in memory. Reducers store metadata and stream handles, while jobs or services consume chunks asynchronously.
+- **Unsupported file-picker behavior** - Hosts without a picker provider report explicit unsupported capability errors instead of pretending a file was selected.
+
 ## [0.6.3] - 2026-07-03
 
 ### Added

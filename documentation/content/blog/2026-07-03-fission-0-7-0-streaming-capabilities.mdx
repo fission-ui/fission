@@ -1,0 +1,131 @@
+---
+title: Fission 0.7.0: streaming capabilities and deterministic async boundaries
+authors:
+  - fission
+tags:
+  - release
+  - runtime
+  - capabilities
+  - async
+categories:
+  - Releases
+---
+
+Fission 0.7.0 makes large user-owned data a first-class runtime concept.
+
+The important change is simple: files, captures, rich clipboard entries, and other large binary payloads should not be pushed through reducers as `Vec<u8>`. They now move through runtime-owned `FissionDataStream` handles. Reducers keep the app state and requested effects deterministic. Jobs, services, and host providers consume the bytes asynchronously.
+
+This release is a breaking API cleanup for large-data capability surfaces, and it is the right break to make before more applications depend on file upload and media workflows.
+
+## Why this changed
+
+A reducer should answer one question: given this state and this action, what state transition and runtime effects should happen?
+
+Whole files do not belong in that path. Putting a selected file into an action payload makes logs huge, makes state snapshots privacy-sensitive, increases memory pressure, and makes cancellation or backpressure almost impossible to model cleanly.
+
+Fission 0.7.0 keeps the reducer payload small:
+
+```rust
+pub struct PickedFile {
+    pub name: String,
+    pub content_type: Option<String>,
+    pub byte_len: Option<u64>,
+    pub stream: DataStreamId,
+}
+```
+
+The `DataStreamId` points to a runtime-owned stream. A reducer can store that handle, pass it to a job, or start a service. The async side opens and consumes the stream.
+
+## The new stream API
+
+The new public stream surface includes:
+
+- `FissionDataStream`, a framework-wide stream trait based on `futures_core::Stream`;
+- `BoxFissionDataStream`, the boxed dynamic stream type;
+- `DataStreamId`, the serializable handle passed through capability/job/service payloads;
+- `DataStreamRegistry`, the runtime registry for one-shot streams;
+- `FissionDataStreamError` and `FissionDataStreamErrorKind` for portable stream failures;
+- helpers such as `single_chunk_data_stream`, `empty_data_stream`, and `collect_data_stream`.
+
+Streams are single-consumer by default. Opening a stream consumes the registry slot, and a second open returns an `AlreadyConsumed` error. That makes accidental duplicate processing deterministic.
+
+## File uploads now use streams
+
+`PICK_OPEN_FILES` now returns metadata and stream handles. On desktop targets, Fission registers a default provider that uses the native open-file picker on macOS, Windows, and Linux, then streams the selected files from disk in chunks.
+
+The normal app flow is:
+
+1. `FileUpload` renders the browse affordance.
+2. The browse reducer emits `ctx.effects.capability(PICK_OPEN_FILES, ...)`.
+3. The success reducer reads `ctx.input.capability_ok(PICK_OPEN_FILES)` and stores file metadata plus `DataStreamId`.
+4. A job or service opens the stream with `JobCtx::open_data_stream(...)` or `ServiceCtx::open_data_stream(...)` and consumes chunks.
+
+A job handler can now do this:
+
+```rust
+use futures_util::StreamExt;
+
+asyncs.register_job(UPLOAD_ATTACHMENT_JOB, |request, ctx| async move {
+    let mut stream = ctx
+        .open_data_stream(request.stream)
+        .map_err(|error| error.to_string())?;
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|error| error.to_string())?;
+        upload_part(chunk).await?;
+    }
+
+    Ok(UploadComplete)
+});
+```
+
+Use `collect_data_stream` only when an external API forces a contiguous buffer. The default should be chunked processing.
+
+## More capability surfaces moved to handles
+
+The stream contract is not only for file pickers. Fission 0.7.0 moves large binary capability payloads behind stream handles across the framework:
+
+- file picker results;
+- camera captures;
+- microphone captures;
+- rich clipboard content;
+- barcode image decode requests.
+
+Small bounded protocol values remain plain bytes where that is appropriate. Passkey challenges, NFC records, Bluetooth characteristic values, barcode raw text, internal control messages, and small typed payloads are not the same thing as user-owned file or media streams.
+
+## Server and SSR parity
+
+`fission-shell-server` now carries stream support through `ServerJobRegistry` and `ServerJobCtx`. Server-side jobs can open the same `DataStreamId` style handles, which keeps SSR and server-rendered flows aligned with native async hosts.
+
+That matters for applications where uploads are accepted by a server-side host but processed through the same job abstraction as native apps.
+
+## Documentation added
+
+This release adds two new guides:
+
+- [How do I do file uploads in Fission?](/docs/guides/file-uploads/) shows the full widget, reducer, capability, job, and stream flow.
+- [Why are reducers not async?](/docs/guides/why-reducers-are-synchronous/) explains why reducers stay synchronous and why jobs, services, commands, capabilities, and resources are separate runtime concepts.
+
+The existing resources, capabilities, widget, and platform capability documentation now link into those guides.
+
+## Migration notes
+
+Update the crate dependency:
+
+```toml
+fission = { version = "0.7.0", default-features = false, features = ["desktop"] }
+```
+
+Then audit large binary capability usage:
+
+- replace reducer-side `Vec<u8>` file/media handling with `DataStreamId` state;
+- pass stream handles to jobs or services;
+- open streams with `JobCtx::open_data_stream(...)`, `ServiceCtx::open_data_stream(...)`, or provider-side `CapabilityCtx::open_data_stream(...)`;
+- handle `NotFound`, `AlreadyConsumed`, `Cancelled`, `PermissionDenied`, `Unsupported`, `Io`, and `InvalidData` where product behavior depends on the failure type;
+- keep user-visible metadata such as name, content type, byte length, upload progress, and validation status in app state.
+
+If your host supplied a custom file picker or media provider, update it to register streams with `CapabilityCtx::register_data_stream(...)` and return the `DataStreamId` in the typed result.
+
+## Verification
+
+The release includes focused tests for stream registration, one-shot opening, job consumption, service consumption, server job stream access, and desktop file picker stream behavior. The release was also checked with workspace compilation, formatting, diff hygiene, and documentation-site validation before publishing.

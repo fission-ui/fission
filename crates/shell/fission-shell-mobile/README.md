@@ -8,9 +8,9 @@ Most application developers should use the public facade instead of depending on
 
 ```toml
 [dependencies]
-fission = { version = "0.6.3", features = ["android"] }
+fission = { version = "0.7.0", features = ["android"] }
 # or
-fission = { version = "0.6.3", features = ["ios"] }
+fission = { version = "0.7.0", features = ["ios"] }
 ```
 
 ## What it provides
