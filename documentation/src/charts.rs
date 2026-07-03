@@ -37,17 +37,6 @@ pub(crate) fn expand_documentation_mdx(
             output.push('\n');
             continue;
         }
-        if trimmed == "<Tabs>" || trimmed == "</Tabs>" || trimmed == "</TabItem>" {
-            continue;
-        }
-        if trimmed.starts_with("<TabItem") {
-            output.push_str("\n### ");
-            output.push_str(&escape_markdown(
-                &attr_value(trimmed, "label").unwrap_or("Option"),
-            ));
-            output.push_str("\n\n");
-            continue;
-        }
         output.push_str(line);
         output.push('\n');
     }
@@ -313,13 +302,6 @@ fn extract_between(body: &str, start: &str, end: &str) -> Option<String> {
     let (_, rest) = body.split_once(start)?;
     let (value, _) = rest.split_once(end)?;
     Some(value.to_string())
-}
-
-fn attr_value<'a>(line: &'a str, attr: &str) -> Option<&'a str> {
-    let pattern = format!("{attr}=\"");
-    let (_, rest) = line.split_once(&pattern)?;
-    let (value, _) = rest.split_once('"')?;
-    Some(value)
 }
 
 fn render_tags(tags: &[String]) -> String {

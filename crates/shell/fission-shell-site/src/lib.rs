@@ -12,6 +12,7 @@ mod front_matter;
 mod html;
 mod search;
 mod site;
+mod tabs;
 
 pub use browser_island::{run_browser_island, BrowserIslandApp};
 pub use build::{

@@ -580,6 +580,10 @@ mkdir -p "$(dirname "$apk")"
         assert!(dir.join("platforms/macos/README.md").exists());
         assert!(dir.join("platforms/linux/README.md").exists());
         let readme = std::fs::read_to_string(dir.join("README.md")).unwrap();
+        let agents = std::fs::read_to_string(dir.join("AGENTS.md")).unwrap();
+        assert!(agents.contains("# Fission App Guidelines"));
+        assert!(agents.contains("#[fission_component]"));
+        assert!(agents.contains("Use Fission's native Router and RouterParams"));
         assert!(readme.contains("fission devices --project-dir ."));
         assert!(readme.contains("fission run --project-dir ."));
         assert!(readme.contains("fission logs --target <target>"));
@@ -588,6 +592,36 @@ mkdir -p "$(dirname "$apk")"
         let manifest = std::fs::read_to_string(dir.join("Cargo.toml")).unwrap();
         assert!(manifest.contains("default-features = false"));
         assert!(manifest.contains("features = [\"desktop\"]"));
+    }
+
+    #[test]
+    fn init_writes_agents_to_git_root() {
+        let repo = unique_dir("init-agents-root");
+        fs::create_dir_all(repo.join(".git")).unwrap();
+        let app = repo.join("apps/todo");
+
+        run(["fission", "init", app.to_str().unwrap(), "--name", "todo"]).unwrap();
+
+        assert!(repo.join("AGENTS.md").exists());
+        assert!(!app.join("AGENTS.md").exists());
+    }
+
+    #[test]
+    fn init_uses_fission_agents_name_when_repo_agents_exists() {
+        let repo = unique_dir("init-agents-existing");
+        fs::create_dir_all(repo.join(".git")).unwrap();
+        fs::write(repo.join("AGENTS.md"), "existing repo instructions").unwrap();
+        let app = repo.join("apps/todo");
+
+        run(["fission", "init", app.to_str().unwrap(), "--name", "todo"]).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(repo.join("AGENTS.md")).unwrap(),
+            "existing repo instructions"
+        );
+        let fission_agents = fs::read_to_string(repo.join("AGENTS.fission.md")).unwrap();
+        assert!(fission_agents.contains("# Fission App Guidelines"));
+        assert!(!app.join("AGENTS.md").exists());
     }
 
     #[test]
@@ -1027,7 +1061,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-fission = { version = "0.6.1", default-features = false, features = ["desktop"] }
+fission = { version = "0.6.2", default-features = false, features = ["desktop"] }
 "#,
         )
         .unwrap();
@@ -1054,7 +1088,7 @@ edition = "2021"
 anyhow = "1"
 
 [dependencies.fission]
-version = "0.6.1"
+version = "0.6.2"
 default-features = true
 features = ["desktop"]
 "#,
@@ -1343,6 +1377,7 @@ android_animation_duration_ms = 650
         run(["fission", "init", dir.to_str().unwrap(), "--name", "idem"]).unwrap();
         let manifest = fs::read_to_string(dir.join("fission.toml")).unwrap();
         let main = fs::read_to_string(dir.join("src/main.rs")).unwrap();
+        let agents = fs::read_to_string(dir.join("AGENTS.md")).unwrap();
 
         run(["fission", "init", dir.to_str().unwrap()]).unwrap();
 
@@ -1351,6 +1386,8 @@ android_animation_duration_ms = 650
             manifest
         );
         assert_eq!(fs::read_to_string(dir.join("src/main.rs")).unwrap(), main);
+        assert_eq!(fs::read_to_string(dir.join("AGENTS.md")).unwrap(), agents);
+        assert!(!dir.join("AGENTS.fission.md").exists());
     }
 
     #[test]
