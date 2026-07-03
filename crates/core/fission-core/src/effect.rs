@@ -31,13 +31,91 @@ pub struct ReqId(pub u64);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ResourceId(pub u64);
 
+/// Axis selection for runtime scroll positioning.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ScrollAxis {
+    /// Adjust vertical scroll offsets.
+    Vertical,
+    /// Adjust horizontal scroll offsets.
+    Horizontal,
+    /// Adjust any matching scroll axis.
+    Both,
+}
+
+/// Desired placement of a target inside a scroll viewport.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum ScrollAlignment {
+    /// Align the target's leading edge with the viewport's leading edge.
+    Start,
+    /// Center the target in the viewport.
+    Center,
+    /// Align the target's trailing edge with the viewport's trailing edge.
+    End,
+    /// Use the smallest scroll delta that makes the target visible.
+    Nearest,
+    /// Place the target at a fractional position in the viewport.
+    ///
+    /// `0.0` behaves like [`ScrollAlignment::Start`], `0.5` centers the target,
+    /// and `1.0` behaves like [`ScrollAlignment::End`].
+    Fraction(f32),
+}
+
+/// Runtime behavior for a scroll request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ScrollBehavior {
+    /// Apply the computed offset immediately.
+    Instant,
+    /// Reserve a smooth-scroll request. Current shells resolve this immediately.
+    Smooth,
+}
+
+/// Request a post-layout scroll adjustment that reveals a target widget.
+///
+/// Reducers can emit this as a runtime effect when application state changes.
+/// The runtime resolves it after the next layout pass, when target and container
+/// rectangles are available, then mutates the scroll state and schedules another
+/// frame so paint, hit testing, and semantics see the new offset.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// ctx.effects.scroll_into_view(ScrollIntoViewRequest {
+///     container: Some(WidgetId::explicit("document.canvas.scroll")),
+///     target: WidgetId::explicit("document.page.3"),
+///     axis: ScrollAxis::Vertical,
+///     alignment: ScrollAlignment::Start,
+///     padding: [24.0, 24.0, 24.0, 24.0],
+///     behavior: ScrollBehavior::Instant,
+///     if_needed: false,
+/// });
+/// ```
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScrollIntoViewRequest {
+    /// Explicit scroll container, or `None` to use the nearest matching scroll ancestor.
+    pub container: Option<WidgetId>,
+    /// Descendant widget that should become visible.
+    pub target: WidgetId,
+    /// Axis to scroll.
+    pub axis: ScrollAxis,
+    /// Alignment to use when computing the new offset.
+    pub alignment: ScrollAlignment,
+    /// Reveal margin as `[left, right, top, bottom]`.
+    pub padding: [f32; 4],
+    /// Whether to jump immediately or request smooth behavior.
+    pub behavior: ScrollBehavior,
+    /// If `true`, leave the offset unchanged when the target is already fully visible.
+    pub if_needed: bool,
+}
+
 /// Runtime-managed effects that are not host capabilities.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum RuntimeEffect {
     /// Cancel a previously issued effect by its request id.
     Cancel { req_id: u64 },
     /// Release a platform-managed resource.
     ReleaseResource { resource_id: u64 },
+    /// Reveal a widget inside a scroll container after the next layout pass.
+    ScrollIntoView(ScrollIntoViewRequest),
 }
 
 /// A side-effect emitted by a reducer.

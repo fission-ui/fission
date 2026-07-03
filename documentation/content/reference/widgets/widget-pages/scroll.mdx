@@ -62,6 +62,31 @@ Give the scroll area room to exist. In many screen layouts, that means setting `
 
 Also avoid nesting two vertical scroll containers unless you are deliberately designing nested scroll behavior. It is usually harder to use and harder to test.
 
+## Programmatic reveal
+
+Use `ctx.effects.scroll_into_view(...)` when a reducer needs to reveal a widget after state changes. The reducer only records the request. The runtime applies it after the next layout pass, when both the scroll container and target rectangles are known.
+
+```rust
+use fission::prelude::*;
+
+#[fission_reducer(SelectPage)]
+fn select_page(state: &mut DocumentState, action: SelectPage, ctx: &mut ReducerContext<DocumentState>) {
+    state.selected_page = action.page;
+
+    ctx.effects.scroll_into_view(ScrollIntoViewRequest {
+        container: Some(WidgetId::explicit("document.canvas.scroll")),
+        target: WidgetId::explicit(&format!("document.page.{}", action.page)),
+        axis: ScrollAxis::Vertical,
+        alignment: ScrollAlignment::Start,
+        padding: [24.0, 24.0, 24.0, 24.0],
+        behavior: ScrollBehavior::Instant,
+        if_needed: false,
+    });
+}
+```
+
+Keep the scroll container and reveal targets on stable explicit IDs. If `container` is `None`, Fission uses the nearest matching scroll ancestor. `ScrollAlignment::Nearest` uses the smallest offset change that makes the target visible; `Start`, `Center`, `End`, and `Fraction(_)` place it deliberately inside the viewport.
+
 ## Production checklist
 
 For `Scroll`, review the fields that change behavior before treating the widget as finished: `id`, `child`, `direction`, `width`, `height`, `show_scrollbar`. The goal is to make the product rule visible in state and actions, not hidden inside ad-hoc construction code.

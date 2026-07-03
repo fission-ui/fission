@@ -7,7 +7,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! fission = { version = "0.6.2", default-features = false, features = ["desktop"] }
+//! fission = { version = "0.6.3", default-features = false, features = ["desktop"] }
 //! ```
 //!
 //! Then use via:
@@ -180,14 +180,15 @@ pub use fission_core::{
     NotificationResponseReceived, NotificationSchedule, NotificationSettings, NotificationSound,
     Op, PortalLayer, PushPlatform, PushRegistration, PushRegistrationRequest, ReducerContext,
     RegisterPushNotificationsCapability, RequestNotificationPermissionCapability, Role,
-    ScanNfcTagCapability, ScheduleNotificationCapability, Selector, Semantics,
-    SetBadgeCountCapability, SetBadgeCountRequest, ShowNotificationCapability,
-    UnregisterPushNotificationsCapability, ValueView, ViewHandle, WidgetId, WriteNfcTagCapability,
-    AUTHENTICATE_BIOMETRIC, CANCEL_ALL_NOTIFICATIONS, CANCEL_BIOMETRIC_AUTHENTICATION,
-    CANCEL_NFC_SESSION, CANCEL_NOTIFICATION, EMULATE_NFC_TAG, GET_BIOMETRIC_AVAILABILITY,
-    GET_NFC_AVAILABILITY, GET_NOTIFICATION_SETTINGS, REGISTER_PUSH_NOTIFICATIONS,
-    REQUEST_NOTIFICATION_PERMISSION, SCAN_NFC_TAG, SCHEDULE_NOTIFICATION, SET_BADGE_COUNT,
-    SHOW_NOTIFICATION, UNREGISTER_PUSH_NOTIFICATIONS, WRITE_NFC_TAG,
+    ScanNfcTagCapability, ScheduleNotificationCapability, ScrollAlignment, ScrollAxis,
+    ScrollBehavior, ScrollIntoViewRequest, Selector, Semantics, SetBadgeCountCapability,
+    SetBadgeCountRequest, ShowNotificationCapability, UnregisterPushNotificationsCapability,
+    ValueView, ViewHandle, WidgetId, WriteNfcTagCapability, AUTHENTICATE_BIOMETRIC,
+    CANCEL_ALL_NOTIFICATIONS, CANCEL_BIOMETRIC_AUTHENTICATION, CANCEL_NFC_SESSION,
+    CANCEL_NOTIFICATION, EMULATE_NFC_TAG, GET_BIOMETRIC_AVAILABILITY, GET_NFC_AVAILABILITY,
+    GET_NOTIFICATION_SETTINGS, REGISTER_PUSH_NOTIFICATIONS, REQUEST_NOTIFICATION_PERMISSION,
+    SCAN_NFC_TAG, SCHEDULE_NOTIFICATION, SET_BADGE_COUNT, SHOW_NOTIFICATION,
+    UNREGISTER_PUSH_NOTIFICATIONS, WRITE_NFC_TAG,
 };
 pub use fission_core::{
     AdjustVolumeLevelCapability, GetVolumeLevelCapability, SetVolumeLevelCapability,
@@ -401,14 +402,15 @@ pub mod prelude {
         NotificationSound, Op, PortalLayer, Provider, PushPlatform, PushRegistration,
         PushRegistrationRequest, ReducerContext, RegisterPushNotificationsCapability,
         RequestNotificationPermissionCapability, Role, ScanNfcTagCapability,
-        ScheduleNotificationCapability, Selector, Semantics, SetBadgeCountCapability,
-        SetBadgeCountRequest, ShowNotificationCapability, UnregisterPushNotificationsCapability,
-        ValueView, ViewHandle, WidgetId, WindowEnv, WindowTitle, WriteNfcTagCapability,
-        AUTHENTICATE_BIOMETRIC, CANCEL_ALL_NOTIFICATIONS, CANCEL_BIOMETRIC_AUTHENTICATION,
-        CANCEL_NFC_SESSION, CANCEL_NOTIFICATION, EMULATE_NFC_TAG, GET_BIOMETRIC_AVAILABILITY,
-        GET_NFC_AVAILABILITY, GET_NOTIFICATION_SETTINGS, REGISTER_PUSH_NOTIFICATIONS,
-        REQUEST_NOTIFICATION_PERMISSION, SCAN_NFC_TAG, SCHEDULE_NOTIFICATION, SET_BADGE_COUNT,
-        SHOW_NOTIFICATION, UNREGISTER_PUSH_NOTIFICATIONS, WRITE_NFC_TAG,
+        ScheduleNotificationCapability, ScrollAlignment, ScrollAxis, ScrollBehavior,
+        ScrollIntoViewRequest, Selector, Semantics, SetBadgeCountCapability, SetBadgeCountRequest,
+        ShowNotificationCapability, UnregisterPushNotificationsCapability, ValueView, ViewHandle,
+        WidgetId, WindowEnv, WindowTitle, WriteNfcTagCapability, AUTHENTICATE_BIOMETRIC,
+        CANCEL_ALL_NOTIFICATIONS, CANCEL_BIOMETRIC_AUTHENTICATION, CANCEL_NFC_SESSION,
+        CANCEL_NOTIFICATION, EMULATE_NFC_TAG, GET_BIOMETRIC_AVAILABILITY, GET_NFC_AVAILABILITY,
+        GET_NOTIFICATION_SETTINGS, REGISTER_PUSH_NOTIFICATIONS, REQUEST_NOTIFICATION_PERMISSION,
+        SCAN_NFC_TAG, SCHEDULE_NOTIFICATION, SET_BADGE_COUNT, SHOW_NOTIFICATION,
+        UNREGISTER_PUSH_NOTIFICATIONS, WRITE_NFC_TAG,
     };
     pub use fission_core::{
         AdjustVolumeLevelCapability, GetVolumeLevelCapability, SetVolumeLevelCapability,

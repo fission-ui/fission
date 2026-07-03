@@ -39,7 +39,7 @@ use fission_core::{
     Action, ActionId, ActionRegistry, DeepLink, DeepLinkConfig, DeepLinkReceived, Env, GlobalState,
     InputEvent, KeyCode, KeyEvent as FissionKeyEvent, NotificationResponse,
     NotificationResponseReceived, OpenUrlRequest, PointerButton, PointerEvent, Runtime,
-    RuntimeEffect, ServiceBindings, View, Widget, WidgetIdExt, OPEN_URL,
+    ServiceBindings, View, Widget, WidgetIdExt, OPEN_URL,
 };
 use fission_core::{ActionInput, CapabilityInvocationPayload, Effect};
 use fission_diagnostics::prelude as diag;
@@ -1521,7 +1521,7 @@ fn process_pending_effects(
         return false;
     }
 
-    let dispatched_callback = false;
+    let mut dispatched_callback = false;
     let wake = {
         let proxy = Arc::new(Mutex::new(event_proxy.clone()));
         Arc::new(move || {
@@ -1543,8 +1543,9 @@ fn process_pending_effects(
                         position: None,
                     },
                 );
-                match runtime_effect {
-                    RuntimeEffect::Cancel { .. } | RuntimeEffect::ReleaseResource { .. } => {}
+                if runtime.queue_runtime_effect(runtime_effect.clone()) {
+                    dispatched_callback = true;
+                    (wake)();
                 }
             }
             Effect::Capability(capability) => match capability {
@@ -5577,7 +5578,7 @@ where
                                 last_built_viewport = Some(build_viewport);
                             }
 
-                            let layout_updates = match pipeline.ensure_layout(
+                            let _layout_updates = match pipeline.ensure_layout(
                                 LayoutRect::new(
                                     0.0,
                                     0.0,
@@ -5595,11 +5596,11 @@ where
                                 }
                             };
 
-                            if layout_updates > 0 {
-                                if let (Some(ir), Some(layout)) =
-                                    (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref())
-                                {
-                                    runtime.post_layout_hook(ir, layout);
+                            if let (Some(ir), Some(layout)) =
+                                (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref())
+                            {
+                                if runtime.post_layout_hook(ir, layout) {
+                                    invalidations.mark_layout();
                                 }
                             }
                             if let (Some(ir), Some(layout)) =

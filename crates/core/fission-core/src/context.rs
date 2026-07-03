@@ -13,7 +13,7 @@ use crate::async_runtime::{
 use crate::capability::{
     CapabilityInvocationPayload, CapabilityType, OperationCapability, OperationCapabilityInvocation,
 };
-use crate::effect::{ActionInput, Effect, EffectEnvelope, RuntimeEffect};
+use crate::effect::{ActionInput, Effect, EffectEnvelope, RuntimeEffect, ScrollIntoViewRequest};
 use crate::platform::{
     CancelNotificationRequest, NotificationPermissionRequest, NotificationRequest,
     PushRegistrationRequest, SetBadgeCountRequest, CANCEL_ALL_NOTIFICATIONS, CANCEL_NOTIFICATION,
@@ -449,6 +449,20 @@ impl<'a, S: GlobalState> Effects<'a, S> {
         self.add(Effect::Runtime(RuntimeEffect::ReleaseResource {
             resource_id,
         }));
+    }
+
+    /// Reveals a widget inside a scroll container after the next layout pass.
+    ///
+    /// This is safe to emit from reducers because the runtime resolves widget
+    /// rectangles later, after layout has produced stable geometry.
+    pub fn scroll_into_view(&mut self, request: ScrollIntoViewRequest) -> u64 {
+        self.add(Effect::Runtime(RuntimeEffect::ScrollIntoView(request)))
+    }
+
+    /// Alias for [`Effects::scroll_into_view`] when the caller cares about
+    /// visibility rather than a specific scroll operation.
+    pub fn ensure_visible(&mut self, request: ScrollIntoViewRequest) -> u64 {
+        self.scroll_into_view(request)
     }
 }
 
