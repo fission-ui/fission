@@ -1,6 +1,7 @@
 use fission_core::{
-    BoxFuture, CapabilityCtx, CapabilityType, JobCtx, JobRef, JobSpec, OperationCapability,
-    ServiceCtx, ServiceRunner, ServiceSlot, ServiceSpec, ServiceType,
+    collect_data_stream, single_chunk_data_stream, BoxFuture, CapabilityCtx, CapabilityType,
+    DataStreamId, JobCtx, JobRef, JobSpec, OperationCapability, ServiceCtx, ServiceRunner,
+    ServiceSlot, ServiceSpec, ServiceType,
 };
 use fission_shell::async_host::{AsyncMessage, AsyncRegistry, ServiceControlMessage};
 use serde::{Deserialize, Serialize};
@@ -23,6 +24,23 @@ impl JobSpec for EchoJob {
 }
 
 const ECHO_JOB: JobRef<EchoJob> = JobRef::new("echo-job");
+
+#[derive(Debug)]
+struct StreamEchoJob;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct StreamEchoRequest {
+    stream: DataStreamId,
+}
+
+impl JobSpec for StreamEchoJob {
+    type Request = StreamEchoRequest;
+    type Ok = String;
+    type Err = String;
+    const NAME: &'static str = "stream-echo-job";
+}
+
+const STREAM_ECHO_JOB: JobRef<StreamEchoJob> = JobRef::new("stream-echo-job");
 
 #[derive(Debug)]
 struct SyncService;
@@ -154,6 +172,66 @@ impl OperationCapability for UploadEchoCapability {
 
 const UPLOAD_ECHO_CAPABILITY: CapabilityType<UploadEchoCapability> =
     CapabilityType::new("upload-echo");
+
+#[derive(Debug)]
+struct StreamCapability;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct StreamCapabilityOk {
+    stream: DataStreamId,
+}
+
+impl OperationCapability for StreamCapability {
+    type Request = ();
+    type Ok = StreamCapabilityOk;
+    type Err = String;
+}
+
+const STREAM_CAPABILITY: CapabilityType<StreamCapability> = CapabilityType::new("stream-source");
+
+#[derive(Debug)]
+struct StreamReadService;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct StreamReadConfig {
+    stream: DataStreamId,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct StreamReadCommand;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct StreamReadEvent {
+    value: String,
+}
+
+impl ServiceSpec for StreamReadService {
+    type Config = StreamReadConfig;
+    type Command = StreamReadCommand;
+    type CommandOk = ();
+    type CommandErr = String;
+    type Event = StreamReadEvent;
+    type StartErr = String;
+    const NAME: &'static str = "stream-read-service";
+}
+
+const STREAM_READ_TYPE: ServiceType<StreamReadService> = ServiceType::new("stream-read-service");
+
+struct StreamReadRunner;
+
+impl ServiceRunner<StreamReadService> for StreamReadRunner {
+    fn on_command(
+        &mut self,
+        _command: StreamReadCommand,
+        _ctx: ServiceCtx<StreamReadService>,
+    ) -> BoxFuture<Result<(), String>> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn on_stop(self: Box<Self>, _ctx: ServiceCtx<StreamReadService>) -> BoxFuture<()> {
+        Box::pin(async {})
+    }
+}
 
 struct StreamingRunner {
     ready_task: Option<tokio::task::JoinHandle<()>>,
@@ -382,4 +460,146 @@ fn registered_operation_capabilities_emit_typed_results() {
         }
         other => panic!("unexpected message: {:?}", other),
     }
+}
+
+#[test]
+fn capability_registered_streams_can_be_consumed_by_jobs() {
+    let mut registry = AsyncRegistry::new();
+    registry.register_operation_capability(
+        STREAM_CAPABILITY,
+        |(), ctx: CapabilityCtx| async move {
+            let stream = ctx.register_data_stream(single_chunk_data_stream("stream payload"));
+            Ok::<_, String>(StreamCapabilityOk { stream })
+        },
+    );
+    registry.register_job(
+        STREAM_ECHO_JOB,
+        |request: StreamEchoRequest, ctx: JobCtx| async move {
+            let stream = ctx
+                .open_data_stream(request.stream)
+                .map_err(|error| error.to_string())?;
+            let bytes = collect_data_stream(stream)
+                .await
+                .map_err(|error| error.to_string())?;
+            String::from_utf8(bytes.to_vec()).map_err(|error| error.to_string())
+        },
+    );
+
+    let (tx, rx) = mpsc::channel();
+    assert!(registry.spawn_capability(
+        STREAM_CAPABILITY.name,
+        21,
+        serde_json::to_vec(&()).unwrap(),
+        None,
+        None,
+        None,
+        &tx,
+        Arc::new(|| {}),
+    ));
+    let stream = match rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("stream capability result")
+    {
+        AsyncMessage::CapabilityOk { payload, .. } => {
+            serde_json::from_slice::<StreamCapabilityOk>(&payload)
+                .unwrap()
+                .stream
+        }
+        other => panic!("unexpected message: {:?}", other),
+    };
+
+    assert!(registry.spawn_job(
+        STREAM_ECHO_JOB.name,
+        22,
+        serde_json::to_vec(&StreamEchoRequest { stream }).unwrap(),
+        None,
+        None,
+        None,
+        &tx,
+        Arc::new(|| {}),
+    ));
+    match rx.recv_timeout(Duration::from_secs(1)).expect("job result") {
+        AsyncMessage::JobOk { payload, .. } => {
+            let value: String = serde_json::from_slice(&payload).unwrap();
+            assert_eq!(value, "stream payload");
+        }
+        other => panic!("unexpected message: {:?}", other),
+    }
+}
+
+#[test]
+fn capability_registered_streams_can_be_consumed_by_services() {
+    let mut registry = AsyncRegistry::new();
+    registry.register_operation_capability(
+        STREAM_CAPABILITY,
+        |(), ctx: CapabilityCtx| async move {
+            let stream = ctx.register_data_stream(single_chunk_data_stream("service payload"));
+            Ok::<_, String>(StreamCapabilityOk { stream })
+        },
+    );
+    registry.register_service(
+        STREAM_READ_TYPE,
+        |config: StreamReadConfig, ctx: ServiceCtx<StreamReadService>| async move {
+            let stream = ctx
+                .open_data_stream(config.stream)
+                .map_err(|error| error.to_string())?;
+            let bytes = collect_data_stream(stream)
+                .await
+                .map_err(|error| error.to_string())?;
+            let value = String::from_utf8(bytes.to_vec()).map_err(|error| error.to_string())?;
+            let _ = ctx.emit(StreamReadEvent { value }).await;
+            Ok::<_, String>(Box::new(StreamReadRunner) as Box<dyn ServiceRunner<StreamReadService>>)
+        },
+    );
+
+    let (tx, rx) = mpsc::channel();
+    assert!(registry.spawn_capability(
+        STREAM_CAPABILITY.name,
+        31,
+        serde_json::to_vec(&()).unwrap(),
+        None,
+        None,
+        None,
+        &tx,
+        Arc::new(|| {}),
+    ));
+    let stream = match rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("stream capability result")
+    {
+        AsyncMessage::CapabilityOk { payload, .. } => {
+            serde_json::from_slice::<StreamCapabilityOk>(&payload)
+                .unwrap()
+                .stream
+        }
+        other => panic!("unexpected message: {:?}", other),
+    };
+
+    let handle = registry
+        .spawn_service(
+            STREAM_READ_TYPE.name,
+            ServiceSlot::singleton(STREAM_READ_TYPE).slot_key(),
+            32,
+            serde_json::to_vec(&StreamReadConfig { stream }).unwrap(),
+            None,
+            &tx,
+            Arc::new(|| {}),
+        )
+        .expect("service handle");
+
+    let first = rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("service first");
+    let second = rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("service second");
+    let event_payload = match (&first, &second) {
+        (AsyncMessage::ServiceEvent { payload, .. }, _) => payload,
+        (_, AsyncMessage::ServiceEvent { payload, .. }) => payload,
+        _ => panic!("expected service event, got {:?} and {:?}", first, second),
+    };
+    let event: StreamReadEvent = serde_json::from_slice(event_payload).unwrap();
+    assert_eq!(event.value, "service payload");
+
+    handle.control_tx.send(ServiceControlMessage::Stop).unwrap();
 }
