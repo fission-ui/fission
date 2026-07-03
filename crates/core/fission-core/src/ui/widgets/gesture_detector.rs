@@ -115,6 +115,7 @@ impl InternalLower for GestureDetector {
             actions: Default::default(),
             action_scope_id: None,
             focusable: self.on_tap.is_some(),
+            focus_policy: fission_ir::FocusPolicy::FocusOnPointer,
             multiline: false,
             masked: false,
             input_mask: None,

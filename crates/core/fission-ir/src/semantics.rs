@@ -42,6 +42,37 @@ pub enum Role {
     Generic,
 }
 
+/// How a focusable node responds to pointer focus.
+///
+/// `FocusPolicy` only changes pointer-driven focus assignment. Keyboard focus,
+/// accessibility focus, and semantic activation still work for focusable nodes.
+///
+/// # Example
+///
+/// A toolbar button can run its action without taking focus from an editor:
+///
+/// ```rust
+/// use fission_ir::semantics::{FocusPolicy, Role};
+/// use fission_ir::Semantics;
+///
+/// let semantics = Semantics {
+///     role: Role::Button,
+///     focusable: true,
+///     focus_policy: FocusPolicy::PreserveCurrentOnPointer,
+///     ..Semantics::default()
+/// };
+/// ```
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum FocusPolicy {
+    /// Pointer-down focuses this node when it is focusable. This is the normal
+    /// behavior for buttons, text inputs, and other controls.
+    #[default]
+    FocusOnPointer,
+    /// Pointer-down keeps the currently focused node focused while still letting
+    /// this node receive pointer state and activation actions.
+    PreserveCurrentOnPointer,
+}
+
 /// What user interaction triggers an action.
 ///
 /// Each [`ActionEntry`] pairs an `ActionTrigger` with an action ID so the event
@@ -278,6 +309,9 @@ pub struct Semantics {
     pub action_scope_id: Option<u128>,
     /// Whether this node can receive keyboard focus.
     pub focusable: bool,
+    /// How pointer-down should affect focus for this node.
+    #[serde(default)]
+    pub focus_policy: FocusPolicy,
     /// Whether this text input supports multiple lines.
     pub multiline: bool,
     /// Whether the value should be obscured (password fields).
@@ -359,6 +393,7 @@ impl std::hash::Hash for Semantics {
         self.actions.hash(state);
         self.action_scope_id.hash(state);
         self.focusable.hash(state);
+        self.focus_policy.hash(state);
         self.multiline.hash(state);
         self.masked.hash(state);
         self.input_mask.hash(state);
@@ -408,6 +443,7 @@ impl Default for Semantics {
             actions: ActionSet::default(),
             action_scope_id: None,
             focusable: false,
+            focus_policy: FocusPolicy::FocusOnPointer,
             multiline: false,
             masked: false,
             input_mask: None,

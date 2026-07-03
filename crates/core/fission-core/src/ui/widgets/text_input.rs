@@ -1782,6 +1782,7 @@ impl InternalLower for TextInput {
             actions: Default::default(),
             action_scope_id: None,
             focusable: self.enabled,
+            focus_policy: fission_ir::FocusPolicy::FocusOnPointer,
             multiline: self.multiline,
             masked: self.obscure_text,
             input_mask: self.mask.clone(),

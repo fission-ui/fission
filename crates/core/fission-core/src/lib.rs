@@ -340,7 +340,7 @@ pub mod public {
     pub use crate::view::{ComputedView, FissionViewField, Selector, ValueView, View};
     pub use crate::{reduce, reduce_with, widgets, with_reducer};
     pub use fission_ir::op;
-    pub use fission_ir::{EmbedKind, Op, Role, Semantics, WidgetId};
+    pub use fission_ir::{EmbedKind, FocusPolicy, Op, Role, Semantics, WidgetId};
     pub use fission_layout::{
         BoxConstraints, FlexDirection, LayoutEngine, LayoutOp, LayoutPoint, LayoutRect, LayoutSize,
         LayoutSnapshot, LayoutUnit, TextMeasurer,
@@ -377,7 +377,7 @@ pub use state::{LocalStateKey, LocalStateStore, StateField};
 pub use build::{BuildCtxHandle, ViewHandle};
 pub use event::{InputEvent, KeyCode, KeyEvent, LifecycleEvent, PointerButton, PointerEvent};
 pub use fission_ir::op;
-pub use fission_ir::{EmbedKind, Op, Role, Semantics, WidgetId};
+pub use fission_ir::{EmbedKind, FocusPolicy, Op, Role, Semantics, WidgetId};
 pub use fission_layout::{
     BoxConstraints, FlexDirection, LayoutEngine, LayoutOp, LayoutPoint, LayoutRect, LayoutSize,
     LayoutSnapshot, LayoutUnit, TextMeasurer,
