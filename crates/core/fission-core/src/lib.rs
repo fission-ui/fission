@@ -208,7 +208,10 @@ pub mod public {
         Effects, GeolocationEffects, HapticEffects, MicrophoneEffects, NfcEffects,
         NotificationEffects, PasskeyEffects, ReducerContext, VolumeEffects, WifiEffects,
     }; // New
-    pub use crate::effect::{ActionInput, Effect, EffectEnvelope, RuntimeEffect};
+    pub use crate::effect::{
+        ActionInput, Effect, EffectEnvelope, RuntimeEffect, ScrollAlignment, ScrollAxis,
+        ScrollBehavior, ScrollIntoViewRequest,
+    };
     pub use crate::env::{
         Clipboard, Env, ImeHandler, InteractionStateMap, RuntimeState, ScrollStateMap, WindowEnv,
         WindowTitle,
@@ -365,7 +368,10 @@ pub use context::{
     Effects, GeolocationEffects, HapticEffects, MicrophoneEffects, NfcEffects, NotificationEffects,
     PasskeyEffects, ReducerContext, VolumeEffects, WifiEffects,
 }; // New
-pub use effect::{ActionInput, Effect, EffectEnvelope, RuntimeEffect};
+pub use effect::{
+    ActionInput, Effect, EffectEnvelope, RuntimeEffect, ScrollAlignment, ScrollAxis,
+    ScrollBehavior, ScrollIntoViewRequest,
+};
 pub use env::{
     Clipboard, Env, ImeHandler, InteractionStateMap, RouteLocation, RuntimeState, ScrollStateMap,
     WindowEnv, WindowTitle,

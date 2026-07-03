@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.3] - 2026-07-03
+
+### Added
+
+- **ScrollIntoView runtime effect** - Reducers can now call `ctx.effects.scroll_into_view(...)` or `ctx.effects.ensure_visible(...)` to reveal a target widget inside an explicit scroll container or nearest matching scroll ancestor after layout.
+- **Programmatic scroll API types** - Added `ScrollIntoViewRequest`, `ScrollAxis`, `ScrollAlignment`, and `ScrollBehavior` to the public API and prelude so document canvases, editors, outlines, tabs, and validation errors can request deterministic runtime scrolling without mutating scroll state during widget conversion.
+
+### Changed
+
+- **Post-layout runtime work** - The winit shell now keeps post-layout hooks active even when the widget tree is unchanged, allowing layout-dependent runtime effects to resolve against the current snapshot and schedule a follow-up layout frame when scroll offsets change.
+- **Scroll documentation** - The `Scroll` reference now documents stable IDs and reducer-driven reveal requests for cases such as selecting a page in a document editor.
+
+### Fixed
+
+- **Side-effect-free scroll control** - App code no longer needs to reorder content or reach into runtime scroll maps to reveal a selected child. Scroll offsets are updated by the runtime after layout and clamped to the container's content bounds.
+
 ## [0.6.2] - 2026-07-03
 
 ### Added
