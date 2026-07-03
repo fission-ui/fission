@@ -59,6 +59,14 @@ fn dir() -> String {
     d
 }
 
+fn shortcut_modifier() -> u8 {
+    if cfg!(target_os = "macos") {
+        8
+    } else {
+        4
+    }
+}
+
 fn tap_first_visible_text(client: &LiveTestClient, options: &[&str]) -> String {
     for _ in 0..12 {
         let texts = client.get_text().expect("get_text");
@@ -72,6 +80,19 @@ fn tap_first_visible_text(client: &LiveTestClient, options: &[&str]) -> String {
         client.pump().expect("pump while waiting for visible text");
     }
     panic!("none of the expected labels were visible: {options:?}");
+}
+
+fn wait_for_text_visible(client: &LiveTestClient, text: &str, attempts: usize) {
+    for _ in 0..attempts {
+        if client.assert_text_visible(text).is_ok() {
+            return;
+        }
+        client.wait(250).expect("wait for visible text");
+        client.pump().expect("pump while waiting for visible text");
+    }
+    client
+        .assert_text_visible(text)
+        .unwrap_or_else(|_| panic!("expected visible text: {text}"));
 }
 
 /// Helper: create a temporary file with given content, return its absolute path.
@@ -957,6 +978,141 @@ fn context_menu_new_file_opens_editable_buffer() {
     client
         .assert_text_visible("Hello from new file!")
         .expect("typed content should be visible in new file");
+
+    client.quit().expect("quit");
+    let _ = child.wait();
+    cleanup_temp_workspace(&workspace);
+}
+
+#[test]
+#[ignore]
+fn editor_human_todo_app_input_journey() {
+    let workspace = create_temp_workspace("todo-input-journey");
+    std::fs::write(workspace.join("src").join("main.rs"), "").expect("clear main.rs");
+
+    let control_port = reserve_control_port();
+    let mut child = launch_editor_for_workspace(control_port, &workspace);
+    let client = LiveTestClient::connect(control_port);
+    client.wait_for_ready(20_000).expect("editor start");
+    client.wait(2_000).expect("wait");
+    let d = dir();
+    let shortcut = shortcut_modifier();
+
+    tap_first_visible_text(&client, &["src"]);
+    client.wait(300).expect("wait after expanding src");
+    client.pump().expect("pump after expanding src");
+    tap_first_visible_text(&client, &["main.rs"]);
+    wait_for_text_visible(&client, "main.rs", 20);
+
+    client.tap(520.0, 220.0).expect("focus editor");
+    client.wait(150).expect("wait after editor focus");
+
+    // Simulate a real typing session: typo, undo, corrected code, IME preedit,
+    // composition cancel, composition commit, line navigation, scrolling, find,
+    // replace, selection drag, autocomplete trigger, and save.
+    client.type_text("fn mian() {\n").expect("type typo");
+    client.pump().expect("pump typo");
+    wait_for_text_visible(&client, "fn mian() {", 12);
+    client.press_key("Z", shortcut).expect("undo typo");
+    client.wait(150).expect("wait after undo");
+    client.pump().expect("pump undo");
+    client
+        .assert_text_not_visible("fn mian() {")
+        .expect("undo should remove the mistyped function header");
+
+    client
+        .type_text(
+            "use std::collections::VecDeque;\n\n\
+             #[derive(Debug, Clone)]\n\
+             struct Todo {\n\
+             \u{20}   id: usize,\n\
+             \u{20}   title: String,\n\
+             \u{20}   done: bool,\n\
+             }\n\n\
+             fn main() {\n\
+             \u{20}   let mut todos: VecDeque<Todo> = VecDeque::new();\n",
+        )
+        .expect("type todo app prefix");
+    client.pump().expect("pump todo prefix");
+    wait_for_text_visible(&client, "struct Todo {", 16);
+    wait_for_text_visible(
+        &client,
+        "let mut todos: VecDeque<Todo> = VecDeque::new();",
+        16,
+    );
+
+    client
+        .ime_preedit(
+            "    todos.push_back(Todo { id: 1, title: \"Ship Fission\".into(), done: false });",
+            Some((0, "    todos".len())),
+        )
+        .expect("preedit todo insert");
+    client.pump().expect("pump preedit");
+    client
+        .screenshot(&format!("{}/29_todo_preedit.png", d))
+        .expect("preedit screenshot");
+    client.ime_cancel().expect("cancel preedit");
+    client.pump().expect("pump preedit cancel");
+
+    client
+        .ime_commit(
+            "    todos.push_back(Todo { id: 1, title: \"Ship Fission\".into(), done: false });\n",
+        )
+        .expect("commit todo insert");
+    client
+        .type_text("    for todo in todos.iter() {\n        println!(\"{} {}\", todo.id, todo.title);\n    }\n}\n")
+        .expect("finish todo app");
+    client.pump().expect("pump final code");
+    client
+        .assert_text_not_visible("fn mian() {")
+        .expect("the corrected todo app should not retain the typo");
+    wait_for_text_visible(&client, "for todo in todos.iter() {", 16);
+    wait_for_text_visible(&client, "println!(\"{} {}\", todo.id, todo.title);", 16);
+
+    client
+        .press_key("Home", shortcut)
+        .expect("jump to file start");
+    client.press_key("End", shortcut).expect("jump to file end");
+    client.press_key("Z", shortcut).expect("undo final edit");
+    client
+        .press_key("Z", shortcut | 1)
+        .expect("redo final edit");
+    client
+        .press_key("Space", shortcut)
+        .expect("trigger completion shortcut");
+    client
+        .screenshot(&format!("{}/30_todo_completion_attempt.png", d))
+        .expect("completion screenshot");
+
+    client.press_key("F", shortcut).expect("open find");
+    wait_for_text_visible(&client, "Find", 12);
+    client.type_text("Todo").expect("type find query");
+    client.pump().expect("pump find query");
+    client
+        .screenshot(&format!("{}/31_todo_find.png", d))
+        .expect("find screenshot");
+    client.press_key("Escape", 0).expect("close find");
+    client.pump().expect("pump close find");
+
+    client
+        .drag(520.0, 240.0, 700.0, 240.0, 12)
+        .expect("select a line region");
+    client
+        .drag(700.0, 240.0, 700.0, 300.0, 12)
+        .expect("drag selected text region");
+    client
+        .scroll(760.0, 420.0, 0.0, 360.0)
+        .expect("scroll editor");
+    client.pump().expect("pump after scroll");
+    client
+        .screenshot(&format!("{}/32_todo_after_drag_scroll.png", d))
+        .expect("drag and scroll screenshot");
+
+    client.press_key("S", shortcut).expect("save todo app");
+    client.pump().expect("pump save");
+    client
+        .screenshot(&format!("{}/33_todo_saved.png", d))
+        .expect("save screenshot");
 
     client.quit().expect("quit");
     let _ = child.wait();
