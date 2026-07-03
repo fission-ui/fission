@@ -1,3 +1,4 @@
+use crate::clipboard::ClipboardHostItem;
 use crate::{
     barcode, barcode_decode, biometric, bluetooth, camera, clipboard, geolocation, haptics,
     microphone, nfc, notifications, volume, wifi, BarcodeScannerHost, BiometricHost, BluetoothHost,
@@ -5,28 +6,29 @@ use crate::{
     NotificationHost, VolumeHost, WifiHost,
 };
 use fission_core::{
-    AudioSampleFormat, BarcodeImageDecodeRequest, BarcodeScanRequest, BarcodeScanResults,
-    BarcodeScannerError, BiometricAuthenticateRequest, BiometricAuthenticateResult,
-    BiometricAvailability, BiometricError, BiometricKind, BluetoothAdvertiseReceipt,
-    BluetoothAdvertiseRequest, BluetoothAvailability, BluetoothConnectRequest, BluetoothConnection,
-    BluetoothDevice, BluetoothDisconnectRequest, BluetoothError, BluetoothMode,
-    BluetoothPermission, BluetoothPermissionRequest, BluetoothReadRequest, BluetoothReadResult,
-    BluetoothScanRequest, BluetoothScanResult, BluetoothStopAdvertiseRequest,
-    BluetoothWriteRequest, CameraAvailability, CameraCapture, CameraCaptureRequest, CameraDevice,
-    CameraError, CameraFacing, CameraFlashlightRequest, CameraPermission, CameraPermissionRequest,
-    CancelNotificationRequest, ClipboardContent, ClipboardError, ClipboardItem, ClipboardText,
-    ClipboardWriteTextRequest, GeolocationError, GeolocationPermission,
-    GeolocationPermissionRequest, GeolocationPosition, GeolocationPositionRequest, HapticError,
-    HapticImpactRequest, HapticImpactStyle, HapticNotificationKind, HapticNotificationRequest,
-    HapticPatternRequest, MicrophoneAvailability, MicrophoneCapture, MicrophoneCaptureRequest,
-    MicrophoneDevice, MicrophoneError, MicrophonePermission, MicrophonePermissionRequest,
-    NfcAvailability, NfcEmulationRequest, NfcError, NfcScanRequest, NfcSessionReceipt, NfcTag,
-    NfcWriteRequest, NotificationError, NotificationId, NotificationPermission,
-    NotificationPermissionRequest, NotificationReceipt, NotificationRequest, NotificationSchedule,
-    NotificationSettings, PushRegistration, PushRegistrationRequest, SetBadgeCountRequest,
-    VolumeAdjustDirection, VolumeAdjustRequest, VolumeError, VolumeLevel, VolumeSetRequest,
-    VolumeStream, WifiAvailability, WifiConnectRequest, WifiConnection, WifiDisconnectRequest,
-    WifiError, WifiNetwork, WifiPermission, WifiPermissionRequest, WifiScanRequest, WifiScanResult,
+    single_chunk_data_stream, AudioSampleFormat, BarcodeImageDecodeRequest, BarcodeScanRequest,
+    BarcodeScanResults, BarcodeScannerError, BiometricAuthenticateRequest,
+    BiometricAuthenticateResult, BiometricAvailability, BiometricError, BiometricKind,
+    BluetoothAdvertiseReceipt, BluetoothAdvertiseRequest, BluetoothAvailability,
+    BluetoothConnectRequest, BluetoothConnection, BluetoothDevice, BluetoothDisconnectRequest,
+    BluetoothError, BluetoothMode, BluetoothPermission, BluetoothPermissionRequest,
+    BluetoothReadRequest, BluetoothReadResult, BluetoothScanRequest, BluetoothScanResult,
+    BluetoothStopAdvertiseRequest, BluetoothWriteRequest, Bytes, CameraAvailability, CameraCapture,
+    CameraCaptureRequest, CameraDevice, CameraError, CameraFacing, CameraFlashlightRequest,
+    CameraPermission, CameraPermissionRequest, CancelNotificationRequest, CapabilityCtx,
+    ClipboardError, ClipboardText, ClipboardWriteTextRequest, GeolocationError,
+    GeolocationPermission, GeolocationPermissionRequest, GeolocationPosition,
+    GeolocationPositionRequest, HapticError, HapticImpactRequest, HapticImpactStyle,
+    HapticNotificationKind, HapticNotificationRequest, HapticPatternRequest,
+    MicrophoneAvailability, MicrophoneCapture, MicrophoneCaptureRequest, MicrophoneDevice,
+    MicrophoneError, MicrophonePermission, MicrophonePermissionRequest, NfcAvailability,
+    NfcEmulationRequest, NfcError, NfcScanRequest, NfcSessionReceipt, NfcTag, NfcWriteRequest,
+    NotificationError, NotificationId, NotificationPermission, NotificationPermissionRequest,
+    NotificationReceipt, NotificationRequest, NotificationSchedule, NotificationSettings,
+    PushRegistration, PushRegistrationRequest, SetBadgeCountRequest, VolumeAdjustDirection,
+    VolumeAdjustRequest, VolumeError, VolumeLevel, VolumeSetRequest, VolumeStream,
+    WifiAvailability, WifiConnectRequest, WifiConnection, WifiDisconnectRequest, WifiError,
+    WifiNetwork, WifiPermission, WifiPermissionRequest, WifiScanRequest, WifiScanResult,
     WifiSecurity,
 };
 use fission_shell::async_host::AsyncRegistry;
@@ -317,30 +319,27 @@ impl ClipboardHost for AndroidClipboardHost {
             .map_err(clipboard_host_error)
     }
 
-    fn read_content(&self) -> Result<ClipboardContent, ClipboardError> {
+    fn read_content(&self) -> Result<Vec<ClipboardHostItem>, ClipboardError> {
         let text = self.read_text()?.text.unwrap_or_default();
-        Ok(ClipboardContent {
-            items: if text.is_empty() {
-                Vec::new()
-            } else {
-                vec![ClipboardItem {
-                    content_type: "text/plain".into(),
-                    bytes: text.into_bytes(),
-                    suggested_name: None,
-                }]
-            },
+        Ok(if text.is_empty() {
+            Vec::new()
+        } else {
+            vec![ClipboardHostItem {
+                content_type: "text/plain".into(),
+                bytes: Bytes::from(text),
+                suggested_name: None,
+            }]
         })
     }
 
-    fn write_content(&self, request: ClipboardContent) -> Result<(), ClipboardError> {
+    fn write_content(&self, request: Vec<ClipboardHostItem>) -> Result<(), ClipboardError> {
         let Some(item) = request
-            .items
             .into_iter()
             .find(|item| item.content_type.starts_with("text/plain"))
         else {
             return Err(ClipboardError::unsupported("write_content_non_text"));
         };
-        let text = String::from_utf8(item.bytes)
+        let text = String::from_utf8(item.bytes.to_vec())
             .map_err(|error| ClipboardError::new("invalid_text", error.to_string()))?;
         self.write_text(ClipboardWriteTextRequest { text })
     }
@@ -1226,6 +1225,7 @@ impl MicrophoneHost for AndroidMicrophoneHost {
     fn capture_audio(
         &self,
         request: MicrophoneCaptureRequest,
+        ctx: &CapabilityCtx,
     ) -> Result<MicrophoneCapture, MicrophoneError> {
         if self.permission_state()? != MicrophonePermission::Granted {
             return Err(MicrophoneError::new(
@@ -1234,7 +1234,7 @@ impl MicrophoneHost for AndroidMicrophoneHost {
             ));
         }
         self.context
-            .with_env(|env, _activity| android_capture_audio(env, request))
+            .with_env(|env, _activity| android_capture_audio(env, request, ctx))
             .map_err(microphone_host_error)
     }
 
@@ -1308,14 +1308,18 @@ impl CameraHost for AndroidCameraHost {
         self.permission_state()
     }
 
-    fn capture_photo(&self, request: CameraCaptureRequest) -> Result<CameraCapture, CameraError> {
+    fn capture_photo(
+        &self,
+        request: CameraCaptureRequest,
+        ctx: &CapabilityCtx,
+    ) -> Result<CameraCapture, CameraError> {
         if self.permission_state()? != CameraPermission::Granted {
             return Err(CameraError::new(
                 "permission_denied",
                 "Android camera permission is not granted",
             ));
         }
-        android_capture_photo(&self.context, request).map_err(camera_host_error)
+        android_capture_photo(&self.context, request, ctx).map_err(camera_host_error)
     }
 
     fn set_flashlight(&self, request: CameraFlashlightRequest) -> Result<(), CameraError> {
@@ -1362,7 +1366,7 @@ impl AndroidBarcodeScannerHost {
 
 impl BarcodeScannerHost for AndroidBarcodeScannerHost {
     fn scan(&self, request: BarcodeScanRequest) -> Result<BarcodeScanResults, BarcodeScannerError> {
-        let capture = android_capture_photo(
+        let capture = android_capture_photo_bytes(
             &self.context,
             CameraCaptureRequest {
                 camera_id: request.camera_id,
@@ -1384,8 +1388,9 @@ impl BarcodeScannerHost for AndroidBarcodeScannerHost {
     fn decode_image(
         &self,
         request: BarcodeImageDecodeRequest,
+        image: Bytes,
     ) -> Result<BarcodeScanResults, BarcodeScannerError> {
-        barcode_decode::decode_barcode_bytes(&request.bytes, &request.formats)
+        barcode_decode::decode_barcode_bytes(&image, &request.formats)
     }
 
     fn cancel_scan(&self) -> Result<(), BarcodeScannerError> {
@@ -1797,6 +1802,7 @@ fn finite_value(value: f64) -> Option<f64> {
 fn android_capture_audio(
     env: &mut JNIEnv<'_>,
     request: MicrophoneCaptureRequest,
+    ctx: &CapabilityCtx,
 ) -> JniResult<MicrophoneCapture> {
     let trace = std::env::var_os("FISSION_ANDROID_AUDIO_TRACE").is_some();
     let sample_rate_hz = request
@@ -1914,8 +1920,11 @@ fn android_capture_audio(
         ));
     }
     let (bytes, format_label) = encode_audio_samples(&captured, request.sample_format);
+    let byte_len = bytes.len() as u64;
+    let stream = ctx.register_data_stream(single_chunk_data_stream(bytes));
     Ok(MicrophoneCapture {
-        bytes,
+        stream,
+        byte_len: Some(byte_len),
         content_type: format!("audio/pcm; format={format_label}"),
         sample_rate_hz,
         channels,
@@ -1951,10 +1960,17 @@ fn encode_audio_samples(samples: &[i16], format: AudioSampleFormat) -> (Vec<u8>,
     }
 }
 
-fn android_capture_photo(
+struct AndroidPhotoBytes {
+    bytes: Vec<u8>,
+    width: u32,
+    height: u32,
+    camera_id: Option<String>,
+}
+
+fn android_capture_photo_bytes(
     context: &AndroidHostContext,
     request: CameraCaptureRequest,
-) -> Result<CameraCapture, String> {
+) -> Result<AndroidPhotoBytes, String> {
     context.with_env(|env, activity| {
         let camera_id = env.new_string(request.camera_id.as_deref().unwrap_or(""))?;
         let camera_id_obj = JObject::from(camera_id);
@@ -2006,13 +2022,30 @@ fn android_capture_photo(
         let (actual_width, actual_height) = image::load_from_memory(&bytes)
             .map(|image| (image.width(), image.height()))
             .unwrap_or((width.max(1) as u32, height.max(1) as u32));
-        Ok(CameraCapture {
+        Ok(AndroidPhotoBytes {
             bytes,
-            content_type: "image/jpeg".into(),
             width: actual_width,
             height: actual_height,
             camera_id: request.camera_id,
         })
+    })
+}
+
+fn android_capture_photo(
+    context: &AndroidHostContext,
+    request: CameraCaptureRequest,
+    ctx: &CapabilityCtx,
+) -> Result<CameraCapture, String> {
+    let capture = android_capture_photo_bytes(context, request)?;
+    let byte_len = capture.bytes.len() as u64;
+    let stream = ctx.register_data_stream(single_chunk_data_stream(capture.bytes));
+    Ok(CameraCapture {
+        stream,
+        byte_len: Some(byte_len),
+        content_type: "image/jpeg".into(),
+        width: capture.width,
+        height: capture.height,
+        camera_id: capture.camera_id,
     })
 }
 

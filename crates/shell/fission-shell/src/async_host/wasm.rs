@@ -1,6 +1,6 @@
 use fission_core::{
-    ActionEnvelope, CapabilityCtx, CapabilityType, JobCtx, JobRef, JobSpec, OperationCapability,
-    ResourceExecutionContext, ServiceSpec, ServiceType,
+    ActionEnvelope, CapabilityCtx, CapabilityType, DataStreamRegistry, JobCtx, JobRef, JobSpec,
+    OperationCapability, ResourceExecutionContext, ServiceSpec, ServiceType,
 };
 use std::collections::HashMap;
 use std::future::Future;
@@ -145,6 +145,7 @@ pub struct AsyncRegistry {
     jobs: HashMap<String, Arc<JobHandler>>,
     services: HashMap<String, Arc<ServiceSpawner>>,
     operations: HashMap<String, Arc<CapabilitySpawner>>,
+    data_streams: DataStreamRegistry,
 }
 
 impl Default for AsyncRegistry {
@@ -153,6 +154,7 @@ impl Default for AsyncRegistry {
             jobs: HashMap::new(),
             services: HashMap::new(),
             operations: HashMap::new(),
+            data_streams: DataStreamRegistry::new(),
         }
     }
 }
@@ -172,11 +174,13 @@ impl AsyncRegistry {
         Fut: Future<Output = Result<C::Ok, C::Err>> + 'static,
     {
         let handler = Arc::new(handler);
+        let data_streams = self.data_streams.clone();
         self.operations.insert(
             capability.name.to_string(),
             Arc::new(move |launch: CapabilityLaunch| {
                 let name = capability.name.to_string();
                 let handler = handler.clone();
+                let data_streams = data_streams.clone();
                 let request = match serde_json::from_slice::<C::Request>(&launch.payload) {
                     Ok(request) => request,
                     Err(err) => {
@@ -188,9 +192,7 @@ impl AsyncRegistry {
                 wasm_bindgen_futures::spawn_local(async move {
                     match handler(
                         request,
-                        CapabilityCtx {
-                            req_id: launch.req_id,
-                        },
+                        CapabilityCtx::new_runtime(launch.req_id, data_streams),
                     )
                     .await
                     {
@@ -231,10 +233,12 @@ impl AsyncRegistry {
         Fut: Future<Output = Result<J::Ok, J::Err>> + 'static,
     {
         let handler = Arc::new(handler);
+        let data_streams = self.data_streams.clone();
         self.jobs.insert(
             job.name.to_string(),
             Arc::new(move |launch: JobLaunch| {
                 let handler = handler.clone();
+                let data_streams = data_streams.clone();
                 let request = match serde_json::from_slice::<J::Request>(&launch.payload) {
                     Ok(request) => request,
                     Err(err) => {
@@ -244,14 +248,7 @@ impl AsyncRegistry {
                 };
 
                 wasm_bindgen_futures::spawn_local(async move {
-                    match handler(
-                        request,
-                        JobCtx {
-                            req_id: launch.req_id,
-                        },
-                    )
-                    .await
-                    {
+                    match handler(request, JobCtx::new_runtime(launch.req_id, data_streams)).await {
                         Ok(ok) => match serde_json::to_vec(&ok) {
                             Ok(payload) => {
                                 let _ = launch.tx.send(AsyncMessage::JobOk {

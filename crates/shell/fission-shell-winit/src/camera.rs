@@ -1,8 +1,8 @@
 use fission_core::{
-    CameraAvailability, CameraCapture, CameraCaptureRequest, CameraDevice, CameraError,
-    CameraFacing, CameraFlashlightRequest, CameraPermission, CameraPermissionRequest,
-    CANCEL_CAMERA_CAPTURE, CAPTURE_PHOTO, GET_CAMERA_AVAILABILITY, REQUEST_CAMERA_PERMISSION,
-    SET_CAMERA_FLASHLIGHT,
+    single_chunk_data_stream, CameraAvailability, CameraCapture, CameraCaptureRequest,
+    CameraDevice, CameraError, CameraFacing, CameraFlashlightRequest, CameraPermission,
+    CameraPermissionRequest, CapabilityCtx, CANCEL_CAMERA_CAPTURE, CAPTURE_PHOTO,
+    GET_CAMERA_AVAILABILITY, REQUEST_CAMERA_PERMISSION, SET_CAMERA_FLASHLIGHT,
 };
 use fission_shell::async_host::AsyncRegistry;
 use std::io::Cursor;
@@ -18,7 +18,11 @@ pub trait CameraHost: Send + Sync + 'static {
         request: CameraPermissionRequest,
     ) -> Result<CameraPermission, CameraError>;
     /// Captures a still image according to the selected camera, format, flash, and quality request.
-    fn capture_photo(&self, request: CameraCaptureRequest) -> Result<CameraCapture, CameraError>;
+    fn capture_photo(
+        &self,
+        request: CameraCaptureRequest,
+        ctx: &CapabilityCtx,
+    ) -> Result<CameraCapture, CameraError>;
     /// Enables, disables, or adjusts the selected camera flashlight where available.
     fn set_flashlight(&self, request: CameraFlashlightRequest) -> Result<(), CameraError>;
     /// Cancels an active camera capture flow.
@@ -43,7 +47,11 @@ impl CameraHost for UnsupportedCameraHost {
         Err(CameraError::unsupported("request_permission"))
     }
 
-    fn capture_photo(&self, _request: CameraCaptureRequest) -> Result<CameraCapture, CameraError> {
+    fn capture_photo(
+        &self,
+        _request: CameraCaptureRequest,
+        _ctx: &CapabilityCtx,
+    ) -> Result<CameraCapture, CameraError> {
         Err(CameraError::unsupported("capture_photo"))
     }
 
@@ -59,15 +67,30 @@ impl CameraHost for UnsupportedCameraHost {
 #[derive(Debug)]
 pub struct MemoryCameraHost {
     availability: CameraAvailability,
-    capture: CameraCapture,
+    capture_bytes: Arc<Vec<u8>>,
+    content_type: String,
+    width: u32,
+    height: u32,
+    camera_id: Option<String>,
     flashlight_calls: Arc<Mutex<Vec<CameraFlashlightRequest>>>,
 }
 
 impl MemoryCameraHost {
-    pub fn new(availability: CameraAvailability, capture: CameraCapture) -> Self {
+    pub fn new(
+        availability: CameraAvailability,
+        capture_bytes: Vec<u8>,
+        content_type: impl Into<String>,
+        width: u32,
+        height: u32,
+        camera_id: Option<String>,
+    ) -> Self {
         Self {
             availability,
-            capture,
+            capture_bytes: Arc::new(capture_bytes),
+            content_type: content_type.into(),
+            width,
+            height,
+            camera_id,
             flashlight_calls: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -92,13 +115,11 @@ impl Default for MemoryCameraHost {
                     has_flashlight: true,
                 }],
             },
-            CameraCapture {
-                bytes: demo_capture_png(96, 72),
-                content_type: "image/png".into(),
-                width: 96,
-                height: 72,
-                camera_id: Some("memory-camera".into()),
-            },
+            demo_capture_png(96, 72),
+            "image/png",
+            96,
+            72,
+            Some("memory-camera".into()),
         )
     }
 }
@@ -130,8 +151,21 @@ impl CameraHost for MemoryCameraHost {
         Ok(self.availability.permission)
     }
 
-    fn capture_photo(&self, _request: CameraCaptureRequest) -> Result<CameraCapture, CameraError> {
-        Ok(self.capture.clone())
+    fn capture_photo(
+        &self,
+        _request: CameraCaptureRequest,
+        ctx: &CapabilityCtx,
+    ) -> Result<CameraCapture, CameraError> {
+        let stream =
+            ctx.register_data_stream(single_chunk_data_stream((*self.capture_bytes).clone()));
+        Ok(CameraCapture {
+            stream,
+            byte_len: Some(self.capture_bytes.len() as u64),
+            content_type: self.content_type.clone(),
+            width: self.width,
+            height: self.height,
+            camera_id: self.camera_id.clone(),
+        })
     }
 
     fn set_flashlight(&self, request: CameraFlashlightRequest) -> Result<(), CameraError> {
@@ -161,9 +195,9 @@ pub(crate) fn register_camera_capabilities(
     });
 
     let capture_host = host.clone();
-    async_registry.register_operation_capability(CAPTURE_PHOTO, move |request, _| {
+    async_registry.register_operation_capability(CAPTURE_PHOTO, move |request, ctx| {
         let host = capture_host.clone();
-        async move { host.capture_photo(request) }
+        async move { host.capture_photo(request, &ctx) }
     });
 
     let flashlight_host = host.clone();
@@ -181,16 +215,20 @@ pub(crate) fn register_camera_capabilities(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fission_core::CameraImageFormat;
+    use fission_core::{CameraImageFormat, DataStreamRegistry};
 
     #[test]
     fn unsupported_host_reports_errors() {
         let host = UnsupportedCameraHost;
+        let ctx = CapabilityCtx::new_runtime(1, DataStreamRegistry::new());
         assert!(host
-            .capture_photo(CameraCaptureRequest {
-                format: CameraImageFormat::Jpeg,
-                ..Default::default()
-            })
+            .capture_photo(
+                CameraCaptureRequest {
+                    format: CameraImageFormat::Jpeg,
+                    ..Default::default()
+                },
+                &ctx,
+            )
             .is_err());
         assert!(host
             .set_flashlight(CameraFlashlightRequest {
@@ -206,11 +244,14 @@ mod tests {
         let availability = host.availability().unwrap();
         assert_eq!(availability.permission, CameraPermission::Granted);
 
-        let capture = host.capture_photo(CameraCaptureRequest::default()).unwrap();
+        let ctx = CapabilityCtx::new_runtime(1, DataStreamRegistry::new());
+        let capture = host
+            .capture_photo(CameraCaptureRequest::default(), &ctx)
+            .unwrap();
         assert_eq!(capture.width, 96);
         assert_eq!(capture.height, 72);
         assert_eq!(capture.content_type, "image/png");
-        image::load_from_memory(&capture.bytes).expect("memory camera capture should decode");
+        assert!(capture.stream.0 > 0);
 
         let request = CameraFlashlightRequest {
             enabled: true,

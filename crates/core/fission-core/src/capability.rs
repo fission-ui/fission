@@ -1,3 +1,6 @@
+use crate::data_stream::{
+    BoxFissionDataStream, DataStreamId, DataStreamRegistry, FissionDataStreamError,
+};
 use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
 
@@ -6,6 +9,37 @@ use std::marker::PhantomData;
 pub struct CapabilityCtx {
     /// Request id that identifies the corresponding effect envelope.
     pub req_id: u64,
+    data_streams: DataStreamRegistry,
+}
+
+impl CapabilityCtx {
+    #[doc(hidden)]
+    pub fn new_runtime(req_id: u64, data_streams: DataStreamRegistry) -> Self {
+        Self {
+            req_id,
+            data_streams,
+        }
+    }
+
+    /// Registers a host-owned data stream and returns the handle that can be
+    /// passed back through a capability result.
+    pub fn register_data_stream(&self, stream: BoxFissionDataStream) -> DataStreamId {
+        self.data_streams.register(stream)
+    }
+
+    /// Opens a runtime-owned data stream for capability implementations that
+    /// need to consume stream handles supplied by app code.
+    pub fn open_data_stream(
+        &self,
+        id: DataStreamId,
+    ) -> Result<BoxFissionDataStream, FissionDataStreamError> {
+        self.data_streams.open(id)
+    }
+
+    /// Releases a previously registered stream without consuming it.
+    pub fn release_data_stream(&self, id: DataStreamId) -> bool {
+        self.data_streams.release(id)
+    }
 }
 
 /// Trait for one-shot host capabilities.
@@ -89,7 +123,7 @@ pub const OPEN_URL: CapabilityType<OpenUrlCapability> = CapabilityType::new("fis
 /// The contract is intentionally portable:
 /// - no raw local paths are exposed,
 /// - the shell chooses the native picker UI,
-/// - and selected files are returned as bytes plus metadata.
+/// - and selected files are returned as stream handles plus metadata.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PickOpenFilesRequest {
     pub allow_multiple: bool,
@@ -100,9 +134,14 @@ pub struct PickOpenFilesRequest {
 /// A user-granted file returned from a picker capability.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PickedFile {
+    /// User-facing file name supplied by the host.
     pub name: String,
-    pub content_type: String,
-    pub bytes: Vec<u8>,
+    /// MIME type when the host can identify it.
+    pub content_type: Option<String>,
+    /// Total byte length when the host can determine it up front.
+    pub byte_len: Option<u64>,
+    /// Runtime-owned stream containing the selected file contents.
+    pub stream: DataStreamId,
 }
 
 /// Result payload for a file picker operation.
@@ -147,8 +186,9 @@ mod tests {
         let result = PickOpenFilesResult {
             files: vec![PickedFile {
                 name: "receipt.pdf".into(),
-                content_type: "application/pdf".into(),
-                bytes: b"hello".to_vec(),
+                content_type: Some("application/pdf".into()),
+                byte_len: Some(5),
+                stream: DataStreamId(7),
             }],
         };
         let bytes = serde_json::to_vec(&result).unwrap();

@@ -1,14 +1,15 @@
 use fission_core::{
-    BarcodeFormat, BarcodeImageDecodeRequest, BarcodePoint, BarcodeScanRequest, BarcodeScanResult,
-    BarcodeScanResults, BarcodeScannerError, BluetoothAdvertiseReceipt, BluetoothAdvertiseRequest,
-    BluetoothAvailability, BluetoothConnectRequest, BluetoothConnection, BluetoothDevice,
-    BluetoothDisconnectRequest, BluetoothError, BluetoothMode, BluetoothPermission,
-    BluetoothPermissionRequest, BluetoothReadRequest, BluetoothReadResult, BluetoothScanRequest,
-    BluetoothScanResult, BluetoothStopAdvertiseRequest, BluetoothWriteRequest, CameraAvailability,
-    CameraCapture, CameraCaptureRequest, CameraDevice, CameraError, CameraFacing,
-    CameraFlashlightRequest, CameraImageFormat, CameraPermission, CameraPermissionRequest,
-    ClipboardContent, ClipboardError, ClipboardItem, ClipboardText, ClipboardWriteTextRequest,
-    GeolocationError, GeolocationPermission, GeolocationPermissionRequest, GeolocationPosition,
+    collect_data_stream, single_chunk_data_stream, BarcodeFormat, BarcodeImageDecodeRequest,
+    BarcodePoint, BarcodeScanRequest, BarcodeScanResult, BarcodeScanResults, BarcodeScannerError,
+    BluetoothAdvertiseReceipt, BluetoothAdvertiseRequest, BluetoothAvailability,
+    BluetoothConnectRequest, BluetoothConnection, BluetoothDevice, BluetoothDisconnectRequest,
+    BluetoothError, BluetoothMode, BluetoothPermission, BluetoothPermissionRequest,
+    BluetoothReadRequest, BluetoothReadResult, BluetoothScanRequest, BluetoothScanResult,
+    BluetoothStopAdvertiseRequest, BluetoothWriteRequest, Bytes, CameraAvailability, CameraCapture,
+    CameraCaptureRequest, CameraDevice, CameraError, CameraFacing, CameraFlashlightRequest,
+    CameraImageFormat, CameraPermission, CameraPermissionRequest, ClipboardContent, ClipboardError,
+    ClipboardItem, ClipboardText, ClipboardWriteTextRequest, GeolocationError,
+    GeolocationPermission, GeolocationPermissionRequest, GeolocationPosition,
     GeolocationPositionRequest, HapticError, HapticImpactRequest, HapticImpactStyle,
     HapticNotificationRequest, HapticPatternRequest, HapticPatternStep, MicrophoneAvailability,
     MicrophoneCapture, MicrophoneCaptureRequest, MicrophoneDevice, MicrophoneError,
@@ -963,33 +964,44 @@ fn register_clipboard(async_registry: &mut AsyncRegistry) {
         },
     );
 
-    async_registry.register_operation_capability(READ_CLIPBOARD_CONTENT, move |(), _| async {
-        let value = await_promise(fissionClipboardReadText())
-            .await
-            .map_err(clipboard_error)?;
-        let text = value.as_string().unwrap_or_default();
-        Ok(ClipboardContent {
-            items: if text.is_empty() {
-                Vec::new()
-            } else {
-                vec![ClipboardItem {
-                    content_type: "text/plain".into(),
-                    bytes: text.into_bytes(),
-                    suggested_name: None,
-                }]
-            },
-        })
-    });
+    async_registry.register_operation_capability(
+        READ_CLIPBOARD_CONTENT,
+        move |(), ctx| async move {
+            let value = await_promise(fissionClipboardReadText())
+                .await
+                .map_err(clipboard_error)?;
+            let text = value.as_string().unwrap_or_default();
+            Ok(ClipboardContent {
+                items: if text.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![ClipboardItem {
+                        content_type: "text/plain".into(),
+                        byte_len: Some(text.len() as u64),
+                        stream: ctx.register_data_stream(single_chunk_data_stream(text)),
+                        suggested_name: None,
+                    }]
+                },
+            })
+        },
+    );
 
     async_registry.register_operation_capability(
         WRITE_CLIPBOARD_CONTENT,
-        move |request, _| async move {
-            let text = request
+        move |request, ctx| async move {
+            let item = request
                 .items
-                .iter()
+                .into_iter()
                 .find(|item| item.content_type.starts_with("text/plain"))
-                .and_then(|item| String::from_utf8(item.bytes.clone()).ok())
                 .ok_or_else(|| ClipboardError::unsupported("write_content_non_text"))?;
+            let stream = ctx
+                .open_data_stream(item.stream)
+                .map_err(|error| ClipboardError::new("stream_open_failed", error.to_string()))?;
+            let bytes = collect_data_stream(stream)
+                .await
+                .map_err(|error| ClipboardError::new("stream_read_failed", error.to_string()))?;
+            let text = String::from_utf8(bytes.to_vec())
+                .map_err(|error| ClipboardError::new("invalid_text", error.to_string()))?;
             await_promise(fissionClipboardWriteText(&text))
                 .await
                 .map_err(clipboard_error)?;
@@ -1113,7 +1125,7 @@ fn register_camera(async_registry: &mut AsyncRegistry) {
         },
     );
 
-    async_registry.register_operation_capability(CAPTURE_PHOTO, move |request, _| async move {
+    async_registry.register_operation_capability(CAPTURE_PHOTO, move |request, ctx| async move {
         let (width, height) = request
             .resolution
             .map(|resolution| (resolution.width, resolution.height))
@@ -1134,8 +1146,11 @@ fn register_camera(async_registry: &mut AsyncRegistry) {
                 "web camera capture returned no bytes",
             ));
         }
+        let byte_len = bytes.len() as u64;
+        let stream = ctx.register_data_stream(single_chunk_data_stream(bytes));
         Ok(CameraCapture {
-            bytes,
+            stream,
+            byte_len: Some(byte_len),
             content_type: string_prop(&value, "contentType").unwrap_or_else(|| "image/png".into()),
             width: f64_prop(&value, "width").unwrap_or_default() as u32,
             height: f64_prop(&value, "height").unwrap_or_default() as u32,
@@ -1192,13 +1207,17 @@ fn register_microphone(async_registry: &mut AsyncRegistry) {
 
     async_registry.register_operation_capability(
         CAPTURE_MICROPHONE_AUDIO,
-        move |request, _| async move {
+        move |request, ctx| async move {
             let duration = request.duration_ms.min(u32::MAX as u64) as u32;
             let value = await_promise(fissionCaptureAudio(duration))
                 .await
                 .map_err(microphone_error)?;
+            let bytes = bytes_prop(&value, "bytes");
+            let byte_len = bytes.len() as u64;
+            let stream = ctx.register_data_stream(single_chunk_data_stream(bytes));
             Ok(MicrophoneCapture {
-                bytes: bytes_prop(&value, "bytes"),
+                stream,
+                byte_len: Some(byte_len),
                 content_type: string_prop(&value, "contentType")
                     .unwrap_or_else(|| "audio/webm".into()),
                 sample_rate_hz: request.sample_rate_hz.unwrap_or(48_000),
@@ -1230,8 +1249,14 @@ fn register_barcode(async_registry: &mut AsyncRegistry) {
 
     async_registry.register_operation_capability(
         DECODE_BARCODE_IMAGE,
-        move |request, _| async move {
-            let bytes = Uint8Array::from(request.bytes.as_slice());
+        move |request, ctx| async move {
+            let stream = ctx.open_data_stream(request.stream).map_err(|error| {
+                BarcodeScannerError::new("stream_open_failed", error.to_string())
+            })?;
+            let image = collect_data_stream(stream).await.map_err(|error| {
+                BarcodeScannerError::new("stream_read_failed", error.to_string())
+            })?;
+            let bytes = Uint8Array::from(image.as_ref());
             let value = await_promise(fissionBarcodeDecode(
                 &bytes,
                 request.content_type.as_deref().unwrap_or("image/png"),

@@ -808,7 +808,7 @@ impl<'a, 'b, S: GlobalState> BarcodeScannerEffects<'a, 'b, S> {
         self.effects.capability(SCAN_BARCODE, request)
     }
 
-    /// Decodes barcode data from image bytes supplied by the app.
+    /// Decodes barcode data from an image stream supplied by the app.
     ///
     /// Use this when the image already exists, such as a file import or camera
     /// frame captured elsewhere. The host should not request camera permission
@@ -854,7 +854,7 @@ impl<'a, 'b, S: GlobalState> CameraEffects<'a, 'b, S> {
     ///
     /// `request` chooses camera id or facing direction, optional resolution, image
     /// format, flash behavior, and quality. The success action receives image
-    /// bytes plus dimensions and content type.
+    /// stream handle plus dimensions, byte length, and content type.
     pub fn capture_photo(self, request: CameraCaptureRequest) -> EffectBuilder<'a, 'b, S> {
         self.effects.capability(CAPTURE_PHOTO, request)
     }
@@ -1039,7 +1039,8 @@ impl<'a, 'b, S: GlobalState> MicrophoneEffects<'a, 'b, S> {
     ///
     /// `request.duration_ms` must define the intended capture length. Optional
     /// sample rate, channel count, and sample format let the host choose the
-    /// closest supported recording configuration.
+    /// closest supported recording configuration. The success action receives a
+    /// stream handle plus recording metadata.
     pub fn capture_audio(self, request: MicrophoneCaptureRequest) -> EffectBuilder<'a, 'b, S> {
         self.effects.capability(CAPTURE_MICROPHONE_AUDIO, request)
     }

@@ -3282,7 +3282,7 @@ where
 
     /// Registers the host implementation used for barcode scanner effects.
     ///
-    /// `host` may run live camera scanning, decode supplied image bytes, or both.
+    /// `host` may run live camera scanning, decode supplied image streams, or both.
     /// Reducers should rely on this provider instead of depending on a specific
     /// camera or decoder library.
     pub fn with_barcode_scanner_host<H>(mut self, host: H) -> Self

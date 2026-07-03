@@ -1,6 +1,7 @@
 //! Barcode scanner host capabilities.
 
 use crate::capability::{CapabilityType, OperationCapability};
+use crate::DataStreamId;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -41,8 +42,13 @@ pub struct BarcodeScanRequest {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BarcodeImageDecodeRequest {
-    pub bytes: Vec<u8>,
+    /// Runtime-owned stream containing encoded image data to decode.
+    pub stream: DataStreamId,
+    /// Total encoded byte length when the app knows it up front.
+    pub byte_len: Option<u64>,
+    /// MIME type for the encoded image, when known.
     pub content_type: Option<String>,
+    /// Barcode formats the app accepts.
     pub formats: Vec<BarcodeFormat>,
 }
 

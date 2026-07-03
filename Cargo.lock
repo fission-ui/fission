@@ -2787,6 +2787,7 @@ version = "0.6.3"
 dependencies = [
  "anyhow",
  "blake3",
+ "bytes",
  "downcast-rs",
  "fission-diagnostics",
  "fission-i18n",
@@ -2796,6 +2797,7 @@ dependencies = [
  "fission-semantics",
  "fission-text-engine",
  "fission-theme",
+ "futures-core",
  "glam",
  "lazy_static",
  "serde",

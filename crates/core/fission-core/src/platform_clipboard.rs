@@ -1,6 +1,7 @@
 //! Clipboard host capabilities.
 
 use crate::capability::{CapabilityType, OperationCapability};
+use crate::DataStreamId;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -15,8 +16,13 @@ pub struct ClipboardWriteTextRequest {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClipboardItem {
+    /// MIME type for this clipboard item.
     pub content_type: String,
-    pub bytes: Vec<u8>,
+    /// Runtime-owned stream containing this item payload.
+    pub stream: DataStreamId,
+    /// Total byte length when the host can determine it up front.
+    pub byte_len: Option<u64>,
+    /// Optional filename or display name associated with this item.
     pub suggested_name: Option<String>,
 }
 
@@ -126,7 +132,8 @@ mod tests {
         let content = ClipboardContent {
             items: vec![ClipboardItem {
                 content_type: "text/plain".into(),
-                bytes: b"copy me".to_vec(),
+                stream: DataStreamId(42),
+                byte_len: Some(7),
                 suggested_name: None,
             }],
         };
