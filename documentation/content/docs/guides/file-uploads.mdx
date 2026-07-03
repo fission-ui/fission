@@ -1,0 +1,286 @@
+---
+title: How do I do file uploads in Fission?
+description: Use FileUpload for presentation, PICK_OPEN_FILES for the host picker, and FissionDataStream handles so large files are consumed by jobs or services instead of reducers.
+---
+
+# How do I do file uploads in Fission?
+
+A Fission file upload is split into three deliberately separate parts:
+
+1. the widget renders the browse affordance;
+2. the reducer asks the host to pick files;
+3. a job or service consumes the selected file stream.
+
+Reducers never receive the selected file as a `Vec<u8>`. The picker returns metadata plus a `DataStreamId`. That handle points at a runtime-owned `FissionDataStream`, and the stream is opened by async code through `JobCtx::open_data_stream(...)`, `ServiceCtx::open_data_stream(...)`, or host capability code.
+
+That shape keeps large files out of app state, action payloads, logs, diagnostics, and replayable reducer paths.
+
+## 1. Render the upload control
+
+`FileUpload` is presentation only. It shows a button and the currently selected file label. It does not open the host picker by itself.
+
+```rust
+use fission::prelude::*;
+
+pub struct AttachmentPicker;
+
+impl From<AttachmentPicker> for Widget {
+    fn from(_: AttachmentPicker) -> Widget {
+        let (ctx, view) = fission::build::current::<AppState>();
+
+        FileUpload {
+            label: "Choose attachment".into(),
+            selected_file: view.state().attachment_name.clone(),
+            on_browse: Some(with_reducer!(ctx, PickAttachment, on_pick_attachment)),
+        }
+        .into()
+    }
+}
+```
+
+The visible filename belongs in `GlobalState` because it is product state: the user picked something and the rest of the screen may need to react to it.
+
+```rust
+#[derive(Debug, Clone, Default)]
+pub struct AppState {
+    pub attachment_name: Option<String>,
+    pub pending_attachment: Option<PickedAttachment>,
+    pub upload_status: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PickedAttachment {
+    pub name: String,
+    pub content_type: Option<String>,
+    pub byte_len: Option<u64>,
+    pub stream: DataStreamId,
+}
+```
+
+## 2. Ask the host to pick files
+
+The browse reducer emits a capability request. The shell owns the actual picker UI because it is platform-specific host behavior.
+
+```rust
+use fission::prelude::*;
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PickAttachment;
+
+fn on_pick_attachment(
+    state: &mut AppState,
+    _: PickAttachment,
+    ctx: &mut ReducerContext<AppState>,
+) {
+    state.upload_status = Some("Waiting for file selection".into());
+
+    ctx.effects
+        .capability(
+            PICK_OPEN_FILES,
+            PickOpenFilesRequest {
+                allow_multiple: false,
+                mime_types: vec!["application/pdf".into(), "image/png".into()],
+                extensions: vec!["pdf".into(), "png".into()],
+            },
+        )
+        .on_ok(ctx.effects.bind(
+            AttachmentPicked,
+            reduce_with!(on_attachment_picked),
+        ))
+        .on_err(ctx.effects.bind(
+            AttachmentPickFailed,
+            reduce_with!(on_attachment_pick_failed),
+        ));
+}
+```
+
+The desktop shell provides a default `PICK_OPEN_FILES` provider on macOS, Windows, and Linux. Other shells can register their own provider for the same capability when their host supports file picking.
+
+## 3. Store metadata, not bytes
+
+The success reducer reads the capability result from `ctx.input`. It stores metadata and the stream handle. It does not open the stream and does not read bytes.
+
+```rust
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AttachmentPicked;
+
+fn on_attachment_picked(
+    state: &mut AppState,
+    _: AttachmentPicked,
+    ctx: &mut ReducerContext<AppState>,
+) {
+    let Some(result) = ctx.input.capability_ok(PICK_OPEN_FILES) else {
+        return;
+    };
+
+    let Some(file) = result.files.into_iter().next() else {
+        state.upload_status = Some("No file selected".into());
+        return;
+    };
+
+    state.attachment_name = Some(file.name.clone());
+    state.pending_attachment = Some(PickedAttachment {
+        name: file.name,
+        content_type: file.content_type,
+        byte_len: file.byte_len,
+        stream: file.stream,
+    });
+    state.upload_status = Some("Ready to upload".into());
+}
+```
+
+The stream is one-shot. Once a job or service opens it, later opens fail with `FissionDataStreamErrorKind::AlreadyConsumed`. If the user picks a new file, use the new handle.
+
+## 4. Consume the stream in a job
+
+Use a job when the upload/import is one request with one eventual result.
+
+```rust
+#[derive(Debug)]
+pub struct UploadAttachmentJob;
+
+impl JobSpec for UploadAttachmentJob {
+    type Request = UploadAttachmentRequest;
+    type Ok = UploadAttachmentResult;
+    type Err = String;
+
+    const NAME: &'static str = "app::upload-attachment";
+}
+
+pub const UPLOAD_ATTACHMENT_JOB: JobRef<UploadAttachmentJob> =
+    JobRef::new(UploadAttachmentJob::NAME);
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct UploadAttachmentRequest {
+    pub name: String,
+    pub content_type: Option<String>,
+    pub byte_len: Option<u64>,
+    pub stream: DataStreamId,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct UploadAttachmentResult {
+    pub object_id: String,
+}
+```
+
+A reducer starts the job by passing the handle, still without reading the file.
+
+```rust
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct UploadAttachment;
+
+fn on_upload_attachment(
+    state: &mut AppState,
+    _: UploadAttachment,
+    ctx: &mut ReducerContext<AppState>,
+) {
+    let Some(file) = state.pending_attachment.clone() else {
+        state.upload_status = Some("Choose a file first".into());
+        return;
+    };
+
+    state.upload_status = Some("Uploading".into());
+
+    ctx.effects
+        .app(
+            UPLOAD_ATTACHMENT_JOB,
+            UploadAttachmentRequest {
+                name: file.name,
+                content_type: file.content_type,
+                byte_len: file.byte_len,
+                stream: file.stream,
+            },
+        )
+        .on_ok(ctx.effects.bind(
+            AttachmentUploaded,
+            reduce_with!(on_attachment_uploaded),
+        ))
+        .on_err(ctx.effects.bind(
+            AttachmentUploadFailed,
+            reduce_with!(on_attachment_upload_failed),
+        ));
+}
+```
+
+Register the job in the shell and stream chunks inside async code.
+
+```rust
+use futures_util::StreamExt;
+
+DesktopApp::<AppState, _>::new(App)
+    .with_async(|asyncs| {
+        asyncs.register_job(
+            UPLOAD_ATTACHMENT_JOB,
+            |request: UploadAttachmentRequest, ctx: JobCtx| async move {
+                let mut stream = ctx
+                    .open_data_stream(request.stream)
+                    .map_err(|error| error.to_string())?;
+
+                let mut uploaded = 0_u64;
+                while let Some(chunk) = stream.next().await {
+                    let chunk = chunk.map_err(|error| error.to_string())?;
+                    uploaded += chunk.len() as u64;
+
+                    // Send `chunk` to object storage, hash it, parse it, or write it
+                    // to a temporary file. Do not buffer the whole stream unless the
+                    // target API forces you to.
+                }
+
+                Ok(UploadAttachmentResult {
+                    object_id: format!("attachment:{uploaded}"),
+                })
+            },
+        );
+    })
+    .run()
+```
+
+Use `fission::core::collect_data_stream(...)` only at a boundary where a platform API or third-party SDK requires one contiguous buffer. The normal upload path should keep chunking.
+
+## 5. Use a service when the upload is a conversation
+
+Use a service instead of a job when the work has identity over time: resumable uploads, progress events, cancellation, virus scanning, previews, or a long-running import pipeline.
+
+The reducer still passes a `DataStreamId`, but the service opens it with `ServiceCtx::open_data_stream(...)` and emits progress events through `ServiceCtx::emit(...)`.
+
+```rust
+// Shape only: the stream boundary is the important part.
+let stream = ctx.open_data_stream(command.stream)?;
+while let Some(chunk) = stream.next().await {
+    let bytes = chunk?;
+    upload_part(bytes).await?;
+    ctx.emit(UploadProgress { uploaded_bytes }).await?;
+}
+```
+
+A service is the right choice when the UI needs progress, pause/resume, cancellation, or multiple events from the same upload session.
+
+## Target support
+
+The portable Fission contract is `PICK_OPEN_FILES` plus `FissionDataStream` handles. Individual shells decide how they satisfy that contract.
+
+| Target | Default behavior |
+| --- | --- |
+| macOS, Windows, Linux | Native open-file picker with file contents streamed from disk. |
+| Web | Shell/provider-specific. Browser file APIs can register streams for picked files. |
+| Android, iOS | Shell/provider-specific. Native pickers should return scoped streams or copied sandbox streams. |
+| Server, SSR, Static site, Terminal | Usually unsupported unless the host app registers an appropriate provider. |
+
+Unsupported targets should return a capability error. They must not fabricate an empty stream or fake file bytes.
+
+## Why not put bytes in reducers?
+
+Large bytes in reducers make apps harder to reason about:
+
+- action logs become huge and privacy-sensitive;
+- state snapshots accidentally retain file contents;
+- retries and tests become memory-heavy;
+- host permissions leak into app logic;
+- cancellation and backpressure are nearly impossible to model cleanly.
+
+A `DataStreamId` is enough for the UI state. The actual bytes belong to runtime-managed async code.
+
+## Related
+
+Read [Why reducers are synchronous](/docs/guides/why-reducers-are-synchronous/) for the architectural reason behind this split. The widget API is documented on [`FileUpload`](/reference/widgets/file-upload/), and the broader async model is covered by [Resources and async](/docs/guides/resources-and-async/).

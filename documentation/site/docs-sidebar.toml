@@ -71,6 +71,16 @@ href = "/docs/guides/resources-and-async/"
 level = 2
 
 [[items]]
+title = "File uploads"
+href = "/docs/guides/file-uploads/"
+level = 2
+
+[[items]]
+title = "Why reducers are synchronous"
+href = "/docs/guides/why-reducers-are-synchronous/"
+level = 2
+
+[[items]]
 title = "Theming and internationalisation"
 href = "/docs/guides/theming-and-i18n/"
 level = 2
