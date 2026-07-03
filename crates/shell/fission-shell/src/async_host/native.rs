@@ -1,6 +1,6 @@
 use fission_core::{
-    ActionEnvelope, BoxFuture, CapabilityCtx, CapabilityType, JobCtx, JobRef, JobSpec,
-    OperationCapability, ResourceExecutionContext, ServiceCtx, ServiceRunner, ServiceSpec,
+    ActionEnvelope, BoxFuture, CapabilityCtx, CapabilityType, DataStreamRegistry, JobCtx, JobRef,
+    JobSpec, OperationCapability, ResourceExecutionContext, ServiceCtx, ServiceRunner, ServiceSpec,
     ServiceType,
 };
 use std::collections::HashMap;
@@ -148,6 +148,7 @@ pub struct AsyncRegistry {
     jobs: HashMap<String, Arc<JobHandler>>,
     services: HashMap<String, Arc<ServiceSpawner>>,
     operations: HashMap<String, Arc<CapabilitySpawner>>,
+    data_streams: DataStreamRegistry,
 }
 
 impl Default for AsyncRegistry {
@@ -156,6 +157,7 @@ impl Default for AsyncRegistry {
             jobs: HashMap::new(),
             services: HashMap::new(),
             operations: HashMap::new(),
+            data_streams: DataStreamRegistry::new(),
         }
     }
 }
@@ -175,11 +177,13 @@ impl AsyncRegistry {
         Fut: Future<Output = Result<C::Ok, C::Err>> + Send + 'static,
     {
         let handler = Arc::new(handler);
+        let data_streams = self.data_streams.clone();
         self.operations.insert(
             capability.name.to_string(),
             Arc::new(move |launch: CapabilityLaunch| {
                 let handler = handler.clone();
                 let name = capability.name.to_string();
+                let data_streams = data_streams.clone();
                 std::thread::spawn(move || {
                     let runtime = match new_job_runtime() {
                         Ok(runtime) => runtime,
@@ -215,9 +219,7 @@ impl AsyncRegistry {
 
                     match runtime.block_on(handler(
                         request,
-                        CapabilityCtx {
-                            req_id: launch.req_id,
-                        },
+                        CapabilityCtx::new_runtime(launch.req_id, data_streams),
                     )) {
                         Ok(ok) => match serde_json::to_vec(&ok) {
                             Ok(payload) => {
@@ -271,10 +273,12 @@ impl AsyncRegistry {
         Fut: Future<Output = Result<J::Ok, J::Err>> + Send + 'static,
     {
         let handler = Arc::new(handler);
+        let data_streams = self.data_streams.clone();
         self.jobs.insert(
             job.name.to_string(),
             Arc::new(move |launch: JobLaunch| {
                 let handler = handler.clone();
+                let data_streams = data_streams.clone();
                 std::thread::spawn(move || {
                     let runtime = match new_job_runtime() {
                         Ok(runtime) => runtime,
@@ -309,9 +313,7 @@ impl AsyncRegistry {
 
                     match runtime.block_on(handler(
                         request,
-                        JobCtx {
-                            req_id: launch.req_id,
-                        },
+                        JobCtx::new_runtime(launch.req_id, data_streams),
                     )) {
                         Ok(ok) => match serde_json::to_vec(&ok) {
                             Ok(payload) => {
@@ -365,11 +367,13 @@ impl AsyncRegistry {
         Fut: Future<Output = Result<Box<dyn ServiceRunner<S>>, S::StartErr>> + Send + 'static,
     {
         let starter = Arc::new(starter);
+        let data_streams = self.data_streams.clone();
         self.services.insert(
             service.name.to_string(),
             Arc::new(move |launch: ServiceLaunch| {
                 let (control_tx, control_rx) = mpsc::channel();
                 let starter = starter.clone();
+                let data_streams = data_streams.clone();
                 let tx = launch.tx.clone();
                 let wake = launch.wake.clone();
                 let service_name = launch.service_name.clone();
@@ -423,6 +427,7 @@ impl AsyncRegistry {
                         service_name.clone(),
                         slot_key.clone(),
                         instance_id,
+                        data_streams,
                         emit,
                     );
 

@@ -1,6 +1,6 @@
 [package]
 name = "fission-core"
-version = "0.6.3"
+version = "0.7.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/fission-ui/fission"
@@ -10,21 +10,23 @@ homepage = "https://fission.rs"
 documentation = "https://fission.rs"
 readme = "README.md"
 [dependencies]
-fission-ir = { path = "../fission-ir", version = "0.6.3" }
-fission-layout = { path = "../fission-layout", version = "0.6.3" }
-fission-semantics = { path = "../fission-semantics", version = "0.6.3" }
-fission-theme = { path = "../fission-theme", version = "0.6.3" }
-fission-i18n = { path = "../fission-i18n", version = "0.6.3" }
-fission-text-engine = { path = "../fission-text-engine", version = "0.6.3" }
-fission-macros = { path = "../../authoring/fission-macros", version = "0.6.3" }
+fission-ir = { path = "../fission-ir", version = "0.7.0" }
+fission-layout = { path = "../fission-layout", version = "0.7.0" }
+fission-semantics = { path = "../fission-semantics", version = "0.7.0" }
+fission-theme = { path = "../fission-theme", version = "0.7.0" }
+fission-i18n = { path = "../fission-i18n", version = "0.7.0" }
+fission-text-engine = { path = "../fission-text-engine", version = "0.7.0" }
+fission-macros = { path = "../../authoring/fission-macros", version = "0.7.0" }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 anyhow = "1.0"
+bytes = "1.7"
+futures-core = "0.3"
 downcast-rs = "1.2"
 lazy_static = "1.4"
 blake3 = "1.5"
 unicode-segmentation = "1.10"
 glam = "0.29"
-fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.6.3" }
+fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.7.0" }
 
 [dev-dependencies]

@@ -1,4 +1,6 @@
-use crate::api::{ApiError, WeatherRequest, WeatherSummary, WEATHER_JOB};
+use crate::api::{
+    ApiError, StreamBytesRequest, WeatherRequest, WeatherSummary, STREAM_BYTES_JOB, WEATHER_JOB,
+};
 use crate::data::{work_orders, WorkOrder};
 use fission::core::ActionInput;
 use fission::prelude::*;
@@ -129,6 +131,7 @@ pub struct FieldInspectorState {
     pub scanned_barcode: Option<BarcodeScanResults>,
     pub scanned_nfc: Option<NfcTag>,
     pub photo_capture: Option<CameraCapture>,
+    pub photo_preview: Option<Vec<u8>>,
     pub voice_note: Option<MicrophoneCapture>,
     pub bluetooth_devices: Vec<BluetoothDevice>,
     pub bluetooth_connection: Option<BluetoothConnection>,
@@ -175,6 +178,7 @@ impl Default for FieldInspectorState {
             scanned_barcode: None,
             scanned_nfc: None,
             photo_capture: None,
+            photo_preview: None,
             voice_note: None,
             bluetooth_devices: Vec::new(),
             bluetooth_connection: None,
@@ -428,7 +432,7 @@ impl FieldInspectorState {
                             p.width,
                             p.height,
                             p.content_type,
-                            (p.bytes.len().saturating_add(1023)) / 1024
+                            p.byte_len.map(kib).unwrap_or_default()
                         )
                     })
                     .or_else(|| {
@@ -493,7 +497,7 @@ impl FieldInspectorState {
                             "{} ms, {} Hz, {} KiB",
                             n.duration_ms,
                             n.sample_rate_hz,
-                            (n.bytes.len().saturating_add(1023)) / 1024
+                            n.byte_len.map(kib).unwrap_or_default()
                         )
                     })
                     .or_else(|| {
@@ -675,6 +679,7 @@ impl FieldInspectorState {
         self.scanned_barcode = None;
         self.scanned_nfc = None;
         self.photo_capture = None;
+        self.photo_preview = None;
         self.voice_note = None;
         self.bluetooth_devices.clear();
         self.bluetooth_connection = None;
@@ -1378,6 +1383,38 @@ pub fn on_notification_response_received(
     }
 }
 
+fn kib(byte_len: u64) -> u64 {
+    (byte_len.saturating_add(1023)) / 1024
+}
+
+#[fission_reducer(PhotoPreviewLoaded)]
+pub fn on_photo_preview_loaded(
+    state: &mut FieldInspectorState,
+    ctx: &mut ReducerContext<FieldInspectorState>,
+) {
+    if let Some(preview) = ctx.input.job_ok(STREAM_BYTES_JOB) {
+        state.photo_preview = Some(preview.bytes);
+    }
+}
+
+#[fission_reducer(PhotoPreviewFailed)]
+pub fn on_photo_preview_failed(
+    state: &mut FieldInspectorState,
+    ctx: &mut ReducerContext<FieldInspectorState>,
+) {
+    let message = ctx
+        .input
+        .job_err(STREAM_BYTES_JOB)
+        .map(|error| error.message)
+        .or_else(|| {
+            ctx.input
+                .job_error_message(STREAM_BYTES_JOB)
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| "Photo preview stream could not be read".into());
+    state.log("Photo preview", message, CapabilityState::Warning);
+}
+
 #[fission_reducer(WeatherLoaded)]
 pub fn on_weather_loaded(
     state: &mut FieldInspectorState,
@@ -1510,11 +1547,23 @@ pub fn on_capability_succeeded(
             capture.width,
             capture.height,
             capture.content_type,
-            (capture.bytes.len().saturating_add(1023)) / 1024
+            capture.byte_len.map(kib).unwrap_or_default()
         );
+        let stream = capture.stream;
         state.photo_capture = Some(capture);
+        state.photo_preview = None;
         state.complete_check("evidence");
         state.log("Photo", detail, CapabilityState::Complete);
+        let preview_ok = ctx
+            .effects
+            .bind(PhotoPreviewLoaded, reduce_with!(on_photo_preview_loaded));
+        let preview_err = ctx
+            .effects
+            .bind(PhotoPreviewFailed, reduce_with!(on_photo_preview_failed));
+        ctx.effects
+            .app(STREAM_BYTES_JOB, StreamBytesRequest { stream })
+            .on_ok(preview_ok)
+            .on_err(preview_err);
     }
     if let Some(results) = ctx.input.capability_ok(SCAN_BARCODE) {
         let detail = results
@@ -1884,7 +1933,8 @@ mod tests {
                     capability: CAPTURE_PHOTO.name.into(),
                     req_id: 1,
                     payload: serde_json::to_vec(&CameraCapture {
-                        bytes: vec![42; 2049],
+                        stream: DataStreamId(7),
+                        byte_len: Some(2049),
                         content_type: "image/jpeg".into(),
                         width: 100,
                         height: 50,

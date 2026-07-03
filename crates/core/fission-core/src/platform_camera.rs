@@ -1,6 +1,7 @@
 //! Camera and flashlight host capabilities.
 
 use crate::capability::{CapabilityType, OperationCapability};
+use crate::DataStreamId;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -75,10 +76,17 @@ pub struct CameraCaptureRequest {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CameraCapture {
-    pub bytes: Vec<u8>,
+    /// Runtime-owned stream containing the encoded image bytes.
+    pub stream: DataStreamId,
+    /// Total encoded byte length when the host can determine it up front.
+    pub byte_len: Option<u64>,
+    /// MIME type for the encoded image, for example `image/jpeg`.
     pub content_type: String,
+    /// Captured image width in pixels.
     pub width: u32,
+    /// Captured image height in pixels.
     pub height: u32,
+    /// Host camera id that produced the capture, when known.
     pub camera_id: Option<String>,
 }
 

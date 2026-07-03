@@ -15,6 +15,8 @@ Reducers update state. They do not directly perform outside work.
 
 Outside work is requested explicitly through runtime effects or declared as a runtime-managed resource. That is what keeps the reducer model replayable, testable, and understandable.
 
+If you are trying to upload files specifically, read [How do I do file uploads in Fission?](/docs/guides/file-uploads/) after this overview. If you want the architectural reason reducers stay synchronous, read [Why reducers are synchronous](/docs/guides/why-reducers-are-synchronous/).
+
 This page uses one running example: imagine a workspace-style editor. The app can save the current file, ask the host to open a file picker, keep a language service running, send commands to that service, and poll for background changes while a panel is visible.
 
 ## Start with `ReducerContext` and `ctx.effects`
@@ -114,6 +116,10 @@ fn on_pick_file(
         ));
 }
 ```
+
+`PICK_OPEN_FILES` returns `PickedFile` values with metadata plus a `DataStreamId`. It does not put the selected file contents in the reducer payload. If you need to parse, preview, upload, or transform the file, pass the stream handle to a job or service and consume it there with `JobCtx::open_data_stream(...)` or `ServiceCtx::open_data_stream(...)`.
+
+The default desktop shell provider streams selected files from disk in chunks. Web, mobile, server, static-site, and terminal targets can supply their own provider when file picking makes sense for that host.
 
 Why keep capabilities separate from reducers? For the same reason as jobs: reducers stay pure and replayable. They decide that a picker should open. They do not open it themselves.
 
@@ -364,7 +370,7 @@ The fifth mistake is choosing unstable resource keys or dependency payloads. Rec
 
 ## Where to go next
 
-If you want the app-model foundation behind reducers and pure `component conversion` methods, revisit [Runtime model](/docs/learn/runtime-model/). If you need the detailed rules for app state, local widget state, build handles, and provider scopes, read [State, handles, and providers](/docs/guides/state-handles-and-providers/). If you want to see responsive user interface and state-driven composition before adding async work, read [Layout and widgets](/docs/guides/layout-and-widgets/). For a checked-in product example that uses job resources and timers heavily, inspect Fission Editor from the public [Examples](/examples) page after reading this guide.
+If you want the app-model foundation behind reducers and pure `component conversion` methods, revisit [Runtime model](/docs/learn/runtime-model/). If you need the detailed rules for app state, local widget state, build handles, and provider scopes, read [State, handles, and providers](/docs/guides/state-handles-and-providers/). If you want a concrete streamed file-picker flow, read [How do I do file uploads in Fission?](/docs/guides/file-uploads/). If you want to see responsive user interface and state-driven composition before adding async work, read [Layout and widgets](/docs/guides/layout-and-widgets/). For a checked-in product example that uses job resources and timers heavily, inspect Fission Editor from the public [Examples](/examples) page after reading this guide.
 
 ## What you should have working
 

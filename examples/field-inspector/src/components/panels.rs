@@ -326,8 +326,8 @@ fn evidence_photo(view: ViewHandle<FieldInspectorState>) -> Widget {
     } else {
         320.0
     };
-    let image: Widget = if let Some(capture) = &view.state().photo_capture {
-        Image::memory(capture.bytes.clone())
+    let image: Widget = if let Some(bytes) = &view.state().photo_preview {
+        Image::memory(bytes.clone())
             .size(width, height)
             .fit(ir_op::ImageFit::Cover)
             .semantic_label("Captured evidence photo")

@@ -1,7 +1,8 @@
 use fission_core::env::Clipboard;
 use fission_core::{
-    ClipboardContent, ClipboardError, ClipboardText, ClipboardWriteTextRequest, CLEAR_CLIPBOARD,
-    READ_CLIPBOARD_CONTENT, READ_CLIPBOARD_TEXT, WRITE_CLIPBOARD_CONTENT, WRITE_CLIPBOARD_TEXT,
+    collect_data_stream, single_chunk_data_stream, Bytes, ClipboardContent, ClipboardError,
+    ClipboardText, ClipboardWriteTextRequest, CLEAR_CLIPBOARD, READ_CLIPBOARD_CONTENT,
+    READ_CLIPBOARD_TEXT, WRITE_CLIPBOARD_CONTENT, WRITE_CLIPBOARD_TEXT,
 };
 use fission_shell::async_host::AsyncRegistry;
 #[cfg(target_os = "ios")]
@@ -11,6 +12,13 @@ use std::ffi::CStr;
 #[cfg(target_os = "ios")]
 use std::os::raw::{c_char, c_void};
 use std::sync::{Arc, Mutex};
+
+#[derive(Clone, Debug, Default)]
+pub struct ClipboardHostItem {
+    pub content_type: String,
+    pub bytes: Bytes,
+    pub suggested_name: Option<String>,
+}
 
 #[cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))]
 use arboard::Clipboard as Arboard;
@@ -118,9 +126,9 @@ pub trait ClipboardHost: Send + Sync + 'static {
     /// Writes plain text to the host clipboard.
     fn write_text(&self, request: ClipboardWriteTextRequest) -> Result<(), ClipboardError>;
     /// Reads typed clipboard items from the host clipboard.
-    fn read_content(&self) -> Result<ClipboardContent, ClipboardError>;
+    fn read_content(&self) -> Result<Vec<ClipboardHostItem>, ClipboardError>;
     /// Writes typed clipboard items to the host clipboard.
-    fn write_content(&self, request: ClipboardContent) -> Result<(), ClipboardError>;
+    fn write_content(&self, request: Vec<ClipboardHostItem>) -> Result<(), ClipboardError>;
     /// Clears clipboard content when the host allows apps to do that.
     fn clear(&self) -> Result<(), ClipboardError>;
 }
@@ -137,28 +145,25 @@ impl ClipboardHost for DesktopClipboard {
         Ok(())
     }
 
-    fn read_content(&self) -> Result<ClipboardContent, ClipboardError> {
+    fn read_content(&self) -> Result<Vec<ClipboardHostItem>, ClipboardError> {
         let text = self.get_text().unwrap_or_default();
-        Ok(ClipboardContent {
-            items: if text.is_empty() {
-                Vec::new()
-            } else {
-                vec![fission_core::ClipboardItem {
-                    content_type: "text/plain".into(),
-                    bytes: text.into_bytes(),
-                    suggested_name: None,
-                }]
-            },
+        Ok(if text.is_empty() {
+            Vec::new()
+        } else {
+            vec![ClipboardHostItem {
+                content_type: "text/plain".into(),
+                bytes: Bytes::from(text),
+                suggested_name: None,
+            }]
         })
     }
 
-    fn write_content(&self, request: ClipboardContent) -> Result<(), ClipboardError> {
+    fn write_content(&self, request: Vec<ClipboardHostItem>) -> Result<(), ClipboardError> {
         if let Some(item) = request
-            .items
             .iter()
             .find(|item| item.content_type.starts_with("text/plain"))
         {
-            if let Ok(text) = String::from_utf8(item.bytes.clone()) {
+            if let Ok(text) = String::from_utf8(item.bytes.to_vec()) {
                 self.set_text(&text);
                 return Ok(());
             }
@@ -175,7 +180,7 @@ impl ClipboardHost for DesktopClipboard {
 /// In-process clipboard host for tests and non-OS environments.
 #[derive(Debug, Default)]
 pub struct MemoryClipboardHost {
-    content: Arc<Mutex<ClipboardContent>>,
+    content: Arc<Mutex<Vec<ClipboardHostItem>>>,
 }
 
 impl ClipboardHost for MemoryClipboardHost {
@@ -184,10 +189,9 @@ impl ClipboardHost for MemoryClipboardHost {
             ClipboardError::new("lock_poisoned", "memory clipboard lock was poisoned")
         })?;
         let text = content
-            .items
             .iter()
             .find(|item| item.content_type.starts_with("text/plain"))
-            .and_then(|item| String::from_utf8(item.bytes.clone()).ok());
+            .and_then(|item| String::from_utf8(item.bytes.to_vec()).ok());
         Ok(ClipboardText { text })
     }
 
@@ -195,24 +199,22 @@ impl ClipboardHost for MemoryClipboardHost {
         let mut content = self.content.lock().map_err(|_| {
             ClipboardError::new("lock_poisoned", "memory clipboard lock was poisoned")
         })?;
-        *content = ClipboardContent {
-            items: vec![fission_core::ClipboardItem {
-                content_type: "text/plain".into(),
-                bytes: request.text.into_bytes(),
-                suggested_name: None,
-            }],
-        };
+        *content = vec![ClipboardHostItem {
+            content_type: "text/plain".into(),
+            bytes: Bytes::from(request.text),
+            suggested_name: None,
+        }];
         Ok(())
     }
 
-    fn read_content(&self) -> Result<ClipboardContent, ClipboardError> {
+    fn read_content(&self) -> Result<Vec<ClipboardHostItem>, ClipboardError> {
         self.content
             .lock()
             .map(|content| content.clone())
             .map_err(|_| ClipboardError::new("lock_poisoned", "memory clipboard lock was poisoned"))
     }
 
-    fn write_content(&self, request: ClipboardContent) -> Result<(), ClipboardError> {
+    fn write_content(&self, request: Vec<ClipboardHostItem>) -> Result<(), ClipboardError> {
         let mut content = self.content.lock().map_err(|_| {
             ClipboardError::new("lock_poisoned", "memory clipboard lock was poisoned")
         })?;
@@ -224,7 +226,7 @@ impl ClipboardHost for MemoryClipboardHost {
         let mut content = self.content.lock().map_err(|_| {
             ClipboardError::new("lock_poisoned", "memory clipboard lock was poisoned")
         })?;
-        content.items.clear();
+        content.clear();
         Ok(())
     }
 }
@@ -246,15 +248,48 @@ pub(crate) fn register_clipboard_capabilities(
     });
 
     let read_content_host = host.clone();
-    async_registry.register_operation_capability(READ_CLIPBOARD_CONTENT, move |(), _| {
+    async_registry.register_operation_capability(READ_CLIPBOARD_CONTENT, move |(), ctx| {
         let host = read_content_host.clone();
-        async move { host.read_content() }
+        async move {
+            let items = host.read_content()?;
+            Ok(ClipboardContent {
+                items: items
+                    .into_iter()
+                    .map(|item| {
+                        let byte_len = item.bytes.len() as u64;
+                        let stream = ctx.register_data_stream(single_chunk_data_stream(item.bytes));
+                        fission_core::ClipboardItem {
+                            content_type: item.content_type,
+                            stream,
+                            byte_len: Some(byte_len),
+                            suggested_name: item.suggested_name,
+                        }
+                    })
+                    .collect(),
+            })
+        }
     });
 
     let write_content_host = host.clone();
-    async_registry.register_operation_capability(WRITE_CLIPBOARD_CONTENT, move |request, _| {
+    async_registry.register_operation_capability(WRITE_CLIPBOARD_CONTENT, move |request, ctx| {
         let host = write_content_host.clone();
-        async move { host.write_content(request) }
+        async move {
+            let mut items = Vec::with_capacity(request.items.len());
+            for item in request.items {
+                let stream = ctx.open_data_stream(item.stream).map_err(|error| {
+                    ClipboardError::new("stream_open_failed", error.to_string())
+                })?;
+                let bytes = collect_data_stream(stream).await.map_err(|error| {
+                    ClipboardError::new("stream_read_failed", error.to_string())
+                })?;
+                items.push(ClipboardHostItem {
+                    content_type: item.content_type,
+                    bytes,
+                    suggested_name: item.suggested_name,
+                });
+            }
+            host.write_content(items)
+        }
     });
 
     async_registry.register_operation_capability(CLEAR_CLIPBOARD, move |(), _| {
@@ -287,6 +322,6 @@ mod tests {
         })
         .unwrap();
         let content = ClipboardHost::read_content(&host).unwrap();
-        assert_eq!(content.items[0].content_type, "text/plain");
+        assert_eq!(content[0].content_type, "text/plain");
     }
 }

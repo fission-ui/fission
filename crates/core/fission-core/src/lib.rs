@@ -47,6 +47,7 @@ pub mod build;
 mod build_context;
 pub mod capability; // New
 pub mod context; // New
+pub mod data_stream;
 pub mod diff;
 pub mod effect; // New
 pub mod env;
@@ -208,6 +209,11 @@ pub mod public {
         Effects, GeolocationEffects, HapticEffects, MicrophoneEffects, NfcEffects,
         NotificationEffects, PasskeyEffects, ReducerContext, VolumeEffects, WifiEffects,
     }; // New
+    pub use crate::data_stream::{
+        collect_data_stream, empty_data_stream, single_chunk_data_stream, BoxFissionDataStream,
+        DataStreamId, DataStreamRegistry, FissionDataStream, FissionDataStreamError,
+        FissionDataStreamErrorKind,
+    };
     pub use crate::effect::{
         ActionInput, Effect, EffectEnvelope, RuntimeEffect, ScrollAlignment, ScrollAxis,
         ScrollBehavior, ScrollIntoViewRequest,
@@ -218,6 +224,7 @@ pub mod public {
     };
     pub use crate::runtime::Runtime;
     pub use crate::state::{LocalStateKey, LocalStateStore, StateField};
+    pub use bytes::Bytes;
 
     pub use crate::build::{BuildCtxHandle, ViewHandle};
     pub use crate::event::{
@@ -358,6 +365,7 @@ pub use async_runtime::{
     BoxFuture, JobCtx, JobRef, JobSpec, ResourceExecutionContext, ServiceBindings, ServiceCtx,
     ServiceRunner, ServiceSlot, ServiceSpec, ServiceType,
 };
+pub use bytes::Bytes;
 pub use capability::{
     CapabilityCtx, CapabilityInvocationPayload, CapabilityType, OpenUrlCapability, OpenUrlRequest,
     OperationCapability, PickOpenFilesCapability, PickOpenFilesError, PickOpenFilesRequest,
@@ -368,6 +376,11 @@ pub use context::{
     Effects, GeolocationEffects, HapticEffects, MicrophoneEffects, NfcEffects, NotificationEffects,
     PasskeyEffects, ReducerContext, VolumeEffects, WifiEffects,
 }; // New
+pub use data_stream::{
+    collect_data_stream, empty_data_stream, single_chunk_data_stream, BoxFissionDataStream,
+    DataStreamId, DataStreamRegistry, FissionDataStream, FissionDataStreamError,
+    FissionDataStreamErrorKind,
+};
 pub use effect::{
     ActionInput, Effect, EffectEnvelope, RuntimeEffect, ScrollAlignment, ScrollAxis,
     ScrollBehavior, ScrollIntoViewRequest,

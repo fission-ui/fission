@@ -7,7 +7,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! fission = { version = "0.6.3", default-features = false, features = ["desktop"] }
+//! fission = { version = "0.7.0", default-features = false, features = ["desktop"] }
 //! ```
 //!
 //! Then use via:
@@ -137,6 +137,7 @@ pub mod diagnostics {
     pub use fission_diagnostics::*;
 }
 
+pub use fission_core::Bytes;
 /// Serialization traits and derives used by Fission action macros.
 pub use serde;
 
@@ -167,14 +168,15 @@ pub use fission_core::ui::{
 pub use fission_core::{
     Action, ActionEnvelope, ActionId, ActionScopeId, AuthenticateBiometricCapability,
     BiometricAuthenticateRequest, BiometricAuthenticateResult, BiometricAvailability,
-    BiometricEffects, BiometricError, BiometricKind, BiometricStrength, BuildCtxHandle,
-    CancelAllNotificationsCapability, CancelBiometricAuthenticationCapability,
-    CancelNotificationCapability, CancelNotificationRequest, ComputedView, DeepLink,
-    DeepLinkConfig, DeepLinkReceived, DeepLinkSource, EmulateNfcTagCapability, FissionViewField,
-    FlexDirection, FocusPolicy, GetBiometricAvailabilityCapability, GetNfcAvailabilityCapability,
-    GetNotificationSettingsCapability, GlobalState, Handler, NfcAvailability, NfcEffects,
-    NfcEmulationRequest, NfcError, NfcRecord, NfcRecordTypeNameFormat, NfcScanRequest,
-    NfcSessionReceipt, NfcTag, NfcTagDiscovered, NfcTechnology, NfcWriteRequest,
+    BiometricEffects, BiometricError, BiometricKind, BiometricStrength, BoxFissionDataStream,
+    BuildCtxHandle, CancelAllNotificationsCapability, CancelBiometricAuthenticationCapability,
+    CancelNotificationCapability, CancelNotificationRequest, ComputedView, DataStreamId,
+    DataStreamRegistry, DeepLink, DeepLinkConfig, DeepLinkReceived, DeepLinkSource,
+    EmulateNfcTagCapability, FissionDataStream, FissionDataStreamError, FissionDataStreamErrorKind,
+    FissionViewField, FlexDirection, FocusPolicy, GetBiometricAvailabilityCapability,
+    GetNfcAvailabilityCapability, GetNotificationSettingsCapability, GlobalState, Handler,
+    NfcAvailability, NfcEffects, NfcEmulationRequest, NfcError, NfcRecord, NfcRecordTypeNameFormat,
+    NfcScanRequest, NfcSessionReceipt, NfcTag, NfcTagDiscovered, NfcTechnology, NfcWriteRequest,
     NotificationActionButton, NotificationError, NotificationId, NotificationPermission,
     NotificationPermissionRequest, NotificationReceipt, NotificationRequest, NotificationResponse,
     NotificationResponseReceived, NotificationSchedule, NotificationSettings, NotificationSound,
@@ -268,6 +270,10 @@ pub use fission_core::{
     HapticNotificationCapability, HapticNotificationKind, HapticNotificationRequest,
     HapticPatternCapability, HapticPatternRequest, HapticPatternStep, HapticSelectionCapability,
     HAPTIC_IMPACT, HAPTIC_NOTIFICATION, HAPTIC_PATTERN, HAPTIC_SELECTION,
+};
+pub use fission_core::{
+    OpenUrlCapability, OpenUrlRequest, PickOpenFilesCapability, PickOpenFilesError,
+    PickOpenFilesRequest, PickOpenFilesResult, PickedFile, OPEN_URL, PICK_OPEN_FILES,
 };
 
 // Build-scope access for authoring code. The facade intentionally exposes the
@@ -383,34 +389,36 @@ pub mod prelude {
     pub use fission_core::env::Env;
     pub use fission_core::event::{InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent};
     pub use fission_core::op::{Color, Fill, PaintOp};
+    pub use fission_core::Bytes;
     pub use fission_core::{reduce, reduce_with, widgets, with_reducer};
     pub use fission_core::{
         Action, ActionEnvelope, ActionId, ActionScopeId, AuthenticateBiometricCapability,
         BiometricAuthenticateRequest, BiometricAuthenticateResult, BiometricAvailability,
-        BiometricEffects, BiometricError, BiometricKind, BiometricStrength, BuildCtxHandle,
-        CancelAllNotificationsCapability, CancelBiometricAuthenticationCapability,
-        CancelNotificationCapability, CancelNotificationRequest, ComputedView, DeepLink,
-        DeepLinkConfig, DeepLinkReceived, DeepLinkSource, Effects, EmulateNfcTagCapability,
-        FissionViewField, FlexDirection, FocusPolicy, GetBiometricAvailabilityCapability,
-        GetNfcAvailabilityCapability, GetNotificationSettingsCapability, GlobalState, Handler,
-        NfcAvailability, NfcEffects, NfcEmulationRequest, NfcError, NfcRecord,
-        NfcRecordTypeNameFormat, NfcScanRequest, NfcSessionReceipt, NfcTag, NfcTagDiscovered,
-        NfcTechnology, NfcWriteRequest, NotificationActionButton, NotificationEffects,
-        NotificationError, NotificationId, NotificationPermission, NotificationPermissionRequest,
-        NotificationReceipt, NotificationRequest, NotificationResponse,
-        NotificationResponseReceived, NotificationSchedule, NotificationSettings,
-        NotificationSound, Op, PortalLayer, Provider, PushPlatform, PushRegistration,
-        PushRegistrationRequest, ReducerContext, RegisterPushNotificationsCapability,
-        RequestNotificationPermissionCapability, Role, ScanNfcTagCapability,
-        ScheduleNotificationCapability, ScrollAlignment, ScrollAxis, ScrollBehavior,
-        ScrollIntoViewRequest, Selector, Semantics, SetBadgeCountCapability, SetBadgeCountRequest,
-        ShowNotificationCapability, UnregisterPushNotificationsCapability, ValueView, ViewHandle,
-        WidgetId, WindowEnv, WindowTitle, WriteNfcTagCapability, AUTHENTICATE_BIOMETRIC,
-        CANCEL_ALL_NOTIFICATIONS, CANCEL_BIOMETRIC_AUTHENTICATION, CANCEL_NFC_SESSION,
-        CANCEL_NOTIFICATION, EMULATE_NFC_TAG, GET_BIOMETRIC_AVAILABILITY, GET_NFC_AVAILABILITY,
-        GET_NOTIFICATION_SETTINGS, REGISTER_PUSH_NOTIFICATIONS, REQUEST_NOTIFICATION_PERMISSION,
-        SCAN_NFC_TAG, SCHEDULE_NOTIFICATION, SET_BADGE_COUNT, SHOW_NOTIFICATION,
-        UNREGISTER_PUSH_NOTIFICATIONS, WRITE_NFC_TAG,
+        BiometricEffects, BiometricError, BiometricKind, BiometricStrength, BoxFissionDataStream,
+        BuildCtxHandle, CancelAllNotificationsCapability, CancelBiometricAuthenticationCapability,
+        CancelNotificationCapability, CancelNotificationRequest, ComputedView, DataStreamId,
+        DataStreamRegistry, DeepLink, DeepLinkConfig, DeepLinkReceived, DeepLinkSource, Effects,
+        EmulateNfcTagCapability, FissionDataStream, FissionDataStreamError,
+        FissionDataStreamErrorKind, FissionViewField, FlexDirection, FocusPolicy,
+        GetBiometricAvailabilityCapability, GetNfcAvailabilityCapability,
+        GetNotificationSettingsCapability, GlobalState, Handler, NfcAvailability, NfcEffects,
+        NfcEmulationRequest, NfcError, NfcRecord, NfcRecordTypeNameFormat, NfcScanRequest,
+        NfcSessionReceipt, NfcTag, NfcTagDiscovered, NfcTechnology, NfcWriteRequest,
+        NotificationActionButton, NotificationEffects, NotificationError, NotificationId,
+        NotificationPermission, NotificationPermissionRequest, NotificationReceipt,
+        NotificationRequest, NotificationResponse, NotificationResponseReceived,
+        NotificationSchedule, NotificationSettings, NotificationSound, Op, PortalLayer, Provider,
+        PushPlatform, PushRegistration, PushRegistrationRequest, ReducerContext,
+        RegisterPushNotificationsCapability, RequestNotificationPermissionCapability, Role,
+        ScanNfcTagCapability, ScheduleNotificationCapability, ScrollAlignment, ScrollAxis,
+        ScrollBehavior, ScrollIntoViewRequest, Selector, Semantics, SetBadgeCountCapability,
+        SetBadgeCountRequest, ShowNotificationCapability, UnregisterPushNotificationsCapability,
+        ValueView, ViewHandle, WidgetId, WindowEnv, WindowTitle, WriteNfcTagCapability,
+        AUTHENTICATE_BIOMETRIC, CANCEL_ALL_NOTIFICATIONS, CANCEL_BIOMETRIC_AUTHENTICATION,
+        CANCEL_NFC_SESSION, CANCEL_NOTIFICATION, EMULATE_NFC_TAG, GET_BIOMETRIC_AVAILABILITY,
+        GET_NFC_AVAILABILITY, GET_NOTIFICATION_SETTINGS, REGISTER_PUSH_NOTIFICATIONS,
+        REQUEST_NOTIFICATION_PERMISSION, SCAN_NFC_TAG, SCHEDULE_NOTIFICATION, SET_BADGE_COUNT,
+        SHOW_NOTIFICATION, UNREGISTER_PUSH_NOTIFICATIONS, WRITE_NFC_TAG,
     };
     pub use fission_core::{
         AdjustVolumeLevelCapability, GetVolumeLevelCapability, SetVolumeLevelCapability,
@@ -491,6 +499,10 @@ pub mod prelude {
         HapticPatternCapability, HapticPatternRequest, HapticPatternStep,
         HapticSelectionCapability, HAPTIC_IMPACT, HAPTIC_NOTIFICATION, HAPTIC_PATTERN,
         HAPTIC_SELECTION,
+    };
+    pub use fission_core::{
+        OpenUrlCapability, OpenUrlRequest, PickOpenFilesCapability, PickOpenFilesError,
+        PickOpenFilesRequest, PickOpenFilesResult, PickedFile, OPEN_URL, PICK_OPEN_FILES,
     };
     #[cfg(all(
         feature = "desktop-tray",

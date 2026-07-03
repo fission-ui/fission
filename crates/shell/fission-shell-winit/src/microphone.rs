@@ -1,7 +1,8 @@
 use fission_core::{
-    MicrophoneAvailability, MicrophoneCapture, MicrophoneCaptureRequest, MicrophoneDevice,
-    MicrophoneError, MicrophonePermission, MicrophonePermissionRequest, CANCEL_MICROPHONE_CAPTURE,
-    CAPTURE_MICROPHONE_AUDIO, GET_MICROPHONE_AVAILABILITY, REQUEST_MICROPHONE_PERMISSION,
+    single_chunk_data_stream, CapabilityCtx, MicrophoneAvailability, MicrophoneCapture,
+    MicrophoneCaptureRequest, MicrophoneDevice, MicrophoneError, MicrophonePermission,
+    MicrophonePermissionRequest, CANCEL_MICROPHONE_CAPTURE, CAPTURE_MICROPHONE_AUDIO,
+    GET_MICROPHONE_AVAILABILITY, REQUEST_MICROPHONE_PERMISSION,
 };
 use fission_shell::async_host::AsyncRegistry;
 use std::sync::Arc;
@@ -19,6 +20,7 @@ pub trait MicrophoneHost: Send + Sync + 'static {
     fn capture_audio(
         &self,
         request: MicrophoneCaptureRequest,
+        ctx: &CapabilityCtx,
     ) -> Result<MicrophoneCapture, MicrophoneError>;
     /// Cancels an active microphone capture flow.
     fn cancel_capture(&self) -> Result<(), MicrophoneError>;
@@ -45,6 +47,7 @@ impl MicrophoneHost for UnsupportedMicrophoneHost {
     fn capture_audio(
         &self,
         _request: MicrophoneCaptureRequest,
+        _ctx: &CapabilityCtx,
     ) -> Result<MicrophoneCapture, MicrophoneError> {
         Err(MicrophoneError::unsupported("capture_audio"))
     }
@@ -57,14 +60,32 @@ impl MicrophoneHost for UnsupportedMicrophoneHost {
 #[derive(Debug, Clone)]
 pub struct MemoryMicrophoneHost {
     availability: MicrophoneAvailability,
-    capture: MicrophoneCapture,
+    capture_bytes: Vec<u8>,
+    content_type: String,
+    sample_rate_hz: u32,
+    channels: u16,
+    duration_ms: u64,
+    device_id: Option<String>,
 }
 
 impl MemoryMicrophoneHost {
-    pub fn new(availability: MicrophoneAvailability, capture: MicrophoneCapture) -> Self {
+    pub fn new(
+        availability: MicrophoneAvailability,
+        capture_bytes: Vec<u8>,
+        content_type: impl Into<String>,
+        sample_rate_hz: u32,
+        channels: u16,
+        duration_ms: u64,
+        device_id: Option<String>,
+    ) -> Self {
         Self {
             availability,
-            capture,
+            capture_bytes,
+            content_type: content_type.into(),
+            sample_rate_hz,
+            channels,
+            duration_ms,
+            device_id,
         }
     }
 }
@@ -80,14 +101,12 @@ impl Default for MemoryMicrophoneHost {
                     is_default: true,
                 }],
             },
-            MicrophoneCapture {
-                bytes: vec![0, 1, 2, 3],
-                content_type: "audio/pcm".into(),
-                sample_rate_hz: 48_000,
-                channels: 1,
-                duration_ms: 1_000,
-                device_id: Some("memory-mic".into()),
-            },
+            vec![0, 1, 2, 3],
+            "audio/pcm",
+            48_000,
+            1,
+            1_000,
+            Some("memory-mic".into()),
         )
     }
 }
@@ -107,8 +126,18 @@ impl MicrophoneHost for MemoryMicrophoneHost {
     fn capture_audio(
         &self,
         _request: MicrophoneCaptureRequest,
+        ctx: &CapabilityCtx,
     ) -> Result<MicrophoneCapture, MicrophoneError> {
-        Ok(self.capture.clone())
+        let stream = ctx.register_data_stream(single_chunk_data_stream(self.capture_bytes.clone()));
+        Ok(MicrophoneCapture {
+            stream,
+            byte_len: Some(self.capture_bytes.len() as u64),
+            content_type: self.content_type.clone(),
+            sample_rate_hz: self.sample_rate_hz,
+            channels: self.channels,
+            duration_ms: self.duration_ms,
+            device_id: self.device_id.clone(),
+        })
     }
 
     fn cancel_capture(&self) -> Result<(), MicrophoneError> {
@@ -136,9 +165,9 @@ pub(crate) fn register_microphone_capabilities(
     );
 
     let capture_host = host.clone();
-    async_registry.register_operation_capability(CAPTURE_MICROPHONE_AUDIO, move |request, _| {
+    async_registry.register_operation_capability(CAPTURE_MICROPHONE_AUDIO, move |request, ctx| {
         let host = capture_host.clone();
-        async move { host.capture_audio(request) }
+        async move { host.capture_audio(request, &ctx) }
     });
 
     async_registry.register_operation_capability(CANCEL_MICROPHONE_CAPTURE, move |(), _| {
@@ -155,7 +184,10 @@ mod tests {
     fn unsupported_host_reports_errors() {
         let host = UnsupportedMicrophoneHost;
         assert!(host
-            .capture_audio(MicrophoneCaptureRequest::default())
+            .capture_audio(
+                MicrophoneCaptureRequest::default(),
+                &CapabilityCtx::new_runtime(1, fission_core::DataStreamRegistry::new()),
+            )
             .is_err());
     }
 
@@ -166,7 +198,10 @@ mod tests {
         assert_eq!(availability.permission, MicrophonePermission::Granted);
 
         let capture = host
-            .capture_audio(MicrophoneCaptureRequest::default())
+            .capture_audio(
+                MicrophoneCaptureRequest::default(),
+                &CapabilityCtx::new_runtime(1, fission_core::DataStreamRegistry::new()),
+            )
             .unwrap();
         assert_eq!(capture.content_type, "audio/pcm");
         assert_eq!(capture.sample_rate_hz, 48_000);

@@ -22,7 +22,7 @@ on_browse: Some(with_reducer!(ctx, PickAttachment, on_pick_attachment)),
 .into();
 ```
 
-A common next step is for `on_pick_attachment` to ask the runtime for a file picker capability, then store the chosen file name or handle in state when the capability returns.
+A common next step is for `on_pick_attachment` to ask the runtime for a file picker capability, then store the chosen file name and `DataStreamId` in state when the capability returns.
 
 ## Field table
 
@@ -34,7 +34,11 @@ A common next step is for `on_pick_attachment` to ask the runtime for a file pic
 
 ## How it fits into the state and effect loop
 
-The widget handles presentation only. The full flow usually looks like this: the user presses browse, the widget dispatches `on_browse`, the reducer asks `ctx.effects` to invoke a host file-picker capability such as `PICK_OPEN_FILES`, and a later success action stores the chosen file information in `GlobalState`. The next conversion then passes a new `selected_file` string back into the widget.
+The widget handles presentation only. The full flow usually looks like this: the user presses browse, the widget dispatches `on_browse`, the reducer asks `ctx.effects` to invoke a host file-picker capability such as `PICK_OPEN_FILES`, and a later success action stores the chosen file metadata and stream handle in `GlobalState`. The next conversion then passes a new `selected_file` string back into the widget.
+
+File contents are exposed as a `FissionDataStream`, not as a `Vec<u8>` in the reducer payload. Pass the `PickedFile::stream` handle to a job or service if the app needs to parse, upload, or preview the file.
+
+The desktop shell provides a default `PICK_OPEN_FILES` provider on macOS, Windows, and Linux. Other shells may register their own provider; when no native picker is available, the capability reports an unsupported host error rather than fabricating bytes.
 
 This separation is why file picking remains deterministic inside the core runtime. The widget describes intent, while the host interaction happens explicitly outside the reducer.
 
@@ -54,5 +58,4 @@ If a screen starts repeating the same `FileUpload` setup, extract a named compon
 
 ## Related
 
-[`Dropzone`](/reference/widgets/dropzone), [`Button`](/reference/widgets/button), [`FormControl`](/reference/widgets/form-control), and [`Resources and async`](/docs/guides/resources-and-async).
-
+[`Dropzone`](/reference/widgets/dropzone), [`Button`](/reference/widgets/button), [`FormControl`](/reference/widgets/form-control), [How do I do file uploads in Fission?](/docs/guides/file-uploads/), and [`Resources and async`](/docs/guides/resources-and-async).

@@ -7,7 +7,7 @@ description: Request microphone permission and capture bounded audio through the
 
 Microphone capture is sensitive and should be explicit. The shared app asks for a bounded recording; the host owns device selection, permission, capture, encoding, and cancellation.
 
-By the end of this guide, you will know how to build a Record voice note button that captures five seconds of audio and stores the bytes in app state. The same pattern applies to larger apps: declare the capability when native configuration is needed, store the result in typed app state, request the host operation from a reducer, and test both success and failure with a memory host.
+By the end of this guide, you will know how to build a Record voice note button that captures five seconds of audio and stores the stream handle in app state. The same pattern applies to larger apps: declare the capability when native configuration is needed, store the result in typed app state, request the host operation from a reducer, and test both success and failure with a memory host.
 
 Do not start recording from build code or background state changes. Use a visible user action, make the recording duration clear, and handle cancellation or denied permission.
 
@@ -19,7 +19,7 @@ Add the smallest state fields the screen needs to render honestly. For this flow
 #[derive(Default)]
 struct MicrophoneState {
     // Add these fields to your existing app state.
-    voice_note: Option<Vec<u8>>,
+    voice_note_stream: Option<DataStreamId>,
     microphone_error: Option<String>,
     recording: bool,
 }
@@ -57,7 +57,7 @@ Capability work finishes later, after the reducer that started it has returned. 
 #[fission_reducer(AudioCaptured)]
 fn on_audio_captured(state: &mut MicrophoneState, capture: MicrophoneCapture) {
     state.recording = false;
-    state.voice_note = Some(capture.bytes);
+    state.voice_note_stream = Some(capture.stream);
     state.microphone_error = None;
 }
 

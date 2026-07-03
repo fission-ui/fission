@@ -5,11 +5,12 @@ use crate::{
 use block::ConcreteBlock;
 use dispatch::Queue;
 use fission_core::{
-    BarcodeImageDecodeRequest, BarcodeScanRequest, BarcodeScanResults, BarcodeScannerError,
-    CameraAvailability, CameraCapture, CameraCaptureRequest, CameraDevice, CameraError,
-    CameraFacing, CameraFlashlightRequest, CameraImageFormat, CameraPermission,
-    CameraPermissionRequest, GeolocationError, GeolocationPermission, GeolocationPermissionRequest,
-    GeolocationPosition, GeolocationPositionRequest, MicrophoneAvailability, MicrophoneCapture,
+    single_chunk_data_stream, BarcodeImageDecodeRequest, BarcodeScanRequest, BarcodeScanResults,
+    BarcodeScannerError, Bytes, CameraAvailability, CameraCapture, CameraCaptureRequest,
+    CameraDevice, CameraError, CameraFacing, CameraFlashlightRequest, CameraImageFormat,
+    CameraPermission, CameraPermissionRequest, CapabilityCtx, GeolocationError,
+    GeolocationPermission, GeolocationPermissionRequest, GeolocationPosition,
+    GeolocationPositionRequest, MicrophoneAvailability, MicrophoneCapture,
     MicrophoneCaptureRequest, MicrophoneDevice, MicrophoneError, MicrophonePermission,
     MicrophonePermissionRequest,
 };
@@ -104,7 +105,11 @@ impl CameraHost for IosCameraHost {
         Ok(Self::request_camera_permission())
     }
 
-    fn capture_photo(&self, request: CameraCaptureRequest) -> Result<CameraCapture, CameraError> {
+    fn capture_photo(
+        &self,
+        request: CameraCaptureRequest,
+        ctx: &CapabilityCtx,
+    ) -> Result<CameraCapture, CameraError> {
         let permission = if Self::permission_state() == CameraPermission::Unknown {
             Self::request_camera_permission()
         } else {
@@ -116,7 +121,7 @@ impl CameraHost for IosCameraHost {
                 "iOS camera permission is not granted",
             ));
         }
-        ios_capture_photo(request)
+        ios_capture_photo(request, ctx)
     }
 
     fn set_flashlight(&self, request: CameraFlashlightRequest) -> Result<(), CameraError> {
@@ -133,16 +138,15 @@ struct IosBarcodeScannerHost;
 
 impl BarcodeScannerHost for IosBarcodeScannerHost {
     fn scan(&self, request: BarcodeScanRequest) -> Result<BarcodeScanResults, BarcodeScannerError> {
-        let capture = IosCameraHost
-            .capture_photo(CameraCaptureRequest {
-                camera_id: request.camera_id,
-                facing: CameraFacing::Back,
-                resolution: None,
-                format: CameraImageFormat::Jpeg,
-                flash: fission_core::CameraFlashMode::Auto,
-                quality: Some(90),
-            })
-            .map_err(|error| BarcodeScannerError::new("camera_error", error.message))?;
+        let capture = ios_capture_photo_bytes(CameraCaptureRequest {
+            camera_id: request.camera_id,
+            facing: CameraFacing::Back,
+            resolution: None,
+            format: CameraImageFormat::Jpeg,
+            flash: fission_core::CameraFlashMode::Auto,
+            quality: Some(90),
+        })
+        .map_err(|error| BarcodeScannerError::new("camera_error", error.message))?;
         let mut results = barcode_decode::decode_barcode_bytes(&capture.bytes, &request.formats)?;
         if !request.allow_multiple {
             results.items.truncate(1);
@@ -153,8 +157,9 @@ impl BarcodeScannerHost for IosBarcodeScannerHost {
     fn decode_image(
         &self,
         request: BarcodeImageDecodeRequest,
+        image: Bytes,
     ) -> Result<BarcodeScanResults, BarcodeScannerError> {
-        barcode_decode::decode_barcode_bytes(&request.bytes, &request.formats)
+        barcode_decode::decode_barcode_bytes(&image, &request.formats)
     }
 
     fn cancel_scan(&self) -> Result<(), BarcodeScannerError> {
@@ -201,7 +206,14 @@ fn ios_camera_devices() -> Vec<CameraDevice> {
     }
 }
 
-fn ios_capture_photo(request: CameraCaptureRequest) -> Result<CameraCapture, CameraError> {
+struct IosPhotoBytes {
+    bytes: Vec<u8>,
+    width: u32,
+    height: u32,
+    camera_id: Option<String>,
+}
+
+fn ios_capture_photo_bytes(request: CameraCaptureRequest) -> Result<IosPhotoBytes, CameraError> {
     unsafe {
         let device = select_ios_camera_device(request.camera_id.as_deref(), request.facing)
             .ok_or_else(|| {
@@ -271,14 +283,30 @@ fn ios_capture_photo(request: CameraCaptureRequest) -> Result<CameraCapture, Cam
                 .map(|resolution| (resolution.width, resolution.height))
                 .unwrap_or((0, 0))
         });
-        Ok(CameraCapture {
+        Ok(IosPhotoBytes {
             bytes,
-            content_type: "image/jpeg".into(),
             width,
             height,
             camera_id: ios_device_unique_id(device).or(request.camera_id),
         })
     }
+}
+
+fn ios_capture_photo(
+    request: CameraCaptureRequest,
+    ctx: &CapabilityCtx,
+) -> Result<CameraCapture, CameraError> {
+    let capture = ios_capture_photo_bytes(request)?;
+    let byte_len = capture.bytes.len() as u64;
+    let stream = ctx.register_data_stream(single_chunk_data_stream(capture.bytes));
+    Ok(CameraCapture {
+        stream,
+        byte_len: Some(byte_len),
+        content_type: "image/jpeg".into(),
+        width: capture.width,
+        height: capture.height,
+        camera_id: capture.camera_id,
+    })
 }
 
 fn ios_set_flashlight(request: CameraFlashlightRequest) -> Result<(), CameraError> {
@@ -587,6 +615,7 @@ impl MicrophoneHost for IosMicrophoneHost {
     fn capture_audio(
         &self,
         request: MicrophoneCaptureRequest,
+        ctx: &CapabilityCtx,
     ) -> Result<MicrophoneCapture, MicrophoneError> {
         let permission = if Self::permission_state() == MicrophonePermission::Unknown {
             Self::request_microphone_permission()
@@ -599,7 +628,7 @@ impl MicrophoneHost for IosMicrophoneHost {
                 "iOS microphone permission is not granted",
             ));
         }
-        ios_capture_microphone_audio(request)
+        ios_capture_microphone_audio(request, ctx)
     }
 
     fn cancel_capture(&self) -> Result<(), MicrophoneError> {
@@ -609,6 +638,7 @@ impl MicrophoneHost for IosMicrophoneHost {
 
 fn ios_capture_microphone_audio(
     request: MicrophoneCaptureRequest,
+    ctx: &CapabilityCtx,
 ) -> Result<MicrophoneCapture, MicrophoneError> {
     unsafe {
         let session: *mut Object = msg_send![class!(AVAudioSession), sharedInstance];
@@ -709,8 +739,11 @@ fn ios_capture_microphone_audio(
                 "iOS audio recorder produced no bytes",
             ));
         }
+        let byte_len = bytes.len() as u64;
+        let stream = ctx.register_data_stream(single_chunk_data_stream(bytes));
         Ok(MicrophoneCapture {
-            bytes,
+            stream,
+            byte_len: Some(byte_len),
             content_type: "audio/mp4".into(),
             sample_rate_hz,
             channels,

@@ -1,4 +1,7 @@
 use crate::action::ActionEnvelope;
+use crate::data_stream::{
+    BoxFissionDataStream, DataStreamId, DataStreamRegistry, FissionDataStreamError,
+};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::borrow::Cow;
 use std::future::Future;
@@ -151,6 +154,32 @@ pub struct ResourceExecutionContext {
 #[derive(Clone, Debug)]
 pub struct JobCtx {
     pub req_id: u64,
+    data_streams: DataStreamRegistry,
+}
+
+impl JobCtx {
+    #[doc(hidden)]
+    pub fn new_runtime(req_id: u64, data_streams: DataStreamRegistry) -> Self {
+        Self {
+            req_id,
+            data_streams,
+        }
+    }
+
+    /// Opens a runtime-owned data stream for this job.
+    ///
+    /// Streams are one-shot by default; opening consumes the stream handle.
+    pub fn open_data_stream(
+        &self,
+        id: DataStreamId,
+    ) -> Result<BoxFissionDataStream, FissionDataStreamError> {
+        self.data_streams.open(id)
+    }
+
+    /// Releases a stream without consuming it.
+    pub fn release_data_stream(&self, id: DataStreamId) -> bool {
+        self.data_streams.release(id)
+    }
 }
 
 type EmitFn = dyn Fn(Vec<u8>) -> BoxFuture<Result<(), String>> + Send + Sync;
@@ -159,6 +188,7 @@ struct ServiceCtxInner {
     service_name: String,
     slot_key: String,
     instance_id: u64,
+    data_streams: DataStreamRegistry,
     emit: Arc<EmitFn>,
 }
 
@@ -192,6 +222,7 @@ impl<S: ServiceSpec> ServiceCtx<S> {
         service_name: String,
         slot_key: String,
         instance_id: u64,
+        data_streams: DataStreamRegistry,
         emit: Arc<EmitFn>,
     ) -> Self {
         Self {
@@ -199,6 +230,7 @@ impl<S: ServiceSpec> ServiceCtx<S> {
                 service_name,
                 slot_key,
                 instance_id,
+                data_streams,
                 emit,
             }),
             _marker: PhantomData,
@@ -222,6 +254,21 @@ impl<S: ServiceSpec> ServiceCtx<S> {
             Ok(bytes) => (self.inner.emit)(bytes),
             Err(err) => Box::pin(async move { Err(err.to_string()) }),
         }
+    }
+
+    /// Opens a runtime-owned data stream for this service.
+    ///
+    /// Streams are one-shot by default; opening consumes the stream handle.
+    pub fn open_data_stream(
+        &self,
+        id: DataStreamId,
+    ) -> Result<BoxFissionDataStream, FissionDataStreamError> {
+        self.inner.data_streams.open(id)
+    }
+
+    /// Releases a stream without consuming it.
+    pub fn release_data_stream(&self, id: DataStreamId) -> bool {
+        self.inner.data_streams.release(id)
     }
 }
 

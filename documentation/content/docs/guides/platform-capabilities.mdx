@@ -37,6 +37,7 @@ Use a capability when the host owns the work. Use normal app code when the work 
 | --- | --- |
 | Show a native notification, scan NFC, open a camera, authenticate with a passkey, read clipboard, scan Bluetooth, capture microphone audio | Capability |
 | Parse a file, call your HTTP API, transform data, run a search over local app data | Job, command, service, or normal Rust helper |
+| Let the user choose files from the host and process them as streams | `PICK_OPEN_FILES` capability, then a job or service |
 | Show an in-app alert, drawer, modal, toast, popover, or validation message | Fission widgets |
 
 A useful test is: if the code needs an OS permission prompt, browser permission, app-store entitlement, hardware SDK, service worker, protocol registration, or platform package metadata, it probably belongs behind a capability.
@@ -67,13 +68,13 @@ Do not store optimistic success. Store the request state, the returned result, a
 ```rust
 #[derive(Default)]
 struct ProfileState {
-    photo: Option<Vec<u8>>,
+    photo_stream: Option<DataStreamId>,
     camera_error: Option<String>,
     capturing_photo: bool,
 }
 ```
 
-`capturing_photo` lets the UI disable the button while the host owns the camera flow. `photo` stores the returned image bytes. `camera_error` gives the UI something specific to show when permission is denied, no camera exists, or the host is unsupported.
+`capturing_photo` lets the UI disable the button while the host owns the camera flow. `photo_stream` stores the returned stream handle. A job or service can consume that stream if the app needs to decode, upload, or preview the image. `camera_error` gives the UI something specific to show when permission is denied, no camera exists, or the host is unsupported.
 
 ## 5. Add callback reducers
 
@@ -85,7 +86,7 @@ use fission::prelude::*;
 #[fission_reducer(PhotoCaptured)]
 fn on_photo_captured(state: &mut ProfileState, capture: CameraCapture) {
     state.capturing_photo = false;
-    state.photo = Some(capture.bytes);
+    state.photo_stream = Some(capture.stream);
     state.camera_error = None;
 }
 
@@ -168,6 +169,8 @@ Production shells should install real providers for the targets they support. If
 
 The provider boundary is also where platform-specific code belongs. A Windows notification provider, an Android camera provider, a web passkey provider, and a macOS clipboard provider can all satisfy the same typed Fission contract while using different host APIs internally.
 
+File picking follows the same rule. The portable app code uses `PICK_OPEN_FILES`; the host provider chooses the native picker and returns `PickedFile` metadata plus `DataStreamId` handles. The app then consumes those streams in jobs or services. See [How do I do file uploads in Fission?](/docs/guides/file-uploads/) for the full flow.
+
 ## 9. Test the feature before testing the device
 
 Start with reducer and memory-host tests. The first test should prove your reducer queues the right effect and updates state on success. The second should prove the error path updates state correctly.
@@ -193,6 +196,7 @@ After reducer tests pass, add a runtime or shell smoke test for the target. Devi
 
 | Feature | CLI value | Start here | Reference |
 | --- | --- | --- | --- |
+| File picker and uploads | no generated config | [File uploads](/docs/guides/file-uploads/) | [Resources and capabilities](/reference/core/resources-and-capabilities/) |
 | Notifications | shell setup | [Notifications](/docs/capabilities/notifications/) | [API](/reference/capabilities/notifications/) |
 | Deep links | shell setup | [Deep links](/docs/capabilities/deep-links/) | [API](/reference/capabilities/deep-links/) |
 | NFC | `nfc` | [NFC](/docs/capabilities/nfc/) | [API](/reference/capabilities/nfc/) |

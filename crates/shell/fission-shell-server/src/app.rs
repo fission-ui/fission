@@ -672,10 +672,11 @@ fn drain_effect_jobs<S: GlobalState>(
         let result = jobs.run(
             &payload.job_name,
             payload.payload.clone(),
-            crate::ServerJobCtx {
-                req_id: effect.req_id,
-                resource_key: format!("action-effect:{}", payload.job_name),
-            },
+            crate::ServerJobCtx::new_runtime(
+                effect.req_id,
+                format!("action-effect:{}", payload.job_name),
+                jobs.data_streams(),
+            ),
         );
         match result {
             Ok(result_payload) => {
@@ -746,10 +747,11 @@ fn drain_server_jobs<S: GlobalState>(
         let result = jobs.run(
             &payload.job_name,
             payload.payload.clone(),
-            crate::ServerJobCtx {
-                req_id: job.effect.req_id,
-                resource_key: resource.key.clone(),
-            },
+            crate::ServerJobCtx::new_runtime(
+                job.effect.req_id,
+                resource.key.clone(),
+                jobs.data_streams(),
+            ),
         );
         match result {
             Ok(result_payload) => {

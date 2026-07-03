@@ -1,6 +1,7 @@
 //! Microphone host capabilities.
 
 use crate::capability::{CapabilityType, OperationCapability};
+use crate::DataStreamId;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -61,11 +62,19 @@ impl Default for MicrophoneCaptureRequest {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MicrophoneCapture {
-    pub bytes: Vec<u8>,
+    /// Runtime-owned stream containing the encoded audio bytes.
+    pub stream: DataStreamId,
+    /// Total encoded byte length when the host can determine it up front.
+    pub byte_len: Option<u64>,
+    /// MIME type for the encoded audio, for example `audio/wav`.
     pub content_type: String,
+    /// Actual sample rate in hertz.
     pub sample_rate_hz: u32,
+    /// Actual channel count.
     pub channels: u16,
+    /// Captured duration in milliseconds.
     pub duration_ms: u64,
+    /// Host microphone id that produced the capture, when known.
     pub device_id: Option<String>,
 }
 

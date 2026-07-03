@@ -95,6 +95,8 @@ use web_backend::PlatformWebBackend;
 mod clipboard;
 use clipboard::DesktopClipboard;
 pub use clipboard::{ClipboardHost, MemoryClipboardHost};
+#[cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))]
+mod file_picker;
 mod geolocation;
 pub use geolocation::{GeolocationHost, MemoryGeolocationHost, UnsupportedGeolocationHost};
 mod haptics;
@@ -199,10 +201,16 @@ fn register_builtin_operation_capabilities(async_registry: &mut AsyncRegistry) {
     #[cfg(target_arch = "wasm32")]
     {
         web_capabilities::register_web_operation_capabilities(async_registry);
+        register_unsupported_file_picker_capability(async_registry);
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     {
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        file_picker::register_file_picker_capability(async_registry);
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        register_unsupported_file_picker_capability(async_registry);
+
         notifications::register_notification_capabilities(
             async_registry,
             Arc::new(notifications::native_notification_host()),
@@ -248,6 +256,18 @@ fn register_builtin_operation_capabilities(async_registry: &mut AsyncRegistry) {
         #[cfg(target_os = "ios")]
         ios_capabilities::register_ios_operation_capabilities(async_registry);
     }
+}
+
+#[cfg(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))]
+fn register_unsupported_file_picker_capability(async_registry: &mut AsyncRegistry) {
+    async_registry.register_operation_capability(
+        fission_core::PICK_OPEN_FILES,
+        |_request: fission_core::PickOpenFilesRequest, _| async move {
+            Err::<fission_core::PickOpenFilesResult, _>(
+                fission_core::PickOpenFilesError::unsupported("pick_open_files"),
+            )
+        },
+    );
 }
 
 fn collect_startup_deep_links(config: &DeepLinkConfig) -> Vec<DeepLink> {
@@ -3282,7 +3302,7 @@ where
 
     /// Registers the host implementation used for barcode scanner effects.
     ///
-    /// `host` may run live camera scanning, decode supplied image bytes, or both.
+    /// `host` may run live camera scanning, decode supplied image streams, or both.
     /// Reducers should rely on this provider instead of depending on a specific
     /// camera or decoder library.
     pub fn with_barcode_scanner_host<H>(mut self, host: H) -> Self
