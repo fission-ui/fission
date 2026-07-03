@@ -341,7 +341,14 @@ impl From<Drawer> for Widget {
             right: Some(0.0),
             top: Some(0.0),
             bottom: Some(0.0),
-            child: Some(root),
+            child: Some(
+                fission_core::ui::widgets::FocusScope {
+                    id: None,
+                    is_barrier: true,
+                    children: vec![root],
+                }
+                .into(),
+            ),
             ..Default::default()
         }
         .into();

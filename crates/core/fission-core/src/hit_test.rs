@@ -1,7 +1,7 @@
 use crate::env::ScrollStateMap;
 use crate::ui::custom_render::downcast_render_object;
 use fission_diagnostics::prelude as diag;
-use fission_ir::{CoreIR, LayoutOp, Op, WidgetId};
+use fission_ir::{CoreIR, LayoutOp, Op, PaintOp, WidgetId};
 use fission_layout::{LayoutPoint, LayoutSnapshot};
 use glam::{Mat4, Vec4};
 
@@ -123,6 +123,10 @@ fn hit_test_recursive(
         }
     }
 
+    if geom.rect.contains(point) && paint_op_blocks_hit_testing(&node.op) {
+        return Some(node_id);
+    }
+
     let mut current_is_hit = false;
     if geom.rect.contains(point) {
         match &node.op {
@@ -147,6 +151,25 @@ fn hit_test_recursive(
         Some(node_id)
     } else {
         None
+    }
+}
+
+fn paint_op_blocks_hit_testing(op: &Op) -> bool {
+    match op {
+        Op::Paint(PaintOp::DrawRect {
+            fill,
+            stroke,
+            shadow,
+            ..
+        }) => fill.is_some() || stroke.is_some() || shadow.is_some(),
+        Op::Paint(PaintOp::DrawText { text, .. }) => !text.is_empty(),
+        Op::Paint(PaintOp::DrawRichText { runs, .. }) => {
+            runs.iter().any(|run| !run.text.is_empty())
+        }
+        Op::Paint(PaintOp::DrawImage { .. }) => true,
+        Op::Paint(PaintOp::DrawPath { fill, stroke, .. })
+        | Op::Paint(PaintOp::DrawSvg { fill, stroke, .. }) => fill.is_some() || stroke.is_some(),
+        _ => false,
     }
 }
 
