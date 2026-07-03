@@ -9,6 +9,7 @@ use toml_edit::{value, Array, DocumentMut, InlineTable, Item, Table, Value};
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const ANDROID_GRADLE_PLUGIN_VERSION: &str = "8.13.2";
 const DEFAULT_APP_ICON_PNG: &[u8] = include_bytes!("../assets/fission_logo.png");
+const GENERATED_APP_AGENTS_MD: &str = include_str!("../assets/AGENTS.md");
 
 mod icons;
 mod splash;
@@ -282,6 +283,7 @@ pub fn init_project(
         &render_project_readme(&project),
         write_policy,
     )?;
+    write_generated_app_agents(root)?;
     write_file_with_policy(
         &root.join(".gitignore"),
         "target/\nplatforms/*/build/\n",
@@ -1832,6 +1834,38 @@ fn scaffold_web_bundle(
     }
 
     Ok(())
+}
+
+fn write_generated_app_agents(project_root: &Path) -> Result<()> {
+    let repo_root = find_git_root(project_root).unwrap_or_else(|| project_root.to_path_buf());
+    let root_agents = repo_root.join("AGENTS.md");
+    let path = if fs::read_to_string(&root_agents)
+        .map(|existing| existing == GENERATED_APP_AGENTS_MD)
+        .unwrap_or(false)
+    {
+        root_agents
+    } else if root_agents.exists() {
+        repo_root.join("AGENTS.fission.md")
+    } else {
+        root_agents
+    };
+    write_file_with_policy(
+        &path,
+        GENERATED_APP_AGENTS_MD,
+        WritePolicy::PreserveExisting,
+    )
+}
+
+fn find_git_root(start: &Path) -> Option<PathBuf> {
+    let mut current = fs::canonicalize(start).ok()?;
+    loop {
+        if current.join(".git").exists() {
+            return Some(current);
+        }
+        if !current.pop() {
+            return None;
+        }
+    }
 }
 
 pub(crate) fn write_file(path: &Path, contents: &str) -> Result<()> {

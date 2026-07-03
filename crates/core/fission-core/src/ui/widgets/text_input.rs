@@ -36,6 +36,18 @@ pub enum DragStartBehavior {
     Down,
 }
 
+/// Payload contract used by [`TextInput::on_change`].
+///
+/// The default keeps text input generic and dispatches `String` payloads even
+/// when the platform keyboard hint is numeric. Widgets that own a numeric
+/// contract, such as `NumberInput`, can opt into `Number` explicitly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum TextInputChangePayload {
+    #[default]
+    Text,
+    Number,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TextUndoController {
     pub capacity: usize,
@@ -286,6 +298,9 @@ pub struct TextInput {
     pub counter_text: Option<TextContent>,
     /// Action dispatched when the text changes.
     pub on_change: Option<ActionEnvelope>,
+    /// Payload type dispatched for `on_change`.
+    #[serde(default)]
+    pub change_payload: TextInputChangePayload,
     /// Action dispatched when the user submits the field (for example by pressing Enter
     /// on a single-line input).
     pub on_submit: Option<ActionEnvelope>,
@@ -778,6 +793,7 @@ impl Default for TextInput {
             error_text: None,
             counter_text: None,
             on_change: None,
+            change_payload: TextInputChangePayload::Text,
             on_submit: None,
             on_editing_complete: None,
             on_tap_outside: None,
@@ -1234,7 +1250,9 @@ impl InternalLower for TextInput {
             None
         };
 
-        let (display_text, preedit_range, caret, anchor) = if self.obscure_text {
+        let (display_text, preedit_range, preedit_cursor_range, caret, anchor) = if self
+            .obscure_text
+        {
             let mut combined = self.value.clone();
             if let Some((display, _)) = &session_display {
                 combined = display.clone();
@@ -1243,16 +1261,17 @@ impl InternalLower for TextInput {
             let masked = Self::mask_text(&combined, self.obscuring_character);
             let mapped_caret = Self::masked_byte_offset(&combined, &masked, caret);
             let mapped_anchor = Self::masked_byte_offset(&combined, &masked, anchor);
-            (masked, None, mapped_caret, mapped_anchor)
+            (masked, None, None, mapped_caret, mapped_anchor)
         } else {
             match session_display {
                 Some((combined, preedit_range)) => {
                     let (caret, anchor) = session.map(|st| (st.caret, st.anchor)).unwrap_or((0, 0));
-                    (combined, preedit_range, caret, anchor)
+                    let cursor_range = session.and_then(|st| st.display_preedit_cursor_range());
+                    (combined, preedit_range, cursor_range, caret, anchor)
                 }
                 None => {
                     let (caret, anchor) = session.map(|st| (st.caret, st.anchor)).unwrap_or((0, 0));
-                    (self.value.clone(), None, caret, anchor)
+                    (self.value.clone(), None, None, caret, anchor)
                 }
             }
         };
@@ -1373,6 +1392,20 @@ impl InternalLower for TextInput {
                 run_start_byte = run_end_byte;
             }
             runs = final_runs;
+        }
+
+        if let Some((start, end)) = preedit_range {
+            runs = split_runs_for_range(&runs, start, end, |style| {
+                style.underline = true;
+                if style.background_color.is_none() {
+                    style.background_color = Some(IrColor {
+                        r: 100,
+                        g: 130,
+                        b: 190,
+                        a: 48,
+                    });
+                }
+            });
         }
 
         if display_text.is_empty() && resolved_placeholder.is_some() {
@@ -1800,6 +1833,8 @@ impl InternalLower for TextInput {
             masked: self.obscure_text,
             input_mask: self.mask.clone(),
             ime_preedit_range: preedit_range,
+            ime_preedit_cursor_range: preedit_cursor_range,
+            text_selection: Some((anchor, caret)),
             checked: None,
             disabled: !self.enabled,
             read_only: self.read_only,
@@ -1837,7 +1872,12 @@ impl InternalLower for TextInput {
         };
         if let Some(env) = &self.on_change {
             semantics.actions.entries.push(fission_ir::ActionEntry {
-                trigger: fission_ir::semantics::ActionTrigger::Change,
+                trigger: match self.change_payload {
+                    TextInputChangePayload::Text => fission_ir::semantics::ActionTrigger::Change,
+                    TextInputChangePayload::Number => {
+                        fission_ir::semantics::ActionTrigger::NumberChange
+                    }
+                },
                 action_id: env.id.as_u128(),
                 payload_data: None,
             });
@@ -1890,4 +1930,54 @@ impl InternalLower for TextInput {
         );
         semantics_id
     }
+}
+
+fn split_runs_for_range(
+    runs: &[fission_ir::op::TextRun],
+    start: usize,
+    end: usize,
+    mut apply: impl FnMut(&mut fission_ir::op::TextStyle),
+) -> Vec<fission_ir::op::TextRun> {
+    if start >= end {
+        return runs.to_vec();
+    }
+
+    let mut out = Vec::new();
+    let mut run_start = 0usize;
+    for run in runs {
+        let run_end = run_start + run.text.len();
+        let overlap_start = start.max(run_start);
+        let overlap_end = end.min(run_end);
+        if overlap_start >= overlap_end {
+            out.push(run.clone());
+            run_start = run_end;
+            continue;
+        }
+
+        let local_start = overlap_start - run_start;
+        let local_end = overlap_end - run_start;
+        if local_start > 0 {
+            out.push(fission_ir::op::TextRun {
+                text: run.text[..local_start].to_string(),
+                style: run.style.clone(),
+            });
+        }
+
+        let mut styled = run.style.clone();
+        apply(&mut styled);
+        out.push(fission_ir::op::TextRun {
+            text: run.text[local_start..local_end].to_string(),
+            style: styled,
+        });
+
+        if local_end < run.text.len() {
+            out.push(fission_ir::op::TextRun {
+                text: run.text[local_end..].to_string(),
+                style: run.style.clone(),
+            });
+        }
+
+        run_start = run_end;
+    }
+    out
 }

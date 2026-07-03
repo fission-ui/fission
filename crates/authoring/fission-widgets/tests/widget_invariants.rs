@@ -94,6 +94,8 @@ fn test_button_widget_lower_with_child_and_semantics() {
             masked: false,
             input_mask: None,
             ime_preedit_range: None,
+            ime_preedit_cursor_range: None,
+            text_selection: None,
             checked: None,
             disabled: false,
             read_only: false,

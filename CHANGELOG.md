@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.2] - 2026-07-03
+
+### Added
+
+- **Native accessibility bridge** - The winit shell now publishes Fission semantics through AccessKit and platform accessibility APIs so assistive tools can inspect roles, labels, values, editable text, selections, and supported actions.
+- **First-class IME composition model** - Text input now models preedit, cancel, and commit separately, tracks the preedit cursor range, and exposes selection/preedit state through semantics.
+- **Pointer focus preservation policy** - Interactive widgets can opt into `FocusPolicy::PreserveCurrentOnPointer`, allowing editor ribbons and toolbars to run commands without stealing focus from the active text editor.
+- **Static-site tabs** - The static-site documentation renderer now lowers Fission/Docusaurus-style `Tabs` and `TabItem` blocks into native static markup with progressive JavaScript enhancement.
+- **Generated AGENTS guidance** - `fission init` now writes Fission app guidelines to the repository root as `AGENTS.md`, or `AGENTS.fission.md` when a repo-level agent file already exists.
+- **Framework-transition docs** - Added a new "Fission for framework developers" documentation section, starting with a React guide built around paired React/Fission examples.
+
+### Changed
+
+- **Text input synchronization** - Focus, scroll, text edits, and custom editor events now refresh the shell IME cursor rectangle so candidate windows and mobile keyboard sessions follow the active caret.
+- **Editor dogfooding tests** - The editor LiveTest path now exercises a human-like todo-app editing workflow with typing, typo correction, undo/redo, shortcuts, selection, drag, copy/paste, find/replace, save, and file-tree navigation.
+- **Controlled widget coverage** - Widget-state tests now cover controlled interactions more directly, including buttons, toggles, sliders, and text-related state surfaces.
+- **Native shell resilience** - Native video and web overlay backends now degrade gracefully when a target cannot support them, and AppKit IME configuration avoids panic-prone paths.
+
+### Fixed
+
+- **Remote Android keyboard input on macOS** - Fission now depends on the published `fission-winit 0.30.13-fission.1` fork, fixing the path where remote Android keyboard input could arrive as spaces instead of the typed characters.
+- **Text selection precision** - Single-character and partial-range selections now render as the selected text range instead of visually expanding to the entire line.
+- **Selection affordance safety** - Text input selection handles no longer advertise drag behavior that Fission cannot yet complete reliably.
+- **Rich text fallback** - Rich text preserves font fallback through layout/lowering so mixed font content remains stable.
+- **Layout panics** - Layout edge cases that could panic in widget-state and review scenarios have been hardened.
+
 ## [0.6.1] - 2026-06-30
 
 ### Added

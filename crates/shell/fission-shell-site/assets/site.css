@@ -129,6 +129,78 @@ img, svg { max-width: 100%; }
   white-space: pre;
 }
 
+.fission-site-code-block:has(> code.language-fission-tabs-start),
+.fission-site-code-block:has(> code.language-fission-tab-start),
+.fission-site-code-block:has(> code.language-fission-tabs-end) {
+  display: none !important;
+}
+
+.fission-doc-tabs {
+  width: 100%;
+  margin: 1.1rem 0;
+  border: 1px solid color-mix(in srgb, var(--fs-color-border) 80%, transparent);
+  border-radius: 0.9rem;
+  background: color-mix(in srgb, var(--fs-color-surface) 92%, transparent);
+  overflow: hidden;
+}
+
+.fission-doc-tab-list {
+  display: flex;
+  gap: 0.35rem;
+  padding: 0.45rem;
+  overflow-x: auto;
+  border-bottom: 1px solid color-mix(in srgb, var(--fs-color-border) 72%, transparent);
+  background: color-mix(in srgb, var(--fs-color-surface-raised) 72%, transparent);
+}
+
+.fission-doc-tab {
+  appearance: none;
+  flex: 0 0 auto;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fs-color-text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.2;
+  padding: 0.46rem 0.82rem;
+}
+
+.fission-doc-tab:hover {
+  color: var(--fs-color-text-primary);
+  background: color-mix(in srgb, var(--fs-color-primary-subtle) 52%, transparent);
+}
+
+.fission-doc-tab:focus-visible {
+  outline: 2px solid var(--fs-color-focus, var(--fs-color-primary));
+  outline-offset: 2px;
+}
+
+.fission-doc-tab[aria-selected="true"] {
+  color: var(--fs-color-text-primary);
+  border-color: color-mix(in srgb, var(--fs-color-primary) 42%, transparent);
+  background: color-mix(in srgb, var(--fs-color-primary-subtle) 78%, var(--fs-color-surface));
+  box-shadow: 0 0.35rem 1rem color-mix(in srgb, var(--fs-color-primary) 12%, transparent);
+}
+
+.fission-doc-tab-panel {
+  padding: 1rem;
+}
+
+.fission-doc-tab-panel[hidden] {
+  display: none !important;
+}
+
+.fission-doc-tab-panel > :first-child {
+  margin-top: 0 !important;
+}
+
+.fission-doc-tab-panel > :last-child {
+  margin-bottom: 0 !important;
+}
+
 .fission-site-search-open { overflow: hidden; }
 
 .fission-site-search-dialog[hidden] { display: none !important; }

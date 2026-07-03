@@ -11,6 +11,7 @@ use crate::site::{
     normalize_site_path, ContentTransform, FissionSite, SitePageElement, SitePageElementFilter,
     SitePageElementPlacement, SiteRenderContext,
 };
+use crate::tabs::expand_mdx_tabs;
 use anyhow::{bail, Context, Result};
 use fission_core::internal::BuildCtx;
 use fission_core::internal::InternalLoweringCx;
@@ -558,6 +559,7 @@ fn load_content_routes(
             if let Some(transform) = transform {
                 body = transform(&body, &options.project_dir, &file)?;
             }
+            body = expand_mdx_tabs(&body)?;
             body = strip_mdx_control_markers(&body);
             body = resolve_relative_markdown_links(&body, &config.path, &config.source, &file);
             let title = front
@@ -1734,7 +1736,7 @@ mod tests {
         fs::write(temp.join("assets/favicon.svg"), "<svg></svg>").unwrap();
         fs::write(
             temp.join("content/getting-started.md"),
-            "---\ntitle: Getting started\ndescription: First page\n---\n# Getting started\n\nThis is rendered by Fission.\n\n```rust\nlet answer = 42;\n```",
+            "---\ntitle: Getting started\ndescription: First page\n---\n# Getting started\n\nThis is rendered by Fission.\n\n<Tabs>\n<TabItem value=\"rust\" label=\"Rust\">\n\nRust tab body.\n\n</TabItem>\n<TabItem value=\"site\" label=\"Site\">\n\nSite tab body.\n\n</TabItem>\n</Tabs>\n\n```rust\nlet answer = 42;\n```",
         )
         .unwrap();
         let mut options = SiteBuildOptions::for_project(&temp, "Test site");
@@ -1778,6 +1780,10 @@ mod tests {
         assert!(html.contains("window.exampleReady=true"));
         assert!(html.contains("<pre class=\"fission-site-code-block\""));
         assert!(html.contains("class=\"language-rust\""));
+        assert!(html.contains("class=\"language-fission-tabs-start\""));
+        assert!(html.contains("Rust tab"));
+        assert!(html.contains("Site tab"));
+        assert!(html.contains("site-enhancement.js"));
         assert!(html.contains("highlight.js/11.11.1/highlight.min.js"));
         assert!(html.contains("fission-site-nav-item"));
         assert!(html.contains("fission-site-nav-menu"));
@@ -1786,6 +1792,7 @@ mod tests {
         let css = fs::read_to_string(temp.join("target/fission/site/site.css")).unwrap();
         assert!(css.contains(":root"));
         assert!(css.contains(".fs_"));
+        assert!(css.contains(".fission-doc-tabs"));
         assert!(temp.join("target/fission/site/sitemap.xml").exists());
         assert!(temp.join("target/fission/site/robots.txt").exists());
         assert!(temp.join("target/fission/site/search/search.js").exists());

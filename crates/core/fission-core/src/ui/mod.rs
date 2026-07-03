@@ -14,5 +14,5 @@ pub use widgets::{
     ImageAlignment, ImageCachePolicy, ImageErrorBehavior, ImageLoadingBehavior, ImageRequest,
     ImageSource, LayoutBuilder, LazyColumn, Overlay, Positioned, Provider, Radio, RichText,
     RichTextRun, Row, SafeArea, Scroll, SemanticsRegion, Slider, Spacer, Switch, Text, TextContent,
-    TextFontStyle, TextInput, TextRunStyle, Video, ZStack,
+    TextFontStyle, TextInput, TextInputChangePayload, TextRunStyle, Video, ZStack,
 };

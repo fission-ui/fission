@@ -1493,8 +1493,14 @@ fn main() -> anyhow::Result<()> {
     let root_for_startup = root.clone();
     let app = DesktopApp::<EditorState, _>::new(EditorApp)
         .with_title("Fission Editor")
-        .with_startup_action(EditorStarted {
-            root_path: root_for_startup,
+        .with_state_init(move |state: &mut EditorState| {
+            state.root_path = root_for_startup.clone();
+            state.request_tree_refresh();
+            state.refresh_git_status();
+            state.ensure_terminal_session();
+            if std::env::var("FISSION_TEST_CONTROL_PORT").is_err() && state.lsp_handle.is_none() {
+                state.lsp_handle = Some(LspHandle::new(&state.root_path));
+            }
         })
         .with_async(|asyncs| {
             asyncs.register_job(TREE_SCAN_JOB, |request: TreeScanRequest, _| async move {
@@ -1511,8 +1517,9 @@ fn main() -> anyhow::Result<()> {
             move |state: &mut EditorState, key: &fission::core::KeyCode, mods: u8| -> bool {
                 // Async resources handle background scanning and polling.
 
-                let ctrl = (mods & 2) != 0 || (mods & 8) != 0; // Ctrl or Cmd
-                let shift = (mods & 1) != 0;
+                let ctrl = (mods & fission::core::event::MOD_CTRL) != 0
+                    || (mods & fission::core::event::MOD_SUPER) != 0;
+                let shift = (mods & fission::core::event::MOD_SHIFT) != 0;
 
                 // Dismiss context menu on any keystroke (except Escape which handles it explicitly)
                 if !matches!(key, fission::core::KeyCode::Escape) {
@@ -1646,35 +1653,13 @@ fn main() -> anyhow::Result<()> {
                         state.close_tab(idx);
                         true
                     }
-                    // Ctrl+Z: undo, Ctrl+Shift+Z: redo
-                    fission::core::KeyCode::Char('z') | fission::core::KeyCode::Char('Z') => {
-                        if shift {
-                            state.redo_active();
-                        } else {
-                            state.undo_active();
-                        }
-                        true
-                    }
-                    // Ctrl+Y: redo (alternative)
-                    fission::core::KeyCode::Char('y') | fission::core::KeyCode::Char('Y') => {
-                        state.redo_active();
-                        true
-                    }
-                    // Ctrl+C: copy current line
-                    fission::core::KeyCode::Char('c') | fission::core::KeyCode::Char('C') => {
-                        state.copy_line();
-                        true
-                    }
-                    // Ctrl+X: cut current line
-                    fission::core::KeyCode::Char('x') | fission::core::KeyCode::Char('X') => {
-                        state.cut_line();
-                        true
-                    }
-                    // Ctrl+V: paste clipboard
-                    fission::core::KeyCode::Char('v') | fission::core::KeyCode::Char('V') => {
-                        state.paste();
-                        true
-                    }
+                    // Let the focused editor TextInput own text-history shortcuts so
+                    // its retained editing buffer and the app model stay in sync.
+                    fission::core::KeyCode::Char('z') | fission::core::KeyCode::Char('Z') => false,
+                    fission::core::KeyCode::Char('y') | fission::core::KeyCode::Char('Y') => false,
+                    fission::core::KeyCode::Char('c') | fission::core::KeyCode::Char('C') => false,
+                    fission::core::KeyCode::Char('x') | fission::core::KeyCode::Char('X') => false,
+                    fission::core::KeyCode::Char('v') | fission::core::KeyCode::Char('V') => false,
                     _ => false,
                 }
             },

@@ -45,6 +45,9 @@ impl From<DateRangePicker> for Widget {
                     value: this.start,
                     is_open: this.is_start_open,
                     width: None,
+                    view_year: None,
+                    view_month: None,
+                    on_navigate: None,
                     on_change: cb.clone().map(|f| {
                         Arc::new(move |d| f(Some(d), e))
                             as Arc<dyn Fn(NaiveDate) -> ActionEnvelope + Send + Sync>
@@ -59,6 +62,9 @@ impl From<DateRangePicker> for Widget {
                     value: this.end,
                     is_open: this.is_end_open,
                     width: None,
+                    view_year: None,
+                    view_month: None,
+                    on_navigate: None,
                     on_change: cb.map(|f| {
                         Arc::new(move |d| f(s, Some(d)))
                             as Arc<dyn Fn(NaiveDate) -> ActionEnvelope + Send + Sync>

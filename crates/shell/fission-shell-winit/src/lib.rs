@@ -54,7 +54,7 @@ use fission_render_vello::{
 use fission_shell::async_host::{
     AsyncMessage, AsyncRegistry, RunningServiceHandle, ServiceControlMessage,
 };
-use fission_shell::{VideoBackend, VideoEvent, VideoPlayer};
+use fission_shell::{VideoEvent, VideoPlayer};
 use fission_theme::fonts;
 use fontique::{Blob, Collection, CollectionOptions, FontInfoOverride, SourceCache};
 
@@ -88,15 +88,9 @@ use renderer_diagnostics::{emit_renderer_report, RendererReport, RendererRequest
 mod software_renderer;
 use software_renderer::SoftwareRenderer;
 mod video_backend;
-#[cfg(target_os = "macos")]
-use video_backend::MacVideoBackend;
-#[cfg(not(target_os = "macos"))]
-use video_backend::MockVideoBackend;
+use video_backend::create_video_backend;
 mod web_backend;
-#[cfg(target_os = "macos")]
-use web_backend::MacWebBackend;
-#[cfg(not(target_os = "macos"))]
-use web_backend::MockWebBackend;
+use web_backend::PlatformWebBackend;
 
 mod clipboard;
 use clipboard::DesktopClipboard;
@@ -3635,14 +3629,14 @@ where
         let mut active_services: HashMap<ServiceKey, ActiveServiceHandle> = HashMap::new();
         let mut service_bindings: HashMap<ServiceBindingKey, ServiceBindings> = HashMap::new();
 
-        #[cfg(target_os = "macos")]
-        let video_backend: Arc<dyn VideoBackend> = Arc::new(MacVideoBackend::new(&platform_window));
-        #[cfg(not(target_os = "macos"))]
-        let video_backend: Arc<dyn VideoBackend> = Arc::new(MockVideoBackend::new());
-        #[cfg(target_os = "macos")]
-        let web_backend = MacWebBackend::new(&platform_window);
-        #[cfg(not(target_os = "macos"))]
-        let web_backend = MockWebBackend::new();
+        #[cfg(not(target_os = "android"))]
+        let video_backend = create_video_backend(Some(&platform_window));
+        #[cfg(target_os = "android")]
+        let video_backend = create_video_backend(platform_window.as_deref());
+        #[cfg(not(target_os = "android"))]
+        let web_backend = PlatformWebBackend::new(Some(&platform_window));
+        #[cfg(target_os = "android")]
+        let web_backend = PlatformWebBackend::new(platform_window.as_deref());
         let mut players: HashMap<WidgetId, ActivePlayer> = HashMap::new();
 
         let mut last_cursor_position: Option<PhysicalPosition<f64>> = None;
@@ -4000,6 +3994,117 @@ where
                                     );
                                 }
                             }
+                        }
+                    }
+                    TestEvent::ImePreedit { text, cursor } => {
+                        let Some(window) = platform_window.active_window() else {
+                            return;
+                        };
+                        if let (Some(ir), Some(layout)) =
+                            (&pipeline.prev_ir, &pipeline.last_snapshot)
+                        {
+                            let target = focused_text_input_id(&runtime, pipeline.prev_ir.as_ref());
+                            let trace_seq = start_text_trace(
+                                text_trace_enabled && target.is_some(),
+                                &mut pending_text_traces,
+                                &mut next_text_trace_seq,
+                                format!("test_ime_preedit:{}", text.chars().count()),
+                                target,
+                                presented_frames,
+                            );
+                            runtime
+                                .handle_input(
+                                    InputEvent::Ime(fission_core::event::ImeEvent::Preedit {
+                                        text,
+                                        cursor,
+                                    }),
+                                    ir,
+                                    layout,
+                                )
+                                .ok();
+                            invalidations.mark_build();
+                            mark_text_trace_handled(&mut pending_text_traces, trace_seq);
+                            request_redraw_logged(
+                                window,
+                                elwt,
+                                &mut last_redraw_at,
+                                min_frame,
+                                &mut redraw_pending,
+                                &mut frame_trace,
+                                "test_ime_preedit",
+                            );
+                        }
+                    }
+                    TestEvent::ImeCommit { text } => {
+                        let Some(window) = platform_window.active_window() else {
+                            return;
+                        };
+                        if let (Some(ir), Some(layout)) =
+                            (&pipeline.prev_ir, &pipeline.last_snapshot)
+                        {
+                            let target = focused_text_input_id(&runtime, pipeline.prev_ir.as_ref());
+                            let trace_seq = start_text_trace(
+                                text_trace_enabled && target.is_some(),
+                                &mut pending_text_traces,
+                                &mut next_text_trace_seq,
+                                format!("test_ime_commit:{}", text.chars().count()),
+                                target,
+                                presented_frames,
+                            );
+                            runtime
+                                .handle_input(
+                                    InputEvent::Ime(fission_core::event::ImeEvent::Commit { text }),
+                                    ir,
+                                    layout,
+                                )
+                                .ok();
+                            invalidations.mark_build();
+                            mark_text_trace_handled(&mut pending_text_traces, trace_seq);
+                            request_redraw_logged(
+                                window,
+                                elwt,
+                                &mut last_redraw_at,
+                                min_frame,
+                                &mut redraw_pending,
+                                &mut frame_trace,
+                                "test_ime_commit",
+                            );
+                        }
+                    }
+                    TestEvent::ImeCancel => {
+                        let Some(window) = platform_window.active_window() else {
+                            return;
+                        };
+                        if let (Some(ir), Some(layout)) =
+                            (&pipeline.prev_ir, &pipeline.last_snapshot)
+                        {
+                            let target = focused_text_input_id(&runtime, pipeline.prev_ir.as_ref());
+                            let trace_seq = start_text_trace(
+                                text_trace_enabled && target.is_some(),
+                                &mut pending_text_traces,
+                                &mut next_text_trace_seq,
+                                "test_ime_cancel".to_string(),
+                                target,
+                                presented_frames,
+                            );
+                            runtime
+                                .handle_input(
+                                    InputEvent::Ime(fission_core::event::ImeEvent::Cancel),
+                                    ir,
+                                    layout,
+                                )
+                                .ok();
+                            invalidations.mark_build();
+                            mark_text_trace_handled(&mut pending_text_traces, trace_seq);
+                            request_redraw_logged(
+                                window,
+                                elwt,
+                                &mut last_redraw_at,
+                                min_frame,
+                                &mut redraw_pending,
+                                &mut frame_trace,
+                                "test_ime_cancel",
+                            );
                         }
                     }
                     TestEvent::Scroll { x, y, dx, dy } => {
@@ -6530,13 +6635,20 @@ where
                                         )),
                                         Some(format!("ime_commit:{}", text.chars().count())),
                                     ),
-                                    Ime::Preedit(text, _) => (
+                                    Ime::Preedit(text, cursor) => (
                                         Some(InputEvent::Ime(
                                             fission_core::event::ImeEvent::Preedit {
                                                 text: text.clone(),
+                                                cursor,
                                             },
                                         )),
                                         Some(format!("ime_preedit:{}", text.chars().count())),
+                                    ),
+                                    Ime::Disabled => (
+                                        Some(InputEvent::Ime(
+                                            fission_core::event::ImeEvent::Cancel,
+                                        )),
+                                        Some("ime_cancel".to_string()),
                                     ),
                                     _ => (None, None),
                                 };

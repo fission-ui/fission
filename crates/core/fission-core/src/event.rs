@@ -183,8 +183,17 @@ pub enum InputEvent {
 /// Input Method Editor events for composed text input (CJK, emoji, etc.).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ImeEvent {
-    /// The IME is composing text (shown as a preview before the user confirms).
-    Preedit { text: String },
+    /// The IME is composing text before the user confirms it.
+    ///
+    /// `cursor` is an optional byte range inside `text` reported by the
+    /// platform IME. Shells can use it to render the active composition cursor
+    /// or marked segment separately from the rest of the preedit text.
+    Preedit {
+        text: String,
+        cursor: Option<(usize, usize)>,
+    },
+    /// The active composition was cancelled without committing text.
+    Cancel,
     /// The user confirmed the composed text.
     Commit { text: String },
 }

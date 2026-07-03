@@ -5,7 +5,8 @@ mod imp {
 
     use accesskit::{
         Action, ActionData, ActionHandler, ActionRequest, ActivationHandler, DeactivationHandler,
-        Node, NodeId, Rect, Role as AccessRole, TextSelection, Toggled, Tree, TreeId, TreeUpdate,
+        Node, NodeId, Rect, Role as AccessRole, TextPosition, TextSelection, Toggled, Tree, TreeId,
+        TreeUpdate,
     };
     use accesskit_winit::Adapter;
     use fission_core::event::ImeEvent;
@@ -375,7 +376,7 @@ mod imp {
                         .flat_map(|child| self.collect_subtree(*child, true))
                         .collect::<Vec<_>>();
                     let access_id = self.node_id_for(node_id);
-                    let mut node = self.access_node_for_semantics(node_id, semantics);
+                    let mut node = self.access_node_for_semantics(access_id, node_id, semantics);
                     node.set_children(child_ids);
                     self.nodes.push((access_id, node));
                     vec![access_id]
@@ -436,7 +437,12 @@ mod imp {
             candidate
         }
 
-        fn access_node_for_semantics(&self, node_id: WidgetId, semantics: &Semantics) -> Node {
+        fn access_node_for_semantics(
+            &self,
+            access_id: NodeId,
+            node_id: WidgetId,
+            semantics: &Semantics,
+        ) -> Node {
             let mut node = Node::new(access_role_for(semantics));
             if let Some(rect) = self.layout.get_node_rect(node_id) {
                 node.set_bounds(accesskit_rect(rect, self.scale_factor));
@@ -469,6 +475,18 @@ mod imp {
                                 .map(|ch| ch.len_utf8() as u8)
                                 .collect::<Vec<_>>(),
                         );
+                        if let Some((anchor, focus)) = semantics.text_selection {
+                            node.set_text_selection(TextSelection {
+                                anchor: TextPosition {
+                                    node: access_id,
+                                    character_index: byte_to_char(&value, anchor),
+                                },
+                                focus: TextPosition {
+                                    node: access_id,
+                                    character_index: byte_to_char(&value, focus),
+                                },
+                            });
+                        }
                     }
                     node.add_action(Action::ReplaceSelectedText);
                     node.add_action(Action::SetValue);
@@ -802,6 +820,14 @@ mod imp {
             .chain(std::iter::once(value.len()))
             .nth(character_index)
             .unwrap_or(value.len())
+    }
+
+    fn byte_to_char(value: &str, byte_index: usize) -> usize {
+        let mut clamped = byte_index.min(value.len());
+        while clamped > 0 && !value.is_char_boundary(clamped) {
+            clamped -= 1;
+        }
+        value[..clamped].chars().count()
     }
 
     fn dispatch_text_change(

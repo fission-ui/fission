@@ -1,5 +1,7 @@
 use crate::Icon;
-use fission_core::ui::{Button, ButtonVariant, Container, Row, TextInput, Widget};
+use fission_core::ui::{
+    Button, ButtonVariant, Container, Row, TextInput, TextInputChangePayload, Widget,
+};
 use fission_core::{ActionEnvelope, WidgetId};
 use fission_icons::material;
 use serde::{Deserialize, Serialize};
@@ -86,9 +88,12 @@ impl From<NumberInput> for Widget {
                         value: display_text,
                         width: Some(field_width),
                         borderless: true,
-                        // TODO: Parse text input back to float for on_change
-                        // Needs `on_change` logic similar to slider?
-                        // MVP: Just display value.
+                        // NumberInput owns a numeric action contract; the
+                        // keyboard hint alone must not change generic text
+                        // input payloads.
+                        keyboard_type: fission_ir::semantics::TextInputType::Number,
+                        change_payload: TextInputChangePayload::Number,
+                        on_change: this.on_change.clone(),
                         ..Default::default()
                     }
                     .into(),

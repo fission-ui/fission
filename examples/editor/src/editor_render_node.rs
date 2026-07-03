@@ -684,13 +684,22 @@ impl CustomRenderObject for EditorRenderNode {
                 modifiers,
             }) => self.handle_key(node_id, key_code, *modifiers),
 
-            InputEvent::Ime(fission::core::event::ImeEvent::Preedit { text }) => {
+            InputEvent::Ime(fission::core::event::ImeEvent::Preedit { text, .. }) => {
                 if !self.editable {
                     return CustomEventResult::consumed();
                 }
                 CustomEventResult::consumed_with(vec![(
                     node_id,
                     ActionEnvelope::from(SetEditorPreedit { text: text.clone() }),
+                )])
+            }
+
+            InputEvent::Ime(fission::core::event::ImeEvent::Cancel) => {
+                CustomEventResult::consumed_with(vec![(
+                    node_id,
+                    ActionEnvelope::from(SetEditorPreedit {
+                        text: String::new(),
+                    }),
                 )])
             }
 

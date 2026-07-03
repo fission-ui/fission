@@ -220,7 +220,10 @@ mod macos {
         config: Option<&TextInputConfig>,
         active_view_id: &mut Option<usize>,
     ) {
-        let view = ns_view_from_window(window);
+        let Some(view) = ns_view_from_window(window) else {
+            clear_text_input_traits(active_view_id.take());
+            return;
+        };
         ensure_trait_bridge(view);
 
         let view_id = view as usize;
@@ -261,13 +264,11 @@ mod macos {
         }
     }
 
-    fn ns_view_from_window(window: &Window) -> id {
-        let handle = window
-            .window_handle()
-            .expect("window handle unavailable on macOS");
+    fn ns_view_from_window(window: &Window) -> Option<id> {
+        let handle = window.window_handle().ok()?;
         match handle.as_raw() {
-            RawWindowHandle::AppKit(handle) => handle.ns_view.as_ptr() as id,
-            other => panic!("expected AppKit window handle, got {other:?}"),
+            RawWindowHandle::AppKit(handle) => Some(handle.ns_view.as_ptr() as id),
+            _ => None,
         }
     }
 
