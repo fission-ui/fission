@@ -89,6 +89,7 @@ fn test_button_widget_lower_with_child_and_semantics() {
             actions: ActionSet::default(),
             action_scope_id: None,
             focusable: true,
+            focus_policy: fission_core::FocusPolicy::FocusOnPointer,
             multiline: false,
             masked: false,
             input_mask: None,

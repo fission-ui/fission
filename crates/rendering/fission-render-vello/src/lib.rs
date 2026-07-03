@@ -446,6 +446,64 @@ impl TextClip {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct TextBackgroundSegment {
+    left: f32,
+    right: f32,
+}
+
+fn text_background_segments_for_cluster_ranges(
+    clusters: impl IntoIterator<Item = (std::ops::Range<usize>, f32, f32)>,
+    style_range: &std::ops::Range<usize>,
+    clip: Option<TextClip>,
+) -> Vec<TextBackgroundSegment> {
+    let mut segments = Vec::new();
+    let mut current: Option<TextBackgroundSegment> = None;
+
+    for (cluster_range, cluster_left, cluster_right) in clusters {
+        let overlaps =
+            style_range.start < cluster_range.end && style_range.end > cluster_range.start;
+        if !overlaps {
+            if let Some(segment) = current.take() {
+                segments.push(segment);
+            }
+            continue;
+        }
+
+        let mut left = cluster_left.min(cluster_right);
+        let mut right = cluster_left.max(cluster_right);
+        if let Some(clip) = clip {
+            left = left.max(clip.left);
+            right = right.min(clip.right);
+        }
+        if right <= left {
+            if let Some(segment) = current.take() {
+                segments.push(segment);
+            }
+            continue;
+        }
+
+        match &mut current {
+            Some(segment) if left <= segment.right + 0.5 => {
+                segment.right = segment.right.max(right);
+            }
+            Some(_) => {
+                segments.push(current.take().expect("segment checked above"));
+                current = Some(TextBackgroundSegment { left, right });
+            }
+            None => {
+                current = Some(TextBackgroundSegment { left, right });
+            }
+        }
+    }
+
+    if let Some(segment) = current {
+        segments.push(segment);
+    }
+
+    segments
+}
+
 #[derive(Debug, Clone)]
 struct PreparedParagraphLayout {
     text: String,
@@ -1203,7 +1261,8 @@ fn parse_svg_entry(content: &str) -> SvgCacheEntry {
 mod tests {
     use super::{
         paragraph_alignment, paragraph_fade, paragraph_line_trim, paragraph_line_visual_bounds,
-        paragraph_y_offset, parse_svg_entry, ParagraphFade, RetainedSceneCache, SvgShape,
+        paragraph_y_offset, parse_svg_entry, text_background_segments_for_cluster_ranges,
+        ParagraphFade, RetainedSceneCache, SvgShape, TextBackgroundSegment, TextClip,
         VelloRenderer, VelloTextMeasurer,
     };
     use fission_ir::op::{
@@ -1282,6 +1341,103 @@ mod tests {
             letter_spacing: 0.0,
             background_color: None,
         }
+    }
+
+    #[test]
+    fn text_background_segments_match_selected_clusters_only() {
+        let clusters = vec![
+            (0..1, 0.0, 10.0),
+            (1..2, 10.0, 20.0),
+            (2..3, 20.0, 30.0),
+            (3..4, 30.0, 40.0),
+        ];
+
+        let segments = text_background_segments_for_cluster_ranges(clusters, &(1..2), None);
+
+        assert_eq!(
+            segments,
+            vec![TextBackgroundSegment {
+                left: 10.0,
+                right: 20.0
+            }]
+        );
+    }
+
+    #[test]
+    fn text_background_segments_clip_and_merge_adjacent_clusters() {
+        let clusters = vec![
+            (0..1, 0.0, 10.0),
+            (1..2, 10.0, 20.0),
+            (2..3, 20.0, 30.0),
+            (3..4, 30.0, 40.0),
+        ];
+
+        let segments = text_background_segments_for_cluster_ranges(
+            clusters,
+            &(1..3),
+            Some(TextClip {
+                left: 12.0,
+                right: 27.0,
+                top: 0.0,
+                bottom: 40.0,
+            }),
+        );
+
+        assert_eq!(
+            segments,
+            vec![TextBackgroundSegment {
+                left: 12.0,
+                right: 27.0
+            }]
+        );
+    }
+
+    #[test]
+    fn selected_character_background_does_not_span_full_line() {
+        let mut scene = Scene::new();
+        let mut cache = RetainedSceneCache::default();
+        let renderer = test_renderer(&mut scene, &mut cache);
+        let base_style = test_style();
+        let mut selected_style = test_style();
+        selected_style.background_color = Some(RenderColor {
+            r: 0,
+            g: 80,
+            b: 255,
+            a: 120,
+        });
+        let text = "abcdef";
+        let styles = vec![(0..text.len(), base_style.clone()), (2..3, selected_style)];
+        let layout = renderer.paragraph_layout(
+            text,
+            &base_style,
+            false,
+            LayoutRect::new(0.0, 0.0, 240.0, 40.0),
+            TextParagraphStyle::default(),
+            &[],
+            &styles,
+        );
+        let line = layout.lines().next().expect("single test line");
+        let line_bounds = paragraph_line_visual_bounds(&line).expect("line visual bounds");
+        let mut segments = Vec::new();
+        for run in line.runs() {
+            segments.extend(text_background_segments_for_cluster_ranges(
+                run.visual_clusters().filter_map(|cluster| {
+                    let left = cluster.visual_offset()?;
+                    Some((cluster.text_range(), left, left + cluster.advance()))
+                }),
+                &(2..3),
+                None,
+            ));
+        }
+
+        assert_eq!(segments.len(), 1);
+        let selected = segments[0];
+        assert!(selected.left > line_bounds.left + 1.0);
+        assert!(selected.right < line_bounds.right - 1.0);
+        assert!(
+            selected.right - selected.left < (line_bounds.right - line_bounds.left) * 0.5,
+            "single selected character should not highlight the full line"
+        );
     }
 
     #[test]
@@ -2099,6 +2255,7 @@ impl<'a> VelloRenderer<'a> {
                 return;
             }
         }
+        self.draw_paragraph_line_backgrounds(line, position, top_y, line_height, styles, clip);
         for item in line.items() {
             if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
                 let run_left = glyph_run.offset();
@@ -2119,36 +2276,6 @@ impl<'a> VelloRenderer<'a> {
                     brush_data.0[2],
                     brush_data.0[3],
                 );
-
-                let run_text_range = run.text_range();
-                for (range, style) in styles.iter() {
-                    if let Some(bg) = &style.background_color {
-                        let overlap_start = range.start.max(run_text_range.start);
-                        let overlap_end = range.end.min(run_text_range.end);
-                        if overlap_start < overlap_end {
-                            let bg_color = Color::from_rgba8(bg.r, bg.g, bg.b, bg.a);
-                            let x0 = clip.map(|clip| run_left.max(clip.left)).unwrap_or(run_left);
-                            let x1 = clip
-                                .map(|clip| run_right.min(clip.right))
-                                .unwrap_or(run_right);
-                            if x1 <= x0 {
-                                break;
-                            }
-                            let x0 = position.x as f64 + x0 as f64;
-                            let x1 = position.x as f64 + x1 as f64;
-                            let y0 = position.y as f64 + top_y as f64;
-                            let bg_rect = Rect::new(x0, y0, x1, y0 + line_height as f64);
-                            self.scene.fill(
-                                Fill::NonZero,
-                                self.current_transform,
-                                bg_color,
-                                None,
-                                &bg_rect,
-                            );
-                            break;
-                        }
-                    }
-                }
 
                 let mut x = glyph_run.offset();
                 let y = glyph_run.baseline();
@@ -2216,6 +2343,64 @@ impl<'a> VelloRenderer<'a> {
                         deco_color,
                         None,
                         &rect,
+                    );
+                }
+            }
+        }
+    }
+
+    fn draw_paragraph_line_backgrounds(
+        &mut self,
+        line: &parley::layout::Line<'_, ParleyBrush>,
+        position: fission_render::LayoutPoint,
+        top_y: f32,
+        line_height: f32,
+        styles: &[(std::ops::Range<usize>, RenderTextStyle)],
+        clip: Option<TextClip>,
+    ) {
+        if !styles
+            .iter()
+            .any(|(_, style)| style.background_color.is_some())
+        {
+            return;
+        }
+
+        for run in line.runs() {
+            let run_text_range = run.text_range();
+            for (range, style) in styles.iter() {
+                let Some(bg) = &style.background_color else {
+                    continue;
+                };
+                let overlap_start = range.start.max(run_text_range.start);
+                let overlap_end = range.end.min(run_text_range.end);
+                if overlap_start >= overlap_end {
+                    continue;
+                }
+
+                let segments = text_background_segments_for_cluster_ranges(
+                    run.visual_clusters().filter_map(|cluster| {
+                        let left = cluster.visual_offset()?;
+                        Some((cluster.text_range(), left, left + cluster.advance()))
+                    }),
+                    range,
+                    clip,
+                );
+                if segments.is_empty() {
+                    continue;
+                }
+
+                let bg_color = Color::from_rgba8(bg.r, bg.g, bg.b, bg.a);
+                let y0 = position.y as f64 + top_y as f64;
+                for segment in segments {
+                    let x0 = position.x as f64 + segment.left as f64;
+                    let x1 = position.x as f64 + segment.right as f64;
+                    let bg_rect = Rect::new(x0, y0, x1, y0 + line_height as f64);
+                    self.scene.fill(
+                        Fill::NonZero,
+                        self.current_transform,
+                        bg_color,
+                        None,
+                        &bg_rect,
                     );
                 }
             }
@@ -2717,6 +2902,14 @@ impl<'a> VelloRenderer<'a> {
                     continue;
                 }
             }
+            self.draw_paragraph_line_backgrounds(
+                &line,
+                position,
+                line_top,
+                line_height,
+                styles,
+                text_clip,
+            );
             for item in line.items() {
                 if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
                     let run_left = glyph_run.offset();
@@ -2737,46 +2930,6 @@ impl<'a> VelloRenderer<'a> {
                         brush_data.0[2],
                         brush_data.0[3],
                     );
-
-                    // Draw background highlight rect if any style in range has background_color
-                    let run_text_range = run.text_range();
-                    for (range, s) in styles.iter() {
-                        if let Some(bg) = &s.background_color {
-                            // Check overlap between glyph run range and style range
-                            let overlap_start = range.start.max(run_text_range.start);
-                            let overlap_end = range.end.min(run_text_range.end);
-                            if overlap_start < overlap_end {
-                                let metrics = line.metrics();
-                                let line_height = metrics
-                                    .line_height
-                                    .max(metrics.ascent + metrics.descent)
-                                    .max(1.0);
-                                let top_y = metrics.baseline - metrics.ascent;
-                                let bg_color = Color::from_rgba8(bg.r, bg.g, bg.b, bg.a);
-                                let x0 = text_clip
-                                    .map(|clip| run_left.max(clip.left))
-                                    .unwrap_or(run_left);
-                                let x1 = text_clip
-                                    .map(|clip| run_right.min(clip.right))
-                                    .unwrap_or(run_right);
-                                if x1 <= x0 {
-                                    break;
-                                }
-                                let x0 = position.x as f64 + x0 as f64;
-                                let x1 = position.x as f64 + x1 as f64;
-                                let y0 = position.y as f64 + top_y as f64;
-                                let bg_rect = Rect::new(x0, y0, x1, y0 + line_height as f64);
-                                self.scene.fill(
-                                    Fill::NonZero,
-                                    self.current_transform,
-                                    bg_color,
-                                    None,
-                                    &bg_rect,
-                                );
-                                break; // Only draw one background per glyph run
-                            }
-                        }
-                    }
 
                     let mut x = glyph_run.offset();
                     let y = glyph_run.baseline();

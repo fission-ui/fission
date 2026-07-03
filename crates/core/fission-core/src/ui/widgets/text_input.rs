@@ -915,6 +915,11 @@ impl TextInput {
         let diameter = controls.handle_radius * 2.0;
         let handle_node = Button {
             id: Some(text_input_selection_handle_id(input_id, kind).into()),
+            semantics: Some(Semantics {
+                role: Role::Generic,
+                draggable: true,
+                ..Semantics::default()
+            }),
             child: Some(
                 Container::new(Spacer {
                     width: Some(diameter),
@@ -966,6 +971,14 @@ impl TextInput {
             row.children.push(
                 Button {
                     id: Some(text_input_toolbar_button_id(input_id, *action).into()),
+                    semantics: Some(Semantics {
+                        role: Role::Button,
+                        label: Some(action.label().into()),
+                        focusable: true,
+                        focus_policy: fission_ir::FocusPolicy::PreserveCurrentOnPointer,
+                        ..Semantics::default()
+                    }),
+                    focus_policy: fission_ir::FocusPolicy::PreserveCurrentOnPointer,
                     child: Some(
                         Text::new(action.label())
                             .size(tokens.typography.label_large_size)
@@ -1782,6 +1795,7 @@ impl InternalLower for TextInput {
             actions: Default::default(),
             action_scope_id: None,
             focusable: self.enabled,
+            focus_policy: fission_ir::FocusPolicy::FocusOnPointer,
             multiline: self.multiline,
             masked: self.obscure_text,
             input_mask: self.mask.clone(),

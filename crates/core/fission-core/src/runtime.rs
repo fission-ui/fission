@@ -13,7 +13,7 @@ use crate::{
 };
 use anyhow::{anyhow, Result};
 use fission_diagnostics::prelude as diag;
-use fission_ir::{CoreIR, FlexDirection, LayoutOp, Op, WidgetId};
+use fission_ir::{CoreIR, FlexDirection, FocusPolicy, LayoutOp, Op, WidgetId};
 use fission_layout::{LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot, TextMeasurer};
 use glam::{Mat4, Vec4};
 use serde_json;
@@ -998,6 +998,9 @@ impl Runtime {
                         if let Some(node) = ir.nodes.get(&node_id) {
                             if let Op::Semantics(s) = &node.op {
                                 if s.focusable {
+                                    if s.focus_policy == FocusPolicy::PreserveCurrentOnPointer {
+                                        break;
+                                    }
                                     let old_focused_id = self.runtime_state.interaction.focused;
                                     if Some(node_id) != old_focused_id {
                                         self.clear_text_pending_on_blur(

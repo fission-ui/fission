@@ -8,7 +8,7 @@ use crate::ui::Widget;
 use crate::{ActionEnvelope, Env, InteractionStateMap};
 use fission_ir::{
     op::{BoxShadow, Color as IrColor, Fill, LayoutOp, Op, PaintOp, Stroke},
-    ActionEntry, ActionSet, Role, Semantics, WidgetId,
+    ActionEntry, ActionSet, FocusPolicy, Role, Semantics, WidgetId,
 };
 use fission_theme::{ButtonHierarchy, ComponentSize, ComponentState};
 use serde::{Deserialize, Serialize};
@@ -244,6 +244,12 @@ pub struct Button {
     pub on_press: Option<ActionEnvelope>,
     /// Custom semantics (overrides the default button semantics).
     pub semantics: Option<Semantics>,
+    /// How pointer-down should affect focus for this button.
+    ///
+    /// Use [`FocusPolicy::PreserveCurrentOnPointer`] for toolbar/ribbon buttons
+    /// that should activate without stealing focus from an editor.
+    #[serde(default)]
+    pub focus_policy: FocusPolicy,
     /// Fixed width in layout points.
     pub width: Option<f32>,
     /// Fixed height in layout points.
@@ -301,6 +307,12 @@ impl Button {
         self
     }
 
+    /// Sets how pointer-down should affect focus for this button.
+    pub fn focus_policy(mut self, focus_policy: FocusPolicy) -> Self {
+        self.focus_policy = focus_policy;
+        self
+    }
+
     pub fn min_width(mut self, width: f32) -> Self {
         self.min_width = Some(width);
         self
@@ -319,6 +331,7 @@ impl Default for Button {
             child: None,
             on_press: None,
             semantics: None,
+            focus_policy: FocusPolicy::FocusOnPointer,
             width: None,
             height: None,
             min_width: None,
@@ -458,6 +471,7 @@ impl Button {
             .unwrap_or_else(default_button_semantics);
 
         semantics.disabled = self.disabled;
+        semantics.focus_policy = self.focus_policy;
 
         if let Some(action_envelope) = &self.on_press {
             if !self.disabled {
@@ -611,6 +625,7 @@ fn default_button_semantics() -> Semantics {
         actions: ActionSet::default(),
         action_scope_id: None,
         focusable: true,
+        focus_policy: FocusPolicy::FocusOnPointer,
         multiline: false,
         masked: false,
         input_mask: None,

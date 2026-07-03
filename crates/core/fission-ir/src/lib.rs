@@ -11,7 +11,7 @@ pub use op::{
     AlignItems, CompositeScalar, CompositeStyle, EmbedKind, FlexDirection, FlexWrap, GridPlacement,
     GridTrack, JustifyContent, LayoutOp, Op, PaintOp, StructuralOp,
 };
-pub use semantics::{ActionEntry, ActionSet, Role, Semantics};
+pub use semantics::{ActionEntry, ActionSet, FocusPolicy, Role, Semantics};
 pub use widget_id::WidgetId;
 
 pub const IR_VERSION: u32 = 1;

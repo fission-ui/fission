@@ -1,4 +1,4 @@
-use fission_semantics::{ActionSet, Role, Semantics};
+use fission_semantics::{ActionSet, FocusPolicy, Role, Semantics};
 
 #[test]
 fn test_role_variants() {
@@ -23,6 +23,7 @@ fn test_semantics_serialization() {
         actions: ActionSet::default(),
         action_scope_id: None,
         focusable: true,
+        focus_policy: FocusPolicy::FocusOnPointer,
         multiline: false,
         masked: false,
         input_mask: None,

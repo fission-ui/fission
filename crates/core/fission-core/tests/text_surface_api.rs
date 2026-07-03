@@ -11,7 +11,7 @@ use fission_ir::op::{
     decode_inline_widget_marker, Color, Fill, LayoutOp, MouseCursor, Op, PaintOp,
     RichTextAnnotation, TextAlign, TextDirection, TextHeightBehavior, TextOverflow, TextWidthBasis,
 };
-use fission_ir::semantics::ActionTrigger;
+use fission_ir::semantics::{ActionTrigger, FocusPolicy};
 use fission_ir::{CoreIR, FlexDirection};
 
 fn lower_node(node: Widget) -> CoreIR {
@@ -1120,10 +1120,34 @@ fn focused_text_input_lowers_toolbar_handles_and_magnifier_overlays() {
         input_id,
         TextSelectionHandleKind::End
     )));
+    let start_handle = ir
+        .nodes
+        .get(&test_text_input_selection_handle_id(
+            input_id,
+            TextSelectionHandleKind::Start,
+        ))
+        .expect("start selection handle node");
+    assert!(matches!(
+        &start_handle.op,
+        Op::Semantics(semantics) if semantics.draggable && !semantics.focusable
+    ));
     assert!(ir.nodes.contains_key(&test_text_input_toolbar_button_id(
         input_id,
         TextContextMenuAction::Copy
     )));
+    let copy_button = ir
+        .nodes
+        .get(&test_text_input_toolbar_button_id(
+            input_id,
+            TextContextMenuAction::Copy,
+        ))
+        .expect("copy toolbar button node");
+    assert!(matches!(
+        &copy_button.op,
+        Op::Semantics(semantics)
+            if semantics.focusable
+                && semantics.focus_policy == FocusPolicy::PreserveCurrentOnPointer
+    ));
 
     let magnifier_box = ir
         .nodes
