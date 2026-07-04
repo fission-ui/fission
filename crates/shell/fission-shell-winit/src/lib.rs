@@ -36,14 +36,15 @@ use fission_core::env::{VideoStatus, WindowInsets};
 use fission_core::internal::downcast_render_object;
 use fission_core::internal::InternalLoweringCx;
 use fission_core::{
-    Action, ActionId, ActionRegistry, DeepLink, DeepLinkConfig, DeepLinkReceived, Env, GlobalState,
-    InputEvent, KeyCode, KeyEvent as FissionKeyEvent, NotificationResponse,
+    Action, ActionEnvelope, ActionId, ActionRegistry, DeepLink, DeepLinkConfig, DeepLinkReceived,
+    Env, GlobalState, InputEvent, KeyCode, KeyEvent as FissionKeyEvent, NotificationResponse,
     NotificationResponseReceived, OpenUrlRequest, PointerButton, PointerEvent, Runtime,
-    ServiceBindings, View, Widget, WidgetIdExt, OPEN_URL,
+    ScrollAlignment, ScrollAxis, ScrollBehavior, ScrollIntoViewRequest, ServiceBindings, View,
+    Widget, WidgetIdExt, OPEN_URL,
 };
 use fission_core::{ActionInput, CapabilityInvocationPayload, Effect};
 use fission_diagnostics::prelude as diag;
-use fission_ir::semantics::MouseCursor;
+use fission_ir::semantics::{ActionTrigger, MouseCursor, Role, Semantics};
 use fission_ir::{CoreIR, Op, WidgetId};
 use fission_layout::{LayoutEngine, LayoutSize};
 use fission_render::{LayoutPoint, LayoutRect, Renderer as _};
@@ -141,8 +142,6 @@ mod ios_capabilities;
 mod macos_capabilities;
 #[cfg(target_arch = "wasm32")]
 mod web_capabilities;
-
-use fission_core::action::ActionEnvelope;
 
 type EffectResult = AsyncMessage;
 
@@ -2858,6 +2857,796 @@ fn rect_visible_in_scroll_ancestors(
     true
 }
 
+fn intersect_rect(a: LayoutRect, b: LayoutRect) -> Option<LayoutRect> {
+    let left = a.x().max(b.x());
+    let top = a.y().max(b.y());
+    let right = a.right().min(b.right());
+    let bottom = a.bottom().min(b.bottom());
+    (right > left && bottom > top).then(|| LayoutRect::new(left, top, right - left, bottom - top))
+}
+
+fn clipped_visible_rect_for_node(
+    ir: &CoreIR,
+    snap: &fission_layout::LayoutSnapshot,
+    scroll: &fission_core::ScrollStateMap,
+    node_id: WidgetId,
+) -> Option<LayoutRect> {
+    let viewport = LayoutRect::new(
+        0.0,
+        0.0,
+        snap.viewport_size.width,
+        snap.viewport_size.height,
+    );
+    let mut visible = intersect_rect(visual_rect_for_node(ir, snap, scroll, node_id)?, viewport)?;
+
+    let mut current = ir.nodes.get(&node_id).and_then(|node| node.parent);
+    while let Some(parent_id) = current {
+        let Some(parent) = ir.nodes.get(&parent_id) else {
+            break;
+        };
+        if matches!(
+            parent.op,
+            fission_ir::Op::Layout(fission_ir::LayoutOp::Scroll { .. })
+                | fission_ir::Op::Layout(fission_ir::LayoutOp::Clip { .. })
+        ) {
+            let parent_rect = visual_rect_for_node(ir, snap, scroll, parent_id)?;
+            visible = intersect_rect(visible, parent_rect)?;
+        }
+        current = parent.parent;
+    }
+
+    Some(visible)
+}
+
+fn bounds_from_rect(rect: LayoutRect) -> fission_test_driver::Bounds {
+    fission_test_driver::Bounds {
+        x: rect.x(),
+        y: rect.y(),
+        width: rect.width(),
+        height: rect.height(),
+    }
+}
+
+fn visibility_state(
+    visual: Option<LayoutRect>,
+    visible: Option<LayoutRect>,
+) -> fission_test_driver::VisibilityState {
+    let Some(visual) = visual else {
+        return fission_test_driver::VisibilityState::Hidden;
+    };
+    let Some(visible) = visible else {
+        return fission_test_driver::VisibilityState::Hidden;
+    };
+    if visible.width() <= 0.0 || visible.height() <= 0.0 {
+        return fission_test_driver::VisibilityState::Hidden;
+    }
+    let fully_visible = (visible.x() - visual.x()).abs() < 0.5
+        && (visible.y() - visual.y()).abs() < 0.5
+        && (visible.width() - visual.width()).abs() < 0.5
+        && (visible.height() - visual.height()).abs() < 0.5;
+    if fully_visible {
+        fission_test_driver::VisibilityState::FullyVisible
+    } else {
+        fission_test_driver::VisibilityState::PartiallyVisible
+    }
+}
+
+fn is_semantic_node(ir: &CoreIR, id: WidgetId) -> bool {
+    ir.nodes
+        .get(&id)
+        .is_some_and(|node| matches!(node.op, fission_ir::Op::Semantics(_)))
+}
+
+fn nearest_semantic_parent(ir: &CoreIR, id: WidgetId) -> Option<WidgetId> {
+    let mut current = ir.nodes.get(&id).and_then(|node| node.parent);
+    while let Some(parent_id) = current {
+        if is_semantic_node(ir, parent_id) {
+            return Some(parent_id);
+        }
+        current = ir.nodes.get(&parent_id).and_then(|node| node.parent);
+    }
+    None
+}
+
+fn is_descendant_of(ir: &CoreIR, node_id: WidgetId, ancestor_id: WidgetId) -> bool {
+    let mut current = Some(node_id);
+    while let Some(current_id) = current {
+        if current_id == ancestor_id {
+            return true;
+        }
+        current = ir.nodes.get(&current_id).and_then(|node| node.parent);
+    }
+    false
+}
+
+#[derive(Clone)]
+struct SemanticRecord {
+    id: WidgetId,
+    semantics: Semantics,
+    node: fission_test_driver::SemanticNode,
+}
+
+fn collect_semantic_records(
+    ir: &CoreIR,
+    snap: &fission_layout::LayoutSnapshot,
+    scroll: &fission_core::ScrollStateMap,
+) -> Vec<SemanticRecord> {
+    let mut semantic_ids: Vec<WidgetId> = ir
+        .nodes
+        .iter()
+        .filter_map(|(id, node)| matches!(node.op, fission_ir::Op::Semantics(_)).then_some(*id))
+        .collect();
+    semantic_ids.sort_by_key(|id| id.as_u128());
+
+    let mut semantic_children: HashMap<WidgetId, Vec<String>> = HashMap::new();
+    for id in &semantic_ids {
+        if let Some(parent_id) = nearest_semantic_parent(ir, *id) {
+            semantic_children
+                .entry(parent_id)
+                .or_default()
+                .push(id.to_string());
+        }
+    }
+
+    semantic_ids
+        .into_iter()
+        .filter_map(|id| {
+            let node = ir.nodes.get(&id)?;
+            let fission_ir::Op::Semantics(semantics) = &node.op else {
+                return None;
+            };
+            let logical = snap
+                .get_node_rect(id)
+                .unwrap_or_else(|| LayoutRect::new(0.0, 0.0, 0.0, 0.0));
+            let visual = visual_rect_for_node(ir, snap, scroll, id);
+            let visible = clipped_visible_rect_for_node(ir, snap, scroll, id);
+            let visibility = visibility_state(visual, visible);
+            let visible_bounds = visible.map(bounds_from_rect);
+            let legacy_bounds = visible_bounds.unwrap_or(fission_test_driver::Bounds {
+                x: 0.0,
+                y: 0.0,
+                width: 0.0,
+                height: 0.0,
+            });
+            let value_present = semantics
+                .value
+                .as_deref()
+                .map(|value| !value.is_empty())
+                .unwrap_or(false);
+            let value = if semantics.masked {
+                None
+            } else {
+                semantics.value.clone()
+            };
+            let semantic_node = fission_test_driver::SemanticNode {
+                identifier: semantics.identifier.clone(),
+                widget_id: id.to_string(),
+                stable_node_id: id.to_string(),
+                parent: nearest_semantic_parent(ir, id).map(|parent| parent.to_string()),
+                children: semantic_children.remove(&id).unwrap_or_default(),
+                role: format!("{:?}", semantics.role),
+                label: semantics.label.clone(),
+                value,
+                value_present,
+                focusable: semantics.focusable,
+                disabled: semantics.disabled,
+                read_only: semantics.read_only,
+                checked: semantics.checked,
+                actions: semantics
+                    .actions
+                    .entries
+                    .iter()
+                    .map(|entry| format!("{:?}", entry.trigger))
+                    .collect(),
+                text_selection: semantics.text_selection,
+                masked: semantics.masked,
+                scrollable_x: semantics.scrollable_x,
+                scrollable_y: semantics.scrollable_y,
+                logical_bounds: bounds_from_rect(logical),
+                visible_bounds,
+                visibility,
+                x: legacy_bounds.x,
+                y: legacy_bounds.y,
+                width: legacy_bounds.width,
+                height: legacy_bounds.height,
+            };
+            Some(SemanticRecord {
+                id,
+                semantics: semantics.clone(),
+                node: semantic_node,
+            })
+        })
+        .collect()
+}
+
+fn selector_matches(record: &SemanticRecord, selector: &fission_test_driver::Selector) -> bool {
+    match selector {
+        fission_test_driver::Selector::SemanticIdentifier { identifier }
+        | fission_test_driver::Selector::AccessibilityIdentifier { identifier } => {
+            record.node.identifier.as_deref() == Some(identifier.as_str())
+        }
+        fission_test_driver::Selector::TestId { test_id } => {
+            record.node.identifier.as_deref() == Some(test_id.as_str())
+        }
+        fission_test_driver::Selector::WidgetId { widget_id } => {
+            record.id == parse_widget_selector(widget_id)
+        }
+        fission_test_driver::Selector::RoleLabel { role, label } => {
+            record.node.role.eq_ignore_ascii_case(role)
+                && record.node.label.as_deref() == Some(label.as_str())
+        }
+        fission_test_driver::Selector::Label { label } => {
+            record.node.label.as_deref() == Some(label.as_str())
+        }
+    }
+}
+
+fn parse_widget_selector(widget_id: &str) -> WidgetId {
+    let trimmed = widget_id
+        .strip_prefix("WidgetId(")
+        .and_then(|value| value.strip_suffix(')'))
+        .unwrap_or(widget_id)
+        .trim_start_matches("0x");
+    if trimmed.len() == 32 {
+        if let Ok(raw) = u128::from_str_radix(trimmed, 16) {
+            return WidgetId::from_u128(raw);
+        }
+    }
+    WidgetId::explicit(widget_id)
+}
+
+fn selector_failure(
+    query: fission_test_driver::SelectorQuery,
+    kind: fission_test_driver::SelectorFailureKind,
+    message: impl Into<String>,
+    records: Vec<(SemanticRecord, Option<String>)>,
+) -> fission_test_driver::TestResponse {
+    fission_test_driver::TestResponse::SelectorError {
+        failure: fission_test_driver::SelectorFailure {
+            kind,
+            selector: query,
+            candidates: records
+                .into_iter()
+                .take(50)
+                .map(
+                    |(record, rejected_reason)| fission_test_driver::SelectorCandidate {
+                        node: record.node,
+                        rejected_reason,
+                    },
+                )
+                .collect(),
+            message: message.into(),
+        },
+    }
+}
+
+fn resolve_selector_record(
+    pipeline: &Pipeline,
+    scroll: &fission_core::ScrollStateMap,
+    query: &fission_test_driver::SelectorQuery,
+) -> std::result::Result<SemanticRecord, fission_test_driver::TestResponse> {
+    let (Some(ir), Some(snap)) = (&pipeline.prev_ir, &pipeline.last_snapshot) else {
+        return Err(selector_failure(
+            query.clone(),
+            fission_test_driver::SelectorFailureKind::StaleFrame,
+            "no frame rendered yet",
+            Vec::new(),
+        ));
+    };
+
+    let all = collect_semantic_records(ir, snap, scroll);
+    let scoped = if let Some(scope_query) = &query.scope {
+        let scope = resolve_selector_record(pipeline, scroll, scope_query)?;
+        all.into_iter()
+            .filter(|record| is_descendant_of(ir, record.id, scope.id))
+            .collect()
+    } else {
+        all
+    };
+
+    let matched: Vec<SemanticRecord> = scoped
+        .iter()
+        .filter(|record| selector_matches(record, &query.selector))
+        .cloned()
+        .collect();
+    if matched.is_empty() {
+        return Err(selector_failure(
+            query.clone(),
+            fission_test_driver::SelectorFailureKind::NoMatch,
+            "selector did not match any semantic node",
+            scoped
+                .into_iter()
+                .map(|record| (record, Some("selector did not match".into())))
+                .collect(),
+        ));
+    }
+
+    let visible_matched: Vec<SemanticRecord> = matched
+        .iter()
+        .filter(|record| {
+            query.include_hidden
+                || record.node.visibility != fission_test_driver::VisibilityState::Hidden
+        })
+        .cloned()
+        .collect();
+    if visible_matched.is_empty() {
+        return Err(selector_failure(
+            query.clone(),
+            fission_test_driver::SelectorFailureKind::FoundButNotVisible,
+            "selector matched node(s), but none are visible",
+            matched
+                .into_iter()
+                .map(|record| (record, Some("matched but hidden".into())))
+                .collect(),
+        ));
+    }
+
+    if let Some(index) = query.index {
+        return visible_matched.get(index).cloned().ok_or_else(|| {
+            selector_failure(
+                query.clone(),
+                fission_test_driver::SelectorFailureKind::NoMatch,
+                format!("selector matched fewer than {} node(s)", index + 1),
+                visible_matched
+                    .into_iter()
+                    .map(|record| (record, Some("candidate index out of range".into())))
+                    .collect(),
+            )
+        });
+    }
+
+    if visible_matched.len() > 1 {
+        return Err(selector_failure(
+            query.clone(),
+            fission_test_driver::SelectorFailureKind::Ambiguous,
+            "selector matched multiple semantic nodes; provide index or scope",
+            visible_matched
+                .into_iter()
+                .map(|record| (record, Some("ambiguous match".into())))
+                .collect(),
+        ));
+    }
+
+    Ok(visible_matched.into_iter().next().unwrap())
+}
+
+fn selector_center(record: &SemanticRecord) -> Option<LayoutPoint> {
+    let bounds = record.node.visible_bounds?;
+    (bounds.width > 0.0 && bounds.height > 0.0).then(|| {
+        LayoutPoint::new(
+            bounds.x + bounds.width / 2.0,
+            bounds.y + bounds.height / 2.0,
+        )
+    })
+}
+
+fn dispatch_semantics_action(
+    runtime: &mut Runtime,
+    target: WidgetId,
+    semantics: &Semantics,
+    trigger: ActionTrigger,
+    input: ActionInput,
+) -> bool {
+    let Some(entry) = semantics
+        .actions
+        .entries
+        .iter()
+        .find(|entry| entry.trigger == trigger)
+    else {
+        return false;
+    };
+    runtime
+        .dispatch_with_input(
+            ActionEnvelope {
+                id: ActionId::from_u128(entry.action_id),
+                payload: entry.payload_data.clone().unwrap_or_default(),
+            },
+            target,
+            &input,
+        )
+        .is_ok()
+}
+
+fn dispatch_text_change(
+    runtime: &mut Runtime,
+    target: WidgetId,
+    semantics: &Semantics,
+    new_text: String,
+) -> bool {
+    let Some(entry) = semantics
+        .actions
+        .entries
+        .iter()
+        .find(|entry| entry.trigger == ActionTrigger::Change)
+    else {
+        return false;
+    };
+    let Ok(payload) = serde_json::to_vec(&new_text) else {
+        return false;
+    };
+    runtime
+        .dispatch_with_input(
+            ActionEnvelope {
+                id: ActionId::from_u128(entry.action_id),
+                payload,
+            },
+            target,
+            &ActionInput::None,
+        )
+        .is_ok()
+}
+
+fn dispatch_cursor_change(
+    runtime: &mut Runtime,
+    target: WidgetId,
+    semantics: &Semantics,
+    caret: usize,
+    anchor: usize,
+) -> bool {
+    let Some(entry) = semantics
+        .actions
+        .entries
+        .iter()
+        .find(|entry| entry.trigger == ActionTrigger::CursorChange)
+    else {
+        return false;
+    };
+    let cursor_changed = fission_core::action::CursorChanged { caret, anchor };
+    let Ok(payload) = serde_json::to_vec(&cursor_changed) else {
+        return false;
+    };
+    runtime
+        .dispatch_with_input(
+            ActionEnvelope {
+                id: ActionId::from_u128(entry.action_id),
+                payload,
+            },
+            target,
+            &ActionInput::None,
+        )
+        .is_ok()
+}
+
+fn set_focus_for_test(
+    runtime: &mut Runtime,
+    ir: &CoreIR,
+    target: WidgetId,
+    semantics: &Semantics,
+) -> bool {
+    if !semantics.focusable || semantics.disabled {
+        return false;
+    }
+    let previous = runtime.runtime_state.interaction.focused;
+    if previous == Some(target) {
+        return true;
+    }
+    if let Some(previous_id) = previous {
+        if let Some(previous_semantics) = ir.nodes.get(&previous_id).and_then(|node| {
+            if let fission_ir::Op::Semantics(semantics) = &node.op {
+                Some(semantics.clone())
+            } else {
+                None
+            }
+        }) {
+            let _ = dispatch_semantics_action(
+                runtime,
+                previous_id,
+                &previous_semantics,
+                ActionTrigger::Blur,
+                ActionInput::None,
+            );
+        }
+    }
+    runtime.runtime_state.interaction.set_focused(Some(target));
+    let _ = dispatch_semantics_action(
+        runtime,
+        target,
+        semantics,
+        ActionTrigger::Focus,
+        ActionInput::None,
+    );
+    true
+}
+
+fn set_text_value_for_test(
+    runtime: &mut Runtime,
+    ir: &CoreIR,
+    record: &SemanticRecord,
+    value: &str,
+) -> bool {
+    if record.semantics.role != Role::TextInput
+        || record.semantics.disabled
+        || record.semantics.read_only
+    {
+        return false;
+    }
+    set_focus_for_test(runtime, ir, record.id, &record.semantics);
+    runtime.runtime_state.text_edit.sync_from_runtime(
+        record.id,
+        record.semantics.value.as_deref().unwrap_or_default(),
+        None,
+        None,
+    );
+    {
+        let state = runtime
+            .runtime_state
+            .text_edit
+            .get_mut_or_default(record.id);
+        let old_len = state.buffer.len_bytes();
+        state.buffer.replace(0..old_len, value);
+        state.caret = value.len();
+        state.anchor = value.len();
+        state.pending_model_sync = true;
+        state.clear_preedit();
+    }
+    let mut changed =
+        dispatch_text_change(runtime, record.id, &record.semantics, value.to_string());
+    changed |= dispatch_cursor_change(
+        runtime,
+        record.id,
+        &record.semantics,
+        value.len(),
+        value.len(),
+    );
+    changed
+}
+
+fn resolve_selector_response(
+    pipeline: &Pipeline,
+    scroll: &fission_core::ScrollStateMap,
+    query: &fission_test_driver::SelectorQuery,
+) -> fission_test_driver::TestResponse {
+    match resolve_selector_record(pipeline, scroll, query) {
+        Ok(record) => fission_test_driver::TestResponse::SelectorResolved { node: record.node },
+        Err(error) => error,
+    }
+}
+
+fn handle_scroll_into_view_selector(
+    query: &fission_test_driver::SelectorQuery,
+    runtime: &mut Runtime,
+    pipeline: &Pipeline,
+) -> fission_test_driver::TestResponse {
+    let mut hidden_query = query.clone();
+    hidden_query.include_hidden = true;
+    match resolve_selector_record(pipeline, &runtime.runtime_state.scroll, &hidden_query) {
+        Ok(record) => {
+            runtime.queue_scroll_into_view(ScrollIntoViewRequest {
+                container: None,
+                target: record.id,
+                axis: ScrollAxis::Both,
+                alignment: ScrollAlignment::Nearest,
+                padding: [8.0, 8.0, 8.0, 8.0],
+                behavior: ScrollBehavior::Instant,
+                if_needed: true,
+            });
+            fission_test_driver::TestResponse::SelectorResolved { node: record.node }
+        }
+        Err(error) => error,
+    }
+}
+
+fn handle_pointer_selector(
+    query: &fission_test_driver::SelectorQuery,
+    runtime: &mut Runtime,
+    pipeline: &Pipeline,
+    button: PointerButton,
+    click: bool,
+) -> fission_test_driver::TestResponse {
+    let (Some(ir), Some(snap)) = (&pipeline.prev_ir, &pipeline.last_snapshot) else {
+        return selector_failure(
+            query.clone(),
+            fission_test_driver::SelectorFailureKind::StaleFrame,
+            "no frame rendered yet",
+            Vec::new(),
+        );
+    };
+    let record = match resolve_selector_record(pipeline, &runtime.runtime_state.scroll, query) {
+        Ok(record) => record,
+        Err(error) => return error,
+    };
+    if record.semantics.disabled {
+        return selector_failure(
+            query.clone(),
+            fission_test_driver::SelectorFailureKind::Disabled,
+            "selector target is disabled",
+            vec![(record, Some("disabled".into()))],
+        );
+    }
+    let Some(point) = selector_center(&record) else {
+        return selector_failure(
+            query.clone(),
+            fission_test_driver::SelectorFailureKind::FoundButNotVisible,
+            "selector target is not visible",
+            vec![(record, Some("not visible".into()))],
+        );
+    };
+    let event = if click {
+        PointerEvent::Down {
+            point,
+            button: button.clone(),
+            modifiers: 0,
+        }
+    } else {
+        PointerEvent::Move {
+            point,
+            modifiers: 0,
+        }
+    };
+    let _ = runtime.handle_input(InputEvent::Pointer(event), ir, snap);
+    if click {
+        let _ = runtime.handle_input(
+            InputEvent::Pointer(PointerEvent::Up {
+                point,
+                button,
+                modifiers: 0,
+            }),
+            ir,
+            snap,
+        );
+    }
+    fission_test_driver::TestResponse::Ok {}
+}
+
+fn handle_activate_selector(
+    query: &fission_test_driver::SelectorQuery,
+    runtime: &mut Runtime,
+    pipeline: &Pipeline,
+) -> fission_test_driver::TestResponse {
+    let record = match resolve_selector_record(pipeline, &runtime.runtime_state.scroll, query) {
+        Ok(record) => record,
+        Err(error) => return error,
+    };
+    if record.semantics.disabled {
+        return selector_failure(
+            query.clone(),
+            fission_test_driver::SelectorFailureKind::Disabled,
+            "selector target is disabled",
+            vec![(record, Some("disabled".into()))],
+        );
+    }
+    if !dispatch_semantics_action(
+        runtime,
+        record.id,
+        &record.semantics,
+        ActionTrigger::Default,
+        ActionInput::None,
+    ) {
+        return selector_failure(
+            query.clone(),
+            fission_test_driver::SelectorFailureKind::UnsupportedAction,
+            "selector target has no default semantic action",
+            vec![(record, Some("missing Default action".into()))],
+        );
+    }
+    fission_test_driver::TestResponse::Ok {}
+}
+
+fn handle_focus_selector(
+    query: &fission_test_driver::SelectorQuery,
+    runtime: &mut Runtime,
+    pipeline: &Pipeline,
+) -> fission_test_driver::TestResponse {
+    let Some(ir) = pipeline.prev_ir.as_ref() else {
+        return selector_failure(
+            query.clone(),
+            fission_test_driver::SelectorFailureKind::StaleFrame,
+            "no frame rendered yet",
+            Vec::new(),
+        );
+    };
+    let record = match resolve_selector_record(pipeline, &runtime.runtime_state.scroll, query) {
+        Ok(record) => record,
+        Err(error) => return error,
+    };
+    if record.semantics.disabled {
+        return selector_failure(
+            query.clone(),
+            fission_test_driver::SelectorFailureKind::Disabled,
+            "selector target is disabled",
+            vec![(record, Some("disabled".into()))],
+        );
+    }
+    if !record.semantics.focusable {
+        return selector_failure(
+            query.clone(),
+            fission_test_driver::SelectorFailureKind::UnsupportedAction,
+            "selector target is not focusable",
+            vec![(record, Some("not focusable".into()))],
+        );
+    }
+    set_focus_for_test(runtime, ir, record.id, &record.semantics);
+    fission_test_driver::TestResponse::Ok {}
+}
+
+fn handle_fill_text_selector(
+    query: &fission_test_driver::SelectorQuery,
+    text: &str,
+    runtime: &mut Runtime,
+    pipeline: &Pipeline,
+) -> fission_test_driver::TestResponse {
+    let Some(ir) = pipeline.prev_ir.as_ref() else {
+        return selector_failure(
+            query.clone(),
+            fission_test_driver::SelectorFailureKind::StaleFrame,
+            "no frame rendered yet",
+            Vec::new(),
+        );
+    };
+    let record = match resolve_selector_record(pipeline, &runtime.runtime_state.scroll, query) {
+        Ok(record) => record,
+        Err(error) => return error,
+    };
+    if record.semantics.disabled {
+        return selector_failure(
+            query.clone(),
+            fission_test_driver::SelectorFailureKind::Disabled,
+            "selector target is disabled",
+            vec![(record, Some("disabled".into()))],
+        );
+    }
+    if record.semantics.read_only {
+        return selector_failure(
+            query.clone(),
+            fission_test_driver::SelectorFailureKind::ReadOnly,
+            "selector target is read-only",
+            vec![(record, Some("read-only".into()))],
+        );
+    }
+    if record.semantics.role != Role::TextInput {
+        return selector_failure(
+            query.clone(),
+            fission_test_driver::SelectorFailureKind::UnsupportedAction,
+            "selector target is not a text input",
+            vec![(record, Some("not a text input".into()))],
+        );
+    }
+    set_text_value_for_test(runtime, ir, &record, text);
+    fission_test_driver::TestResponse::Ok {}
+}
+
+fn handle_toggle_selector(
+    query: &fission_test_driver::SelectorQuery,
+    runtime: &mut Runtime,
+    pipeline: &Pipeline,
+) -> fission_test_driver::TestResponse {
+    let record = match resolve_selector_record(pipeline, &runtime.runtime_state.scroll, query) {
+        Ok(record) => record,
+        Err(error) => return error,
+    };
+    if record.semantics.disabled {
+        return selector_failure(
+            query.clone(),
+            fission_test_driver::SelectorFailureKind::Disabled,
+            "selector target is disabled",
+            vec![(record, Some("disabled".into()))],
+        );
+    }
+    if !matches!(record.semantics.role, Role::Checkbox | Role::Switch) {
+        return selector_failure(
+            query.clone(),
+            fission_test_driver::SelectorFailureKind::UnsupportedAction,
+            "selector target is not a checkbox or switch",
+            vec![(record, Some("not toggleable".into()))],
+        );
+    }
+    if !dispatch_semantics_action(
+        runtime,
+        record.id,
+        &record.semantics,
+        ActionTrigger::Default,
+        ActionInput::None,
+    ) {
+        return selector_failure(
+            query.clone(),
+            fission_test_driver::SelectorFailureKind::UnsupportedAction,
+            "selector target has no toggle action",
+            vec![(record, Some("missing Default action".into()))],
+        );
+    }
+    fission_test_driver::TestResponse::Ok {}
+}
+
 /// Build the response for a GetText query.
 fn build_get_text_response(
     pipeline: &Pipeline,
@@ -2938,33 +3727,16 @@ fn build_get_tree_response(
     pipeline: &Pipeline,
     scroll: &fission_core::ScrollStateMap,
 ) -> fission_test_driver::TestResponse {
-    use fission_test_driver::{SemanticNode, TestResponse};
-    let mut nodes = Vec::new();
+    use fission_test_driver::TestResponse;
     if let (Some(ir), Some(snap)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
-        for (id, node) in &ir.nodes {
-            if let fission_ir::Op::Semantics(sem) = &node.op {
-                let rect = visual_rect_for_node(ir, snap, scroll, *id)
-                    .filter(|r| rect_visible_in_scroll_ancestors(ir, snap, scroll, *id, *r));
-                let (x, y, w, h) = rect
-                    .map(|r| (r.x(), r.y(), r.width(), r.height()))
-                    .unwrap_or((0.0, 0.0, 0.0, 0.0));
-                if w <= 0.0 || h <= 0.0 {
-                    continue;
-                }
-                nodes.push(SemanticNode {
-                    role: format!("{:?}", sem.role),
-                    label: sem.label.clone(),
-                    value: sem.value.clone(),
-                    focusable: sem.focusable,
-                    x,
-                    y,
-                    width: w,
-                    height: h,
-                });
-            }
-        }
+        let nodes = collect_semantic_records(ir, snap, scroll)
+            .into_iter()
+            .map(|record| record.node)
+            .collect();
+        TestResponse::Tree { nodes }
+    } else {
+        TestResponse::Tree { nodes: Vec::new() }
     }
-    TestResponse::Tree { nodes }
 }
 
 /// Handle TapText — find text in the IR, tap at its center.
@@ -4228,6 +5000,292 @@ where
                             &mut redraw_pending,
                             &mut frame_trace,
                             "test_tap_text",
+                        );
+                    }
+                    TestEvent::ResolveSelector { query, response_tx } => {
+                        let resp = resolve_selector_response(
+                            &pipeline,
+                            &runtime.runtime_state.scroll,
+                            &query,
+                        );
+                        let _ = response_tx.send(resp);
+                    }
+                    TestEvent::ScrollIntoView { query, response_tx } => {
+                        let Some(window) = platform_window.active_window() else {
+                            let _ = response_tx.send(fission_test_driver::TestResponse::Error {
+                                message: "window not ready".into(),
+                            });
+                            return;
+                        };
+                        let resp =
+                            handle_scroll_into_view_selector(&query, &mut runtime, &pipeline);
+                        if matches!(
+                            resp,
+                            fission_test_driver::TestResponse::SelectorResolved { .. }
+                        ) {
+                            invalidations.mark_build();
+                        }
+                        let _ = response_tx.send(resp);
+                        request_redraw_logged(
+                            window,
+                            elwt,
+                            &mut last_redraw_at,
+                            min_frame,
+                            &mut redraw_pending,
+                            &mut frame_trace,
+                            "test_scroll_into_view",
+                        );
+                    }
+                    TestEvent::TapSelector { query, response_tx } => {
+                        let Some(window) = platform_window.active_window() else {
+                            let _ = response_tx.send(fission_test_driver::TestResponse::Error {
+                                message: "window not ready".into(),
+                            });
+                            return;
+                        };
+                        let resp = handle_pointer_selector(
+                            &query,
+                            &mut runtime,
+                            &pipeline,
+                            PointerButton::Primary,
+                            true,
+                        );
+                        if matches!(resp, fission_test_driver::TestResponse::Ok { .. }) {
+                            invalidations.mark_build();
+                            if process_pending_effects(
+                                &mut runtime,
+                                &effect_result_tx,
+                                &event_proxy,
+                                &async_registry,
+                                &mut active_services,
+                                &mut service_bindings,
+                                &mut next_service_instance_id,
+                            ) {
+                                invalidations.mark_build();
+                            }
+                        }
+                        let _ = response_tx.send(resp);
+                        request_redraw_logged(
+                            window,
+                            elwt,
+                            &mut last_redraw_at,
+                            min_frame,
+                            &mut redraw_pending,
+                            &mut frame_trace,
+                            "test_tap_selector",
+                        );
+                    }
+                    TestEvent::HoverSelector { query, response_tx } => {
+                        let Some(window) = platform_window.active_window() else {
+                            let _ = response_tx.send(fission_test_driver::TestResponse::Error {
+                                message: "window not ready".into(),
+                            });
+                            return;
+                        };
+                        let resp = handle_pointer_selector(
+                            &query,
+                            &mut runtime,
+                            &pipeline,
+                            PointerButton::Primary,
+                            false,
+                        );
+                        let _ = response_tx.send(resp);
+                        request_redraw_logged(
+                            window,
+                            elwt,
+                            &mut last_redraw_at,
+                            min_frame,
+                            &mut redraw_pending,
+                            &mut frame_trace,
+                            "test_hover_selector",
+                        );
+                    }
+                    TestEvent::RightClickSelector { query, response_tx } => {
+                        let Some(window) = platform_window.active_window() else {
+                            let _ = response_tx.send(fission_test_driver::TestResponse::Error {
+                                message: "window not ready".into(),
+                            });
+                            return;
+                        };
+                        let resp = handle_pointer_selector(
+                            &query,
+                            &mut runtime,
+                            &pipeline,
+                            PointerButton::Secondary,
+                            true,
+                        );
+                        if matches!(resp, fission_test_driver::TestResponse::Ok { .. }) {
+                            invalidations.mark_build();
+                        }
+                        let _ = response_tx.send(resp);
+                        request_redraw_logged(
+                            window,
+                            elwt,
+                            &mut last_redraw_at,
+                            min_frame,
+                            &mut redraw_pending,
+                            &mut frame_trace,
+                            "test_right_click_selector",
+                        );
+                    }
+                    TestEvent::ActivateSelector { query, response_tx }
+                    | TestEvent::SelectOption { query, response_tx } => {
+                        let Some(window) = platform_window.active_window() else {
+                            let _ = response_tx.send(fission_test_driver::TestResponse::Error {
+                                message: "window not ready".into(),
+                            });
+                            return;
+                        };
+                        let resp = handle_activate_selector(&query, &mut runtime, &pipeline);
+                        if matches!(resp, fission_test_driver::TestResponse::Ok { .. }) {
+                            invalidations.mark_build();
+                            if process_pending_effects(
+                                &mut runtime,
+                                &effect_result_tx,
+                                &event_proxy,
+                                &async_registry,
+                                &mut active_services,
+                                &mut service_bindings,
+                                &mut next_service_instance_id,
+                            ) {
+                                invalidations.mark_build();
+                            }
+                        }
+                        let _ = response_tx.send(resp);
+                        request_redraw_logged(
+                            window,
+                            elwt,
+                            &mut last_redraw_at,
+                            min_frame,
+                            &mut redraw_pending,
+                            &mut frame_trace,
+                            "test_activate_selector",
+                        );
+                    }
+                    TestEvent::FocusSelector { query, response_tx } => {
+                        let Some(window) = platform_window.active_window() else {
+                            let _ = response_tx.send(fission_test_driver::TestResponse::Error {
+                                message: "window not ready".into(),
+                            });
+                            return;
+                        };
+                        let resp = handle_focus_selector(&query, &mut runtime, &pipeline);
+                        if matches!(resp, fission_test_driver::TestResponse::Ok { .. }) {
+                            invalidations.mark_build();
+                        }
+                        let _ = response_tx.send(resp);
+                        request_redraw_logged(
+                            window,
+                            elwt,
+                            &mut last_redraw_at,
+                            min_frame,
+                            &mut redraw_pending,
+                            &mut frame_trace,
+                            "test_focus_selector",
+                        );
+                    }
+                    TestEvent::FillText {
+                        query,
+                        text,
+                        response_tx,
+                    } => {
+                        let Some(window) = platform_window.active_window() else {
+                            let _ = response_tx.send(fission_test_driver::TestResponse::Error {
+                                message: "window not ready".into(),
+                            });
+                            return;
+                        };
+                        let resp =
+                            handle_fill_text_selector(&query, &text, &mut runtime, &pipeline);
+                        if matches!(resp, fission_test_driver::TestResponse::Ok { .. }) {
+                            invalidations.mark_build();
+                            if process_pending_effects(
+                                &mut runtime,
+                                &effect_result_tx,
+                                &event_proxy,
+                                &async_registry,
+                                &mut active_services,
+                                &mut service_bindings,
+                                &mut next_service_instance_id,
+                            ) {
+                                invalidations.mark_build();
+                            }
+                        }
+                        let _ = response_tx.send(resp);
+                        request_redraw_logged(
+                            window,
+                            elwt,
+                            &mut last_redraw_at,
+                            min_frame,
+                            &mut redraw_pending,
+                            &mut frame_trace,
+                            "test_fill_text_selector",
+                        );
+                    }
+                    TestEvent::ClearText { query, response_tx } => {
+                        let Some(window) = platform_window.active_window() else {
+                            let _ = response_tx.send(fission_test_driver::TestResponse::Error {
+                                message: "window not ready".into(),
+                            });
+                            return;
+                        };
+                        let resp = handle_fill_text_selector(&query, "", &mut runtime, &pipeline);
+                        if matches!(resp, fission_test_driver::TestResponse::Ok { .. }) {
+                            invalidations.mark_build();
+                            if process_pending_effects(
+                                &mut runtime,
+                                &effect_result_tx,
+                                &event_proxy,
+                                &async_registry,
+                                &mut active_services,
+                                &mut service_bindings,
+                                &mut next_service_instance_id,
+                            ) {
+                                invalidations.mark_build();
+                            }
+                        }
+                        let _ = response_tx.send(resp);
+                        request_redraw_logged(
+                            window,
+                            elwt,
+                            &mut last_redraw_at,
+                            min_frame,
+                            &mut redraw_pending,
+                            &mut frame_trace,
+                            "test_clear_text_selector",
+                        );
+                    }
+                    TestEvent::Toggle { query, response_tx } => {
+                        let Some(window) = platform_window.active_window() else {
+                            let _ = response_tx.send(fission_test_driver::TestResponse::Error {
+                                message: "window not ready".into(),
+                            });
+                            return;
+                        };
+                        let resp = handle_toggle_selector(&query, &mut runtime, &pipeline);
+                        if matches!(resp, fission_test_driver::TestResponse::Ok { .. }) {
+                            invalidations.mark_build();
+                            if process_pending_effects(
+                                &mut runtime,
+                                &effect_result_tx,
+                                &event_proxy,
+                                &async_registry,
+                                &mut active_services,
+                                &mut service_bindings,
+                                &mut next_service_instance_id,
+                            ) {
+                                invalidations.mark_build();
+                            }
+                        }
+                        let _ = response_tx.send(resp);
+                        request_redraw_logged(
+                            window,
+                            elwt,
+                            &mut last_redraw_at,
+                            min_frame,
+                            &mut redraw_pending,
+                            &mut frame_trace,
+                            "test_toggle_selector",
                         );
                     }
                     TestEvent::Screenshot { path, response_tx } => {
@@ -7108,23 +8166,23 @@ fn native_window_size_for_logical_viewport(size: LayoutSize) -> winit::dpi::Logi
 #[cfg(test)]
 mod tests {
     use super::{
-        animation_redraw_interval, clamp_copy_extent_to_texture, collect_startup_deep_links_from,
-        cursor_icon_for, downscale_rgba_box, layout_size_to_image_dimensions,
-        logical_viewport_to_physical_size, logical_viewport_to_render_target_size,
-        native_window_size_for_logical_viewport, normalize_scale_factor,
-        normalize_winit_scroll_delta, physical_position_to_layout_point,
+        animation_redraw_interval, clamp_copy_extent_to_texture, collect_semantic_records,
+        collect_startup_deep_links_from, cursor_icon_for, downscale_rgba_box,
+        layout_size_to_image_dimensions, logical_viewport_to_physical_size,
+        logical_viewport_to_render_target_size, native_window_size_for_logical_viewport,
+        normalize_scale_factor, normalize_winit_scroll_delta, physical_position_to_layout_point,
         physical_size_to_layout_size, rect_visible_in_scroll_ancestors,
         repeating_animation_redraw_interval, resize_is_unsettled, resolve_build_viewport,
-        sync_tracked_target_texture_size_to_surface, texture_plans_fit_device_limits,
-        visual_rect_for_node, window_insets_from_safe_area_frames, LiveResizeController,
-        WindowViewportState,
+        resolve_selector_record, sync_tracked_target_texture_size_to_surface,
+        texture_plans_fit_device_limits, visual_rect_for_node, window_insets_from_safe_area_frames,
+        LiveResizeController, WindowViewportState,
     };
     use crate::pipeline::CompositorTexturePlan;
     use crate::InvalidationSet;
     use fission_core::{ActiveMotion, MotionEasing, MotionStateMap, MotionValue, ScrollStateMap};
     use fission_core::{DeepLinkConfig, MotionPropertyId, WidgetId};
     use fission_ir::semantics::MouseCursor;
-    use fission_ir::{CoreIR, FlexDirection, LayoutOp, Op};
+    use fission_ir::{CoreIR, FlexDirection, LayoutOp, Op, Role, Semantics};
     use fission_layout::{LayoutNodeGeometry, LayoutRect, LayoutSize, LayoutSnapshot};
     use std::collections::HashMap;
     use std::time::Duration;
@@ -7259,6 +8317,128 @@ mod tests {
             child,
             visual
         ));
+    }
+
+    #[test]
+    fn get_tree_metadata_keeps_identifier_separate_and_masks_value() {
+        let input = WidgetId::from_u128(10);
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            input,
+            Op::Semantics(Semantics {
+                role: Role::TextInput,
+                label: Some("Password".into()),
+                identifier: Some("account.password".into()),
+                value: Some("hunter2".into()),
+                focusable: true,
+                masked: true,
+                text_selection: Some((1, 3)),
+                ..Semantics::default()
+            }),
+            Vec::new(),
+        );
+        ir.set_root(input);
+
+        let mut snapshot = LayoutSnapshot::new(LayoutSize::new(320.0, 240.0));
+        snapshot.nodes.insert(
+            input,
+            LayoutNodeGeometry {
+                rect: LayoutRect::new(20.0, 30.0, 160.0, 32.0),
+                content_size: LayoutSize::new(160.0, 32.0),
+            },
+        );
+
+        let records = collect_semantic_records(&ir, &snapshot, &ScrollStateMap::default());
+        assert_eq!(records.len(), 1);
+        let node = &records[0].node;
+        assert_eq!(node.identifier.as_deref(), Some("account.password"));
+        assert_eq!(node.label.as_deref(), Some("Password"));
+        assert_eq!(node.value, None);
+        assert!(node.value_present);
+        assert!(node.masked);
+        assert_eq!(node.text_selection, Some((1, 3)));
+        assert_eq!(
+            node.visibility,
+            fission_test_driver::VisibilityState::FullyVisible
+        );
+    }
+
+    #[test]
+    fn selector_can_scope_duplicate_labels() {
+        let shell = WidgetId::from_u128(20);
+        let app = WidgetId::from_u128(21);
+        let shell_open = WidgetId::from_u128(22);
+        let app_open = WidgetId::from_u128(23);
+
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            shell_open,
+            Op::Semantics(Semantics {
+                role: Role::Button,
+                label: Some("Open".into()),
+                identifier: Some("shell.open".into()),
+                focusable: true,
+                ..Semantics::default()
+            }),
+            Vec::new(),
+        );
+        ir.add_node(
+            app_open,
+            Op::Semantics(Semantics {
+                role: Role::Button,
+                label: Some("Open".into()),
+                identifier: Some("app.open".into()),
+                focusable: true,
+                ..Semantics::default()
+            }),
+            Vec::new(),
+        );
+        ir.add_node(
+            app,
+            Op::Semantics(Semantics {
+                role: Role::Generic,
+                identifier: Some("mounted.app".into()),
+                ..Semantics::default()
+            }),
+            vec![app_open],
+        );
+        ir.add_node(
+            shell,
+            Op::Semantics(Semantics {
+                role: Role::Generic,
+                identifier: Some("shell".into()),
+                ..Semantics::default()
+            }),
+            vec![shell_open, app],
+        );
+        ir.set_root(shell);
+
+        let mut snapshot = LayoutSnapshot::new(LayoutSize::new(320.0, 240.0));
+        for (id, y) in [
+            (shell, 0.0),
+            (app, 80.0),
+            (shell_open, 8.0),
+            (app_open, 88.0),
+        ] {
+            snapshot.nodes.insert(
+                id,
+                LayoutNodeGeometry {
+                    rect: LayoutRect::new(0.0, y, 120.0, 40.0),
+                    content_size: LayoutSize::new(120.0, 40.0),
+                },
+            );
+        }
+
+        let mut pipeline = crate::Pipeline::new();
+        pipeline.prev_ir = Some(ir);
+        pipeline.last_snapshot = Some(snapshot);
+
+        let query = fission_test_driver::SelectorQuery::label("Open").scoped(
+            fission_test_driver::SelectorQuery::semantic_identifier("mounted.app"),
+        );
+        let record = resolve_selector_record(&pipeline, &ScrollStateMap::default(), &query)
+            .expect("scoped selector should resolve");
+        assert_eq!(record.node.identifier.as_deref(), Some("app.open"));
     }
 
     #[test]

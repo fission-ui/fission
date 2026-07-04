@@ -183,6 +183,61 @@ fn dispatch_command(cmd: TestCommand, injector: &EventInjector) -> TestResponse 
             text,
             response_tx,
         }),
+        TestCommand::ResolveSelector { query } => query_event(injector, |response_tx| {
+            TestEvent::ResolveSelector { query, response_tx }
+        }),
+        TestCommand::ScrollIntoView { query } => query_event(injector, |response_tx| {
+            TestEvent::ScrollIntoView { query, response_tx }
+        }),
+        TestCommand::TapSelector { query } => {
+            auto_scroll_then_query(injector, query, |query, response_tx| {
+                TestEvent::TapSelector { query, response_tx }
+            })
+        }
+        TestCommand::ActivateSelector { query } => {
+            auto_scroll_then_query(injector, query, |query, response_tx| {
+                TestEvent::ActivateSelector { query, response_tx }
+            })
+        }
+        TestCommand::FocusSelector { query } => {
+            auto_scroll_then_query(injector, query, |query, response_tx| {
+                TestEvent::FocusSelector { query, response_tx }
+            })
+        }
+        TestCommand::HoverSelector { query } => {
+            auto_scroll_then_query(injector, query, |query, response_tx| {
+                TestEvent::HoverSelector { query, response_tx }
+            })
+        }
+        TestCommand::RightClickSelector { query } => {
+            auto_scroll_then_query(injector, query, |query, response_tx| {
+                TestEvent::RightClickSelector { query, response_tx }
+            })
+        }
+        TestCommand::FillText { query, text } => {
+            auto_scroll_then_query(injector, query, |query, response_tx| TestEvent::FillText {
+                query,
+                text,
+                response_tx,
+            })
+        }
+        TestCommand::ClearText { query } => {
+            auto_scroll_then_query(injector, query, |query, response_tx| TestEvent::ClearText {
+                query,
+                response_tx,
+            })
+        }
+        TestCommand::Toggle { query } => {
+            auto_scroll_then_query(injector, query, |query, response_tx| TestEvent::Toggle {
+                query,
+                response_tx,
+            })
+        }
+        TestCommand::SelectOption { query } => {
+            auto_scroll_then_query(injector, query, |query, response_tx| {
+                TestEvent::SelectOption { query, response_tx }
+            })
+        }
         TestCommand::Scroll { x, y, dx, dy } => {
             inject_event(injector, TestEvent::Scroll { x, y, dx, dy });
             TestResponse::Ok {}
@@ -244,6 +299,32 @@ fn dispatch_command(cmd: TestCommand, injector: &EventInjector) -> TestResponse 
             std::thread::sleep(std::time::Duration::from_millis(ms));
             TestResponse::Ok {}
         }
+        TestCommand::WaitForSelector { query, timeout_ms } => {
+            wait_for_selector_state(injector, query, timeout_ms, SelectorWaitCondition::Present)
+        }
+        TestCommand::WaitForVisible { query, timeout_ms } => {
+            wait_for_selector_state(injector, query, timeout_ms, SelectorWaitCondition::Visible)
+        }
+        TestCommand::WaitForEnabled { query, timeout_ms } => {
+            wait_for_selector_state(injector, query, timeout_ms, SelectorWaitCondition::Enabled)
+        }
+        TestCommand::WaitForDisabled { query, timeout_ms } => {
+            wait_for_selector_state(injector, query, timeout_ms, SelectorWaitCondition::Disabled)
+        }
+        TestCommand::WaitForValue {
+            query,
+            value,
+            timeout_ms,
+        } => wait_for_selector_state(
+            injector,
+            query,
+            timeout_ms,
+            SelectorWaitCondition::Value(value),
+        ),
+        TestCommand::WaitForText { text, timeout_ms } => wait_for_text(injector, text, timeout_ms),
+        TestCommand::WaitForGone { query, timeout_ms } => {
+            wait_for_selector_state(injector, query, timeout_ms, SelectorWaitCondition::Gone)
+        }
         TestCommand::Pump {} => {
             query_event(injector, |response_tx| TestEvent::Pump { response_tx })
         }
@@ -265,6 +346,130 @@ fn dispatch_command(cmd: TestCommand, injector: &EventInjector) -> TestResponse 
             inject_event(injector, TestEvent::Resize { width, height });
             TestResponse::Ok {}
         }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn auto_scroll_then_query<F>(
+    injector: &EventInjector,
+    query: fission_test_driver::SelectorQuery,
+    make_event: F,
+) -> TestResponse
+where
+    F: FnOnce(fission_test_driver::SelectorQuery, ResponseSender) -> TestEvent,
+{
+    let scroll = query_event(injector, |response_tx| TestEvent::ScrollIntoView {
+        query: query.clone().include_hidden(),
+        response_tx,
+    });
+    if matches!(
+        scroll,
+        TestResponse::Error { .. } | TestResponse::SelectorError { .. }
+    ) {
+        return scroll;
+    }
+    let pump = query_event(injector, |response_tx| TestEvent::Pump { response_tx });
+    if matches!(
+        pump,
+        TestResponse::Error { .. } | TestResponse::SelectorError { .. }
+    ) {
+        return pump;
+    }
+    query_event(injector, |response_tx| make_event(query, response_tx))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+enum SelectorWaitCondition {
+    Present,
+    Visible,
+    Enabled,
+    Disabled,
+    Value(String),
+    Gone,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn wait_for_selector_state(
+    injector: &EventInjector,
+    query: fission_test_driver::SelectorQuery,
+    timeout_ms: u64,
+    condition: SelectorWaitCondition,
+) -> TestResponse {
+    let start = std::time::Instant::now();
+    let timeout = std::time::Duration::from_millis(timeout_ms);
+    loop {
+        let resp = query_event(injector, |response_tx| TestEvent::ResolveSelector {
+            query: query.clone(),
+            response_tx,
+        });
+        let matched = match (&condition, &resp) {
+            (SelectorWaitCondition::Gone, TestResponse::SelectorError { failure })
+                if failure.kind == fission_test_driver::SelectorFailureKind::NoMatch =>
+            {
+                true
+            }
+            (SelectorWaitCondition::Present, TestResponse::SelectorResolved { .. }) => true,
+            (SelectorWaitCondition::Visible, TestResponse::SelectorResolved { node }) => {
+                node.visibility != fission_test_driver::VisibilityState::Hidden
+            }
+            (SelectorWaitCondition::Enabled, TestResponse::SelectorResolved { node }) => {
+                !node.disabled
+            }
+            (SelectorWaitCondition::Disabled, TestResponse::SelectorResolved { node }) => {
+                node.disabled
+            }
+            (SelectorWaitCondition::Value(expected), TestResponse::SelectorResolved { node }) => {
+                node.value.as_deref() == Some(expected.as_str())
+            }
+            _ => false,
+        };
+        if matched {
+            return TestResponse::Ok {};
+        }
+        if start.elapsed() >= timeout {
+            let candidates = match resp {
+                TestResponse::SelectorResolved { node } => {
+                    vec![fission_test_driver::SelectorCandidate {
+                        node,
+                        rejected_reason: Some("wait condition did not pass".into()),
+                    }]
+                }
+                TestResponse::SelectorError { failure } => failure.candidates,
+                _ => Vec::new(),
+            };
+            return TestResponse::SelectorError {
+                failure: fission_test_driver::SelectorFailure {
+                    kind: fission_test_driver::SelectorFailureKind::Timeout,
+                    selector: query,
+                    candidates,
+                    message: format!("timed out after {timeout_ms}ms waiting for selector"),
+                },
+            };
+        }
+        let _ = query_event(injector, |response_tx| TestEvent::Pump { response_tx });
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn wait_for_text(injector: &EventInjector, text: String, timeout_ms: u64) -> TestResponse {
+    let start = std::time::Instant::now();
+    let timeout = std::time::Duration::from_millis(timeout_ms);
+    loop {
+        match query_event(injector, |response_tx| TestEvent::GetText { response_tx }) {
+            TestResponse::Text { items } if items.iter().any(|item| item.text.contains(&text)) => {
+                return TestResponse::Ok {};
+            }
+            TestResponse::Error { message } => return TestResponse::Error { message },
+            _ => {}
+        }
+        if start.elapsed() >= timeout {
+            return TestResponse::Error {
+                message: format!("timed out after {timeout_ms}ms waiting for text `{text}`"),
+            };
+        }
+        let _ = query_event(injector, |response_tx| TestEvent::Pump { response_tx });
+        std::thread::sleep(std::time::Duration::from_millis(25));
     }
 }
 
