@@ -44,7 +44,11 @@ impl VideoPlayer for DummyPlayer {
 }
 
 impl VideoBackend for DummyBackend {
-    fn create_player(&self, _source: &str) -> Box<dyn VideoPlayer> {
+    fn create_player(
+        &self,
+        _source: &str,
+        _audio: &fission_core::ui::VideoAudioOptions,
+    ) -> Box<dyn VideoPlayer> {
         Box::new(DummyPlayer::new())
     }
 
@@ -77,7 +81,8 @@ fn test_input_event_serialization() {
 #[test]
 fn test_video_backend_trait_object() -> Result<()> {
     let backend: Box<dyn VideoBackend> = Box::new(DummyBackend);
-    let mut player = backend.create_player("dummy.mp4");
+    let mut player =
+        backend.create_player("dummy.mp4", &fission_core::ui::VideoAudioOptions::default());
 
     player.play();
     player.pause();

@@ -88,6 +88,7 @@ mod mac {
 
     use core_graphics::geometry::{CGPoint, CGRect, CGSize};
 
+    use fission_core::ui::VideoAudioOptions;
     use fission_ir::WidgetId;
     use fission_render::LayoutRect;
     use fission_shell::VideoSurfaceFrame;
@@ -206,7 +207,7 @@ mod mac {
     }
 
     impl VideoBackend for MacVideoBackend {
-        fn create_player(&self, source: &str) -> Box<dyn VideoPlayer> {
+        fn create_player(&self, source: &str, _audio: &VideoAudioOptions) -> Box<dyn VideoPlayer> {
             let resolved_source = resolve_video_source(source);
             let pending_error = resolved_source.error_message();
             let player = unsafe {
@@ -660,6 +661,7 @@ mod mac {
 mod ios {
     use super::{VideoBackend, VideoEvent, VideoPlayer};
     use core_graphics::geometry::{CGPoint, CGRect, CGSize};
+    use fission_core::ui::VideoAudioOptions;
     use fission_ir::WidgetId;
     use fission_render::LayoutRect;
     use fission_shell::VideoSurfaceFrame;
@@ -774,7 +776,7 @@ mod ios {
     }
 
     impl VideoBackend for IosVideoBackend {
-        fn create_player(&self, source: &str) -> Box<dyn VideoPlayer> {
+        fn create_player(&self, source: &str, audio: &VideoAudioOptions) -> Box<dyn VideoPlayer> {
             let resolved_source = resolve_video_source(source);
             let pending_error = resolved_source.error_message();
             let player = unsafe {
@@ -1195,6 +1197,7 @@ mod windows {
     use fission_ir::WidgetId;
     use fission_render::LayoutRect;
     use fission_shell::VideoSurfaceFrame;
+    use fission_core::ui::VideoAudioOptions;
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use std::collections::{HashMap, HashSet};
     use std::path::{Path, PathBuf};
@@ -1248,7 +1251,7 @@ mod windows {
     }
 
     impl VideoBackend for WindowsVideoBackend {
-        fn create_player(&self, source: &str) -> Box<dyn VideoPlayer> {
+        fn create_player(&self, source: &str, _audio: &VideoAudioOptions) -> Box<dyn VideoPlayer> {
             let id = self.next_id.fetch_add(1, Ordering::Relaxed);
             let resolved = resolve_source(source);
             let pending_error = resolved.error_message();
@@ -1631,6 +1634,7 @@ mod windows {
 mod linux {
     use super::{VideoBackend, VideoEvent, VideoPlayer};
     use fission_shell::VideoSurfaceFrame;
+    use fission_core::ui::VideoAudioOptions;
     use gst::prelude::*;
     use gst_video::prelude::*;
     use gstreamer as gst;
@@ -1664,7 +1668,7 @@ mod linux {
     }
 
     impl VideoBackend for LinuxVideoBackend {
-        fn create_player(&self, source: &str) -> Box<dyn VideoPlayer> {
+        fn create_player(&self, source: &str, _audio: &VideoAudioOptions) -> Box<dyn VideoPlayer> {
             let id = self.next_id.fetch_add(1, Ordering::Relaxed);
             let resolved = resolve_source(source);
             let pending_error = resolved.error_message();
@@ -2017,6 +2021,7 @@ mod linux {
 mod android {
     use super::{VideoBackend, VideoEvent, VideoPlayer};
     use fission_shell::VideoSurfaceFrame;
+    use fission_core::ui::VideoAudioOptions;
     use jni::objects::{JClass, JObject, JString, JValue};
     use jni::sys::jobject;
     use jni::{JNIEnv, JavaVM};
@@ -2039,7 +2044,7 @@ mod android {
     }
 
     impl VideoBackend for AndroidVideoBackend {
-        fn create_player(&self, source: &str) -> Box<dyn VideoPlayer> {
+        fn create_player(&self, source: &str, _audio: &VideoAudioOptions) -> Box<dyn VideoPlayer> {
             let id = self.next_id.fetch_add(1, Ordering::Relaxed);
             let pending_error = call_with_env(|env, activity_class| {
                 let source = env.new_string(source)?;
@@ -2332,6 +2337,7 @@ mod android {
 mod web {
     use super::{VideoBackend, VideoEvent, VideoPlayer};
     use fission_shell::VideoSurfaceFrame;
+    use fission_core::ui::VideoAudioOptions;
     use std::collections::{HashMap, HashSet};
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
@@ -2366,7 +2372,7 @@ mod web {
     }
 
     impl VideoBackend for WebVideoBackend {
-        fn create_player(&self, source: &str) -> Box<dyn VideoPlayer> {
+        fn create_player(&self, source: &str, _audio: &VideoAudioOptions) -> Box<dyn VideoPlayer> {
             let id = self.next_id.fetch_add(1, Ordering::Relaxed);
             let video = create_video_element(source);
             self.registry.lock().unwrap().insert(id, video.clone());

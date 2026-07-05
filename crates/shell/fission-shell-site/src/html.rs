@@ -2986,6 +2986,7 @@ mod tests {
                 source: "/media/demo.mp4".into(),
                 autoplay: true,
                 loop_playback: true,
+                audio: Default::default(),
             },
         );
 

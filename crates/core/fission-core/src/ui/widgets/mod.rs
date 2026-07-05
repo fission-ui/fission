@@ -58,7 +58,10 @@ pub use switch::Switch;
 pub use text::{RichText, RichTextRun, Text, TextContent, TextFontStyle, TextRunStyle};
 pub use text_input::{TextInput, TextInputChangePayload};
 pub use transform::Transform;
-pub use video::Video;
+pub use video::{
+    IosAudioSessionCategory, IosAudioSessionCategoryOption, IosAudioSessionMode,
+    IosVideoAudioOptions, Video, VideoAudioActivation, VideoAudioOptions, VideoAudioPolicy,
+};
 
 pub mod gesture_detector;
 pub use gesture_detector::GestureDetector;

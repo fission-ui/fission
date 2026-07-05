@@ -586,6 +586,7 @@ impl From<Video> for Widget {
             source: w.source.clone(),
             autoplay: w.autoplay,
             loop_playback: w.loop_playback,
+            audio: w.audio.clone(),
         });
         Self {
             kind: Box::new(WidgetKind::Video(w)),

@@ -159,9 +159,11 @@ pub use fission_core::ui::{
     ButtonMotion, ButtonVariant, CardPattern, Checkbox, Column, ComponentSize, ComponentState,
     Composite, Container, CustomWidget, FocusScope, GestureDetector, Grid, GridItem, HttpHeader,
     Icon, Image, ImageAlignment, ImageCachePolicy, ImageErrorBehavior, ImageLoadingBehavior,
-    ImageRequest, ImageSource, LayoutBuilder, LazyColumn, Overlay, Positioned, Provider, Radio,
-    RichText, RichTextRun, Row, SafeArea, Scroll, SemanticsRegion, Slider, Spacer, Switch, Text,
-    TextContent, TextFontStyle, TextInput, TextRunStyle, Video, Widget, WidgetIdExt, ZStack,
+    ImageRequest, ImageSource, IosAudioSessionCategory, IosAudioSessionCategoryOption,
+    IosAudioSessionMode, IosVideoAudioOptions, LayoutBuilder, LazyColumn, Overlay, Positioned,
+    Provider, Radio, RichText, RichTextRun, Row, SafeArea, Scroll, SemanticsRegion, Slider, Spacer,
+    Switch, Text, TextContent, TextFontStyle, TextInput, TextRunStyle, Video, VideoAudioActivation,
+    VideoAudioOptions, VideoAudioPolicy, Widget, WidgetIdExt, ZStack,
 };
 
 // Core action/state types
@@ -378,9 +380,11 @@ pub mod prelude {
         ButtonMotion, ButtonVariant, CardPattern, Checkbox, Column, ComponentSize, ComponentState,
         Composite, Container, CustomWidget, FocusScope, GestureDetector, Grid, GridItem,
         HttpHeader, Icon, Image, ImageAlignment, ImageCachePolicy, ImageErrorBehavior,
-        ImageLoadingBehavior, ImageRequest, ImageSource, LayoutBuilder, LazyColumn, Overlay,
-        Positioned, Radio, RichText, RichTextRun, Row, SafeArea, Scroll, SemanticsRegion, Slider,
-        Spacer, Switch, Text, TextContent, TextFontStyle, TextInput, TextRunStyle, Video, Widget,
+        ImageLoadingBehavior, ImageRequest, ImageSource, IosAudioSessionCategory,
+        IosAudioSessionCategoryOption, IosAudioSessionMode, IosVideoAudioOptions, LayoutBuilder,
+        LazyColumn, Overlay, Positioned, Radio, RichText, RichTextRun, Row, SafeArea, Scroll,
+        SemanticsRegion, Slider, Spacer, Switch, Text, TextContent, TextFontStyle, TextInput,
+        TextRunStyle, Video, VideoAudioActivation, VideoAudioOptions, VideoAudioPolicy, Widget,
         WidgetIdExt, ZStack,
     };
     pub use fission_widgets::*;

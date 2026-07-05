@@ -3249,11 +3249,7 @@ fn dispatch_semantics_action(
         .is_ok()
 }
 
-fn scoped_action_input_for_node(
-    ir: &CoreIR,
-    target: WidgetId,
-    input: ActionInput,
-) -> ActionInput {
+fn scoped_action_input_for_node(ir: &CoreIR, target: WidgetId, input: ActionInput) -> ActionInput {
     let mut current_id = Some(target);
     while let Some(id) = current_id {
         let Some(node) = ir.nodes.get(&id) else {
@@ -5665,7 +5661,8 @@ where
                             {
                                 let source = &state.asset_source;
                                 if !source.is_empty() {
-                                    let player = video_backend.create_player(source);
+                                    let player =
+                                        video_backend.create_player(source, &state.audio);
                                     surface.surface_id = player.surface_id();
                                     if let Some(state) = runtime
                                         .runtime_state

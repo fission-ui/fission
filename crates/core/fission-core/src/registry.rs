@@ -8,7 +8,7 @@ use crate::{
     },
     context::{Effects, ReducerContext},
     effect::{ActionInput, Effect, EffectEnvelope},
-    ui::Widget,
+    ui::{VideoAudioOptions, Widget},
     Action, ActionEnvelope, ActionId, BoxedReducer, GlobalState,
 };
 use anyhow::{anyhow, Result};
@@ -225,6 +225,8 @@ pub struct VideoRegistration {
     pub autoplay: bool,
     /// Whether to loop playback.
     pub loop_playback: bool,
+    /// Audio-session behavior requested by this video.
+    pub audio: VideoAudioOptions,
 }
 
 /// Registration data for a platform web view collected during widget building.

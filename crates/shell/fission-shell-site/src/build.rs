@@ -1717,6 +1717,7 @@ mod tests {
                 height: Some(180.0),
                 autoplay: true,
                 loop_playback: true,
+                ..Default::default()
             }
             .into()
         }

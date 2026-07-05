@@ -1,5 +1,6 @@
 use fission_ir::WidgetId;
 use fission_render::LayoutRect;
+use fission_core::ui::VideoAudioOptions;
 use serde::{Deserialize, Serialize};
 
 pub mod async_host;
@@ -20,7 +21,7 @@ pub struct VideoSurfaceFrame {
 }
 
 pub trait VideoBackend: Send + Sync {
-    fn create_player(&self, source: &str) -> Box<dyn VideoPlayer>;
+    fn create_player(&self, source: &str, audio: &VideoAudioOptions) -> Box<dyn VideoPlayer>;
     fn present_surfaces(&self, frames: &[VideoSurfaceFrame]);
 }
 
