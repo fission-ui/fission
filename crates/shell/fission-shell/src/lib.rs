@@ -1,6 +1,6 @@
+use fission_core::ui::VideoAudioOptions;
 use fission_ir::WidgetId;
 use fission_render::LayoutRect;
-use fission_core::ui::VideoAudioOptions;
 use serde::{Deserialize, Serialize};
 
 pub mod async_host;

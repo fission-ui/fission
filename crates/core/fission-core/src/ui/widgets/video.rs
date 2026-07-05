@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 ///     height: Some(360.0),
 ///     autoplay: true,
 ///     loop_playback: false,
+///     audio: VideoAudioOptions::playback(),
 ///     ..Default::default()
 /// }
 /// .into();

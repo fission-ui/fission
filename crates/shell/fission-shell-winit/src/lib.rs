@@ -35,6 +35,7 @@ use winit::{
 use fission_core::env::{VideoStatus, WindowInsets};
 use fission_core::internal::downcast_render_object;
 use fission_core::internal::InternalLoweringCx;
+use fission_core::ui::VideoAudioOptions;
 use fission_core::{
     Action, ActionEnvelope, ActionId, ActionRegistry, DeepLink, DeepLinkConfig, DeepLinkReceived,
     Env, GlobalState, InputEvent, KeyCode, KeyEvent as FissionKeyEvent, NotificationResponse,
@@ -322,6 +323,8 @@ fn js_error_to_string(error: wasm_bindgen::JsValue) -> String {
 
 struct ActivePlayer {
     player: Box<dyn VideoPlayer>,
+    source: String,
+    audio: VideoAudioOptions,
     last_status: Option<VideoStatus>,
     last_rate: Option<f32>,
     last_volume: Option<f32>,
@@ -5654,37 +5657,43 @@ where
                     for surface in &mut surfaces {
                         active_nodes.insert(surface.widget_id);
 
-                        // Create player if missing
-                        if !players.contains_key(&surface.widget_id) {
-                            if let Some(state) =
-                                runtime.runtime_state.video.states.get(&surface.widget_id)
-                            {
-                                let source = &state.asset_source;
-                                if !source.is_empty() {
-                                    let player =
-                                        video_backend.create_player(source, &state.audio);
-                                    surface.surface_id = player.surface_id();
-                                    if let Some(state) = runtime
-                                        .runtime_state
-                                        .video
-                                        .states
-                                        .get_mut(&surface.widget_id)
-                                    {
-                                        state.surface_id = Some(surface.surface_id);
-                                    }
-                                    players.insert(
-                                        surface.widget_id,
-                                        ActivePlayer {
-                                            player,
-                                            last_status: None,
-                                            last_rate: None,
-                                            last_volume: None,
-                                            last_muted: None,
-                                        },
-                                    );
+                        if let Some(state) =
+                            runtime.runtime_state.video.states.get(&surface.widget_id)
+                        {
+                            let source = state.asset_source.clone();
+                            let audio = state.audio.clone();
+                            let needs_player = players
+                                .get(&surface.widget_id)
+                                .map(|active| active.source != source || active.audio != audio)
+                                .unwrap_or(true);
+                            if source.is_empty() {
+                                players.remove(&surface.widget_id);
+                            } else if needs_player {
+                                let player = video_backend.create_player(&source, &audio);
+                                surface.surface_id = player.surface_id();
+                                if let Some(state) = runtime
+                                    .runtime_state
+                                    .video
+                                    .states
+                                    .get_mut(&surface.widget_id)
+                                {
+                                    state.surface_id = Some(surface.surface_id);
                                 }
+                                players.insert(
+                                    surface.widget_id,
+                                    ActivePlayer {
+                                        player,
+                                        source,
+                                        audio,
+                                        last_status: None,
+                                        last_rate: None,
+                                        last_volume: None,
+                                        last_muted: None,
+                                    },
+                                );
                             }
-                        } else if let Some(active_player) = players.get(&surface.widget_id) {
+                        }
+                        if let Some(active_player) = players.get(&surface.widget_id) {
                             surface.surface_id = active_player.player.surface_id();
                         }
                     }
