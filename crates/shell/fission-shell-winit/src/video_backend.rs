@@ -728,6 +728,7 @@ mod ios {
     impl IosVideoBackend {
         pub fn try_new(window: &Window) -> Option<Self> {
             let ui_view = ui_view_from_window(window)?;
+            unsafe { configure_audio_session() };
             Some(Self {
                 view: unsafe { RetainedId::retain(ui_view) },
                 layers: Mutex::new(HashMap::new()),
@@ -1048,6 +1049,23 @@ mod ios {
         let sanitized = value.replace('\0', "");
         let cstr = CString::new(sanitized).unwrap();
         unsafe { msg_send![class!(NSString), stringWithUTF8String: cstr.as_ptr()] }
+    }
+
+    /// Configures the shared AVAudioSession so video audio plays even with
+    /// the silent switch engaged, matching standard short-form-video-app
+    /// behavior (TikTok, Reels, Shorts) rather than iOS's default
+    /// `.soloAmbient` session, which would otherwise silence playback on
+    /// mute and refuse to play under another app's active audio session.
+    ///
+    /// Category choice is a product decision as much as a technical one —
+    /// if silent-switch-respecting, mixable playback is preferred instead,
+    /// swap "AVAudioSessionCategoryPlayback" for
+    /// "AVAudioSessionCategoryAmbient".
+    unsafe fn configure_audio_session() {
+        let session: Id = msg_send![class!(AVAudioSession), sharedInstance];
+        let category = ns_string("AVAudioSessionCategoryPlayback");
+        let _: i8 = msg_send![session, setCategory: category error: NIL];
+        let _: i8 = msg_send![session, setActive: YES error: NIL];
     }
 
     struct ResolvedVideoSource {
