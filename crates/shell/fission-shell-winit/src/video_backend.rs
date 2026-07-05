@@ -92,12 +92,13 @@ mod mac {
     use fission_ir::WidgetId;
     use fission_render::LayoutRect;
     use fission_shell::VideoSurfaceFrame;
+    use block::ConcreteBlock;
     use objc::rc::StrongPtr;
     use objc::{class, msg_send, sel, sel_impl};
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use std::collections::{HashMap, HashSet};
     use std::path::{Path, PathBuf};
-    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
     use winit::window::Window;
 
@@ -218,6 +219,9 @@ mod mac {
                         .unwrap_or_else(|| Path::new(source)),
                 )
             };
+            let ended_flag = Arc::new(AtomicBool::new(false));
+            let observer =
+                unsafe { register_end_observer(*player, Arc::clone(&ended_flag)) };
             let player_id = self.registry.register(player);
             Box::new(MacVideoPlayer {
                 registry: Arc::clone(&self.registry),
@@ -225,6 +229,9 @@ mod mac {
                 ready_sent: false,
                 error_sent: false,
                 pending_error,
+                ended_flag,
+                ended_sent: false,
+                observer: unsafe { RetainedId::new(observer) },
             })
         }
 
@@ -382,10 +389,18 @@ mod mac {
         ready_sent: bool,
         error_sent: bool,
         pending_error: Option<String>,
+        ended_flag: Arc<AtomicBool>,
+        ended_sent: bool,
+        observer: RetainedId,
     }
 
     impl Drop for MacVideoPlayer {
         fn drop(&mut self) {
+            // Remove the end-of-playback notification observer.
+            unsafe {
+                let center: id = msg_send![class!(NSNotificationCenter), defaultCenter];
+                let () = msg_send![center, removeObserver: self.observer.as_id()];
+            }
             // Pause/stop before releasing to avoid teardown race with layers.
             if let Some(player) = self.registry.get(self.player_id) {
                 unsafe {
@@ -445,10 +460,11 @@ mod mac {
         }
 
         fn poll_events(&mut self) -> Vec<VideoEvent> {
+            let mut events = Vec::new();
             if !self.error_sent {
                 if let Some(message) = self.pending_error.take() {
                     self.error_sent = true;
-                    return vec![VideoEvent::Error(message)];
+                    events.push(VideoEvent::Error(message));
                 }
             }
             if !self.ready_sent {
@@ -458,10 +474,17 @@ mod mac {
                     .get(self.player_id)
                     .and_then(|player| unsafe { item_duration_ms(player.as_id()) })
                     .unwrap_or(0);
-                vec![VideoEvent::Ready { duration }]
-            } else {
-                Vec::new()
+                events.push(VideoEvent::Ready { duration });
             }
+            let reached_end = self.ended_flag.swap(false, Ordering::Acquire);
+            if reached_end && !self.ended_sent {
+                self.ended_sent = true;
+                events.push(VideoEvent::Ended);
+            }
+            if !reached_end {
+                self.ended_sent = false;
+            }
+            events
         }
 
         fn seek_to(&mut self, position_ms: u64) {
@@ -610,6 +633,25 @@ mod mac {
         let () = msg_send![player, seekToTime: time toleranceBefore: zero_a toleranceAfter: zero_b];
     }
 
+    unsafe fn register_end_observer(player: id, flag: Arc<AtomicBool>) -> id {
+        let notification_name =
+            NSString::alloc(nil).init_str("AVPlayerItemDidPlayToEndTimeNotification");
+        let item: id = msg_send![player, currentItem];
+        let center: id = msg_send![class!(NSNotificationCenter), defaultCenter];
+        let block = ConcreteBlock::new(move |_notification: id| {
+            flag.store(true, Ordering::Release);
+        })
+        .copy();
+        let observer: id = msg_send![
+            center,
+            addObserverForName: notification_name
+            object: item
+            queue: nil
+            usingBlock: &*block
+        ];
+        observer
+    }
+
     fn cg_rect_from_layout(rect: LayoutRect, ctx: &LayerContext) -> CGRect {
         let width = rect.size.width as f64;
         let height = rect.size.height as f64;
@@ -668,6 +710,7 @@ mod ios {
     use fission_ir::WidgetId;
     use fission_render::LayoutRect;
     use fission_shell::VideoSurfaceFrame;
+    use block::ConcreteBlock;
     use objc::rc::StrongPtr;
     use objc::runtime::Object;
     use objc::{class, msg_send, sel, sel_impl};
@@ -675,7 +718,7 @@ mod ios {
     use std::collections::{HashMap, HashSet};
     use std::ffi::CString;
     use std::path::{Path, PathBuf};
-    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
     use winit::window::Window;
 
@@ -805,6 +848,9 @@ mod ios {
                         .unwrap_or_else(|| Path::new(source)),
                 )
             };
+            let ended_flag = Arc::new(AtomicBool::new(false));
+            let observer =
+                unsafe { register_end_observer(*player, Arc::clone(&ended_flag)) };
             let player_id = self.registry.register(player);
             Box::new(IosVideoPlayer {
                 registry: Arc::clone(&self.registry),
@@ -815,6 +861,9 @@ mod ios {
                 audio: audio.clone(),
                 audio_session_configured,
                 audio_error: None,
+                ended_flag,
+                ended_sent: false,
+                observer: unsafe { RetainedId::retain(observer) },
             })
         }
 
@@ -953,10 +1002,18 @@ mod ios {
         audio: VideoAudioOptions,
         audio_session_configured: bool,
         audio_error: Option<String>,
+        ended_flag: Arc<AtomicBool>,
+        ended_sent: bool,
+        observer: RetainedId,
     }
 
     impl Drop for IosVideoPlayer {
         fn drop(&mut self) {
+            // Remove the end-of-playback notification observer.
+            unsafe {
+                let center: Id = msg_send![class!(NSNotificationCenter), defaultCenter];
+                let () = msg_send![center, removeObserver: self.observer.as_id()];
+            }
             if let Some(player) = self.registry.get(self.player_id) {
                 unsafe {
                     let () = msg_send![player.as_id(), pause];
@@ -1019,6 +1076,7 @@ mod ios {
         }
 
         fn poll_events(&mut self) -> Vec<VideoEvent> {
+            let mut events = Vec::new();
             if !self.error_sent {
                 if let Some(message) = self
                     .pending_error
@@ -1026,16 +1084,23 @@ mod ios {
                     .or_else(|| self.audio_error.take())
                 {
                     self.error_sent = true;
-                    return vec![VideoEvent::Error(message)];
+                    events.push(VideoEvent::Error(message));
                 }
             }
             if !self.ready_sent {
                 self.ready_sent = true;
                 let duration = self.duration().unwrap_or(0);
-                vec![VideoEvent::Ready { duration }]
-            } else {
-                Vec::new()
+                events.push(VideoEvent::Ready { duration });
             }
+            let reached_end = self.ended_flag.swap(false, Ordering::Acquire);
+            if reached_end && !self.ended_sent {
+                self.ended_sent = true;
+                events.push(VideoEvent::Ended);
+            }
+            if !reached_end {
+                self.ended_sent = false;
+            }
+            events
         }
 
         fn seek_to(&mut self, position_ms: u64) {
@@ -1284,6 +1349,24 @@ mod ios {
         let zero_a = CMTime::zero();
         let zero_b = CMTime::zero();
         let () = msg_send![player, seekToTime: time toleranceBefore: zero_a toleranceAfter: zero_b];
+    }
+
+    unsafe fn register_end_observer(player: Id, flag: Arc<AtomicBool>) -> Id {
+        let notification_name = ns_string("AVPlayerItemDidPlayToEndTimeNotification");
+        let item: Id = msg_send![player, currentItem];
+        let center: Id = msg_send![class!(NSNotificationCenter), defaultCenter];
+        let block = ConcreteBlock::new(move |_notification: Id| {
+            flag.store(true, Ordering::Release);
+        })
+        .copy();
+        let observer: Id = msg_send![
+            center,
+            addObserverForName: notification_name
+            object: item
+            queue: NIL
+            usingBlock: &*block
+        ];
+        observer
     }
 
     fn cg_rect_from_layout(rect: LayoutRect) -> CGRect {
