@@ -9,12 +9,13 @@ use crate::html::{
 use crate::search::{write_search_index, SiteSearchOptions};
 use crate::site::{
     normalize_site_path, ContentTransform, FissionSite, SitePageElement, SitePageElementFilter,
-    SitePageElementPlacement, SiteRenderContext,
+    SitePageElementPlacement, SiteRenderContext, SiteRouteRender,
 };
 use crate::tabs::expand_mdx_tabs;
 use anyhow::{bail, Context, Result};
 use fission_core::internal::BuildCtx;
 use fission_core::internal::InternalLoweringCx;
+use fission_core::registry::VideoRegistration;
 use fission_core::ui::Column;
 use fission_core::{Env, MotionDeclaration, RuntimeState, View, Widget};
 use fission_layout::LayoutSize;
@@ -476,7 +477,7 @@ fn render_footer_node(
     site: &FissionSite,
     route_path: &str,
     env: &Env,
-) -> Result<Option<Widget>> {
+) -> Result<Option<SiteRouteRender>> {
     let Some(footer) = &site.footer else {
         return Ok(None);
     };
@@ -886,8 +887,18 @@ fn render_custom_routes(
             default_locale: &options.default_locale,
             env: &env,
         };
-        let node = (route.render)(&ctx)?;
-        let node = append_footer(node, render_footer_node(options, site, &route.path, &env)?);
+        let mut rendered = (route.render)(&ctx)?;
+        let footer = render_footer_node(options, site, &route.path, &env)?;
+        let footer_widget = footer.as_ref().map(|footer| footer.widget.clone());
+        let node = append_footer(rendered.widget, footer_widget);
+        if let Some(footer) = footer {
+            rendered
+                .motion_declarations
+                .extend(footer.motion_declarations);
+            rendered
+                .video_registrations
+                .extend(footer.video_registrations);
+        }
         let html = render_node_to_html(
             node,
             &route.title,
@@ -900,7 +911,8 @@ fn render_custom_routes(
             site,
             &env,
             styles,
-            Vec::new(),
+            rendered.motion_declarations,
+            rendered.video_registrations,
         )?;
         routes.push(ContentRoute {
             path: route.path.clone(),
@@ -966,11 +978,15 @@ fn render_route(
         all_routes: routes,
     };
     let page_node = fission_core::build::enter(&mut build_ctx, &view, || page.into());
-    let node = append_footer(
-        page_node,
-        render_footer_node(options, site, &route.path, &env)?,
-    );
-    let motion_declarations = build_ctx.take_motion_declarations();
+    let footer = render_footer_node(options, site, &route.path, &env)?;
+    let footer_widget = footer.as_ref().map(|footer| footer.widget.clone());
+    let node = append_footer(page_node, footer_widget);
+    let mut motion_declarations = build_ctx.take_motion_declarations();
+    let mut video_registrations = build_ctx.take_video_registrations();
+    if let Some(footer) = footer {
+        motion_declarations.extend(footer.motion_declarations);
+        video_registrations.extend(footer.video_registrations);
+    }
     render_node_to_html(
         node,
         &format!("{} | {}", route.title, options.site_title),
@@ -984,6 +1000,7 @@ fn render_route(
         &env,
         styles,
         motion_declarations,
+        video_registrations,
     )
 }
 
@@ -1005,6 +1022,7 @@ fn render_node_to_html(
     env: &Env,
     styles: &mut StyleRegistry,
     motion_declarations: Vec<MotionDeclaration>,
+    video_registrations: Vec<VideoRegistration>,
 ) -> Result<String> {
     let runtime = RuntimeState::default();
     let mut lowering = InternalLoweringCx::new(env, &runtime, None, None);
@@ -1062,6 +1080,10 @@ fn render_node_to_html(
             SitePageElementPlacement::BodyEnd,
         ),
         motion_declarations,
+        video_registrations: video_registrations
+            .into_iter()
+            .map(|registration| (registration.node_id, registration))
+            .collect(),
         ..Default::default()
     };
     Ok(render_ir_to_html_with_styles(&lowering.ir, &render_options, styles)?.html)
@@ -1662,8 +1684,8 @@ struct SidebarManifestItem {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fission_core::ui::{Text, TextContent};
-    use fission_core::GlobalState;
+    use fission_core::ui::{Text, TextContent, Video};
+    use fission_core::{GlobalState, WidgetId};
     use fission_i18n::TranslationBundle;
     use std::collections::HashMap;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -1679,6 +1701,24 @@ mod tests {
         fn from(component: KeyPage) -> Self {
             let (_ctx, _view) = fission_core::build::current::<TestState>();
             Text::new(TextContent::Key(component.0.to_string())).into()
+        }
+    }
+
+    #[derive(Clone)]
+    struct VideoPage;
+
+    impl From<VideoPage> for Widget {
+        fn from(_component: VideoPage) -> Self {
+            let (_ctx, _view) = fission_core::build::current::<TestState>();
+            Video {
+                id: Some(WidgetId::explicit("site-video")),
+                source: "https://example.com/demo.mp4".to_string(),
+                width: Some(320.0),
+                height: Some(180.0),
+                autoplay: true,
+                loop_playback: true,
+            }
+            .into()
         }
     }
 
@@ -1829,6 +1869,31 @@ mod tests {
         assert!(html.contains("Bonjour static"));
         assert!(html.contains("lang=\"fr\""));
         assert!(!html.contains("MISSING:page.title"));
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn custom_site_routes_render_video_as_html_video() {
+        let temp = std::env::temp_dir().join(format!(
+            "fission-site-video-test-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&temp).unwrap();
+        fs::create_dir_all(temp.join("content")).unwrap();
+        let mut options = SiteBuildOptions::for_project(&temp, "Test site");
+        options.content_routes = Vec::new();
+        let site = FissionSite::new().route_widget::<TestState, _>("/", "Video", None, VideoPage);
+
+        build_site(&options, &site).unwrap();
+        let html = fs::read_to_string(temp.join("target/fission/site/index.html")).unwrap();
+
+        assert!(html.contains("<video"));
+        assert!(html.contains("src=\"https://example.com/demo.mp4\""));
+        assert!(html.contains("autoplay muted"));
+        assert!(html.contains("loop"));
         let _ = fs::remove_dir_all(temp);
     }
 

@@ -1,7 +1,8 @@
 use crate::build::{build_site, check_site, list_site_routes, SiteBuildOptions};
 use anyhow::{bail, Context, Result};
 use fission_core::internal::BuildCtx;
-use fission_core::{Env, GlobalState, RuntimeState, View, Widget};
+use fission_core::registry::VideoRegistration;
+use fission_core::{Env, GlobalState, MotionDeclaration, RuntimeState, View, Widget};
 use fission_theme::{DesignMode, Theme};
 use std::fs;
 use std::io::{self, BufRead, Write};
@@ -12,7 +13,13 @@ use std::sync::Arc;
 pub type ContentTransform = dyn Fn(&str, &Path, &Path) -> Result<String> + Send + Sync + 'static;
 
 type RouteRenderer =
-    dyn for<'a> Fn(&SiteRenderContext<'a>) -> Result<Widget> + Send + Sync + 'static;
+    dyn for<'a> Fn(&SiteRenderContext<'a>) -> Result<SiteRouteRender> + Send + Sync + 'static;
+
+pub(crate) struct SiteRouteRender {
+    pub widget: Widget,
+    pub motion_declarations: Vec<MotionDeclaration>,
+    pub video_registrations: Vec<VideoRegistration>,
+}
 
 /// Position where raw static-site page markup is inserted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -311,9 +318,14 @@ impl FissionSite {
                 let state = S::default();
                 let view = View::new(&state, &runtime, ctx.env(), None);
                 let mut build_ctx = BuildCtx::<S>::new();
-                Ok(fission_core::build::enter(&mut build_ctx, &view, || {
+                let widget = fission_core::build::enter(&mut build_ctx, &view, || {
                     widget.as_ref().clone().into()
-                }))
+                });
+                Ok(SiteRouteRender {
+                    widget,
+                    motion_declarations: build_ctx.take_motion_declarations(),
+                    video_registrations: build_ctx.take_video_registrations(),
+                })
             }),
         });
         self
@@ -340,7 +352,7 @@ impl FissionSite {
     }
 }
 
-fn render_widget_node<S, W>(widget: &W, ctx: &SiteRenderContext<'_>) -> Result<Widget>
+fn render_widget_node<S, W>(widget: &W, ctx: &SiteRenderContext<'_>) -> Result<SiteRouteRender>
 where
     S: GlobalState + Default + 'static,
     W: Clone + Into<Widget>,
@@ -349,9 +361,12 @@ where
     let state = S::default();
     let view = View::new(&state, &runtime, ctx.env(), None);
     let mut build_ctx = BuildCtx::<S>::new();
-    Ok(fission_core::build::enter(&mut build_ctx, &view, || {
-        (*widget).clone().into()
-    }))
+    let widget = fission_core::build::enter(&mut build_ctx, &view, || (*widget).clone().into());
+    Ok(SiteRouteRender {
+        widget,
+        motion_declarations: build_ctx.take_motion_declarations(),
+        video_registrations: build_ctx.take_video_registrations(),
+    })
 }
 
 pub fn build_from_cli(site: FissionSite) -> Result<()> {
