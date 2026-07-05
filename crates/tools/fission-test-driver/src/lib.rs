@@ -39,6 +39,69 @@ pub enum TestCommand {
     TapText {
         text: String,
     },
+    ResolveSelector {
+        query: SelectorQuery,
+    },
+    TapSelector {
+        query: SelectorQuery,
+    },
+    ActivateSelector {
+        query: SelectorQuery,
+    },
+    FocusSelector {
+        query: SelectorQuery,
+    },
+    HoverSelector {
+        query: SelectorQuery,
+    },
+    RightClickSelector {
+        query: SelectorQuery,
+    },
+    ScrollIntoView {
+        query: SelectorQuery,
+    },
+    FillText {
+        query: SelectorQuery,
+        text: String,
+    },
+    ClearText {
+        query: SelectorQuery,
+    },
+    Toggle {
+        query: SelectorQuery,
+    },
+    SelectOption {
+        query: SelectorQuery,
+    },
+    WaitForSelector {
+        query: SelectorQuery,
+        timeout_ms: u64,
+    },
+    WaitForVisible {
+        query: SelectorQuery,
+        timeout_ms: u64,
+    },
+    WaitForEnabled {
+        query: SelectorQuery,
+        timeout_ms: u64,
+    },
+    WaitForDisabled {
+        query: SelectorQuery,
+        timeout_ms: u64,
+    },
+    WaitForValue {
+        query: SelectorQuery,
+        value: String,
+        timeout_ms: u64,
+    },
+    WaitForText {
+        text: String,
+        timeout_ms: u64,
+    },
+    WaitForGone {
+        query: SelectorQuery,
+        timeout_ms: u64,
+    },
     Scroll {
         x: f32,
         y: f32,
@@ -168,11 +231,221 @@ pub enum TestEvent {
         text: String,
         response_tx: TestResponseSender,
     },
+    ResolveSelector {
+        query: SelectorQuery,
+        response_tx: TestResponseSender,
+    },
+    TapSelector {
+        query: SelectorQuery,
+        response_tx: TestResponseSender,
+    },
+    ActivateSelector {
+        query: SelectorQuery,
+        response_tx: TestResponseSender,
+    },
+    FocusSelector {
+        query: SelectorQuery,
+        response_tx: TestResponseSender,
+    },
+    HoverSelector {
+        query: SelectorQuery,
+        response_tx: TestResponseSender,
+    },
+    RightClickSelector {
+        query: SelectorQuery,
+        response_tx: TestResponseSender,
+    },
+    ScrollIntoView {
+        query: SelectorQuery,
+        response_tx: TestResponseSender,
+    },
+    FillText {
+        query: SelectorQuery,
+        text: String,
+        response_tx: TestResponseSender,
+    },
+    ClearText {
+        query: SelectorQuery,
+        response_tx: TestResponseSender,
+    },
+    Toggle {
+        query: SelectorQuery,
+        response_tx: TestResponseSender,
+    },
+    SelectOption {
+        query: SelectorQuery,
+        response_tx: TestResponseSender,
+    },
     /// Internal: Wait is handled server-side (sleep) then responds.
     Wait {
         ms: u64,
         response_tx: TestResponseSender,
     },
+}
+
+/// A high-level selector for resolving semantic nodes without manual coordinates.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Selector {
+    /// Match [`fission_ir::Semantics::identifier`].
+    SemanticIdentifier { identifier: String },
+    /// Match a stable widget id. Accepts a 32-character raw id or an explicit id key.
+    WidgetId { widget_id: String },
+    /// Match a stable test identifier. This currently aliases semantic identifier.
+    TestId { test_id: String },
+    /// Match an accessibility identifier. This currently aliases semantic identifier.
+    AccessibilityIdentifier { identifier: String },
+    /// Match by role and label.
+    RoleLabel { role: String, label: String },
+    /// Match by label only.
+    Label { label: String },
+}
+
+impl Selector {
+    pub fn semantic_identifier(identifier: impl Into<String>) -> Self {
+        Self::SemanticIdentifier {
+            identifier: identifier.into(),
+        }
+    }
+
+    pub fn widget_id(widget_id: impl Into<String>) -> Self {
+        Self::WidgetId {
+            widget_id: widget_id.into(),
+        }
+    }
+
+    pub fn test_id(test_id: impl Into<String>) -> Self {
+        Self::TestId {
+            test_id: test_id.into(),
+        }
+    }
+
+    pub fn accessibility_identifier(identifier: impl Into<String>) -> Self {
+        Self::AccessibilityIdentifier {
+            identifier: identifier.into(),
+        }
+    }
+
+    pub fn role_label(role: impl Into<String>, label: impl Into<String>) -> Self {
+        Self::RoleLabel {
+            role: role.into(),
+            label: label.into(),
+        }
+    }
+
+    pub fn label(label: impl Into<String>) -> Self {
+        Self::Label {
+            label: label.into(),
+        }
+    }
+}
+
+/// A selector query with optional scoping and duplicate disambiguation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SelectorQuery {
+    pub selector: Selector,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<Box<SelectorQuery>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index: Option<usize>,
+    #[serde(default)]
+    pub include_hidden: bool,
+}
+
+impl SelectorQuery {
+    pub fn new(selector: Selector) -> Self {
+        Self {
+            selector,
+            scope: None,
+            index: None,
+            include_hidden: false,
+        }
+    }
+
+    pub fn semantic_identifier(identifier: impl Into<String>) -> Self {
+        Self::new(Selector::semantic_identifier(identifier))
+    }
+
+    pub fn widget_id(widget_id: impl Into<String>) -> Self {
+        Self::new(Selector::widget_id(widget_id))
+    }
+
+    pub fn test_id(test_id: impl Into<String>) -> Self {
+        Self::new(Selector::test_id(test_id))
+    }
+
+    pub fn accessibility_identifier(identifier: impl Into<String>) -> Self {
+        Self::new(Selector::accessibility_identifier(identifier))
+    }
+
+    pub fn role_label(role: impl Into<String>, label: impl Into<String>) -> Self {
+        Self::new(Selector::role_label(role, label))
+    }
+
+    pub fn label(label: impl Into<String>) -> Self {
+        Self::new(Selector::label(label))
+    }
+
+    pub fn scoped(mut self, scope: SelectorQuery) -> Self {
+        self.scope = Some(Box::new(scope));
+        self
+    }
+
+    pub fn index(mut self, index: usize) -> Self {
+        self.index = Some(index);
+        self
+    }
+
+    pub fn include_hidden(mut self) -> Self {
+        self.include_hidden = true;
+        self
+    }
+}
+
+/// A logical rectangle in test-space pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Bounds {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+/// How much of a semantic node is visible after viewport and clipping are applied.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum VisibilityState {
+    FullyVisible,
+    PartiallyVisible,
+    Hidden,
+}
+
+/// Machine-readable selector failure category.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SelectorFailureKind {
+    NoMatch,
+    Ambiguous,
+    FoundButNotVisible,
+    Disabled,
+    ReadOnly,
+    UnsupportedAction,
+    Timeout,
+    StaleFrame,
+}
+
+/// A candidate considered while resolving a selector.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SelectorCandidate {
+    pub node: SemanticNode,
+    pub rejected_reason: Option<String>,
+}
+
+/// Detailed selector failure response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SelectorFailure {
+    pub kind: SelectorFailureKind,
+    pub selector: SelectorQuery,
+    pub candidates: Vec<SelectorCandidate>,
+    pub message: String,
 }
 
 /// A visible text element with its bounding rectangle, in logical test-space
@@ -190,10 +463,27 @@ pub struct TextItem {
 /// Bounding rectangles are expressed in logical test-space pixels.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SemanticNode {
+    pub identifier: Option<String>,
+    pub widget_id: String,
+    pub stable_node_id: String,
+    pub parent: Option<String>,
+    pub children: Vec<String>,
     pub role: String,
     pub label: Option<String>,
     pub value: Option<String>,
+    pub value_present: bool,
     pub focusable: bool,
+    pub disabled: bool,
+    pub read_only: bool,
+    pub checked: Option<bool>,
+    pub actions: Vec<String>,
+    pub text_selection: Option<(usize, usize)>,
+    pub masked: bool,
+    pub scrollable_x: bool,
+    pub scrollable_y: bool,
+    pub logical_bounds: Bounds,
+    pub visible_bounds: Option<Bounds>,
+    pub visibility: VisibilityState,
     pub x: f32,
     pub y: f32,
     pub width: f32,
@@ -217,6 +507,12 @@ pub enum TestResponse {
         width: u32,
         /// PNG height in logical test-space pixels.
         height: u32,
+    },
+    SelectorResolved {
+        node: SemanticNode,
+    },
+    SelectorError {
+        failure: SelectorFailure,
     },
     Error {
         message: String,
@@ -283,6 +579,9 @@ impl LiveTestClient {
         if let TestResponse::Error { message } = &response {
             return Err(anyhow!("server error: {}", message));
         }
+        if let TestResponse::SelectorError { failure } = &response {
+            return Err(anyhow!("selector error: {}", failure.message));
+        }
         Ok(response)
     }
 
@@ -306,6 +605,146 @@ impl LiveTestClient {
         self.send(TestCommand::TapText {
             text: text.to_string(),
         })?;
+        Ok(())
+    }
+
+    pub fn resolve_selector(&self, query: SelectorQuery) -> Result<SemanticNode> {
+        match self.send(TestCommand::ResolveSelector { query })? {
+            TestResponse::SelectorResolved { node } => Ok(node),
+            other => Err(anyhow!(
+                "unexpected response to ResolveSelector: {:?}",
+                other
+            )),
+        }
+    }
+
+    pub fn scroll_into_view(&self, query: SelectorQuery) -> Result<SemanticNode> {
+        let node = match self.send(TestCommand::ScrollIntoView { query })? {
+            TestResponse::SelectorResolved { node } => node,
+            other => {
+                return Err(anyhow!(
+                    "unexpected response to ScrollIntoView: {:?}",
+                    other
+                ))
+            }
+        };
+        self.pump()?;
+        Ok(node)
+    }
+
+    pub fn tap_selector(&self, query: SelectorQuery) -> Result<()> {
+        self.pump()?;
+        self.send(TestCommand::TapSelector { query })?;
+        self.pump()?;
+        Ok(())
+    }
+
+    pub fn tap_semantic_identifier(&self, identifier: &str) -> Result<()> {
+        self.tap_selector(SelectorQuery::semantic_identifier(identifier))
+    }
+
+    pub fn activate_selector(&self, query: SelectorQuery) -> Result<()> {
+        self.pump()?;
+        self.send(TestCommand::ActivateSelector { query })?;
+        self.pump()?;
+        Ok(())
+    }
+
+    pub fn focus_selector(&self, query: SelectorQuery) -> Result<()> {
+        self.pump()?;
+        self.send(TestCommand::FocusSelector { query })?;
+        self.pump()?;
+        Ok(())
+    }
+
+    pub fn hover_selector(&self, query: SelectorQuery) -> Result<()> {
+        self.pump()?;
+        self.send(TestCommand::HoverSelector { query })?;
+        self.pump()?;
+        Ok(())
+    }
+
+    pub fn right_click_selector(&self, query: SelectorQuery) -> Result<()> {
+        self.pump()?;
+        self.send(TestCommand::RightClickSelector { query })?;
+        self.pump()?;
+        Ok(())
+    }
+
+    pub fn fill_text_selector(&self, query: SelectorQuery, text: &str) -> Result<()> {
+        self.pump()?;
+        self.send(TestCommand::FillText {
+            query,
+            text: text.to_string(),
+        })?;
+        self.pump()?;
+        Ok(())
+    }
+
+    pub fn fill_text_semantic_identifier(&self, identifier: &str, text: &str) -> Result<()> {
+        self.fill_text_selector(SelectorQuery::semantic_identifier(identifier), text)
+    }
+
+    pub fn clear_text_selector(&self, query: SelectorQuery) -> Result<()> {
+        self.pump()?;
+        self.send(TestCommand::ClearText { query })?;
+        self.pump()?;
+        Ok(())
+    }
+
+    pub fn toggle_selector(&self, query: SelectorQuery) -> Result<()> {
+        self.pump()?;
+        self.send(TestCommand::Toggle { query })?;
+        self.pump()?;
+        Ok(())
+    }
+
+    pub fn select_option(&self, query: SelectorQuery) -> Result<()> {
+        self.pump()?;
+        self.send(TestCommand::SelectOption { query })?;
+        self.pump()?;
+        Ok(())
+    }
+
+    pub fn wait_for_selector(&self, query: SelectorQuery, timeout_ms: u64) -> Result<()> {
+        self.send(TestCommand::WaitForSelector { query, timeout_ms })?;
+        Ok(())
+    }
+
+    pub fn wait_for_visible(&self, query: SelectorQuery, timeout_ms: u64) -> Result<()> {
+        self.send(TestCommand::WaitForVisible { query, timeout_ms })?;
+        Ok(())
+    }
+
+    pub fn wait_for_enabled(&self, query: SelectorQuery, timeout_ms: u64) -> Result<()> {
+        self.send(TestCommand::WaitForEnabled { query, timeout_ms })?;
+        Ok(())
+    }
+
+    pub fn wait_for_disabled(&self, query: SelectorQuery, timeout_ms: u64) -> Result<()> {
+        self.send(TestCommand::WaitForDisabled { query, timeout_ms })?;
+        Ok(())
+    }
+
+    pub fn wait_for_value(&self, query: SelectorQuery, value: &str, timeout_ms: u64) -> Result<()> {
+        self.send(TestCommand::WaitForValue {
+            query,
+            value: value.to_string(),
+            timeout_ms,
+        })?;
+        Ok(())
+    }
+
+    pub fn wait_for_text(&self, text: &str, timeout_ms: u64) -> Result<()> {
+        self.send(TestCommand::WaitForText {
+            text: text.to_string(),
+            timeout_ms,
+        })?;
+        Ok(())
+    }
+
+    pub fn wait_for_gone(&self, query: SelectorQuery, timeout_ms: u64) -> Result<()> {
+        self.send(TestCommand::WaitForGone { query, timeout_ms })?;
         Ok(())
     }
 
