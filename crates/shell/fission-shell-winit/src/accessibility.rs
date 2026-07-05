@@ -738,9 +738,22 @@ mod imp {
             id: ActionId::from_u128(entry.action_id),
             payload: entry.payload_data.clone().unwrap_or_default(),
         };
+        let input = scoped_semantics_input(target, semantics, input);
         runtime
             .dispatch_with_input(envelope, target, &input)
             .is_ok()
+    }
+
+    fn scoped_semantics_input(
+        target: WidgetId,
+        semantics: &Semantics,
+        input: ActionInput,
+    ) -> ActionInput {
+        if let Some(scope_id) = semantics.action_scope_id {
+            ActionInput::scoped_raw(scope_id, target, input)
+        } else {
+            input
+        }
     }
 
     fn value_action_data(data: &Option<ActionData>) -> Option<&str> {
@@ -847,6 +860,7 @@ mod imp {
         let Ok(payload) = serde_json::to_vec(&new_text) else {
             return false;
         };
+        let input = scoped_semantics_input(target, semantics, ActionInput::None);
         runtime
             .dispatch_with_input(
                 ActionEnvelope {
@@ -854,7 +868,7 @@ mod imp {
                     payload,
                 },
                 target,
-                &ActionInput::None,
+                &input,
             )
             .is_ok()
     }
@@ -878,6 +892,7 @@ mod imp {
         let Ok(payload) = serde_json::to_vec(&cursor_changed) else {
             return false;
         };
+        let input = scoped_semantics_input(target, semantics, ActionInput::None);
         runtime
             .dispatch_with_input(
                 ActionEnvelope {
@@ -885,7 +900,7 @@ mod imp {
                     payload,
                 },
                 target,
-                &ActionInput::None,
+                &input,
             )
             .is_ok()
     }
@@ -925,6 +940,7 @@ mod imp {
         else {
             return false;
         };
+        let input = scoped_semantics_input(target, semantics, ActionInput::None);
         runtime
             .dispatch_with_input(
                 ActionEnvelope {
@@ -932,7 +948,7 @@ mod imp {
                     payload,
                 },
                 target,
-                &ActionInput::None,
+                &input,
             )
             .is_ok()
     }

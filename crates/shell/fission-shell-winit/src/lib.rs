@@ -3221,6 +3221,7 @@ fn selector_center(record: &SemanticRecord) -> Option<LayoutPoint> {
 }
 
 fn dispatch_semantics_action(
+    ir: &CoreIR,
     runtime: &mut Runtime,
     target: WidgetId,
     semantics: &Semantics,
@@ -3235,6 +3236,7 @@ fn dispatch_semantics_action(
     else {
         return false;
     };
+    let input = scoped_action_input_for_node(ir, target, input);
     runtime
         .dispatch_with_input(
             ActionEnvelope {
@@ -3247,7 +3249,28 @@ fn dispatch_semantics_action(
         .is_ok()
 }
 
+fn scoped_action_input_for_node(
+    ir: &CoreIR,
+    target: WidgetId,
+    input: ActionInput,
+) -> ActionInput {
+    let mut current_id = Some(target);
+    while let Some(id) = current_id {
+        let Some(node) = ir.nodes.get(&id) else {
+            break;
+        };
+        if let Op::Semantics(semantics) = &node.op {
+            if let Some(scope_id) = semantics.action_scope_id {
+                return ActionInput::scoped_raw(scope_id, target, input);
+            }
+        }
+        current_id = node.parent;
+    }
+    input
+}
+
 fn dispatch_text_change(
+    ir: &CoreIR,
     runtime: &mut Runtime,
     target: WidgetId,
     semantics: &Semantics,
@@ -3264,6 +3287,7 @@ fn dispatch_text_change(
     let Ok(payload) = serde_json::to_vec(&new_text) else {
         return false;
     };
+    let input = scoped_action_input_for_node(ir, target, ActionInput::None);
     runtime
         .dispatch_with_input(
             ActionEnvelope {
@@ -3271,12 +3295,13 @@ fn dispatch_text_change(
                 payload,
             },
             target,
-            &ActionInput::None,
+            &input,
         )
         .is_ok()
 }
 
 fn dispatch_cursor_change(
+    ir: &CoreIR,
     runtime: &mut Runtime,
     target: WidgetId,
     semantics: &Semantics,
@@ -3295,6 +3320,7 @@ fn dispatch_cursor_change(
     let Ok(payload) = serde_json::to_vec(&cursor_changed) else {
         return false;
     };
+    let input = scoped_action_input_for_node(ir, target, ActionInput::None);
     runtime
         .dispatch_with_input(
             ActionEnvelope {
@@ -3302,7 +3328,7 @@ fn dispatch_cursor_change(
                 payload,
             },
             target,
-            &ActionInput::None,
+            &input,
         )
         .is_ok()
 }
@@ -3329,6 +3355,7 @@ fn set_focus_for_test(
             }
         }) {
             let _ = dispatch_semantics_action(
+                ir,
                 runtime,
                 previous_id,
                 &previous_semantics,
@@ -3339,6 +3366,7 @@ fn set_focus_for_test(
     }
     runtime.runtime_state.interaction.set_focused(Some(target));
     let _ = dispatch_semantics_action(
+        ir,
         runtime,
         target,
         semantics,
@@ -3380,8 +3408,9 @@ fn set_text_value_for_test(
         state.clear_preedit();
     }
     let mut changed =
-        dispatch_text_change(runtime, record.id, &record.semantics, value.to_string());
+        dispatch_text_change(ir, runtime, record.id, &record.semantics, value.to_string());
     changed |= dispatch_cursor_change(
+        ir,
         runtime,
         record.id,
         &record.semantics,
@@ -3506,6 +3535,10 @@ fn handle_activate_selector(
         );
     }
     if !dispatch_semantics_action(
+        pipeline
+            .prev_ir
+            .as_ref()
+            .expect("selector resolved from rendered IR"),
         runtime,
         record.id,
         &record.semantics,
@@ -3631,6 +3664,10 @@ fn handle_toggle_selector(
         );
     }
     if !dispatch_semantics_action(
+        pipeline
+            .prev_ir
+            .as_ref()
+            .expect("selector resolved from rendered IR"),
         runtime,
         record.id,
         &record.semantics,
@@ -5337,6 +5374,25 @@ where
                             });
                             return;
                         };
+                        if drain_effect_results(
+                            &mut runtime,
+                            &effect_result_rx,
+                            &mut active_services,
+                            &mut service_bindings,
+                        ) {
+                            invalidations.mark_build();
+                            if process_pending_effects(
+                                &mut runtime,
+                                &effect_result_tx,
+                                &event_proxy,
+                                &async_registry,
+                                &mut active_services,
+                                &mut service_bindings,
+                                &mut next_service_instance_id,
+                            ) {
+                                invalidations.mark_build();
+                            }
+                        }
                         pending_screenshot_path = Some("__pump__".into());
                         pending_screenshot_response_tx = Some(response_tx);
                         pending_capture_settle = resize_is_unsettled(

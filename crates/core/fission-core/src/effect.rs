@@ -284,7 +284,7 @@ pub enum ActionInput {
 }
 
 impl ActionInput {
-    pub(crate) fn scoped_raw(scope_id: u128, target: WidgetId, input: ActionInput) -> Self {
+    pub fn scoped_raw(scope_id: u128, target: WidgetId, input: ActionInput) -> Self {
         Self::ScopedRaw {
             scope_id,
             target: target.into(),
