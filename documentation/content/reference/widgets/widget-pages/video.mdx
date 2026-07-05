@@ -79,13 +79,13 @@ Control actions such as play, pause, stop, seek, set rate, set volume, and set m
 
 That is a good trade for this kind of surface. It means media playback still participates in an explicit state model, even though the actual pixels come from a host-managed player backend.
 
-## Host backend differences today
+## Host backend differences
 
-What varies today is the backend implementation for this particular media surface.
+What varies is the host API used by each target for this particular media surface.
 
-In the checked-in winit shell path, macOS uses a real AVFoundation-backed player layer. Other current targets use the mock backend path that preserves the runtime contract and playback-state flow without providing the same native media implementation.
+In the winit shell path, macOS and iOS use AVFoundation player layers, Windows uses Media Foundation, Linux uses GStreamer, Android uses the generated `FissionActivity` Java host bridge backed by Android media playback, and Web uses a browser `<video>` element positioned over the canvas. Static site and SSR output ordinary HTML video markup. Terminal does not support embedded video surfaces.
 
-The right way to read that difference is very narrow: it tells you how far the current checked-in `Video` backend is implemented on each host. It does not say that Fission's overall macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, or SSR app model is not ready. It says that embedded video playback, like any specialized media surface, must be evaluated on the exact host backend you plan to ship.
+The right way to read those differences is very narrow: codec support, local-file access, autoplay rules, z-ordering, and hardware decode behavior are backend-level concerns for this one host-backed media surface. They do not change the shared Fission widget, state, reducer, or layout model.
 
 ## Specific guidance
 
