@@ -88,11 +88,11 @@ mod mac {
 
     use core_graphics::geometry::{CGPoint, CGRect, CGSize};
 
+    use block::ConcreteBlock;
     use fission_core::ui::VideoAudioOptions;
     use fission_ir::WidgetId;
     use fission_render::LayoutRect;
     use fission_shell::VideoSurfaceFrame;
-    use block::ConcreteBlock;
     use objc::rc::StrongPtr;
     use objc::{class, msg_send, sel, sel_impl};
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -220,8 +220,7 @@ mod mac {
                 )
             };
             let ended_flag = Arc::new(AtomicBool::new(false));
-            let observer =
-                unsafe { register_end_observer(*player, Arc::clone(&ended_flag)) };
+            let observer = unsafe { register_end_observer(*player, Arc::clone(&ended_flag)) };
             let player_id = self.registry.register(player);
             Box::new(MacVideoPlayer {
                 registry: Arc::clone(&self.registry),
@@ -702,6 +701,7 @@ mod mac {
 #[allow(unexpected_cfgs)]
 mod ios {
     use super::{VideoBackend, VideoEvent, VideoPlayer};
+    use block::ConcreteBlock;
     use core_graphics::geometry::{CGPoint, CGRect, CGSize};
     use fission_core::ui::{
         IosAudioSessionCategory, IosAudioSessionCategoryOption, IosAudioSessionMode,
@@ -710,7 +710,6 @@ mod ios {
     use fission_ir::WidgetId;
     use fission_render::LayoutRect;
     use fission_shell::VideoSurfaceFrame;
-    use block::ConcreteBlock;
     use objc::rc::StrongPtr;
     use objc::runtime::Object;
     use objc::{class, msg_send, sel, sel_impl};
@@ -849,8 +848,7 @@ mod ios {
                 )
             };
             let ended_flag = Arc::new(AtomicBool::new(false));
-            let observer =
-                unsafe { register_end_observer(*player, Arc::clone(&ended_flag)) };
+            let observer = unsafe { register_end_observer(*player, Arc::clone(&ended_flag)) };
             let player_id = self.registry.register(player);
             Box::new(IosVideoPlayer {
                 registry: Arc::clone(&self.registry),
