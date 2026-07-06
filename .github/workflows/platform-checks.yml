@@ -74,6 +74,7 @@ jobs:
       ANDROID_TARGET_API_LEVEL: '35'
       ANDROID_BUILD_TOOLS_VERSION: '35.0.0'
       ANDROID_NDK_VERSION: '26.3.11579264'
+      GRADLE_VERSION: '9.5.0'
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -87,6 +88,13 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        run: |
+          curl -fsSLo "$RUNNER_TEMP/gradle.zip" "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip"
+          unzip -q "$RUNNER_TEMP/gradle.zip" -d "$RUNNER_TEMP/gradle"
+          echo "$RUNNER_TEMP/gradle/gradle-${GRADLE_VERSION}/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/gradle/gradle-${GRADLE_VERSION}/bin/gradle" --version
 
       - name: Install Android SDK packages
         run: |
