@@ -509,6 +509,7 @@ impl Runtime {
                 .or_insert_with(crate::env::VideoState::default);
             entry.asset_source = reg.source.clone();
             entry.looped = reg.loop_playback;
+            entry.audio = reg.audio.clone();
             if reg.autoplay && entry.status == VideoStatus::Stopped {
                 entry.status = VideoStatus::Playing;
             }

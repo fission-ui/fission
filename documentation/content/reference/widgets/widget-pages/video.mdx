@@ -45,6 +45,7 @@ let player = Video {
     height: Some(360.0),
     autoplay: false,
     loop_playback: false,
+    audio: VideoAudioOptions::system_default(),
 }
 .into();
 
@@ -70,6 +71,48 @@ The useful part here is the separation of responsibilities.
 | `height` | `Option<f32>` | Requested layout height. | Defaults to `None`. |
 | `autoplay` | `bool` | Whether playback should begin automatically when possible. | Defaults to `false`. On initial registration, the runtime marks the video as playing when autoplay is requested. |
 | `loop_playback` | `bool` | Whether playback should restart after ending. | Defaults to `false`. |
+| `audio` | `VideoAudioOptions` | Platform-neutral audio-session policy and optional platform overrides. | Defaults to `VideoAudioOptions::system_default()`, so Fission does not force product-level audio behavior such as ignoring the iOS silent switch. |
+
+## Audio session policy
+
+Audio behavior is a product decision. Fission therefore does not hard-code a single global choice for every video-playing app.
+
+Use the default when the app should inherit the host platform's normal audio behavior:
+
+```rust
+Video {
+    source: "assets/inline-preview.mp4".into(),
+    audio: VideoAudioOptions::system_default(),
+    ..Default::default()
+}
+```
+
+Use foreground playback behavior when the video is the primary media experience:
+
+```rust
+Video {
+    source: "assets/lesson.mp4".into(),
+    audio: VideoAudioOptions::playback(),
+    ..Default::default()
+}
+```
+
+On iOS that maps to `AVAudioSessionCategoryPlayback` and activates the session on first play, which is the equivalent of configuring playback audio manually in the host shell. Apps that need a more precise iOS policy can use the platform escape hatch:
+
+```rust
+Video {
+    source: "assets/training.mp4".into(),
+    audio: VideoAudioOptions::playback()
+        .mix_with_others(true)
+        .ios(
+            IosVideoAudioOptions::mode(IosAudioSessionMode::MoviePlayback)
+                .with_option(IosAudioSessionCategoryOption::MixWithOthers),
+        ),
+    ..Default::default()
+}
+```
+
+If a platform cannot represent a requested option, the shell treats it as a backend limitation rather than changing the cross-platform widget contract.
 
 ## Runtime behavior
 
@@ -79,13 +122,13 @@ Control actions such as play, pause, stop, seek, set rate, set volume, and set m
 
 That is a good trade for this kind of surface. It means media playback still participates in an explicit state model, even though the actual pixels come from a host-managed player backend.
 
-## Host backend differences today
+## Host backend differences
 
-What varies today is the backend implementation for this particular media surface.
+What varies is the host API used by each target for this particular media surface.
 
-In the checked-in winit shell path, macOS uses a real AVFoundation-backed player layer. Other current targets use the mock backend path that preserves the runtime contract and playback-state flow without providing the same native media implementation.
+In the winit shell path, macOS and iOS use AVFoundation player layers, Windows uses Media Foundation, Linux uses GStreamer, Android uses the generated `FissionActivity` Java host bridge backed by Android media playback, and Web uses a browser `<video>` element positioned over the canvas. Static site and SSR output ordinary HTML video markup. Terminal does not support embedded video surfaces. iOS audio-session policy is configured only when requested through `VideoAudioOptions`; the default does not force `AVAudioSessionCategoryPlayback`.
 
-The right way to read that difference is very narrow: it tells you how far the current checked-in `Video` backend is implemented on each host. It does not say that Fission's overall macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, or SSR app model is not ready. It says that embedded video playback, like any specialized media surface, must be evaluated on the exact host backend you plan to ship.
+The right way to read those differences is very narrow: codec support, local-file access, autoplay rules, z-ordering, and hardware decode behavior are backend-level concerns for this one host-backed media surface. They do not change the shared Fission widget, state, reducer, or layout model.
 
 ## Specific guidance
 
@@ -99,7 +142,7 @@ If video is only a nice-to-have on a screen, keep the surrounding experience res
 
 ## Production checklist
 
-For `Video`, review the fields that change behavior before treating the widget as finished: `id`, `source`, `width`, `height`, `autoplay`, `loop_playback`. The goal is to make the product rule visible in state and actions, not hidden inside ad-hoc construction code.
+For `Video`, review the fields that change behavior before treating the widget as finished: `id`, `source`, `width`, `height`, `autoplay`, `loop_playback`, and `audio`. The goal is to make the product rule visible in state and actions, not hidden inside ad-hoc construction code.
 
 - If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
 - Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.

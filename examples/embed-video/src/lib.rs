@@ -27,6 +27,7 @@ impl From<VideoEmbedApp> for Widget {
                     height: Some(270.0),
                     autoplay: true,
                     loop_playback: true,
+                    audio: VideoAudioOptions::playback(),
                 })
                 .width(480.0)
                 .height(270.0)

@@ -1,4 +1,6 @@
-use crate::{action::GlobalState, motion::MotionStateMap, state::LocalStateStore};
+use crate::{
+    action::GlobalState, motion::MotionStateMap, state::LocalStateStore, ui::VideoAudioOptions,
+};
 use fission_i18n::{I18nRegistry, Locale};
 use fission_ir::op::RichTextAnnotation;
 use fission_ir::semantics::MouseCursor;
@@ -676,6 +678,7 @@ pub struct VideoState {
     pub muted: bool,
     pub looped: bool,
     pub asset_source: String,
+    pub audio: VideoAudioOptions,
     pub surface_id: Option<u64>,
     pub pending_seek: Option<u64>,
 }
@@ -691,6 +694,7 @@ impl Default for VideoState {
             muted: false,
             looped: false,
             asset_source: String::new(),
+            audio: VideoAudioOptions::default(),
             surface_id: None,
             pending_seek: None,
         }

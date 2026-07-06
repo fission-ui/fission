@@ -32,6 +32,7 @@ fn video_embed_registers_runtime_state_and_draws_surface() {
         height: Some(180.0),
         autoplay: true,
         loop_playback: true,
+        ..Default::default()
     });
 
     harness.pump().expect("pump video embed");

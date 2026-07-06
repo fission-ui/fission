@@ -12,7 +12,9 @@ pub use widgets::{
     ButtonMotion, ButtonVariant, CardPattern, Checkbox, Column, ComponentSize, ComponentState,
     Composite, Container, FocusScope, GestureDetector, Grid, GridItem, HttpHeader, Icon, Image,
     ImageAlignment, ImageCachePolicy, ImageErrorBehavior, ImageLoadingBehavior, ImageRequest,
-    ImageSource, LayoutBuilder, LazyColumn, Overlay, Positioned, Provider, Radio, RichText,
-    RichTextRun, Row, SafeArea, Scroll, SemanticsRegion, Slider, Spacer, Switch, Text, TextContent,
-    TextFontStyle, TextInput, TextInputChangePayload, TextRunStyle, Video, ZStack,
+    ImageSource, IosAudioSessionCategory, IosAudioSessionCategoryOption, IosAudioSessionMode,
+    IosVideoAudioOptions, LayoutBuilder, LazyColumn, Overlay, Positioned, Provider, Radio,
+    RichText, RichTextRun, Row, SafeArea, Scroll, SemanticsRegion, Slider, Spacer, Switch, Text,
+    TextContent, TextFontStyle, TextInput, TextInputChangePayload, TextRunStyle, Video,
+    VideoAudioActivation, VideoAudioOptions, VideoAudioPolicy, ZStack,
 };
