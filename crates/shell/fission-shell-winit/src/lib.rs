@@ -5734,8 +5734,16 @@ where
                                         }
                                     }
                                     VideoEvent::Ended => {
-                                        video_state.status = VideoStatus::Ended;
-                                        active_player.last_status = Some(VideoStatus::Ended);
+                                        if video_state.looped {
+                                            player.seek_to(0);
+                                            player.play();
+                                            video_state.status = VideoStatus::Playing;
+                                            video_state.pending_seek = None;
+                                            active_player.last_status = None;
+                                        } else {
+                                            video_state.status = VideoStatus::Ended;
+                                            active_player.last_status = Some(VideoStatus::Ended);
+                                        }
                                         request_redraw_logged(
                                             &window,
                                             elwt,
