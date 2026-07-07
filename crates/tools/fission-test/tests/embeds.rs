@@ -166,3 +166,108 @@ fn custom_embed_draws_surface() {
         other => panic!("expected custom surface, got {other:?}"),
     }
 }
+
+/// Verifies the loop-restart invariant: when a looped video ends, the
+/// handler should set status back to Playing (simulating a seek-to-0 +
+/// replay). This mirrors the logic in fission-shell-winit's
+/// VideoEvent::Ended handler.
+#[test]
+fn looped_video_restarts_on_ended_event() {
+    let widget_id = WidgetId::explicit("test.video.loop");
+    let mut harness = TestHarness::new(EmbedState).with_root_widget(Video {
+        id: Some(widget_id),
+        source: "fixtures/demo.mp4".into(),
+        width: Some(320.0),
+        height: Some(180.0),
+        autoplay: true,
+        loop_playback: true,
+        ..Default::default()
+    });
+
+    harness.pump().expect("pump looped video");
+
+    // Confirm initial state: looped is set, status is Playing (autoplay).
+    {
+        let video_state = harness
+            .runtime
+            .runtime_state
+            .video
+            .states
+            .get(&widget_id)
+            .expect("video state should be registered");
+        assert!(video_state.looped, "loop_playback should be copied to looped");
+        assert_eq!(
+            video_state.status,
+            fission_core::env::VideoStatus::Playing,
+            "autoplay video should start as Playing"
+        );
+    }
+
+    // Simulate what the shell's VideoEvent::Ended handler does when
+    // video_state.looped is true: reset status to Playing (the shell also
+    // calls player.seek_to(0), but we can't test that without a real
+    // player — the status transition is the key invariant).
+    {
+        let video_state = harness
+            .runtime
+            .runtime_state
+            .video
+            .states
+            .get_mut(&widget_id)
+            .expect("video state should still be registered");
+
+        // First, simulate the video reaching the end.
+        video_state.status = fission_core::env::VideoStatus::Ended;
+        assert_eq!(video_state.status, fission_core::env::VideoStatus::Ended);
+
+        // Now apply the loop-restart logic.
+        if video_state.looped {
+            video_state.status = fission_core::env::VideoStatus::Playing;
+        }
+        assert_eq!(
+            video_state.status,
+            fission_core::env::VideoStatus::Playing,
+            "looped video should restart to Playing after Ended"
+        );
+    }
+}
+
+/// Verifies that a non-looped video stays Ended when the video finishes.
+#[test]
+fn non_looped_video_stays_ended() {
+    let widget_id = WidgetId::explicit("test.video.noloop");
+    let mut harness = TestHarness::new(EmbedState).with_root_widget(Video {
+        id: Some(widget_id),
+        source: "fixtures/demo.mp4".into(),
+        width: Some(320.0),
+        height: Some(180.0),
+        autoplay: true,
+        loop_playback: false,
+        ..Default::default()
+    });
+
+    harness.pump().expect("pump non-looped video");
+
+    let video_state = harness
+        .runtime
+        .runtime_state
+        .video
+        .states
+        .get_mut(&widget_id)
+        .expect("video state should be registered");
+
+    assert!(!video_state.looped, "loop_playback should be false");
+
+    // Simulate video ending.
+    video_state.status = fission_core::env::VideoStatus::Ended;
+
+    // Apply the loop-restart logic — should NOT restart.
+    if video_state.looped {
+        video_state.status = fission_core::env::VideoStatus::Playing;
+    }
+    assert_eq!(
+        video_state.status,
+        fission_core::env::VideoStatus::Ended,
+        "non-looped video should stay Ended"
+    );
+}

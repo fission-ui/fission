@@ -5734,8 +5734,18 @@ where
                                         }
                                     }
                                     VideoEvent::Ended => {
-                                        video_state.status = VideoStatus::Ended;
-                                        active_player.last_status = Some(VideoStatus::Ended);
+                                        if video_state.looped {
+                                            eprintln!("[loop-fix] restarting {:?}", widget_id);
+                                            player.seek_to(0);
+                                            video_state.status = VideoStatus::Playing;
+                                            // Setting last_status to None forces the
+                                            // sync-controls block above to re-issue
+                                            // player.play() on the next frame.
+                                            active_player.last_status = None;
+                                        } else {
+                                            video_state.status = VideoStatus::Ended;
+                                            active_player.last_status = Some(VideoStatus::Ended);
+                                        }
                                         request_redraw_logged(
                                             &window,
                                             elwt,
