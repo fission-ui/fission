@@ -2,11 +2,9 @@ use anyhow::{bail, Context, Result};
 use clap::Subcommand;
 use fission_command_core::{DistributionProvider, Target};
 use fission_command_package as publish;
-use fission_credentials as credentials;
 use serde::Serialize;
 use std::env;
 use std::fs;
-use std::io::{self, IsTerminal, Read};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -21,10 +19,6 @@ mod model;
 mod signing_ops;
 mod store_ops;
 mod workflow_ops;
-
-fn provider_secret(provider: DistributionProvider, env_names: &[&str]) -> Result<Option<String>> {
-    credentials::provider_secret(provider, env_names)
-}
 
 fn now_unix_seconds() -> u64 {
     SystemTime::now()
@@ -330,40 +324,21 @@ pub enum ReleaseWorkflowCommand {
 
 #[derive(Subcommand, Debug)]
 pub enum AuthCommand {
+    /// Show provider auth setup requirements.
     Setup {
         #[arg(value_enum)]
         provider: Option<DistributionProvider>,
         #[arg(long)]
         json: bool,
     },
-    Login {
-        #[arg(value_enum)]
-        provider: DistributionProvider,
-    },
+    /// Report whether required environment/tooling credentials are available.
     Status {
         #[arg(value_enum)]
         provider: Option<DistributionProvider>,
         #[arg(long)]
         json: bool,
     },
-    Logout {
-        #[arg(value_enum)]
-        provider: DistributionProvider,
-        #[arg(long)]
-        yes: bool,
-    },
-    Import {
-        #[arg(value_enum)]
-        provider: DistributionProvider,
-        #[arg(long)]
-        from: String,
-        #[arg(long)]
-        yes: bool,
-    },
-    Rotate {
-        #[arg(value_enum)]
-        provider: DistributionProvider,
-    },
+    /// Audit all provider auth requirements.
     Audit {
         #[arg(long)]
         json: bool,
@@ -614,124 +589,6 @@ pub fn auth(command: AuthCommand) -> Result<()> {
         }
         AuthCommand::Setup { provider, json } => print_report(auth_setup_report(provider), json),
         AuthCommand::Audit { json } => print_report(auth_report("auth.audit", None), json),
-        AuthCommand::Login { provider } => login_provider(provider),
-        AuthCommand::Logout { provider, yes } => {
-            if !yes {
-                bail!(
-                    "refusing to delete {} credentials without --yes",
-                    provider.as_str()
-                );
-            }
-            let path = credentials::vault_record_path(provider)?;
-            if path.exists() {
-                fs::remove_file(&path)?;
-                println!(
-                    "Removed {} credentials from {}",
-                    provider.as_str(),
-                    path.display()
-                );
-            } else {
-                println!("No stored {} credentials found", provider.as_str());
-            }
-            Ok(())
-        }
-        AuthCommand::Import {
-            provider,
-            from,
-            yes,
-        } => {
-            if !yes {
-                bail!(
-                    "refusing to import {} credentials without --yes",
-                    provider.as_str()
-                );
-            }
-            if let Some(path) = from.strip_prefix("file:") {
-                fs::metadata(path)
-                    .with_context(|| format!("credential file {path} does not exist"))?;
-            }
-            let secret = credentials::read_secret_source(&from)?;
-            credentials::store_provider_secret(provider, secret.as_bytes())?;
-            println!(
-                "Stored {} credentials in the encrypted Fission release vault",
-                provider.as_str()
-            );
-            Ok(())
-        }
-        AuthCommand::Rotate { provider } => {
-            credentials::rotate_provider_secret(provider)?;
-            println!("Rotated {} vault encryption record", provider.as_str());
-            Ok(())
-        }
-    }
-}
-
-fn login_provider(provider: DistributionProvider) -> Result<()> {
-    print_login_instructions(provider);
-    let secret = if io::stdin().is_terminal() {
-        println!("Paste the provider token, service-account JSON, API key contents, or a file:<path>/env:<name> source, then press Enter:");
-        let mut line = String::new();
-        io::stdin().read_line(&mut line)?;
-        line.trim().to_string()
-    } else {
-        let mut text = String::new();
-        io::stdin().read_to_string(&mut text)?;
-        text.trim().to_string()
-    };
-    if secret.is_empty() {
-        bail!("no credential was provided for {}", provider.as_str());
-    }
-    let resolved = if secret.starts_with("env:") || secret.starts_with("file:") {
-        credentials::read_secret_source(&secret)?
-    } else {
-        secret
-    };
-    credentials::store_provider_secret(provider, resolved.as_bytes())?;
-    println!(
-        "Stored {} credentials in the encrypted Fission release vault",
-        provider.as_str()
-    );
-    Ok(())
-}
-
-fn print_login_instructions(provider: DistributionProvider) {
-    match provider {
-        DistributionProvider::PlayStore => println!(
-            "Google Play uses an Android Publisher API service-account JSON file or a short-lived access token."
-        ),
-        DistributionProvider::AppStore => println!(
-            "App Store Connect uses an issuer id, key id, and .p8 API private key; paste the key contents or import APP_STORE_CONNECT_API_KEY_PATH separately."
-        ),
-        DistributionProvider::MicrosoftStore => println!(
-            "Microsoft Store uses Partner Center/Entra credentials; paste the client secret or pipe it from your secret manager."
-        ),
-        DistributionProvider::GithubPages => println!(
-            "GitHub Pages uses a GitHub token with repository Pages/workflow permissions when direct API access is needed."
-        ),
-        DistributionProvider::GithubReleases => println!(
-            "GitHub Releases uses the GitHub CLI. Run `gh auth login`, set GH_TOKEN/GITHUB_TOKEN, or import a token into the Fission vault."
-        ),
-        DistributionProvider::CloudflarePages => println!(
-            "Cloudflare Pages uses an API token with Pages project edit/deploy permissions."
-        ),
-        DistributionProvider::DockerRegistry => println!(
-            "Docker registry publishing uses the Docker CLI. Run `docker login <registry>` for the registry referenced by your image tags."
-        ),
-        DistributionProvider::Netlify => println!(
-            "Netlify uses a personal access token with deploy permissions for the configured site."
-        ),
-        DistributionProvider::S3 => println!(
-            "S3-compatible uploads normally use AWS_PROFILE or access-key environment variables; paste a provider credential only for local vault-backed workflows."
-        ),
-        DistributionProvider::GoogleDrive => println!(
-            "Google Drive uses an OAuth access token for the target account or service account flow you manage outside the project."
-        ),
-        DistributionProvider::OneDrive => println!(
-            "OneDrive uses a Microsoft Graph OAuth access token for the target account."
-        ),
-        DistributionProvider::Dropbox => println!(
-            "Dropbox uses an OAuth access token with files.content.write/read scopes."
-        ),
     }
 }
 
@@ -949,7 +806,7 @@ fn provider_auth_spec(provider: DistributionProvider) -> ProviderAuthSpec {
         DistributionProvider::GithubPages => ProviderAuthSpec {
             kind: "GitHub token or GitHub App installation token",
             env: &["GH_TOKEN", "GITHUB_TOKEN"],
-            command: "fission auth import github-pages --from env:GH_TOKEN --yes",
+            command: "export GH_TOKEN=<github-token>",
             permissions: "repository contents/workflows/pages permissions for local API operations; Actions deployment uses repository workflow permissions",
         },
         DistributionProvider::GithubReleases => ProviderAuthSpec {
@@ -961,7 +818,7 @@ fn provider_auth_spec(provider: DistributionProvider) -> ProviderAuthSpec {
         DistributionProvider::CloudflarePages => ProviderAuthSpec {
             kind: "Cloudflare API token plus Wrangler login/config for uploads",
             env: &["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"],
-            command: "fission auth import cloudflare-pages --from env:CLOUDFLARE_API_TOKEN --yes",
+            command: "export CLOUDFLARE_API_TOKEN=<cloudflare-token>",
             permissions: "Pages edit/deploy permission for the target account/project",
         },
         DistributionProvider::DockerRegistry => ProviderAuthSpec {
@@ -973,54 +830,64 @@ fn provider_auth_spec(provider: DistributionProvider) -> ProviderAuthSpec {
         DistributionProvider::Netlify => ProviderAuthSpec {
             kind: "Netlify personal access token",
             env: &["NETLIFY_AUTH_TOKEN"],
-            command: "fission auth import netlify --from env:NETLIFY_AUTH_TOKEN --yes",
+            command: "export NETLIFY_AUTH_TOKEN=<netlify-token>",
             permissions: "site read/deploy permissions for the configured site",
         },
         DistributionProvider::S3 => ProviderAuthSpec {
             kind: "AWS/S3 profile or access key credentials",
             env: &["AWS_PROFILE", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
-            command: "fission auth import s3 --from env:AWS_SECRET_ACCESS_KEY --yes",
+            command: "export AWS_PROFILE=<profile> # or set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY",
             permissions: "s3:PutObject, s3:ListBucket, and optional s3:PutObjectAcl for public artifacts",
         },
         DistributionProvider::GoogleDrive => ProviderAuthSpec {
             kind: "Google OAuth access token or service-account flow managed outside fission.toml",
             env: &["GOOGLE_DRIVE_ACCESS_TOKEN"],
-            command: "fission auth import google-drive --from env:GOOGLE_DRIVE_ACCESS_TOKEN --yes",
+            command: "export GOOGLE_DRIVE_ACCESS_TOKEN=<access-token>",
             permissions: "Drive file create/update permission for the selected folder",
         },
         DistributionProvider::OneDrive => ProviderAuthSpec {
             kind: "Microsoft Graph OAuth access token",
             env: &["ONEDRIVE_ACCESS_TOKEN"],
-            command: "fission auth import onedrive --from env:ONEDRIVE_ACCESS_TOKEN --yes",
+            command: "export ONEDRIVE_ACCESS_TOKEN=<access-token>",
             permissions: "Files.ReadWrite or equivalent delegated/application permission for the target drive",
         },
         DistributionProvider::Dropbox => ProviderAuthSpec {
             kind: "Dropbox OAuth access token",
             env: &["DROPBOX_ACCESS_TOKEN"],
-            command: "fission auth import dropbox --from env:DROPBOX_ACCESS_TOKEN --yes",
+            command: "export DROPBOX_ACCESS_TOKEN=<access-token>",
             permissions: "files.content.write and files.metadata.read for the destination path",
         },
         DistributionProvider::PlayStore => ProviderAuthSpec {
             kind: "Google Play Android Publisher service-account JSON or access token",
-            env: &["PLAY_STORE_SERVICE_ACCOUNT_JSON"],
-            command: "fission auth import play-store --from file:play-service-account.json --yes",
+            env: &[
+                "PLAY_STORE_ACCESS_TOKEN",
+                "PLAY_STORE_SERVICE_ACCOUNT_JSON",
+                "PLAY_STORE_SERVICE_ACCOUNT_JSON_BASE64",
+                "GOOGLE_APPLICATION_CREDENTIALS",
+            ],
+            command: "export PLAY_STORE_SERVICE_ACCOUNT_JSON_BASE64=<base64-service-account-json>",
             permissions: "Android Publisher API access to the configured package and release tracks",
         },
         DistributionProvider::AppStore => ProviderAuthSpec {
             kind: "App Store Connect API private key plus issuer/key ids",
             env: &[
                 "APP_STORE_CONNECT_API_KEY",
+                "APP_STORE_CONNECT_API_KEY_BASE64",
                 "APP_STORE_CONNECT_API_KEY_PATH",
                 "APP_STORE_CONNECT_ISSUER_ID",
                 "APP_STORE_CONNECT_KEY_ID",
             ],
-            command: "fission auth import app-store --from file:AuthKey.p8 --yes",
+            command: "export APP_STORE_CONNECT_API_KEY_BASE64=<base64-p8-key>",
             permissions: "App Manager or equivalent App Store Connect API role for metadata, uploads, TestFlight, and submissions",
         },
         DistributionProvider::MicrosoftStore => ProviderAuthSpec {
             kind: "Partner Center/Entra application secret or access token",
-            env: &["MICROSOFT_STORE_TOKEN", "MICROSOFT_STORE_CLIENT_SECRET"],
-            command: "fission auth import microsoft-store --from env:MICROSOFT_STORE_CLIENT_SECRET --yes",
+            env: &[
+                "MICROSOFT_STORE_TOKEN",
+                "MICROSOFT_STORE_CLIENT_SECRET",
+                "PARTNER_CENTER_CLIENT_SECRET",
+            ],
+            command: "export MICROSOFT_STORE_CLIENT_SECRET=<partner-center-secret>",
             permissions: "Partner Center app submission permissions for the configured product",
         },
     }
@@ -1037,29 +904,33 @@ fn provider_env_check(provider: DistributionProvider) -> LifecycleCheck {
         DistributionProvider::GoogleDrive => &["GOOGLE_DRIVE_ACCESS_TOKEN"],
         DistributionProvider::OneDrive => &["ONEDRIVE_ACCESS_TOKEN"],
         DistributionProvider::Dropbox => &["DROPBOX_ACCESS_TOKEN"],
-        DistributionProvider::PlayStore => &["PLAY_STORE_SERVICE_ACCOUNT_JSON"],
-        DistributionProvider::AppStore => &["APP_STORE_CONNECT_API_KEY"],
-        DistributionProvider::MicrosoftStore => &["MICROSOFT_STORE_TOKEN"],
+        DistributionProvider::PlayStore => &[
+            "PLAY_STORE_ACCESS_TOKEN",
+            "PLAY_STORE_SERVICE_ACCOUNT_JSON",
+            "PLAY_STORE_SERVICE_ACCOUNT_JSON_BASE64",
+            "GOOGLE_APPLICATION_CREDENTIALS",
+        ],
+        DistributionProvider::AppStore => &[
+            "APP_STORE_CONNECT_ACCESS_TOKEN",
+            "APP_STORE_CONNECT_API_KEY",
+            "APP_STORE_CONNECT_API_KEY_BASE64",
+            "APP_STORE_CONNECT_API_KEY_PATH",
+        ],
+        DistributionProvider::MicrosoftStore => &[
+            "MICROSOFT_STORE_TOKEN",
+            "MICROSOFT_STORE_CLIENT_SECRET",
+            "PARTNER_CENTER_CLIENT_SECRET",
+        ],
     };
     let found = vars.iter().find(|name| env::var_os(name).is_some());
-    let vault_path = credentials::vault_record_path(provider).ok();
-    let vault_present = vault_path.as_ref().is_some_and(|path| path.exists());
     LifecycleCheck {
         id: format!("auth.{}.credentials", provider.as_str().replace('-', "_")),
-        status: if found.is_some() || vault_present {
-            "passed"
-        } else {
-            "missing"
-        }
-        .to_string(),
+        status: if found.is_some() { "passed" } else { "missing" }.to_string(),
         summary: format!("{} credentials are available", provider.as_str()),
-        details: found
-            .map(|name| format!("using {name}"))
-            .or_else(|| vault_path.map(|path| format!("vault: {}", path.display()))),
+        details: found.map(|name| format!("using {name}")),
         remediation: vec![format!(
-            "Set one of {} or use `fission auth import {} --from env:<NAME> --yes` to store credentials in the encrypted local vault.",
-            vars.join(", "),
-            provider.as_str()
+            "Set one of {} from your shell, CI secret store, or platform-specific credential tool.",
+            vars.join(", ")
         )],
     }
 }

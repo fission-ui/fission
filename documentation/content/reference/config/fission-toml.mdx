@@ -8,7 +8,7 @@ description: Complete reference for every fission.toml section currently read by
 
 `fission.toml` is the project manifest read by the Fission command-line interface and the static-site shell. It is the place for stable project facts: the app identity, enabled targets, declared host capabilities, site build settings, package references, release entries, provider configuration, and release workflow commands.
 
-Keep this file human-reviewable. Short identifiers and paths belong here. Long release notes, localized store descriptions, review instructions, privacy declarations, screenshots, videos, certificates, private keys, and tokens should live in referenced files, provider tools, CI secrets, or the Fission credential vault.
+Keep this file human-reviewable. Short identifiers and non-secret paths belong here. Long release notes, localized store descriptions, review instructions, privacy declarations, screenshots, and videos can live in referenced files. Certificates, private keys, signing passwords, tokens, keystores, and service-account JSON must come from environment variables, provider tools, platform key stores, or CI secrets.
 
 ## Minimal app manifest
 
@@ -35,7 +35,7 @@ Fission commands currently read the sections they need instead of requiring one 
 | Required for site commands | `fission site ...` requires `[app].name`. The `[site]` table is optional but needed for non-default site behavior. |
 | Unknown fields | Unknown fields are tolerated by current TOML deserializers, but they do not affect behavior. Do not rely on an undocumented field unless the command that reads it is listed here. |
 | Paths | Paths are project-relative unless explicitly described as absolute or provider-owned. Absolute paths are accepted in some release/package paths, but project-relative paths are easier to review and reproduce. |
-| Secrets | Do not put secrets in this file. Use environment variables, provider command-line tools, platform key stores, CI secrets, or `fission auth import`. |
+| Secrets | Do not put secrets in this file. Use environment variables, provider command-line tools, platform key stores, or CI secrets. Fission does not persist release secrets. |
 
 ## Root fields
 
@@ -491,18 +491,20 @@ tags = ["ghcr.io/example/pokemon-card-store:0.1.0", "ghcr.io/example/pokemon-car
 | `entitlements` | string | No | Project-relative entitlements plist passed to `codesign` when signing. |
 | `signing_identity` | string | No | Developer ID/Application identity used to sign `.app` bundles. If omitted, the app is not code-signed by Fission. |
 | `installer_identity` | string | No | Developer ID Installer identity passed to `pkgbuild`/`productbuild` for `.pkg` output. |
-| `notarize` | boolean | No | When `true`, notarization requires `APP_STORE_CONNECT_API_KEY_PATH`, `APP_STORE_CONNECT_KEY_ID`, and `APP_STORE_CONNECT_ISSUER_ID`. |
+| `notarize` | boolean | No | When `true`, notarization requires `APP_STORE_CONNECT_KEY_ID`, `APP_STORE_CONNECT_ISSUER_ID`, and key material from `APP_STORE_CONNECT_API_KEY_PATH`, `APP_STORE_CONNECT_API_KEY`, or `APP_STORE_CONNECT_API_KEY_BASE64`. |
 
 ### `[package.android]`
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `keystore` | string | No | Project-relative upload/signing keystore path recorded for signing readiness. |
-| `upload_keystore` | string | No | Alternate upload keystore path for app-store release workflows. |
 | `keystore_alias` | string | No | Alias inside the keystore. |
+| `keystore_env` | string | No | Environment variable containing a local keystore path. Defaults to `ANDROID_KEYSTORE`. |
+| `keystore_base64_env` | string | No | Environment variable containing base64 keystore bytes. Defaults to `ANDROID_KEYSTORE_BASE64`. |
+| `keystore_password_env` | string | No | Environment variable containing the keystore password. Defaults to `ANDROID_KEYSTORE_PASSWORD`. |
+| `key_password_env` | string | No | Environment variable containing the key password. Defaults to `ANDROID_KEY_PASSWORD`; falls back to `ANDROID_KEYSTORE_PASSWORD` in generated Android packaging. |
 | `package_name` | string | Required for Android signing readiness | Android package name expected by signing/release checks. Usually matches `[app].app_id`. |
 
-Keystore passwords are not stored in `fission.toml`. Use `ANDROID_KEYSTORE_PASSWORD` and `ANDROID_KEY_PASSWORD` or an OS/CI secret store.
+Keystore files and passwords are not stored in `fission.toml`. For local release builds, set `ANDROID_KEYSTORE` to a path outside the repo. For CI, store the keystore as a base64 secret and expose it through `ANDROID_KEYSTORE_BASE64`. Set `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEYSTORE_ALIAS`, and optionally `ANDROID_KEY_PASSWORD` through your shell or CI secret store.
 
 ### `[package.ios]`
 
@@ -520,10 +522,12 @@ Keystore passwords are not stored in `fission.toml`. Use `ANDROID_KEYSTORE_PASSW
 | --- | --- | --- | --- |
 | `identity_name` | string | No | MSIX package identity name. |
 | `publisher` | string | No | Windows package publisher distinguished name. |
-| `certificate` | string | No | Project-relative certificate file reference. |
 | `certificate_thumbprint` | string | No | Certificate thumbprint used when signing through the Windows certificate store. |
+| `certificate_env` | string | No | Environment variable containing a local certificate path. Defaults to `WINDOWS_CERTIFICATE`. |
+| `certificate_base64_env` | string | No | Environment variable containing base64 certificate bytes. Defaults to `WINDOWS_CERTIFICATE_BASE64`. |
+| `certificate_password_env` | string | No | Environment variable containing the certificate password. Defaults to `WINDOWS_CERTIFICATE_PASSWORD`. |
 
-Certificate passwords are not stored in `fission.toml`. Use `WINDOWS_CERTIFICATE_PASSWORD` or an OS/CI secret store.
+Certificate files and passwords are not stored in `fission.toml`. Prefer `certificate_thumbprint` for certificates installed in the Windows certificate store; otherwise provide certificate file material through environment variables at package time.
 
 ### `[[package.secondary_artifacts]]`, `[[package.symbols]]`, and `[[package.crash_assets]]`
 
@@ -578,7 +582,7 @@ Distribution providers that support multiple profiles use `[distribution.<provid
 | `replace_assets` | boolean | No | `false` | Uses `gh release upload --clobber` to replace assets with the same name. |
 | `upload_artifact_manifest` | boolean | No | `true` | Uploads the Fission artifact manifest JSON alongside package assets. |
 
-GitHub Releases publishing uses the GitHub CLI. A developer can authenticate with `gh auth login`, `GH_TOKEN`, `GITHUB_TOKEN`, or a token imported into the Fission credential vault.
+GitHub Releases publishing uses the GitHub CLI. A developer can authenticate with `gh auth login`, `GH_TOKEN`, or `GITHUB_TOKEN`.
 
 ### `[distribution.docker_registry.<profile>]`
 
@@ -660,10 +664,9 @@ Cloudflare Pages upload intentionally shells out to the provider CLI. Fission do
 | --- | --- | --- | --- | --- |
 | `package_name` | string | Required for Play publish, metadata, reviews, and beta operations | none | Android package name in Google Play. |
 | `default_track` | string | No | command/provider default | Track used when `--track` is omitted. |
-| `service_account` | string | No | environment/vault | Service-account JSON path, inline JSON, or token source used by release tooling when environment/vault credentials are absent. |
 | `release_status` | string | No | provider default | Track release status sent to Play publishing. |
 
-Credentials can also come from `PLAY_STORE_ACCESS_TOKEN`, `PLAY_STORE_SERVICE_ACCOUNT_JSON`, `GOOGLE_APPLICATION_CREDENTIALS`, or the Fission credential vault.
+Credentials come from `PLAY_STORE_ACCESS_TOKEN`, `PLAY_STORE_SERVICE_ACCOUNT_JSON`, `PLAY_STORE_SERVICE_ACCOUNT_JSON_BASE64`, or `GOOGLE_APPLICATION_CREDENTIALS`. Do not put service-account JSON or paths to repo-local service-account files in `fission.toml`.
 
 ### `[distribution.app_store]`
 
@@ -673,10 +676,9 @@ Credentials can also come from `PLAY_STORE_ACCESS_TOKEN`, `PLAY_STORE_SERVICE_AC
 | `bundle_id` | string | Required when `app_id` is omitted | Bundle id used to look up the app. |
 | `issuer_id` | string | Required unless `APP_STORE_CONNECT_ISSUER_ID` is set | App Store Connect issuer id. |
 | `key_id` | string | Required unless `APP_STORE_CONNECT_KEY_ID` is set | App Store Connect API key id. |
-| `api_key_path` | string | Required unless key material comes from env/vault | Path to `.p8` API key. |
 | `default_track` | string | No | Default release/beta track label for commands that accept tracks. |
 
-API key material can also come from `APP_STORE_CONNECT_API_KEY`, `APP_STORE_CONNECT_API_KEY_PATH`, or the Fission credential vault.
+API key material comes from `APP_STORE_CONNECT_API_KEY`, `APP_STORE_CONNECT_API_KEY_BASE64`, or `APP_STORE_CONNECT_API_KEY_PATH`. Use the path variable only for local files outside the repo; use base64 CI secrets for automation.
 
 ### `[distribution.microsoft_store]`
 
@@ -692,7 +694,6 @@ API key material can also come from `APP_STORE_CONNECT_API_KEY`, `APP_STORE_CONN
 | `flight_id` | string | Required for MSIX private flight when `--track private` is used | Package flight id. Passing a non-empty custom `--track` can also be treated as a flight id. |
 | `package_rollout_percentage` | integer | No | Must be between `0` and `100`. |
 | `msstore_project` | string | No | Project directory passed to Microsoft Store Developer CLI for MSIX publishing. Defaults to the Fission project root. |
-| `msstore_reconfigure` | boolean | No | When `true`, Fission attempts to configure the provider CLI using configured credentials before publishing. |
 | `languages` | array of strings | No | Listing/package languages for provider setup. |
 | `architectures` | array of strings | No | Package architectures for provider setup. |
 | `is_silent_install` | boolean | No | Installer metadata for MSI/EXE submissions. |
@@ -968,8 +969,11 @@ app_id = "com.example.app"
 
 [package.android]
 package_name = "com.example.app"
-keystore = "release-content/signing/android/upload.keystore"
 keystore_alias = "upload"
+keystore_env = "ANDROID_KEYSTORE"
+keystore_base64_env = "ANDROID_KEYSTORE_BASE64"
+keystore_password_env = "ANDROID_KEYSTORE_PASSWORD"
+key_password_env = "ANDROID_KEY_PASSWORD"
 
 [package.ios]
 bundle_id = "com.example.app"
@@ -998,7 +1002,6 @@ release_status = "draft"
 bundle_id = "com.example.app"
 issuer_id = "00000000-0000-0000-0000-000000000000"
 key_id = "ABC123DEFG"
-api_key_path = "release-content/signing/app-store/AuthKey_ABC123DEFG.p8"
 default_track = "testflight"
 
 [distribution.microsoft_store]

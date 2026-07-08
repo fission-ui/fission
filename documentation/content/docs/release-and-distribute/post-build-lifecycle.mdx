@@ -131,18 +131,18 @@ Receipts record provider IDs, URLs, deployment IDs, submitted tracks, uploaded b
 
 ## Credentials stay out of project files
 
-Secrets do not belong in [`fission.toml`](/reference/config/fission-toml/). Store tokens, OAuth refresh tokens, signing passwords, API keys, and private keys should come from CI secrets, environment variables, provider CLIs, platform key stores, or the Fission credential vault.
+Secrets do not belong in [`fission.toml`](/reference/config/fission-toml/). Store tokens, OAuth refresh tokens, signing passwords, API keys, and private keys should come from CI secrets, environment variables, provider CLIs, or platform key stores. Fission does not persist release secrets in project files.
 
-Use the auth commands to inspect and manage local provider credentials:
+For local publishing, run `fission publish --provider <provider>`. The guided flow uses `~/.fission/<app-name>/release.env` and sibling files for local-only signing/provider inputs, with private filesystem permissions. This gives developers a safe local workflow while keeping CI as an explicit env/base64-secret flow.
+
+Use the auth commands to inspect required credential sources:
 
 ```bash
 fission auth status
-fission auth import play-store --from file:service-account.json --yes
-fission auth logout microsoft-store --yes
 fission auth audit
 ```
 
-The project can reference an account or credential label, but it should not contain the credential material itself.
+The project can reference account IDs, bundle IDs, package names, certificate thumbprints, or environment variable names, but it should not contain credential material or repo-local secret file paths.
 
 ## Store releases have tracks and follow-up operations
 

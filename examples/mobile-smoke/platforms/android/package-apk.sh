@@ -93,6 +93,48 @@ if [[ "$PROFILE" == "release" ]]; then
   GRADLE_OUTPUT_DIR=release
 fi
 
+SIGNING_TEMP_DIR=""
+cleanup_android_signing_temp() {
+  if [[ -n "$SIGNING_TEMP_DIR" ]]; then
+    rm -rf "$SIGNING_TEMP_DIR"
+  fi
+}
+trap cleanup_android_signing_temp EXIT
+
+if [[ "$PROFILE" == "release" ]]; then
+  if [[ -z "${ANDROID_KEYSTORE:-}" && -n "${ANDROID_KEYSTORE_BASE64:-}" ]]; then
+    SIGNING_TEMP_DIR=$(mktemp -d)
+    ANDROID_KEYSTORE="$SIGNING_TEMP_DIR/upload.jks"
+    export ANDROID_KEYSTORE
+    python3 - "$ANDROID_KEYSTORE" <<'PYBASE64'
+import base64
+import os
+import sys
+
+out_path = sys.argv[1]
+raw = os.environ["ANDROID_KEYSTORE_BASE64"]
+with open(out_path, "wb") as handle:
+    handle.write(base64.b64decode(raw))
+PYBASE64
+  fi
+  if [[ -z "${ANDROID_KEYSTORE:-}" ]]; then
+    printf 'Release Android builds require ANDROID_KEYSTORE or ANDROID_KEYSTORE_BASE64 from a secret source.\n' >&2
+    exit 1
+  fi
+  if [[ -z "${ANDROID_KEYSTORE_PASSWORD:-}" ]]; then
+    printf 'Release Android builds require ANDROID_KEYSTORE_PASSWORD from a secret source.\n' >&2
+    exit 1
+  fi
+  if [[ -z "${ANDROID_KEYSTORE_ALIAS:-}" ]]; then
+    ANDROID_KEYSTORE_ALIAS=upload
+    export ANDROID_KEYSTORE_ALIAS
+  fi
+  if [[ -z "${ANDROID_KEY_PASSWORD:-}" ]]; then
+    ANDROID_KEY_PASSWORD="$ANDROID_KEYSTORE_PASSWORD"
+    export ANDROID_KEY_PASSWORD
+  fi
+fi
+
 cargo "${BUILD_ARGS[@]}"
 TARGET_DIR=$(python3 - <<'PY' "$PROJECT_DIR/Cargo.toml"
 import json

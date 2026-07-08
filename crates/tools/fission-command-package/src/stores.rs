@@ -1,6 +1,6 @@
 use super::*;
 use anyhow::{bail, Context, Result};
-use fission_credentials as credentials;
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use reqwest::blocking::{Client, Response};
 use serde::{Deserialize, Serialize};
@@ -146,7 +146,6 @@ pub(super) fn publish_app_store(
     let key_id = env_value("APP_STORE_CONNECT_KEY_ID")
         .or(cfg.key_id.clone())
         .context("distribution.app_store.key_id or APP_STORE_CONNECT_KEY_ID is required")?;
-    let api_key_path = env_value("APP_STORE_CONNECT_API_KEY_PATH").or(cfg.api_key_path.clone());
     let ipa = primary_artifact_with_extensions(manifest, &["ipa"])?;
     let track = options
         .track
@@ -168,6 +167,7 @@ pub(super) fn publish_app_store(
         ));
     }
 
+    let api_key_file = app_store_api_key_file(&key_id)?;
     let mut command = Command::new("xcrun");
     command
         .args([
@@ -186,14 +186,8 @@ pub(super) fn publish_app_store(
         ])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    if let Some(api_key_path) = api_key_path
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
-    {
-        let path = Path::new(api_key_path);
-        if let Some(parent) = path.parent() {
-            command.env(APP_STORE_API_PRIVATE_KEYS_DIR, parent);
-        }
+    if let Some(parent) = api_key_file.path.parent() {
+        command.env(APP_STORE_API_PRIVATE_KEYS_DIR, parent);
     }
     let output = command
         .output()
@@ -427,15 +421,6 @@ fn publish_microsoft_store_msix(
 
     let mut stdout_parts = Vec::new();
     let mut stderr_parts = Vec::new();
-    if cfg.msstore_reconfigure.unwrap_or(false) {
-        let (stdout, stderr) = run_msstore_reconfigure(cfg)?;
-        if !stdout.trim().is_empty() {
-            stdout_parts.push(stdout);
-        }
-        if !stderr.trim().is_empty() {
-            stderr_parts.push(stderr);
-        }
-    }
 
     let (stdout, stderr) = run_msstore(&publish_args, "Microsoft Store MSIX publish")?;
     if !stdout.trim().is_empty() {
@@ -651,9 +636,13 @@ pub(super) fn readiness_play_store(
     ));
     checks.push(secret_check(
         "release.play_store.credentials_available",
-        &["PLAY_STORE_ACCESS_TOKEN", "PLAY_STORE_SERVICE_ACCOUNT_JSON", "GOOGLE_APPLICATION_CREDENTIALS"],
-        DistributionProvider::PlayStore,
-        "Set PLAY_STORE_SERVICE_ACCOUNT_JSON to a service-account JSON path/value, set PLAY_STORE_ACCESS_TOKEN, or import credentials with `fission auth import play-store --from file:<service-account.json> --yes`.",
+        &[
+            "PLAY_STORE_ACCESS_TOKEN",
+            "PLAY_STORE_SERVICE_ACCOUNT_JSON",
+            "PLAY_STORE_SERVICE_ACCOUNT_JSON_BASE64",
+            "GOOGLE_APPLICATION_CREDENTIALS",
+        ],
+        "Set PLAY_STORE_SERVICE_ACCOUNT_JSON or PLAY_STORE_SERVICE_ACCOUNT_JSON_BASE64 from CI secrets, set PLAY_STORE_ACCESS_TOKEN, or set GOOGLE_APPLICATION_CREDENTIALS.",
     ));
     let selected_track = track.or(cfg.default_track.as_deref()).unwrap_or("internal");
     checks.push(check(
@@ -719,9 +708,12 @@ pub(super) fn readiness_app_store(
     ));
     checks.push(secret_check(
         "release.app_store.credentials_available",
-        &["APP_STORE_CONNECT_API_KEY", "APP_STORE_CONNECT_API_KEY_PATH"],
-        DistributionProvider::AppStore,
-        "Set APP_STORE_CONNECT_API_KEY_PATH to AuthKey_<KEYID>.p8, set APP_STORE_CONNECT_API_KEY, or import credentials with `fission auth import app-store`.",
+        &[
+            "APP_STORE_CONNECT_API_KEY",
+            "APP_STORE_CONNECT_API_KEY_BASE64",
+            "APP_STORE_CONNECT_API_KEY_PATH",
+        ],
+        "Set APP_STORE_CONNECT_API_KEY or APP_STORE_CONNECT_API_KEY_BASE64 from CI secrets, or set APP_STORE_CONNECT_API_KEY_PATH locally.",
     ));
     checks.push(check_tool(
         "release.app_store.xcrun_available",
@@ -780,6 +772,7 @@ pub(super) fn readiness_microsoft_store(
     let package_type = artifact_manifest
         .as_ref()
         .map(|manifest| microsoft_store_package_type(&cfg, manifest))
+        .or_else(|| artifact.and_then(microsoft_store_package_type_from_artifact_path))
         .or_else(|| {
             cfg.package_type
                 .clone()
@@ -805,7 +798,7 @@ pub(super) fn readiness_microsoft_store(
         checks.push(check_tool(
             "release.microsoft_store.msstore_available",
             "msstore",
-            "Install Microsoft Store Developer CLI, run `msstore` once to configure it, or set distribution.microsoft_store.msstore_reconfigure = true with Partner Center credentials.",
+            "Install Microsoft Store Developer CLI and configure it with `msstore` or CI-managed msstore credentials before publishing MSIX/MSIXUPLOAD artifacts.",
         ));
         checks.push(check(
             "release.microsoft_store.msix_uses_msstore",
@@ -815,44 +808,14 @@ pub(super) fn readiness_microsoft_store(
             Some(package_type.clone()),
             vec!["Fission calls `msstore publish --inputFile ... --appId ...`; no durable package_url is required for MSIX/MSIXUPLOAD submissions."],
         ));
-        if cfg.msstore_reconfigure.unwrap_or(false) {
-            checks.push(required_value(
-                "release.microsoft_store.seller_id_configured",
-                microsoft_store_seller_id(&cfg).as_deref(),
-                "Microsoft Store seller id is configured for msstore reconfigure",
-                "Set distribution.microsoft_store.seller_id, MICROSOFT_STORE_SELLER_ID, or PARTNER_CENTER_SELLER_ID.",
-            ));
-            checks.push(required_value(
-                "release.microsoft_store.tenant_id_configured",
-                microsoft_store_tenant_id(&cfg).as_deref(),
-                "Microsoft Entra tenant id is configured for msstore reconfigure",
-                "Set distribution.microsoft_store.tenant_id, AZURE_TENANT_ID, or PARTNER_CENTER_TENANT_ID.",
-            ));
-            checks.push(required_value(
-                "release.microsoft_store.client_id_configured",
-                microsoft_store_client_id(&cfg).as_deref(),
-                "Microsoft Entra client id is configured for msstore reconfigure",
-                "Set distribution.microsoft_store.client_id, AZURE_CLIENT_ID, or PARTNER_CENTER_CLIENT_ID.",
-            ));
-            checks.push(secret_check(
-                "release.microsoft_store.credentials_available",
-                &[
-                    "MICROSOFT_STORE_CLIENT_SECRET",
-                    "PARTNER_CENTER_CLIENT_SECRET",
-                ],
-                DistributionProvider::MicrosoftStore,
-                "Set MICROSOFT_STORE_CLIENT_SECRET, PARTNER_CENTER_CLIENT_SECRET, or import the Partner Center client secret with `fission auth import microsoft-store --from env:MICROSOFT_STORE_CLIENT_SECRET --yes`.",
-            ));
-        } else {
-            checks.push(check(
-                "release.microsoft_store.msstore_config_external",
-                CheckSeverity::Warning,
-                CheckStatus::Warning,
-                "Microsoft Store Developer CLI credentials are managed by msstore",
-                None,
-                vec!["Run `msstore` interactively once, run `msstore reconfigure ...` in CI, or set distribution.microsoft_store.msstore_reconfigure = true so Fission configures msstore before publishing."],
-            ));
-        }
+        checks.push(check(
+            "release.microsoft_store.msstore_config_external",
+            CheckSeverity::Warning,
+            CheckStatus::Warning,
+            "Microsoft Store Developer CLI credentials are managed outside fission.toml",
+            None,
+            vec!["Run `msstore` interactively once or configure the msstore CLI in CI; Fission does not pass Partner Center client secrets on the command line."],
+        ));
     } else {
         checks.push(required_value(
             "release.microsoft_store.seller_id_configured",
@@ -878,8 +841,7 @@ pub(super) fn readiness_microsoft_store(
                 "MICROSOFT_STORE_CLIENT_SECRET",
                 "PARTNER_CENTER_CLIENT_SECRET",
             ],
-            DistributionProvider::MicrosoftStore,
-            "Set MICROSOFT_STORE_CLIENT_SECRET, PARTNER_CENTER_CLIENT_SECRET, or import the Partner Center client secret with `fission auth import microsoft-store --from env:MICROSOFT_STORE_CLIENT_SECRET --yes`.",
+            "Set MICROSOFT_STORE_CLIENT_SECRET or PARTNER_CENTER_CLIENT_SECRET from your shell or CI secret store.",
         ));
         checks.push(required_value(
             "release.microsoft_store.package_url_configured",
@@ -953,6 +915,14 @@ pub(super) fn readiness_microsoft_store(
         vec!["Reserve the app, complete first submission/ratings/pricing, associate the Entra app with Partner Center, and verify package identity before first automation."],
     ));
     Ok(())
+}
+
+fn microsoft_store_package_type_from_artifact_path(path: &Path) -> Option<String> {
+    path.parent()
+        .and_then(Path::file_name)
+        .and_then(|name| name.to_str())
+        .map(str::to_ascii_lowercase)
+        .filter(|value| matches!(value.as_str(), "msix" | "msixupload" | "msi" | "exe"))
 }
 
 fn create_play_edit(client: &Client, token: &str, package_name: &str) -> Result<String> {
@@ -1067,20 +1037,16 @@ fn commit_play_edit(client: &Client, token: &str, package_name: &str, edit_id: &
     Ok(())
 }
 
-fn google_play_access_token(cfg: &PlayStoreConfig, client: &Client) -> Result<String> {
+fn google_play_access_token(_cfg: &PlayStoreConfig, client: &Client) -> Result<String> {
     if let Some(token) = env_value("PLAY_STORE_ACCESS_TOKEN") {
         return Ok(token);
     }
+    let service_account_base64 = decode_base64_env("PLAY_STORE_SERVICE_ACCOUNT_JSON_BASE64")?;
     let secret_source = env_value("PLAY_STORE_SERVICE_ACCOUNT_JSON")
-        .or_else(|| env_value("GOOGLE_APPLICATION_CREDENTIALS"))
-        .or_else(|| cfg.service_account.clone())
-        .or_else(|| {
-            credentials::provider_secret(DistributionProvider::PlayStore, &[])
-                .ok()
-                .flatten()
-        });
+        .or(service_account_base64)
+        .or_else(|| env_value("GOOGLE_APPLICATION_CREDENTIALS"));
     let Some(source) = secret_source else {
-        bail!("Google Play credentials are missing; set PLAY_STORE_SERVICE_ACCOUNT_JSON, PLAY_STORE_ACCESS_TOKEN, GOOGLE_APPLICATION_CREDENTIALS, or import play-store credentials into the Fission vault")
+        bail!("Google Play credentials are missing; set PLAY_STORE_SERVICE_ACCOUNT_JSON, PLAY_STORE_SERVICE_ACCOUNT_JSON_BASE64, PLAY_STORE_ACCESS_TOKEN, or GOOGLE_APPLICATION_CREDENTIALS")
     };
     if looks_like_bearer_token(&source) {
         return Ok(source);
@@ -1130,11 +1096,7 @@ fn app_store_access_token(cfg: &AppStoreConfig) -> Result<String> {
     let key_id = env_value("APP_STORE_CONNECT_KEY_ID")
         .or(cfg.key_id.clone())
         .context("distribution.app_store.key_id or APP_STORE_CONNECT_KEY_ID is required")?;
-    let key_source = env_value("APP_STORE_CONNECT_API_KEY")
-        .or_else(|| env_value("APP_STORE_CONNECT_API_KEY_PATH"))
-        .or(cfg.api_key_path.clone())
-        .or_else(|| credentials::provider_secret(DistributionProvider::AppStore, &[]).ok().flatten())
-        .context("APP_STORE_CONNECT_API_KEY, APP_STORE_CONNECT_API_KEY_PATH, distribution.app_store.api_key_path, or vault credentials are required")?;
+    let key_source = app_store_api_key_source()?;
     if looks_like_bearer_token(&key_source) {
         return Ok(key_source);
     }
@@ -1161,6 +1123,69 @@ fn app_store_access_token(cfg: &AppStoreConfig) -> Result<String> {
             .context("failed to parse App Store Connect .p8 key as EC private key")?,
     )
     .context("failed to sign App Store Connect JWT")
+}
+
+struct AppStoreApiKeyFile {
+    path: PathBuf,
+    temp_dir: Option<PathBuf>,
+}
+
+impl Drop for AppStoreApiKeyFile {
+    fn drop(&mut self) {
+        if let Some(dir) = self.temp_dir.take() {
+            let _ = fs::remove_dir_all(dir);
+        }
+    }
+}
+
+fn app_store_api_key_file(key_id: &str) -> Result<AppStoreApiKeyFile> {
+    if let Some(path) = env_value("APP_STORE_CONNECT_API_KEY_PATH") {
+        return Ok(AppStoreApiKeyFile {
+            path: PathBuf::from(path),
+            temp_dir: None,
+        });
+    }
+
+    let key_text = app_store_api_key_text()?;
+    let temp_dir = env::temp_dir().join(format!(
+        "fission-app-store-key-{}-{}",
+        std::process::id(),
+        now_unix_seconds()
+    ));
+    fs::create_dir_all(&temp_dir).with_context(|| {
+        format!(
+            "failed to create temporary App Store key directory {}",
+            temp_dir.display()
+        )
+    })?;
+    let path = temp_dir.join(format!("AuthKey_{key_id}.p8"));
+    fs::write(&path, key_text).with_context(|| {
+        format!(
+            "failed to write temporary App Store key file {}",
+            path.display()
+        )
+    })?;
+    Ok(AppStoreApiKeyFile {
+        path,
+        temp_dir: Some(temp_dir),
+    })
+}
+
+fn app_store_api_key_text() -> Result<String> {
+    let source = app_store_api_key_source()?;
+    if source.contains("-----BEGIN PRIVATE KEY-----") {
+        Ok(source)
+    } else {
+        fs::read_to_string(&source)
+            .with_context(|| format!("failed to read App Store Connect API key from {source}"))
+    }
+}
+
+fn app_store_api_key_source() -> Result<String> {
+    env_value("APP_STORE_CONNECT_API_KEY")
+        .or(decode_base64_env("APP_STORE_CONNECT_API_KEY_BASE64")?)
+        .or_else(|| env_value("APP_STORE_CONNECT_API_KEY_PATH"))
+        .context("APP_STORE_CONNECT_API_KEY, APP_STORE_CONNECT_API_KEY_BASE64, or APP_STORE_CONNECT_API_KEY_PATH is required")
 }
 
 fn app_store_app_id(cfg: &AppStoreConfig, client: &Client, token: &str) -> Result<String> {
@@ -1203,9 +1228,8 @@ fn microsoft_store_access_token(cfg: &MicrosoftStoreConfig, client: &Client) -> 
     let client_id = microsoft_store_client_id(cfg).context(
         "distribution.microsoft_store.client_id, AZURE_CLIENT_ID, or PARTNER_CENTER_CLIENT_ID is required",
     )?;
-    let client_secret = microsoft_store_client_secret().context(
-        "MICROSOFT_STORE_CLIENT_SECRET, PARTNER_CENTER_CLIENT_SECRET, or vault credentials are required",
-    )?;
+    let client_secret = microsoft_store_client_secret()
+        .context("MICROSOFT_STORE_CLIENT_SECRET or PARTNER_CENTER_CLIENT_SECRET is required")?;
     let url = format!("https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token");
     let response = client
         .post(url)
@@ -1223,33 +1247,6 @@ fn microsoft_store_access_token(cfg: &MicrosoftStoreConfig, client: &Client) -> 
         .json()
         .context("failed to parse Microsoft Store access token response")?;
     Ok(token.access_token)
-}
-
-fn run_msstore_reconfigure(cfg: &MicrosoftStoreConfig) -> Result<(String, String)> {
-    let tenant_id = microsoft_store_tenant_id(cfg).context(
-        "distribution.microsoft_store.tenant_id, AZURE_TENANT_ID, or PARTNER_CENTER_TENANT_ID is required for msstore reconfigure",
-    )?;
-    let seller_id = microsoft_store_seller_id(cfg).context(
-        "distribution.microsoft_store.seller_id, MICROSOFT_STORE_SELLER_ID, or PARTNER_CENTER_SELLER_ID is required for msstore reconfigure",
-    )?;
-    let client_id = microsoft_store_client_id(cfg).context(
-        "distribution.microsoft_store.client_id, AZURE_CLIENT_ID, or PARTNER_CENTER_CLIENT_ID is required for msstore reconfigure",
-    )?;
-    let client_secret = microsoft_store_client_secret().context(
-        "MICROSOFT_STORE_CLIENT_SECRET, PARTNER_CENTER_CLIENT_SECRET, or vault credentials are required for msstore reconfigure",
-    )?;
-    let args = vec![
-        "reconfigure".to_string(),
-        "--tenantId".to_string(),
-        tenant_id,
-        "--sellerId".to_string(),
-        seller_id,
-        "--clientId".to_string(),
-        client_id,
-        "--clientSecret".to_string(),
-        client_secret,
-    ];
-    run_msstore(&args, "Microsoft Store Developer CLI reconfigure")
 }
 
 fn run_msstore(args: &[String], operation: &str) -> Result<(String, String)> {
@@ -1495,13 +1492,7 @@ fn microsoft_store_client_id(cfg: &MicrosoftStoreConfig) -> Option<String> {
 }
 
 fn microsoft_store_client_secret() -> Option<String> {
-    env_value("MICROSOFT_STORE_CLIENT_SECRET")
-        .or_else(|| env_value("PARTNER_CENTER_CLIENT_SECRET"))
-        .or_else(|| {
-            credentials::provider_secret(DistributionProvider::MicrosoftStore, &[])
-                .ok()
-                .flatten()
-        })
+    env_value("MICROSOFT_STORE_CLIENT_SECRET").or_else(|| env_value("PARTNER_CENTER_CLIENT_SECRET"))
 }
 
 fn command_line(program: &str, args: &[String]) -> String {
@@ -1542,29 +1533,18 @@ fn artifact_format_check(
     )
 }
 
-fn secret_check(
-    id: &str,
-    env_names: &[&str],
-    provider: DistributionProvider,
-    remediation: &str,
-) -> ReadinessCheck {
+fn secret_check(id: &str, env_names: &[&str], remediation: &str) -> ReadinessCheck {
     let env_name = env_names.iter().find(|name| env::var_os(name).is_some());
-    let vault_present = credentials::provider_secret(provider, &[])
-        .ok()
-        .flatten()
-        .is_some();
     check(
         id,
         CheckSeverity::Error,
-        if env_name.is_some() || vault_present {
+        if env_name.is_some() {
             CheckStatus::Passed
         } else {
             CheckStatus::Missing
         },
         "provider credentials are available",
-        env_name
-            .map(|name| format!("environment variable {name}"))
-            .or_else(|| vault_present.then(|| "Fission release vault".to_string())),
+        env_name.map(|name| format!("environment variable {name}")),
         vec![remediation],
     )
 }
@@ -1607,6 +1587,18 @@ fn looks_like_bearer_token(value: &str) -> bool {
 
 fn env_value(name: &str) -> Option<String> {
     env::var(name).ok().filter(|value| !value.trim().is_empty())
+}
+
+fn decode_base64_env(name: &str) -> Result<Option<String>> {
+    let Some(value) = env_value(name) else {
+        return Ok(None);
+    };
+    let bytes = BASE64_STANDARD
+        .decode(value.trim())
+        .with_context(|| format!("failed to decode base64 environment variable {name}"))?;
+    String::from_utf8(bytes)
+        .map(Some)
+        .with_context(|| format!("base64 environment variable {name} is not valid UTF-8"))
 }
 
 fn env_value_ref(name: &str) -> Option<&'static str> {

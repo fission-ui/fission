@@ -1,7 +1,6 @@
 use anyhow::{bail, Context, Result};
 use clap::ValueEnum;
 use fission_command_core::{DistributionProvider, FissionProject, Target};
-use fission_credentials as credentials;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -17,6 +16,7 @@ mod docker_registry;
 mod files;
 mod github_releases;
 mod package;
+mod publish_shell;
 mod static_hosts;
 mod stores;
 
@@ -108,6 +108,8 @@ pub struct ReadinessOptions {
     pub json: bool,
 }
 
+pub use publish_shell::{run_publish_shell, PublishShellOptions};
+
 #[derive(Debug, Serialize, Deserialize)]
 struct ArtifactManifest {
     schema_version: u32,
@@ -148,7 +150,7 @@ struct ArtifactValidation {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-struct ReadinessCheck {
+pub(crate) struct ReadinessCheck {
     id: String,
     severity: CheckSeverity,
     status: CheckStatus,
@@ -176,7 +178,7 @@ enum CheckStatus {
 }
 
 #[derive(Debug, Serialize)]
-struct ReadinessReport {
+pub(crate) struct ReadinessReport {
     project_dir: String,
     target: Option<String>,
     format: Option<String>,
@@ -278,7 +280,6 @@ struct DropboxConfig {
 struct PlayStoreConfig {
     package_name: Option<String>,
     default_track: Option<String>,
-    service_account: Option<String>,
     release_status: Option<String>,
 }
 
@@ -288,7 +289,6 @@ struct AppStoreConfig {
     bundle_id: Option<String>,
     issuer_id: Option<String>,
     key_id: Option<String>,
-    api_key_path: Option<String>,
     default_track: Option<String>,
 }
 
@@ -304,7 +304,6 @@ struct MicrosoftStoreConfig {
     flight_id: Option<String>,
     package_rollout_percentage: Option<u8>,
     msstore_project: Option<String>,
-    msstore_reconfigure: Option<bool>,
     languages: Option<Vec<String>>,
     architectures: Option<Vec<String>>,
     is_silent_install: Option<bool>,
@@ -692,11 +691,8 @@ fn cloudflare_pages_lifecycle(
             )],
         });
     }
-    let token = credentials::provider_secret(
-        DistributionProvider::CloudflarePages,
-        &["CLOUDFLARE_API_TOKEN"],
-    )?
-    .context("CLOUDFLARE_API_TOKEN or Fission vault credentials are required")?;
+    let token =
+        env_secret(&["CLOUDFLARE_API_TOKEN"])?.context("CLOUDFLARE_API_TOKEN is required")?;
     let url = format!(
         "https://api.cloudflare.com/client/v4/accounts/{account_id}/pages/projects/{project_name}/deployments/{deploy}/rollback"
     );
@@ -1129,11 +1125,8 @@ fn cloudflare_pages_status(
         .project_name
         .as_deref()
         .context("distribution.cloudflare_pages.<site>.project_name is required")?;
-    let token = credentials::provider_secret(
-        DistributionProvider::CloudflarePages,
-        &["CLOUDFLARE_API_TOKEN"],
-    )?
-    .context("CLOUDFLARE_API_TOKEN or Fission vault credentials are required")?;
+    let token =
+        env_secret(&["CLOUDFLARE_API_TOKEN"])?.context("CLOUDFLARE_API_TOKEN is required")?;
     let url = format!(
         "https://api.cloudflare.com/client/v4/accounts/{account_id}/pages/projects/{project_name}/deployments"
     );
@@ -1460,12 +1453,12 @@ fn readiness_package_tools(
                 "Add platforms/android/package-aab.sh once release AAB packaging is configured.",
             ));
             android_packaging_checks(checks);
-            checks.push(check_env_or_tool(
+            checks.push(check_optional_env_or_tool(
                 "release.package.bundletool_available",
                 &["BUNDLETOOL"],
                 &["bundletool"],
-                "Android bundletool is available for AAB validation",
-                "Install bundletool or set BUNDLETOOL to the bundletool jar/path used by the project packaging script.",
+                "Android bundletool is available for optional AAB inspection",
+                "Install bundletool or set BUNDLETOOL if you want local AAB inspection beyond jarsigner verification.",
             ));
         }
         (Target::Ios, PackageFormat::Ipa) => {
@@ -1522,26 +1515,21 @@ fn android_packaging_checks(checks: &mut Vec<ReadinessCheck>) {
         "Android SDK path is configured",
         "Set ANDROID_HOME or ANDROID_SDK_ROOT to the installed Android SDK.",
     ));
-    checks.push(check_any_env(
-        "release.package.android_ndk_configured",
-        &["ANDROID_NDK_HOME", "ANDROID_NDK_ROOT"],
-        "Android NDK path is configured",
-        "Set ANDROID_NDK_HOME or ANDROID_NDK_ROOT to the installed Android NDK used by Rust cross-compilation.",
-    ));
-    checks.push(check_tool(
+    checks.push(check_android_ndk());
+    checks.push(check_android_build_tool(
         "release.package.aapt2_available",
         "aapt2",
-        "Install Android SDK build-tools and ensure aapt2 is on PATH.",
+        "Install Android SDK build-tools; Fission checks PATH and $ANDROID_HOME/build-tools/*.",
     ));
-    checks.push(check_tool(
+    checks.push(check_android_build_tool(
         "release.package.zipalign_available",
         "zipalign",
-        "Install Android SDK build-tools and ensure zipalign is on PATH.",
+        "Install Android SDK build-tools; Fission checks PATH and $ANDROID_HOME/build-tools/*.",
     ));
-    checks.push(check_tool(
+    checks.push(check_android_build_tool(
         "release.package.apksigner_available",
         "apksigner",
-        "Install Android SDK build-tools and ensure apksigner is on PATH.",
+        "Install Android SDK build-tools; Fission checks PATH and $ANDROID_HOME/build-tools/*.",
     ));
 }
 
@@ -1559,7 +1547,7 @@ fn readiness_distribute(
             "release.distribution.artifact_manifest_exists",
             path.to_path_buf(),
             "artifact manifest exists",
-            "Run `fission package --target site --format static --release` first.",
+            "Run `fission package --target <target> --format <format> --release` for the selected publish target first.",
         ));
         if path.exists() {
             let manifest = read_artifact_manifest(path)?;
@@ -1688,20 +1676,14 @@ fn readiness_github_pages(
         checks.push(check(
             "release.github_pages.local_api_token_optional",
             CheckSeverity::Info,
-            if env::var_os("GH_TOKEN").is_some()
-                || env::var_os("GITHUB_TOKEN").is_some()
-                || credentials::provider_secret(DistributionProvider::GithubPages, &[])
-                    .ok()
-                    .flatten()
-                    .is_some()
-            {
+            if env::var_os("GH_TOKEN").is_some() || env::var_os("GITHUB_TOKEN").is_some() {
                 CheckStatus::Passed
             } else {
                 CheckStatus::Skipped
             },
             "GitHub API token is available for local status/domain setup",
             None,
-            vec!["For local Pages status or future domain setup automation, set GH_TOKEN/GITHUB_TOKEN or import a GitHub credential into the Fission vault."],
+            vec!["For local Pages status or future domain setup automation, set GH_TOKEN/GITHUB_TOKEN or authenticate gh with `gh auth login`."],
         ));
     }
     let base = cfg.base_path.as_deref().unwrap_or("/");
@@ -1748,11 +1730,10 @@ fn readiness_cloudflare_pages(
         "Cloudflare Pages project name is configured",
         "Set distribution.cloudflare_pages.<site>.project_name.",
     ));
-    checks.push(required_provider_secret(
+    checks.push(required_provider_env_secret(
         "release.cloudflare_pages.token_available",
-        DistributionProvider::CloudflarePages,
         &["CLOUDFLARE_API_TOKEN"],
-        "Create a Cloudflare API token with Pages Edit permission and store it in CI secrets or the Fission release vault.",
+        "Create a Cloudflare API token with Pages Edit permission and provide it through CI secrets or CLOUDFLARE_API_TOKEN.",
     ));
     checks.push(check_tool(
         "release.cloudflare_pages.wrangler_available",
@@ -1778,11 +1759,10 @@ fn readiness_netlify(
         "Netlify site id is configured",
         "Set distribution.netlify.<site>.site_id or run provider setup after creating a Netlify site.",
     ));
-    checks.push(required_provider_secret(
+    checks.push(required_provider_env_secret(
         "release.netlify.token_available",
-        DistributionProvider::Netlify,
         &["NETLIFY_AUTH_TOKEN"],
-        "Create a Netlify access token and store it in CI secrets, your shell environment, or the Fission release vault.",
+        "Create a Netlify access token and provide it through CI secrets or NETLIFY_AUTH_TOKEN.",
     ));
     checks.push(base_path_check(
         "release.netlify.base_path_root",
@@ -2234,6 +2214,84 @@ fn check(
     }
 }
 
+fn check_android_ndk() -> ReadinessCheck {
+    let env_path = ["ANDROID_NDK", "ANDROID_NDK_HOME", "ANDROID_NDK_ROOT"]
+        .iter()
+        .find_map(|name| {
+            env::var_os(name).map(|value| ((*name).to_string(), PathBuf::from(value)))
+        });
+    let sdk_ndk = env::var_os("ANDROID_HOME")
+        .or_else(|| env::var_os("ANDROID_SDK_ROOT"))
+        .and_then(|sdk| latest_child_dir(PathBuf::from(sdk).join("ndk")));
+    let detail = env_path
+        .as_ref()
+        .map(|(name, path)| format!("environment variable {name}: {}", path.display()))
+        .or_else(|| {
+            sdk_ndk
+                .as_ref()
+                .map(|path| format!("detected {}", path.display()))
+        });
+    check(
+        "release.package.android_ndk_configured",
+        CheckSeverity::Error,
+        if detail.is_some() {
+            CheckStatus::Passed
+        } else {
+            CheckStatus::Missing
+        },
+        "Android NDK path is configured",
+        detail,
+        vec![
+            "Set ANDROID_NDK or install an NDK under $ANDROID_HOME/ndk for Rust cross-compilation.",
+        ],
+    )
+}
+
+fn check_android_build_tool(id: &str, tool: &str, remediation: &str) -> ReadinessCheck {
+    let found = find_in_path(tool).or_else(|| find_android_build_tool(tool));
+    check(
+        id,
+        CheckSeverity::Error,
+        if found.is_some() {
+            CheckStatus::Passed
+        } else {
+            CheckStatus::Missing
+        },
+        format!("{tool} is available"),
+        found.map(|path| path.display().to_string()),
+        vec![remediation],
+    )
+}
+
+fn find_android_build_tool(tool: &str) -> Option<PathBuf> {
+    let sdk = env::var_os("ANDROID_HOME").or_else(|| env::var_os("ANDROID_SDK_ROOT"))?;
+    let build_tools = PathBuf::from(sdk).join("build-tools");
+    let dir = latest_child_dir(build_tools)?;
+    let direct = dir.join(tool);
+    if direct.exists() {
+        return Some(direct);
+    }
+    #[cfg(windows)]
+    {
+        let exe = dir.join(format!("{tool}.exe"));
+        if exe.exists() {
+            return Some(exe);
+        }
+    }
+    None
+}
+
+fn latest_child_dir(root: PathBuf) -> Option<PathBuf> {
+    let mut dirs = fs::read_dir(root)
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        .collect::<Vec<_>>();
+    dirs.sort();
+    dirs.pop()
+}
+
 fn check_path(id: &str, path: PathBuf, summary: &str, remediation: &str) -> ReadinessCheck {
     check(
         id,
@@ -2269,31 +2327,31 @@ fn required_value(
     )
 }
 
-fn required_provider_secret(
-    id: &str,
-    provider: DistributionProvider,
-    env_names: &[&str],
-    remediation: &str,
-) -> ReadinessCheck {
+fn required_provider_env_secret(id: &str, env_names: &[&str], remediation: &str) -> ReadinessCheck {
     let env_name = env_names.iter().find(|name| env::var_os(name).is_some());
-    let vault_present = credentials::provider_secret(provider, &[])
-        .ok()
-        .flatten()
-        .is_some();
     check(
         id,
         CheckSeverity::Error,
-        if env_name.is_some() || vault_present {
+        if env_name.is_some() {
             CheckStatus::Passed
         } else {
             CheckStatus::Missing
         },
         "provider credentials are available",
-        env_name
-            .map(|name| format!("environment variable {name}"))
-            .or_else(|| vault_present.then(|| "Fission release vault".to_string())),
+        env_name.map(|name| format!("environment variable {name}")),
         vec![remediation],
     )
+}
+
+fn env_secret(env_names: &[&str]) -> Result<Option<String>> {
+    for name in env_names {
+        if env::var_os(name).is_some() {
+            return env::var(name)
+                .map(Some)
+                .with_context(|| format!("environment variable {name} is not valid UTF-8"));
+        }
+    }
+    Ok(None)
 }
 
 fn base_path_check(id: &str, base_path: Option<&str>) -> ReadinessCheck {
@@ -2374,12 +2432,12 @@ fn check_any_env(id: &str, names: &[&str], summary: &str, remediation: &str) -> 
             CheckStatus::Missing
         },
         summary,
-        found.map(|name| format!("{name}={}", env::var(name).unwrap_or_default())),
+        found.map(|name| format!("environment variable {name}")),
         vec![remediation],
     )
 }
 
-fn check_env_or_tool(
+fn check_optional_env_or_tool(
     id: &str,
     env_names: &[&str],
     tools: &[&str],
@@ -2392,16 +2450,17 @@ fn check_env_or_tool(
         .find_map(|tool| find_in_path(tool).map(|path| (*tool, path)));
     check(
         id,
-        CheckSeverity::Error,
+        CheckSeverity::Warning,
         if found_env.is_some() || found_tool.is_some() {
             CheckStatus::Passed
         } else {
-            CheckStatus::Missing
+            CheckStatus::Warning
         },
         summary,
         found_env
-            .map(|name| format!("{name}={}", env::var(name).unwrap_or_default()))
-            .or_else(|| found_tool.map(|(tool, path)| format!("{tool}: {}", path.display()))),
+            .map(|name| format!("environment variable {name}"))
+            .or_else(|| found_tool.map(|(tool, path)| format!("{tool}: {}", path.display())))
+            .or_else(|| Some(format!("checked: {}", tools.join(", ")))),
         vec![remediation],
     )
 }

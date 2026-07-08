@@ -1,15 +1,14 @@
 # fission-command-release
 
-Release metadata, signing, beta, review, and authorization workflows for the `fission` command.
+Release metadata, signing, beta, review, and provider-readiness workflows for the `fission` command.
 
 `fission-command-release` contains the release-lifecycle commands that sit around packaging and distribution. It is an implementation crate for the public `fission` executable.
 
 ## What it contains
 
 - Release metadata editing and validation helpers.
-- Signing and credential setup command flows.
+- Signing and provider credential-readiness command flows.
 - Store/provider release preparation, review, beta-track, rollout, and submission workflows.
-- Integration points for secure credential storage through `fission-credentials`.
 
 ## Design notes
 

@@ -17,7 +17,7 @@ The package step should build or prepare the image with the tags configured in [
 
 ## 2. Authenticate with the registry
 
-Use the Docker-compatible registry authentication flow for the target registry. Fission should not store registry passwords in plain text. Use the Docker CLI session, CI secrets, environment references, operating-system key stores, or the Fission credential vault.
+Use the Docker-compatible registry authentication flow for the target registry. Fission does not store registry passwords. Use the Docker CLI session, CI secrets, environment references, or operating-system key stores.
 
 ## 3. Publish tags
 

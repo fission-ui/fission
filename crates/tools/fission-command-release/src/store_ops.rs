@@ -1,5 +1,6 @@
 use super::*;
 use anyhow::{bail, Context, Result};
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use reqwest::blocking::{Client, Response};
 use serde::{Deserialize, Serialize};
@@ -127,7 +128,6 @@ struct AppStoreLocalization {
 #[derive(Clone, Debug, Deserialize, Default)]
 struct PlayStoreConfig {
     package_name: Option<String>,
-    service_account: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -136,7 +136,6 @@ struct AppStoreConfig {
     bundle_id: Option<String>,
     issuer_id: Option<String>,
     key_id: Option<String>,
-    api_key_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2066,10 +2065,9 @@ fn app_store_access_token(cfg: &AppStoreConfig) -> Result<String> {
         .or(cfg.key_id.clone())
         .context("distribution.app_store.key_id or APP_STORE_CONNECT_KEY_ID is required")?;
     let key_source = env_value("APP_STORE_CONNECT_API_KEY")
+        .or(decode_base64_env("APP_STORE_CONNECT_API_KEY_BASE64")?)
         .or_else(|| env_value("APP_STORE_CONNECT_API_KEY_PATH"))
-        .or(cfg.api_key_path.clone())
-        .or_else(|| provider_secret(DistributionProvider::AppStore, &[]).ok().flatten())
-        .context("APP_STORE_CONNECT_API_KEY, APP_STORE_CONNECT_API_KEY_PATH, distribution.app_store.api_key_path, or vault credentials are required")?;
+        .context("APP_STORE_CONNECT_API_KEY, APP_STORE_CONNECT_API_KEY_BASE64, or APP_STORE_CONNECT_API_KEY_PATH is required")?;
     if looks_like_bearer_token(&key_source) {
         return Ok(key_source);
     }
@@ -2280,20 +2278,16 @@ fn play_config(project_dir: &Path) -> Result<PlayStoreConfig> {
         .unwrap_or_default())
 }
 
-fn google_play_access_token(cfg: &PlayStoreConfig, client: &Client) -> Result<String> {
+fn google_play_access_token(_cfg: &PlayStoreConfig, client: &Client) -> Result<String> {
     if let Some(token) = env_value("PLAY_STORE_ACCESS_TOKEN") {
         return Ok(token);
     }
+    let service_account_base64 = decode_base64_env("PLAY_STORE_SERVICE_ACCOUNT_JSON_BASE64")?;
     let secret_source = env_value("PLAY_STORE_SERVICE_ACCOUNT_JSON")
-        .or_else(|| env_value("GOOGLE_APPLICATION_CREDENTIALS"))
-        .or_else(|| cfg.service_account.clone())
-        .or_else(|| {
-            provider_secret(DistributionProvider::PlayStore, &[])
-                .ok()
-                .flatten()
-        });
+        .or(service_account_base64)
+        .or_else(|| env_value("GOOGLE_APPLICATION_CREDENTIALS"));
     let Some(source) = secret_source else {
-        bail!("Google Play credentials are missing; set PLAY_STORE_SERVICE_ACCOUNT_JSON, PLAY_STORE_ACCESS_TOKEN, GOOGLE_APPLICATION_CREDENTIALS, or import play-store credentials")
+        bail!("Google Play credentials are missing; set PLAY_STORE_SERVICE_ACCOUNT_JSON, PLAY_STORE_SERVICE_ACCOUNT_JSON_BASE64, PLAY_STORE_ACCESS_TOKEN, or GOOGLE_APPLICATION_CREDENTIALS")
     };
     if looks_like_bearer_token(&source) {
         return Ok(source);
@@ -2367,6 +2361,18 @@ fn looks_like_bearer_token(value: &str) -> bool {
 
 fn env_value(name: &str) -> Option<String> {
     env::var(name).ok().filter(|value| !value.trim().is_empty())
+}
+
+fn decode_base64_env(name: &str) -> Result<Option<String>> {
+    let Some(value) = env_value(name) else {
+        return Ok(None);
+    };
+    let bytes = BASE64_STANDARD
+        .decode(value.trim())
+        .with_context(|| format!("failed to decode base64 environment variable {name}"))?;
+    String::from_utf8(bytes)
+        .map(Some)
+        .with_context(|| format!("base64 environment variable {name} is not valid UTF-8"))
 }
 
 #[cfg(test)]

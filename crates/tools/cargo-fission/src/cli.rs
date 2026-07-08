@@ -183,12 +183,18 @@ pub(crate) enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Publish a packaged artifact to a configured distribution provider.
+    /// Open the guided local publish flow, or publish an artifact directly when --artifact is supplied.
     Publish {
         /// Distribution provider.
         #[arg(long, value_enum)]
         provider: DistributionProvider,
-        /// Artifact manifest emitted by `fission package`.
+        /// Target to build/package before publishing. Defaults from the provider.
+        #[arg(long, value_enum)]
+        target: Option<Target>,
+        /// Package format to build before publishing. Defaults from the target/provider.
+        #[arg(long, value_enum)]
+        format: Option<package::PackageFormat>,
+        /// Artifact manifest emitted by `fission package`. Supplying this keeps the old direct publish behavior.
         #[arg(long)]
         artifact: Option<PathBuf>,
         /// Named distribution site/profile from fission.toml.
@@ -200,16 +206,22 @@ pub(crate) enum Command {
         /// Provider track/channel/group, such as internal, testflight, or production.
         #[arg(long)]
         track: Option<String>,
+        /// Locale to include in this publish decision. Can be repeated.
+        #[arg(long = "locale")]
+        locales: Vec<String>,
+        /// Open the guided publish flow as a windowed app when available.
+        #[arg(long)]
+        app: bool,
         /// Show what would happen without mutating provider state.
         #[arg(long)]
         dry_run: bool,
-        /// Confirm overwrites or provider-side setup changes.
+        /// Run package, dry-run, and publish without prompts.
         #[arg(long)]
         yes: bool,
         /// Project directory; defaults to the current working directory.
         #[arg(long, default_value = ".")]
         project_dir: PathBuf,
-        /// Emit machine-readable JSON.
+        /// Emit machine-readable JSON for direct artifact publish.
         #[arg(long)]
         json: bool,
     },

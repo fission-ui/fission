@@ -3,7 +3,6 @@ use anyhow::{bail, Context, Result};
 use aws_config::{BehaviorVersion, Region};
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::types::ObjectCannedAcl;
-use fission_credentials as credentials;
 use reqwest::blocking::Client;
 use reqwest::header::{CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, LOCATION};
 use serde_json::{json, Value};
@@ -56,11 +55,8 @@ pub(super) fn publish_google_drive(
     manifest: &ArtifactManifest,
 ) -> Result<DistributionReceipt> {
     let cfg = google_drive_config(config, &options.site)?;
-    let token = credentials::provider_secret(
-        DistributionProvider::GoogleDrive,
-        &["GOOGLE_DRIVE_ACCESS_TOKEN"],
-    )?
-    .context("Google Drive upload requires GOOGLE_DRIVE_ACCESS_TOKEN or a stored google-drive credential")?;
+    let token = env_secret(&["GOOGLE_DRIVE_ACCESS_TOKEN"])?
+        .context("Google Drive upload requires GOOGLE_DRIVE_ACCESS_TOKEN")?;
     let client = Client::new();
     let mut uploaded = Vec::new();
     for item in upload_items(manifest, artifact_path)? {
@@ -83,11 +79,8 @@ pub(super) fn publish_onedrive(
     manifest: &ArtifactManifest,
 ) -> Result<DistributionReceipt> {
     let cfg = onedrive_config(config, &options.site)?;
-    let token =
-        credentials::provider_secret(DistributionProvider::OneDrive, &["ONEDRIVE_ACCESS_TOKEN"])?
-            .context(
-            "OneDrive upload requires ONEDRIVE_ACCESS_TOKEN or a stored onedrive credential",
-        )?;
+    let token = env_secret(&["ONEDRIVE_ACCESS_TOKEN"])?
+        .context("OneDrive upload requires ONEDRIVE_ACCESS_TOKEN")?;
     let client = Client::new();
     let mut uploaded = Vec::new();
     for item in upload_items(manifest, artifact_path)? {
@@ -110,11 +103,8 @@ pub(super) fn publish_dropbox(
     manifest: &ArtifactManifest,
 ) -> Result<DistributionReceipt> {
     let cfg = dropbox_config(config, &options.site)?;
-    let token =
-        credentials::provider_secret(DistributionProvider::Dropbox, &["DROPBOX_ACCESS_TOKEN"])?
-            .context(
-                "Dropbox upload requires DROPBOX_ACCESS_TOKEN or a stored dropbox credential",
-            )?;
+    let token = env_secret(&["DROPBOX_ACCESS_TOKEN"])?
+        .context("Dropbox upload requires DROPBOX_ACCESS_TOKEN")?;
     let client = Client::new();
     let mut uploaded = Vec::new();
     for item in upload_items(manifest, artifact_path)? {
@@ -154,11 +144,8 @@ pub(super) fn google_drive_status(
     config: &PublishManifest,
 ) -> Result<DistributionReceipt> {
     let cfg = google_drive_config(config, &options.site)?;
-    let token = credentials::provider_secret(
-        DistributionProvider::GoogleDrive,
-        &["GOOGLE_DRIVE_ACCESS_TOKEN"],
-    )?
-    .context("Google Drive status requires GOOGLE_DRIVE_ACCESS_TOKEN or a stored google-drive credential")?;
+    let token = env_secret(&["GOOGLE_DRIVE_ACCESS_TOKEN"])?
+        .context("Google Drive status requires GOOGLE_DRIVE_ACCESS_TOKEN")?;
     let client = Client::new();
     let value = if let Some(folder_id) = cfg.folder_id.as_deref().filter(|value| !value.is_empty())
     {
@@ -193,11 +180,8 @@ pub(super) fn onedrive_status(
     config: &PublishManifest,
 ) -> Result<DistributionReceipt> {
     let cfg = onedrive_config(config, &options.site)?;
-    let token =
-        credentials::provider_secret(DistributionProvider::OneDrive, &["ONEDRIVE_ACCESS_TOKEN"])?
-            .context(
-            "OneDrive status requires ONEDRIVE_ACCESS_TOKEN or a stored onedrive credential",
-        )?;
+    let token = env_secret(&["ONEDRIVE_ACCESS_TOKEN"])?
+        .context("OneDrive status requires ONEDRIVE_ACCESS_TOKEN")?;
     let root = cfg
         .root
         .as_deref()
@@ -237,11 +221,8 @@ pub(super) fn dropbox_status(
     options: &DistributeOptions,
     _config: &PublishManifest,
 ) -> Result<DistributionReceipt> {
-    let token =
-        credentials::provider_secret(DistributionProvider::Dropbox, &["DROPBOX_ACCESS_TOKEN"])?
-            .context(
-                "Dropbox status requires DROPBOX_ACCESS_TOKEN or a stored dropbox credential",
-            )?;
+    let token = env_secret(&["DROPBOX_ACCESS_TOKEN"])?
+        .context("Dropbox status requires DROPBOX_ACCESS_TOKEN")?;
     let response = Client::new()
         .post("https://api.dropboxapi.com/2/users/get_current_account")
         .bearer_auth(token.trim())
@@ -265,10 +246,9 @@ pub(super) fn readiness_s3(
     ));
     checks.push(secret_check(
         "release.s3.credentials_available",
-        DistributionProvider::S3,
-        &["AWS_PROFILE", "AWS_ACCESS_KEY_ID"],
+        &["AWS_PROFILE", "AWS_ACCESS_KEY_ID", "AWS_WEB_IDENTITY_TOKEN_FILE"],
         "AWS/S3 credentials are available",
-        "Set AWS_PROFILE, AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, or import S3 credentials into the Fission vault.",
+        "Set AWS_PROFILE, AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, or AWS_WEB_IDENTITY_TOKEN_FILE from your shell or CI secret store.",
     ));
     checks.push(check(
         "release.s3.direct_rust_backend",
@@ -297,10 +277,9 @@ pub(super) fn readiness_google_drive(
     let cfg = google_drive_config(config, site)?;
     checks.push(secret_check(
         "release.google_drive.token_available",
-        DistributionProvider::GoogleDrive,
         &["GOOGLE_DRIVE_ACCESS_TOKEN"],
         "Google Drive OAuth token is available",
-        "Run `fission auth import google-drive --from env:GOOGLE_DRIVE_ACCESS_TOKEN --yes` or set GOOGLE_DRIVE_ACCESS_TOKEN in CI.",
+        "Set GOOGLE_DRIVE_ACCESS_TOKEN from your shell or CI secret store.",
     ));
     checks.push(check(
         "release.google_drive.folder_selected",
@@ -324,10 +303,9 @@ pub(super) fn readiness_onedrive(
     let cfg = onedrive_config(config, site)?;
     checks.push(secret_check(
         "release.onedrive.token_available",
-        DistributionProvider::OneDrive,
         &["ONEDRIVE_ACCESS_TOKEN"],
         "OneDrive OAuth token is available",
-        "Run `fission auth import onedrive --from env:ONEDRIVE_ACCESS_TOKEN --yes` or set ONEDRIVE_ACCESS_TOKEN in CI.",
+        "Set ONEDRIVE_ACCESS_TOKEN from your shell or CI secret store.",
     ));
     checks.push(check(
         "release.onedrive.path_selected",
@@ -351,10 +329,9 @@ pub(super) fn readiness_dropbox(
     let cfg = dropbox_config(config, site)?;
     checks.push(secret_check(
         "release.dropbox.token_available",
-        DistributionProvider::Dropbox,
         &["DROPBOX_ACCESS_TOKEN"],
         "Dropbox OAuth token is available",
-        "Run `fission auth import dropbox --from env:DROPBOX_ACCESS_TOKEN --yes` or set DROPBOX_ACCESS_TOKEN in CI.",
+        "Set DROPBOX_ACCESS_TOKEN from your shell or CI secret store.",
     ));
     checks.push(check(
         "release.dropbox.path_selected",
@@ -842,32 +819,20 @@ fn upload_items(manifest: &ArtifactManifest, artifact_path: &Path) -> Result<Vec
     Ok(items)
 }
 
-fn secret_check(
-    id: &str,
-    provider: DistributionProvider,
-    env_names: &[&str],
-    summary: &str,
-    remediation: &str,
-) -> ReadinessCheck {
+fn secret_check(id: &str, env_names: &[&str], summary: &str, remediation: &str) -> ReadinessCheck {
     let found_env = env_names
         .iter()
         .find(|name| std::env::var_os(name).is_some());
-    let found_secret = credentials::provider_secret(provider, env_names)
-        .ok()
-        .flatten()
-        .is_some();
     check(
         id,
         CheckSeverity::Error,
-        if found_env.is_some() || found_secret {
+        if found_env.is_some() {
             CheckStatus::Passed
         } else {
             CheckStatus::Missing
         },
         summary,
-        found_env
-            .map(|name| format!("environment: {name}"))
-            .or_else(|| found_secret.then(|| "vault credential".to_string())),
+        found_env.map(|name| format!("environment variable {name}")),
         vec![remediation],
     )
 }

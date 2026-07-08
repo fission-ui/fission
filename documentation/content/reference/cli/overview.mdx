@@ -385,10 +385,16 @@ Packages an app or site into a release artifact manifest. Current relevant pairs
 ### `fission publish`
 
 ```sh
+# Guided local release cockpit. Defaults target/format from the provider.
+fission publish --provider <provider> [--target <target>] [--format <format>] [--track <track>] [--locale <locale>] [--app]
+
+# Direct artifact publish for scripts and CI.
 fission publish --provider <provider> --artifact <artifact-manifest.json> [--site <profile>] [--track <track>] [--dry-run] [--yes]
 ```
 
-Publishes a packaged artifact to the selected provider. `fission distribute publish ...` is still available, but `publish` is the direct command developers should reach for in normal release workflows.
+Without `--artifact`, `fission publish` opens the guided local publish flow. It shows preflight checks, creates/uses `~/.fission/<app-name>/release.env`, helps select or generate signing/provider files, builds the artifact, runs a dry-run, and then asks for explicit confirmation before publishing. Secrets are loaded from the local workspace or environment and are never written to `fission.toml`.
+
+With `--artifact`, `fission publish` keeps the direct non-interactive behavior for scripts and CI. `fission distribute publish ...` is still available, but `publish` is the direct command developers should reach for in normal release workflows.
 
 ## Static site workflow
 

@@ -166,26 +166,57 @@ where
         }),
         Command::Publish {
             provider,
+            target,
+            format,
             artifact,
             site,
             deploy,
             track,
+            locales,
+            app,
             dry_run,
             yes,
             project_dir,
             json,
-        } => fission_command_package::distribute(fission_command_package::DistributeOptions {
-            project_dir,
-            provider,
-            action: fission_command_package::DistributeAction::Publish,
-            artifact,
-            site,
-            deploy,
-            track,
-            dry_run,
-            yes,
-            json,
-        }),
+        } => {
+            if artifact.is_some()
+                && target.is_none()
+                && format.is_none()
+                && locales.is_empty()
+                && !app
+            {
+                fission_command_package::distribute(fission_command_package::DistributeOptions {
+                    project_dir,
+                    provider,
+                    action: fission_command_package::DistributeAction::Publish,
+                    artifact,
+                    site,
+                    deploy,
+                    track,
+                    dry_run,
+                    yes,
+                    json,
+                })
+            } else {
+                fission_command_package::run_publish_shell(
+                    fission_command_package::PublishShellOptions {
+                        project_dir,
+                        provider,
+                        target,
+                        format,
+                        artifact,
+                        site,
+                        deploy,
+                        track,
+                        locales,
+                        dry_run,
+                        yes,
+                        json,
+                        app,
+                    },
+                )
+            }
+        }
         Command::Readiness {
             kind,
             target,

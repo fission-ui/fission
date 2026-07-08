@@ -686,12 +686,8 @@ fn microsoft_store_access_token(cfg: &MicrosoftStoreConfig, client: &Client) -> 
         .or(cfg.client_id.clone())
         .context("distribution.microsoft_store.client_id or AZURE_CLIENT_ID is required")?;
     let client_secret = env_value("MICROSOFT_STORE_CLIENT_SECRET")
-        .or_else(|| {
-            provider_secret(DistributionProvider::MicrosoftStore, &[])
-                .ok()
-                .flatten()
-        })
-        .context("MICROSOFT_STORE_CLIENT_SECRET or vault credentials are required")?;
+        .or_else(|| env_value("PARTNER_CENTER_CLIENT_SECRET"))
+        .context("MICROSOFT_STORE_CLIENT_SECRET or PARTNER_CENTER_CLIENT_SECRET is required")?;
     let url = format!("https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token");
     let response = client
         .post(url)

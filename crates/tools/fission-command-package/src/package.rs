@@ -1,5 +1,6 @@
 use super::*;
 use anyhow::{bail, Context, Result};
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use fission_command_core::{
     cargo_package_name, normalized_extension, read_project_config, resolve_app_icon,
     sync_platform_config, FissionProject, PlatformCapability, Target,
@@ -1774,8 +1775,7 @@ fn notarize_macos_artifact_if_configured(
     if !macos.notarize.unwrap_or(false) {
         return Ok(());
     }
-    let key = env::var("APP_STORE_CONNECT_API_KEY_PATH")
-        .context("APP_STORE_CONNECT_API_KEY_PATH is required when package.macos.notarize = true")?;
+    let key_file = app_store_connect_key_file_for_notarization()?;
     let key_id = env::var("APP_STORE_CONNECT_KEY_ID")
         .context("APP_STORE_CONNECT_KEY_ID is required when package.macos.notarize = true")?;
     let issuer = env::var("APP_STORE_CONNECT_ISSUER_ID")
@@ -1786,7 +1786,7 @@ fn notarize_macos_artifact_if_configured(
             "submit",
             artifact.to_string_lossy().as_ref(),
             "--key",
-            &key,
+            key_file.path.to_string_lossy().as_ref(),
             "--key-id",
             &key_id,
             "--issuer",
@@ -1807,6 +1807,68 @@ fn notarize_macos_artifact_if_configured(
         bail!("stapler failed with {staple}");
     }
     Ok(())
+}
+
+struct TemporarySecretFile {
+    path: PathBuf,
+    temp_dir: Option<PathBuf>,
+}
+
+impl Drop for TemporarySecretFile {
+    fn drop(&mut self) {
+        if let Some(dir) = self.temp_dir.take() {
+            let _ = fs::remove_dir_all(dir);
+        }
+    }
+}
+
+fn app_store_connect_key_file_for_notarization() -> Result<TemporarySecretFile> {
+    if let Some(path) = env::var_os("APP_STORE_CONNECT_API_KEY_PATH") {
+        return Ok(TemporarySecretFile {
+            path: PathBuf::from(path),
+            temp_dir: None,
+        });
+    }
+    let key_text = if let Some(raw) = env::var("APP_STORE_CONNECT_API_KEY")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+    {
+        raw
+    } else if let Some(encoded) = env::var("APP_STORE_CONNECT_API_KEY_BASE64")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+    {
+        let bytes = BASE64_STANDARD
+            .decode(encoded.trim())
+            .context("failed to decode APP_STORE_CONNECT_API_KEY_BASE64")?;
+        String::from_utf8(bytes).context("APP_STORE_CONNECT_API_KEY_BASE64 is not valid UTF-8")?
+    } else {
+        bail!("APP_STORE_CONNECT_API_KEY_PATH, APP_STORE_CONNECT_API_KEY, or APP_STORE_CONNECT_API_KEY_BASE64 is required when package.macos.notarize = true")
+    };
+    let key_id = env::var("APP_STORE_CONNECT_KEY_ID")
+        .context("APP_STORE_CONNECT_KEY_ID is required when package.macos.notarize = true")?;
+    let temp_dir = env::temp_dir().join(format!(
+        "fission-notary-key-{}-{}",
+        std::process::id(),
+        now_unix_seconds()
+    ));
+    fs::create_dir_all(&temp_dir).with_context(|| {
+        format!(
+            "failed to create temporary App Store key directory {}",
+            temp_dir.display()
+        )
+    })?;
+    let path = temp_dir.join(format!("AuthKey_{key_id}.p8"));
+    fs::write(&path, key_text).with_context(|| {
+        format!(
+            "failed to write temporary App Store key file {}",
+            path.display()
+        )
+    })?;
+    Ok(TemporarySecretFile {
+        path,
+        temp_dir: Some(temp_dir),
+    })
 }
 
 fn write_linux_run(

@@ -2064,6 +2064,15 @@ fn render_android_app_build_gradle(project: &FissionProject) -> String {
     id("com.android.application")
 }}
 
+val releaseKeystore = System.getenv("ANDROID_KEYSTORE")
+val releaseStorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+val releaseKeyAlias = System.getenv("ANDROID_KEYSTORE_ALIAS") ?: "upload"
+val releaseKeyPassword = System.getenv("ANDROID_KEY_PASSWORD") ?: releaseStorePassword
+val hasReleaseSigning = !releaseKeystore.isNullOrBlank() &&
+    !releaseStorePassword.isNullOrBlank() &&
+    !releaseKeyAlias.isNullOrBlank() &&
+    !releaseKeyPassword.isNullOrBlank()
+
 android {{
     namespace = "{app_id}"
     compileSdk = (System.getenv("ANDROID_TARGET_API_LEVEL") ?: "35").toInt()
@@ -2082,6 +2091,29 @@ android {{
             java.srcDirs("../java")
             res.srcDirs("../res", "src/main/res")
             jniLibs.srcDirs("src/main/jniLibs")
+        }}
+    }}
+
+    signingConfigs {{
+        create("release") {{
+            if (hasReleaseSigning) {{
+                storeFile = file(releaseKeystore!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }}
+        }}
+    }}
+
+    buildTypes {{
+        getByName("debug") {{
+            isDebuggable = true
+        }}
+        getByName("release") {{
+            isDebuggable = false
+            if (hasReleaseSigning) {{
+                signingConfig = signingConfigs.getByName("release")
+            }}
         }}
     }}
 }}
@@ -3002,7 +3034,6 @@ fn render_android_manifest(project: &FissionProject) -> String {
         android:targetSdkVersion="35" />
 
     <application
-        android:debuggable="true"
         android:extractNativeLibs="true"
         android:hasCode="true"
         android:icon="@drawable/app_icon"
@@ -3480,6 +3511,48 @@ if [[ "$PROFILE" == "release" ]]; then
   ARTIFACT_DIR=release
   GRADLE_VARIANT=Release
   GRADLE_OUTPUT_DIR=release
+fi
+
+SIGNING_TEMP_DIR=""
+cleanup_android_signing_temp() {{
+  if [[ -n "$SIGNING_TEMP_DIR" ]]; then
+    rm -rf "$SIGNING_TEMP_DIR"
+  fi
+}}
+trap cleanup_android_signing_temp EXIT
+
+if [[ "$PROFILE" == "release" ]]; then
+  if [[ -z "${{ANDROID_KEYSTORE:-}}" && -n "${{ANDROID_KEYSTORE_BASE64:-}}" ]]; then
+    SIGNING_TEMP_DIR=$(mktemp -d)
+    ANDROID_KEYSTORE="$SIGNING_TEMP_DIR/upload.jks"
+    export ANDROID_KEYSTORE
+    python3 - "$ANDROID_KEYSTORE" <<'PY'
+import base64
+import os
+import sys
+
+out_path = sys.argv[1]
+raw = os.environ["ANDROID_KEYSTORE_BASE64"]
+with open(out_path, "wb") as handle:
+    handle.write(base64.b64decode(raw))
+PY
+  fi
+  if [[ -z "${{ANDROID_KEYSTORE:-}}" ]]; then
+    printf 'Release Android builds require ANDROID_KEYSTORE or ANDROID_KEYSTORE_BASE64 from a secret source.\n' >&2
+    exit 1
+  fi
+  if [[ -z "${{ANDROID_KEYSTORE_PASSWORD:-}}" ]]; then
+    printf 'Release Android builds require ANDROID_KEYSTORE_PASSWORD from a secret source.\n' >&2
+    exit 1
+  fi
+  if [[ -z "${{ANDROID_KEYSTORE_ALIAS:-}}" ]]; then
+    ANDROID_KEYSTORE_ALIAS=upload
+    export ANDROID_KEYSTORE_ALIAS
+  fi
+  if [[ -z "${{ANDROID_KEY_PASSWORD:-}}" ]]; then
+    ANDROID_KEY_PASSWORD="$ANDROID_KEYSTORE_PASSWORD"
+    export ANDROID_KEY_PASSWORD
+  fi
 fi
 
 cargo "${{BUILD_ARGS[@]}}"

@@ -45,7 +45,7 @@ fission release-content validate --project-dir . --provider play-store
 fission package --project-dir . --target ios --format ipa --release
 ```
 
-iOS packaging depends on Apple tooling and signing configuration. Keep credentials in the platform toolchain, CI secrets, the operating-system key store, or the Fission credential vault. Do not put private signing material directly into [`fission.toml`](/reference/config/fission-toml/).
+iOS packaging depends on Apple tooling and signing configuration. Keep credentials in the platform toolchain, CI secrets, environment variables, or the operating-system key store. Do not put private signing material directly into [`fission.toml`](/reference/config/fission-toml/).
 
 ## 5. Verify on the host
 

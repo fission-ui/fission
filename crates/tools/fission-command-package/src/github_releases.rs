@@ -1,6 +1,5 @@
 use super::*;
 use anyhow::{bail, Context, Result};
-use fission_credentials as credentials;
 use serde_json::{json, Value};
 use std::env;
 use std::fs;
@@ -84,8 +83,10 @@ pub(super) fn readiness(
             CheckStatus::Missing
         },
         "GitHub CLI authentication is available",
-        Some("gh auth status, GH_TOKEN/GITHUB_TOKEN, or Fission vault credential".to_string()),
-        vec!["Run `gh auth login`, set GH_TOKEN/GITHUB_TOKEN, or import github-releases credentials into the Fission vault."],
+        Some("gh auth status or GH_TOKEN/GITHUB_TOKEN".to_string()),
+        vec![
+            "Run `gh auth login` or set GH_TOKEN/GITHUB_TOKEN from your shell or CI secret store.",
+        ],
     ));
     checks.push(check(
         "release.github_releases.replace_assets_explicit",
@@ -453,10 +454,6 @@ fn require_gh_authenticated(project_dir: &Path) -> Result<()> {
 fn gh_auth_available(project_dir: &Path) -> bool {
     env::var_os("GH_TOKEN").is_some()
         || env::var_os("GITHUB_TOKEN").is_some()
-        || credentials::provider_secret(DistributionProvider::GithubReleases, &[])
-            .ok()
-            .flatten()
-            .is_some()
         || run_gh(project_dir, &["auth", "status"]).is_ok()
 }
 
@@ -472,7 +469,6 @@ fn run_gh_owned(project_dir: &Path, args: &[String]) -> Result<Output> {
     let output = Command::new("gh")
         .args(args)
         .current_dir(project_dir)
-        .envs(gh_env())
         .output()
         .with_context(|| {
             "failed to run gh; install GitHub CLI and authenticate with `gh auth login`"
@@ -487,18 +483,6 @@ fn run_gh_owned(project_dir: &Path, args: &[String]) -> Result<Output> {
             String::from_utf8_lossy(&output.stderr).trim()
         )
     }
-}
-
-fn gh_env() -> Vec<(&'static str, String)> {
-    let mut envs = Vec::new();
-    if env::var_os("GH_TOKEN").is_none() && env::var_os("GITHUB_TOKEN").is_none() {
-        if let Ok(Some(token)) =
-            credentials::provider_secret(DistributionProvider::GithubReleases, &[])
-        {
-            envs.push(("GH_TOKEN", token));
-        }
-    }
-    envs
 }
 
 fn is_not_found_error(error: &anyhow::Error) -> bool {

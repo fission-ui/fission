@@ -55,20 +55,6 @@ detect_latest_android_api() {
     | tail -1
 }
 
-detect_build_tools_dir() {
-  if [[ -n "${ANDROID_BUILD_TOOLS:-}" ]]; then
-    if [[ -d "$ANDROID_BUILD_TOOLS" ]]; then
-      printf '%s\n' "$ANDROID_BUILD_TOOLS"
-      return
-    fi
-    if [[ -d "$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS" ]]; then
-      printf '%s\n' "$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS"
-      return
-    fi
-  fi
-  find "$ANDROID_HOME/build-tools" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | sort -V | tail -1
-}
-
 ANDROID_TARGET_API_LEVEL="${ANDROID_TARGET_API_LEVEL:-$(detect_latest_android_api)}"
 if [[ -z "$ANDROID_TARGET_API_LEVEL" ]]; then
   printf 'No Android platform found under %s/platforms. Install one with sdkmanager "platforms;android-35" or newer.\n' "$ANDROID_HOME" >&2
@@ -84,32 +70,69 @@ CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="${CARGO_TARGET_AARCH64_LINUX_ANDROID_AR:-
 export ANDROID_HOME ANDROID_NDK ANDROID_MIN_API_LEVEL ANDROID_TARGET_API_LEVEL ANDROID_TOOLCHAIN CC_aarch64_linux_android AR_aarch64_linux_android
 export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER CARGO_TARGET_AARCH64_LINUX_ANDROID_AR
 
-BUILD_TOOLS=$(detect_build_tools_dir)
-if [[ -z "$BUILD_TOOLS" || ! -d "$BUILD_TOOLS" ]]; then
-  printf 'Android build-tools not found. Install them with sdkmanager "build-tools;35.0.0" or set ANDROID_BUILD_TOOLS.\n' >&2
-  exit 1
-fi
-ANDROID_JAR="$ANDROID_HOME/platforms/android-$ANDROID_TARGET_API_LEVEL/android.jar"
-if [[ ! -f "$ANDROID_JAR" ]]; then
-  printf 'Android platform android-%s not found. Install it with sdkmanager "platforms;android-%s" or set ANDROID_TARGET_API_LEVEL.\n' "$ANDROID_TARGET_API_LEVEL" "$ANDROID_TARGET_API_LEVEL" >&2
-  exit 1
-fi
-AAPT="$BUILD_TOOLS/aapt"
-D8="$BUILD_TOOLS/d8"
-ZIPALIGN="$BUILD_TOOLS/zipalign"
-APKSIGNER="$BUILD_TOOLS/apksigner"
-for tool in "$AAPT" "$ZIPALIGN" "$APKSIGNER"; do
-  if [[ ! -x "$tool" ]]; then
-    printf 'Required Android build tool is missing or not executable: %s\n' "$tool" >&2
+if [[ -n "${FISSION_GRADLE:-}" ]]; then
+  read -r -a GRADLE_CMD <<< "$FISSION_GRADLE"
+elif [[ -x "$SCRIPT_DIR/gradlew" ]]; then
+  GRADLE_CMD=("$SCRIPT_DIR/gradlew")
+else
+  if ! command -v gradle >/dev/null 2>&1; then
+    printf 'Gradle is required for the generated Android project shell. Install Gradle or add a wrapper under %s.\n' "$SCRIPT_DIR" >&2
     exit 1
   fi
-done
+  GRADLE_CMD=(gradle)
+fi
 
 BUILD_ARGS=(build --manifest-path "$PROJECT_DIR/Cargo.toml" --lib --target "$TARGET" --package "$PACKAGE_NAME")
 ARTIFACT_DIR=debug
+GRADLE_VARIANT=Debug
+GRADLE_OUTPUT_DIR=debug
 if [[ "$PROFILE" == "release" ]]; then
   BUILD_ARGS+=(--release)
   ARTIFACT_DIR=release
+  GRADLE_VARIANT=Release
+  GRADLE_OUTPUT_DIR=release
+fi
+
+SIGNING_TEMP_DIR=""
+cleanup_android_signing_temp() {
+  if [[ -n "$SIGNING_TEMP_DIR" ]]; then
+    rm -rf "$SIGNING_TEMP_DIR"
+  fi
+}
+trap cleanup_android_signing_temp EXIT
+
+if [[ "$PROFILE" == "release" ]]; then
+  if [[ -z "${ANDROID_KEYSTORE:-}" && -n "${ANDROID_KEYSTORE_BASE64:-}" ]]; then
+    SIGNING_TEMP_DIR=$(mktemp -d)
+    ANDROID_KEYSTORE="$SIGNING_TEMP_DIR/upload.jks"
+    export ANDROID_KEYSTORE
+    python3 - "$ANDROID_KEYSTORE" <<'PYBASE64'
+import base64
+import os
+import sys
+
+out_path = sys.argv[1]
+raw = os.environ["ANDROID_KEYSTORE_BASE64"]
+with open(out_path, "wb") as handle:
+    handle.write(base64.b64decode(raw))
+PYBASE64
+  fi
+  if [[ -z "${ANDROID_KEYSTORE:-}" ]]; then
+    printf 'Release Android builds require ANDROID_KEYSTORE or ANDROID_KEYSTORE_BASE64 from a secret source.\n' >&2
+    exit 1
+  fi
+  if [[ -z "${ANDROID_KEYSTORE_PASSWORD:-}" ]]; then
+    printf 'Release Android builds require ANDROID_KEYSTORE_PASSWORD from a secret source.\n' >&2
+    exit 1
+  fi
+  if [[ -z "${ANDROID_KEYSTORE_ALIAS:-}" ]]; then
+    ANDROID_KEYSTORE_ALIAS=upload
+    export ANDROID_KEYSTORE_ALIAS
+  fi
+  if [[ -z "${ANDROID_KEY_PASSWORD:-}" ]]; then
+    ANDROID_KEY_PASSWORD="$ANDROID_KEYSTORE_PASSWORD"
+    export ANDROID_KEY_PASSWORD
+  fi
 fi
 
 cargo "${BUILD_ARGS[@]}"
@@ -129,89 +152,28 @@ PY
 )
 
 SO_PATH="$TARGET_DIR/$TARGET/$ARTIFACT_DIR/lib$LIB_NAME.so"
-BUILD_DIR="$SCRIPT_DIR/build/$PROFILE"
-APK_ROOT="$BUILD_DIR/apk-root"
-UNALIGNED_APK="$BUILD_DIR/$PACKAGE_NAME-unaligned.apk"
-ALIGNED_APK="$BUILD_DIR/$PACKAGE_NAME-aligned.apk"
-SIGNED_APK="$BUILD_DIR/$PACKAGE_NAME.apk"
-KEYSTORE="${ANDROID_DEBUG_KEYSTORE:-$HOME/.android/debug.keystore}"
-
-rm -rf "$APK_ROOT"
-mkdir -p "$APK_ROOT/lib/arm64-v8a" "$APK_ROOT/res/drawable-nodpi" "$BUILD_DIR"
-cp "$SO_PATH" "$APK_ROOT/lib/arm64-v8a/lib$LIB_NAME.so"
-cp "$PROJECT_DIR/assets/app-icon.png" "$APK_ROOT/res/drawable-nodpi/app_icon.png"
+JNI_DIR="$SCRIPT_DIR/app/src/main/jniLibs/arm64-v8a"
+GENERATED_RES_DIR="$SCRIPT_DIR/app/src/main/res/drawable-nodpi"
+mkdir -p "$JNI_DIR" "$GENERATED_RES_DIR"
+cp "$SO_PATH" "$JNI_DIR/lib$LIB_NAME.so"
+shopt -s nullglob
+APP_ICONS=("$SCRIPT_DIR"/res/drawable-nodpi/app_icon.* "$SCRIPT_DIR"/res/drawable/app_icon.*)
+if (( ${#APP_ICONS[@]} == 0 )); then
+  cp "$PROJECT_DIR/assets/app-icon.png" "$GENERATED_RES_DIR/app_icon.png"
+fi
+shopt -u nullglob
 shopt -s nullglob
 SPLASH_IMAGES=("$SCRIPT_DIR"/res/drawable-nodpi/fission_splash_image.*)
 if (( ${#SPLASH_IMAGES[@]} == 0 )); then
-  cp "$PROJECT_DIR/assets/app-icon.png" "$APK_ROOT/res/drawable-nodpi/fission_splash_image.png"
+  cp "$PROJECT_DIR/assets/app-icon.png" "$GENERATED_RES_DIR/fission_splash_image.png"
 fi
 shopt -u nullglob
-if [[ -d "$SCRIPT_DIR/res" ]]; then
-  mkdir -p "$APK_ROOT/res"
-  cp -R "$SCRIPT_DIR/res/." "$APK_ROOT/res/"
+
+"${GRADLE_CMD[@]}" -p "$SCRIPT_DIR" ":app:assemble$GRADLE_VARIANT"
+
+APK="$SCRIPT_DIR/app/build/outputs/apk/$GRADLE_OUTPUT_DIR/app-$GRADLE_OUTPUT_DIR.apk"
+if [[ ! -f "$APK" ]]; then
+  printf 'Gradle did not produce the expected APK: %s\n' "$APK" >&2
+  exit 1
 fi
-
-JAVA_SRC_DIR="$SCRIPT_DIR/java"
-if [[ -d "$JAVA_SRC_DIR" ]] && find "$JAVA_SRC_DIR" -name '*.java' -print -quit | grep -q .; then
-  if ! command -v javac >/dev/null 2>&1; then
-    printf 'Java compiler not found. Install a JDK or remove Android Java capability helpers under %s.\n' "$JAVA_SRC_DIR" >&2
-    exit 1
-  fi
-  if [[ ! -x "$D8" ]]; then
-    printf 'Required Android dexer is missing or not executable: %s\n' "$D8" >&2
-    exit 1
-  fi
-  CLASSES_DIR="$BUILD_DIR/java-classes"
-  DEX_DIR="$BUILD_DIR/dex"
-  rm -rf "$CLASSES_DIR" "$DEX_DIR"
-  mkdir -p "$CLASSES_DIR" "$DEX_DIR"
-  mapfile -t JAVA_SOURCES < <(find "$JAVA_SRC_DIR" -name '*.java' | sort)
-  javac -encoding UTF-8 -source 11 -target 11 -classpath "$ANDROID_JAR" -d "$CLASSES_DIR" "${JAVA_SOURCES[@]}"
-  mapfile -t CLASS_FILES < <(find "$CLASSES_DIR" -name '*.class' | sort)
-  "$D8" --classpath "$ANDROID_JAR" --min-api "$ANDROID_MIN_API_LEVEL" --output "$DEX_DIR" "${CLASS_FILES[@]}"
-  cp "$DEX_DIR/classes.dex" "$APK_ROOT/classes.dex"
-fi
-
-BUILD_MANIFEST="$BUILD_DIR/AndroidManifest.xml"
-python3 - <<'PY' "$SCRIPT_DIR/AndroidManifest.xml" "$BUILD_MANIFEST" "$ANDROID_MIN_API_LEVEL" "$ANDROID_TARGET_API_LEVEL"
-import pathlib
-import re
-import sys
-
-source, dest, min_api, target_api = sys.argv[1:]
-manifest = open(source, encoding="utf-8").read()
-manifest = re.sub(r'android:minSdkVersion="\d+"', f'android:minSdkVersion="{min_api}"', manifest)
-manifest = re.sub(r'android:targetSdkVersion="\d+"', f'android:targetSdkVersion="{target_api}"', manifest)
-has_code = "true" if pathlib.Path(dest).with_name("apk-root").joinpath("classes.dex").exists() else "false"
-manifest = re.sub(r'android:hasCode="(?:true|false)"', f'android:hasCode="{has_code}"', manifest)
-open(dest, "w", encoding="utf-8").write(manifest)
-PY
-
-"$AAPT" package -f -F "$UNALIGNED_APK" -M "$BUILD_MANIFEST" -S "$APK_ROOT/res" -I "$ANDROID_JAR"
-(cd "$APK_ROOT" && zip -qr "$UNALIGNED_APK" lib)
-if [[ -f "$APK_ROOT/classes.dex" ]]; then
-  (cd "$APK_ROOT" && zip -q "$UNALIGNED_APK" classes.dex)
-fi
-"$ZIPALIGN" -f 4 "$UNALIGNED_APK" "$ALIGNED_APK"
-
-if [[ ! -f "$KEYSTORE" ]]; then
-  mkdir -p "$(dirname "$KEYSTORE")"
-  keytool -genkeypair -v \
-    -keystore "$KEYSTORE" \
-    -storepass android \
-    -alias androiddebugkey \
-    -keypass android \
-    -dname "CN=Android Debug,O=Android,C=US" \
-    -keyalg RSA \
-    -keysize 2048 \
-    -validity 10000 >/dev/null 2>&1
-fi
-
-"$APKSIGNER" sign \
-  --ks "$KEYSTORE" \
-  --ks-pass pass:android \
-  --key-pass pass:android \
-  --out "$SIGNED_APK" \
-  "$ALIGNED_APK"
-
-printf '%s\n' "$SIGNED_APK"
+printf '%s\n' "$APK"
