@@ -108,7 +108,10 @@ pub struct ReadinessOptions {
     pub json: bool,
 }
 
-pub use publish_shell::{run_publish_shell, PublishShellOptions};
+pub use publish_shell::{
+    ensure_publish_workspace, publish_flow_snapshot, run_publish_shell, PublishFlowSnapshot,
+    PublishShellOptions,
+};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ArtifactManifest {
@@ -150,18 +153,18 @@ struct ArtifactValidation {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub(crate) struct ReadinessCheck {
-    id: String,
-    severity: CheckSeverity,
-    status: CheckStatus,
-    summary: String,
-    details: Option<String>,
-    remediation: Vec<String>,
+pub struct ReadinessCheck {
+    pub id: String,
+    pub severity: CheckSeverity,
+    pub status: CheckStatus,
+    pub summary: String,
+    pub details: Option<String>,
+    pub remediation: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-enum CheckSeverity {
+pub enum CheckSeverity {
     Error,
     Warning,
     Info,
@@ -169,7 +172,7 @@ enum CheckSeverity {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-enum CheckStatus {
+pub enum CheckStatus {
     Passed,
     Missing,
     Failed,

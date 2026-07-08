@@ -31,17 +31,35 @@ pub struct PublishShellOptions {
 }
 
 #[derive(Clone, Debug)]
-struct PublishContext {
-    project_dir: PathBuf,
-    app_name: String,
-    app_id: String,
-    provider: DistributionProvider,
-    target: Target,
-    format: PackageFormat,
-    track: Option<String>,
-    locales: Vec<String>,
-    workspace: PathBuf,
-    artifact: Option<PathBuf>,
+pub struct PublishFlowSnapshot {
+    pub project_dir: PathBuf,
+    pub app_name: String,
+    pub app_id: String,
+    pub provider: DistributionProvider,
+    pub target: Target,
+    pub format: PackageFormat,
+    pub site: String,
+    pub track: Option<String>,
+    pub locales: Vec<String>,
+    pub workspace: PathBuf,
+    pub artifact_manifest: PathBuf,
+    pub package_checks: Vec<ReadinessCheck>,
+    pub distribution_checks: Vec<ReadinessCheck>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct PublishContext {
+    pub(crate) project_dir: PathBuf,
+    pub(crate) app_name: String,
+    pub(crate) app_id: String,
+    pub(crate) provider: DistributionProvider,
+    pub(crate) target: Target,
+    pub(crate) format: PackageFormat,
+    pub(crate) site: String,
+    pub(crate) track: Option<String>,
+    pub(crate) locales: Vec<String>,
+    pub(crate) workspace: PathBuf,
+    pub(crate) artifact: Option<PathBuf>,
 }
 
 pub fn run_publish_shell(options: PublishShellOptions) -> Result<()> {
@@ -107,6 +125,48 @@ pub fn run_publish_shell(options: PublishShellOptions) -> Result<()> {
     Ok(())
 }
 
+pub fn publish_flow_snapshot(options: &PublishShellOptions) -> Result<PublishFlowSnapshot> {
+    let cx = PublishContext::load(options)?;
+    ensure_local_workspace_files(&cx)?;
+    load_local_env(&cx.workspace.join("release.env"))?;
+    let package_checks = readiness_package(&cx.project_dir, Some(cx.target), Some(cx.format))
+        .unwrap_or_else(|err| readiness_error("release.package.readiness_failed", err));
+    let distribution_checks = match super::load_publish_manifest(&cx.project_dir) {
+        Ok(config) => readiness_distribute(
+            &cx.project_dir,
+            cx.provider,
+            &cx.site,
+            cx.track.as_deref(),
+            Some(&cx.artifact_manifest_path()),
+            &config,
+        )
+        .unwrap_or_else(|err| readiness_error("release.distribution.readiness_failed", err)),
+        Err(err) => readiness_error("release.distribution.config_failed", err),
+    };
+    let artifact_manifest = cx.artifact_manifest_path();
+    Ok(PublishFlowSnapshot {
+        project_dir: cx.project_dir,
+        app_name: cx.app_name,
+        app_id: cx.app_id,
+        provider: cx.provider,
+        target: cx.target,
+        format: cx.format,
+        site: cx.site,
+        track: cx.track,
+        locales: cx.locales,
+        workspace: cx.workspace,
+        artifact_manifest,
+        package_checks,
+        distribution_checks,
+    })
+}
+
+pub fn ensure_publish_workspace(options: &PublishShellOptions) -> Result<PathBuf> {
+    let cx = PublishContext::load(options)?;
+    ensure_local_workspace_files(&cx)?;
+    Ok(cx.workspace)
+}
+
 impl PublishContext {
     fn load(options: &PublishShellOptions) -> Result<Self> {
         let project = read_project_config(&options.project_dir).with_context(|| {
@@ -138,6 +198,7 @@ impl PublishContext {
             provider: options.provider,
             target,
             format,
+            site: options.site.clone(),
             track,
             locales,
             workspace,
