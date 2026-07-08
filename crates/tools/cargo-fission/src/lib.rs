@@ -174,6 +174,7 @@ where
             track,
             locales,
             app,
+            guided,
             dry_run,
             yes,
             project_dir,
@@ -184,6 +185,7 @@ where
                 && format.is_none()
                 && locales.is_empty()
                 && !app
+                && !guided
             {
                 fission_command_package::distribute(fission_command_package::DistributeOptions {
                     project_dir,
@@ -197,7 +199,23 @@ where
                     yes,
                     json,
                 })
-            } else {
+            } else if app {
+                fission_command_ui::run_publish_window(fission_command_ui::PublishUiOptions {
+                    project_dir,
+                    provider,
+                    target,
+                    format,
+                    artifact,
+                    site,
+                    deploy,
+                    track,
+                    locales,
+                    screenshot: None,
+                    exit_after_render: false,
+                    width: None,
+                    height: None,
+                })
+            } else if guided || dry_run || yes || json {
                 fission_command_package::run_publish_shell(
                     fission_command_package::PublishShellOptions {
                         project_dir,
@@ -215,6 +233,22 @@ where
                         app,
                     },
                 )
+            } else {
+                fission_command_ui::run_publish_tui(fission_command_ui::PublishUiOptions {
+                    project_dir,
+                    provider,
+                    target,
+                    format,
+                    artifact,
+                    site,
+                    deploy,
+                    track,
+                    locales,
+                    screenshot: None,
+                    exit_after_render: false,
+                    width: None,
+                    height: None,
+                })
             }
         }
         Command::Readiness {
@@ -257,13 +291,26 @@ where
             follow,
         }),
         Command::Ui {
+            provider,
+            target,
+            format,
+            track,
+            locales,
             project_dir,
             screenshot,
             exit_after_render,
             width,
             height,
-        } => fission_command_ui::run_ui(fission_command_ui::UiOptions {
+        } => fission_command_ui::run_publish_tui(fission_command_ui::PublishUiOptions {
             project_dir,
+            provider,
+            target,
+            format,
+            artifact: None,
+            site: "production".to_string(),
+            deploy: None,
+            track,
+            locales,
             screenshot,
             exit_after_render,
             width,

@@ -2729,6 +2729,7 @@ dependencies = [
  "anyhow",
  "fission",
  "fission-command-core",
+ "fission-command-package",
  "fission-command-run",
  "serde",
 ]

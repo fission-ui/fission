@@ -212,6 +212,9 @@ pub(crate) enum Command {
         /// Open the guided publish flow as a windowed app when available.
         #[arg(long)]
         app: bool,
+        /// Use the line-oriented guided CLI flow instead of the Fission TUI.
+        #[arg(long)]
+        guided: bool,
         /// Show what would happen without mutating provider state.
         #[arg(long)]
         dry_run: bool,
@@ -305,8 +308,23 @@ pub(crate) enum Command {
         #[arg(long)]
         follow: bool,
     },
-    /// Open the interactive Fission command terminal UI.
+    /// Open the interactive Fission publish terminal UI.
     Ui {
+        /// Publish provider to open in the TUI.
+        #[arg(long, value_enum, default_value = "play-store")]
+        provider: DistributionProvider,
+        /// Target to package before publishing. Defaults from provider.
+        #[arg(long, value_enum)]
+        target: Option<Target>,
+        /// Package format. Defaults from target/provider.
+        #[arg(long, value_enum)]
+        format: Option<package::PackageFormat>,
+        /// Provider track/channel/group.
+        #[arg(long)]
+        track: Option<String>,
+        /// Locale to include in this publish decision. Can be repeated.
+        #[arg(long = "locale")]
+        locales: Vec<String>,
         /// Project directory; defaults to the current working directory.
         #[arg(long, default_value = ".")]
         project_dir: PathBuf,
