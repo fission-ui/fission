@@ -761,6 +761,8 @@ pub struct FilePickerState {
     pub purpose: FilePurpose,
     pub current_dir: PathBuf,
     pub entries: Vec<FileEntry>,
+    pub error: Option<String>,
+    pub truncated: bool,
 }
 
 impl FilePickerState {
@@ -769,16 +771,25 @@ impl FilePickerState {
             purpose,
             current_dir,
             entries: Vec::new(),
+            error: None,
+            truncated: false,
         };
         state.refresh();
         state
     }
 
     fn refresh(&mut self) {
-        self.entries = fs::read_dir(&self.current_dir)
-            .ok()
-            .into_iter()
-            .flatten()
+        self.error = None;
+        self.truncated = false;
+        let entries = match fs::read_dir(&self.current_dir) {
+            Ok(entries) => entries,
+            Err(err) => {
+                self.entries.clear();
+                self.error = Some(err.to_string());
+                return;
+            }
+        };
+        self.entries = entries
             .filter_map(Result::ok)
             .map(|entry| {
                 let path = entry.path();
@@ -791,7 +802,10 @@ impl FilePickerState {
             .collect();
         self.entries
             .sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then(a.label.cmp(&b.label)));
-        self.entries.truncate(28);
+        if self.entries.len() > 200 {
+            self.entries.truncate(200);
+            self.truncated = true;
+        }
     }
 }
 
@@ -1110,31 +1124,47 @@ impl From<PublishApp> for Widget {
         let (_ctx, view) = fission::build::current::<PublishUiState>();
         let size = view.env().viewport_size;
         let palette = PublishPalette::for_mode(view.state().theme_mode);
-        let compact = size.width < 96.0;
+        let u = ui_unit(size.width);
+        let native = u > 1.0;
+        let compact = size.width < if u > 1.0 { 1000.0 } else { 96.0 };
+        let root_pad = if native { 2.0 * u } else { u };
+        let hero_h = if native { 13.0 * u } else { 8.0 };
+        let console_h = if native { 5.0 * u } else { 5.0 };
+        let gap = if native { 1.5 * u } else { u };
+        let strip_h = if compact { 6.0 * u } else { 0.0 };
+        let main_h = (size.height - (root_pad * 2.0) - hero_h - strip_h - console_h - (gap * 3.0))
+            .max(18.0 * u);
         let body: Widget = if compact {
             Column {
-                gap: Some(1.0),
+                gap: Some(gap),
                 children: widgets![
-                    PublishHero,
-                    PublishTargetStrip,
-                    PublishMainPanel,
-                    PublishConsole
+                    PublishHero { height: hero_h },
+                    Container::new(PublishTargetStrip).height(strip_h),
+                    PublishMainPanel { height: main_h },
+                    PublishConsole { height: console_h }
                 ],
                 ..Default::default()
             }
             .into()
         } else {
             Column {
-                gap: Some(1.0),
+                gap: Some(gap),
                 children: widgets![
-                    PublishHero,
-                    Row {
-                        gap: Some(1.5),
+                    PublishHero { height: hero_h },
+                    Container::new(Row {
+                        gap: Some(1.5 * u),
                         align_items: AlignItems::Stretch,
-                        children: widgets![PublishTargetRail { width: 26.0 }, PublishMainPanel,],
+                        children: widgets![
+                            PublishTargetRail {
+                                width: 27.0,
+                                height: main_h
+                            },
+                            PublishMainPanel { height: main_h },
+                        ],
                         ..Default::default()
-                    },
-                    PublishConsole,
+                    })
+                    .height(main_h),
+                    PublishConsole { height: console_h },
                 ],
                 ..Default::default()
             }
@@ -1144,9 +1174,9 @@ impl From<PublishApp> for Widget {
             .width(size.width.max(80.0))
             .height(size.height.max(36.0))
             .padding(if compact {
-                [1.0, 1.0, 1.0, 1.0]
+                [root_pad, root_pad, root_pad, root_pad]
             } else {
-                [2.0, 2.0, 1.0, 1.0]
+                [root_pad, root_pad, root_pad, root_pad]
             })
             .bg(palette.background)
             .into();
@@ -1164,17 +1194,20 @@ impl From<PublishApp> for Widget {
 }
 
 #[derive(Clone)]
-struct PublishHero;
+struct PublishHero {
+    height: f32,
+}
 
 impl From<PublishHero> for Widget {
-    fn from(_component: PublishHero) -> Widget {
+    fn from(component: PublishHero) -> Widget {
         let (ctx, view) = fission::build::current::<PublishUiState>();
+        let u = ui_unit(view.env().viewport_size.width);
         let palette = PublishPalette::for_mode(view.state().theme_mode);
         let refresh = with_reducer!(ctx, PublishRefresh, publish_refresh);
         let theme = with_reducer!(ctx, PublishToggleTheme, publish_toggle_theme);
         let progress = readiness_fraction(view.state());
         Container::new(Column {
-            gap: Some(0.5),
+            gap: Some(0.6 * u),
             children: widgets![
                 Text::new("Fission publish cockpit").color(palette.text),
                 Text::new(format!(
@@ -1184,8 +1217,10 @@ impl From<PublishHero> for Widget {
                     view.state().workspace.display()
                 ))
                 .color(palette.muted),
+                Text::new("Choose a target, browse or type credential paths, then run Build artifact, Dry run, Publish.")
+                    .color(palette.muted),
                 Row {
-                    gap: Some(1.0),
+                    gap: Some(u),
                     align_items: AlignItems::Center,
                     children: widgets![
                         ProgressPill { value: progress },
@@ -1207,10 +1242,10 @@ impl From<PublishHero> for Widget {
             ],
             ..Default::default()
         })
-        .height(7.0)
-        .padding([2.0, 2.0, 1.0, 1.0])
+        .height(component.height)
+        .padding([2.0 * u, 2.0 * u, 1.2 * u, 1.0 * u])
         .bg(palette.hero)
-        .border_radius(10.0)
+        .border_radius(1.5 * u)
         .into()
     }
 }
@@ -1223,12 +1258,13 @@ struct ProgressPill {
 impl From<ProgressPill> for Widget {
     fn from(component: ProgressPill) -> Widget {
         let (_ctx, view) = fission::build::current::<PublishUiState>();
+        let u = ui_unit(view.env().viewport_size.width);
         let palette = PublishPalette::for_mode(view.state().theme_mode);
         let text = format!("{}% ready", (component.value * 100.0).round() as i32);
         Container::new(Text::new(text).color(palette.accent_text))
-            .padding([1.2, 1.2, 0.4, 0.4])
+            .padding([1.2 * u, 1.2 * u, 0.45 * u, 0.45 * u])
             .bg(palette.accent)
-            .border_radius(999.0)
+            .border_radius(999.0 * u)
             .into()
     }
 }
@@ -1236,13 +1272,14 @@ impl From<ProgressPill> for Widget {
 #[derive(Clone)]
 struct PublishTargetRail {
     width: f32,
+    height: f32,
 }
 
 impl From<PublishTargetRail> for Widget {
     fn from(component: PublishTargetRail) -> Widget {
         let (_ctx, _view) = fission::build::current::<PublishUiState>();
         Container::new(Column {
-            gap: Some(1.0),
+            gap: Some(ui_unit(_view.env().viewport_size.width)),
             children: PublishBoard::ALL
                 .iter()
                 .copied()
@@ -1256,7 +1293,8 @@ impl From<PublishTargetRail> for Widget {
                 .collect(),
             ..Default::default()
         })
-        .width(component.width)
+        .width(component.width * ui_unit(_view.env().viewport_size.width))
+        .height(component.height)
         .into()
     }
 }
@@ -1266,8 +1304,10 @@ struct PublishTargetStrip;
 
 impl From<PublishTargetStrip> for Widget {
     fn from(_component: PublishTargetStrip) -> Widget {
+        let (_ctx, view) = fission::build::current::<PublishUiState>();
+        let u = ui_unit(view.env().viewport_size.width);
         Row {
-            gap: Some(1.0),
+            gap: Some(u),
             children: PublishBoard::ALL
                 .iter()
                 .copied()
@@ -1288,6 +1328,7 @@ struct TargetCard {
 impl From<TargetCard> for Widget {
     fn from(component: TargetCard) -> Widget {
         let (ctx, view) = fission::build::current::<PublishUiState>();
+        let u = ui_unit(view.env().viewport_size.width);
         let palette = PublishPalette::for_mode(view.state().theme_mode);
         let selected = view.state().board == component.board;
         let action = with_reducer!(
@@ -1302,9 +1343,9 @@ impl From<TargetCard> for Widget {
         };
         Button {
             on_press: Some(action),
-            width: Some(component.width),
-            height: Some(3.0),
-            padding: Some([1.0, 1.0, 0.8, 0.8]),
+            width: Some(component.width * u),
+            height: Some(if u > 1.0 { 6.0 * u } else { 3.0 }),
+            padding: Some([1.0 * u, 1.0 * u, 0.8 * u, 0.8 * u]),
             background_fill: Some(Fill::Solid(bg)),
             text_color: Some(palette.text),
             child: Some(
@@ -1323,18 +1364,22 @@ impl From<TargetCard> for Widget {
 }
 
 #[derive(Clone)]
-struct PublishMainPanel;
+struct PublishMainPanel {
+    height: f32,
+}
 
 impl From<PublishMainPanel> for Widget {
-    fn from(_component: PublishMainPanel) -> Widget {
+    fn from(component: PublishMainPanel) -> Widget {
         let (_ctx, view) = fission::build::current::<PublishUiState>();
+        let u = ui_unit(view.env().viewport_size.width);
         let palette = PublishPalette::for_mode(view.state().theme_mode);
         let board_title = view.state().board.title();
         Container::new(Scroll {
             direction: FlexDirection::Column,
+            height: Some((component.height - 3.0 * u).max(12.0 * u)),
             child: Some(
                 Column {
-                    gap: Some(1.0),
+                    gap: Some(1.25 * u),
                     children: widgets![
                         Column {
                             gap: Some(0.3),
@@ -1365,9 +1410,10 @@ impl From<PublishMainPanel> for Widget {
             ..Default::default()
         })
         .flex_grow(1.0)
-        .padding([1.5, 1.5, 1.0, 1.0])
+        .height(component.height)
+        .padding([1.5 * u, 1.5 * u, 1.25 * u, 1.25 * u])
         .bg(palette.panel)
-        .border_radius(12.0)
+        .border_radius(1.5 * u)
         .into()
     }
 }
@@ -1377,8 +1423,10 @@ struct LaunchSequence;
 
 impl From<LaunchSequence> for Widget {
     fn from(_component: LaunchSequence) -> Widget {
+        let (_ctx, view) = fission::build::current::<PublishUiState>();
+        let u = ui_unit(view.env().viewport_size.width);
         Row {
-            gap: Some(0.7),
+            gap: Some(0.7 * u),
             children: [
                 "Preflight",
                 "Credentials",
@@ -1412,13 +1460,14 @@ struct StepPill {
 impl From<StepPill> for Widget {
     fn from(component: StepPill) -> Widget {
         let (_ctx, view) = fission::build::current::<PublishUiState>();
+        let u = ui_unit(view.env().viewport_size.width);
         let palette = PublishPalette::for_mode(view.state().theme_mode);
         Container::new(
             Text::new(format!("{}  {}", component.index, component.label)).color(palette.text),
         )
-        .padding([0.9, 0.9, 0.45, 0.45])
+        .padding([0.9 * u, 0.9 * u, 0.45 * u, 0.45 * u])
         .bg(palette.surface)
-        .border_radius(999.0)
+        .border_radius(999.0 * u)
         .into()
     }
 }
@@ -1485,6 +1534,7 @@ struct AndroidCredentials;
 impl From<AndroidCredentials> for Widget {
     fn from(_component: AndroidCredentials) -> Widget {
         let (ctx, view) = fission::build::current::<PublishUiState>();
+        let u = ui_unit(view.env().viewport_size.width);
         let play = with_reducer!(
             ctx,
             PublishSetPlayJson(String::new()),
@@ -1530,15 +1580,15 @@ impl From<AndroidCredentials> for Widget {
                     "Enable Android Publisher API, create a service account, grant this app access".into(),
                     "Use an existing JKS or generate an upload key here from a password".into(),
                 ]},
-                Row { gap: Some(1.0), children: widgets![
+                Row { gap: Some(u), children: widgets![
                     PublishTextField { id: "publish_play_json", label: "Service account JSON".into(), value: view.state().play_json_path.clone(), placeholder: "~/.fission/app/play-service-account.json".into(), on_change: play, secret: false, width: 42.0 },
                     PublishButton { label: "Browse".into(), action: pick_play, tone: ButtonTone::Quiet, width: 12.0 },
                 ], ..Default::default() },
-                Row { gap: Some(1.0), children: widgets![
+                Row { gap: Some(u), children: widgets![
                     PublishTextField { id: "publish_android_jks", label: "Upload key JKS".into(), value: view.state().android_jks_path.clone(), placeholder: "~/.fission/app/upload-key.jks".into(), on_change: jks, secret: false, width: 42.0 },
                     PublishButton { label: "Browse".into(), action: pick_jks, tone: ButtonTone::Quiet, width: 12.0 },
                 ], ..Default::default() },
-                Row { gap: Some(1.0), children: widgets![
+                Row { gap: Some(u), children: widgets![
                     PublishTextField { id: "publish_android_alias", label: "Alias".into(), value: view.state().android_alias.clone(), placeholder: "upload".into(), on_change: alias, secret: false, width: 22.0 },
                     PublishTextField { id: "publish_android_password", label: "Key password".into(), value: view.state().android_password.clone(), placeholder: "stored in release.env".into(), on_change: password, secret: true, width: 24.0 },
                     PublishButton { label: "Generate JKS".into(), action: generate, tone: ButtonTone::Secondary, width: 17.0 },
@@ -1556,6 +1606,7 @@ struct IosCredentials;
 impl From<IosCredentials> for Widget {
     fn from(_component: IosCredentials) -> Widget {
         let (ctx, view) = fission::build::current::<PublishUiState>();
+        let u = ui_unit(view.env().viewport_size.width);
         let key_path = with_reducer!(
             ctx,
             PublishSetAppStoreKeyPath(String::new()),
@@ -1586,11 +1637,11 @@ impl From<IosCredentials> for Widget {
                     "Create an API key with App Manager access and download the .p8 once".into(),
                     "Capture Key ID and Issuer ID; provisioning/profile setup remains in Apple tooling".into(),
                 ]},
-                Row { gap: Some(1.0), children: widgets![
+                Row { gap: Some(u), children: widgets![
                     PublishTextField { id: "publish_app_store_key", label: ".p8 key".into(), value: view.state().app_store_key_path.clone(), placeholder: "~/.fission/app/ios/AuthKey_XXXX.p8".into(), on_change: key_path, secret: false, width: 42.0 },
                     PublishButton { label: "Browse".into(), action: browse, tone: ButtonTone::Quiet, width: 12.0 },
                 ], ..Default::default() },
-                Row { gap: Some(1.0), children: widgets![
+                Row { gap: Some(u), children: widgets![
                     PublishTextField { id: "publish_app_store_key_id", label: "Key ID".into(), value: view.state().app_store_key_id.clone(), placeholder: "ABC123DEFG".into(), on_change: key_id, secret: false, width: 20.0 },
                     PublishTextField { id: "publish_app_store_issuer", label: "Issuer ID".into(), value: view.state().app_store_issuer_id.clone(), placeholder: "UUID".into(), on_change: issuer, secret: false, width: 34.0 },
                     PublishButton { label: "Save".into(), action: save, tone: ButtonTone::Primary, width: 10.0 },
@@ -1607,6 +1658,7 @@ struct WindowsCredentials;
 impl From<WindowsCredentials> for Widget {
     fn from(_component: WindowsCredentials) -> Widget {
         let (ctx, view) = fission::build::current::<PublishUiState>();
+        let u = ui_unit(view.env().viewport_size.width);
         let pfx = with_reducer!(
             ctx,
             PublishSetWindowsPfx(String::new()),
@@ -1647,12 +1699,12 @@ impl From<WindowsCredentials> for Widget {
                     "Reserve the product and configure package identity in Partner Center".into(),
                     "Select a PFX only when local signing is required".into(),
                 ]},
-                Row { gap: Some(1.0), children: widgets![
+                Row { gap: Some(u), children: widgets![
                     PublishTextField { id: "publish_windows_pfx", label: "PFX certificate".into(), value: view.state().windows_pfx_path.clone(), placeholder: "~/.fission/app/windows/signing.pfx".into(), on_change: pfx, secret: false, width: 42.0 },
                     PublishButton { label: "Browse".into(), action: browse, tone: ButtonTone::Quiet, width: 12.0 },
                     PublishTextField { id: "publish_windows_password", label: "PFX password".into(), value: view.state().windows_password.clone(), placeholder: "stored locally".into(), on_change: password, secret: true, width: 20.0 },
                 ], ..Default::default() },
-                Row { gap: Some(1.0), children: widgets![
+                Row { gap: Some(u), children: widgets![
                     PublishTextField { id: "publish_azure_tenant", label: "Azure tenant".into(), value: view.state().azure_tenant_id.clone(), placeholder: "tenant id".into(), on_change: tenant, secret: false, width: 24.0 },
                     PublishTextField { id: "publish_azure_client", label: "Azure client".into(), value: view.state().azure_client_id.clone(), placeholder: "client id".into(), on_change: client, secret: false, width: 24.0 },
                     PublishTextField { id: "publish_ms_secret", label: "Client secret".into(), value: view.state().microsoft_secret.clone(), placeholder: "optional for MSIX".into(), on_change: secret, secret: true, width: 24.0 },
@@ -1670,6 +1722,7 @@ struct S3Credentials;
 impl From<S3Credentials> for Widget {
     fn from(_component: S3Credentials) -> Widget {
         let (ctx, view) = fission::build::current::<PublishUiState>();
+        let u = ui_unit(view.env().viewport_size.width);
         let profile = with_reducer!(
             ctx,
             PublishSetAwsProfile(String::new()),
@@ -1705,12 +1758,12 @@ impl From<S3Credentials> for Widget {
                     "Use AWS_PROFILE for local publishing, or endpoint + static keys for S3-compatible storage".into(),
                     "CI should prefer AWS_WEB_IDENTITY_TOKEN_FILE or provider-native identity".into(),
                 ]},
-                Row { gap: Some(1.0), children: widgets![
+                Row { gap: Some(u), children: widgets![
                     PublishTextField { id: "publish_aws_profile", label: "AWS profile".into(), value: view.state().aws_profile.clone(), placeholder: "default".into(), on_change: profile, secret: false, width: 18.0 },
                     PublishTextField { id: "publish_aws_region", label: "Region".into(), value: view.state().aws_region.clone(), placeholder: "eu-west-2".into(), on_change: region, secret: false, width: 18.0 },
                     PublishTextField { id: "publish_aws_endpoint", label: "S3 endpoint".into(), value: view.state().aws_endpoint.clone(), placeholder: "optional".into(), on_change: endpoint, secret: false, width: 30.0 },
                 ], ..Default::default() },
-                Row { gap: Some(1.0), children: widgets![
+                Row { gap: Some(u), children: widgets![
                     PublishTextField { id: "publish_aws_access", label: "Access key".into(), value: view.state().aws_access_key_id.clone(), placeholder: "optional".into(), on_change: access, secret: false, width: 26.0 },
                     PublishTextField { id: "publish_aws_secret", label: "Secret key".into(), value: view.state().aws_secret_access_key.clone(), placeholder: "optional".into(), on_change: secret, secret: true, width: 28.0 },
                     PublishButton { label: "Save".into(), action: save, tone: ButtonTone::Primary, width: 10.0 },
@@ -1727,6 +1780,7 @@ struct ActionDeck;
 impl From<ActionDeck> for Widget {
     fn from(_component: ActionDeck) -> Widget {
         let (ctx, view) = fission::build::current::<PublishUiState>();
+        let u = ui_unit(view.env().viewport_size.width);
         let package = with_reducer!(
             ctx,
             PublishStartTask(PublishTaskKind::Package),
@@ -1752,7 +1806,7 @@ impl From<ActionDeck> for Widget {
             title: "Release actions".into(),
             description: "Build first, run the provider dry-run, then type the app id to unlock the final publish button.".into(),
             children: widgets![
-                Row { gap: Some(1.0), children: widgets![
+                Row { gap: Some(u), children: widgets![
                     PublishButton { label: "Build artifact".into(), action: package, tone: ButtonTone::Primary, width: 18.0 },
                     PublishButton { label: "Dry run".into(), action: dry, tone: ButtonTone::Secondary, width: 14.0 },
                     PublishButton { label: if locked { "Publish locked".into() } else { "Publish".into() }, action: publish, tone: if locked { ButtonTone::Quiet } else { ButtonTone::Danger }, width: 18.0 },
@@ -1773,6 +1827,7 @@ struct CheckSection {
 impl From<CheckSection> for Widget {
     fn from(component: CheckSection) -> Widget {
         let (_ctx, view) = fission::build::current::<PublishUiState>();
+        let u = ui_unit(view.env().viewport_size.width);
         let palette = PublishPalette::for_mode(view.state().theme_mode);
         let children = component
             .checks
@@ -1782,15 +1837,15 @@ impl From<CheckSection> for Widget {
             .map(|check| CheckRow { check }.into())
             .collect::<Vec<_>>();
         Container::new(Column {
-            gap: Some(0.55),
+            gap: Some(0.55 * u),
             children: std::iter::once(Text::new(component.title).color(palette.text).into())
                 .chain(children)
                 .collect(),
             ..Default::default()
         })
-        .padding([1.0, 1.0, 0.9, 0.9])
+        .padding([1.0 * u, 1.0 * u, 0.9 * u, 0.9 * u])
         .bg(palette.surface)
-        .border_radius(10.0)
+        .border_radius(1.25 * u)
         .into()
     }
 }
@@ -1803,6 +1858,7 @@ struct CheckRow {
 impl From<CheckRow> for Widget {
     fn from(component: CheckRow) -> Widget {
         let (_ctx, view) = fission::build::current::<PublishUiState>();
+        let u = ui_unit(view.env().viewport_size.width);
         let palette = PublishPalette::for_mode(view.state().theme_mode);
         let (marker, color) = match component.check.status {
             CheckStatus::Passed => ("OK", palette.success),
@@ -1812,12 +1868,12 @@ impl From<CheckRow> for Widget {
         };
         let detail = component.check.details.unwrap_or_default();
         Row {
-            gap: Some(0.8),
+            gap: Some(0.8 * u),
             align_items: AlignItems::Start,
             children: widgets![
                 Text::new(marker).color(color),
                 Column {
-                    gap: Some(0.15),
+                    gap: Some(0.15 * u),
                     children: widgets![
                         Text::new(component.check.summary).color(palette.text),
                         Text::new(detail).color(palette.muted),
@@ -1832,16 +1888,19 @@ impl From<CheckRow> for Widget {
 }
 
 #[derive(Clone)]
-struct PublishConsole;
+struct PublishConsole {
+    height: f32,
+}
 
 impl From<PublishConsole> for Widget {
-    fn from(_component: PublishConsole) -> Widget {
+    fn from(component: PublishConsole) -> Widget {
         let (_ctx, view) = fission::build::current::<PublishUiState>();
+        let u = ui_unit(view.env().viewport_size.width);
         let palette = PublishPalette::for_mode(view.state().theme_mode);
         let mut lines = vec![view.state().status_message.clone()];
         lines.extend(view.state().task_log.iter().rev().take(5).cloned());
         Container::new(Column {
-            gap: Some(0.25),
+            gap: Some(0.25 * u),
             children: lines
                 .into_iter()
                 .rev()
@@ -1849,9 +1908,10 @@ impl From<PublishConsole> for Widget {
                 .collect(),
             ..Default::default()
         })
-        .padding([1.5, 1.5, 0.8, 0.8])
+        .height(component.height)
+        .padding([1.5 * u, 1.5 * u, 0.8 * u, 0.8 * u])
         .bg(palette.console)
-        .border_radius(10.0)
+        .border_radius(1.25 * u)
         .into()
     }
 }
@@ -1862,11 +1922,21 @@ struct FilePickerPanel;
 impl From<FilePickerPanel> for Widget {
     fn from(_component: FilePickerPanel) -> Widget {
         let (ctx, view) = fission::build::current::<PublishUiState>();
+        let u = ui_unit(view.env().viewport_size.width);
         let palette = PublishPalette::for_mode(view.state().theme_mode);
         let Some(picker) = view.state().file_picker.clone() else {
             return Spacer::default().into();
         };
         let close = with_reducer!(ctx, PublishCloseFilePicker, publish_close_file_picker);
+        let panel_height =
+            (view.env().viewport_size.height - u).max(if u > 1.0 { 44.0 * u } else { 28.0 });
+        let list_height = (panel_height
+            - if view.state().selected_file.is_some() {
+                18.0 * u
+            } else {
+                10.0 * u
+            })
+        .max(10.0 * u);
         let mut children = widgets![
             Row {
                 justify_content: JustifyContent::SpaceBetween,
@@ -1882,17 +1952,23 @@ impl From<FilePickerPanel> for Widget {
                 ..Default::default()
             },
             Text::new(picker.current_dir.display().to_string()).color(palette.muted),
+            Text::new("Choose a file, then copy it into the release workspace, move it, or keep a reference to its current path.")
+                .color(palette.muted),
         ];
+        if picker.truncated {
+            children.push(
+                Text::new("Showing the first 200 entries. Type a path directly if the file is not visible.")
+                    .color(palette.warning)
+                    .into(),
+            );
+        }
         let parent_action = with_reducer!(ctx, PublishPickFileEntry(0), publish_pick_file_entry);
-        children.push(
-            PublishButton {
-                label: "../".into(),
-                action: parent_action,
-                tone: ButtonTone::Quiet,
-                width: 52.0,
-            }
-            .into(),
-        );
+        let mut entry_children = widgets![PublishButton {
+            label: "../".into(),
+            action: parent_action,
+            tone: ButtonTone::Quiet,
+            width: 52.0,
+        }];
         for (idx, entry) in picker.entries.iter().enumerate() {
             let action = with_reducer!(ctx, PublishPickFileEntry(idx + 1), publish_pick_file_entry);
             let label = if entry.is_dir {
@@ -1900,7 +1976,7 @@ impl From<FilePickerPanel> for Widget {
             } else {
                 entry.label.clone()
             };
-            children.push(
+            entry_children.push(
                 PublishButton {
                     label,
                     action,
@@ -1914,6 +1990,36 @@ impl From<FilePickerPanel> for Widget {
                 .into(),
             );
         }
+        if let Some(error) = &picker.error {
+            entry_children.push(
+                Text::new(format!("Cannot read this directory: {error}"))
+                    .color(palette.error)
+                    .into(),
+            );
+        } else if picker.entries.is_empty() {
+            entry_children.push(
+                Text::new("No files are visible in this directory.")
+                    .color(palette.muted)
+                    .into(),
+            );
+        }
+        children.push(
+            Scroll {
+                direction: FlexDirection::Column,
+                height: Some(list_height),
+                child: Some(
+                    Column {
+                        gap: Some(0.65 * u),
+                        children: entry_children,
+                        ..Default::default()
+                    }
+                    .into(),
+                ),
+                show_scrollbar: true,
+                ..Default::default()
+            }
+            .into(),
+        );
         if let Some(selection) = &view.state().selected_file {
             let copy = with_reducer!(ctx, PublishApplyFile(FileAction::Copy), publish_apply_file);
             let mv = with_reducer!(ctx, PublishApplyFile(FileAction::Move), publish_apply_file);
@@ -1929,7 +2035,7 @@ impl From<FilePickerPanel> for Widget {
             );
             children.push(
                 Row {
-                    gap: Some(1.0),
+                    gap: Some(u),
                     children: widgets![
                         PublishButton {
                             label: "Copy to workspace".into(),
@@ -1956,15 +2062,16 @@ impl From<FilePickerPanel> for Widget {
             );
         }
         Container::new(Column {
-            gap: Some(0.65),
+            gap: Some(0.65 * u),
             children,
             ..Default::default()
         })
-        .width(62.0)
-        .padding([1.5, 1.5, 1.0, 1.0])
+        .width(62.0 * u)
+        .height(panel_height)
+        .padding([1.5 * u, 1.5 * u, 1.0 * u, 1.0 * u])
         .bg(palette.panel)
-        .border(palette.accent, 1.0)
-        .border_radius(12.0)
+        .border(palette.accent, 0.15 * u)
+        .border_radius(1.5 * u)
         .into()
     }
 }
@@ -1979,6 +2086,7 @@ struct FormBand {
 impl From<FormBand> for Widget {
     fn from(component: FormBand) -> Widget {
         let (_ctx, view) = fission::build::current::<PublishUiState>();
+        let u = ui_unit(view.env().viewport_size.width);
         let palette = PublishPalette::for_mode(view.state().theme_mode);
         let mut children = widgets![
             Text::new(component.title).color(palette.text),
@@ -1986,13 +2094,13 @@ impl From<FormBand> for Widget {
         ];
         children.extend(component.children);
         Container::new(Column {
-            gap: Some(0.8),
+            gap: Some(0.8 * u),
             children,
             ..Default::default()
         })
-        .padding([1.1, 1.1, 0.9, 0.9])
+        .padding([1.1 * u, 1.1 * u, 0.9 * u, 0.9 * u])
         .bg(palette.surface)
-        .border_radius(10.0)
+        .border_radius(1.25 * u)
         .into()
     }
 }
@@ -2005,9 +2113,10 @@ struct InstructionList {
 impl From<InstructionList> for Widget {
     fn from(component: InstructionList) -> Widget {
         let (_ctx, view) = fission::build::current::<PublishUiState>();
+        let u = ui_unit(view.env().viewport_size.width);
         let palette = PublishPalette::for_mode(view.state().theme_mode);
         Column {
-            gap: Some(0.25),
+            gap: Some(0.25 * u),
             children: component
                 .items
                 .into_iter()
@@ -2038,6 +2147,7 @@ struct PublishTextField {
 impl From<PublishTextField> for Widget {
     fn from(component: PublishTextField) -> Widget {
         let (_ctx, view) = fission::build::current::<PublishUiState>();
+        let u = ui_unit(view.env().viewport_size.width);
         let palette = PublishPalette::for_mode(view.state().theme_mode);
         TextInput {
             id: Some(WidgetId::explicit(component.id)),
@@ -2045,9 +2155,10 @@ impl From<PublishTextField> for Widget {
             value: component.value,
             placeholder: Some(component.placeholder.into()),
             on_change: Some(component.on_change),
-            width: Some(component.width),
-            height: Some(3.0),
-            padding: Some([0.6, 0.6, 0.25, 0.25]),
+            width: Some(component.width * u),
+            height: Some(if u > 1.0 { 7.0 * u } else { 3.0 }),
+            padding: Some([0.6 * u, 0.6 * u, 0.25 * u, 0.25 * u]),
+            font_size: if u > 1.0 { Some(14.0) } else { None },
             obscure_text: component.secret,
             background_fill: Some(Fill::Solid(palette.input)),
             border_color: Some(palette.hairline),
@@ -2072,6 +2183,7 @@ struct PublishButton {
 impl From<PublishButton> for Widget {
     fn from(component: PublishButton) -> Widget {
         let (_ctx, view) = fission::build::current::<PublishUiState>();
+        let u = ui_unit(view.env().viewport_size.width);
         let palette = PublishPalette::for_mode(view.state().theme_mode);
         let fill = match component.tone {
             ButtonTone::Primary => palette.accent,
@@ -2081,9 +2193,9 @@ impl From<PublishButton> for Widget {
         };
         Button {
             on_press: Some(component.action),
-            width: Some(component.width),
-            height: Some(3.0),
-            padding: Some([0.8, 0.8, 0.35, 0.35]),
+            width: Some(component.width * u),
+            height: Some(if u > 1.0 { 5.0 * u } else { 3.0 }),
+            padding: Some([0.8 * u, 0.8 * u, 0.35 * u, 0.35 * u]),
             background_fill: Some(Fill::Solid(fill)),
             text_color: Some(palette.text),
             child: Some(Text::new(component.label).color(palette.text).into()),
@@ -2184,6 +2296,14 @@ fn readiness_fraction(state: &PublishUiState) -> f32 {
         0.0
     } else {
         passed / total
+    }
+}
+
+fn ui_unit(viewport_width: f32) -> f32 {
+    if viewport_width >= 320.0 {
+        8.0
+    } else {
+        1.0
     }
 }
 
@@ -2417,5 +2537,46 @@ mod tests {
         let text = frame.as_plain_text();
         assert!(text.contains("Fission publish cockpit"));
         assert!(text.contains("Android credentials and signing"));
+    }
+
+    #[test]
+    fn publish_ui_file_picker_lists_project_entries() {
+        let root = env::temp_dir().join(format!(
+            "fission-publish-picker-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(root.join("nested")).unwrap();
+        fs::write(root.join("fixture.json"), "{}").unwrap();
+
+        let mut state = PublishUiState::load(PublishUiOptions {
+            project_dir: root.clone(),
+            provider: DistributionProvider::PlayStore,
+            target: Some(Target::Android),
+            format: Some(PackageFormat::Aab),
+            artifact: None,
+            site: "production".to_string(),
+            deploy: None,
+            track: Some("internal".to_string()),
+            locales: vec!["en-US".to_string()],
+            screenshot: None,
+            exit_after_render: false,
+            width: None,
+            height: None,
+        });
+        state.open_file_picker(FilePurpose::PlayServiceJson);
+
+        let mut app = fission::terminal::TerminalApp::with_state(PublishApp, state);
+        let frame = app.render_frame(120, 50).expect("publish picker renders");
+        let text = frame.as_plain_text();
+
+        assert!(text.contains("Select Play service account JSON"));
+        assert!(text.contains("nested/"));
+        assert!(text.contains("fixture.json"));
+
+        let _ = fs::remove_dir_all(root);
     }
 }
