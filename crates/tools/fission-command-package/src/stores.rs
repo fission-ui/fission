@@ -3,6 +3,7 @@ use anyhow::{bail, Context, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use reqwest::blocking::{Client, Response};
+use reqwest::header::CONTENT_LENGTH;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::env;
@@ -1018,6 +1019,8 @@ fn validate_play_edit(
     let response = client
         .post(url)
         .bearer_auth(token)
+        .header(CONTENT_LENGTH, "0")
+        .body(Vec::new())
         .send()
         .context("failed to validate Google Play edit")?;
     json_response(response, "Google Play edit validate")?;
@@ -1031,6 +1034,8 @@ fn commit_play_edit(client: &Client, token: &str, package_name: &str, edit_id: &
     let response = client
         .post(url)
         .bearer_auth(token)
+        .header(CONTENT_LENGTH, "0")
+        .body(Vec::new())
         .send()
         .context("failed to commit Google Play edit")?;
     json_response(response, "Google Play edit commit")?;

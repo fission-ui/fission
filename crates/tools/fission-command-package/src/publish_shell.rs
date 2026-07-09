@@ -1,17 +1,22 @@
 use super::{
-    distribute, package, readiness_distribute, readiness_package, report_status, CheckStatus,
-    DistributeAction, DistributeOptions, PackageFormat, PackageOptions, ReadinessCheck,
-    ARTIFACT_MANIFEST,
+    readiness_distribute, readiness_package, report_status, CheckStatus, PackageFormat,
+    ReadinessCheck, ARTIFACT_MANIFEST,
 };
 use anyhow::{bail, Context, Result};
 use fission_command_core::{read_project_config, DistributionProvider, Target};
 use rpassword::read_password;
+use std::collections::VecDeque;
 use std::env;
 use std::ffi::OsStr;
 use std::fs;
-use std::io::{self, IsTerminal, Write};
+use std::io::{self, BufRead, BufReader, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::sync::mpsc;
+use std::thread;
+use std::time::{Duration, Instant};
+
+const GUIDED_LOG_LINES: usize = 10;
 
 #[derive(Clone, Debug)]
 pub struct PublishShellOptions {
@@ -440,7 +445,7 @@ fn configure_android_play(cx: &mut PublishContext) -> Result<()> {
     println!("6. Download the JSON key and keep it outside the repository");
     println!("Accepted local env: GOOGLE_APPLICATION_CREDENTIALS");
     println!("Accepted CI env: PLAY_STORE_SERVICE_ACCOUNT_JSON_BASE64");
-    if confirm("Select a Play service-account JSON now?", true)? {
+    if confirm("Enter path to Play service-account JSON now?", true)? {
         let selected = select_file(&cx.project_dir, Some("json"))?;
         let chosen = handle_selected_file(&selected, &cx.workspace, "play-service-account.json")?;
         upsert_env(
@@ -498,7 +503,8 @@ fn generate_android_jks(cx: &PublishContext) -> Result<()> {
     }
     let password = prompt_password_confirmed("New Android upload-key password")?;
     let alias = default_android_alias(cx);
-    let status = Command::new("keytool")
+    let mut command = Command::new("keytool");
+    command
         .arg("-genkeypair")
         .arg("-v")
         .arg("-keystore")
@@ -519,12 +525,12 @@ fn generate_android_jks(cx: &PublishContext) -> Result<()> {
         .arg(format!(
             "CN={}, OU=Fission Local Publish, O=Fission, L=Local, ST=Local, C=US",
             cx.app_name
-        ))
-        .status()
-        .context("failed to run keytool; install a JDK to generate Android upload keys")?;
-    if !status.success() {
-        bail!("keytool failed to generate {}", destination.display());
-    }
+        ));
+    run_logged_command(
+        &mut command,
+        &format!("Generating Android upload key at {}", destination.display()),
+    )
+    .context("failed to run keytool; install a JDK to generate Android upload keys")?;
     set_private_file_permissions(&destination)?;
     let env_path = cx.workspace.join("release.env");
     upsert_env(
@@ -556,7 +562,7 @@ fn configure_ios_app_store(cx: &PublishContext) -> Result<()> {
     println!("4. Capture Key ID and Issuer ID");
     println!("Accepted local env: APP_STORE_CONNECT_API_KEY_PATH, APP_STORE_CONNECT_KEY_ID, APP_STORE_CONNECT_ISSUER_ID");
     println!("Accepted CI env: APP_STORE_CONNECT_API_KEY_BASE64");
-    if confirm("Select App Store Connect .p8 key now?", true)? {
+    if confirm("Enter path to App Store Connect .p8 key now?", true)? {
         let selected = select_file(&cx.project_dir, Some("p8"))?;
         let selected_name = selected
             .file_name()
@@ -603,7 +609,7 @@ fn configure_windows_store(cx: &PublishContext) -> Result<()> {
         "Accepted EXE/MSI env: AZURE_TENANT_ID, AZURE_CLIENT_ID, MICROSOFT_STORE_CLIENT_SECRET"
     );
     println!("Signing accepts WINDOWS_CERTIFICATE, WINDOWS_CERTIFICATE_BASE64, WINDOWS_CERTIFICATE_PASSWORD, WINDOWS_CERTIFICATE_THUMBPRINT");
-    if confirm("Select a PFX signing certificate now?", false)? {
+    if confirm("Enter path to a PFX signing certificate now?", false)? {
         let selected = select_file(&cx.project_dir, Some("pfx"))?;
         let selected_name = selected
             .file_name()
@@ -740,14 +746,7 @@ fn configure_release_options(cx: &mut PublishContext) -> Result<()> {
 }
 
 fn package_artifact(cx: &mut PublishContext, pause_after: bool) -> Result<()> {
-    let options = PackageOptions {
-        project_dir: cx.project_dir.clone(),
-        target: cx.target,
-        format: cx.format,
-        release: true,
-        json: false,
-    };
-    package(options)?;
+    run_current_fission_logged(package_command_args(cx), "Building release package")?;
     cx.artifact = Some(cx.default_artifact_manifest_path());
     if pause_after {
         pause("Package step finished. Press Enter to continue.");
@@ -760,18 +759,10 @@ fn dry_run_publish(
     options: &PublishShellOptions,
     pause_after: bool,
 ) -> Result<()> {
-    distribute(DistributeOptions {
-        project_dir: cx.project_dir.clone(),
-        provider: cx.provider,
-        action: DistributeAction::Publish,
-        artifact: Some(cx.artifact_manifest_path()),
-        site: options.site.clone(),
-        deploy: options.deploy.clone(),
-        track: cx.track.clone(),
-        dry_run: true,
-        yes: false,
-        json: false,
-    })?;
+    run_current_fission_logged(
+        publish_command_args(cx, options, true),
+        "Running publish dry-run",
+    )?;
     if pause_after {
         pause("Dry run finished. Press Enter to continue.");
     }
@@ -795,18 +786,235 @@ fn publish_artifact_interactive(cx: &PublishContext, options: &PublishShellOptio
 }
 
 fn publish_artifact(cx: &PublishContext, options: &PublishShellOptions) -> Result<()> {
-    distribute(DistributeOptions {
-        project_dir: cx.project_dir.clone(),
-        provider: cx.provider,
-        action: DistributeAction::Publish,
-        artifact: Some(cx.artifact_manifest_path()),
-        site: options.site.clone(),
-        deploy: options.deploy.clone(),
-        track: cx.track.clone(),
-        dry_run: false,
-        yes: true,
-        json: false,
-    })
+    run_current_fission_logged(
+        publish_command_args(cx, options, false),
+        "Publishing artifact",
+    )
+}
+
+fn package_command_args(cx: &PublishContext) -> Vec<String> {
+    vec![
+        "package".to_string(),
+        "--target".to_string(),
+        cx.target.as_str().to_string(),
+        "--format".to_string(),
+        cx.format.as_str().to_string(),
+        "--release".to_string(),
+        "--project-dir".to_string(),
+        cx.project_dir.display().to_string(),
+    ]
+}
+
+fn publish_command_args(
+    cx: &PublishContext,
+    options: &PublishShellOptions,
+    dry_run: bool,
+) -> Vec<String> {
+    let mut args = vec![
+        "publish".to_string(),
+        "--provider".to_string(),
+        cx.provider.as_str().to_string(),
+        "--artifact".to_string(),
+        cx.artifact_manifest_path().display().to_string(),
+        "--site".to_string(),
+        options.site.clone(),
+        "--yes".to_string(),
+        "--project-dir".to_string(),
+        cx.project_dir.display().to_string(),
+    ];
+    if let Some(track) = cx.track.as_ref().filter(|value| !value.trim().is_empty()) {
+        args.push("--track".to_string());
+        args.push(track.clone());
+    }
+    if let Some(deploy) = options
+        .deploy
+        .as_ref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        args.push("--deploy".to_string());
+        args.push(deploy.clone());
+    }
+    if dry_run {
+        args.push("--dry-run".to_string());
+    }
+    args
+}
+
+fn run_current_fission_logged(args: Vec<String>, label: &str) -> Result<()> {
+    let exe = env::current_exe().context("failed to resolve current fission executable")?;
+    let mut command = Command::new(exe);
+    command.args(args);
+    run_logged_command(&mut command, label)
+}
+
+fn run_logged_command(command: &mut Command, label: &str) -> Result<()> {
+    command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdin(Stdio::null());
+    let mut child = command
+        .spawn()
+        .with_context(|| format!("failed to start {label}"))?;
+    let stdout = child.stdout.take().context("failed to capture stdout")?;
+    let stderr = child.stderr.take().context("failed to capture stderr")?;
+    let (tx, rx) = mpsc::channel::<String>();
+    spawn_log_reader(stdout, tx.clone());
+    spawn_log_reader(stderr, tx);
+
+    let interactive = io::stdout().is_terminal();
+    let started = Instant::now();
+    let mut tick = 0usize;
+    let mut rendered = false;
+    let mut tail = VecDeque::new();
+
+    loop {
+        while let Ok(line) = rx.try_recv() {
+            record_log_line(&mut tail, line, interactive);
+        }
+
+        if let Some(status) = child.try_wait()? {
+            while let Ok(line) = rx.try_recv() {
+                record_log_line(&mut tail, line, interactive);
+            }
+            if interactive {
+                render_log_window(
+                    label,
+                    &tail,
+                    started,
+                    tick,
+                    Some(status.success()),
+                    &mut rendered,
+                )?;
+            }
+            if status.success() {
+                if !interactive {
+                    println!("{label}: done");
+                }
+                return Ok(());
+            }
+            let detail = tail.iter().cloned().collect::<Vec<_>>().join("\n");
+            if detail.trim().is_empty() {
+                bail!("{label} failed with {status}");
+            }
+            bail!("{label} failed with {status}\n{detail}");
+        }
+
+        match rx.recv_timeout(Duration::from_millis(120)) {
+            Ok(line) => record_log_line(&mut tail, line, interactive),
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => {}
+        }
+
+        if interactive {
+            render_log_window(label, &tail, started, tick, None, &mut rendered)?;
+        }
+        tick = tick.wrapping_add(1);
+    }
+}
+
+fn spawn_log_reader<R>(reader: R, tx: mpsc::Sender<String>)
+where
+    R: Read + Send + 'static,
+{
+    thread::spawn(move || {
+        for line in BufReader::new(reader).lines() {
+            let line = line.unwrap_or_else(|err| format!("failed to read process output: {err}"));
+            let _ = tx.send(line.replace('\r', ""));
+        }
+    });
+}
+
+fn push_log_line(tail: &mut VecDeque<String>, line: String) {
+    tail.push_back(line);
+    while tail.len() > GUIDED_LOG_LINES - 1 {
+        tail.pop_front();
+    }
+}
+
+fn record_log_line(tail: &mut VecDeque<String>, line: String, interactive: bool) {
+    if !interactive {
+        println!("{line}");
+    }
+    push_log_line(tail, line);
+}
+
+fn render_log_window(
+    label: &str,
+    tail: &VecDeque<String>,
+    started: Instant,
+    tick: usize,
+    done: Option<bool>,
+    rendered: &mut bool,
+) -> Result<()> {
+    let mut stdout = io::stdout();
+    if *rendered {
+        write!(stdout, "\x1b[{GUIDED_LOG_LINES}F")?;
+    }
+    let status = match done {
+        Some(true) => "done",
+        Some(false) => "failed",
+        None => "running",
+    };
+    let spinner = match done {
+        Some(true) => "OK",
+        Some(false) => "XX",
+        None => ["|", "/", "-", "\\"][tick % 4],
+    };
+    let header = format!(
+        "{spinner} {label} {} {status} {}s",
+        progress_bar(tick, done),
+        started.elapsed().as_secs()
+    );
+    let mut lines = Vec::with_capacity(GUIDED_LOG_LINES);
+    lines.push(header);
+    lines.extend(tail.iter().cloned());
+    while lines.len() < GUIDED_LOG_LINES {
+        lines.push(String::new());
+    }
+    let width = terminal_width();
+    for line in lines.into_iter().take(GUIDED_LOG_LINES) {
+        writeln!(stdout, "\x1b[K{}", fit_terminal_line(&line, width))?;
+    }
+    stdout.flush()?;
+    *rendered = true;
+    Ok(())
+}
+
+fn progress_bar(tick: usize, done: Option<bool>) -> String {
+    let width = 18usize;
+    if let Some(true) = done {
+        return format!("[{}]", "=".repeat(width));
+    }
+    if let Some(false) = done {
+        return format!("[{}]", "!".repeat(width));
+    }
+    let mut cells = vec![' '; width];
+    let start = tick % (width - 3);
+    for cell in cells.iter_mut().skip(start).take(3) {
+        *cell = '=';
+    }
+    format!("[{}]", cells.into_iter().collect::<String>())
+}
+
+fn terminal_width() -> usize {
+    env::var("COLUMNS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| *value > 24)
+        .unwrap_or(120)
+}
+
+fn fit_terminal_line(line: &str, width: usize) -> String {
+    let max = width.saturating_sub(1).max(20);
+    let mut out = String::new();
+    for (idx, ch) in line.chars().enumerate() {
+        if idx + 3 >= max {
+            out.push_str("...");
+            return out;
+        }
+        out.push(ch);
+    }
+    out
 }
 
 fn export_ci_checklist(cx: &PublishContext) {
@@ -869,62 +1077,83 @@ fn export_ci_checklist(cx: &PublishContext) {
 }
 
 fn select_file(start: &Path, extension: Option<&str>) -> Result<PathBuf> {
-    let mut current = if start.exists() {
-        start.to_path_buf()
+    let base = if start.exists() {
+        if start.is_file() {
+            start.parent().unwrap_or(Path::new("/")).to_path_buf()
+        } else {
+            start.to_path_buf()
+        }
     } else {
         env::current_dir()?
     };
-    if current.is_file() {
-        current = current.parent().unwrap_or(Path::new("/")).to_path_buf();
-    }
     loop {
-        println!("\nSelect file from {}", current.display());
-        let mut entries = fs::read_dir(&current)
-            .with_context(|| format!("failed to read {}", current.display()))?
-            .filter_map(Result::ok)
-            .collect::<Vec<_>>();
-        entries.sort_by_key(|entry| entry.file_name());
-        println!("  0  ..");
-        for (index, entry) in entries.iter().enumerate().take(40) {
-            let path = entry.path();
-            let kind = if path.is_dir() { "/" } else { "" };
-            println!(
-                "  {:>2}  {}{}",
-                index + 1,
-                entry.file_name().to_string_lossy(),
-                kind
-            );
-        }
-        println!("Type a number, absolute path, or q to cancel.");
-        let choice = prompt("File")?;
-        let choice = choice.trim();
+        let expected = extension.map(|ext| format!(".{ext} ")).unwrap_or_default();
+        println!(
+            "\nEnter {}file path. Relative paths are resolved from the current directory first, then {}.",
+            expected,
+            base.display()
+        );
+        let choice = prompt("Path (q to cancel)")?;
+        let choice = trim_path_input(&choice);
         if choice.eq_ignore_ascii_case("q") {
             bail!("file selection cancelled");
         }
-        if choice == "0" || choice == ".." {
-            if let Some(parent) = current.parent() {
-                current = parent.to_path_buf();
-            }
+        if choice.trim().is_empty() {
+            println!("Path is required.");
             continue;
         }
-        if let Ok(index) = choice.parse::<usize>() {
-            if let Some(entry) = entries.get(index.saturating_sub(1)) {
-                let path = entry.path();
-                if path.is_dir() {
-                    current = path;
-                    continue;
-                }
-                validate_extension(&path, extension)?;
-                return Ok(path);
-            }
-        }
-        let path = PathBuf::from(choice);
-        if path.exists() && path.is_file() {
+        let path = resolve_input_file_path(choice, &base);
+        if path.is_file() {
             validate_extension(&path, extension)?;
             return Ok(path);
         }
-        println!("Not a selectable file: {choice}");
+        println!("Not a file: {}", path.display());
     }
+}
+
+fn trim_path_input(input: &str) -> &str {
+    let input = input.trim();
+    if input.len() >= 2 {
+        let bytes = input.as_bytes();
+        if (bytes[0] == b'"' && bytes[input.len() - 1] == b'"')
+            || (bytes[0] == b'\'' && bytes[input.len() - 1] == b'\'')
+        {
+            return &input[1..input.len() - 1];
+        }
+    }
+    input
+}
+
+fn resolve_input_file_path(input: &str, base: &Path) -> PathBuf {
+    let path = expand_home_path(input);
+    if path.is_absolute() {
+        return path;
+    }
+    let cwd_path = env::current_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join(&path);
+    if cwd_path.is_file() {
+        return cwd_path;
+    }
+    let base_path = base.join(path);
+    if base_path.is_file() {
+        return base_path;
+    }
+    cwd_path
+}
+
+fn expand_home_path(input: &str) -> PathBuf {
+    if input == "~" {
+        return env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(input));
+    }
+    if let Some(rest) = input.strip_prefix("~/") {
+        if let Some(home) = env::var_os("HOME") {
+            return PathBuf::from(home).join(rest);
+        }
+    }
+    PathBuf::from(input)
 }
 
 fn validate_extension(path: &Path, extension: Option<&str>) -> Result<()> {
@@ -1179,6 +1408,33 @@ mod tests {
         let text = fs::read_to_string(&path).unwrap();
         assert!(text.contains("/two.jks"));
         assert!(!text.contains("/one.jks"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn file_path_prompt_resolves_relative_to_project_dir() {
+        let dir = env::temp_dir().join(format!(
+            "fission-publish-shell-path-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("play-service-account.json");
+        fs::write(&path, "{}").unwrap();
+
+        assert_eq!(
+            resolve_input_file_path("play-service-account.json", &dir),
+            path
+        );
+        assert_eq!(
+            resolve_input_file_path(trim_path_input("\"play-service-account.json\""), &dir),
+            path
+        );
+        assert_eq!(
+            trim_path_input("'play-service-account.json'"),
+            "play-service-account.json"
+        );
+
         let _ = fs::remove_dir_all(&dir);
     }
 }
