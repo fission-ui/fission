@@ -15,4 +15,5 @@ fission = { path = "../../authoring/fission", version = "0.7.0", default-feature
 fission-command-core = { path = "../fission-command-core", version = "0.7.0" }
 fission-command-package = { path = "../fission-command-package", version = "0.7.0" }
 fission-command-run = { path = "../fission-command-run", version = "0.7.0" }
+rfd = { version = "0.14.1", default-features = true }
 serde = { version = "1.0", features = ["derive"] }

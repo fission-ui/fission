@@ -214,6 +214,7 @@ where
                     exit_after_render: false,
                     width: None,
                     height: None,
+                    native_file_dialog: true,
                 })
             } else if guided || dry_run || yes || json {
                 fission_command_package::run_publish_shell(
@@ -248,6 +249,7 @@ where
                     exit_after_render: false,
                     width: None,
                     height: None,
+                    native_file_dialog: false,
                 })
             }
         }
@@ -315,6 +317,7 @@ where
             exit_after_render,
             width,
             height,
+            native_file_dialog: false,
         }),
         Command::ServeWeb {
             project_dir,
