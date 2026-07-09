@@ -16,6 +16,13 @@ use anyhow::{anyhow, Result};
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 
+#[cfg(not(target_arch = "wasm32"))]
+pub mod browser;
+#[cfg(not(target_arch = "wasm32"))]
+pub use browser::{
+    detect_chrome, run_browser_smoke, BrowserSmokeMode, BrowserSmokeReport, BrowserTestOptions,
+};
+
 // --- Protocol types (shared between client and server) ---
 
 /// A command sent from the test client to the running application.

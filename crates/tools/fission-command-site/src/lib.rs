@@ -37,6 +37,21 @@ pub fn check(project_dir: &Path, release: bool) -> Result<()> {
     Ok(())
 }
 
+pub fn build_for_browser_test(project_dir: &Path, release: bool) -> Result<Option<PathBuf>> {
+    if site_entry_configured(project_dir)? {
+        run_site_builder(project_dir, release, "build", &[])?;
+        return Ok(None);
+    }
+    let options = site_build_options(project_dir)?;
+    let report = fission_shell_site::build_content_site(&options)?;
+    println!(
+        "Built {} static route(s) into {}",
+        report.routes.len(),
+        report.output_dir.display()
+    );
+    Ok(Some(report.output_dir))
+}
+
 pub fn routes(project_dir: &Path) -> Result<()> {
     if site_entry_configured(project_dir)? {
         return run_site_builder(project_dir, false, "routes", &[]);

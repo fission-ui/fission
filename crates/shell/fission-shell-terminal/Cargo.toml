@@ -20,3 +20,5 @@ fission-core = { path = "../../core/fission-core", version = "0.7.0" }
 fission-ir = { path = "../../core/fission-ir", version = "0.7.0" }
 fission-layout = { path = "../../core/fission-layout", version = "0.7.0" }
 fission-theme = { path = "../../core/fission-theme", version = "0.7.0" }
+fission-test-driver = { path = "../../tools/fission-test-driver", version = "0.7.0" }
+base64 = "0.22"
