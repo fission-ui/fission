@@ -127,10 +127,11 @@ The current target values are:
 | `macos` | macOS desktop host | Desktop target metadata and notes |
 | `windows` | Windows desktop host | Desktop target metadata and notes |
 | `web` | Browser host | `platforms/web/` with a helper script and README |
-| `server` | Server-rendered web host | `platforms/server/` notes plus `[server].entry` in [`fission.toml`](/reference/config/fission-toml/) |
-| `site` | Static site target | `content/` and static-site configuration |
+| `ssr` | Server-rendered web host | `platforms/ssr/` notes plus `[server].entry` in [`fission.toml`](/reference/config/fission-toml/) |
+| `static-site` | Static site target | `content/`, `platforms/static-site/`, and static-site configuration |
 | `android` | Android host | `platforms/android/` with packaging files, script, and README |
 | `ios` | iOS host | `platforms/ios/` with simulator bundle files, script, and README |
+| `terminal` | Terminal host | terminal-shell entrypoint and package path |
 
 In practice, many projects start with the default desktop scaffold and then add `web`, `android`, or `ios` when that host becomes relevant to the product. The important thing is not the order. The important thing is that the same shared app can be validated through each real host.
 
@@ -356,7 +357,7 @@ Builds route-local browser artifacts, runs the configured `[server].entry`, rend
 fission server build [--project-dir <dir>] [--release]
 ```
 
-Builds the server app and the route-local browser artifacts declared by its workers and islands. Use this command when you want the same pre-deployment build that `fission build --target server` performs: first the worker/island WASM shims are generated and compiled, then the server binary is compiled.
+Builds the server app and the route-local browser artifacts declared by its workers and islands. Use this command when you want the same pre-deployment build that `fission build --target ssr` performs: first the worker/island WASM shims are generated and compiled, then the server binary is compiled.
 
 ### `fission server serve`
 
@@ -380,7 +381,17 @@ Generates per-worker and per-island browser shim crates, then compiles them unle
 fission package --target <target> --format <format> [--project-dir <dir>] [--release] [--json]
 ```
 
-Packages an app or site into a release artifact manifest. Current relevant pairs include `site/static`, `site/docker-image`, `server/docker-image`, `linux/run`, `macos/app`, `macos/pkg`, `windows/exe`, `windows/msi`, `windows/msix`, `android/apk`, `android/aab`, and `ios/ipa`.
+Packages an app or site into a release artifact manifest. Current relevant pairs include `static-site/static`, `static-site/docker-image`, `ssr/docker-image`, `linux/run`, `macos/app`, `macos/pkg`, `windows/exe`, `windows/msi`, `windows/msix`, `android/apk`, `android/aab`, and `ios/ipa`.
+
+### `fission readiness`
+
+```sh
+fission readiness package --target <target> --format <format> [--project-dir <dir>] [--release] [--json]
+fission readiness distribute --provider <provider> [--artifact <manifest>] [--track <track>] [--project-dir <dir>] [--json]
+fission readiness release --target <target> --format <format> --provider <provider> [--locale <locale>] [--project-dir <dir>] [--json]
+```
+
+Runs focused preflight checks for packages, distribution destinations, or full provider release readiness. `readiness package --release` uses the release profile when reporting package readiness.
 
 ### `fission publish`
 
@@ -392,7 +403,7 @@ fission publish --provider <provider> [--target <target>] [--format <format>] [-
 fission publish --provider <provider> --artifact <artifact-manifest.json> [--site <profile>] [--track <track>] [--dry-run] [--yes]
 ```
 
-Without `--artifact`, `fission publish` opens the guided local publish flow. It shows preflight checks, creates/uses `~/.fission/<app-name>/release.env`, helps select or generate signing/provider files, builds the artifact, runs a dry-run, and then asks for explicit confirmation before publishing. Secrets are loaded from the local workspace or environment and are never written to `fission.toml`.
+Without `--artifact`, `fission publish` opens the guided local publish flow. It shows preflight checks, creates/uses `~/.fission/<app-name>/release.env`, helps select or generate signing/provider files, builds the artifact, runs a dry-run, and then asks for explicit confirmation before publishing. Add `--app` to open the same workflow as a native windowed Fission app with native file dialogs. `--app` is interactive, so do not combine it with `--guided`, `--dry-run`, `--yes`, `--json`, or `--overwrite-remote`.
 
 With `--artifact`, `fission publish` keeps the direct non-interactive behavior for scripts and CI. `fission distribute publish ...` is still available, but `publish` is the direct command developers should reach for in normal release workflows.
 

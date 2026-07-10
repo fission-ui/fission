@@ -21,12 +21,12 @@ fission site build --project-dir documentation --release
 ```sh
 fission package \
   --project-dir documentation \
-  --target site \
+  --target static-site \
   --format static \
   --release
 ```
 
-The package command writes `target/fission/release/site/static/artifact-manifest.json`. That manifest lists every generated file, its size, hash, MIME type, target, format, and validation state.
+The package command writes `target/fission/release/static-site/static/artifact-manifest.json`. That manifest lists every generated file, its size, hash, MIME type, target, format, and validation state.
 
 Use it when publishing:
 
@@ -34,7 +34,7 @@ Use it when publishing:
 fission publish \
   --project-dir documentation \
   --provider github-pages \
-  --artifact target/fission/release/site/static/artifact-manifest.json \
+  --artifact target/fission/release/static-site/static/artifact-manifest.json \
   --site production
 ```
 
@@ -70,7 +70,7 @@ Then package the image:
 ```sh
 fission package \
   --project-dir documentation \
-  --target site \
+  --target static-site \
   --format docker-image \
   --release
 ```
@@ -93,7 +93,7 @@ docker login ghcr.io
 fission publish \
   --project-dir documentation \
   --provider docker-registry \
-  --artifact target/fission/release/site/docker-image/artifact-manifest.json \
+  --artifact target/fission/release/static-site/docker-image/artifact-manifest.json \
   --site production
 ```
 

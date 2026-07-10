@@ -13,7 +13,7 @@ Use a manifest-backed artifact whenever possible:
 
 ```bash
 fission package --project-dir . --target linux --format run --release
-fission package --project-dir documentation --target site --format static --release
+fission package --project-dir documentation --target static-site --format static --release
 ```
 
 ## 2. Configure the destination
@@ -25,7 +25,7 @@ The provider configuration should name the bucket or container, prefix, public-l
 ```bash
 fission publish \
   --project-dir . \
-  --provider s3-compatible \
+  --provider s3 \
   --artifact target/fission/release/linux/run/artifact-manifest.json \
   --site production
 ```
@@ -34,4 +34,16 @@ The upload should preserve MIME types from the manifest and record public or pri
 
 ## 4. Verify access
 
-Fetch at least one uploaded file through the expected public or private URL. Confirm cache headers, content type, size, hash, and access policy before sharing the link.
+Check the exact uploaded objects:
+
+```bash
+fission distribute status \
+  --project-dir . \
+  --provider s3 \
+  --artifact target/fission/release/linux/run/artifact-manifest.json \
+  --site production
+```
+
+With `--artifact`, Fission checks the object keys planned from the manifest and
+reports whether they are present, partially present, or missing. Confirm cache
+headers, content type, size, hash, and access policy before sharing the link.

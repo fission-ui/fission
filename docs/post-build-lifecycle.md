@@ -1,8 +1,14 @@
 # Post-build lifecycle: packaging, signing, distribution, and release automation
 
-Status: proposal/specification  
-Audience: Fission command, platform shell, tooling, and release engineering implementers  
+Status: historical proposal; superseded where it conflicts with `docs/rfc-build-package-publish-workflow.md`
+Audience: Fission command, platform shell, tooling, and release engineering implementers
 Scope: everything after `fission build` produces a release binary or web bundle
+
+Supersession note: this document predates later release workflow decisions around
+secret handling, local publish UX, required-vs-recommended release content,
+shared publish orchestration, and version/build preflight. Use
+`docs/rfc-build-package-publish-workflow.md` as the current RFC when implementing
+or reviewing build/package/publish behavior.
 
 ## 1. Purpose
 
@@ -50,7 +56,7 @@ The public CLI should use `package` for artifact creation and `publish` for the 
 ```text
 fission readiness package --project-dir . --target <target> --format <format> [--release]
 fission readiness distribute --project-dir . --provider <provider> [--artifact <manifest>] [--track <track>]
-fission readiness release --project-dir . --target <target> --format <format> --provider <provider>
+fission readiness release --project-dir . --target <target> --format <format> --provider <provider> [--locale <locale>]
 
 fission package --project-dir . --target linux --format run --release
 fission package --project-dir . --target macos --format app --release
@@ -62,8 +68,8 @@ fission package --project-dir . --target android --format apk --release
 fission package --project-dir . --target android --format aab --release
 fission package --project-dir . --target ios --format ipa --release
 fission package --project-dir . --target web --format static --release
-fission package --project-dir . --target site --format docker-image --release
-fission package --project-dir . --target server --format docker-image --release
+fission package --project-dir . --target static-site --format docker-image --release
+fission package --project-dir . --target ssr --format docker-image --release
 
 fission publish --project-dir . --provider docker-registry --artifact <manifest> --site production
 fission distribute --project-dir . --provider s3 --artifact <manifest>
@@ -84,10 +90,13 @@ fission distribute --project-dir . --provider microsoft-store --artifact <manife
 
 fission release-config edit --project-dir .
 fission release-config edit --project-dir . --tui
-fission release-config import --project-dir . --provider play-store --locales en-US,fr-FR
+fission release-config import --project-dir . --provider play-store --locales en-US,fr-FR --dry-run --json
 fission release-config diff --project-dir . --provider play-store
+fission release-config lock --project-dir . --provider play-store --locales en-US,fr-FR --yes
 fission release-config validate --project-dir . --provider app-store
 fission release-config push --project-dir . --provider play-store --locales en-US,fr-FR --yes
+fission release-config bump-build --project-dir . --target android --yes
+fission release-config skip-requirement --project-dir . --id release_content.play_store.feature_graphic --yes
 
 fission release-content capture --project-dir . --target ios --set app-store
 fission release-content capture --project-dir . --target android --set play-store
@@ -95,18 +104,20 @@ fission release-content render --project-dir . --provider app-store
 fission release-content validate --project-dir . --provider app-store
 
 fission beta groups list --project-dir . --provider app-store
-fission beta groups sync --project-dir . --provider app-store --from fission.toml
-fission beta testers import --project-dir . --provider app-store --group external-beta --csv testers.csv
+fission beta groups sync --project-dir . --provider play-store --from fission.toml --dry-run --json
+fission beta groups sync --project-dir . --provider play-store --from fission.toml --yes
+fission beta testers import --project-dir . --provider app-store --group external-beta --csv testers.csv --dry-run --json
+fission beta testers import --project-dir . --provider app-store --group external-beta --csv testers.csv --yes
 fission beta testers export --project-dir . --provider play-store --track closed --output testers.csv
-fission beta distribute --project-dir . --provider app-store --artifact <manifest> --group external-beta
-fission beta distribute --project-dir . --provider play-store --artifact <manifest> --track internal
+fission beta distribute --project-dir . --provider app-store --artifact <manifest> --group external-beta --yes
+fission beta distribute --project-dir . --provider play-store --artifact <manifest> --track internal --yes
 
 fission signing status --project-dir . --target ios
 fission signing sync --project-dir . --target ios --readonly
-fission signing import --project-dir . --target android --keystore upload.jks --alias upload
+fission signing import --project-dir . --target android --keystore upload.jks --alias upload --yes
 
 fission reviews list --project-dir . --provider play-store --since 30d
-fission reviews reply --project-dir . --provider app-store --review <id> --message-file reply.txt
+fission reviews reply --project-dir . --provider app-store --review <id> --message-file reply.txt --yes
 
 fission auth login <provider>
 fission auth status [provider]
@@ -127,7 +138,7 @@ The `release-config`, `release-content`, `beta`, `signing`, and `reviews` comman
 The TUI MUST only write `fission.toml`, asset files, or generated receipts that the user can inspect. It must not store hidden project state. Non-interactive commands MUST support `--json`, `--yes`, `--dry-run`, and explicit field paths so they can be used in repeatable automation.
 
 ```text
-fission readiness release --target android --format aab --provider play-store --json
+fission readiness release --target android --format aab --provider play-store --locale en-US --json
 ```
 
 ### 4.1 Single public command, modular implementation
@@ -142,19 +153,18 @@ The single public command does not imply a monolithic Rust crate. The implementa
 |---|---|---|
 | `cargo-fission` | Binary entrypoint, argument parsing, dispatch, compatibility shim, and command composition | Thin crate; should not own provider implementations or platform-specific packaging logic directly |
 | `fission-command-core` | Shared command models, manifest helpers, report schemas, target identifiers, diagnostics, and reusable process utilities | No store SDKs, no desktop shell, no mobile SDK bindings, no credential backend |
-| `fission-command-site` | Static-site route listing, check, build, serve, static artifact helpers, and site-only validation | No credential vault, no store provider SDK, no app-store/cloud upload clients |
+| `fission-command-site` | Static-site route listing, check, build, serve, static artifact helpers, and site-only validation | No provider-secret handling, no store provider SDK, no app-store/cloud upload clients |
 | `fission-command-run` | Device discovery, doctor checks, build/run/test/log workflows for desktop, web, Android, iOS, terminal, and future targets | Platform-specific detection must stay isolated behind this crate's public API |
 | `fission-command-package` | Artifact creation, package manifest generation, icon outputs, checksums, receipts, and target-format validation | May call platform vendor tools, but must not own provider upload logic |
 | `fission-command-release` | Release metadata, release-content capture/render/validate, beta groups/testers, reviews, signing metadata, and workflow orchestration | Uses provider traits; should not hard-wire a provider implementation into generic release logic |
 | `fission-command-ui` | Terminal UI app over the same command model | UI actions must delegate to the same command execution path as non-interactive commands |
-| `fission-credentials` | Vault records, OS credential-store integration, credential import/rotation/audit, and CI/env credential lookup | Credential backends are isolated here so unrelated commands do not learn provider-secret details |
 | Provider crates | GitHub Pages/Releases, S3-compatible storage, Cloudflare Pages, Netlify, Google Drive, OneDrive, Dropbox, Play Store, App Store, Microsoft Store | Each provider owns only its API/client/CLI orchestration and implements shared provider traits |
 
 This crate split is an implementation boundary, not a developer-facing product boundary. It is acceptable for `cargo install cargo-fission` to compile the crates needed by the default distribution, but command implementations must be organized so dependency leakage is visible and testable. For example, static-site route checks must not depend on DBus, desktop windowing, mobile SDKs, AWS, or store API clients. Release publishing may depend on provider clients and credential backends, but those dependencies must not be introduced through site, doctor, or plain run/build code paths.
 
 CI MUST include dependency-boundary checks for the important command families. At minimum:
 
-- the static-site command path must not contain DBus, desktop shell, mobile SDK, AWS, store-provider, or credential-vault dependencies;
+- the static-site command path must not contain DBus, desktop shell, mobile SDK, AWS, store-provider, or provider-secret dependencies;
 - the run/build/test path must not contain cloud or store-provider clients unless a platform target explicitly requires them;
 - provider crates must not be pulled into unrelated command-family tests;
 - the public command help and generated project text must consistently show `fission ...`.
@@ -245,6 +255,9 @@ compression = "zstd"
 
 [package.macos]
 bundle_id = "com.example.todo"
+marketing_version = "1.2.3"
+build_number = "42"
+team_id = "TEAMID1234"
 minimum_os = "13.0"
 entitlements = "platforms/macos/entitlements.plist"
 signing_identity = "Developer ID Application: Example Software Ltd (TEAMID1234)"
@@ -279,6 +292,8 @@ bucket = "example-downloads"
 prefix = "todo/releases/{version}/"
 visibility = "presigned"
 presign_ttl_seconds = 604800
+overwrite = false
+cache_control = "public, max-age=31536000, immutable"
 
 [distribution.github_pages.production]
 owner = "example"
@@ -410,6 +425,10 @@ wait_for = "semantic:task-editor"
 screenshot_sets_dir = "release-content/screenshots/rendered/app-store"
 app_previews_dir = "release-content/previews/app-store"
 review_attachments = ["release-content/review/demo-account.pdf"]
+# App Store screenshots are grouped by locale and explicit screenshotDisplayType.
+# Example: release-content/screenshots/rendered/app-store/en-US/APP_IPHONE_67/home.png
+# App Store previews are grouped by locale and explicit previewType.
+# Example: release-content/previews/app-store/en-US/IPHONE_67/demo.mp4
 
 [release.assets.play_store]
 screenshot_sets_dir = "release-content/screenshots/rendered/play-store"
@@ -447,7 +466,7 @@ The CLI MUST validate that:
 - screenshot scenarios reference runnable Fission test scripts or declarative app states.
 - beta group names, track names, and tester sources are valid for the selected provider.
 - static-site distribution entries match the generated site's base path, custom-domain mode, and provider publishing source.
-- signing asset references point to keychain/certificate-store/vault entries or CI secret names, not plaintext secrets.
+- signing asset references point to platform keychain/certificate-store entries, environment variable names, or CI secret names, not plaintext secrets.
 
 ### 5.1 App icon intent, generation, and overrides
 
@@ -723,7 +742,7 @@ Minimum content manifest schema:
       "device_class": "iphone-6_9",
       "scenario": "home",
       "raw_path": "release-content/screenshots/raw/ios/en-US/iphone-6_9/home.png",
-      "rendered_path": "release-content/screenshots/rendered/app-store/en-US/iphone-6_9/home.png",
+      "rendered_path": "release-content/screenshots/rendered/app-store/en-US/APP_IPHONE_67/home.png",
       "sha256": "..."
     }
   ],
@@ -811,7 +830,6 @@ fission_release
     app_store
     microsoft_store
   auth
-  vault
 ```
 
 Each packager MUST implement this trait shape, or an equivalent design with the same semantics:
@@ -875,7 +893,6 @@ The release tooling should prefer Rust for Fission-owned control flow and data h
 | OneDrive | `reqwest` + OAuth crates | none by default | Microsoft Graph supports upload sessions for large files [R23]. |
 | Dropbox | `reqwest` + OAuth crates | none by default | Dropbox supports OAuth and upload sessions [R24]. |
 | Credential key storage | `keyring` crate | fail with remediation if no OS credential service | `keyring` supports macOS, Windows, Linux, BSDs, and iOS with platform credential stores [R29]. |
-| Vault encryption | `age` for export/import, `chacha20poly1305` for local AEAD records | none by default | `age` supports file encryption; `chacha20poly1305` provides XChaCha20Poly1305 AEAD [R30][R31]. |
 | Secret handling | `secrecy`, `zeroize` | none by default | These reduce accidental secret exposure and wipe memory on drop [R32][R33]. |
 | Screenshot capture | Fission platform test runner and platform device APIs | browser/device/simulator command-line tools where required | Capture must reuse Fission smoke/integration infrastructure instead of inventing a separate UI automation stack. |
 | Screenshot rendering | Rust image/vector/text rendering crates owned through Fission abstractions | platform image tools only when required by asset format | Raw captures and rendered marketing assets must be deterministic and reproducible from `fission.toml` config plus referenced release files and asset inputs. |
@@ -1103,6 +1120,8 @@ fission package --target windows --format msi --release
 
 The `.exe` installer SHOULD use a production-proven backend such as NSIS through `cargo-packager` when possible. The `.msi` installer SHOULD use WiX through `cargo-wix` or `cargo-packager` where it fits. `cargo-wix` is a Rust cargo subcommand that builds MSI installers using the WiX Toolset and can sign with Windows SDK SignTool [R27].
 
+Generated Windows targets include `platforms/windows/package-msi.ps1`. The script builds the Rust release binary, generates WiX v4 or WiX v3 project input, emits a `.msi`, and signs the result only from approved certificate sources (`WINDOWS_CERTIFICATE`, `WINDOWS_CERTIFICATE_BASE64`, or `WINDOWS_CERTIFICATE_THUMBPRINT`). Release packaging fails without an explicit signing source unless `WINDOWS_SKIP_SIGNING=1` is set for local unsigned validation.
+
 Readiness MUST detect:
 
 - target Windows binary;
@@ -1112,6 +1131,8 @@ Readiness MUST detect:
 - WiX Toolset when MSI is selected;
 - NSIS when NSIS EXE is selected;
 - Windows SDK SignTool when signing uses SignTool.
+
+The current readiness model checks the generated MSI/MSIX scripts, the MSIX manifest, WiX, `makeappx`, `signtool`, and a Windows signing source (`WINDOWS_CERTIFICATE`, `WINDOWS_CERTIFICATE_BASE64`, or `WINDOWS_CERTIFICATE_THUMBPRINT`) before package mutation.
 
 Direct-distribution signing MUST support local certificates and cloud signing providers. The signing abstraction must not assume certificates live as plaintext PFX files in the project.
 
@@ -1132,6 +1153,8 @@ VFS or app payload tree as required
 ```
 
 The MSIX package, block map, and local signature are produced through Microsoft-supported packaging and signing tools. Fission records those outputs in the artifact manifest and validates that they match the configured identity, payload, capabilities, and signing mode.
+
+Generated Windows targets include `platforms/windows/Package.appxmanifest` and `platforms/windows/package-msix.ps1`. The script stages the desktop executable under `VFS/ProgramFilesX64`, copies package visual assets from the configured app icon source, packs the layout with `makeappx`, and signs using the same approved Windows certificate sources as MSI packaging.
 
 The MSIX manifest MUST include:
 
@@ -1161,7 +1184,7 @@ Fission MUST support Microsoft Store submission automation where Microsoft's pla
 
 Microsoft Store release automation MUST handle listing metadata from `fission.toml`, screenshots, logos, trailers, and flight configuration. Microsoft documents screenshots, logos, trailers, and other Store listing image assets for MSIX submissions, including required and optional screenshot counts by device family [R50]. Microsoft also documents package flights through the Store submission APIs [R51]. Fission's Microsoft Store provider must therefore support public submissions and private/test flights through the same artifact/content manifest model.
 
-MSI/EXE submissions use the Store submission API and require a durable HTTPS `package_url` because the Store pulls the installer package from that location. MSIX and MSIXUPLOAD submissions use `msstore publish` against the package file recorded in the artifact manifest. For MSIX, `distribution.microsoft_store.package_type = "msix"` selects this path; `--track public` publishes to the public submission, `--track private` uses `distribution.microsoft_store.flight_id`, and any other non-empty `--track <value>` is treated as the Partner Center package-flight id.
+MSI/EXE submissions use the Store submission API and require a durable HTTPS `package_url` because the Store pulls the installer package from that location. MSIX and MSIXUPLOAD submissions use `msstore publish` against the package file recorded in the artifact manifest. For MSIX, either `--format msix` during readiness/publish planning or `distribution.microsoft_store.package_type = "msix"` selects this path before an artifact exists; once an artifact manifest exists, the manifest format is authoritative. `--track public` publishes to the public submission, `--track private` uses `distribution.microsoft_store.flight_id`, and any other non-empty `--track <value>` is treated as the Partner Center package-flight id.
 
 By default, Fission keeps MSIX submissions as drafts by passing the no-commit option to the Store developer CLI. A committed submission requires explicit release intent: set `distribution.microsoft_store.submit = true` or run with `--track public --yes`. If `package_rollout_percentage` is present, Fission passes it to the Store developer CLI during MSIX publishing. `msstore_project` can point at the project directory that `msstore publish` should use; if it is omitted, Fission passes the Fission project directory and relies on the explicit `--inputFile` artifact. If `msstore_reconfigure = true`, Fission configures the Store developer CLI from `tenant_id`, `client_id`, `seller_id`, and the Partner Center client secret before publishing; otherwise it assumes the developer or CI runner has already configured the tool.
 
@@ -1170,6 +1193,7 @@ Readiness MUST check:
 - Partner Center authentication;
 - product id or reserved app name;
 - package identity name matches the Store product identity;
+- configured Windows package version validity before packaging, and exact artifact package version validity before Store mutation;
 - Microsoft Store Developer CLI availability for MSIX/MSIXUPLOAD artifacts;
 - `package_url` only for MSI/EXE submissions;
 - required visual assets exist;
@@ -1202,7 +1226,7 @@ fission package --target android --format aab --release
 
 Android App Bundle is the primary Google Play publishing format. Android documents AAB as a publishing format that contains compiled code and resources while deferring APK generation and signing to Google Play [R3]. `bundletool` is the underlying tool Android Studio, Android Gradle Plugin, and Google Play use to build and work with app bundles [R1].
 
-Fission MUST construct the Android bundle inputs from the Fission project model, then invoke Android-supported build and validation tooling for the final AAB. Fission remains authoritative for package identity, versions, assets, native library selection, and release metadata, while `bundletool` and Android SDK tools remain authoritative for app-bundle packaging and validation.
+Fission MUST construct the Android bundle inputs from the Fission project model, then invoke Android-supported build and validation tooling for the final AAB. Generated Android targets now include `platforms/android/package-aab.sh`, which stages the Fission native library, resources, icon/splash defaults, release signing inputs from env/base64 secrets, and invokes the Android Gradle `bundleRelease` path. Fission remains authoritative for package identity, versions, assets, native library selection, and release metadata, while `bundletool` and Android SDK tools remain authoritative for app-bundle packaging and validation.
 
 AAB readiness MUST check:
 
@@ -1260,7 +1284,7 @@ Guided first setup output MUST include:
 - grant API access/service account permissions;
 - rerun `fission readiness distribute --provider play-store`.
 
-Fission MUST also support a Play internal-sharing distribution mode for quick team validation outside the formal track release flow. Google Play internal app sharing supports uploading an APK or app bundle and generating a share link, and the Publishing API exposes upload endpoints for internal sharing artifacts [R47][R48]. This mode must write a distribution receipt with the generated link and must not be confused with a production/internal-track release.
+Fission MUST also support a Play internal-sharing distribution mode for quick team validation outside the formal track release flow. Google Play internal app sharing supports uploading an APK or app bundle and generating a share link, and the Publishing API exposes upload endpoints for internal sharing artifacts [R47][R48]. This mode uses `--track internal-sharing`, writes a distribution receipt with the generated link, skips formal-track version-code preflight, and must not be confused with a production/internal-track release.
 
 ## 13. iOS packaging and distribution
 
@@ -1283,7 +1307,7 @@ Payload/Todo.app/
   Frameworks/<optional-frameworks>
 ```
 
-Then it MUST invoke Apple signing/export tooling with the selected certificate, provisioning profile, entitlements, bundle id, team id, build number, and marketing version.
+Then it MUST invoke Apple signing/export tooling with the selected certificate, provisioning profile, entitlements, bundle id, team id, build number, and marketing version. Generated iOS targets now include `platforms/ios/package-ipa.sh`, which builds the device target, requires `IOS_SIGNING_IDENTITY` for release packaging, embeds `IOS_PROVISIONING_PROFILE` unless explicitly disabled for test packages, signs with configured entitlements, verifies the signature, and assembles the `Payload/*.app` IPA archive.
 
 Readiness MUST check:
 
@@ -1424,7 +1448,7 @@ Fission MUST use the GitHub CLI for GitHub Releases rather than implementing dir
 Readiness MUST check:
 
 - owner and repository are configured or inferable;
-- `gh` is installed and authenticated, or `GH_TOKEN`/`GITHUB_TOKEN`/Fission vault credentials are available for the GitHub CLI process;
+- `gh` is installed and authenticated, or `GH_TOKEN`/`GITHUB_TOKEN` is available for the GitHub CLI process;
 - a tag can be resolved before publishing;
 - the artifact manifest exists and contains at least one existing uploadable file;
 - duplicate-asset policy is explicit when republishing is expected;
@@ -1433,18 +1457,18 @@ Readiness MUST check:
 Authentication:
 
 - GitHub Releases primarily uses `gh auth login`.
-- CI can use `GH_TOKEN` or `GITHUB_TOKEN`, and the Fission vault may inject `GH_TOKEN` for the `gh` subprocess when no token is already present.
+- CI can use `GH_TOKEN` or `GITHUB_TOKEN`; Fission must not inject hidden credentials into the `gh` subprocess.
 - Publishing requires repository Contents write permission because release and release-asset operations mutate repository release state [R64][R65].
 - Public status checks may work unauthenticated, but Fission should still prefer the user's `gh` authentication so private repositories and draft releases behave consistently.
 
 ### 15.2 Docker registries
 
 ```text
-fission package --target server --format docker-image --release
+fission package --target ssr --format docker-image --release
 fission publish --provider docker-registry --artifact <manifest> --site production
 ```
 
-Docker registry distribution MUST work for Docker image packages produced from the `site` and `server` targets. It is not a static-hosting provider. The package step owns Docker context generation, Dockerfile generation, image metadata, tags, and optional `docker build`; the publish step owns tagging and `docker push` for the configured registry tags.
+Docker registry distribution MUST work for Docker image packages produced from the `static-site` and `ssr` targets. It is not a static-hosting provider. The package step owns Docker context generation, Dockerfile generation, image metadata, tags, and optional `docker build`; the publish step owns tagging and `docker push` for the configured registry tags.
 
 Static-site Docker packages MUST contain the generated static site and a small Rust static-file server selected by `[package.docker].adapter`. Server-rendered Docker packages MUST build the server app inside the Docker builder stage and run the compiled server binary as the container process. Fission must not implement a custom registry protocol in this phase; it uses the Docker CLI for login, tag, inspect, and push so authentication follows the developer or CI runner's standard Docker setup.
 
@@ -1467,6 +1491,11 @@ Readiness MUST verify:
 - Docker CLI is available;
 - server packages have `[server].entry`;
 - static-site packages include rendered `index.html` before image context generation.
+
+Status MUST inspect every configured registry tag, or fall back to tags recorded
+in the supplied `docker-image` artifact manifest, report which tags resolve to
+remote manifests, and include the manifest digest in the receipt when Docker
+exposes it.
 
 ### 15.3 GitHub Pages
 
@@ -1498,7 +1527,7 @@ Custom-domain behavior:
 Authentication:
 
 - CI Actions mode SHOULD use the built-in workflow token with explicit `pages: write` and `id-token: write` permissions.
-- Local mode SHOULD use `gh` authentication when available or a GitHub App installation token/fine-grained personal access token stored in the Fission vault.
+- Local mode SHOULD use `gh` authentication when available or an explicit `GH_TOKEN`/`GITHUB_TOKEN` environment variable.
 - Secrets MUST not be written to the workflow. Generated workflows should rely on GitHub's token where possible.
 
 Required behavior:
@@ -1523,7 +1552,7 @@ Implementation approach:
 
 - Fission SHOULD use the Cloudflare API directly for account, project, deployment, custom-domain, DNS, status, and receipt operations.
 - Fission MUST invoke Wrangler as the Cloudflare Pages upload backend. This is not a fallback path; it is the supported provider-owned upload tool for prebuilt Pages assets.
-- Fission MUST store Cloudflare API tokens only in the vault or CI secrets.
+- Fission MUST read Cloudflare API tokens from explicit environment variables, CI secrets, or provider-owned auth state; it must not write them to `fission.toml`.
 
 Custom-domain behavior:
 
@@ -1553,7 +1582,7 @@ Netlify is a good first API-driven static-hosting provider because it exposes si
 
 Implementation approach:
 
-- Fission SHOULD use the Netlify API directly with `reqwest` and the vault-managed access token.
+- Fission SHOULD use the Netlify API directly with `reqwest` and an explicit environment/CI-provided access token.
 - Fission SHOULD prefer the file-digest deploy API for large repeated deploys because it avoids uploading files Netlify already has.
 - Fission MAY use ZIP upload for the first implementation or for small sites where the simpler path is acceptable.
 - Fission MUST poll deploy state and fail with provider diagnostics if processing fails.
@@ -1595,6 +1624,11 @@ Required behavior:
 
 Readiness MUST check credentials, bucket existence/access, prefix writability, public/presigned mode, object overwrite policy, and clock skew if presigned URLs are used.
 
+Status without an artifact lists the configured prefix. Status with an artifact
+manifest MUST check the exact object keys Fission would publish for that
+artifact and report whether each object is present, partially present, or
+missing.
+
 ### 15.7 Google Drive
 
 Google Drive distribution MUST use OAuth and Drive resumable upload for large artifacts. Google documents resumable upload as the appropriate Drive upload type for files larger than 5 MB or unstable network conditions [R21]. Sharing links require permissions to be created or updated through the Drive permissions API [R22].
@@ -1627,7 +1661,7 @@ Dropbox distribution MUST use Dropbox OAuth and upload sessions for large artifa
 Required behavior:
 
 - authenticate with OAuth authorization code plus PKCE where available;
-- store refresh token in the Fission vault;
+- store refresh tokens only in provider-owned auth state or an explicit non-project secret source;
 - upload large artifacts with upload sessions;
 - create or reuse shared links when requested;
 - return file IDs and shared links.
@@ -1644,49 +1678,17 @@ Fission needs an authorization story that works for interactive developer machin
 - Fission MUST support CI without an interactive keyring by reading secrets from environment variables, CI secret files, OIDC-based provider auth, or external secret managers.
 - Fission MUST distinguish account identity from credential material. It is acceptable for config to say `account = "work-google"`; it is not acceptable for config to contain the refresh token.
 
-### 16.2 Local credential vault
+### 16.2 Local secret sources
 
-Local developer credentials MUST be protected by a two-layer model:
+The old hidden credential-store design is superseded by the RFC. Fission must not maintain a hidden encrypted credential store. Local publishing uses explicit secret sources:
 
-1. OS keyring stores a randomly generated vault master key or unwrap key.
-2. Encrypted vault file stores provider credentials and metadata.
+- environment variables in the current shell;
+- provider-owned CLI authentication state such as `gh auth login`;
+- platform-owned certificate/key stores where the platform owns the security boundary;
+- user-selected files outside the repository for interactive local runs;
+- private local workspace files under `~/.fission/<app-name>/` only when the user explicitly creates or chooses them.
 
-The `keyring` crate is the preferred OS credential abstraction because it supports platform credential stores including macOS, Windows, Linux, BSDs, and iOS [R29]. If no platform credential service is available, readiness MUST fail with remediation instead of falling back to plaintext.
-
-Vault file path should follow platform config directories. Example logical path:
-
-```text
-<platform-config-dir>/fission/credentials.vault
-```
-
-On Unix-like platforms the file MUST be created with owner-only permissions. On Windows it MUST be created in the user's profile config area and rely on the OS ACL plus encryption.
-
-Vault record encryption SHOULD use XChaCha20Poly1305 from `chacha20poly1305` for local AEAD record encryption [R31]. `age` SHOULD be used for explicit encrypted import/export and team handoff bundles because it is a file encryption format with Rust support [R30].
-
-Every encrypted record MUST include authenticated associated data:
-
-```text
-vault_schema_version
-record_id
-provider
-account_id
-created_at
-last_rotated_at
-```
-
-The ciphertext MUST contain:
-
-```json
-{
-  "kind": "oauth_refresh_token | service_account_json | api_private_key | signing_password | access_key_pair",
-  "provider": "github-pages | cloudflare-pages | netlify | google-drive | onedrive | dropbox | play-store | app-store | microsoft-store | s3",
-  "account_label": "work-google",
-  "scopes": ["..."],
-  "expires_at": null,
-  "secret": "...",
-  "metadata": {}
-}
-```
+`~/.fission/<app-name>/release.env` is a convenience file for local interactive flows, not project configuration. It must be created with owner-only permissions, must never be generated under the project tree, and must never be required in CI. CI must use its own secret store and pass values through environment variables or secure files.
 
 Secret values in memory SHOULD use `secrecy` wrappers, which make secret access explicit and prevent accidental debug leakage, and `zeroize` for memory cleanup on drop [R32][R33].
 
@@ -1697,36 +1699,34 @@ Interactive desktop CLI:
 - prefer authorization-code-with-PKCE loopback browser flow for OAuth providers that support native apps;
 - open the browser automatically unless `--no-open-browser` is passed;
 - show the URL and code manually when browser launch fails;
-- store refresh token in the vault.
+- store refresh tokens only in provider-owned auth state or an explicit non-project secret source.
 
 Headless terminal:
 
 - use OAuth Device Authorization Grant when the provider supports it;
 - show verification URL and user code;
 - poll at the provider-specified interval;
-- store refresh token in the vault.
+- store refresh tokens only in provider-owned auth state or an explicit non-project secret source.
 
 RFC 8628 defines the OAuth Device Authorization Grant for clients that lack a browser or are input constrained [R34]. Fission SHOULD use that model for SSH sessions, CI setup terminals, and remote development machines when supported by the provider.
 
 CI:
 
 - support provider-native environment variables;
-- support encrypted vault import only when a passphrase or age identity is supplied by the CI secret system;
+- support encrypted secret-file import only when the decrypted material is supplied by the CI secret system and never written to `fission.toml`;
 - support OIDC federation where the provider supports it;
 - never prompt;
 - fail with JSON diagnostics if credentials are missing.
 
 ### 16.4 Signing credentials
 
-Fission SHOULD avoid importing long-lived private signing keys into its own vault when the platform has a better native key store:
+Fission SHOULD avoid importing long-lived private signing keys into Fission-managed storage when the platform has a better native key store:
 
 - Apple signing certificates should live in the macOS Keychain or an explicitly imported CI keychain.
 - Windows code signing should use Windows certificate store, Azure Artifact Signing, HSM-backed signing, or a CI secret store.
-- Android upload keystores may live as files, but passwords must be in vault/CI secrets.
-- App Store Connect API private keys may be stored in vault for local development or CI secrets for automation.
-- Google Play service account JSON may be stored in vault for local development or CI secrets for automation.
-
-The vault can store references, labels, passwords, OAuth tokens, and API private keys. It should not become an unmanaged dumping ground for every signing private key.
+- Android upload keystores may live as files outside the repo or base64 CI secrets; passwords must come from environment variables or CI secrets.
+- App Store Connect API private keys may be supplied as local files outside the repo or CI secrets for automation.
+- Google Play service account JSON may be supplied as local files outside the repo or CI secrets for automation.
 
 ## 17. Readiness checks
 
@@ -1743,7 +1743,7 @@ All platforms MUST check:
 - icon source exists and can generate platform sizes;
 - license, copyright, homepage, support URL, and privacy URL are present when required by target/provider;
 - artifact output directory is writable;
-- no stale manifest conflicts with current build unless `--force` is passed;
+- no stale manifest conflicts with current build unless `--force` is passed; package readiness reports this as `release.package.existing_artifact_manifest_current`;
 - app has required platform shell files;
 - package format is supported on the current host or remote builder.
 
@@ -1892,14 +1892,19 @@ Required TUI behavior:
 Required non-interactive behavior:
 
 ```text
-fission release-config set app.version 1.2.4
-fission release-config set 'release.active_release' '1.2.4+43'
-fission release-config add-release --version 1.2.4 --build 43 --from 1.2.3+42
+fission release-config set app.version 1.2.4 --dry-run --json
+fission release-config set 'release.active_release' '1.2.4+43' --yes
+fission release-config add-release --version 1.2.4 --build 43 --from 1.2.3+42 --yes
+fission release-config bump-build --target android --yes
 fission release-config set 'release.store_listing.play_store."en-US".short_description' "A focused task manager."
 fission release-config edit-file --release 1.2.4+43 --kind notes --locale en-US
+fission release-config write-file --release 1.2.4+43 --kind notes --locale en-US --from-file notes/en-US.md --dry-run --json
+fission release-config write-file --release 1.2.4+43 --kind review --from-file review.toml --yes
+fission release-config import --provider app-store --locales en-US,fr-FR --dry-run --json
 fission release-config import --provider app-store --locales en-US,fr-FR --yes
 fission release-config validate --provider play-store --json
 fission release-config push --provider microsoft-store --locales en-US --dry-run --json
+fission release-config skip-requirement --id release_content.play_store.feature_graphic --yes
 ```
 
 Non-interactive commands MUST support stable field paths, structured JSON output, `--dry-run`, `--yes`, and clear exit codes. Field paths use TOML dotted-key semantics; segments that contain characters such as `-` must be quoted. Commands that edit referenced files MUST address them by release id, kind, provider, and locale instead of making scripts know the physical path. Commands MUST fail instead of prompting when `--non-interactive` or CI mode is active.
@@ -1942,6 +1947,15 @@ Required capture flow:
 The render step MUST support provider-specific output sets without recapturing the app. For example, a single raw tablet screenshot may produce App Store, Play Store, documentation, and website assets if each output satisfies the target provider's size and content rules. Apple documents screenshot requirements and app preview upload support in App Store Connect [R38][R39]. Google Play documents preview assets for app store listings [R44]. Microsoft documents screenshots, logos, trailers, and other Store listing assets [R50].
 
 Screenshot scenarios SHOULD be based on semantic selectors, not pixel coordinates. A scenario that says `wait_for = "semantic:checkout-button"` is stable across devices; a scenario that taps `(481, 914)` is not.
+
+Selector-aware capture steps use the same Fission LiveTest selector protocol as
+runtime UI tests. Supported selector shorthands are `semantic:<id>`,
+`test_id:<id>`, `accessibility:<id>`, `widget:<id>`, `label:<text>`, and
+`role:<role>:<label>`; appending `#<index>` disambiguates duplicates. Scenario
+steps can use selector commands such as `tap_selector`, `focus_selector`,
+`scroll_into_view`, `fill_text`, `clear_text`, `toggle`, `select_option`,
+`wait_for_selector`, `wait_for_visible`, `wait_for_enabled`, `wait_for_value`,
+and `wait_for_text` before the screenshot is captured.
 
 ### 18.6 Beta testers and private distribution
 
@@ -1996,7 +2010,7 @@ Artifact manifests MUST support secondary artifacts with explicit purposes:
 }
 ```
 
-Readiness MUST report when symbols are available but not uploaded to a configured crash provider. Store distributors SHOULD upload provider-native symbol assets when the store accepts them; third-party crash providers should be modeled as additional distribution providers.
+Readiness MUST report when symbols are available but not uploaded to a configured crash provider. The distribution readiness report includes `release.distribution.debug_symbols_upload_state` when an artifact manifest contains debug-symbol or crash-diagnostic secondary artifacts. Store distributors SHOULD upload provider-native symbol assets when the store accepts them; third-party crash providers should be modeled as additional distribution providers.
 
 ### 18.9 Version intelligence and release workflows
 
@@ -2007,6 +2021,16 @@ Fission MUST understand provider-side version state. Before packaging or distrib
 - whether the local version/build is monotonically valid for the selected provider;
 - whether a version is already in review, released, rejected, or expired;
 - whether the next action should upload, submit for review, resume rollout, halt rollout, or promote an existing artifact.
+
+The command surface for this is:
+
+```sh
+fission release-config version-state --project-dir . --provider play-store --target android --track internal --json
+fission release-config version-state --project-dir . --provider app-store --target ios --track testflight --json
+fission release-config version-state --project-dir . --provider microsoft-store --target windows --format msix --json
+```
+
+`version-state` MUST resolve the same target, format, track, and artifact defaults as direct publishing. Missing provider credentials must report `provider-unavailable` with a diagnostic instead of hiding the local version state. When provider status exposes comparable build numbers, the command must report the latest uploaded/released provider build, compare it with the local build, and return a next action such as `bump-build`, `upload-new-build`, or `inspect-provider-state`.
 
 Fission should support project-defined release workflows as declarative recipes, not as an embedded scripting language. A recipe is an ordered list of Fission commands with explicit inputs, outputs, and readiness gates.
 
@@ -2021,7 +2045,7 @@ steps = [
 ]
 ```
 
-Recipes MUST remain inspectable and reproducible. They should compose Fission commands rather than hiding behavior in arbitrary code.
+Recipes MUST remain inspectable and reproducible. They should compose Fission commands rather than hiding behavior in arbitrary code. The current RFC requires non-dry workflow runs to pass `--yes`, and workflow recipes that resolve to arbitrary shell commands are rejected before execution.
 
 ## 19. Remote builders
 
@@ -2055,7 +2079,7 @@ Required smoke checks:
 
 | Target | Format | Smoke check |
 | --- | --- | --- |
-| Linux | `.run` | run `--verify`, install to temp prefix, launch app with smoke flag/headless check, uninstall, verify receipt removal |
+| Linux | `.run` | run `--verify`, install to temp prefix, launch app with smoke flag/headless check where configured, uninstall, verify receipt removal |
 | macOS | `.app` | verify bundle structure, codesign verify, Gatekeeper assessment where available, launch smoke |
 | macOS | `.pkg` | expand or inspect package, verify signature/notarization, install to temp volume/user test where possible |
 | Windows | `.exe`/`.msi` | verify signature, silent install to test VM where possible, launch smoke, uninstall |
@@ -2065,7 +2089,7 @@ Required smoke checks:
 | iOS | `.ipa` | validate signing/provisioning, install on configured device/test service where possible |
 | Web | static | serve locally, open with browser automation, verify canvas/app boot and logs |
 
-Smoke tests SHOULD integrate with the existing `fission test --target` platform testing path. Screenshot capture MUST also integrate with this path so the same semantic selectors, seeded state, logs, and device discovery are reused for package validation and release-content generation. A screenshot capture failure must produce the same quality of diagnostic output as a failing smoke test: platform logs, selector wait failure, last rendered frame if available, and the exact device/locale/theme configuration used.
+For `.run` packages, Fission-owned package validation first uses the embedded package verifier/install/uninstall path and records `package-validation/install-smoke.json`. Static packages record `package-validation/load-smoke.json` after deterministic root and `index.html` checks. Package manifests also include deterministic structure checks where the format is inspectable without platform-specific installation: macOS `.app` requires `Contents/Info.plist` and `Contents/MacOS`, APK requires `AndroidManifest.xml`, AAB requires `BundleConfig.pb` and `base/manifest/AndroidManifest.xml`, IPA requires `Payload/*.app/Info.plist`, and MSIX requires `AppxManifest.xml`. Browser/device launch smoke still belongs to the existing `fission test --target` platform testing path. Screenshot capture MUST also integrate with this path so the same semantic selectors, seeded state, logs, and device discovery are reused for package validation and release-content generation. A screenshot capture failure must produce the same quality of diagnostic output as a failing smoke test: platform logs, selector wait failure, last rendered frame if available, and the exact device/locale/theme configuration used.
 
 ## 21. Security and compliance requirements
 
@@ -2080,8 +2104,8 @@ Required controls:
 - credentials have provider, account, scopes, created time, and last-used time;
 - `fission auth audit` lists accounts and scopes without revealing secrets;
 - credential rotation is supported per provider;
-- `fission auth logout` revokes tokens where provider supports revocation and deletes local vault records;
-- vault unlock failures fail closed;
+- `fission auth logout` revokes tokens where provider supports revocation and deletes local provider-owned auth records where Fission can safely request that;
+- secret-source resolution failures fail closed;
 - CI mode refuses interactive prompts;
 - distribution commands support `--dry-run` where provider APIs allow validation without mutation;
 - destructive provider operations require explicit flags.
@@ -2119,7 +2143,7 @@ release.netlify.deploy_not_ready
 release.netlify.domain_not_configured
 release.provider.rollback_unsupported
 release.oauth.device_flow_timeout
-release.vault.keyring_unavailable
+release.secret_source_unavailable
 ```
 
 Every error MUST include:
@@ -2135,7 +2159,7 @@ Every error MUST include:
 These are implementation milestones, not partial product definitions. The final accepted feature requires all relevant milestones for each supported platform/provider.
 
 1. Add release config schema and artifact/distribution receipt schema.
-2. Add credential vault and `fission auth` commands.
+2. Add secret-source policy checks and `fission auth` commands that use provider-owned auth state or explicit env/CI sources.
 3. Add release-config root schema in `fission.toml`, `[[releases]]` file references, referenced release-file schemas, TUI editing, non-interactive edit/import/diff/validate/push commands, screenshot scenario model, and content manifest.
 4. Add readiness engine with JSON output and stable error IDs.
 5. Add `[package.icons]`, the dedicated `crates/tools/fission-command-package/src/icons` module, icon readiness checks, deterministic platform icon generation, manual/provided icon validation, and icon manifests before platform packagers consume icons.
@@ -2176,8 +2200,8 @@ The post-build lifecycle work is accepted when the following are true:
 - Beta commands manage provider groups/tracks/flights, tester lists, build assignment, and beta distribution receipts.
 - Version-state commands can report provider-side latest build/release status and block invalid monotonic version changes.
 - Cloud distributors upload to S3-compatible storage, Google Drive, OneDrive, and Dropbox and return usable links/provider IDs.
-- Credentials are stored through OS keyring plus encrypted vault for local development, and through explicit CI secret sources in CI.
-- No provider token, signing password, or private key is stored in plaintext under the project or home directory by Fission.
+- Credentials are resolved from explicit local environment/provider-owned auth state for local development, and through explicit CI secret sources in CI.
+- No provider token, signing password, or private key is stored in project configuration or under the project tree by Fission; interactive local flows may write explicitly chosen local-only secret files under private `~/.fission/<app-name>/` workspace paths, and CI must use its own secret store.
 - Platform smoke checks prove artifacts install or load in the expected environment.
 - Screenshot capture failures produce actionable logs and selector diagnostics.
 - Store review/customer-feedback operations are available where provider APIs support them and never require app runtime changes.

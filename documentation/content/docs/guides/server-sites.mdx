@@ -9,12 +9,12 @@ The server shell is for web experiences that need more than static HTML but shou
 
 The Pokémon Card Store example under `examples/pokemon-card-store` is the reference project. It renders a storefront from normal Fission widgets, keeps the cart in a session-private route, drains a server job before responding, declares a progressive worker for browser-side enhancement, declares a focused WASM island for the cart drawer, and can be packaged into a Docker image. Revalidated routes use the same server shell, but a page that emits signed action forms is deliberately private or request-rendered unless you move that interaction into an island.
 
-## 1. Enable the server target
+## 1. Enable the SSR target
 
-A server project declares `server` as a target and points `[server].entry` at the Rust function that creates the server app.
+A server project declares `ssr` as a target and points `[server].entry` at the Rust function that creates the server app.
 
 ```toml
-targets = ["server"]
+targets = ["ssr"]
 
 [app]
 name = "pokemon-card-store"
@@ -147,7 +147,7 @@ tags = ["ghcr.io/example/pokemon-card-store:0.1.0"]
 ```sh
 fission package \
   --project-dir examples/pokemon-card-store \
-  --target server \
+  --target ssr \
   --format docker-image \
   --release
 ```

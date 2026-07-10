@@ -31,7 +31,7 @@ By the end of `Build a documentation site`, you should have a runnable change, n
 Set the site fields in [`fission.toml`](/reference/config/fission-toml/):
 
 ```toml
-targets = ["site"]
+targets = ["static-site"]
 
 [app]
 name = "docs-site"
@@ -162,8 +162,8 @@ Review `dist/site/index.html`, `dist/site/docs/intro/index.html`, `dist/site/sit
 ## 5. Package and publish
 
 ```sh
-fission package --project-dir . --target site --format static --release
-fission publish --project-dir . --provider github-pages --artifact target/fission/release/site/static/artifact-manifest.json --site production
+fission package --project-dir . --target static-site --format static --release
+fission publish --project-dir . --provider github-pages --artifact target/fission/release/static-site/static/artifact-manifest.json --site production
 ```
 
 That is the same lifecycle used by the Fission documentation site: source-controlled content and widgets in the project, generated static output in the build, and provider upload from a package manifest.
