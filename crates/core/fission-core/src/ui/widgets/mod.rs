@@ -10,6 +10,7 @@ pub mod grid;
 pub mod icon;
 pub mod image;
 pub mod lazy_column;
+pub mod map;
 pub mod overlay;
 pub mod positioned;
 pub mod provider;
@@ -43,6 +44,7 @@ pub use image::{
     ImageRequest, ImageSource,
 };
 pub use lazy_column::LazyColumn;
+pub use map::Map;
 pub use overlay::Overlay;
 pub use positioned::Positioned;
 pub use provider::{provider, Provider};

@@ -1,8 +1,9 @@
 use crate::{
     motion::MotionDeclaration,
     registry::{
-        ActionRegistry, IntoHandler, PortalEntry, PortalLayer, ResourceRegistry,
-        RuntimeResourceDeclaration, VideoControlCtx, VideoRegistration, WebRegistration,
+        ActionRegistry, IntoHandler, MapControlCtx, MapRegistration, PortalEntry, PortalLayer,
+        ResourceRegistry, RuntimeResourceDeclaration, VideoControlCtx, VideoRegistration,
+        WebRegistration,
     },
     ui::Widget,
     Action, ActionEnvelope, ActionId, BoxedReducer, GlobalState,
@@ -44,6 +45,8 @@ pub struct BuildCtx<S: GlobalState> {
     pub video_nodes: Vec<VideoRegistration>,
     /// Registered web view nodes.
     pub web_nodes: Vec<WebRegistration>,
+    /// Registered map nodes.
+    pub map_nodes: Vec<MapRegistration>,
     /// Portal entries (overlays, modals, toasts).
     pub portals: Vec<PortalEntry>,
     portal_seq: u64,
@@ -57,6 +60,7 @@ impl<S: GlobalState> BuildCtx<S> {
             motion_declarations: Vec::new(),
             video_nodes: Vec::new(),
             web_nodes: Vec::new(),
+            map_nodes: Vec::new(),
             portals: Vec::new(),
             portal_seq: 0,
         }
@@ -97,6 +101,10 @@ impl<S: GlobalState> BuildCtx<S> {
         self.web_nodes.push(registration);
     }
 
+    pub fn register_map(&mut self, registration: MapRegistration) {
+        self.map_nodes.push(registration);
+    }
+
     pub fn take_motion_declarations(&mut self) -> Vec<MotionDeclaration> {
         std::mem::take(&mut self.motion_declarations)
     }
@@ -107,6 +115,10 @@ impl<S: GlobalState> BuildCtx<S> {
 
     pub fn take_web_registrations(&mut self) -> Vec<WebRegistration> {
         std::mem::take(&mut self.web_nodes)
+    }
+
+    pub fn take_map_registrations(&mut self) -> Vec<MapRegistration> {
+        std::mem::take(&mut self.map_nodes)
     }
 
     pub fn take_resources(&mut self) -> Vec<RuntimeResourceDeclaration> {
@@ -150,5 +162,9 @@ impl<S: GlobalState> BuildCtx<S> {
 
     pub fn video_controls(&self, target: WidgetId) -> VideoControlCtx {
         VideoControlCtx { target }
+    }
+
+    pub fn map_controls(&self, target: WidgetId) -> MapControlCtx {
+        MapControlCtx { target }
     }
 }

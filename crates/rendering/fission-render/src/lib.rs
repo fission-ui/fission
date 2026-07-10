@@ -182,6 +182,7 @@ pub fn embed_surface_id(kind: &EmbedKind, widget_id: WidgetId) -> u64 {
     let kind_tag = match kind {
         EmbedKind::Video => 0xF151_0000_0000_0001,
         EmbedKind::Web => 0xF151_0000_0000_0002,
+        EmbedKind::Map => 0xF151_0000_0000_0004,
         EmbedKind::Custom(_) => 0xF151_0000_0000_0003,
     };
     let raw = widget_id.as_u128();

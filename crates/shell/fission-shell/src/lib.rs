@@ -45,3 +45,32 @@ pub enum VideoEvent {
     Ended,
     Error(String),
 }
+
+// ---------------------------------------------------------------------------
+// Map
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MapSurfaceFrame {
+    pub widget_id: WidgetId,
+    pub rect: LayoutRect,
+}
+
+pub trait MapBackend: Send + Sync {
+    fn create_controller(
+        &self,
+        widget_id: WidgetId,
+        center: (f64, f64),
+        zoom: f32,
+    ) -> Box<dyn MapController>;
+    fn present_surfaces(&self, frames: &[MapSurfaceFrame]);
+}
+
+/// A handle to a live native map view.
+pub trait MapController: Send + Sync {
+    fn set_center(&mut self, lat: f64, lng: f64);
+    fn set_zoom(&mut self, zoom: f32);
+    fn set_show_user_location(&mut self, show: bool);
+    fn set_interactive(&mut self, interactive: bool);
+    fn widget_id(&self) -> WidgetId;
+}

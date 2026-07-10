@@ -369,6 +369,11 @@ impl Runtime {
             return Ok(());
         }
 
+        // Delegate map actions to map_media module
+        if crate::map_media::handle_map_action(&mut self.runtime_state.map, &action)? {
+            return Ok(());
+        }
+
         let action_id = action.id;
 
         if crate::scoped_action_handlers::dispatch_scoped_action_handler(&action, target, input)? {
@@ -543,6 +548,29 @@ impl Runtime {
 
         self.runtime_state
             .web
+            .states
+            .retain(|node_id, _| seen.contains(node_id));
+    }
+
+    pub fn sync_map_nodes(&mut self, registrations: &[crate::registry::MapRegistration]) {
+        let mut seen: HashSet<WidgetId> = HashSet::new();
+
+        for reg in registrations {
+            seen.insert(reg.node_id);
+            let entry = self
+                .runtime_state
+                .map
+                .states
+                .entry(reg.node_id)
+                .or_insert_with(crate::env::MapState::default);
+            entry.center = reg.center;
+            entry.zoom = reg.zoom;
+            entry.show_user_location = reg.show_user_location;
+            entry.interactive = reg.interactive;
+        }
+
+        self.runtime_state
+            .map
             .states
             .retain(|node_id, _| seen.contains(node_id));
     }

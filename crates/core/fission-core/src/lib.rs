@@ -56,6 +56,7 @@ pub mod hit_test;
 pub mod input;
 pub(crate) mod lowering;
 pub mod media;
+pub mod map_media;
 pub mod motion;
 pub mod platform;
 pub mod platform_barcode;
@@ -504,14 +505,14 @@ pub use platform_wifi::{
     SCAN_WIFI_NETWORKS,
 };
 pub use registry::{
-    ActionRegistry, Handler, JobResource, PortalLayer, ResourceKey, ResourcePolicy,
-    ResourceRegistry, RuntimeResourceDeclaration, RuntimeResourceKind, ServiceResource,
-    TimerResource, VideoRegistration,
+    ActionRegistry, Handler, JobResource, MapControlCtx, MapRegistration, PortalLayer, ResourceKey,
+    ResourcePolicy, ResourceRegistry, RuntimeResourceDeclaration, RuntimeResourceKind,
+    ServiceResource, TimerResource, VideoRegistration,
 };
 pub use time::{Clock, CurrentTime};
 pub use ui::{
     provider, ActionScope, BadgeTone, Button, ButtonHierarchy, ButtonMotion, CardPattern, Column,
-    ComponentSize, ComponentState, CustomWidget, Provider, Row, Text, Widget, WidgetIdExt,
+    ComponentSize, ComponentState, CustomWidget, Map, Provider, Row, Text, Widget, WidgetIdExt,
 };
 pub use view::{ComputedView, FissionViewField, Selector, ValueView, View};
 

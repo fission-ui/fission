@@ -16,6 +16,7 @@ struct BuildScope {
     motion_declarations: *mut Vec<crate::motion::MotionDeclaration>,
     video_nodes: *mut Vec<crate::registry::VideoRegistration>,
     web_nodes: *mut Vec<crate::registry::WebRegistration>,
+    map_nodes: *mut Vec<crate::registry::MapRegistration>,
     portals: *mut Vec<crate::registry::PortalEntry>,
     next_portal_seq: NextPortalSeq,
     register_runtime_reducer: RegisterRuntimeReducer,
@@ -73,6 +74,7 @@ where
             motion_declarations: &mut ctx.motion_declarations,
             video_nodes: &mut ctx.video_nodes,
             web_nodes: &mut ctx.web_nodes,
+            map_nodes: &mut ctx.map_nodes,
             portals: &mut ctx.portals,
             next_portal_seq: next_portal_seq::<S>,
             register_runtime_reducer: register_runtime_reducer::<S>,
@@ -323,6 +325,16 @@ pub fn try_register_motion(declaration: crate::motion::MotionDeclaration) {
     }
 }
 
+pub fn try_register_map(registration: crate::registry::MapRegistration) {
+    let map_nodes =
+        BUILD_SCOPES.with(|scopes| scopes.borrow().last().map(|scope| scope.map_nodes));
+    if let Some(map_nodes) = map_nodes {
+        unsafe {
+            (*map_nodes).push(registration);
+        }
+    }
+}
+
 pub fn try_current_runtime_state() -> Option<&'static crate::RuntimeState> {
     BUILD_SCOPES.with(|scopes| {
         scopes
@@ -569,6 +581,10 @@ impl<S: GlobalState> BuildCtxHandle<S> {
 
     pub fn video_controls(&self, target: crate::WidgetId) -> crate::registry::VideoControlCtx {
         self.with_exact_ctx(|ctx| ctx.video_controls(target))
+    }
+
+    pub fn map_controls(&self, target: crate::WidgetId) -> crate::registry::MapControlCtx {
+        self.with_exact_ctx(|ctx| ctx.map_controls(target))
     }
 }
 

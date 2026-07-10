@@ -20,10 +20,12 @@ use serde_json;
 use std::any::Any;
 
 pub mod video;
+pub mod map;
 
 pub use video::{
     VideoPause, VideoPlay, VideoSeek, VideoSetMuted, VideoSetRate, VideoSetVolume, VideoStop,
 };
+pub use map::{MapSetCenter, MapSetZoom};
 
 /// Built-in action dispatched by shells when the host route changes.
 ///

@@ -2,6 +2,7 @@ use crate::{
     action::video::{
         VideoPause, VideoPlay, VideoSeek, VideoSetMuted, VideoSetRate, VideoSetVolume, VideoStop,
     },
+    action::map::{MapSetCenter, MapSetZoom},
     async_runtime::{
         JobRef, JobRequestPayload, JobSpec, ServiceBindings, ServiceSlot, ServiceSpec,
         ServiceStartPayload,
@@ -240,6 +241,22 @@ pub struct WebRegistration {
     pub user_agent: Option<String>,
 }
 
+/// Registration data for a [`Map`](crate::ui::Map) widget collected during
+/// widget building.
+#[derive(Clone, Debug)]
+pub struct MapRegistration {
+    /// The stable widget identity of the map node.
+    pub node_id: WidgetId,
+    /// Center coordinate as `(latitude, longitude)`.
+    pub center: (f64, f64),
+    /// Zoom level.
+    pub zoom: f32,
+    /// Whether to show the user's current location.
+    pub show_user_location: bool,
+    /// Whether the map is interactively pannable/zoomable.
+    pub interactive: bool,
+}
+
 /// Z-order layer for portal entries.
 ///
 /// Portals are sorted by layer (then by registration order within a layer).
@@ -349,6 +366,39 @@ impl VideoControlCtx {
         };
         ActionEnvelope {
             id: VideoSetMuted::static_id(),
+            payload: action.encode(),
+        }
+    }
+}
+
+/// Control context for programmatic map manipulation.
+///
+/// Obtained via [`BuildCtx::map_controls`](crate::internal::BuildCtx::map_controls).
+#[derive(Clone, Copy)]
+pub struct MapControlCtx {
+    pub(crate) target: WidgetId,
+}
+
+impl MapControlCtx {
+    pub fn set_center(&self, latitude: f64, longitude: f64) -> ActionEnvelope {
+        let action = MapSetCenter {
+            target: self.target,
+            latitude,
+            longitude,
+        };
+        ActionEnvelope {
+            id: MapSetCenter::static_id(),
+            payload: action.encode(),
+        }
+    }
+
+    pub fn set_zoom(&self, zoom: f32) -> ActionEnvelope {
+        let action = MapSetZoom {
+            target: self.target,
+            zoom,
+        };
+        ActionEnvelope {
+            id: MapSetZoom::static_id(),
             payload: action.encode(),
         }
     }

@@ -297,6 +297,7 @@ impl Default for FlexDirection {
 pub enum EmbedKind {
     Video,
     Web,
+    Map,
     Custom(Vec<u8>),
 }
 

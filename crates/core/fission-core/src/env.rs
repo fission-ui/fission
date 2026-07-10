@@ -170,6 +170,7 @@ pub struct RuntimeState {
     pub scroll: ScrollStateMap,
     pub video: VideoStateMap,
     pub web: WebStateMap,
+    pub map: MapStateMap,
     pub motion: MotionStateMap,
     pub interaction: InteractionStateMap,
     pub text_edit: TextEditStateMap,
@@ -709,4 +710,28 @@ pub enum VideoStatus {
     Buffering,
     Ended,
     Error,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct MapStateMap {
+    pub states: HashMap<WidgetId, MapState>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MapState {
+    pub center: (f64, f64),
+    pub zoom: f32,
+    pub show_user_location: bool,
+    pub interactive: bool,
+}
+
+impl Default for MapState {
+    fn default() -> Self {
+        Self {
+            center: (0.0, 0.0),
+            zoom: 10.0,
+            show_user_location: false,
+            interactive: true,
+        }
+    }
 }

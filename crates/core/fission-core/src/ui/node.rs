@@ -2,9 +2,9 @@ use super::custom_render::CustomRenderObject;
 use super::traits::{InternalLower, InternalLowerer};
 use super::widgets::{
     ActionScope, Align, Button, Checkbox, Clip, Column, Composite, Container, FocusScope,
-    GestureDetector, Grid, GridItem, Icon, Image, LazyColumn, Overlay, Positioned, Radio, RichText,
-    Row, SafeArea, Scroll, SemanticsRegion, Slider, Spacer, Switch, Text, TextInput, Transform,
-    Video, ZStack,
+    GestureDetector, Grid, GridItem, Icon, Image, LazyColumn, Map, Overlay, Positioned, Radio,
+    RichText, Row, SafeArea, Scroll, SemanticsRegion, Slider, Spacer, Switch, Text, TextInput,
+    Transform, Video, ZStack,
 };
 use crate::lowering::InternalLoweringCx;
 use fission_ir::{Op, StructuralOp, WidgetId};
@@ -34,6 +34,7 @@ enum WidgetKind {
     SemanticsRegion(SemanticsRegion),
     Image(Image),
     Video(Video),
+    Map(Map),
     ZStack(ZStack),
     Overlay(Overlay),
     Container(Container),
@@ -124,6 +125,10 @@ impl Widget {
             WidgetKind::Video(mut w) => {
                 w.id = Some(id);
                 WidgetKind::Video(w)
+            }
+            WidgetKind::Map(mut w) => {
+                w.id = Some(id);
+                WidgetKind::Map(w)
             }
             WidgetKind::ZStack(mut w) => {
                 w.id = Some(id);
@@ -235,6 +240,7 @@ impl Widget {
             WidgetKind::SemanticsRegion(_) => "SemanticsRegion",
             WidgetKind::Image(_) => "Image",
             WidgetKind::Video(_) => "Video",
+            WidgetKind::Map(_) => "Map",
             WidgetKind::ZStack(_) => "ZStack",
             WidgetKind::Overlay(_) => "Overlay",
             WidgetKind::Container(_) => "Container",
@@ -380,6 +386,7 @@ impl Widget {
             WidgetKind::SemanticsRegion(w) => w.lower(cx),
             WidgetKind::Image(w) => w.lower(cx),
             WidgetKind::Video(w) => w.lower(cx),
+            WidgetKind::Map(w) => w.lower(cx),
             WidgetKind::ZStack(w) => w.lower(cx),
             WidgetKind::Overlay(w) => w.lower(cx),
             WidgetKind::Container(w) => w.lower(cx),
@@ -590,6 +597,25 @@ impl From<Video> for Widget {
         });
         Self {
             kind: Box::new(WidgetKind::Video(w)),
+        }
+    }
+}
+impl From<Map> for Widget {
+    fn from(w: Map) -> Self {
+        let node_id = crate::build::current_widget_id()
+            .or(w.id)
+            .unwrap_or_else(|| {
+                fission_ir::WidgetId::explicit(&format!("map:{}:{}", w.center.0, w.center.1))
+            });
+        crate::build::try_register_map(crate::registry::MapRegistration {
+            node_id,
+            center: w.center,
+            zoom: w.zoom,
+            show_user_location: w.show_user_location,
+            interactive: w.interactive,
+        });
+        Self {
+            kind: Box::new(WidgetKind::Map(w)),
         }
     }
 }

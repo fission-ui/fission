@@ -1303,6 +1303,12 @@ impl HtmlRenderer<'_> {
                 "custom",
                 "Custom embedded surface is not available in static HTML",
             )),
+            EmbedKind::Map => Ok(self.render_embed_fallback(
+                node,
+                &class_name,
+                "map",
+                "Map embed is not available in static HTML",
+            )),
         }
     }
 
