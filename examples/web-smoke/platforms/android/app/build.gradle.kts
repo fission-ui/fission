@@ -19,8 +19,8 @@ android {
         applicationId = "com.example.web_smoke"
         minSdk = (System.getenv("ANDROID_MIN_API_LEVEL") ?: "24").toInt()
         targetSdk = (System.getenv("ANDROID_TARGET_API_LEVEL") ?: "35").toInt()
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = (System.getenv("ANDROID_VERSION_CODE") ?: "1").toInt()
+        versionName = System.getenv("ANDROID_VERSION_NAME") ?: "0.1.0"
     }
 
     sourceSets {

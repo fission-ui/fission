@@ -10,4 +10,60 @@ targets = [
 [app]
 name = "web-smoke"
 app_id = "com.example.web_smoke"
+version = "0.7.0"
+build = 1
+
+[package.android]
+package_name = "com.example.web_smoke"
+version_code = 1
+version_name = "0.7.0"
+min_sdk = 24
+target_sdk = 35
+keystore_alias = "upload"
+keystore_env = "ANDROID_KEYSTORE"
+keystore_base64_env = "ANDROID_KEYSTORE_BASE64"
+keystore_password_env = "ANDROID_KEYSTORE_PASSWORD"
+key_password_env = "ANDROID_KEY_PASSWORD"
+
+[package.ios]
+bundle_id = "com.example.web_smoke"
+marketing_version = "0.7.0"
+build_number = "1"
+
+[package.windows]
+identity_name = "com.example.web.smoke"
+publisher = "CN=Fission Developer"
+version = "0.7.0"
+installer = "msix"
+certificate_thumbprint_env = "WINDOWS_CERTIFICATE_THUMBPRINT"
+certificate_base64_env = "WINDOWS_CERTIFICATE_BASE64"
+certificate_password_env = "WINDOWS_CERTIFICATE_PASSWORD"
+
+[distribution.play_store]
+package_name = "com.example.web_smoke"
+default_track = "internal"
+release_status = "completed"
+access_token_env = "PLAY_STORE_ACCESS_TOKEN"
+service_account_json_env = "PLAY_STORE_SERVICE_ACCOUNT_JSON"
+service_account_json_base64_env = "PLAY_STORE_SERVICE_ACCOUNT_JSON_BASE64"
+google_application_credentials_env = "GOOGLE_APPLICATION_CREDENTIALS"
+
+[distribution.app_store]
+bundle_id = "com.example.web_smoke"
+access_token_env = "APP_STORE_CONNECT_ACCESS_TOKEN"
+issuer_id_env = "APP_STORE_CONNECT_ISSUER_ID"
+key_id_env = "APP_STORE_CONNECT_KEY_ID"
+api_key_env = "APP_STORE_CONNECT_API_KEY"
+api_key_base64_env = "APP_STORE_CONNECT_API_KEY_BASE64"
+api_key_path_env = "APP_STORE_CONNECT_API_KEY_PATH"
+default_track = "testflight"
+
+[distribution.microsoft_store]
+package_identity_name = "com.example.web.smoke"
+package_type = "msix"
+token_env = "MICROSOFT_STORE_TOKEN"
+tenant_id_env = "AZURE_TENANT_ID"
+client_id_env = "AZURE_CLIENT_ID"
+client_secret_env = "MICROSOFT_STORE_CLIENT_SECRET"
+seller_id_env = "MICROSOFT_STORE_SELLER_ID"
 
