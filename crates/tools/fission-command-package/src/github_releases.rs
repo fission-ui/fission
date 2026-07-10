@@ -90,15 +90,19 @@ pub(super) fn readiness(
     ));
     checks.push(check(
         "release.github_releases.replace_assets_explicit",
-        CheckSeverity::Info,
+        CheckSeverity::Warning,
         if cfg.replace_assets.is_some() {
             CheckStatus::Passed
         } else {
-            CheckStatus::Skipped
+            CheckStatus::Missing
         },
         "duplicate release asset behavior is explicit",
-        cfg.replace_assets
-            .map(|value| format!("replace_assets = {value}")),
+        Some(format!(
+            "replace_assets = {}",
+            cfg.replace_assets
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "<missing; defaults to false>".to_string())
+        )),
         vec!["Set replace_assets = true to overwrite same-named release assets during republish, or false to fail safely."],
     ));
     if let Some(artifact) = artifact.filter(|path| path.exists()) {
@@ -595,13 +599,18 @@ mod tests {
             project: ArtifactProject {
                 app_id: "com.example.app".to_string(),
                 name: "app".to_string(),
+                build: Some(42),
                 version: Some("1.2.3".to_string()),
             },
             target: "linux".to_string(),
             format: "run".to_string(),
             profile: "release".to_string(),
             root_dir: "/tmp".to_string(),
+            source_config: Vec::new(),
             artifacts: files,
+            icon_manifest: None,
+            signing: None,
+            notarization: None,
             validation: ArtifactValidation {
                 state: "passed".to_string(),
                 checks: Vec::new(),

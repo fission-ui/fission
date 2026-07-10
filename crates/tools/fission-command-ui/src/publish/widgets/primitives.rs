@@ -2,7 +2,7 @@ use super::panel::DividerLine;
 use super::*;
 use fission::icons::material;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum StatusTone {
     Ok,
     Warning,
@@ -271,6 +271,105 @@ impl From<ReadinessDigest> for Widget {
     }
 }
 
+#[derive(Clone)]
+pub(super) struct ReleaseContentReview {
+    pub(super) checks: Vec<UiCheck>,
+}
+
+impl From<ReleaseContentReview> for Widget {
+    fn from(review: ReleaseContentReview) -> Widget {
+        let (ctx, view) = fission::build::current::<PublishUiState>();
+        let layout = PublishLayout::from_viewport(view.env().viewport_size);
+        let relevant = review
+            .checks
+            .into_iter()
+            .filter(is_release_content_check)
+            .collect::<Vec<_>>();
+        let skippable = relevant
+            .iter()
+            .filter(|check| is_skippable_release_check(check))
+            .take(3)
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut children = widgets![
+            ReadinessDigest {
+                title: "Release metadata and content".into(),
+                checks: relevant.clone(),
+                empty_detail:
+                    "Release notes, screenshots, privacy and review checks have not run yet.".into(),
+            },
+            CheckList {
+                checks: relevant.clone(),
+                limit: if layout.terminal { 4 } else { 5 },
+            },
+        ];
+        if skippable.is_empty() {
+            children.push(
+                Callout {
+                    tone: StatusTone::Info,
+                    text: "Provider-required checks cannot be skipped; recommended omissions can be skipped when they appear here.".into(),
+                }
+                .into(),
+            );
+        } else {
+            children.push(
+                Callout {
+                    tone: StatusTone::Warning,
+                    text: "These are recommended, not provider-required. Skip only when the omission is intentional.".into(),
+                }
+                .into(),
+            );
+            children.push(
+                ButtonRow {
+                    buttons: skippable
+                        .into_iter()
+                        .map(|check| {
+                            let id = check.id.clone();
+                            PublishButton {
+                                label: format!("Skip {}", short_requirement_label(&check.id)),
+                                action: Some(with_reducer!(
+                                    ctx,
+                                    PublishSkipRequirement(id),
+                                    publish_skip_requirement
+                                )),
+                                tone: ButtonTone::Secondary,
+                                width: 190.0,
+                            }
+                        })
+                        .collect(),
+                }
+                .into(),
+            );
+        }
+        Column {
+            gap: Some(if layout.terminal { 1.0 } else { 8.0 }),
+            children,
+            ..Default::default()
+        }
+        .into()
+    }
+}
+
+fn is_release_content_check(check: &UiCheck) -> bool {
+    check.id.starts_with("release_config.") || check.id.starts_with("release_content.")
+}
+
+fn is_skippable_release_check(check: &&UiCheck) -> bool {
+    check.severity != CheckSeverity::Error
+        && matches!(
+            check.status,
+            CheckStatus::Missing | CheckStatus::Failed | CheckStatus::Warning
+        )
+}
+
+fn short_requirement_label(id: &str) -> String {
+    id.rsplit('.')
+        .next()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(id)
+        .replace('_', " ")
+}
+
 #[derive(Default)]
 struct CheckCounts {
     passed: usize,
@@ -368,44 +467,64 @@ impl From<PublishGateCard> for Widget {
     fn from(_card: PublishGateCard) -> Widget {
         let (_ctx, view) = fission::build::current::<PublishUiState>();
         let state = view.state();
-        let package_ready = state.package_checks.iter().all(UiCheck::is_non_blocking);
-        let provider_ready = state
-            .distribution_checks
-            .iter()
-            .all(UiCheck::is_non_blocking);
+        let package_state = check_group_state(&state.package_checks);
+        let provider_state = check_group_state(&state.distribution_checks);
+        let release_state = check_group_state(&state.release_checks);
         let confirmation_ready = state.publish_confirmation.trim() == state.app_id;
-        KeyValueList {
-            rows: vec![
-                (
-                    "Package checks".into(),
-                    ready_label(package_ready),
-                    if package_ready {
-                        StatusTone::Ok
-                    } else {
-                        StatusTone::Error
-                    },
-                ),
-                (
-                    "Provider checks".into(),
-                    ready_label(provider_ready),
-                    if provider_ready {
-                        StatusTone::Ok
-                    } else {
-                        StatusTone::Error
-                    },
-                ),
-                (
-                    "App id confirmation".into(),
-                    ready_label(confirmation_ready),
-                    if confirmation_ready {
-                        StatusTone::Ok
-                    } else {
-                        StatusTone::Warning
-                    },
-                ),
-            ],
+        let mut rows = vec![
+            ("Package checks".into(), package_state.0, package_state.1),
+            ("Provider checks".into(), provider_state.0, provider_state.1),
+            ("Release plan".into(), release_state.0, release_state.1),
+        ];
+        if let Some(plan) = &state.release_plan {
+            rows.push((
+                "Plan status".into(),
+                plan.status.clone(),
+                status_tone(&plan.status),
+            ));
+            for step in plan.steps.iter().take(5) {
+                rows.push((
+                    format!("Step {}", step.id),
+                    step.status.clone(),
+                    status_tone(&step.status),
+                ));
+            }
         }
-        .into()
+        rows.push((
+            "App id confirmation".into(),
+            ready_label(confirmation_ready),
+            if confirmation_ready {
+                StatusTone::Ok
+            } else {
+                StatusTone::Warning
+            },
+        ));
+        KeyValueList { rows }.into()
+    }
+}
+
+fn status_tone(status: &str) -> StatusTone {
+    match status {
+        "ready" | "completed" | "passed" | "supported" => StatusTone::Ok,
+        "blocked" | "failed" | "missing" => StatusTone::Error,
+        "warning" | "manual" | "handoff" | "pending" => StatusTone::Warning,
+        "skipped" | "unsupported" | "not-applicable" => StatusTone::Muted,
+        _ => StatusTone::Info,
+    }
+}
+
+fn check_group_state(checks: &[UiCheck]) -> (String, StatusTone) {
+    if checks.is_empty() {
+        ("not checked".to_string(), StatusTone::Warning)
+    } else if checks.iter().any(|check| !check.is_non_blocking()) {
+        ("blocked".to_string(), StatusTone::Error)
+    } else if checks
+        .iter()
+        .any(|check| !matches!(check.status, CheckStatus::Passed | CheckStatus::Skipped))
+    {
+        ("review".to_string(), StatusTone::Warning)
+    } else {
+        ("ready".to_string(), StatusTone::Ok)
     }
 }
 
@@ -936,5 +1055,26 @@ pub(super) fn status_label(status: CheckStatus) -> &'static str {
         CheckStatus::Missing => "Missing",
         CheckStatus::Failed => "Error",
         CheckStatus::Skipped => "Skip",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn check_group_state_keeps_recommended_gaps_visible() {
+        let checks = vec![UiCheck {
+            id: "release_content.play_store.feature_graphic".to_string(),
+            severity: CheckSeverity::Warning,
+            status: CheckStatus::Missing,
+            summary: "feature graphic exists".to_string(),
+            details: None,
+            remediation: Vec::new(),
+        }];
+
+        let (label, tone) = check_group_state(&checks);
+        assert_eq!(label, "review");
+        assert_eq!(tone, StatusTone::Warning);
     }
 }

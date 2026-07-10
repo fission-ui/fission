@@ -1,38 +1,5 @@
 use super::*;
 
-pub(super) fn run_current_fission(args: Vec<String>) -> Result<String> {
-    let exe = env::current_exe().context("failed to find current fission executable")?;
-    let mut child = Command::new(exe)
-        .args(args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .context("failed to start fission command")?;
-    let stdout = child.stdout.take().context("missing stdout pipe")?;
-    let stderr = child.stderr.take().context("missing stderr pipe")?;
-    let out_handle = thread::spawn(move || {
-        BufReader::new(stdout)
-            .lines()
-            .map_while(Result::ok)
-            .collect::<Vec<_>>()
-    });
-    let err_handle = thread::spawn(move || {
-        BufReader::new(stderr)
-            .lines()
-            .map_while(Result::ok)
-            .collect::<Vec<_>>()
-    });
-    let status = child.wait().context("failed to wait for fission command")?;
-    let mut output = out_handle.join().unwrap_or_default();
-    output.extend(err_handle.join().unwrap_or_default());
-    let text = output.join("\n");
-    if status.success() {
-        Ok(text)
-    } else {
-        anyhow::bail!("command failed with {status}:\n{text}")
-    }
-}
-
 pub(super) fn copy_or_move_selected_file(
     selected: &Path,
     workspace: &Path,
@@ -41,6 +8,7 @@ pub(super) fn copy_or_move_selected_file(
 ) -> Result<PathBuf> {
     fs::create_dir_all(workspace)
         .with_context(|| format!("failed to create {}", workspace.display()))?;
+    set_private_dir_permissions(workspace)?;
     let dest = workspace.join(default_name);
     if move_file {
         fs::rename(selected, &dest).with_context(|| {
@@ -61,6 +29,16 @@ pub(super) fn copy_or_move_selected_file(
     }
     set_private_file_permissions(&dest)?;
     Ok(dest)
+}
+
+pub(super) fn path_is_inside_project(path: &Path, project_dir: &Path) -> bool {
+    let Ok(project) = project_dir.canonicalize() else {
+        return false;
+    };
+    let Ok(path) = path.canonicalize() else {
+        return false;
+    };
+    path.starts_with(project)
 }
 
 pub(super) fn read_env_entries(path: &Path) -> Result<std::collections::BTreeMap<String, String>> {

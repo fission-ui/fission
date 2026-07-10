@@ -1,5 +1,5 @@
 use super::*;
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use std::env;
 use std::fs;
@@ -41,6 +41,7 @@ struct ApplePackageToml {
 #[derive(Debug, Deserialize, Default)]
 struct MacosPackageToml {
     bundle_id: Option<String>,
+    team_id: Option<String>,
     entitlements: Option<String>,
     signing_identity: Option<String>,
     installer_identity: Option<String>,
@@ -52,6 +53,7 @@ struct WindowsPackageToml {
     identity_name: Option<String>,
     publisher: Option<String>,
     certificate_thumbprint: Option<String>,
+    certificate_thumbprint_env: Option<String>,
     certificate_env: Option<String>,
     certificate_base64_env: Option<String>,
     certificate_password_env: Option<String>,
@@ -62,6 +64,10 @@ pub(super) fn status(project_dir: &Path, target: Target, json: bool) -> Result<(
         build_status_report("signing.status", project_dir, target),
         json,
     )
+}
+
+pub(super) fn status_checks(project_dir: &Path, target: Target) -> Vec<LifecycleCheck> {
+    build_status_report("signing.status", project_dir, target).checks
 }
 
 pub(super) fn sync(project_dir: &Path, target: Target, readonly: bool, json: bool) -> Result<()> {
@@ -96,8 +102,13 @@ pub(super) fn import(
     target: Target,
     keystore: Option<PathBuf>,
     alias: Option<String>,
+    dry_run: bool,
+    yes: bool,
     json: bool,
 ) -> Result<()> {
+    if !dry_run && !yes {
+        bail!("signing import rewrites fission.toml signing references; pass --yes after reviewing the target and alias");
+    }
     let mut report = base_report("signing.import", None, Some(target));
     report.checks.push(path_check(
         "signing.project_config_exists",
@@ -105,7 +116,7 @@ pub(super) fn import(
         "fission.toml exists",
     ));
     match target {
-        Target::Android => import_android(project_dir, keystore, alias, &mut report)?,
+        Target::Android => import_android(project_dir, keystore, alias, dry_run, &mut report)?,
         Target::Ios | Target::Macos | Target::Windows => report.checks.push(failed_check(
             "signing.import.target_requires_platform_store",
             format!(
@@ -125,6 +136,7 @@ fn import_android(
     project_dir: &Path,
     keystore: Option<PathBuf>,
     alias: Option<String>,
+    dry_run: bool,
     report: &mut LifecycleReport,
 ) -> Result<()> {
     let alias = alias.context("signing import --target android requires --alias")?;
@@ -161,9 +173,15 @@ fn import_android(
         "package.android.keystore_base64_env",
         toml_edit::value("ANDROID_KEYSTORE_BASE64"),
     )?;
-    write_toml_edit_document(&path, &root)?;
+    if !dry_run {
+        write_toml_edit_document(&path, &root)?;
+    }
     report.checks.push(ok_check(
-        "signing.android.config_written",
+        if dry_run {
+            "signing.android.config_would_write"
+        } else {
+            "signing.android.config_written"
+        },
         format!("package.android.keystore_alias = {alias}; keystore source comes from ANDROID_KEYSTORE or ANDROID_KEYSTORE_BASE64"),
     ));
     report.checks.push(warning_check(
@@ -328,6 +346,12 @@ fn macos_checks(project_dir: &Path, cfg: Option<MacosPackageToml>, report: &mut 
         "macOS bundle identifier is configured",
         "Set package.macos.bundle_id.",
     ));
+    report.checks.push(required_text(
+        "signing.macos.team_id",
+        cfg.as_ref().and_then(|cfg| cfg.team_id.as_deref()),
+        "Apple team id is configured for macOS signing",
+        "Set package.macos.team_id when signing or notarizing macOS packages.",
+    ));
     check_optional_path(
         project_dir,
         &mut report.checks,
@@ -396,11 +420,7 @@ fn windows_checks(
         "Windows publisher identity is configured",
         "Set package.windows.publisher to the certificate subject.",
     ));
-    if cfg
-        .as_ref()
-        .and_then(|cfg| cfg.certificate_thumbprint.as_deref())
-        .is_none()
-    {
+    if windows_certificate_thumbprint(&cfg).is_none() {
         let certificate_env = cfg
             .as_ref()
             .and_then(|cfg| cfg.certificate_env.as_deref())
@@ -409,14 +429,19 @@ fn windows_checks(
             .as_ref()
             .and_then(|cfg| cfg.certificate_base64_env.as_deref())
             .unwrap_or("WINDOWS_CERTIFICATE_BASE64");
+        let certificate_thumbprint_env = cfg
+            .as_ref()
+            .and_then(|cfg| cfg.certificate_thumbprint_env.as_deref())
+            .unwrap_or("WINDOWS_CERTIFICATE_THUMBPRINT");
         report.checks.push(required_text(
             "signing.windows.certificate_reference",
             env::var(certificate_env)
                 .ok()
                 .or_else(|| env::var(certificate_base64_env).ok())
+                .or_else(|| env::var(certificate_thumbprint_env).ok())
                 .as_deref(),
             "Windows signing certificate reference is configured",
-            "Set package.windows.certificate_thumbprint, WINDOWS_CERTIFICATE, or WINDOWS_CERTIFICATE_BASE64.",
+            "Set package.windows.certificate_thumbprint, package.windows.certificate_thumbprint_env, WINDOWS_CERTIFICATE_THUMBPRINT, WINDOWS_CERTIFICATE, or WINDOWS_CERTIFICATE_BASE64.",
         ));
         let password_env = cfg
             .as_ref()
@@ -466,6 +491,20 @@ fn check_optional_path(
             "Configure this path in fission.toml if the app requires the capability.",
         ));
     }
+}
+
+fn windows_certificate_thumbprint(cfg: &Option<WindowsPackageToml>) -> Option<String> {
+    cfg.as_ref()
+        .and_then(|cfg| cfg.certificate_thumbprint.clone())
+        .or_else(|| {
+            let env_name = cfg
+                .as_ref()
+                .and_then(|cfg| cfg.certificate_thumbprint_env.as_deref())
+                .unwrap_or("WINDOWS_CERTIFICATE_THUMBPRINT");
+            env::var(env_name)
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+        })
 }
 
 fn android_keystore_source_check(keystore_env: &str, keystore_base64_env: &str) -> LifecycleCheck {
@@ -652,6 +691,7 @@ mod tests {
             &dir,
             Some(dir.join("upload.jks")),
             Some("upload".to_string()),
+            false,
             &mut report,
         )
         .unwrap();
@@ -661,5 +701,72 @@ mod tests {
         assert!(text.contains("keystore_base64_env = \"ANDROID_KEYSTORE_BASE64\""));
         assert!(!text.contains("upload.jks"));
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn android_import_dry_run_does_not_rewrite_manifest() {
+        let dir = std::env::temp_dir().join(format!(
+            "fission-signing-import-dry-run-{}-{}",
+            std::process::id(),
+            now_unix_seconds()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            &dir.join("fission.toml"),
+            "[package.android]\npackage_name = \"com.example.todo\"\n",
+        )
+        .unwrap();
+        let original = fs::read_to_string(dir.join("fission.toml")).unwrap();
+        let mut report = base_report("test", None, Some(Target::Android));
+        import_android(&dir, None, Some("upload".to_string()), true, &mut report).unwrap();
+        assert_eq!(
+            fs::read_to_string(dir.join("fission.toml")).unwrap(),
+            original
+        );
+        assert!(report
+            .checks
+            .iter()
+            .any(|check| check.id == "signing.android.config_would_write"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn signing_import_requires_yes_before_manifest_rewrite() {
+        let dir = std::env::temp_dir().join(format!(
+            "fission-signing-import-requires-yes-{}-{}",
+            std::process::id(),
+            now_unix_seconds()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(&dir.join("fission.toml"), "").unwrap();
+        let err = import(
+            &dir,
+            Target::Android,
+            None,
+            Some("upload".to_string()),
+            false,
+            false,
+            false,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("pass --yes"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn windows_certificate_thumbprint_can_come_from_named_env() {
+        let env_name = format!("FISSION_WINDOWS_THUMBPRINT_{}", std::process::id());
+        env::set_var(&env_name, "ABCDEF123456");
+        let cfg = Some(WindowsPackageToml {
+            certificate_thumbprint_env: Some(env_name.clone()),
+            ..Default::default()
+        });
+
+        assert_eq!(
+            windows_certificate_thumbprint(&cfg),
+            Some("ABCDEF123456".to_string())
+        );
+
+        env::remove_var(env_name);
     }
 }

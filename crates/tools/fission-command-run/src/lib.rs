@@ -137,7 +137,9 @@ pub fn run_app(options: RunOptions) -> Result<()> {
     sync_target_platform_config(&options.project_dir, &project, device.target)?;
 
     match device.target {
-        Target::Linux | Target::Macos | Target::Windows => run_desktop(&project, &options, &device),
+        Target::Linux | Target::Macos | Target::Terminal | Target::Windows => {
+            run_desktop(&project, &options, &device)
+        }
         Target::Web => run_web(&options, &device),
         Target::Site => site_serve(
             &options.project_dir,
@@ -168,6 +170,7 @@ pub fn build_app(options: BuildOptions) -> Result<()> {
             require_desktop_host(target)?;
             build_desktop(&options.project_dir, options.release)
         }
+        Target::Terminal => build_desktop(&options.project_dir, options.release),
         Target::Web => build_web(&options.project_dir, options.release),
         Target::Site => site_build(&options.project_dir, options.release),
         Target::Server => fission_command_server::build(&options.project_dir, options.release),
@@ -201,6 +204,11 @@ pub fn test_app(options: TestOptions) -> Result<()> {
             let mut command = Command::new("cargo");
             command.arg("test").current_dir(&options.project_dir);
             run_status(&mut command, "desktop tests")
+        }
+        Target::Terminal => {
+            let mut command = Command::new("cargo");
+            command.arg("test").current_dir(&options.project_dir);
+            run_status(&mut command, "terminal tests")
         }
         Target::Web => browser_test_web(&options.project_dir),
         Target::Site => browser_test_site(&options.project_dir),
@@ -255,14 +263,14 @@ pub fn attach_logs(options: LogOptions) -> Result<()> {
             options.follow,
         ),
         Target::Site => tail_log_file(
-            &detached_log_path(&options.project_dir, "site"),
+            &detached_log_path(&options.project_dir, Target::Site.as_str()),
             options.follow,
         ),
         Target::Server => tail_log_file(
-            &detached_log_path(&options.project_dir, "server"),
+            &detached_log_path(&options.project_dir, Target::Server.as_str()),
             options.follow,
         ),
-        Target::Linux | Target::Macos | Target::Windows => tail_log_file(
+        Target::Linux | Target::Macos | Target::Terminal | Target::Windows => tail_log_file(
             &detached_log_path(&options.project_dir, "desktop"),
             options.follow,
         ),
@@ -514,6 +522,15 @@ pub fn discover_devices(_project_dir: &Path) -> Vec<Device> {
         detail: current_os_detail(),
         available: true,
     });
+    devices.push(Device {
+        id: "terminal".to_string(),
+        name: "Current terminal".to_string(),
+        target: Target::Terminal,
+        kind: "terminal".to_string(),
+        status: "available".to_string(),
+        detail: current_os_detail(),
+        available: true,
+    });
 
     devices.push(if let Some(chrome) = detect_chrome() {
         Device {
@@ -540,19 +557,19 @@ pub fn discover_devices(_project_dir: &Path) -> Vec<Device> {
     devices.extend(discover_ios_simulators());
     devices.extend(discover_android_devices());
     devices.push(Device {
-        id: "site".to_string(),
+        id: Target::Site.as_str().to_string(),
         name: "Static site".to_string(),
         target: Target::Site,
-        kind: "site-server".to_string(),
+        kind: "static-site-server".to_string(),
         status: "available".to_string(),
         detail: "multi-page static output".to_string(),
         available: true,
     });
     devices.push(Device {
-        id: "server".to_string(),
-        name: "Server-rendered web app".to_string(),
+        id: Target::Server.as_str().to_string(),
+        name: "SSR web app".to_string(),
         target: Target::Server,
-        kind: "server".to_string(),
+        kind: "ssr-server".to_string(),
         status: "available".to_string(),
         detail: "dynamic HTML server".to_string(),
         available: true,
@@ -682,6 +699,7 @@ fn preferred_device_for_target(target: Option<Target>, devices: &[Device]) -> Op
         | Target::Server
         | Target::Linux
         | Target::Macos
+        | Target::Terminal
         | Target::Windows => None,
     }
 }

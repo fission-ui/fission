@@ -23,8 +23,13 @@ pub enum Target {
     Ios,
     Linux,
     Macos,
+    #[value(name = "ssr", alias = "server")]
+    #[serde(rename = "ssr", alias = "server")]
     Server,
+    #[value(name = "static-site", alias = "site")]
+    #[serde(rename = "static-site", alias = "site")]
     Site,
+    Terminal,
     Web,
     Windows,
 }
@@ -72,8 +77,9 @@ impl Target {
             Self::Ios => "ios",
             Self::Linux => "linux",
             Self::Macos => "macos",
-            Self::Server => "server",
-            Self::Site => "site",
+            Self::Server => "ssr",
+            Self::Site => "static-site",
+            Self::Terminal => "terminal",
             Self::Web => "web",
             Self::Windows => "windows",
         }
@@ -85,8 +91,9 @@ impl Target {
             Self::Ios => "platforms/ios/README.md",
             Self::Linux => "platforms/linux/README.md",
             Self::Macos => "platforms/macos/README.md",
-            Self::Server => "platforms/server/README.md",
-            Self::Site => "platforms/site/README.md",
+            Self::Server => "platforms/ssr/README.md",
+            Self::Site => "platforms/static-site/README.md",
+            Self::Terminal => "platforms/terminal/README.md",
             Self::Web => "platforms/web/README.md",
             Self::Windows => "platforms/windows/README.md",
         }
@@ -150,7 +157,7 @@ pub struct FissionProject {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AppConfig {
     pub name: String,
-    #[serde(alias = "identifier")]
+    #[serde(alias = "identifier", alias = "id")]
     pub app_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub splash: Option<SplashConfig>,
@@ -160,6 +167,72 @@ pub struct AppConfig {
 pub struct NativeConfig {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub modules: Vec<NativeModuleConfig>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ReleaseVersionConfig {
+    pub version: Option<String>,
+    pub build: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ReleaseVersionToml {
+    app: Option<AppReleaseVersionConfig>,
+    package: Option<PackageReleaseVersionConfig>,
+    release: Option<ReleaseRootVersionConfig>,
+    #[serde(default)]
+    releases: Vec<ReleaseEntryVersionConfig>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct AppReleaseVersionConfig {
+    version: Option<String>,
+    build: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct PackageReleaseVersionConfig {
+    android: Option<AndroidReleaseVersionConfig>,
+    ios: Option<IosReleaseVersionConfig>,
+    macos: Option<MacosReleaseVersionConfig>,
+    windows: Option<WindowsReleaseVersionConfig>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct AndroidReleaseVersionConfig {
+    version_code: Option<u64>,
+    version_name: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct IosReleaseVersionConfig {
+    marketing_version: Option<String>,
+    build_number: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct MacosReleaseVersionConfig {
+    marketing_version: Option<String>,
+    build_number: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct WindowsReleaseVersionConfig {
+    version: Option<String>,
+    identity_name: Option<String>,
+    publisher: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ReleaseRootVersionConfig {
+    active_release: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ReleaseEntryVersionConfig {
+    id: Option<String>,
+    version: Option<String>,
+    build: Option<u64>,
 }
 
 impl NativeConfig {
@@ -369,6 +442,16 @@ pub fn cargo_package_name(root: &Path) -> Option<String> {
     manifest.package.map(|package| package.name)
 }
 
+pub fn cargo_package_version(root: &Path) -> Option<String> {
+    let manifest = fs::read_to_string(root.join("Cargo.toml")).ok()?;
+    let value: toml::Value = toml::from_str(&manifest).ok()?;
+    value
+        .get("package")
+        .and_then(|package| package.get("version"))
+        .and_then(toml::Value::as_str)
+        .map(str::to_string)
+}
+
 fn detect_project_targets(root: &Path) -> BTreeSet<Target> {
     let mut targets = BTreeSet::new();
     if root.join("src/main.rs").exists() || root.join("src/lib.rs").exists() {
@@ -379,10 +462,19 @@ fn detect_project_targets(root: &Path) -> BTreeSet<Target> {
         (Target::Ios, "platforms/ios"),
         (Target::Linux, "platforms/linux"),
         (Target::Macos, "platforms/macos"),
-        (Target::Server, "platforms/server"),
+        (Target::Server, "platforms/ssr"),
         (Target::Site, "content"),
+        (Target::Terminal, "platforms/terminal"),
         (Target::Web, "platforms/web"),
         (Target::Windows, "platforms/windows"),
+    ] {
+        if root.join(relative).exists() {
+            targets.insert(target);
+        }
+    }
+    for (target, relative) in [
+        (Target::Server, "platforms/server"),
+        (Target::Site, "platforms/site"),
     ] {
         if root.join(relative).exists() {
             targets.insert(target);
@@ -437,6 +529,357 @@ pub fn sync_platform_config(root: &Path, project: &FissionProject) -> Result<()>
     splash::apply_platform_splash_config(root, project)?;
     icons::apply_platform_icon_config(root, project)?;
     apply_mobile_run_script_hardening(root, project)?;
+    Ok(())
+}
+
+pub fn resolve_release_version_config(
+    project_dir: &Path,
+    target: Option<Target>,
+) -> Result<ReleaseVersionConfig> {
+    let path = project_dir.join("fission.toml");
+    let data =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    let manifest: ReleaseVersionToml = toml::from_str(&data).unwrap_or_default();
+    let active = manifest
+        .release
+        .as_ref()
+        .and_then(|release| release.active_release.as_deref())
+        .and_then(|id| {
+            manifest
+                .releases
+                .iter()
+                .find(|release| release.id.as_deref() == Some(id))
+        });
+
+    let mut version = active
+        .and_then(|release| release.version.clone())
+        .or_else(|| manifest.app.as_ref().and_then(|app| app.version.clone()));
+    let mut build = active
+        .and_then(|release| release.build)
+        .or_else(|| manifest.app.as_ref().and_then(|app| app.build));
+
+    match target {
+        Some(Target::Android) => {
+            if let Some(android) = manifest
+                .package
+                .as_ref()
+                .and_then(|package| package.android.as_ref())
+            {
+                version = android.version_name.clone().or(version);
+                build = android.version_code.or(build);
+            }
+        }
+        Some(Target::Ios) => {
+            if let Some(ios) = manifest
+                .package
+                .as_ref()
+                .and_then(|package| package.ios.as_ref())
+            {
+                version = ios.marketing_version.clone().or(version);
+                build = ios
+                    .build_number
+                    .as_deref()
+                    .and_then(|value| value.parse::<u64>().ok())
+                    .or(build);
+            }
+        }
+        Some(Target::Macos) => {
+            if let Some(macos) = manifest
+                .package
+                .as_ref()
+                .and_then(|package| package.macos.as_ref())
+            {
+                version = macos.marketing_version.clone().or(version);
+                build = macos
+                    .build_number
+                    .as_deref()
+                    .and_then(|value| value.parse::<u64>().ok())
+                    .or(build);
+            }
+        }
+        Some(Target::Windows) => {
+            if let Some(windows) = manifest
+                .package
+                .as_ref()
+                .and_then(|package| package.windows.as_ref())
+            {
+                version = windows.version.clone().or(version);
+            }
+        }
+        _ => {}
+    }
+
+    if version.is_none() {
+        version = cargo_package_version(project_dir);
+    }
+    Ok(ReleaseVersionConfig { version, build })
+}
+
+pub fn sync_release_platform_config(
+    project_dir: &Path,
+    target: Target,
+    release: &ReleaseVersionConfig,
+) -> Result<()> {
+    match target {
+        Target::Android => sync_android_release_config(project_dir, release),
+        Target::Ios => sync_ios_release_config(project_dir, release),
+        Target::Macos => sync_macos_release_config(project_dir, release),
+        Target::Windows => sync_windows_release_config(project_dir, release),
+        _ => Ok(()),
+    }
+}
+
+pub fn sync_resolved_release_platform_config(
+    project_dir: &Path,
+    target: Target,
+) -> Result<ReleaseVersionConfig> {
+    let release = resolve_release_version_config(project_dir, Some(target))?;
+    sync_release_platform_config(project_dir, target, &release)?;
+    Ok(release)
+}
+
+fn sync_android_release_config(project_dir: &Path, release: &ReleaseVersionConfig) -> Result<()> {
+    let path = project_dir.join("platforms/android/app/build.gradle.kts");
+    if !path.exists() {
+        return Ok(());
+    }
+    let version = release.version.as_deref().unwrap_or("0.1.0");
+    let build = release.build.unwrap_or(1);
+    rewrite_file_lines(&path, |trimmed| {
+        if trimmed.starts_with("versionCode =") {
+            Some(format!(
+                "        versionCode = (System.getenv(\"ANDROID_VERSION_CODE\") ?: \"{build}\").toInt()"
+            ))
+        } else if trimmed.starts_with("versionName =") {
+            Some(format!(
+                "        versionName = System.getenv(\"ANDROID_VERSION_NAME\") ?: \"{version}\""
+            ))
+        } else {
+            None
+        }
+    })
+}
+
+fn sync_ios_release_config(project_dir: &Path, release: &ReleaseVersionConfig) -> Result<()> {
+    let path = project_dir.join("platforms/ios/package-sim.sh");
+    if path.exists() {
+        let version = release.version.as_deref().unwrap_or("0.1.0");
+        let build = release.build.unwrap_or(1);
+        let existing = fs::read_to_string(&path)?;
+        let mut data = existing.clone();
+        if !data.contains("IOS_MARKETING_VERSION") {
+            data = data.replace(
+                "BUNDLE_NAME=\"${IOS_BUNDLE_NAME:-$DISPLAY_NAME.app}\"\n",
+                &format!(
+                    "BUNDLE_NAME=\"${{IOS_BUNDLE_NAME:-$DISPLAY_NAME.app}}\"\nIOS_MARKETING_VERSION=\"${{IOS_MARKETING_VERSION:-{version}}}\"\nIOS_BUILD_NUMBER=\"${{IOS_BUILD_NUMBER:-{build}}}\"\n"
+                ),
+            );
+        } else {
+            data = data
+                .lines()
+                .map(|line| {
+                    if line.starts_with("IOS_MARKETING_VERSION=") {
+                        format!("IOS_MARKETING_VERSION=\"${{IOS_MARKETING_VERSION:-{version}}}\"")
+                    } else if line.starts_with("IOS_BUILD_NUMBER=") {
+                        format!("IOS_BUILD_NUMBER=\"${{IOS_BUILD_NUMBER:-{build}}}\"")
+                    } else {
+                        line.to_string()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            data.push('\n');
+        }
+        if data != existing {
+            fs::write(&path, data)?;
+        }
+    }
+    let plist = project_dir.join("platforms/ios/Info.plist");
+    if plist.exists() {
+        let version = release.version.as_deref().unwrap_or("0.1.0");
+        let build = release.build.unwrap_or(1).to_string();
+        rewrite_plist_string(&plist, "CFBundleShortVersionString", version)?;
+        rewrite_plist_string(&plist, "CFBundleVersion", &build)?;
+    }
+    Ok(())
+}
+
+fn sync_macos_release_config(project_dir: &Path, release: &ReleaseVersionConfig) -> Result<()> {
+    let plist = project_dir.join("platforms/macos/Info.plist");
+    if plist.exists() {
+        let version = release.version.as_deref().unwrap_or("0.1.0");
+        let build = release.build.unwrap_or(1).to_string();
+        rewrite_plist_string(&plist, "CFBundleShortVersionString", version)?;
+        rewrite_plist_string(&plist, "CFBundleVersion", &build)?;
+    }
+    Ok(())
+}
+
+fn sync_windows_release_config(project_dir: &Path, release: &ReleaseVersionConfig) -> Result<()> {
+    let config = read_windows_release_config(project_dir)?;
+    let manifests = [
+        project_dir.join("platforms/windows/Package.appxmanifest"),
+        project_dir.join("platforms/windows/AppxManifest.xml"),
+        project_dir.join("platforms/windows/appxmanifest.xml"),
+    ];
+    let has_manifest = manifests.iter().any(|path| path.exists());
+    if !has_manifest {
+        return Ok(());
+    }
+
+    let version = normalized_windows_package_version(release)?;
+    for path in manifests.into_iter().filter(|path| path.exists()) {
+        rewrite_windows_appx_manifest(
+            &path,
+            &version,
+            config.identity_name.as_deref(),
+            config.publisher.as_deref(),
+        )?;
+    }
+    Ok(())
+}
+
+fn read_windows_release_config(project_dir: &Path) -> Result<WindowsReleaseVersionConfig> {
+    let path = project_dir.join("fission.toml");
+    let data = fs::read_to_string(&path).unwrap_or_default();
+    let manifest: ReleaseVersionToml = toml::from_str(&data).unwrap_or_default();
+    Ok(manifest
+        .package
+        .and_then(|package| package.windows)
+        .unwrap_or_default())
+}
+
+pub fn normalize_windows_package_version(
+    version: Option<&str>,
+    build: Option<u64>,
+) -> Result<String> {
+    let version = version.unwrap_or("0.1.0");
+    let parts = version.split('.').collect::<Vec<_>>();
+    if parts.is_empty() || parts.len() > 4 {
+        bail!("Windows package version `{version}` must have one to four numeric components");
+    }
+    let mut normalized = Vec::with_capacity(4);
+    for part in &parts {
+        let value = part
+            .parse::<u16>()
+            .with_context(|| format!("Windows package version `{version}` must be numeric"))?;
+        normalized.push(value.to_string());
+    }
+    while normalized.len() < 3 {
+        normalized.push("0".to_string());
+    }
+    if normalized.len() == 3 {
+        let build = build.unwrap_or(0);
+        if build > u16::MAX as u64 {
+            bail!("Windows package build `{build}` must fit in a 16-bit version component");
+        }
+        normalized.push(build.to_string());
+    }
+    Ok(normalized.join("."))
+}
+
+fn normalized_windows_package_version(release: &ReleaseVersionConfig) -> Result<String> {
+    normalize_windows_package_version(release.version.as_deref(), release.build)
+}
+
+fn rewrite_windows_appx_manifest(
+    path: &Path,
+    version: &str,
+    identity_name: Option<&str>,
+    publisher: Option<&str>,
+) -> Result<()> {
+    let existing = fs::read_to_string(path)?;
+    let mut updated = rewrite_xml_attribute_on_tag(&existing, "Identity", "Version", version);
+    if let Some(identity_name) = identity_name.filter(|value| !value.trim().is_empty()) {
+        updated = rewrite_xml_attribute_on_tag(&updated, "Identity", "Name", identity_name.trim());
+    }
+    if let Some(publisher) = publisher.filter(|value| !value.trim().is_empty()) {
+        updated = rewrite_xml_attribute_on_tag(&updated, "Identity", "Publisher", publisher.trim());
+    }
+    if updated != existing {
+        fs::write(path, updated)?;
+    }
+    Ok(())
+}
+
+fn rewrite_xml_attribute_on_tag(input: &str, tag: &str, attribute: &str, value: &str) -> String {
+    let Some(tag_start) = input.find(&format!("<{tag}")) else {
+        return input.to_string();
+    };
+    let Some(relative_end) = input[tag_start..].find('>') else {
+        return input.to_string();
+    };
+    let tag_end = tag_start + relative_end;
+    let mut output = input.to_string();
+    let tag_text = &input[tag_start..=tag_end];
+    let escaped = escape_xml_attribute(value);
+    let updated_tag = if let Some(attribute_start) = tag_text.find(&format!("{attribute}=\"")) {
+        let value_start = attribute_start + attribute.len() + 2;
+        if let Some(relative_quote) = tag_text[value_start..].find('"') {
+            let value_end = value_start + relative_quote;
+            let mut tag_output = tag_text.to_string();
+            tag_output.replace_range(value_start..value_end, &escaped);
+            tag_output
+        } else {
+            tag_text.to_string()
+        }
+    } else {
+        let insert_at = tag_text
+            .rfind('/')
+            .filter(|slash| *slash + 1 == tag_text.len() - 1)
+            .unwrap_or(tag_text.len() - 1);
+        let mut tag_output = tag_text.to_string();
+        tag_output.insert_str(insert_at, &format!(" {attribute}=\"{escaped}\""));
+        tag_output
+    };
+    output.replace_range(tag_start..=tag_end, &updated_tag);
+    output
+}
+
+fn escape_xml_attribute(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+fn rewrite_file_lines<F>(path: &Path, mut replacement: F) -> Result<()>
+where
+    F: FnMut(&str) -> Option<String>,
+{
+    let existing = fs::read_to_string(path)?;
+    let mut updated = String::new();
+    for line in existing.lines() {
+        if let Some(new_line) = replacement(line.trim_start()) {
+            updated.push_str(&new_line);
+            updated.push('\n');
+        } else {
+            updated.push_str(line);
+            updated.push('\n');
+        }
+    }
+    if updated != existing {
+        fs::write(path, updated)?;
+    }
+    Ok(())
+}
+
+fn rewrite_plist_string(path: &Path, key: &str, value: &str) -> Result<()> {
+    let existing = fs::read_to_string(path)?;
+    let mut lines = existing.lines().peekable();
+    let mut updated = String::new();
+    while let Some(line) = lines.next() {
+        updated.push_str(line);
+        updated.push('\n');
+        if line.trim() == format!("<key>{key}</key>") {
+            let _ = lines.next();
+            updated.push_str(&format!("  <string>{value}</string>\n"));
+        }
+    }
+    if updated != existing {
+        fs::write(path, updated)?;
+    }
     Ok(())
 }
 
@@ -630,19 +1073,28 @@ fn apply_ios_package_script_hardening(root: &Path) -> Result<()> {
     }
     let existing =
         fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
-    if !existing.contains("import plistlib") {
-        return Ok(());
+    let mut updated = existing.clone();
+    if updated.contains("import plistlib") {
+        let Some(start) = updated.find("python3 - <<'PY' \"$SCRIPT_DIR/Info.plist\"") else {
+            return Ok(());
+        };
+        let Some(relative_end) = updated[start..].find("\nPY") else {
+            return Ok(());
+        };
+        let end = start + relative_end + "\nPY\n".len();
+        updated.replace_range(start..end, IOS_INFO_PLIST_PLUTIL_PATCH);
     }
-    let Some(start) = existing.find("python3 - <<'PY' \"$SCRIPT_DIR/Info.plist\"") else {
-        return Ok(());
-    };
-    let Some(relative_end) = existing[start..].find("\nPY") else {
-        return Ok(());
-    };
-    let end = start + relative_end + "\nPY\n".len();
-    let mut updated = existing;
-    updated.replace_range(start..end, IOS_INFO_PLIST_PLUTIL_PATCH);
-    fs::write(&path, updated).with_context(|| format!("failed to write {}", path.display()))
+    if !updated.contains("IOS_MARKETING_VERSION") {
+        updated = updated.replacen(
+            "BUNDLE_NAME=\"${IOS_BUNDLE_NAME:-$DISPLAY_NAME.app}\"\n",
+            "BUNDLE_NAME=\"${IOS_BUNDLE_NAME:-$DISPLAY_NAME.app}\"\nIOS_MARKETING_VERSION=\"${IOS_MARKETING_VERSION:-0.1.0}\"\nIOS_BUILD_NUMBER=\"${IOS_BUILD_NUMBER:-1}\"\n",
+            1,
+        );
+    }
+    if updated != existing {
+        fs::write(&path, updated).with_context(|| format!("failed to write {}", path.display()))?;
+    }
+    Ok(())
 }
 
 fn apply_android_run_script_hardening(root: &Path) -> Result<()> {
@@ -789,6 +1241,14 @@ fn apply_android_app_build_gradle_hardening(root: &Path) -> Result<()> {
     let existing =
         fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
     let mut updated = existing.replace("../native-modules.gradle.kts", "../native-modules.gradle");
+    updated = updated.replace(
+        "versionCode = 1",
+        "versionCode = (System.getenv(\"ANDROID_VERSION_CODE\") ?: \"1\").toInt()",
+    );
+    updated = updated.replace(
+        "versionName = \"0.1.0\"",
+        "versionName = System.getenv(\"ANDROID_VERSION_NAME\") ?: \"0.1.0\"",
+    );
     if !updated.contains("../native-modules.gradle") {
         updated.push_str("\napply(from = \"../native-modules.gradle\")\n");
     }
@@ -915,6 +1375,8 @@ fi
 "$PLUTIL" -replace CFBundleDisplayName -string "$DISPLAY_NAME" "$BUNDLE_DIR/Info.plist"
 "$PLUTIL" -replace CFBundleName -string "$DISPLAY_NAME" "$BUNDLE_DIR/Info.plist"
 "$PLUTIL" -replace CFBundleExecutable -string "$EXECUTABLE_NAME" "$BUNDLE_DIR/Info.plist"
+"$PLUTIL" -replace CFBundleShortVersionString -string "$IOS_MARKETING_VERSION" "$BUNDLE_DIR/Info.plist"
+"$PLUTIL" -replace CFBundleVersion -string "$IOS_BUILD_NUMBER" "$BUNDLE_DIR/Info.plist"
 "#;
 
 fn apply_platform_capability_config(root: &Path, project: &FissionProject) -> Result<()> {
@@ -1185,6 +1647,15 @@ fn apply_ios_wifi_entitlements(path: &Path) -> Result<()> {
 }
 
 fn target_scaffold_dir_exists(project_dir: &Path, target: Target) -> bool {
+    if target == Target::Site && project_dir.join("content").exists() {
+        return true;
+    }
+    if target == Target::Site && project_dir.join("platforms/site").exists() {
+        return true;
+    }
+    if target == Target::Server && project_dir.join("platforms/server").exists() {
+        return true;
+    }
     Path::new(target.scaffold_relative_path())
         .parent()
         .is_some_and(|relative| project_dir.join(relative).exists())
@@ -1192,21 +1663,22 @@ fn target_scaffold_dir_exists(project_dir: &Path, target: Target) -> bool {
 
 fn write_project_config(root: &Path, project: &FissionProject) -> Result<()> {
     let path = root.join("fission.toml");
-    if path.exists() {
+    let mut doc = if path.exists() {
         let existing = fs::read_to_string(&path)
             .with_context(|| format!("failed to read {}", path.display()))?;
-        let mut doc = existing
+        existing
             .parse::<DocumentMut>()
-            .with_context(|| format!("failed to parse {}", path.display()))?;
-        update_project_config_document(&mut doc, project);
-        write_file(&path, &doc.to_string())?;
-        return Ok(());
-    }
-    let data = toml::to_string_pretty(project)?;
-    write_file(&path, &(data + "\n"))
+            .with_context(|| format!("failed to parse {}", path.display()))?
+    } else {
+        toml::to_string_pretty(project)?
+            .parse::<DocumentMut>()
+            .context("failed to render initial fission.toml")?
+    };
+    update_project_config_document(root, &mut doc, project);
+    write_file(&path, &doc.to_string())
 }
 
-fn update_project_config_document(doc: &mut DocumentMut, project: &FissionProject) {
+fn update_project_config_document(root: &Path, doc: &mut DocumentMut, project: &FissionProject) {
     doc["targets"] = value(string_array(
         project.targets.iter().map(|target| target.as_str()),
     ));
@@ -1226,6 +1698,13 @@ fn update_project_config_document(doc: &mut DocumentMut, project: &FissionProjec
     }
     doc["app"]["name"] = value(project.app.name.clone());
     doc["app"]["app_id"] = value(project.app.app_id.clone());
+    if item_field_is_missing(&doc["app"], "version") {
+        doc["app"]["version"] =
+            value(cargo_package_version(root).unwrap_or_else(|| "0.1.0".to_string()));
+    }
+    if item_field_is_missing(&doc["app"], "build") {
+        doc["app"]["build"] = value(1);
+    }
     if let Some(splash) = &project.app.splash {
         if !doc["app"]["splash"].is_table() {
             doc["app"]["splash"] = Item::Table(Table::new());
@@ -1253,6 +1732,257 @@ fn update_project_config_document(doc: &mut DocumentMut, project: &FissionProjec
     } else if let Some(app) = doc["app"].as_table_like_mut() {
         app.remove("splash");
     }
+    ensure_package_defaults(doc, project);
+    ensure_distribution_defaults(doc, project);
+}
+
+fn ensure_package_defaults(doc: &mut DocumentMut, project: &FissionProject) {
+    if project.targets.contains(&Target::Android) {
+        let version_name = item_field_string(&doc["app"], "version")
+            .unwrap_or("0.1.0")
+            .to_string();
+        let version_code = item_field_integer(&doc["app"], "build").unwrap_or(1);
+        let android = ensure_package_target_table(doc, "android");
+        set_default_string(android, "package_name", &project.app.app_id);
+        set_default_integer(android, "version_code", version_code);
+        set_default_string(android, "version_name", &version_name);
+        set_default_integer(android, "min_sdk", 24);
+        set_default_integer(android, "target_sdk", 35);
+        set_default_string(android, "keystore_alias", "upload");
+        set_default_string(android, "keystore_env", "ANDROID_KEYSTORE");
+        set_default_string(android, "keystore_base64_env", "ANDROID_KEYSTORE_BASE64");
+        set_default_string(
+            android,
+            "keystore_password_env",
+            "ANDROID_KEYSTORE_PASSWORD",
+        );
+        set_default_string(android, "key_password_env", "ANDROID_KEY_PASSWORD");
+    }
+
+    if project.targets.contains(&Target::Ios) {
+        let marketing_version = item_field_string(&doc["app"], "version")
+            .unwrap_or("0.1.0")
+            .to_string();
+        let build_number = item_field_integer(&doc["app"], "build")
+            .unwrap_or(1)
+            .to_string();
+        let ios = ensure_package_target_table(doc, "ios");
+        set_default_string(ios, "bundle_id", &project.app.app_id);
+        set_default_string(ios, "marketing_version", &marketing_version);
+        set_default_string(ios, "build_number", &build_number);
+    }
+
+    if project.targets.contains(&Target::Macos) {
+        let marketing_version = item_field_string(&doc["app"], "version")
+            .unwrap_or("0.1.0")
+            .to_string();
+        let build_number = item_field_integer(&doc["app"], "build")
+            .unwrap_or(1)
+            .to_string();
+        let macos = ensure_package_target_table(doc, "macos");
+        set_default_string(macos, "bundle_id", &project.app.app_id);
+        set_default_string(macos, "marketing_version", &marketing_version);
+        set_default_string(macos, "build_number", &build_number);
+        set_default_string(macos, "minimum_os", "13.0");
+    }
+
+    if project.targets.contains(&Target::Windows) {
+        let package_version = item_field_string(&doc["app"], "version")
+            .unwrap_or("0.1.0")
+            .to_string();
+        let windows = ensure_package_target_table(doc, "windows");
+        set_default_string(windows, "identity_name", &windows_identity_name(project));
+        set_default_string(windows, "publisher", windows_publisher_name());
+        set_default_string(windows, "version", &package_version);
+        set_default_string(windows, "installer", "msix");
+        set_default_string(
+            windows,
+            "certificate_thumbprint_env",
+            "WINDOWS_CERTIFICATE_THUMBPRINT",
+        );
+        set_default_string(
+            windows,
+            "certificate_base64_env",
+            "WINDOWS_CERTIFICATE_BASE64",
+        );
+        set_default_string(
+            windows,
+            "certificate_password_env",
+            "WINDOWS_CERTIFICATE_PASSWORD",
+        );
+    }
+
+    if let Some(package) = doc
+        .as_table_mut()
+        .get_mut("package")
+        .and_then(Item::as_table_mut)
+    {
+        if package
+            .iter()
+            .all(|(_, item)| item.as_table().is_some() || item.as_array_of_tables().is_some())
+        {
+            package.set_implicit(true);
+        }
+    }
+}
+
+fn ensure_distribution_defaults(doc: &mut DocumentMut, project: &FissionProject) {
+    if project.targets.contains(&Target::Android) {
+        let play_store = ensure_distribution_target_table(doc, "play_store");
+        set_default_string(play_store, "package_name", &project.app.app_id);
+        set_default_string(play_store, "default_track", "internal");
+        set_default_string(play_store, "release_status", "completed");
+        set_default_string(play_store, "access_token_env", "PLAY_STORE_ACCESS_TOKEN");
+        set_default_string(
+            play_store,
+            "service_account_json_env",
+            "PLAY_STORE_SERVICE_ACCOUNT_JSON",
+        );
+        set_default_string(
+            play_store,
+            "service_account_json_base64_env",
+            "PLAY_STORE_SERVICE_ACCOUNT_JSON_BASE64",
+        );
+        set_default_string(
+            play_store,
+            "google_application_credentials_env",
+            "GOOGLE_APPLICATION_CREDENTIALS",
+        );
+    }
+
+    if project.targets.contains(&Target::Ios) {
+        let app_store = ensure_distribution_target_table(doc, "app_store");
+        set_default_string(app_store, "bundle_id", &project.app.app_id);
+        set_default_string(
+            app_store,
+            "access_token_env",
+            "APP_STORE_CONNECT_ACCESS_TOKEN",
+        );
+        set_default_string(app_store, "issuer_id_env", "APP_STORE_CONNECT_ISSUER_ID");
+        set_default_string(app_store, "key_id_env", "APP_STORE_CONNECT_KEY_ID");
+        set_default_string(app_store, "api_key_env", "APP_STORE_CONNECT_API_KEY");
+        set_default_string(
+            app_store,
+            "api_key_base64_env",
+            "APP_STORE_CONNECT_API_KEY_BASE64",
+        );
+        set_default_string(
+            app_store,
+            "api_key_path_env",
+            "APP_STORE_CONNECT_API_KEY_PATH",
+        );
+        set_default_string(app_store, "default_track", "testflight");
+    }
+
+    if project.targets.contains(&Target::Windows) {
+        let microsoft_store = ensure_distribution_target_table(doc, "microsoft_store");
+        set_default_string(
+            microsoft_store,
+            "package_identity_name",
+            &windows_identity_name(project),
+        );
+        set_default_string(microsoft_store, "package_type", "msix");
+        set_default_string(microsoft_store, "token_env", "MICROSOFT_STORE_TOKEN");
+        set_default_string(microsoft_store, "tenant_id_env", "AZURE_TENANT_ID");
+        set_default_string(microsoft_store, "client_id_env", "AZURE_CLIENT_ID");
+        set_default_string(
+            microsoft_store,
+            "client_secret_env",
+            "MICROSOFT_STORE_CLIENT_SECRET",
+        );
+        set_default_string(
+            microsoft_store,
+            "seller_id_env",
+            "MICROSOFT_STORE_SELLER_ID",
+        );
+    }
+
+    if let Some(distribution) = doc
+        .as_table_mut()
+        .get_mut("distribution")
+        .and_then(Item::as_table_mut)
+    {
+        if distribution
+            .iter()
+            .all(|(_, item)| item.as_table().is_some() || item.as_array_of_tables().is_some())
+        {
+            distribution.set_implicit(true);
+        }
+    }
+}
+
+fn ensure_package_target_table<'a>(doc: &'a mut DocumentMut, target: &str) -> &'a mut Item {
+    let missing_or_not_table = match doc.as_table().get("package") {
+        Some(item) => !item.is_table(),
+        None => true,
+    };
+    if missing_or_not_table {
+        let mut table = Table::new();
+        table.set_implicit(true);
+        doc["package"] = Item::Table(table);
+    }
+    let target_missing_or_not_table = match doc["package"].as_table_like() {
+        Some(package) => package.get(target).is_none_or(|item| !item.is_table()),
+        None => true,
+    };
+    if target_missing_or_not_table {
+        doc["package"][target] = Item::Table(Table::new());
+    }
+    &mut doc["package"][target]
+}
+
+fn ensure_distribution_target_table<'a>(doc: &'a mut DocumentMut, provider: &str) -> &'a mut Item {
+    let missing_or_not_table = match doc.as_table().get("distribution") {
+        Some(item) => !item.is_table(),
+        None => true,
+    };
+    if missing_or_not_table {
+        let mut table = Table::new();
+        table.set_implicit(true);
+        doc["distribution"] = Item::Table(table);
+    }
+    let provider_missing_or_not_table = match doc["distribution"].as_table_like() {
+        Some(distribution) => distribution
+            .get(provider)
+            .is_none_or(|item| !item.is_table()),
+        None => true,
+    };
+    if provider_missing_or_not_table {
+        doc["distribution"][provider] = Item::Table(Table::new());
+    }
+    &mut doc["distribution"][provider]
+}
+
+fn set_default_string(item: &mut Item, key: &str, value_: &str) {
+    if item_field_is_missing(item, key) {
+        item[key] = value(value_.to_string());
+    }
+}
+
+fn set_default_integer(item: &mut Item, key: &str, value_: i64) {
+    if item_field_is_missing(item, key) {
+        item[key] = value(value_);
+    }
+}
+
+fn item_field_is_missing(item: &Item, key: &str) -> bool {
+    item.as_table_like()
+        .and_then(|table| table.get(key))
+        .is_none()
+}
+
+fn item_field_string<'a>(item: &'a Item, key: &str) -> Option<&'a str> {
+    item.as_table_like()
+        .and_then(|table| table.get(key))
+        .and_then(Item::as_value)
+        .and_then(Value::as_str)
+}
+
+fn item_field_integer(item: &Item, key: &str) -> Option<i64> {
+    item.as_table_like()
+        .and_then(|table| table.get(key))
+        .and_then(Item::as_value)
+        .and_then(Value::as_integer)
 }
 
 fn string_array<'a>(values: impl Iterator<Item = &'a str>) -> Array {
@@ -1492,6 +2222,7 @@ fn scaffold_target_with_policy(
                     "Run `fission run --target android --device <adb-serial> --project-dir .` to launch on a specific device.",
                     "Run `fission test --target android --project-dir .` for an emulator launch plus test-control health check.",
                     "Run `./platforms/android/run-emulator.sh` from the project root to build, package, install, and launch the app on the configured emulator.",
+                    "Run `fission package --target android --format aab --release --project-dir .` or `./platforms/android/package-aab.sh` to create the signed Play Store app bundle.",
                     "Override `ANDROID_HOME`, `ANDROID_NDK`, `ANDROID_MIN_API_LEVEL`, `ANDROID_TARGET_API_LEVEL`, `ANDROID_AVD_NAME`, or `ANDROID_SYSTEM_IMAGE` if your local SDK setup differs.",
                     "Set `ANDROID_EMULATOR_HEADLESS=1` for background/CI runs, or `ANDROID_EMULATOR_RESTART=1` to relaunch a hidden emulator visibly.",
                     "The generated package uses `assets/app-icon.png` as its default launcher icon.",
@@ -1526,6 +2257,7 @@ fn scaffold_target_with_policy(
                     "Run `fission run --target ios --device <simulator-udid> --project-dir .` to launch on a specific simulator.",
                     "Run `fission test --target ios --project-dir .` for a simulator launch plus test-control health check.",
                     "Run `./platforms/ios/run-sim.sh` from the project root to build, install, and launch the app on the first available iPhone simulator.",
+                    "Run `fission package --target ios --format ipa --release --project-dir .` or `./platforms/ios/package-ipa.sh` to create a signed IPA when IOS_SIGNING_IDENTITY is configured.",
                     "The generated bundle uses `assets/app-icon.png` as its default app icon.",
                     "Configure `[app.splash]` in `fission.toml` to generate the native iOS launch storyboard and splash image copied into the simulator bundle.",
                     "Run `fission add-capability nfc --project-dir .` to add the NFC usage description and entitlements file.",
@@ -1568,14 +2300,14 @@ fn scaffold_target_with_policy(
             )
         }
         Target::Server => platform_readme(
-            "Server",
+            "SSR",
             "Server-rendered Fission target. The CLI runs the app through the server shell for dynamic HTML, revalidated pages, server jobs, signed actions, worker artifacts, and focused browser islands.",
             &[
                 "Configure `[server].entry` in `fission.toml` so the CLI can invoke the server app.",
                 "Run `fission server check --project-dir .` to render all declared server routes.",
                 "Run `fission server serve --project-dir .` to serve the app locally.",
                 "Run `fission server artifacts --project-dir .` to generate browser worker and island WASM shims.",
-                "Run `fission package --target server --format docker-image --release --project-dir .` to package the server app as an OCI/Docker image.",
+                "Run `fission package --target ssr --format docker-image --release --project-dir .` to package the server app as an OCI/Docker image.",
             ],
         ),
         Target::Site => {
@@ -1592,15 +2324,42 @@ fn scaffold_target_with_policy(
                     "Run `fission site routes --project-dir .` to list generated routes.",
                     "Run `fission site build --project-dir .` to render HTML into `target/fission/site`.",
                     "Run `fission site serve --project-dir .` to build and serve the generated site locally.",
+                    "Run `fission package --target static-site --format static --release --project-dir .` to package the generated site.",
                     "Unsupported interactive widgets fail during the static render instead of silently falling back to JavaScript.",
                 ],
             )
         }
-        Target::Linux | Target::Macos | Target::Windows => platform_readme(
+        Target::Terminal => platform_readme(
+            "Terminal",
+            "Terminal target. The CLI treats this as a terminal-shell app using the project's normal Rust entrypoint and terminal-shell feature.",
+            &[
+                "Use `fission::terminal::TerminalApp` or a target-aware app entrypoint for terminal rendering.",
+                "Run `fission run --target terminal --project-dir .` to execute the app in the current terminal.",
+                "Run `fission test --target terminal --project-dir .` for Rust tests until terminal-shell package formats are defined by the terminal-shell RFC.",
+                "This target enables the `terminal-shell` Fission feature but does not imply native desktop, web, or mobile shells.",
+            ],
+        ),
+        Target::Windows => {
+            scaffold_windows_bundle(root, project, write_policy)?;
+            platform_readme(
+                "Windows",
+                "Runnable desktop target with release packaging scaffolds for EXE, MSI, and MSIX distribution.",
+                &[
+                    "Run `fission run --project-dir .` from the project root to launch the desktop app and attach output.",
+                    "Run `fission build --project-dir . --release` for a release desktop build.",
+                    "Run `fission package --target windows --format exe --release --project-dir .` to copy the signed release executable into a package artifact.",
+                    "Run `fission package --target windows --format msix --release --project-dir .` or `./platforms/windows/package-msix.ps1` to create an MSIX package with `makeappx`.",
+                    "Run `fission package --target windows --format msi --release --project-dir .` or `./platforms/windows/package-msi.ps1` to create an MSI package with WiX.",
+                    "Set `WINDOWS_CERTIFICATE`, `WINDOWS_CERTIFICATE_BASE64`, or `WINDOWS_CERTIFICATE_THUMBPRINT` plus `WINDOWS_CERTIFICATE_PASSWORD` where needed; never commit certificate files or passwords.",
+                    "Edit `[package.windows]` in `fission.toml` for Store package identity, publisher identity, package version, and installer preference.",
+                    "The generated MSIX manifest stages the desktop executable as a full-trust Windows app and copies `assets/app-icon.png` into the package asset set by default.",
+                ],
+            )
+        }
+        Target::Linux | Target::Macos => platform_readme(
             match target {
                 Target::Linux => "Linux",
                 Target::Macos => "macOS",
-                Target::Windows => "Windows",
                 _ => unreachable!(),
             },
             "Runnable target. Desktop platforms share the default `src/main.rs` entrypoint through `DesktopApp`.",
@@ -1624,6 +2383,7 @@ fn scaffold_ios_bundle(
     let bundle_name = ios_bundle_name(project);
     let plist = render_ios_plist(project, &executable);
     let package_script = render_ios_package_script(project, &bundle_name, &executable);
+    let ipa_script = render_ios_ipa_package_script(project);
     let run_script = render_ios_run_script(project);
     let test_script = render_ios_test_script();
 
@@ -1671,6 +2431,11 @@ fn scaffold_ios_bundle(
         write_policy,
     )?;
     write_file_with_policy(
+        &root.join("platforms/ios/package-ipa.sh"),
+        &ipa_script,
+        write_policy,
+    )?;
+    write_file_with_policy(
         &root.join("platforms/ios/run-sim.sh"),
         &run_script,
         write_policy,
@@ -1685,6 +2450,7 @@ fn scaffold_ios_bundle(
         use std::os::unix::fs::PermissionsExt;
         for relative in [
             "platforms/ios/package-sim.sh",
+            "platforms/ios/package-ipa.sh",
             "platforms/ios/run-sim.sh",
             "platforms/ios/test-sim.sh",
         ] {
@@ -1704,6 +2470,7 @@ fn scaffold_android_bundle(
 ) -> Result<()> {
     let manifest = render_android_manifest(project);
     let package_script = render_android_package_script(project);
+    let package_aab_script = render_android_aab_package_script(project);
     let run_script = render_android_run_script(project);
     let test_script = render_android_test_script();
 
@@ -1743,6 +2510,11 @@ fn scaffold_android_bundle(
         write_policy,
     )?;
     write_file_with_policy(
+        &root.join("platforms/android/package-aab.sh"),
+        &package_aab_script,
+        write_policy,
+    )?;
+    write_file_with_policy(
         &root.join("platforms/android/run-emulator.sh"),
         &run_script,
         write_policy,
@@ -1767,6 +2539,7 @@ fn scaffold_android_bundle(
         use std::os::unix::fs::PermissionsExt;
         for relative in [
             "platforms/android/package-apk.sh",
+            "platforms/android/package-aab.sh",
             "platforms/android/run-emulator.sh",
             "platforms/android/test-emulator.sh",
         ] {
@@ -1777,6 +2550,355 @@ fn scaffold_android_bundle(
         }
     }
     Ok(())
+}
+
+fn scaffold_windows_bundle(
+    root: &Path,
+    project: &FissionProject,
+    write_policy: WritePolicy,
+) -> Result<()> {
+    let executable = windows_executable_name(root, project);
+    write_file_with_policy(
+        &root.join("platforms/windows/Package.appxmanifest"),
+        &render_windows_appx_manifest(project, &executable),
+        write_policy,
+    )?;
+    write_file_with_policy(
+        &root.join("platforms/windows/package-msix.ps1"),
+        &render_windows_msix_package_script(project, &executable),
+        write_policy,
+    )?;
+    write_file_with_policy(
+        &root.join("platforms/windows/package-msi.ps1"),
+        &render_windows_msi_package_script(project, &executable),
+        write_policy,
+    )?;
+    Ok(())
+}
+
+fn windows_executable_name(root: &Path, project: &FissionProject) -> String {
+    let stem = cargo_package_name(root).unwrap_or_else(|| sanitize_file_stem(&project.app.name));
+    format!("{stem}.exe")
+}
+
+fn windows_identity_name(project: &FissionProject) -> String {
+    let mut out = project
+        .app
+        .app_id
+        .chars()
+        .map(|ch| match ch {
+            'A'..='Z' | 'a'..='z' | '0'..='9' | '.' | '-' => ch,
+            '_' => '.',
+            _ => '.',
+        })
+        .collect::<String>();
+    while out.contains("..") {
+        out = out.replace("..", ".");
+    }
+    out = out.trim_matches(['.', '-']).to_string();
+    if out.is_empty() {
+        "Fission.App".to_string()
+    } else {
+        out
+    }
+}
+
+fn windows_publisher_name() -> &'static str {
+    "CN=Fission Developer"
+}
+
+fn render_windows_appx_manifest(project: &FissionProject, executable: &str) -> String {
+    let display_name = escape_xml_attribute(&project.app.name);
+    let identity_name = escape_xml_attribute(&windows_identity_name(project));
+    let publisher = escape_xml_attribute(windows_publisher_name());
+    let install_dir = escape_xml_attribute(&sanitize_file_stem(&project.app.name));
+    let executable = escape_xml_attribute(executable);
+    format!(
+        r#"<?xml version="1.0" encoding="utf-8"?>
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap rescap">
+  <Identity Name="{identity_name}" Publisher="{publisher}" Version="0.1.0.1" ProcessorArchitecture="x64" />
+  <Properties>
+    <DisplayName>{display_name}</DisplayName>
+    <PublisherDisplayName>Fission Developer</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.22621.0" />
+  </Dependencies>
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+  <Applications>
+    <Application Id="App" Executable="VFS\ProgramFilesX64\{install_dir}\{executable}" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements DisplayName="{display_name}" Description="{display_name}" BackgroundColor="transparent" Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png" />
+    </Application>
+  </Applications>
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>
+"#
+    )
+}
+
+fn render_windows_msix_package_script(project: &FissionProject, executable: &str) -> String {
+    let app_name = sanitize_file_stem(&project.app.name);
+    let package_name = windows_identity_name(project);
+    let template = r#"$ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
+
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ProjectDir = Resolve-Path (Join-Path $ScriptDir "..\..")
+$Profile = if ($env:WINDOWS_PROFILE) { $env:WINDOWS_PROFILE } else { "debug" }
+$CargoProfileArg = if ($Profile -eq "release") { @("--release") } else { @() }
+$ExecutableName = if ($env:WINDOWS_EXECUTABLE_NAME) { $env:WINDOWS_EXECUTABLE_NAME } else { "__EXECUTABLE__" }
+$BinaryPath = if ($env:WINDOWS_BINARY) { $env:WINDOWS_BINARY } else { Join-Path $ProjectDir "target\$Profile\$ExecutableName" }
+$OutRoot = Join-Path $ProjectDir "target\fission\windows\msix"
+$LayoutDir = Join-Path $OutRoot "layout"
+$AppDir = Join-Path $LayoutDir "VFS\ProgramFilesX64\__APP_NAME__"
+$AssetsDir = Join-Path $LayoutDir "Assets"
+$MsixPath = Join-Path $OutRoot "__PACKAGE_NAME__-$Profile.msix"
+
+if (-not $env:WINDOWS_BINARY) {
+  cargo build @CargoProfileArg --manifest-path (Join-Path $ProjectDir "Cargo.toml")
+}
+if (-not (Test-Path $BinaryPath)) {
+  throw "Windows executable was not found at $BinaryPath. Set WINDOWS_BINARY or WINDOWS_EXECUTABLE_NAME if the crate name changed."
+}
+$MakeAppx = Get-Command makeappx -ErrorAction SilentlyContinue
+if (-not $MakeAppx) {
+  throw "makeappx was not found. Install Windows SDK MSIX packaging tools and ensure makeappx is on PATH."
+}
+
+Remove-Item -Recurse -Force $LayoutDir -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force $AppDir, $AssetsDir | Out-Null
+Copy-Item $BinaryPath (Join-Path $AppDir $ExecutableName) -Force
+Copy-Item (Join-Path $ScriptDir "Package.appxmanifest") (Join-Path $LayoutDir "AppxManifest.xml") -Force
+
+$IconSource = if ($env:WINDOWS_APP_ICON) { $env:WINDOWS_APP_ICON } else { Join-Path $ProjectDir "assets\app-icon.png" }
+if (Test-Path $IconSource) {
+  Copy-Item $IconSource (Join-Path $AssetsDir "StoreLogo.png") -Force
+  Copy-Item $IconSource (Join-Path $AssetsDir "Square44x44Logo.png") -Force
+  Copy-Item $IconSource (Join-Path $AssetsDir "Square150x150Logo.png") -Force
+}
+
+& $MakeAppx.Source pack /d $LayoutDir /p $MsixPath /overwrite | Out-Host
+
+$Certificate = $env:WINDOWS_CERTIFICATE
+$TempCertificate = $null
+try {
+  if (-not $Certificate -and $env:WINDOWS_CERTIFICATE_BASE64) {
+    $TempCertificate = Join-Path ([System.IO.Path]::GetTempPath()) ("fission-windows-cert-" + [System.Guid]::NewGuid().ToString() + ".pfx")
+    [System.IO.File]::WriteAllBytes($TempCertificate, [System.Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64))
+    $Certificate = $TempCertificate
+  }
+  $Thumbprint = $env:WINDOWS_CERTIFICATE_THUMBPRINT
+  if ($Certificate -or $Thumbprint) {
+    $SignTool = Get-Command signtool -ErrorAction SilentlyContinue
+    if (-not $SignTool) {
+      throw "signtool was not found. Install Windows SDK signing tools or set WINDOWS_SKIP_SIGNING=1 for unsigned local packages."
+    }
+    $SignArgs = @("sign", "/fd", "SHA256")
+    if ($Certificate) {
+      $SignArgs += @("/f", $Certificate)
+      if ($env:WINDOWS_CERTIFICATE_PASSWORD) { $SignArgs += @("/p", $env:WINDOWS_CERTIFICATE_PASSWORD) }
+    } else {
+      $SignArgs += @("/sha1", $Thumbprint)
+    }
+    $SignArgs += $MsixPath
+    & $SignTool.Source @SignArgs | Out-Host
+  } elseif ($Profile -eq "release" -and $env:WINDOWS_SKIP_SIGNING -ne "1") {
+    throw "Release MSIX packaging requires WINDOWS_CERTIFICATE, WINDOWS_CERTIFICATE_BASE64, or WINDOWS_CERTIFICATE_THUMBPRINT from a secure secret source. Set WINDOWS_SKIP_SIGNING=1 only for local unsigned validation."
+  }
+} finally {
+  if ($TempCertificate) { Remove-Item -Force $TempCertificate -ErrorAction SilentlyContinue }
+}
+
+Write-Output $MsixPath
+"#;
+    template
+        .replace("__APP_NAME__", &app_name)
+        .replace("__PACKAGE_NAME__", &package_name)
+        .replace("__EXECUTABLE__", executable)
+}
+
+fn render_windows_msi_package_script(project: &FissionProject, executable: &str) -> String {
+    let app_name = sanitize_file_stem(&project.app.name);
+    let display_name = project.app.name.clone();
+    let upgrade_code = deterministic_guid(&project.app.app_id);
+    let manufacturer = "Fission Developer";
+    let template = r#"$ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
+
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ProjectDir = Resolve-Path (Join-Path $ScriptDir "..\..")
+$Profile = if ($env:WINDOWS_PROFILE) { $env:WINDOWS_PROFILE } else { "debug" }
+$CargoProfileArg = if ($Profile -eq "release") { @("--release") } else { @() }
+$ExecutableName = if ($env:WINDOWS_EXECUTABLE_NAME) { $env:WINDOWS_EXECUTABLE_NAME } else { "__EXECUTABLE__" }
+$BinaryPath = if ($env:WINDOWS_BINARY) { $env:WINDOWS_BINARY } else { Join-Path $ProjectDir "target\$Profile\$ExecutableName" }
+$OutRoot = Join-Path $ProjectDir "target\fission\windows\msi"
+$MsiPath = Join-Path $OutRoot "__APP_NAME__-$Profile.msi"
+$Version = if ($env:WINDOWS_MSI_VERSION) { $env:WINDOWS_MSI_VERSION } else { "0.1.0" }
+$UpgradeCode = if ($env:WINDOWS_MSI_UPGRADE_CODE) { $env:WINDOWS_MSI_UPGRADE_CODE } else { "__UPGRADE_CODE__" }
+
+if (-not $env:WINDOWS_BINARY) {
+  cargo build @CargoProfileArg --manifest-path (Join-Path $ProjectDir "Cargo.toml")
+}
+if (-not (Test-Path $BinaryPath)) {
+  throw "Windows executable was not found at $BinaryPath. Set WINDOWS_BINARY or WINDOWS_EXECUTABLE_NAME if the crate name changed."
+}
+New-Item -ItemType Directory -Force $OutRoot | Out-Null
+
+$Wix = Get-Command wix -ErrorAction SilentlyContinue
+$Candle = Get-Command candle -ErrorAction SilentlyContinue
+$Light = Get-Command light -ErrorAction SilentlyContinue
+if ($Wix) {
+  $WxsPath = Join-Path $OutRoot "package.wxs"
+  @"
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="__DISPLAY_NAME__" Manufacturer="__MANUFACTURER__" Version="$Version" UpgradeCode="$UpgradeCode" Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of __DISPLAY_NAME__ is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="INSTALLFOLDER" Name="__APP_NAME__">
+        <Component Id="MainExecutable" Guid="*">
+          <File Id="AppExe" Source="$BinaryPath" KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+    <Feature Id="MainFeature" Title="__DISPLAY_NAME__" Level="1">
+      <ComponentRef Id="MainExecutable" />
+    </Feature>
+  </Package>
+</Wix>
+"@ | Set-Content -Encoding UTF8 $WxsPath
+  & $Wix.Source build $WxsPath -o $MsiPath | Out-Host
+} elseif ($Candle -and $Light) {
+  $WxsPath = Join-Path $OutRoot "package-wix3.wxs"
+  $WixObj = Join-Path $OutRoot "package.wixobj"
+  @"
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="__DISPLAY_NAME__" Language="1033" Version="$Version" Manufacturer="__MANUFACTURER__" UpgradeCode="$UpgradeCode">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of __DISPLAY_NAME__ is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="__APP_NAME__">
+          <Component Id="MainExecutable" Guid="*">
+            <File Id="AppExe" Source="$BinaryPath" KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </Directory>
+    <Feature Id="MainFeature" Title="__DISPLAY_NAME__" Level="1">
+      <ComponentRef Id="MainExecutable" />
+    </Feature>
+  </Product>
+</Wix>
+"@ | Set-Content -Encoding UTF8 $WxsPath
+  & $Candle.Source -nologo -arch x64 -out $WixObj $WxsPath | Out-Host
+  & $Light.Source -nologo -out $MsiPath $WixObj | Out-Host
+} else {
+  throw "WiX was not found. Install WiX Toolset (`wix`) or WiX 3 (`candle` and `light`) to package an MSI."
+}
+
+$Certificate = $env:WINDOWS_CERTIFICATE
+$TempCertificate = $null
+try {
+  if (-not $Certificate -and $env:WINDOWS_CERTIFICATE_BASE64) {
+    $TempCertificate = Join-Path ([System.IO.Path]::GetTempPath()) ("fission-windows-cert-" + [System.Guid]::NewGuid().ToString() + ".pfx")
+    [System.IO.File]::WriteAllBytes($TempCertificate, [System.Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64))
+    $Certificate = $TempCertificate
+  }
+  $Thumbprint = $env:WINDOWS_CERTIFICATE_THUMBPRINT
+  if ($Certificate -or $Thumbprint) {
+    $SignTool = Get-Command signtool -ErrorAction SilentlyContinue
+    if (-not $SignTool) {
+      throw "signtool was not found. Install Windows SDK signing tools or set WINDOWS_SKIP_SIGNING=1 for unsigned local packages."
+    }
+    $SignArgs = @("sign", "/fd", "SHA256")
+    if ($Certificate) {
+      $SignArgs += @("/f", $Certificate)
+      if ($env:WINDOWS_CERTIFICATE_PASSWORD) { $SignArgs += @("/p", $env:WINDOWS_CERTIFICATE_PASSWORD) }
+    } else {
+      $SignArgs += @("/sha1", $Thumbprint)
+    }
+    $SignArgs += $MsiPath
+    & $SignTool.Source @SignArgs | Out-Host
+  } elseif ($Profile -eq "release" -and $env:WINDOWS_SKIP_SIGNING -ne "1") {
+    throw "Release MSI packaging requires WINDOWS_CERTIFICATE, WINDOWS_CERTIFICATE_BASE64, or WINDOWS_CERTIFICATE_THUMBPRINT from a secure secret source. Set WINDOWS_SKIP_SIGNING=1 only for local unsigned validation."
+  }
+} finally {
+  if ($TempCertificate) { Remove-Item -Force $TempCertificate -ErrorAction SilentlyContinue }
+}
+
+Write-Output $MsiPath
+"#;
+    template
+        .replace("__APP_NAME__", &app_name)
+        .replace("__DISPLAY_NAME__", &display_name)
+        .replace("__MANUFACTURER__", manufacturer)
+        .replace("__UPGRADE_CODE__", &upgrade_code)
+        .replace("__EXECUTABLE__", executable)
+}
+
+fn sanitize_file_stem(value: &str) -> String {
+    let stem = value
+        .chars()
+        .map(|ch| match ch {
+            'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '_' | '.' => ch,
+            _ => '-',
+        })
+        .collect::<String>()
+        .trim_matches(['-', '.', '_'])
+        .to_string();
+    if stem.is_empty() {
+        "app".to_string()
+    } else {
+        stem
+    }
+}
+
+fn deterministic_guid(value: &str) -> String {
+    fn fnv64(seed: u64, value: &str) -> u64 {
+        let mut hash = seed;
+        for byte in value.as_bytes() {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        hash
+    }
+    let left = fnv64(0xcbf29ce484222325, value);
+    let right = fnv64(0x84222325cbf29ce4, value);
+    let mut bytes = [0u8; 16];
+    bytes[..8].copy_from_slice(&left.to_be_bytes());
+    bytes[8..].copy_from_slice(&right.to_be_bytes());
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    format!(
+        "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        bytes[0],
+        bytes[1],
+        bytes[2],
+        bytes[3],
+        bytes[4],
+        bytes[5],
+        bytes[6],
+        bytes[7],
+        bytes[8],
+        bytes[9],
+        bytes[10],
+        bytes[11],
+        bytes[12],
+        bytes[13],
+        bytes[14],
+        bytes[15]
+    )
 }
 
 fn scaffold_web_bundle(
@@ -1950,6 +3072,9 @@ fn fission_features_for_targets(targets: &BTreeSet<Target>) -> Vec<&'static str>
     if targets.contains(&Target::Server) {
         features.push("server");
     }
+    if targets.contains(&Target::Terminal) {
+        features.push("terminal-shell");
+    }
     features
 }
 
@@ -2081,8 +3206,8 @@ android {{
         applicationId = "{app_id}"
         minSdk = (System.getenv("ANDROID_MIN_API_LEVEL") ?: "24").toInt()
         targetSdk = (System.getenv("ANDROID_TARGET_API_LEVEL") ?: "35").toInt()
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = (System.getenv("ANDROID_VERSION_CODE") ?: "1").toInt()
+        versionName = System.getenv("ANDROID_VERSION_NAME") ?: "0.1.0"
     }}
 
     sourceSets {{
@@ -2855,6 +3980,8 @@ BUNDLE_ID="${{IOS_BUNDLE_ID:-{bundle_id}}}"
 DISPLAY_NAME="${{IOS_DISPLAY_NAME:-{bundle_name}}}"
 EXECUTABLE_NAME="${{IOS_EXECUTABLE_NAME:-{executable}}}"
 BUNDLE_NAME="${{IOS_BUNDLE_NAME:-$DISPLAY_NAME.app}}"
+IOS_MARKETING_VERSION="${{IOS_MARKETING_VERSION:-0.1.0}}"
+IOS_BUILD_NUMBER="${{IOS_BUILD_NUMBER:-1}}"
 BUILD_DIR="$SCRIPT_DIR/build/$PROFILE"
 BUNDLE_DIR="$BUILD_DIR/$BUNDLE_NAME"
 
@@ -2930,6 +4057,58 @@ printf '%s\n' "$BUNDLE_DIR"
         bundle_name = bundle_name,
         executable = executable,
         plist_patch = IOS_INFO_PLIST_PLUTIL_PATCH,
+    )
+}
+
+fn render_ios_ipa_package_script(project: &FissionProject) -> String {
+    format!(
+        r#"#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname "${{BASH_SOURCE[0]}}")" && pwd)
+PROJECT_DIR=$(cd -- "$SCRIPT_DIR/../.." && pwd)
+IOS_TARGET="${{IOS_TARGET:-aarch64-apple-ios}}"
+IOS_PROFILE="${{IOS_PROFILE:-release}}"
+IOS_SIGNING_IDENTITY="${{IOS_SIGNING_IDENTITY:-}}"
+IOS_PROVISIONING_PROFILE="${{IOS_PROVISIONING_PROFILE:-}}"
+IOS_REQUIRE_PROVISIONING_PROFILE="${{IOS_REQUIRE_PROVISIONING_PROFILE:-1}}"
+IPA_DIR="$SCRIPT_DIR/build/ipa"
+PAYLOAD_DIR="$IPA_DIR/Payload"
+IPA_PATH="$IPA_DIR/{package_name}.ipa"
+
+if [[ "$IOS_PROFILE" == "release" && -z "$IOS_SIGNING_IDENTITY" ]]; then
+  printf 'Release IPA packaging requires IOS_SIGNING_IDENTITY from a secure local or CI secret source.\n' >&2
+  exit 1
+fi
+
+BUNDLE_DIR=$(IOS_SIM_TARGET="$IOS_TARGET" IOS_SIM_PROFILE="$IOS_PROFILE" "$SCRIPT_DIR/package-sim.sh")
+
+if [[ -n "$IOS_PROVISIONING_PROFILE" ]]; then
+  cp "$IOS_PROVISIONING_PROFILE" "$BUNDLE_DIR/embedded.mobileprovision"
+elif [[ "$IOS_PROFILE" == "release" && "$IOS_REQUIRE_PROVISIONING_PROFILE" == "1" ]]; then
+  printf 'Release IPA packaging requires IOS_PROVISIONING_PROFILE, or set IOS_REQUIRE_PROVISIONING_PROFILE=0 for an explicitly unsigned-profile test package.\n' >&2
+  exit 1
+fi
+
+if [[ -n "$IOS_SIGNING_IDENTITY" ]]; then
+  CODESIGN_ARGS=(--force --sign "$IOS_SIGNING_IDENTITY")
+  if [[ -n "${{IOS_ENTITLEMENTS:-}}" ]]; then
+    CODESIGN_ARGS+=(--entitlements "$IOS_ENTITLEMENTS")
+  elif [[ -f "$SCRIPT_DIR/Entitlements.plist" ]]; then
+    CODESIGN_ARGS+=(--entitlements "$SCRIPT_DIR/Entitlements.plist")
+  fi
+  codesign "${{CODESIGN_ARGS[@]}}" "$BUNDLE_DIR"
+  codesign --verify --deep --strict "$BUNDLE_DIR"
+fi
+
+rm -rf "$PAYLOAD_DIR"
+mkdir -p "$PAYLOAD_DIR"
+cp -R "$BUNDLE_DIR" "$PAYLOAD_DIR/"
+rm -f "$IPA_PATH"
+(cd "$IPA_DIR" && zip -qry "$IPA_PATH" Payload)
+printf '%s\n' "$IPA_PATH"
+"#,
+        package_name = project.app.name,
     )
 }
 
@@ -3416,6 +4595,40 @@ fn render_android_capabilities_java() -> &'static str {
 }
 
 fn render_android_package_script(project: &FissionProject) -> String {
+    render_android_gradle_package_script(
+        project,
+        AndroidGradlePackageKind {
+            task_prefix: "assemble",
+            output_subdir: "apk",
+            extension: "apk",
+            label: "APK",
+        },
+    )
+}
+
+fn render_android_aab_package_script(project: &FissionProject) -> String {
+    render_android_gradle_package_script(
+        project,
+        AndroidGradlePackageKind {
+            task_prefix: "bundle",
+            output_subdir: "bundle",
+            extension: "aab",
+            label: "AAB",
+        },
+    )
+}
+
+struct AndroidGradlePackageKind {
+    task_prefix: &'static str,
+    output_subdir: &'static str,
+    extension: &'static str,
+    label: &'static str,
+}
+
+fn render_android_gradle_package_script(
+    project: &FissionProject,
+    kind: AndroidGradlePackageKind,
+) -> String {
     let lib_name = android_library_name(project);
     format!(
         r#"#!/usr/bin/env bash
@@ -3589,17 +4802,21 @@ if (( ${{#SPLASH_IMAGES[@]}} == 0 )); then
 fi
 shopt -u nullglob
 
-"${{GRADLE_CMD[@]}}" -p "$SCRIPT_DIR" ":app:assemble$GRADLE_VARIANT"
+"${{GRADLE_CMD[@]}}" -p "$SCRIPT_DIR" ":app:{task_prefix}$GRADLE_VARIANT"
 
-APK="$SCRIPT_DIR/app/build/outputs/apk/$GRADLE_OUTPUT_DIR/app-$GRADLE_OUTPUT_DIR.apk"
-if [[ ! -f "$APK" ]]; then
-  printf 'Gradle did not produce the expected APK: %s\n' "$APK" >&2
+ARTIFACT="$SCRIPT_DIR/app/build/outputs/{output_subdir}/$GRADLE_OUTPUT_DIR/app-$GRADLE_OUTPUT_DIR.{extension}"
+if [[ ! -f "$ARTIFACT" ]]; then
+  printf 'Gradle did not produce the expected {label}: %s\n' "$ARTIFACT" >&2
   exit 1
 fi
-printf '%s\n' "$APK"
+printf '%s\n' "$ARTIFACT"
 "#,
         package_name = project.app.name,
         lib_name = lib_name,
+        task_prefix = kind.task_prefix,
+        output_subdir = kind.output_subdir,
+        extension = kind.extension,
+        label = kind.label,
     )
 }
 
@@ -4361,3 +5578,212 @@ impl From<CounterApp> for Widget {
     }
 }
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn unique_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "fission-command-core-{name}-{}",
+            std::process::id()
+        ));
+        fs::remove_dir_all(&dir).ok();
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn windows_release_sync_updates_appx_identity() {
+        let dir = unique_dir("windows-release-sync");
+        let windows_dir = dir.join("platforms/windows");
+        fs::create_dir_all(&windows_dir).unwrap();
+        fs::write(
+            dir.join("fission.toml"),
+            r#"[package.windows]
+identity_name = "Example.App"
+publisher = "CN=Example & Co"
+"#,
+        )
+        .unwrap();
+        let manifest = windows_dir.join("Package.appxmanifest");
+        fs::write(
+            &manifest,
+            r#"<Package>
+  <Identity Name="Old.App" Publisher="CN=Old" Version="0.0.0.0" />
+</Package>
+"#,
+        )
+        .unwrap();
+
+        sync_release_platform_config(
+            &dir,
+            Target::Windows,
+            &ReleaseVersionConfig {
+                version: Some("1.2.3".to_string()),
+                build: Some(42),
+            },
+        )
+        .unwrap();
+
+        let updated = fs::read_to_string(&manifest).unwrap();
+        assert!(updated.contains(r#"Name="Example.App""#));
+        assert!(updated.contains(r#"Publisher="CN=Example &amp; Co""#));
+        assert!(updated.contains(r#"Version="1.2.3.42""#));
+    }
+
+    #[test]
+    fn windows_release_sync_rejects_invalid_version() {
+        let dir = unique_dir("windows-release-invalid-version");
+        let windows_dir = dir.join("platforms/windows");
+        fs::create_dir_all(&windows_dir).unwrap();
+        fs::write(
+            windows_dir.join("Package.appxmanifest"),
+            r#"<Package><Identity Version="0.0.0.0" /></Package>"#,
+        )
+        .unwrap();
+
+        let error = sync_release_platform_config(
+            &dir,
+            Target::Windows,
+            &ReleaseVersionConfig {
+                version: Some("1.2.beta".to_string()),
+                build: Some(1),
+            },
+        )
+        .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("Windows package version `1.2.beta` must be numeric"));
+    }
+
+    #[test]
+    fn macos_release_sync_updates_info_plist_version() {
+        let dir = unique_dir("macos-release-sync");
+        let macos_dir = dir.join("platforms/macos");
+        fs::create_dir_all(&macos_dir).unwrap();
+        let plist = macos_dir.join("Info.plist");
+        fs::write(
+            &plist,
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+<dict>
+  <key>CFBundleShortVersionString</key>
+  <string>0.0.1</string>
+  <key>CFBundleVersion</key>
+  <string>1</string>
+</dict>
+</plist>
+"#,
+        )
+        .unwrap();
+
+        sync_release_platform_config(
+            &dir,
+            Target::Macos,
+            &ReleaseVersionConfig {
+                version: Some("1.2.3".to_string()),
+                build: Some(42),
+            },
+        )
+        .unwrap();
+
+        let updated = fs::read_to_string(&plist).unwrap();
+        assert!(updated.contains("<string>1.2.3</string>"));
+        assert!(updated.contains("<string>42</string>"));
+    }
+
+    #[test]
+    fn project_config_includes_release_package_defaults() {
+        let dir = unique_dir("release-package-defaults");
+        let project = FissionProject {
+            app: AppConfig {
+                name: "release-demo".to_string(),
+                app_id: "com.example.release_demo".to_string(),
+                splash: None,
+            },
+            targets: BTreeSet::from([Target::Android, Target::Ios, Target::Macos, Target::Windows]),
+            capabilities: BTreeSet::new(),
+            native: NativeConfig::default(),
+        };
+
+        write_project_config(&dir, &project).unwrap();
+
+        let text = fs::read_to_string(dir.join("fission.toml")).unwrap();
+        assert!(text.contains("version = \"0.1.0\""));
+        assert!(text.contains("build = 1"));
+        assert!(text.contains("[package.android]"));
+        assert!(text.contains("package_name = \"com.example.release_demo\""));
+        assert!(text.contains("keystore_env = \"ANDROID_KEYSTORE\""));
+        assert!(text.contains("[package.ios]"));
+        assert!(text.contains("bundle_id = \"com.example.release_demo\""));
+        assert!(text.contains("[package.macos]"));
+        assert!(text.contains("marketing_version = \"0.1.0\""));
+        assert!(text.contains("build_number = \"1\""));
+        assert!(text.contains("[package.windows]"));
+        assert!(text.contains("identity_name = \"com.example.release.demo\""));
+        assert!(text.contains("certificate_base64_env = \"WINDOWS_CERTIFICATE_BASE64\""));
+        assert!(text.contains("[distribution.play_store]"));
+        assert!(text.contains(
+            "service_account_json_base64_env = \"PLAY_STORE_SERVICE_ACCOUNT_JSON_BASE64\""
+        ));
+        assert!(text.contains("[distribution.app_store]"));
+        assert!(text.contains("api_key_base64_env = \"APP_STORE_CONNECT_API_KEY_BASE64\""));
+        assert!(text.contains("[distribution.microsoft_store]"));
+        assert!(text.contains("client_secret_env = \"MICROSOFT_STORE_CLIENT_SECRET\""));
+    }
+
+    #[test]
+    fn target_aliases_parse_legacy_names_and_write_canonical_names() {
+        assert_eq!(
+            <Target as clap::ValueEnum>::from_str("site", true).unwrap(),
+            Target::Site
+        );
+        assert_eq!(
+            <Target as clap::ValueEnum>::from_str("server", true).unwrap(),
+            Target::Server
+        );
+
+        let dir = unique_dir("target-aliases");
+        fs::write(
+            dir.join("fission.toml"),
+            r#"targets = ["site", "server"]
+
+[app]
+name = "Alias Demo"
+app_id = "com.example.alias"
+"#,
+        )
+        .unwrap();
+
+        let project = read_project_config(&dir).unwrap();
+        assert!(project.targets.contains(&Target::Site));
+        assert!(project.targets.contains(&Target::Server));
+
+        write_project_config(&dir, &project).unwrap();
+        let updated = fs::read_to_string(dir.join("fission.toml")).unwrap();
+        assert!(updated.contains("\"static-site\""));
+        assert!(updated.contains("\"ssr\""));
+        assert!(!updated.contains("\"site\""));
+        assert!(!updated.contains("\"server\""));
+    }
+
+    #[test]
+    fn app_id_accepts_short_id_alias() {
+        let dir = unique_dir("app-id-alias");
+        fs::write(
+            dir.join("fission.toml"),
+            r#"targets = ["android"]
+
+[app]
+name = "Alias Demo"
+id = "com.example.alias"
+"#,
+        )
+        .unwrap();
+
+        let project = read_project_config(&dir).unwrap();
+        assert_eq!(project.app.app_id, "com.example.alias");
+    }
+}

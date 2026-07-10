@@ -1,10 +1,18 @@
+#[path = "publish_shell_env.rs"]
+mod env_file;
+
 use super::{
     readiness_distribute, readiness_package, report_status, CheckStatus, PackageFormat,
     ReadinessCheck, ARTIFACT_MANIFEST,
 };
 use anyhow::{bail, Context, Result};
+use env_file::{
+    set_private_dir_permissions, set_private_file_permissions, unquote_env_value, upsert_env,
+    write_env_file,
+};
 use fission_command_core::{read_project_config, DistributionProvider, Target};
 use rpassword::read_password;
+use serde::Deserialize;
 use std::collections::VecDeque;
 use std::env;
 use std::ffi::OsStr;
@@ -29,10 +37,37 @@ pub struct PublishShellOptions {
     pub deploy: Option<String>,
     pub track: Option<String>,
     pub locales: Vec<String>,
+    pub overwrite_remote: bool,
     pub dry_run: bool,
     pub yes: bool,
     pub json: bool,
     pub app: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct PublishShellWorkflowRequest {
+    pub project_dir: PathBuf,
+    pub provider: DistributionProvider,
+    pub target: Option<Target>,
+    pub format: Option<PackageFormat>,
+    pub artifact: Option<PathBuf>,
+    pub site: String,
+    pub deploy: Option<String>,
+    pub track: Option<String>,
+    pub locales: Vec<String>,
+    pub overwrite_remote: bool,
+    pub dry_run: bool,
+    pub yes: bool,
+    pub json: bool,
+}
+
+#[derive(Clone, Copy)]
+pub struct PublishShellHooks {
+    pub release_plan: fn(PublishShellWorkflowRequest) -> Result<PublishShellReleasePlan>,
+    pub release_checks: fn(PublishShellWorkflowRequest) -> Result<Vec<ReadinessCheck>>,
+    pub publish: fn(PublishShellWorkflowRequest) -> Result<String>,
+    pub skip_requirement: fn(PublishShellWorkflowRequest, String) -> Result<String>,
+    pub bump_build: fn(PublishShellWorkflowRequest) -> Result<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -50,6 +85,81 @@ pub struct PublishFlowSnapshot {
     pub artifact_manifest: PathBuf,
     pub package_checks: Vec<ReadinessCheck>,
     pub distribution_checks: Vec<ReadinessCheck>,
+    pub release_checks: Vec<ReadinessCheck>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PublishShellReleasePlan {
+    pub status: String,
+    pub provider: String,
+    pub target: Option<String>,
+    pub format: Option<String>,
+    pub track: Option<String>,
+    pub locales: Vec<String>,
+    pub steps: Vec<PublishShellReleaseStep>,
+    pub capabilities: Vec<PublishShellProviderCapability>,
+    pub requirements: Vec<ReadinessCheck>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PublishShellReleaseStep {
+    pub id: String,
+    pub title: String,
+    pub status: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct PublishShellProviderCapability {
+    pub id: String,
+    pub status: String,
+    pub summary: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ReleasePlanJson {
+    #[serde(default)]
+    status: String,
+    #[serde(default)]
+    provider: String,
+    #[serde(default)]
+    target: Option<String>,
+    #[serde(default)]
+    format: Option<String>,
+    #[serde(default)]
+    track: Option<String>,
+    #[serde(default)]
+    locales: Vec<String>,
+    #[serde(default)]
+    steps: Vec<ReleaseStepJson>,
+    #[serde(default)]
+    capabilities: Vec<ProviderCapabilityJson>,
+    #[serde(default)]
+    requirements: Vec<ReleaseRequirementJson>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ReleaseStepJson {
+    id: String,
+    title: String,
+    status: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ProviderCapabilityJson {
+    id: String,
+    status: String,
+    summary: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ReleaseRequirementJson {
+    id: String,
+    level: String,
+    status: String,
+    summary: String,
+    details: Option<String>,
+    #[serde(default)]
+    remediation: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -63,11 +173,19 @@ pub(crate) struct PublishContext {
     pub(crate) site: String,
     pub(crate) track: Option<String>,
     pub(crate) locales: Vec<String>,
+    pub(crate) overwrite_remote: bool,
     pub(crate) workspace: PathBuf,
     pub(crate) artifact: Option<PathBuf>,
 }
 
 pub fn run_publish_shell(options: PublishShellOptions) -> Result<()> {
+    run_publish_shell_with_hooks(options, current_fission_hooks())
+}
+
+pub fn run_publish_shell_with_hooks(
+    options: PublishShellOptions,
+    hooks: PublishShellHooks,
+) -> Result<()> {
     if options.json {
         bail!("interactive publish does not support --json; use fission readiness/package/distribute for machine-readable CI flows");
     }
@@ -83,45 +201,47 @@ pub fn run_publish_shell(options: PublishShellOptions) -> Result<()> {
     }
 
     if options.dry_run {
-        render_dashboard(&cx)?;
-        dry_run_publish(&cx, &options, false)?;
+        render_dashboard(&cx, hooks)?;
+        dry_run_publish(&cx, &options, hooks, false)?;
         return Ok(());
     }
 
     if options.yes {
-        render_dashboard(&cx)?;
-        package_artifact(&mut cx, false)?;
-        dry_run_publish(&cx, &options, false)?;
-        publish_artifact(&cx, &options)?;
+        render_dashboard(&cx, hooks)?;
+        package_artifact(&mut cx, hooks, false, false)?;
+        dry_run_publish(&cx, &options, hooks, false)?;
+        publish_artifact(&cx, &options, hooks)?;
         return Ok(());
     }
 
     if !io::stdin().is_terminal() {
-        render_dashboard(&cx)?;
+        render_dashboard(&cx, hooks)?;
         bail!("interactive publish requires a terminal; pass --dry-run/--yes or use package/distribute directly in CI");
     }
 
     loop {
-        render_dashboard(&cx)?;
+        render_dashboard(&cx, hooks)?;
         println!();
         println!("Actions");
         println!("  1  Create/update local workspace");
         println!("  2  Configure provider credentials and signing");
         println!("  3  Select track/locales/artifact options");
-        println!("  4  Build/package artifact");
-        println!("  5  Dry-run publish");
-        println!("  6  Publish");
-        println!("  7  Export CI checklist");
+        println!("  4  Review release metadata, screenshots, and skips");
+        println!("  5  Build/package artifact");
+        println!("  6  Dry-run publish");
+        println!("  7  Publish");
+        println!("  8  Export CI checklist");
         println!("  r  Refresh");
         println!("  q  Quit");
         match prompt("Choose action")?.trim() {
             "1" => ensure_local_workspace(&cx)?,
             "2" => configure_provider_and_signing(&mut cx)?,
             "3" => configure_release_options(&mut cx)?,
-            "4" => package_artifact(&mut cx, true)?,
-            "5" => dry_run_publish(&cx, &options, true)?,
-            "6" => publish_artifact_interactive(&cx, &options)?,
-            "7" => export_ci_checklist(&cx),
+            "4" => review_release_metadata_content(&cx, hooks)?,
+            "5" => package_artifact(&mut cx, hooks, true, true)?,
+            "6" => dry_run_publish(&cx, &options, hooks, true)?,
+            "7" => publish_artifact_interactive(&cx, &options, hooks)?,
+            "8" => export_ci_checklist(&cx),
             "r" | "R" => load_local_env(&cx.workspace.join("release.env"))?,
             "q" | "Q" => break,
             _ => pause("Unknown action."),
@@ -134,7 +254,7 @@ pub fn publish_flow_snapshot(options: &PublishShellOptions) -> Result<PublishFlo
     let cx = PublishContext::load(options)?;
     ensure_local_workspace_files(&cx)?;
     load_local_env(&cx.workspace.join("release.env"))?;
-    let package_checks = readiness_package(&cx.project_dir, Some(cx.target), Some(cx.format))
+    let package_checks = readiness_package(&cx.project_dir, Some(cx.target), Some(cx.format), true)
         .unwrap_or_else(|err| readiness_error("release.package.readiness_failed", err));
     let distribution_checks = match super::load_publish_manifest(&cx.project_dir) {
         Ok(config) => readiness_distribute(
@@ -142,6 +262,7 @@ pub fn publish_flow_snapshot(options: &PublishShellOptions) -> Result<PublishFlo
             cx.provider,
             &cx.site,
             cx.track.as_deref(),
+            Some(cx.format),
             Some(&cx.artifact_manifest_path()),
             &config,
         )
@@ -149,6 +270,7 @@ pub fn publish_flow_snapshot(options: &PublishShellOptions) -> Result<PublishFlo
         Err(err) => readiness_error("release.distribution.config_failed", err),
     };
     let artifact_manifest = cx.artifact_manifest_path();
+    let release_checks = Vec::new();
     Ok(PublishFlowSnapshot {
         project_dir: cx.project_dir,
         app_name: cx.app_name,
@@ -163,6 +285,7 @@ pub fn publish_flow_snapshot(options: &PublishShellOptions) -> Result<PublishFlo
         artifact_manifest,
         package_checks,
         distribution_checks,
+        release_checks,
     })
 }
 
@@ -206,6 +329,7 @@ impl PublishContext {
             site: options.site.clone(),
             track,
             locales,
+            overwrite_remote: options.overwrite_remote,
             workspace,
             artifact: options.artifact.clone(),
         })
@@ -226,7 +350,7 @@ impl PublishContext {
     }
 }
 
-fn default_target_for_provider(provider: DistributionProvider) -> Target {
+pub fn default_target_for_provider(provider: DistributionProvider) -> Target {
     match provider {
         DistributionProvider::PlayStore => Target::Android,
         DistributionProvider::AppStore => Target::Ios,
@@ -243,7 +367,7 @@ fn default_target_for_provider(provider: DistributionProvider) -> Target {
     }
 }
 
-fn default_format_for_target_provider(
+pub fn default_format_for_target_provider(
     target: Target,
     provider: DistributionProvider,
 ) -> PackageFormat {
@@ -252,14 +376,14 @@ fn default_format_for_target_provider(
         (Target::Ios, _) => PackageFormat::Ipa,
         (Target::Windows, DistributionProvider::MicrosoftStore) => PackageFormat::Msix,
         (Target::Windows, _) => PackageFormat::Exe,
-        (Target::Linux, _) => PackageFormat::Run,
+        (Target::Linux | Target::Terminal, _) => PackageFormat::Run,
         (Target::Macos, _) => PackageFormat::App,
         (Target::Server, _) => PackageFormat::DockerImage,
         (Target::Site | Target::Web, _) => PackageFormat::Static,
     }
 }
 
-fn default_track_for_provider(provider: DistributionProvider) -> Option<&'static str> {
+pub fn default_track_for_provider(provider: DistributionProvider) -> Option<&'static str> {
     match provider {
         DistributionProvider::PlayStore => Some("internal"),
         DistributionProvider::AppStore => Some("testflight"),
@@ -309,7 +433,7 @@ fn sanitize_workspace_name(value: &str) -> String {
     }
 }
 
-fn render_dashboard(cx: &PublishContext) -> Result<()> {
+fn render_dashboard(cx: &PublishContext, hooks: PublishShellHooks) -> Result<()> {
     println!("\x1b[2J\x1b[H");
     println!("Fission Local Publish");
     println!("─────────────────────");
@@ -334,14 +458,15 @@ fn render_dashboard(cx: &PublishContext) -> Result<()> {
     println!("\nSecrets never written to fission.toml. Local release files belong under ~/.fission/<app-name>.");
     println!();
 
-    let package = readiness_package(&cx.project_dir, Some(cx.target), Some(cx.format))
+    let package = readiness_package(&cx.project_dir, Some(cx.target), Some(cx.format), true)
         .unwrap_or_else(|err| readiness_error("release.package.readiness_failed", err));
     let distribute_checks = match super::load_publish_manifest(&cx.project_dir) {
         Ok(config) => readiness_distribute(
             &cx.project_dir,
             cx.provider,
-            "production",
+            &cx.site,
             cx.track.as_deref(),
+            Some(cx.format),
             Some(&cx.artifact_manifest_path()),
             &config,
         )
@@ -350,12 +475,268 @@ fn render_dashboard(cx: &PublishContext) -> Result<()> {
     };
     render_check_group("Project/package preflight", &package);
     render_check_group("Provider/distribution preflight", &distribute_checks);
+    let release_plan = (hooks.release_checks)(workflow_request(cx, None, true, true, true))
+        .unwrap_or_else(|err| readiness_error("release.plan.readiness_failed", err));
+    render_check_group("Release plan", &release_plan);
+    if let Ok(plan) = (hooks.release_plan)(workflow_request(cx, None, true, true, true)) {
+        render_release_plan_summary(&plan);
+    }
     println!(
-        "Overall   package={} provider={}",
+        "Overall   package={} provider={} release={}",
         report_status(&package),
-        report_status(&distribute_checks)
+        report_status(&distribute_checks),
+        report_status(&release_plan)
     );
     Ok(())
+}
+
+fn release_plan_checks_via_current_fission_request(
+    request: PublishShellWorkflowRequest,
+) -> Result<Vec<ReadinessCheck>> {
+    let plan = release_plan_json_via_current_fission_request(request)?;
+    Ok(plan
+        .requirements
+        .into_iter()
+        .map(release_requirement_check)
+        .collect())
+}
+
+fn release_plan_via_current_fission_request(
+    request: PublishShellWorkflowRequest,
+) -> Result<PublishShellReleasePlan> {
+    release_plan_json_via_current_fission_request(request).map(publish_shell_release_plan)
+}
+
+fn release_plan_json_via_current_fission_request(
+    request: PublishShellWorkflowRequest,
+) -> Result<ReleasePlanJson> {
+    let exe = env::current_exe().context("failed to resolve current fission executable")?;
+    let mut args = vec![
+        "readiness".to_string(),
+        "release".to_string(),
+        "--target".to_string(),
+        request
+            .target
+            .context("release readiness requires a target")?
+            .as_str()
+            .to_string(),
+        "--format".to_string(),
+        request
+            .format
+            .context("release readiness requires a package format")?
+            .as_str()
+            .to_string(),
+        "--provider".to_string(),
+        request.provider.as_str().to_string(),
+        "--site".to_string(),
+        request.site,
+        "--project-dir".to_string(),
+        request.project_dir.display().to_string(),
+        "--json".to_string(),
+    ];
+    if let Some(track) = request
+        .track
+        .as_ref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        args.push("--track".to_string());
+        args.push(track.clone());
+    }
+    if let Some(artifact) = request.artifact.as_ref() {
+        args.push("--artifact".to_string());
+        args.push(artifact.display().to_string());
+    }
+
+    let output = Command::new(exe)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .context("failed to run release readiness")?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    if stdout.trim().is_empty() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("release readiness produced no JSON output: {stderr}");
+    }
+    let plan: ReleasePlanJson = serde_json::from_str(&stdout)
+        .with_context(|| format!("failed to parse release readiness JSON: {stdout}"))?;
+    Ok(plan)
+}
+
+fn workflow_request(
+    cx: &PublishContext,
+    deploy: Option<String>,
+    dry_run: bool,
+    yes: bool,
+    json: bool,
+) -> PublishShellWorkflowRequest {
+    PublishShellWorkflowRequest {
+        project_dir: cx.project_dir.clone(),
+        provider: cx.provider,
+        target: Some(cx.target),
+        format: Some(cx.format),
+        artifact: cx.artifact.clone(),
+        site: cx.site.clone(),
+        deploy,
+        track: cx.track.clone(),
+        locales: cx.locales.clone(),
+        overwrite_remote: cx.overwrite_remote,
+        dry_run,
+        yes,
+        json,
+    }
+}
+
+fn release_requirement_check(requirement: ReleaseRequirementJson) -> ReadinessCheck {
+    ReadinessCheck {
+        id: requirement.id,
+        severity: match requirement.level.as_str() {
+            "provider-required" => super::CheckSeverity::Error,
+            "fission-recommended" => super::CheckSeverity::Warning,
+            _ => super::CheckSeverity::Info,
+        },
+        status: match requirement.status.as_str() {
+            "passed" => CheckStatus::Passed,
+            "missing" => CheckStatus::Missing,
+            "failed" => CheckStatus::Failed,
+            "warning" => CheckStatus::Warning,
+            "skipped" => CheckStatus::Skipped,
+            _ => CheckStatus::Warning,
+        },
+        summary: requirement.summary,
+        details: requirement.details,
+        remediation: requirement.remediation,
+    }
+}
+
+fn publish_shell_release_plan(plan: ReleasePlanJson) -> PublishShellReleasePlan {
+    PublishShellReleasePlan {
+        status: plan.status,
+        provider: plan.provider,
+        target: plan.target,
+        format: plan.format,
+        track: plan.track,
+        locales: plan.locales,
+        steps: plan
+            .steps
+            .into_iter()
+            .map(|step| PublishShellReleaseStep {
+                id: step.id,
+                title: step.title,
+                status: step.status,
+            })
+            .collect(),
+        capabilities: plan
+            .capabilities
+            .into_iter()
+            .map(|capability| PublishShellProviderCapability {
+                id: capability.id,
+                status: capability.status,
+                summary: capability.summary,
+            })
+            .collect(),
+        requirements: plan
+            .requirements
+            .into_iter()
+            .map(release_requirement_check)
+            .collect(),
+    }
+}
+
+fn render_release_plan_summary(plan: &PublishShellReleasePlan) {
+    println!();
+    println!("Release plan details");
+    println!("  status    {}", empty_dash(&plan.status));
+    println!("  provider  {}", empty_dash(&plan.provider));
+    println!(
+        "  target    {} / {}",
+        plan.target.as_deref().unwrap_or("-"),
+        plan.format.as_deref().unwrap_or("-")
+    );
+    println!("  track     {}", plan.track.as_deref().unwrap_or("-"));
+    println!(
+        "  locales   {}",
+        if plan.locales.is_empty() {
+            "-".to_string()
+        } else {
+            plan.locales.join(", ")
+        }
+    );
+    println!("  steps");
+    for step in plan.steps.iter().take(7) {
+        println!("    {:<18} {:<10} {}", step.id, step.status, step.title);
+    }
+    if !plan.capabilities.is_empty() {
+        println!("  capabilities");
+        for capability in plan.capabilities.iter().take(5) {
+            println!(
+                "    {:<18} {:<14} {}",
+                capability.id, capability.status, capability.summary
+            );
+        }
+    }
+}
+
+fn empty_dash(value: &str) -> &str {
+    if value.trim().is_empty() {
+        "-"
+    } else {
+        value
+    }
+}
+
+fn current_fission_hooks() -> PublishShellHooks {
+    PublishShellHooks {
+        release_plan: release_plan_via_current_fission_request,
+        release_checks: release_plan_checks_via_current_fission_request,
+        publish: publish_via_current_fission_request,
+        skip_requirement: skip_requirement_via_current_fission_request,
+        bump_build: bump_build_via_current_fission_request,
+    }
+}
+
+fn publish_via_current_fission_request(request: PublishShellWorkflowRequest) -> Result<String> {
+    let label = if request.dry_run {
+        "Running publish dry-run"
+    } else {
+        "Publishing artifact"
+    };
+    run_current_fission_logged(publish_command_args_from_request(request), label)?;
+    Ok("publish command completed".to_string())
+}
+
+fn skip_requirement_via_current_fission_request(
+    request: PublishShellWorkflowRequest,
+    id: String,
+) -> Result<String> {
+    let args = vec![
+        "release-config".to_string(),
+        "skip-requirement".to_string(),
+        "--project-dir".to_string(),
+        request.project_dir.display().to_string(),
+        "--id".to_string(),
+        id.clone(),
+        "--yes".to_string(),
+    ];
+    run_current_fission_logged(args, "Recording release skip")?;
+    Ok(format!("recorded explicit skip for {id}"))
+}
+
+fn bump_build_via_current_fission_request(request: PublishShellWorkflowRequest) -> Result<String> {
+    let mut args = vec![
+        "release-config".to_string(),
+        "bump-build".to_string(),
+        "--project-dir".to_string(),
+        request.project_dir.display().to_string(),
+        "--yes".to_string(),
+    ];
+    if let Some(target) = request.target {
+        args.push("--target".to_string());
+        args.push(target.as_str().to_string());
+    }
+    run_current_fission_logged(args, "Bumping release build")?;
+    Ok("bumped release build".to_string())
 }
 
 fn readiness_error(id: &str, err: anyhow::Error) -> Vec<ReadinessCheck> {
@@ -447,7 +828,12 @@ fn configure_android_play(cx: &mut PublishContext) -> Result<()> {
     println!("Accepted CI env: PLAY_STORE_SERVICE_ACCOUNT_JSON_BASE64");
     if confirm("Enter path to Play service-account JSON now?", true)? {
         let selected = select_file(&cx.project_dir, Some("json"))?;
-        let chosen = handle_selected_file(&selected, &cx.workspace, "play-service-account.json")?;
+        let chosen = handle_selected_file(
+            &selected,
+            &cx.workspace,
+            "play-service-account.json",
+            &cx.project_dir,
+        )?;
         upsert_env(
             &cx.workspace.join("release.env"),
             "GOOGLE_APPLICATION_CREDENTIALS",
@@ -464,7 +850,8 @@ fn configure_android_play(cx: &mut PublishContext) -> Result<()> {
     match prompt("Choose signing action")?.trim() {
         "1" => {
             let selected = select_file(&cx.project_dir, Some("jks"))?;
-            let chosen = handle_selected_file(&selected, &cx.workspace, "upload-key.jks")?;
+            let chosen =
+                handle_selected_file(&selected, &cx.workspace, "upload-key.jks", &cx.project_dir)?;
             let alias = prompt_default("Keystore alias", &default_android_alias(cx))?;
             upsert_env(
                 &cx.workspace.join("release.env"),
@@ -569,7 +956,12 @@ fn configure_ios_app_store(cx: &PublishContext) -> Result<()> {
             .and_then(OsStr::to_str)
             .unwrap_or("AuthKey.p8")
             .to_string();
-        let chosen = handle_selected_file(&selected, &cx.workspace.join("ios"), &selected_name)?;
+        let chosen = handle_selected_file(
+            &selected,
+            &cx.workspace.join("ios"),
+            &selected_name,
+            &cx.project_dir,
+        )?;
         upsert_env(
             &cx.workspace.join("release.env"),
             "APP_STORE_CONNECT_API_KEY_PATH",
@@ -616,8 +1008,12 @@ fn configure_windows_store(cx: &PublishContext) -> Result<()> {
             .and_then(OsStr::to_str)
             .unwrap_or("signing.pfx")
             .to_string();
-        let chosen =
-            handle_selected_file(&selected, &cx.workspace.join("windows"), &selected_name)?;
+        let chosen = handle_selected_file(
+            &selected,
+            &cx.workspace.join("windows"),
+            &selected_name,
+            &cx.project_dir,
+        )?;
         upsert_env(
             &cx.workspace.join("release.env"),
             "WINDOWS_CERTIFICATE",
@@ -745,11 +1141,151 @@ fn configure_release_options(cx: &mut PublishContext) -> Result<()> {
     Ok(())
 }
 
-fn package_artifact(cx: &mut PublishContext, pause_after: bool) -> Result<()> {
-    run_current_fission_logged(package_command_args(cx), "Building release package")?;
-    cx.artifact = Some(cx.default_artifact_manifest_path());
+fn review_release_metadata_content(cx: &PublishContext, hooks: PublishShellHooks) -> Result<()> {
+    println!("\nRelease metadata and content");
+    println!("Provider: {}", cx.provider.as_str());
+    println!("Track: {}", cx.track.as_deref().unwrap_or("not set"));
+    println!(
+        "Locales: {}",
+        if cx.locales.is_empty() {
+            "not set".to_string()
+        } else {
+            cx.locales.join(", ")
+        }
+    );
+    println!();
+
+    let checks = (hooks.release_checks)(workflow_request(cx, None, true, true, false))?;
+    let relevant = checks
+        .iter()
+        .filter(|check| {
+            check.id.starts_with("release_config.") || check.id.starts_with("release_content.")
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if relevant.is_empty() {
+        println!("No release metadata/content checks are available for this provider yet.");
+        pause("Press Enter to continue.");
+        return Ok(());
+    }
+
+    render_check_group("Release metadata/content checks", &relevant);
+    println!("Helpful commands");
+    println!(
+        "  fission release-config edit-file --project-dir {} --release <release-id> --kind notes --locale <locale>",
+        cx.project_dir.display()
+    );
+    println!(
+        "  fission release-content capture --project-dir {} --target {} --set {}",
+        cx.project_dir.display(),
+        cx.target.as_str(),
+        cx.provider.as_str()
+    );
+    println!(
+        "  fission release-content render --project-dir {} --provider {}",
+        cx.project_dir.display(),
+        cx.provider.as_str()
+    );
+    println!(
+        "  fission release-content validate --project-dir {} --provider {}",
+        cx.project_dir.display(),
+        cx.provider.as_str()
+    );
+    println!();
+
+    let skippable = relevant
+        .iter()
+        .filter(|check| {
+            matches!(
+                check.status,
+                CheckStatus::Missing | CheckStatus::Failed | CheckStatus::Warning
+            ) && check.severity != super::CheckSeverity::Error
+        })
+        .collect::<Vec<_>>();
+    if skippable.is_empty() {
+        pause("Release metadata/content checks do not have skippable warnings. Press Enter to continue.");
+        return Ok(());
+    }
+
+    println!(
+        "Provider-required items are not skippable. Recommended items can be explicitly skipped."
+    );
+    for check in skippable {
+        println!();
+        println!("{} — {}", check.id, check.summary);
+        if let Some(details) = &check.details {
+            println!("  {details}");
+        }
+        for fix in &check.remediation {
+            println!("  fix: {fix}");
+        }
+        if confirm("Add this id to [release].skip_requirements?", false)? {
+            let output = (hooks.skip_requirement)(
+                workflow_request(cx, None, true, true, false),
+                check.id.clone(),
+            )?;
+            if !output.trim().is_empty() {
+                println!("{output}");
+            }
+        }
+    }
+    pause("Release metadata/content review finished. Press Enter to continue.");
+    Ok(())
+}
+
+fn package_artifact(
+    cx: &mut PublishContext,
+    hooks: PublishShellHooks,
+    pause_after: bool,
+    offer_interactive_fixes: bool,
+) -> Result<()> {
+    if offer_interactive_fixes {
+        offer_build_bump_if_needed(cx, hooks)?;
+    }
+    println!("Building release package...");
+    let artifact = super::package_silent(super::PackageOptions {
+        project_dir: cx.project_dir.clone(),
+        target: cx.target,
+        format: cx.format,
+        release: true,
+        json: false,
+    })?;
+    println!("Artifact manifest: {}", artifact.display());
+    cx.artifact = Some(artifact);
     if pause_after {
         pause("Package step finished. Press Enter to continue.");
+    }
+    Ok(())
+}
+
+fn offer_build_bump_if_needed(cx: &mut PublishContext, hooks: PublishShellHooks) -> Result<()> {
+    if cx.provider != DistributionProvider::PlayStore {
+        return Ok(());
+    }
+    let checks = (hooks.release_checks)(workflow_request(cx, None, true, true, false))?;
+    let Some(check) = checks.iter().find(|check| {
+        check.id == "release.play_store.version_code_available"
+            && check.status == CheckStatus::Failed
+    }) else {
+        return Ok(());
+    };
+    println!("\nGoogle Play version/build issue");
+    println!("{}", check.summary);
+    if let Some(details) = &check.details {
+        println!("{details}");
+    }
+    for fix in &check.remediation {
+        println!("fix: {fix}");
+    }
+    if confirm(
+        "Increment the Android build/version code before packaging?",
+        true,
+    )? {
+        let output = (hooks.bump_build)(workflow_request(cx, None, true, true, false))?;
+        if !output.trim().is_empty() {
+            println!("{output}");
+        }
+        cx.artifact = None;
     }
     Ok(())
 }
@@ -757,19 +1293,30 @@ fn package_artifact(cx: &mut PublishContext, pause_after: bool) -> Result<()> {
 fn dry_run_publish(
     cx: &PublishContext,
     options: &PublishShellOptions,
+    hooks: PublishShellHooks,
     pause_after: bool,
 ) -> Result<()> {
-    run_current_fission_logged(
-        publish_command_args(cx, options, true),
-        "Running publish dry-run",
-    )?;
+    let output = (hooks.publish)(workflow_request(
+        cx,
+        options.deploy.clone(),
+        true,
+        true,
+        false,
+    ))?;
+    if !output.trim().is_empty() {
+        println!("{output}");
+    }
     if pause_after {
         pause("Dry run finished. Press Enter to continue.");
     }
     Ok(())
 }
 
-fn publish_artifact_interactive(cx: &PublishContext, options: &PublishShellOptions) -> Result<()> {
+fn publish_artifact_interactive(
+    cx: &PublishContext,
+    options: &PublishShellOptions,
+    hooks: PublishShellHooks,
+) -> Result<()> {
     println!("\nFinal publish confirmation");
     println!("Target: {} / {}", cx.target.as_str(), cx.provider.as_str());
     println!("Track: {}", cx.track.as_deref().unwrap_or("not set"));
@@ -782,51 +1329,65 @@ fn publish_artifact_interactive(cx: &PublishContext, options: &PublishShellOptio
             cx.app_id
         );
     }
-    publish_artifact(cx, options)
+    publish_artifact(cx, options, hooks)
 }
 
-fn publish_artifact(cx: &PublishContext, options: &PublishShellOptions) -> Result<()> {
-    run_current_fission_logged(
-        publish_command_args(cx, options, false),
-        "Publishing artifact",
-    )
-}
-
-fn package_command_args(cx: &PublishContext) -> Vec<String> {
-    vec![
-        "package".to_string(),
-        "--target".to_string(),
-        cx.target.as_str().to_string(),
-        "--format".to_string(),
-        cx.format.as_str().to_string(),
-        "--release".to_string(),
-        "--project-dir".to_string(),
-        cx.project_dir.display().to_string(),
-    ]
-}
-
-fn publish_command_args(
+fn publish_artifact(
     cx: &PublishContext,
     options: &PublishShellOptions,
-    dry_run: bool,
-) -> Vec<String> {
+    hooks: PublishShellHooks,
+) -> Result<()> {
+    let output = (hooks.publish)(workflow_request(
+        cx,
+        options.deploy.clone(),
+        false,
+        true,
+        false,
+    ))?;
+    if !output.trim().is_empty() {
+        println!("{output}");
+    }
+    Ok(())
+}
+
+fn publish_command_args_from_request(request: PublishShellWorkflowRequest) -> Vec<String> {
     let mut args = vec![
         "publish".to_string(),
         "--provider".to_string(),
-        cx.provider.as_str().to_string(),
-        "--artifact".to_string(),
-        cx.artifact_manifest_path().display().to_string(),
+        request.provider.as_str().to_string(),
         "--site".to_string(),
-        options.site.clone(),
-        "--yes".to_string(),
+        request.site,
         "--project-dir".to_string(),
-        cx.project_dir.display().to_string(),
+        request.project_dir.display().to_string(),
     ];
-    if let Some(track) = cx.track.as_ref().filter(|value| !value.trim().is_empty()) {
+    if request.yes {
+        args.push("--yes".to_string());
+    }
+    if let Some(target) = request.target {
+        args.push("--target".to_string());
+        args.push(target.as_str().to_string());
+    }
+    if let Some(format) = request.format {
+        args.push("--format".to_string());
+        args.push(format.as_str().to_string());
+    }
+    if let Some(artifact) = request.artifact {
+        args.push("--artifact".to_string());
+        args.push(artifact.display().to_string());
+    }
+    if let Some(track) = request
+        .track
+        .as_ref()
+        .filter(|value| !value.trim().is_empty())
+    {
         args.push("--track".to_string());
         args.push(track.clone());
     }
-    if let Some(deploy) = options
+    for locale in request.locales {
+        args.push("--locale".to_string());
+        args.push(locale);
+    }
+    if let Some(deploy) = request
         .deploy
         .as_ref()
         .filter(|value| !value.trim().is_empty())
@@ -834,8 +1395,14 @@ fn publish_command_args(
         args.push("--deploy".to_string());
         args.push(deploy.clone());
     }
-    if dry_run {
+    if request.dry_run {
         args.push("--dry-run".to_string());
+    }
+    if request.overwrite_remote {
+        args.push("--overwrite-remote".to_string());
+    }
+    if request.json {
+        args.push("--json".to_string());
     }
     args
 }
@@ -932,6 +1499,7 @@ fn push_log_line(tail: &mut VecDeque<String>, line: String) {
 }
 
 fn record_log_line(tail: &mut VecDeque<String>, line: String, interactive: bool) {
+    let line = super::redact_sensitive_text(&line);
     if !interactive {
         println!("{line}");
     }
@@ -1073,7 +1641,40 @@ fn export_ci_checklist(cx: &PublishContext) {
             cx.locales.join(",")
         }
     );
+    println!("\nRecommended non-interactive CI commands:");
+    println!(
+        "fission readiness release --project-dir . --target {} --format {} --provider {}{} --json",
+        cx.target.as_str(),
+        cx.format.as_str(),
+        cx.provider.as_str(),
+        ci_track_locale_args(cx)
+    );
+    println!(
+        "fission package --project-dir . --target {} --format {} --release --json",
+        cx.target.as_str(),
+        cx.format.as_str()
+    );
+    println!(
+        "fission publish --project-dir . --provider {} --artifact target/fission/release/{}/{}/artifact-manifest.json{} --yes --json",
+        cx.provider.as_str(),
+        cx.target.as_str(),
+        cx.format.as_str(),
+        ci_track_locale_args(cx)
+    );
     pause("Press Enter to continue.");
+}
+
+fn ci_track_locale_args(cx: &PublishContext) -> String {
+    let mut args = String::new();
+    if let Some(track) = cx.track.as_deref().filter(|track| !track.trim().is_empty()) {
+        args.push_str(" --track ");
+        args.push_str(track);
+    }
+    for locale in &cx.locales {
+        args.push_str(" --locale ");
+        args.push_str(locale);
+    }
+    args
 }
 
 fn select_file(start: &Path, extension: Option<&str>) -> Result<PathBuf> {
@@ -1172,7 +1773,12 @@ fn validate_extension(path: &Path, extension: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-fn handle_selected_file(selected: &Path, workspace: &Path, default_name: &str) -> Result<PathBuf> {
+fn handle_selected_file(
+    selected: &Path,
+    workspace: &Path,
+    default_name: &str,
+    project_dir: &Path,
+) -> Result<PathBuf> {
     println!("Selected: {}", selected.display());
     println!("  1  Copy to {} (recommended)", workspace.display());
     println!("  2  Move to {}", workspace.display());
@@ -1192,7 +1798,16 @@ fn handle_selected_file(selected: &Path, workspace: &Path, default_name: &str) -
             set_private_file_permissions(&dest)?;
             Ok(dest)
         }
-        "3" => Ok(selected.to_path_buf()),
+        "3" => {
+            if path_is_inside_project(selected, project_dir) {
+                bail!(
+                    "refusing to reference a secret file inside the project tree: {}; copy or move it to {} instead",
+                    selected.display(),
+                    workspace.display()
+                );
+            }
+            Ok(selected.to_path_buf())
+        }
         _ => {
             fs::create_dir_all(workspace)?;
             set_private_dir_permissions(workspace)?;
@@ -1208,6 +1823,16 @@ fn handle_selected_file(selected: &Path, workspace: &Path, default_name: &str) -
             Ok(dest)
         }
     }
+}
+
+fn path_is_inside_project(path: &Path, project_dir: &Path) -> bool {
+    let Ok(path) = fs::canonicalize(path) else {
+        return false;
+    };
+    let Ok(project_dir) = fs::canonicalize(project_dir) else {
+        return false;
+    };
+    path.starts_with(project_dir)
 }
 
 fn load_local_env(path: &Path) -> Result<()> {
@@ -1227,99 +1852,6 @@ fn load_local_env(path: &Path) -> Result<()> {
             env::set_var(key.trim(), value);
         }
     }
-    Ok(())
-}
-
-fn upsert_env(path: &Path, key: &str, value: &str) -> Result<()> {
-    let mut entries = read_env_entries(path)?;
-    entries.retain(|(existing, _)| existing != key);
-    entries.push((key.to_string(), value.to_string()));
-    write_env_file(path, &entries)
-}
-
-fn read_env_entries(path: &Path) -> Result<Vec<(String, String)>> {
-    if !path.exists() {
-        return Ok(Vec::new());
-    }
-    let text = fs::read_to_string(path)?;
-    let mut entries = Vec::new();
-    for line in text.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        let line = line.strip_prefix("export ").unwrap_or(line);
-        if let Some((key, value)) = line.split_once('=') {
-            entries.push((key.trim().to_string(), unquote_env_value(value.trim())));
-        }
-    }
-    Ok(entries)
-}
-
-fn write_env_file(path: &Path, entries: &[(String, String)]) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-        set_private_dir_permissions(parent)?;
-    }
-    let mut out = String::new();
-    out.push_str("# Fission local release environment. Do not commit this file.\n");
-    out.push_str("# Secrets here are loaded only for local publish flows.\n");
-    for (key, value) in entries {
-        out.push_str("export ");
-        out.push_str(key);
-        out.push('=');
-        out.push_str(&quote_env_value(value));
-        out.push('\n');
-    }
-    fs::write(path, out).with_context(|| format!("failed to write {}", path.display()))?;
-    set_private_file_permissions(path)?;
-    Ok(())
-}
-
-fn quote_env_value(value: &str) -> String {
-    format!(
-        "\"{}\"",
-        value
-            .replace('\\', "\\\\")
-            .replace('"', "\\\"")
-            .replace('$', "\\$")
-    )
-}
-
-fn unquote_env_value(value: &str) -> String {
-    let trimmed = value.trim();
-    if trimmed.len() >= 2 && trimmed.starts_with('"') && trimmed.ends_with('"') {
-        let inner = &trimmed[1..trimmed.len() - 1];
-        inner
-            .replace("\\\"", "\"")
-            .replace("\\$", "$")
-            .replace("\\\\", "\\")
-    } else {
-        trimmed.to_string()
-    }
-}
-
-#[cfg(unix)]
-fn set_private_dir_permissions(path: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn set_private_dir_permissions(_path: &Path) -> Result<()> {
-    Ok(())
-}
-
-#[cfg(unix)]
-fn set_private_file_permissions(path: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn set_private_file_permissions(_path: &Path) -> Result<()> {
     Ok(())
 }
 
@@ -1384,57 +1916,5 @@ fn pause(message: &str) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn workspace_name_is_stable_and_safe() {
-        assert_eq!(
-            sanitize_workspace_name("Cacydil Frontend"),
-            "cacydil-frontend"
-        );
-        assert_eq!(sanitize_workspace_name("..."), "app");
-    }
-
-    #[test]
-    fn env_file_upsert_replaces_existing_value() {
-        let dir =
-            env::temp_dir().join(format!("fission-publish-shell-test-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("release.env");
-        upsert_env(&path, "ANDROID_KEYSTORE", "/one.jks").unwrap();
-        upsert_env(&path, "ANDROID_KEYSTORE", "/two.jks").unwrap();
-        let text = fs::read_to_string(&path).unwrap();
-        assert!(text.contains("/two.jks"));
-        assert!(!text.contains("/one.jks"));
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn file_path_prompt_resolves_relative_to_project_dir() {
-        let dir = env::temp_dir().join(format!(
-            "fission-publish-shell-path-test-{}",
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("play-service-account.json");
-        fs::write(&path, "{}").unwrap();
-
-        assert_eq!(
-            resolve_input_file_path("play-service-account.json", &dir),
-            path
-        );
-        assert_eq!(
-            resolve_input_file_path(trim_path_input("\"play-service-account.json\""), &dir),
-            path
-        );
-        assert_eq!(
-            trim_path_input("'play-service-account.json'"),
-            "play-service-account.json"
-        );
-
-        let _ = fs::remove_dir_all(&dir);
-    }
-}
+#[path = "publish_shell_tests.rs"]
+mod tests;

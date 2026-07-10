@@ -373,6 +373,7 @@ pub fn target_label(target: Target) -> &'static str {
         Target::Macos => "macOS",
         Target::Server => "Server",
         Target::Site => "Static site",
+        Target::Terminal => "Terminal",
         Target::Web => "Web",
         Target::Windows => "Windows",
     }

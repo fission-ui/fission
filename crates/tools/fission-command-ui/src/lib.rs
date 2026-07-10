@@ -4,6 +4,7 @@ mod commands;
 mod components;
 mod density;
 mod publish;
+mod release_config;
 mod routes;
 mod screens;
 mod state;
@@ -19,6 +20,10 @@ pub use app::CliUiApp;
 pub use publish::{
     default_publish_options, run_publish_tui, run_publish_window, PublishApp, PublishUiOptions,
     PublishUiState,
+};
+pub use release_config::{
+    run_release_config_tui, ReleaseConfigEditorApp, ReleaseConfigEditorOptions,
+    ReleaseConfigEditorState,
 };
 pub use state::UiState;
 

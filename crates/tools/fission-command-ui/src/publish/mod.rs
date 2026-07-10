@@ -3,13 +3,16 @@ use fission::op::{Color, Fill};
 use fission::prelude::*;
 use fission_command_core::{read_project_config, DistributionProvider, Target};
 use fission_command_package::{
-    publish_flow_snapshot, CheckSeverity, CheckStatus, PackageFormat, PublishShellOptions,
-    ReadinessCheck,
+    package_silent, publish_flow_snapshot, CheckSeverity, CheckStatus, PackageFormat,
+    PackageOptions, PublishShellOptions, ReadinessCheck,
+};
+use fission_command_release::{
+    publish_workflow, release_plan_snapshot, release_readiness_checks, PublishWorkflowOptions,
+    ReleasePlanSnapshot,
 };
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
-use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -58,6 +61,7 @@ pub fn run_publish_tui(options: PublishUiOptions) -> Result<()> {
         .with_title("Fission publish")
         .with_env(|env| env.theme = fission::theme::Theme::dark())
         .with_sync_env(|state, env| env.theme = theme_for_mode(state.theme_mode))
+        .with_key_handler(publish_key_handler)
         .with_state_update(|state, _runtime, _env| state.poll_task())
         .run_with_options(run_options)
 }
@@ -69,8 +73,17 @@ pub fn run_publish_window(options: PublishUiOptions) -> Result<()> {
     fission::DesktopApp::<PublishUiState, _>::new_with_global_state(PublishApp, state)
         .with_title("Fission Publish")
         .with_sync_env(|state, env| env.theme = theme_for_mode(state.theme_mode))
+        .with_key_handler(publish_key_handler)
         .with_frame_hook(|state| state.poll_task())
         .run()
+}
+
+fn publish_key_handler(
+    state: &mut PublishUiState,
+    code: &fission::KeyCode,
+    _modifiers: u8,
+) -> bool {
+    state.handle_key(code)
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -91,6 +104,8 @@ pub struct PublishUiState {
     pub artifact_manifest: PathBuf,
     pub package_checks: Vec<UiCheck>,
     pub distribution_checks: Vec<UiCheck>,
+    pub release_checks: Vec<UiCheck>,
+    pub release_plan: Option<ReleasePlanSnapshot>,
     pub status_message: String,
     pub theme_mode: ThemeMode,
     pub file_picker: Option<FilePickerState>,
@@ -159,6 +174,8 @@ impl PublishUiState {
             artifact_manifest: options.artifact.unwrap_or_default(),
             package_checks: Vec::new(),
             distribution_checks: Vec::new(),
+            release_checks: Vec::new(),
+            release_plan: None,
             status_message: "Loading project".to_string(),
             theme_mode: ThemeMode::Dark,
             file_picker: None,
@@ -212,6 +229,7 @@ impl PublishUiState {
                 .filter(|value| !value.is_empty())
                 .map(str::to_string)
                 .collect(),
+            overwrite_remote: false,
             dry_run: false,
             yes: false,
             json: false,
@@ -246,6 +264,12 @@ impl PublishUiState {
                     .into_iter()
                     .map(UiCheck::from)
                     .collect();
+                self.release_plan = load_release_plan(self).ok();
+                self.release_checks = load_release_checks(self)
+                    .unwrap_or_else(|err| readiness_error("release.plan.readiness_failed", err))
+                    .into_iter()
+                    .map(UiCheck::from)
+                    .collect();
                 self.status_message = "Preflight refreshed".to_string();
                 if self.android_alias.trim().is_empty() {
                     self.android_alias = sanitize_workspace_name(&self.app_name).replace('.', "-");
@@ -258,6 +282,8 @@ impl PublishUiState {
                     err.to_string(),
                 )];
                 self.distribution_checks.clear();
+                self.release_checks.clear();
+                self.release_plan = None;
             }
         }
     }
@@ -379,12 +405,21 @@ impl PublishUiState {
 
     fn save_values(&mut self, values: &[(&str, String)]) {
         let env_path = self.workspace.join("release.env");
-        let result = values
+        let saved = values
             .iter()
-            .filter(|(_, value)| !value.trim().is_empty())
-            .try_for_each(|(key, value)| upsert_env(&env_path, key, value.trim()));
+            .filter_map(|(key, value)| {
+                let value = value.trim();
+                (!value.is_empty()).then_some((*key, value.to_string()))
+            })
+            .collect::<Vec<_>>();
+        let result = saved
+            .iter()
+            .try_for_each(|(key, value)| upsert_env(&env_path, key, value));
         match result {
             Ok(()) => {
+                for (key, value) in saved {
+                    env::set_var(key, value);
+                }
                 self.status_message = format!("Saved release settings to {}", env_path.display())
             }
             Err(err) => self.status_message = format!("Failed to save release settings: {err}"),
@@ -429,10 +464,12 @@ impl PublishUiState {
             return;
         };
         picker.refresh();
+        picker.selected_index = index.min(picker.entries.len());
         if index == 0 {
             if let Some(parent) = picker.current_dir.parent() {
                 picker.current_dir = parent.to_path_buf();
                 picker.refresh();
+                picker.selected_index = 0;
             }
             return;
         }
@@ -442,11 +479,55 @@ impl PublishUiState {
         if entry.is_dir {
             picker.current_dir = entry.path;
             picker.refresh();
+            picker.selected_index = 0;
         } else {
             self.selected_file = Some(FileSelection {
                 purpose: picker.purpose,
                 path: entry.path,
             });
+        }
+    }
+
+    fn handle_key(&mut self, code: &fission::KeyCode) -> bool {
+        if self.file_picker.is_some() {
+            return self.handle_file_picker_key(code);
+        }
+        match code {
+            fission::KeyCode::Left | fission::KeyCode::Up => {
+                self.previous_step();
+                true
+            }
+            fission::KeyCode::Right | fission::KeyCode::Down | fission::KeyCode::Enter => {
+                self.next_step();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn handle_file_picker_key(&mut self, code: &fission::KeyCode) -> bool {
+        let Some(picker) = &mut self.file_picker else {
+            return false;
+        };
+        match code {
+            fission::KeyCode::Up => {
+                picker.selected_index = picker.selected_index.saturating_sub(1);
+                true
+            }
+            fission::KeyCode::Down => {
+                picker.selected_index = (picker.selected_index + 1).min(picker.entries.len());
+                true
+            }
+            fission::KeyCode::Enter | fission::KeyCode::Right => {
+                let index = picker.selected_index;
+                self.choose_file_entry(index);
+                true
+            }
+            fission::KeyCode::Escape | fission::KeyCode::Left => {
+                self.file_picker = None;
+                true
+            }
+            _ => false,
         }
     }
 
@@ -463,7 +544,16 @@ impl PublishUiState {
             _ => self.workspace.clone(),
         };
         let result = match action {
-            FileAction::Reference => Ok(selection.path.clone()),
+            FileAction::Reference => {
+                if path_is_inside_project(&selection.path, &self.project_dir) {
+                    Err(anyhow::anyhow!(
+                        "refusing to reference a secret file inside the project tree; copy or move it to {} instead",
+                        folder.display()
+                    ))
+                } else {
+                    Ok(selection.path.clone())
+                }
+            }
             FileAction::Copy => {
                 copy_or_move_selected_file(&selection.path, &folder, &dest_name, false)
             }
@@ -546,57 +636,43 @@ impl PublishUiState {
     }
 
     fn start_cli_task(&mut self, kind: PublishTaskKind) {
-        let args = self.task_args(kind);
-        self.start_task(kind, move || run_current_fission(args));
+        let task = self.task_request(kind);
+        self.start_task(kind, move || task.run())
     }
 
-    fn task_args(&self, kind: PublishTaskKind) -> Vec<String> {
-        match kind {
-            PublishTaskKind::Package => vec![
-                "package".to_string(),
-                "--target".to_string(),
-                self.target.as_str().to_string(),
-                "--format".to_string(),
-                self.format.as_str().to_string(),
-                "--release".to_string(),
-                "--project-dir".to_string(),
-                self.project_dir.display().to_string(),
-            ],
-            PublishTaskKind::DryRun => self.publish_task_args(true),
-            PublishTaskKind::Publish => self.publish_task_args(false),
-            PublishTaskKind::GenerateAndroidKey => Vec::new(),
+    fn skip_requirement(&mut self, id: String) {
+        match fission_command_release::skip_release_requirement(&self.project_dir, &id, true) {
+            Ok(()) => {
+                self.status_message = format!("Skipped recommended release check {id}");
+                self.refresh_snapshot();
+            }
+            Err(err) => self.status_message = format!("Failed to skip {id}: {err}"),
         }
     }
 
-    fn publish_task_args(&self, dry_run: bool) -> Vec<String> {
-        let mut args = vec![
-            "publish".to_string(),
-            "--provider".to_string(),
-            self.provider.as_str().to_string(),
-            "--artifact".to_string(),
-            self.artifact_manifest.display().to_string(),
-            "--site".to_string(),
-            self.site.clone(),
-            "--yes".to_string(),
-            "--project-dir".to_string(),
-            self.project_dir.display().to_string(),
-        ];
-        if !self.track.trim().is_empty() {
-            args.push("--track".to_string());
-            args.push(self.track.clone());
+    fn task_request(&self, kind: PublishTaskKind) -> PublishTaskRequest {
+        PublishTaskRequest {
+            kind,
+            project_dir: self.project_dir.clone(),
+            provider: self.provider,
+            target: self.target,
+            format: self.format,
+            artifact: if self.artifact_manifest.as_os_str().is_empty() {
+                None
+            } else {
+                Some(self.artifact_manifest.clone())
+            },
+            site: self.site.clone(),
+            deploy: self.deploy.clone(),
+            track: Some(self.track.clone()).filter(|value| !value.trim().is_empty()),
+            locales: self
+                .locales_input
+                .split(',')
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .collect(),
         }
-        if let Some(deploy) = self
-            .deploy
-            .as_ref()
-            .filter(|value| !value.trim().is_empty())
-        {
-            args.push("--deploy".to_string());
-            args.push(deploy.clone());
-        }
-        if dry_run {
-            args.push("--dry-run".to_string());
-        }
-        args
     }
 
     fn start_task<F>(&mut self, kind: PublishTaskKind, run: F)
@@ -619,14 +695,14 @@ impl PublishUiState {
             match result {
                 Ok(output) => {
                     data.status = TaskStatus::Ok;
-                    data.output = output.lines().map(str::to_string).collect();
+                    data.output = redact_output_lines(&output);
                     if data.output.is_empty() {
                         data.output.push("done".to_string());
                     }
                 }
                 Err(err) => {
                     data.status = TaskStatus::Failed;
-                    data.output = err.to_string().lines().map(str::to_string).collect();
+                    data.output = redact_output_lines(&err.to_string());
                 }
             }
             data.revision = data.revision.saturating_add(1);
@@ -653,12 +729,14 @@ impl PublishUiState {
     }
 
     fn is_ready_to_publish(&self) -> bool {
-        self.package_checks.iter().all(UiCheck::is_non_blocking)
-            && self
-                .distribution_checks
-                .iter()
-                .all(UiCheck::is_non_blocking)
+        Self::check_group_ready(&self.package_checks)
+            && Self::check_group_ready(&self.distribution_checks)
+            && Self::check_group_ready(&self.release_checks)
             && self.publish_confirmation.trim() == self.app_id
+    }
+
+    fn check_group_ready(checks: &[UiCheck]) -> bool {
+        !checks.is_empty() && checks.iter().all(UiCheck::is_non_blocking)
     }
 
     fn next_step(&mut self) {
@@ -668,6 +746,100 @@ impl PublishUiState {
     fn previous_step(&mut self) {
         self.current_step = self.current_step.saturating_sub(1).max(1);
     }
+}
+
+fn redact_output_lines(output: &str) -> Vec<String> {
+    output.lines().map(redact_sensitive_text).collect()
+}
+
+fn redact_sensitive_text(text: &str) -> String {
+    let mut redacted = text.to_string();
+    for (key, value) in secret_env_values() {
+        redacted = redacted.replace(&value, &format!("<redacted:{key}>"));
+    }
+    redacted
+}
+
+fn secret_env_values() -> Vec<(String, String)> {
+    let mut values = env::vars()
+        .filter(|(key, value)| secretish_env_key(key) && value.len() >= 8)
+        .map(|(key, value)| (key.to_ascii_uppercase(), value))
+        .collect::<Vec<_>>();
+    values.sort_by(|(_, left), (_, right)| right.len().cmp(&left.len()));
+    values.dedup_by(|(_, left), (_, right)| left == right);
+    values
+}
+
+fn secretish_env_key(key: &str) -> bool {
+    let key = key.to_ascii_uppercase();
+    [
+        "PASSWORD",
+        "TOKEN",
+        "SECRET",
+        "PRIVATE",
+        "CREDENTIAL",
+        "KEYSTORE",
+        "SERVICE_ACCOUNT",
+        "API_KEY",
+        "ACCESS_KEY",
+        "CLIENT_SECRET",
+        "CERTIFICATE",
+        "P8",
+        "P12",
+        "PFX",
+        "JKS",
+    ]
+    .iter()
+    .any(|needle| key.contains(needle))
+}
+
+fn load_release_checks(state: &PublishUiState) -> Result<Vec<ReadinessCheck>> {
+    release_readiness_checks(publish_workflow_options_for_state(state))
+}
+
+fn load_release_plan(state: &PublishUiState) -> Result<ReleasePlanSnapshot> {
+    release_plan_snapshot(publish_workflow_options_for_state(state))
+}
+
+fn publish_workflow_options_for_state(state: &PublishUiState) -> PublishWorkflowOptions {
+    PublishWorkflowOptions {
+        project_dir: state.project_dir.clone(),
+        provider: state.provider,
+        target: Some(state.target),
+        format: Some(state.format),
+        artifact: if state.artifact_manifest.as_os_str().is_empty() {
+            None
+        } else {
+            Some(state.artifact_manifest.clone())
+        },
+        site: state.site.clone(),
+        deploy: state.deploy.clone(),
+        track: Some(state.track.clone()).filter(|value| !value.trim().is_empty()),
+        locales: state
+            .locales_input
+            .split(',')
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .collect(),
+        overwrite_remote: false,
+        dry_run: true,
+        yes: true,
+        json: true,
+    }
+}
+
+fn readiness_error(id: &str, err: anyhow::Error) -> Vec<ReadinessCheck> {
+    vec![ReadinessCheck {
+        id: id.to_string(),
+        severity: CheckSeverity::Error,
+        status: CheckStatus::Failed,
+        summary: "release plan could not be loaded".to_string(),
+        details: Some(err.to_string()),
+        remediation: vec![
+            "Run `fission readiness release --json` for full release-plan diagnostics.".to_string(),
+        ],
+    }]
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -722,6 +894,7 @@ impl PublishBoard {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UiCheck {
+    pub id: String,
     pub severity: CheckSeverity,
     pub status: CheckStatus,
     pub summary: String,
@@ -732,6 +905,7 @@ pub struct UiCheck {
 impl UiCheck {
     fn failed(summary: impl Into<String>, details: impl Into<String>) -> Self {
         Self {
+            id: "publish.ui.failed".to_string(),
             severity: CheckSeverity::Error,
             status: CheckStatus::Failed,
             summary: summary.into(),
@@ -748,6 +922,7 @@ impl UiCheck {
 impl From<ReadinessCheck> for UiCheck {
     fn from(value: ReadinessCheck) -> Self {
         Self {
+            id: value.id,
             severity: value.severity,
             status: value.status,
             summary: value.summary,
@@ -769,6 +944,7 @@ pub struct FilePickerState {
     pub purpose: FilePurpose,
     pub current_dir: PathBuf,
     pub entries: Vec<FileEntry>,
+    pub selected_index: usize,
     pub error: Option<String>,
     pub truncated: bool,
 }
@@ -779,6 +955,7 @@ impl FilePickerState {
             purpose,
             current_dir,
             entries: Vec::new(),
+            selected_index: 0,
             error: None,
             truncated: false,
         };
@@ -814,6 +991,7 @@ impl FilePickerState {
             self.entries.truncate(200);
             self.truncated = true;
         }
+        self.selected_index = self.selected_index.min(self.entries.len());
     }
 }
 
@@ -883,6 +1061,57 @@ pub enum FileAction {
     Copy,
     Move,
     Reference,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct PublishTaskRequest {
+    kind: PublishTaskKind,
+    project_dir: PathBuf,
+    provider: DistributionProvider,
+    target: Target,
+    format: PackageFormat,
+    artifact: Option<PathBuf>,
+    site: String,
+    deploy: Option<String>,
+    track: Option<String>,
+    locales: Vec<String>,
+}
+
+impl PublishTaskRequest {
+    fn run(self) -> Result<String> {
+        match self.kind {
+            PublishTaskKind::Package => {
+                let path = package_silent(PackageOptions {
+                    project_dir: self.project_dir,
+                    target: self.target,
+                    format: self.format,
+                    release: true,
+                    json: false,
+                })?;
+                Ok(format!("artifact manifest: {}", path.display()))
+            }
+            PublishTaskKind::DryRun | PublishTaskKind::Publish => {
+                let dry_run = self.kind == PublishTaskKind::DryRun;
+                publish_workflow(PublishWorkflowOptions {
+                    project_dir: self.project_dir,
+                    provider: self.provider,
+                    target: Some(self.target),
+                    format: Some(self.format),
+                    artifact: self.artifact,
+                    site: self.site,
+                    deploy: self.deploy,
+                    track: self.track,
+                    locales: self.locales,
+                    overwrite_remote: false,
+                    dry_run,
+                    yes: !dry_run,
+                    json: false,
+                })?;
+                Ok("release workflow completed".to_string())
+            }
+            PublishTaskKind::GenerateAndroidKey => Ok("Android upload key generated".to_string()),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -1136,6 +1365,11 @@ fn publish_start_task(state: &mut PublishUiState, kind: PublishTaskKind) {
         PublishTaskKind::GenerateAndroidKey => state.generate_android_key(),
         _ => state.start_cli_task(kind),
     }
+}
+
+#[fission_reducer(PublishSkipRequirement)]
+fn publish_skip_requirement(state: &mut PublishUiState, id: String) {
+    state.skip_requirement(id);
 }
 
 pub fn default_publish_options(project_dir: PathBuf) -> PublishUiOptions {

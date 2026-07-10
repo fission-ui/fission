@@ -96,10 +96,22 @@ impl DockerPackageConfig {
     }
 }
 
+#[path = "package_validation.rs"]
+mod package_validation;
+use package_validation::{
+    manifest_validation_state, package_artifact_checks, prepare_package_validation_inputs,
+};
+
 pub(super) fn package_artifact(options: &PackageOptions) -> Result<ArtifactManifest> {
     match options.format {
         PackageFormat::Static => package_static(options),
-        PackageFormat::Run => package_linux_run(options),
+        PackageFormat::Run => {
+            if options.target == Target::Terminal {
+                package_terminal_run(options)
+            } else {
+                package_linux_run(options)
+            }
+        }
         PackageFormat::DockerImage => package_docker_image(options),
         PackageFormat::App => package_macos_app(options),
         PackageFormat::Pkg => package_macos_pkg(options),
@@ -157,7 +169,7 @@ pub(super) fn package_static(options: &PackageOptions) -> Result<ArtifactManifes
             options.project_dir.join("platforms/web")
         }
         other => bail!(
-            "static packaging currently supports site and web targets, not `{}`",
+            "static packaging currently supports static-site and web targets, not `{}`",
             other.as_str()
         ),
     };
@@ -181,7 +193,7 @@ fn package_docker_image(options: &PackageOptions) -> Result<ArtifactManifest> {
     if !matches!(options.target, Target::Server | Target::Site)
         || options.format != PackageFormat::DockerImage
     {
-        bail!("docker-image packaging supports --target server or --target site");
+        bail!("docker-image packaging supports --target ssr or --target static-site");
     }
     let project = read_project_config(&options.project_dir)?;
     if !project.targets.contains(&options.target) {
@@ -250,6 +262,39 @@ fn package_linux_run(options: &PackageOptions) -> Result<ArtifactManifest> {
     finish_artifact_manifest(&project, options, &staging_dir, profile)
 }
 
+fn package_terminal_run(options: &PackageOptions) -> Result<ArtifactManifest> {
+    ensure_package_target(options, Target::Terminal, PackageFormat::Run)?;
+    let project = read_project_config(&options.project_dir)?;
+    let profile = profile_name(options.release);
+    let staging_dir = clean_package_dir(options)?;
+    let payload_dir = staging_dir.join("payload");
+    fs::create_dir_all(&payload_dir)?;
+    let binary = build_desktop_binary(&options.project_dir, options.release)?;
+    let executable_name = binary
+        .file_name()
+        .and_then(OsStr::to_str)
+        .unwrap_or("app")
+        .to_string();
+    fs::copy(&binary, payload_dir.join(&executable_name)).with_context(|| {
+        format!(
+            "failed to copy {} to {}",
+            binary.display(),
+            payload_dir.display()
+        )
+    })?;
+    copy_optional_assets(&options.project_dir, &payload_dir)?;
+
+    let package_name = sanitize_file_stem(&project.app.name);
+    let run_path = staging_dir.join(format!(
+        "{package_name}-terminal-{}-{}.run",
+        cargo_package_version(&options.project_dir).unwrap_or_else(|| "0.0.0".to_string()),
+        profile
+    ));
+    write_linux_run(&payload_dir, &run_path, &project.app.name, &executable_name)?;
+    fs::remove_dir_all(&payload_dir).ok();
+    finish_artifact_manifest(&project, options, &staging_dir, profile)
+}
+
 fn package_macos_app(options: &PackageOptions) -> Result<ArtifactManifest> {
     ensure_package_target(options, Target::Macos, PackageFormat::App)?;
     require_host_os(Target::Macos)?;
@@ -273,10 +318,11 @@ fn package_macos_pkg(options: &PackageOptions) -> Result<ArtifactManifest> {
     let macos = macos_package_config(&options.project_dir)?;
     let app_bundle = create_macos_app_bundle(options, &project, &app_staging, &macos)?;
     sign_macos_app_if_configured(&options.project_dir, &app_bundle, &macos)?;
+    let version = resolved_package_version(&options.project_dir, options.target)?;
     let pkg_path = staging_dir.join(format!(
         "{}-{}.pkg",
         sanitize_file_stem(&project.app.name),
-        cargo_package_version(&options.project_dir).unwrap_or_else(|| "0.0.0".to_string())
+        version
     ));
     if find_in_path("pkgbuild").is_none() {
         bail!("pkgbuild was not found; install Xcode command line tools to create macOS .pkg packages");
@@ -351,7 +397,7 @@ fn package_with_project_script(
 ) -> Result<ArtifactManifest> {
     ensure_package_target(options, target, options.format)?;
     let project = read_project_config(&options.project_dir)?;
-    if matches!(target, Target::Android | Target::Ios) {
+    if matches!(target, Target::Android | Target::Ios | Target::Windows) {
         sync_platform_config(&options.project_dir, &project)?;
     }
     let profile = profile_name(options.release);
@@ -395,10 +441,18 @@ fn finish_artifact_manifest(
     staging_dir: &Path,
     profile: &str,
 ) -> Result<ArtifactManifest> {
+    prepare_package_validation_inputs(options, staging_dir)?;
     let mut manifest = build_artifact_manifest(project, options, staging_dir, profile)?;
     add_configured_secondary_artifacts(&options.project_dir, &mut manifest)?;
     manifest.validation.checks = package_artifact_checks(options, staging_dir, &manifest);
     manifest.validation.state = manifest_validation_state(&manifest.validation.checks).to_string();
+    manifest.signing = package_signing_context(
+        &options.project_dir,
+        options.target,
+        options.format,
+        &manifest.validation.checks,
+    )?;
+    manifest.notarization = package_notarization_context(&options.project_dir, options.target)?;
     let manifest_path = staging_dir.join(ARTIFACT_MANIFEST);
     fs::write(&manifest_path, serde_json::to_vec_pretty(&manifest)?).with_context(|| {
         format!(
@@ -407,284 +461,6 @@ fn finish_artifact_manifest(
         )
     })?;
     Ok(manifest)
-}
-
-fn package_artifact_checks(
-    options: &PackageOptions,
-    staging_dir: &Path,
-    manifest: &ArtifactManifest,
-) -> Vec<ReadinessCheck> {
-    let mut checks = Vec::new();
-    checks.push(package_primary_artifact_check(
-        options.format,
-        staging_dir,
-        manifest,
-    ));
-    checks.push(package_artifact_bytes_check(manifest));
-    checks.extend(package_signature_checks(options, staging_dir, manifest));
-    checks.push(package_install_smoke_check(options.format, staging_dir));
-    checks
-}
-
-fn package_primary_artifact_check(
-    format: PackageFormat,
-    staging_dir: &Path,
-    manifest: &ArtifactManifest,
-) -> ReadinessCheck {
-    let found = match format {
-        PackageFormat::Static => staging_dir.join("index.html").exists(),
-        PackageFormat::DockerImage => {
-            staging_dir.join("Dockerfile").exists()
-                && staging_dir.join("image-metadata.json").exists()
-        }
-        PackageFormat::App => has_child_with_extension(staging_dir, "app"),
-        PackageFormat::Run
-        | PackageFormat::Pkg
-        | PackageFormat::Exe
-        | PackageFormat::Apk
-        | PackageFormat::Aab
-        | PackageFormat::Ipa
-        | PackageFormat::Msi
-        | PackageFormat::Msix => manifest.artifacts.iter().any(|file| {
-            Path::new(&file.path).extension().and_then(OsStr::to_str) == Some(format.as_str())
-        }),
-    };
-    check(
-        "release.package.artifact.primary_present",
-        CheckSeverity::Error,
-        if found {
-            CheckStatus::Passed
-        } else {
-            CheckStatus::Missing
-        },
-        "primary package artifact exists",
-        Some(format!(
-            "{} package output in {}",
-            format.as_str(),
-            staging_dir.display()
-        )),
-        vec![
-            "Re-run the package command and ensure the packager emits the requested artifact type.",
-        ],
-    )
-}
-
-fn package_artifact_bytes_check(manifest: &ArtifactManifest) -> ReadinessCheck {
-    let empty = manifest
-        .artifacts
-        .iter()
-        .filter(|file| file.size_bytes == 0)
-        .map(|file| file.relative_path.as_str())
-        .collect::<Vec<_>>();
-    check(
-        "release.package.artifact.files_non_empty",
-        CheckSeverity::Warning,
-        if empty.is_empty() {
-            CheckStatus::Passed
-        } else {
-            CheckStatus::Warning
-        },
-        "artifact files have non-zero bytes",
-        (!empty.is_empty()).then(|| empty.join(", ")),
-        vec![
-            "Inspect the listed zero-byte files and remove or regenerate them before distribution.",
-        ],
-    )
-}
-
-fn package_signature_checks(
-    options: &PackageOptions,
-    staging_dir: &Path,
-    manifest: &ArtifactManifest,
-) -> Vec<ReadinessCheck> {
-    match options.format {
-        PackageFormat::App => vec![verify_with_tool(
-            "release.package.signature.macos_app",
-            "codesign",
-            &["--verify", "--deep", "--strict"],
-            primary_child_with_extension(staging_dir, "app"),
-            "macOS .app signature verifies",
-            "Sign the .app bundle with package.macos.signing_identity or disable signed distribution for this package.",
-        )],
-        PackageFormat::Pkg => vec![verify_with_tool(
-            "release.package.signature.macos_pkg",
-            "pkgutil",
-            &["--check-signature"],
-            primary_file_with_extension(manifest, "pkg"),
-            "macOS .pkg signature verifies",
-            "Sign the package with package.macos.installer_identity before distribution.",
-        )],
-        PackageFormat::Apk => vec![verify_with_tool(
-            "release.package.signature.android_apk",
-            "apksigner",
-            &["verify"],
-            primary_file_with_extension(manifest, "apk"),
-            "Android APK signature verifies",
-            "Configure Android signing and run the platform packager again.",
-        )],
-        PackageFormat::Aab => vec![verify_with_tool(
-            "release.package.signature.android_aab",
-            "jarsigner",
-            &["-verify"],
-            primary_file_with_extension(manifest, "aab"),
-            "Android AAB jar signature verifies",
-            "Configure Android upload signing and regenerate the AAB.",
-        )],
-        PackageFormat::Msix => vec![verify_with_tool(
-            "release.package.signature.windows_msix",
-            "signtool",
-            &["verify", "/pa"],
-            primary_file_with_extension(manifest, "msix"),
-            "Windows MSIX signature verifies",
-            "Sign the MSIX with the Windows package certificate before distribution.",
-        )],
-        PackageFormat::Msi => vec![verify_with_tool(
-            "release.package.signature.windows_msi",
-            "signtool",
-            &["verify", "/pa"],
-            primary_file_with_extension(manifest, "msi"),
-            "Windows MSI signature verifies",
-            "Sign the MSI with the Windows package certificate before distribution.",
-        )],
-        PackageFormat::Exe => vec![verify_with_tool(
-            "release.package.signature.windows_exe",
-            "signtool",
-            &["verify", "/pa"],
-            primary_file_with_extension(manifest, "exe"),
-            "Windows executable signature verifies",
-            "Sign the executable or installer with the Windows package certificate before distribution.",
-        )],
-        _ => Vec::new(),
-    }
-}
-
-fn package_install_smoke_check(format: PackageFormat, staging_dir: &Path) -> ReadinessCheck {
-    if matches!(format, PackageFormat::Static | PackageFormat::DockerImage) {
-        return check(
-            "release.package.install_smoke.not_required",
-            CheckSeverity::Info,
-            CheckStatus::Passed,
-            "install smoke receipt is not required for this package format",
-            Some(staging_dir.display().to_string()),
-            Vec::new(),
-        );
-    }
-    let candidates = [
-        staging_dir.join("install-smoke.json"),
-        staging_dir.join("package-validation/install-smoke.json"),
-    ];
-    let receipt = candidates.iter().find(|path| path.exists());
-    check(
-        "release.package.install_smoke.receipt",
-        CheckSeverity::Warning,
-        if receipt.is_some() {
-            CheckStatus::Passed
-        } else {
-            CheckStatus::Skipped
-        },
-        "package install smoke receipt exists",
-        receipt
-            .map(|path| path.display().to_string())
-            .or_else(|| Some(staging_dir.display().to_string())),
-        vec!["Run the platform install/smoke workflow and write install-smoke.json next to the artifact before release distribution."],
-    )
-}
-
-fn verify_with_tool(
-    id: &str,
-    tool: &str,
-    args: &[&str],
-    path: Option<PathBuf>,
-    summary: &str,
-    remediation: &str,
-) -> ReadinessCheck {
-    let Some(path) = path else {
-        return check(
-            id,
-            CheckSeverity::Warning,
-            CheckStatus::Skipped,
-            summary,
-            Some("primary artifact was not found".to_string()),
-            vec![remediation],
-        );
-    };
-    let Some(tool_path) = find_in_path(tool) else {
-        return check(
-            id,
-            CheckSeverity::Warning,
-            CheckStatus::Skipped,
-            summary,
-            Some(format!("{tool} is not available on PATH")),
-            vec![remediation],
-        );
-    };
-    let output = Command::new(&tool_path).args(args).arg(&path).output();
-    match output {
-        Ok(output) => check(
-            id,
-            CheckSeverity::Error,
-            if output.status.success() {
-                CheckStatus::Passed
-            } else {
-                CheckStatus::Failed
-            },
-            summary,
-            Some(format!(
-                "{} {} {}: {}{}",
-                tool_path.display(),
-                args.join(" "),
-                path.display(),
-                String::from_utf8_lossy(&output.stdout).trim(),
-                String::from_utf8_lossy(&output.stderr).trim()
-            )),
-            vec![remediation],
-        ),
-        Err(error) => check(
-            id,
-            CheckSeverity::Warning,
-            CheckStatus::Skipped,
-            summary,
-            Some(error.to_string()),
-            vec![remediation],
-        ),
-    }
-}
-
-fn manifest_validation_state(checks: &[ReadinessCheck]) -> &'static str {
-    if checks
-        .iter()
-        .any(|check| check.severity == CheckSeverity::Error && check.status != CheckStatus::Passed)
-    {
-        "failed"
-    } else if checks
-        .iter()
-        .any(|check| check.status == CheckStatus::Warning || check.status == CheckStatus::Skipped)
-    {
-        "warning"
-    } else {
-        "passed"
-    }
-}
-
-fn has_child_with_extension(root: &Path, extension: &str) -> bool {
-    primary_child_with_extension(root, extension).is_some()
-}
-
-fn primary_child_with_extension(root: &Path, extension: &str) -> Option<PathBuf> {
-    fs::read_dir(root)
-        .ok()?
-        .filter_map(Result::ok)
-        .find_map(|entry| {
-            let path = entry.path();
-            (path.extension().and_then(OsStr::to_str) == Some(extension)).then_some(path)
-        })
-}
-
-fn primary_file_with_extension(manifest: &ArtifactManifest, extension: &str) -> Option<PathBuf> {
-    manifest.artifacts.iter().find_map(|file| {
-        let path = Path::new(&file.path);
-        (path.extension().and_then(OsStr::to_str) == Some(extension)).then(|| path.to_path_buf())
-    })
 }
 
 fn add_configured_secondary_artifacts(
@@ -1603,12 +1379,32 @@ fn create_macos_app_bundle(
             )
         })?;
     }
-    let version =
-        cargo_package_version(&options.project_dir).unwrap_or_else(|| "0.1.0".to_string());
-    let plist = render_info_plist(project, &app_name, &executable, macos, &version);
+    let (version, build) = resolved_macos_bundle_version(&options.project_dir)?;
+    let plist = render_info_plist(project, &app_name, &executable, macos, &version, &build);
     fs::write(contents.join("Info.plist"), plist)?;
     fs::write(contents.join("PkgInfo"), "APPL????")?;
     Ok(app_bundle)
+}
+
+fn resolved_package_version(project_dir: &Path, target: Target) -> Result<String> {
+    let release = resolve_release_version_config(project_dir, Some(target))?;
+    Ok(release
+        .version
+        .or_else(|| cargo_package_version(project_dir))
+        .unwrap_or_else(|| "0.1.0".to_string()))
+}
+
+fn resolved_macos_bundle_version(project_dir: &Path) -> Result<(String, String)> {
+    let release = resolve_release_version_config(project_dir, Some(Target::Macos))?;
+    let version = release
+        .version
+        .or_else(|| cargo_package_version(project_dir))
+        .unwrap_or_else(|| "0.1.0".to_string());
+    let build = release
+        .build
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "1".to_string());
+    Ok((version, build))
 }
 
 fn render_info_plist(
@@ -1617,6 +1413,7 @@ fn render_info_plist(
     executable: &str,
     macos: &MacosPackageConfig,
     version: &str,
+    build: &str,
 ) -> String {
     let bundle_id = macos
         .bundle_id
@@ -1655,7 +1452,7 @@ fn render_info_plist(
         escape_xml(app_name),
         escape_xml(executable),
         escape_xml(version),
-        escape_xml(version),
+        escape_xml(build),
         escape_xml(minimum_os),
         render_macos_info_plist_capability_entries(project)
     )
@@ -1829,11 +1626,14 @@ fn app_store_connect_key_file_for_notarization() -> Result<TemporarySecretFile> 
             temp_dir: None,
         });
     }
-    let key_text = if let Some(raw) = env::var("APP_STORE_CONNECT_API_KEY")
+    let key_id = env::var("APP_STORE_CONNECT_KEY_ID")
+        .context("APP_STORE_CONNECT_KEY_ID is required when package.macos.notarize = true")?;
+    let file_name = format!("AuthKey_{key_id}.p8");
+    if let Some(raw) = env::var("APP_STORE_CONNECT_API_KEY")
         .ok()
         .filter(|value| !value.trim().is_empty())
     {
-        raw
+        return temporary_notary_secret_file(&file_name, raw.as_bytes());
     } else if let Some(encoded) = env::var("APP_STORE_CONNECT_API_KEY_BASE64")
         .ok()
         .filter(|value| !value.trim().is_empty())
@@ -1841,12 +1641,12 @@ fn app_store_connect_key_file_for_notarization() -> Result<TemporarySecretFile> 
         let bytes = BASE64_STANDARD
             .decode(encoded.trim())
             .context("failed to decode APP_STORE_CONNECT_API_KEY_BASE64")?;
-        String::from_utf8(bytes).context("APP_STORE_CONNECT_API_KEY_BASE64 is not valid UTF-8")?
-    } else {
-        bail!("APP_STORE_CONNECT_API_KEY_PATH, APP_STORE_CONNECT_API_KEY, or APP_STORE_CONNECT_API_KEY_BASE64 is required when package.macos.notarize = true")
-    };
-    let key_id = env::var("APP_STORE_CONNECT_KEY_ID")
-        .context("APP_STORE_CONNECT_KEY_ID is required when package.macos.notarize = true")?;
+        return temporary_notary_secret_file(&file_name, &bytes);
+    }
+    bail!("APP_STORE_CONNECT_API_KEY_PATH, APP_STORE_CONNECT_API_KEY, or APP_STORE_CONNECT_API_KEY_BASE64 is required when package.macos.notarize = true")
+}
+
+fn temporary_notary_secret_file(file_name: &str, contents: &[u8]) -> Result<TemporarySecretFile> {
     let temp_dir = env::temp_dir().join(format!(
         "fission-notary-key-{}-{}",
         std::process::id(),
@@ -1858,17 +1658,43 @@ fn app_store_connect_key_file_for_notarization() -> Result<TemporarySecretFile> 
             temp_dir.display()
         )
     })?;
-    let path = temp_dir.join(format!("AuthKey_{key_id}.p8"));
-    fs::write(&path, key_text).with_context(|| {
+    set_private_dir_permissions(&temp_dir)?;
+    let path = temp_dir.join(file_name);
+    fs::write(&path, contents).with_context(|| {
         format!(
             "failed to write temporary App Store key file {}",
             path.display()
         )
     })?;
+    set_private_file_permissions(&path)?;
     Ok(TemporarySecretFile {
         path,
         temp_dir: Some(temp_dir),
     })
+}
+
+#[cfg(unix)]
+fn set_private_dir_permissions(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn set_private_dir_permissions(_path: &Path) -> Result<()> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn set_private_file_permissions(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn set_private_file_permissions(_path: &Path) -> Result<()> {
+    Ok(())
 }
 
 fn write_linux_run(
@@ -1893,13 +1719,46 @@ set -eu
 APP_NAME="{app_name}"
 EXECUTABLE="{executable_name}"
 DEST="${{FISSION_INSTALL_DIR:-$HOME/.local/opt/$APP_NAME}}"
-mkdir -p "$DEST"
+if [ -z "$DEST" ] || [ "$DEST" = "/" ]; then
+  echo "Refusing unsafe install destination: $DEST" >&2
+  exit 64
+fi
 ARCHIVE_LINE=$(awk '/^__FISSION_ARCHIVE_BELOW__$/ {{ print NR + 1; exit 0; }}' "$0")
-tail -n +"$ARCHIVE_LINE" "$0" | tar -xz -C "$DEST"
-chmod +x "$DEST/$EXECUTABLE" 2>/dev/null || true
-echo "Installed $APP_NAME to $DEST"
-echo "Run: $DEST/$EXECUTABLE"
-exit 0
+MODE="${{1:---install}}"
+case "$MODE" in
+  --verify)
+    tail -n +"$ARCHIVE_LINE" "$0" | tar -tz >/dev/null
+    echo "Verified $APP_NAME package archive"
+    exit 0
+    ;;
+  --install|install)
+    mkdir -p "$DEST"
+    tail -n +"$ARCHIVE_LINE" "$0" | tar -xz -C "$DEST"
+    chmod +x "$DEST/$EXECUTABLE" 2>/dev/null || true
+    printf 'app=%s\nexecutable=%s\n' "$APP_NAME" "$EXECUTABLE" > "$DEST/.fission-install-receipt"
+    echo "Installed $APP_NAME to $DEST"
+    echo "Run: $DEST/$EXECUTABLE"
+    exit 0
+    ;;
+  --uninstall|uninstall)
+    if [ -d "$DEST" ]; then
+      rm -rf "$DEST"
+      echo "Uninstalled $APP_NAME from $DEST"
+    else
+      echo "Nothing to uninstall at $DEST"
+    fi
+    exit 0
+    ;;
+  --help|-h)
+    echo "Usage: $0 [--install|--verify|--uninstall]"
+    exit 0
+    ;;
+  *)
+    echo "Unknown option: $MODE" >&2
+    echo "Usage: $0 [--install|--verify|--uninstall]" >&2
+    exit 64
+    ;;
+esac
 __FISSION_ARCHIVE_BELOW__"#
     )?;
     file.write_all(&archive)?;
@@ -2043,118 +1902,5 @@ fn escape_xml(value: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use fission_command_core::AppConfig;
-    use std::collections::BTreeSet;
-
-    #[test]
-    fn macos_info_plist_includes_capability_usage_descriptions() {
-        let project = FissionProject {
-            app: AppConfig {
-                name: "demo".to_string(),
-                app_id: "com.example.demo".to_string(),
-                splash: None,
-            },
-            targets: BTreeSet::from([Target::Macos]),
-            capabilities: BTreeSet::from([
-                PlatformCapability::BarcodeScanner,
-                PlatformCapability::Bluetooth,
-                PlatformCapability::Geolocation,
-                PlatformCapability::Microphone,
-            ]),
-            native: Default::default(),
-        };
-
-        let plist = render_info_plist(
-            &project,
-            "Demo",
-            "demo",
-            &MacosPackageConfig::default(),
-            "1.2.3",
-        );
-
-        assert!(plist.contains("NSBluetoothAlwaysUsageDescription"));
-        assert!(plist.contains("NSCameraUsageDescription"));
-        assert!(plist.contains("NSLocationWhenInUseUsageDescription"));
-        assert!(plist.contains("NSMicrophoneUsageDescription"));
-    }
-
-    #[test]
-    fn server_dockerfile_builds_workspace_package_and_artifacts() {
-        let dockerfile = render_server_dockerfile(
-            "debian:bookworm-slim",
-            8080,
-            "examples/pokemon-card-store",
-            "pokemon-card-store",
-            "pokemon-card-store",
-            " --release --package-no-default-features --package-feature browser",
-        );
-
-        assert!(dockerfile.contains("COPY workspace/ ."));
-        assert!(dockerfile.contains("WORKDIR /workspace/examples/pokemon-card-store"));
-        assert!(dockerfile.contains("rustup target add wasm32-unknown-unknown"));
-        assert!(dockerfile.contains(
-            "cargo build --release --package pokemon-card-store --bin pokemon-card-store"
-        ));
-        assert!(dockerfile.contains("artifacts --package-name pokemon-card-store --release --package-no-default-features --package-feature browser"));
-        assert!(dockerfile.contains("COPY --from=builder /workspace/examples/pokemon-card-store/fission.toml /app/fission.toml"));
-        assert!(dockerfile.contains("ENV FISSION_SERVER_ARTIFACTS=/app/server-artifacts"));
-        assert!(dockerfile
-            .contains("CMD [\"sh\", \"-c\", \"exec /usr/local/bin/pokemon-card-store serve"));
-    }
-
-    #[test]
-    fn static_site_docker_context_can_generate_axum_server_crate() {
-        let root = std::env::temp_dir().join(format!(
-            "fission-static-docker-context-{}",
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&root);
-        write_static_server_crate(&root, DockerStaticAdapter::Axum).unwrap();
-
-        let manifest = fs::read_to_string(root.join("server/Cargo.toml")).unwrap();
-        let main = fs::read_to_string(root.join("server/src/main.rs")).unwrap();
-        assert!(manifest.contains("tower-http"));
-        assert!(main.contains("ServeDir::new"));
-
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn docker_source_copy_skips_tmp_and_target_directories() {
-        let root =
-            std::env::temp_dir().join(format!("fission-docker-source-copy-{}", std::process::id()));
-        let source = root.join("source");
-        let dest = root.join("dest");
-        let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(source.join(".tmp/cache")).unwrap();
-        fs::create_dir_all(source.join("target/debug")).unwrap();
-        fs::create_dir_all(source.join("platforms/android/build")).unwrap();
-        fs::write(source.join("Cargo.toml"), "[package]\nname = \"demo\"\n").unwrap();
-        fs::write(source.join(".tmp/cache/secret"), "do not copy").unwrap();
-        fs::write(source.join("target/debug/app"), "do not copy").unwrap();
-        fs::write(
-            source.join("platforms/android/build/app.apk"),
-            "do not copy",
-        )
-        .unwrap();
-
-        copy_docker_source_tree(&source, &dest).unwrap();
-
-        assert!(dest.join("Cargo.toml").exists());
-        assert!(!dest.join(".tmp").exists());
-        assert!(!dest.join("target").exists());
-        assert!(!dest.join("platforms").exists());
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn docker_image_name_sanitizes_human_app_names() {
-        assert_eq!(
-            sanitize_docker_image_name("Pokemon Card Store!"),
-            "pokemon-card-store"
-        );
-        assert_eq!(sanitize_docker_image_name("___"), "fission-app");
-    }
-}
+#[path = "package_tests.rs"]
+mod tests;

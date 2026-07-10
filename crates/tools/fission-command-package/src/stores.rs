@@ -2,15 +2,21 @@ use super::*;
 use anyhow::{bail, Context, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
-use reqwest::blocking::{Client, Response};
+use reqwest::blocking::{Body, Client, Response};
 use reqwest::header::CONTENT_LENGTH;
+use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+mod app_store_review;
+#[path = "stores/shared.rs"]
+mod shared;
+use shared::*;
 
 const PLAY_API: &str = "https://androidpublisher.googleapis.com";
 const PLAY_UPLOAD_API: &str = "https://androidpublisher.googleapis.com/upload";
@@ -56,6 +62,28 @@ struct OAuthTokenResponse {
     expires_in: Option<u64>,
 }
 
+#[derive(Debug, Deserialize, Default)]
+struct ReleaseNotesManifest {
+    release: Option<ReleaseNotesRoot>,
+    #[serde(default)]
+    releases: Vec<ReleaseNotesEntry>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ReleaseNotesRoot {
+    active_release: Option<String>,
+    #[serde(default)]
+    default_locales: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ReleaseNotesEntry {
+    id: Option<String>,
+    release_notes: Option<String>,
+    #[serde(default)]
+    locales: Vec<String>,
+}
+
 pub(super) fn publish_play_store(
     options: &DistributeOptions,
     config: &PublishManifest,
@@ -79,6 +107,17 @@ pub(super) fn publish_play_store(
         .extension()
         .and_then(|value| value.to_str())
         .unwrap_or_default();
+    if is_play_internal_sharing_track(track) {
+        return publish_play_internal_sharing(
+            options,
+            &cfg,
+            package_name,
+            artifact_path,
+            &artifact,
+            artifact_kind,
+        );
+    }
+    let release_notes = play_release_notes(&options.project_dir, &options.locales)?;
     if options.dry_run {
         return Ok(store_receipt(
             options,
@@ -90,8 +129,9 @@ pub(super) fn publish_play_store(
                 "https://play.google.com/console/u/0/developers/app/{package_name}/tracks/{track}"
             )),
             vec![format!(
-                "Would upload {} to Google Play package {package_name} track {track} with release status {release_status}.",
-                artifact.display()
+                "Would upload {} to Google Play package {package_name} track {track} with release status {release_status} and {} release note locale(s).",
+                artifact.display(),
+                release_notes.len()
             )],
         ));
     }
@@ -99,6 +139,18 @@ pub(super) fn publish_play_store(
     let client = http_client()?;
     let token = google_play_access_token(&cfg, &client)?;
     let edit_id = create_play_edit(&client, &token, package_name)?;
+    if let Some(version_code) =
+        android_version_code_for_provider(&options.project_dir, Some(manifest))?
+    {
+        ensure_play_version_code_unused(
+            &client,
+            &token,
+            package_name,
+            &edit_id,
+            track,
+            &version_code,
+        )?;
+    }
     let version_code = upload_play_artifact(
         &client,
         &token,
@@ -115,6 +167,7 @@ pub(super) fn publish_play_store(
         track,
         release_status,
         &version_code,
+        &release_notes,
     )?;
     validate_play_edit(&client, &token, package_name, &edit_id)?;
     commit_play_edit(&client, &token, package_name, &edit_id)?;
@@ -132,6 +185,77 @@ pub(super) fn publish_play_store(
             "Google Play accepted version code {version_code} on track {track}; provider-side review or processing may still apply."
         )],
     ))
+}
+
+fn publish_play_internal_sharing(
+    options: &DistributeOptions,
+    cfg: &PlayStoreConfig,
+    package_name: &str,
+    artifact_path: &Path,
+    artifact: &Path,
+    artifact_kind: &str,
+) -> Result<DistributionReceipt> {
+    if options.dry_run {
+        let upload_url = play_internal_sharing_upload_url(package_name, artifact_kind)?;
+        return Ok(DistributionReceipt {
+            schema_version: 1,
+            created_at_unix_seconds: now_unix_seconds(),
+            provider: "play-store".to_string(),
+            site: options.site.clone(),
+            action: "publish".to_string(),
+            artifact_manifest: Some(artifact_path.display().to_string()),
+            deployment_id: None,
+            canonical_url: Some("https://play.google.com/console".to_string()),
+            preview_url: None,
+            custom_domain: None,
+            status: "dry-run".to_string(),
+            stdout: Some(serde_json::to_string_pretty(&json!({
+                "mode": "internal-sharing",
+                "artifact": artifact.display().to_string(),
+                "upload_url": upload_url,
+            }))?),
+            stderr: None,
+            manual_follow_up: vec![
+                "Would upload this APK/AAB to Google Play internal app sharing and return a generated download URL.".to_string(),
+            ],
+        });
+    }
+
+    let client = http_client()?;
+    let token = google_play_access_token(cfg, &client)?;
+    let value = upload_play_internal_sharing_artifact(
+        &client,
+        &token,
+        package_name,
+        artifact,
+        artifact_kind,
+    )?;
+    let download_url = value
+        .get("downloadUrl")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let deployment_id = value
+        .get("sha256")
+        .and_then(Value::as_str)
+        .map(|sha| format!("internal-sharing:{sha}"));
+    Ok(DistributionReceipt {
+        schema_version: 1,
+        created_at_unix_seconds: now_unix_seconds(),
+        provider: "play-store".to_string(),
+        site: options.site.clone(),
+        action: "publish".to_string(),
+        artifact_manifest: Some(artifact_path.display().to_string()),
+        deployment_id,
+        canonical_url: download_url,
+        preview_url: None,
+        custom_domain: None,
+        status: "shared".to_string(),
+        stdout: Some(serde_json::to_string_pretty(&value)?),
+        stderr: None,
+        manual_follow_up: vec![
+            "Google Play internal app sharing created a download URL for authorized testers; this is separate from Play tracks and production review.".to_string(),
+        ],
+    })
 }
 
 pub(super) fn publish_app_store(
@@ -168,7 +292,14 @@ pub(super) fn publish_app_store(
         ));
     }
 
-    let api_key_file = app_store_api_key_file(&key_id)?;
+    if let Some(build_number) = manifest.project.build.map(|value| value.to_string()) {
+        let client = http_client()?;
+        let token = app_store_access_token(&cfg)?;
+        let app_id = app_store_app_id(&cfg, &client, &token)?;
+        ensure_app_store_build_number_unused(&client, &token, &app_id, &build_number)?;
+    }
+
+    let api_key_file = app_store_api_key_file(&key_id, &cfg)?;
     let mut command = Command::new("xcrun");
     command
         .args([
@@ -217,10 +348,24 @@ pub(super) fn publish_app_store(
         status: "uploaded".to_string(),
         stdout: (!stdout.trim().is_empty()).then_some(stdout),
         stderr: (!stderr.trim().is_empty()).then_some(stderr),
-        manual_follow_up: vec![format!(
-            "App Store Connect accepted the upload; wait for build processing, then assign the build to {track} or App Review."
-        )],
+        manual_follow_up: vec![app_store_upload_follow_up(track, artifact_path)],
     })
+}
+
+pub(super) fn app_store_upload_follow_up(track: &str, artifact_path: &Path) -> String {
+    match track {
+        "testflight" => format!(
+            "App Store Connect accepted the upload; wait for build processing, then run `fission beta distribute --provider app-store --artifact {} --group <group> --yes`.",
+            artifact_path.display()
+        ),
+        "app-store-review" | "app-store-release" => format!(
+            "App Store Connect accepted the upload; wait for build processing, then run `fission distribute promote --provider app-store --track app-store-review --artifact {} --yes`.",
+            artifact_path.display()
+        ),
+        _ => format!(
+            "App Store Connect accepted the upload; wait for build processing, then choose TestFlight or App Review for track {track}."
+        ),
+    }
 }
 
 pub(super) fn app_store_status(
@@ -231,15 +376,40 @@ pub(super) fn app_store_status(
     let client = http_client()?;
     let token = app_store_access_token(&cfg)?;
     let app_id = app_store_app_id(&cfg, &client, &token)?;
-    let url = format!(
+    let builds_url = format!(
         "{APP_STORE_API}/v1/apps/{app_id}/builds?limit=10&sort=-uploadedDate&fields[builds]=version,uploadedDate,processingState,expired,minOsVersion,usesNonExemptEncryption"
     );
-    let response = client
-        .get(url)
-        .bearer_auth(token)
+    let builds_response = client
+        .get(builds_url)
+        .bearer_auth(&token)
         .send()
         .context("failed to query App Store Connect build status")?;
-    let value = json_response(response, "App Store Connect build status")?;
+    let builds = json_response(builds_response, "App Store Connect build status")?;
+    let review_submissions_url = format!(
+        "{APP_STORE_API}/v1/apps/{app_id}/reviewSubmissions?limit=10&fields[reviewSubmissions]=state,platform&include=items&fields[reviewSubmissionItems]=state,appStoreVersion"
+    );
+    let review_response = client
+        .get(review_submissions_url)
+        .bearer_auth(&token)
+        .send()
+        .context("failed to query App Store review submission status")?;
+    let review_submissions = json_response(review_response, "App Store review submissions status")?;
+    let beta_groups_url = format!(
+        "{APP_STORE_API}/v1/apps/{app_id}/betaGroups?limit=200&fields[betaGroups]=name,isInternalGroup,publicLinkEnabled,publicLink"
+    );
+    let beta_groups_response = client
+        .get(beta_groups_url)
+        .bearer_auth(&token)
+        .send()
+        .context("failed to query App Store TestFlight beta group status")?;
+    let beta_groups = json_response(beta_groups_response, "App Store beta groups status")?;
+    let status = app_store_observed_status(&builds, &review_submissions);
+    let stdout = json!({
+        "app_id": app_id,
+        "builds": builds,
+        "review_submissions": review_submissions,
+        "beta_groups": beta_groups,
+    });
     Ok(DistributionReceipt {
         schema_version: 1,
         created_at_unix_seconds: now_unix_seconds(),
@@ -251,11 +421,18 @@ pub(super) fn app_store_status(
         canonical_url: Some("https://appstoreconnect.apple.com/apps".to_string()),
         preview_url: None,
         custom_domain: None,
-        status: "ok".to_string(),
-        stdout: Some(serde_json::to_string_pretty(&value)?),
+        status,
+        stdout: Some(serde_json::to_string_pretty(&stdout)?),
         stderr: None,
         manual_follow_up: Vec::new(),
     })
+}
+
+pub(super) fn app_store_lifecycle(
+    options: &DistributeOptions,
+    config: &PublishManifest,
+) -> Result<DistributionReceipt> {
+    app_store_review::lifecycle(options, config)
 }
 
 pub(super) fn publish_microsoft_store(
@@ -487,6 +664,7 @@ pub(super) fn play_store_status(
         .send()
         .with_context(|| format!("failed to read Google Play track {track}"))?;
     let value = json_response(response, "Google Play track get")?;
+    let status = play_track_status(&value);
     Ok(DistributionReceipt {
         schema_version: 1,
         created_at_unix_seconds: now_unix_seconds(),
@@ -500,7 +678,7 @@ pub(super) fn play_store_status(
         )),
         preview_url: None,
         custom_domain: None,
-        status: "ok".to_string(),
+        status,
         stdout: Some(serde_json::to_string_pretty(&value)?),
         stderr: None,
         manual_follow_up: Vec::new(),
@@ -578,6 +756,55 @@ pub(super) fn microsoft_store_status(
     })
 }
 
+pub(super) fn app_store_observed_status(builds: &Value, review_submissions: &Value) -> String {
+    app_store_latest_review_submission_status(review_submissions)
+        .unwrap_or_else(|| app_store_latest_build_status(builds))
+}
+
+fn app_store_latest_review_submission_status(value: &Value) -> Option<String> {
+    value
+        .get("data")
+        .and_then(Value::as_array)
+        .and_then(|items| items.first())
+        .and_then(|item| item.get("attributes"))
+        .and_then(|attributes| attributes.get("state"))
+        .and_then(Value::as_str)
+        .map(|state| state.to_ascii_lowercase())
+}
+
+fn play_track_status(value: &Value) -> String {
+    value
+        .get("releases")
+        .and_then(Value::as_array)
+        .and_then(|releases| releases.first())
+        .and_then(|release| release.get("status"))
+        .and_then(Value::as_str)
+        .or_else(|| {
+            value
+                .get("track")
+                .and_then(Value::as_str)
+                .map(|_| "track-active")
+        })
+        .unwrap_or("ok")
+        .to_ascii_lowercase()
+}
+
+fn is_play_internal_sharing_track(track: &str) -> bool {
+    matches!(track, "internal-sharing" | "internal-app-sharing")
+}
+
+fn app_store_latest_build_status(value: &Value) -> String {
+    value
+        .get("data")
+        .and_then(Value::as_array)
+        .and_then(|items| items.first())
+        .and_then(|item| item.get("attributes"))
+        .and_then(|attributes| attributes.get("processingState"))
+        .and_then(Value::as_str)
+        .unwrap_or("no-builds")
+        .to_ascii_lowercase()
+}
+
 fn microsoft_store_msix_status(
     options: &DistributeOptions,
     cfg: &MicrosoftStoreConfig,
@@ -622,7 +849,269 @@ fn microsoft_store_msix_status(
     })
 }
 
+fn play_version_code_state_check(
+    project_dir: &Path,
+    selected_track: &str,
+    cfg: &PlayStoreConfig,
+    artifact_version_code: Option<String>,
+) -> ReadinessCheck {
+    let Some(package_name) = cfg
+        .package_name
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    else {
+        return check(
+            "release.play_store.version_code_available",
+            CheckSeverity::Info,
+            CheckStatus::Skipped,
+            "Google Play version code availability was not checked",
+            Some("package name is not configured".to_string()),
+            vec!["Set distribution.play_store.package_name."],
+        );
+    };
+    let version_code = match artifact_version_code {
+        Some(version_code) => Ok(Some(version_code)),
+        None => configured_android_version_code(project_dir),
+    };
+    let Ok(version_code) = version_code else {
+        return check(
+            "release.play_store.version_code_available",
+            CheckSeverity::Error,
+            CheckStatus::Failed,
+            "Google Play version code availability could not be checked",
+            None,
+            vec!["Fix fission.toml so the Android version code can be read."],
+        );
+    };
+    let Some(version_code) = version_code else {
+        return check(
+            "release.play_store.version_code_available",
+            CheckSeverity::Error,
+            CheckStatus::Missing,
+            "Android version code is configured before Google Play upload",
+            None,
+            vec!["Set [package.android].version_code or [app].build before publishing to Google Play."],
+        );
+    };
+    if !play_credentials_env_available(cfg) {
+        return check(
+            "release.play_store.version_code_available",
+            CheckSeverity::Info,
+            CheckStatus::Skipped,
+            "Google Play version code availability was not checked",
+            Some("provider credentials are not available".to_string()),
+            vec!["Set Play credentials to let readiness query existing Play tracks and artifact inventories before packaging."],
+        );
+    }
+
+    let client = match http_client() {
+        Ok(client) => client,
+        Err(error) => {
+            return check(
+                "release.play_store.version_code_available",
+                CheckSeverity::Error,
+                CheckStatus::Failed,
+                "Google Play version code availability could not be checked",
+                Some(error.to_string()),
+                vec!["Fix the HTTP client environment and rerun readiness."],
+            )
+        }
+    };
+    let token = match google_play_access_token(cfg, &client) {
+        Ok(token) => token,
+        Err(error) => {
+            return check(
+                "release.play_store.version_code_available",
+                CheckSeverity::Error,
+                CheckStatus::Failed,
+                "Google Play version code availability could not be checked",
+                Some(error.to_string()),
+                vec!["Fix Play credentials and rerun readiness."],
+            )
+        }
+    };
+    let edit_id = match create_play_edit(&client, &token, package_name) {
+        Ok(edit_id) => edit_id,
+        Err(error) => {
+            return check(
+                "release.play_store.version_code_available",
+                CheckSeverity::Error,
+                CheckStatus::Failed,
+                "Google Play app state could not be queried",
+                Some(error.to_string()),
+                vec!["Verify the service account has access to the Play Console app and rerun readiness."],
+            )
+        }
+    };
+    match ensure_play_version_code_unused(
+        &client,
+        &token,
+        package_name,
+        &edit_id,
+        selected_track,
+        &version_code,
+    ) {
+        Ok(()) => check(
+            "release.play_store.version_code_available",
+            CheckSeverity::Error,
+            CheckStatus::Passed,
+            "Google Play version code has not been used",
+            Some(format!("{package_name} versionCode {version_code}")),
+            vec!["Keep this version code for the next package build."],
+        ),
+        Err(error) => check(
+            "release.play_store.version_code_available",
+            CheckSeverity::Error,
+            CheckStatus::Failed,
+            "Google Play version code has already been used",
+            Some(error.to_string()),
+            vec![
+                "Run `fission release-config bump-build --target android --yes`, rebuild the Android artifact, then publish again.",
+            ],
+        ),
+    }
+}
+
+fn android_version_code_for_provider(
+    project_dir: &Path,
+    artifact_manifest: Option<&ArtifactManifest>,
+) -> Result<Option<String>> {
+    if let Some(build) = artifact_manifest.and_then(|manifest| manifest.project.build) {
+        return Ok(Some(build.to_string()));
+    }
+    configured_android_version_code(project_dir)
+}
+
+fn app_store_build_number_state_check(
+    project_dir: &Path,
+    cfg: &AppStoreConfig,
+    artifact_manifest: Option<&ArtifactManifest>,
+) -> ReadinessCheck {
+    if cfg
+        .app_id
+        .as_deref()
+        .or(cfg.bundle_id.as_deref())
+        .filter(|value| !value.trim().is_empty())
+        .is_none()
+    {
+        return check(
+            "release.app_store.build_number_available",
+            CheckSeverity::Info,
+            CheckStatus::Skipped,
+            "App Store build number availability was not checked",
+            Some("app id or bundle id is not configured".to_string()),
+            vec!["Set distribution.app_store.app_id or distribution.app_store.bundle_id."],
+        );
+    }
+    let build_number = match app_store_build_number_for_provider(project_dir, artifact_manifest) {
+        Ok(value) => value,
+        Err(error) => {
+            return check(
+                "release.app_store.build_number_available",
+                CheckSeverity::Error,
+                CheckStatus::Failed,
+                "App Store build number availability could not be checked",
+                Some(error.to_string()),
+                vec!["Fix fission.toml so the iOS build number can be read."],
+            );
+        }
+    };
+    let Some(build_number) = build_number else {
+        return check(
+            "release.app_store.build_number_available",
+            CheckSeverity::Error,
+            CheckStatus::Missing,
+            "iOS build number is configured before App Store upload",
+            None,
+            vec!["Set [package.ios].build_number or [app].build before publishing to App Store Connect."],
+        );
+    };
+    if !app_store_credentials_available_for_cfg(cfg) {
+        return check(
+            "release.app_store.build_number_available",
+            CheckSeverity::Info,
+            CheckStatus::Skipped,
+            "App Store build number availability was not checked",
+            Some("provider credentials are not available".to_string()),
+            vec!["Set App Store Connect credentials to let readiness query existing builds before packaging."],
+        );
+    }
+
+    let client = match http_client() {
+        Ok(client) => client,
+        Err(error) => {
+            return check(
+                "release.app_store.build_number_available",
+                CheckSeverity::Error,
+                CheckStatus::Failed,
+                "App Store build number availability could not be checked",
+                Some(error.to_string()),
+                vec!["Fix the HTTP client environment and rerun readiness."],
+            );
+        }
+    };
+    let token = match app_store_access_token(cfg) {
+        Ok(token) => token,
+        Err(error) => {
+            return check(
+                "release.app_store.build_number_available",
+                CheckSeverity::Error,
+                CheckStatus::Failed,
+                "App Store build number availability could not be checked",
+                Some(error.to_string()),
+                vec!["Fix App Store Connect credentials and rerun readiness."],
+            );
+        }
+    };
+    let app_id = match app_store_app_id(cfg, &client, &token) {
+        Ok(app_id) => app_id,
+        Err(error) => {
+            return check(
+                "release.app_store.build_number_available",
+                CheckSeverity::Error,
+                CheckStatus::Failed,
+                "App Store app state could not be queried",
+                Some(error.to_string()),
+                vec![
+                    "Verify the API key can access the App Store Connect app and rerun readiness.",
+                ],
+            );
+        }
+    };
+    match ensure_app_store_build_number_unused(&client, &token, &app_id, &build_number) {
+        Ok(()) => check(
+            "release.app_store.build_number_available",
+            CheckSeverity::Error,
+            CheckStatus::Passed,
+            "App Store build number has not been used",
+            Some(format!("app {app_id} build {build_number}")),
+            vec!["Keep this build number for the next IPA build."],
+        ),
+        Err(error) => check(
+            "release.app_store.build_number_available",
+            CheckSeverity::Error,
+            CheckStatus::Failed,
+            "App Store build number has already been used",
+            Some(error.to_string()),
+            vec![
+                "Run `fission release-config bump-build --target ios --yes`, rebuild the IPA, then publish again.",
+            ],
+        ),
+    }
+}
+
+fn app_store_build_number_for_provider(
+    project_dir: &Path,
+    artifact_manifest: Option<&ArtifactManifest>,
+) -> Result<Option<String>> {
+    if let Some(build) = artifact_manifest.and_then(|manifest| manifest.project.build) {
+        return Ok(Some(build.to_string()));
+    }
+    configured_ios_build_number(project_dir)
+}
+
 pub(super) fn readiness_play_store(
+    project_dir: &Path,
     track: Option<&str>,
     artifact: Option<&Path>,
     config: &PublishManifest,
@@ -635,36 +1124,62 @@ pub(super) fn readiness_play_store(
         "Google Play package name is configured",
         "Set distribution.play_store.package_name to the Android application id registered in Play Console.",
     ));
-    checks.push(secret_check(
+    let play_env_names = play_credential_env_names(&cfg);
+    checks.push(secret_check_env_names(
         "release.play_store.credentials_available",
-        &[
-            "PLAY_STORE_ACCESS_TOKEN",
-            "PLAY_STORE_SERVICE_ACCOUNT_JSON",
-            "PLAY_STORE_SERVICE_ACCOUNT_JSON_BASE64",
-            "GOOGLE_APPLICATION_CREDENTIALS",
-        ],
-        "Set PLAY_STORE_SERVICE_ACCOUNT_JSON or PLAY_STORE_SERVICE_ACCOUNT_JSON_BASE64 from CI secrets, set PLAY_STORE_ACCESS_TOKEN, or set GOOGLE_APPLICATION_CREDENTIALS.",
+        &play_env_names,
+        &format!(
+            "Set {} or {} from CI secrets, set {}, or set {}.",
+            play_env_names[1], play_env_names[2], play_env_names[0], play_env_names[3]
+        ),
     ));
     let selected_track = track.or(cfg.default_track.as_deref()).unwrap_or("internal");
     checks.push(check(
         "release.play_store.track_supported",
         CheckSeverity::Error,
-        if matches!(selected_track, "internal" | "closed" | "open" | "production") {
+        if matches!(
+            selected_track,
+            "internal"
+                | "closed"
+                | "open"
+                | "production"
+                | "internal-sharing"
+                | "internal-app-sharing"
+        ) {
             CheckStatus::Passed
         } else {
             CheckStatus::Failed
         },
         "Google Play track is supported",
         Some(selected_track.to_string()),
-        vec!["Use internal, closed, open, or production. Internal app sharing will be a separate explicit provider mode."],
+        vec!["Use internal, closed, open, production, or internal-sharing."],
     ));
+    let mut artifact_version_code = None;
     if let Some(path) = artifact.filter(|path| path.exists()) {
         let manifest = read_artifact_manifest(path)?;
+        artifact_version_code = manifest.project.build.map(|build| build.to_string());
         checks.push(artifact_format_check(
             "release.play_store.artifact_format",
             &manifest,
             &["aab", "apk"],
             "Google Play accepts Android App Bundles for production publishing and APKs for legacy/test flows.",
+        ));
+    }
+    if is_play_internal_sharing_track(selected_track) {
+        checks.push(check(
+            "release.play_store.version_code_available",
+            CheckSeverity::Info,
+            CheckStatus::Skipped,
+            "Google Play version code availability is not required for internal app sharing",
+            Some(selected_track.to_string()),
+            vec!["Internal app sharing uploads do not mutate a Play release track."],
+        ));
+    } else {
+        checks.push(play_version_code_state_check(
+            project_dir,
+            selected_track,
+            &cfg,
+            artifact_version_code,
         ));
     }
     checks.push(check(
@@ -679,6 +1194,7 @@ pub(super) fn readiness_play_store(
 }
 
 pub(super) fn readiness_app_store(
+    project_dir: &Path,
     track: Option<&str>,
     artifact: Option<&Path>,
     config: &PublishManifest,
@@ -691,30 +1207,30 @@ pub(super) fn readiness_app_store(
         "App Store bundle id is configured",
         "Set distribution.app_store.bundle_id to the Bundle ID registered in App Store Connect.",
     ));
+    let issuer_id_env = app_store_issuer_id_env(&cfg);
+    let key_id_env = app_store_key_id_env(&cfg);
     checks.push(required_value(
         "release.app_store.issuer_id_configured",
         cfg.issuer_id
             .as_deref()
-            .or_else(|| env_value_ref("APP_STORE_CONNECT_ISSUER_ID")),
+            .or_else(|| env_value_ref(&issuer_id_env)),
         "App Store Connect issuer id is configured",
-        "Set distribution.app_store.issuer_id or APP_STORE_CONNECT_ISSUER_ID.",
+        &format!("Set distribution.app_store.issuer_id or {issuer_id_env}."),
     ));
     checks.push(required_value(
         "release.app_store.key_id_configured",
-        cfg.key_id
-            .as_deref()
-            .or_else(|| env_value_ref("APP_STORE_CONNECT_KEY_ID")),
+        cfg.key_id.as_deref().or_else(|| env_value_ref(&key_id_env)),
         "App Store Connect key id is configured",
-        "Set distribution.app_store.key_id or APP_STORE_CONNECT_KEY_ID.",
+        &format!("Set distribution.app_store.key_id or {key_id_env}."),
     ));
-    checks.push(secret_check(
+    let app_store_key_env_names = app_store_api_key_env_names(&cfg);
+    checks.push(secret_check_env_names(
         "release.app_store.credentials_available",
-        &[
-            "APP_STORE_CONNECT_API_KEY",
-            "APP_STORE_CONNECT_API_KEY_BASE64",
-            "APP_STORE_CONNECT_API_KEY_PATH",
-        ],
-        "Set APP_STORE_CONNECT_API_KEY or APP_STORE_CONNECT_API_KEY_BASE64 from CI secrets, or set APP_STORE_CONNECT_API_KEY_PATH locally.",
+        &app_store_key_env_names,
+        &format!(
+            "Set {} or {} from CI secrets, or set {} locally.",
+            app_store_key_env_names[0], app_store_key_env_names[1], app_store_key_env_names[2]
+        ),
     ));
     checks.push(check_tool(
         "release.app_store.xcrun_available",
@@ -747,6 +1263,13 @@ pub(super) fn readiness_app_store(
             &["ipa"],
             "App Store Connect binary upload requires an IPA artifact.",
         ));
+        checks.push(app_store_build_number_state_check(
+            project_dir,
+            &cfg,
+            Some(&manifest),
+        ));
+    } else {
+        checks.push(app_store_build_number_state_check(project_dir, &cfg, None));
     }
     checks.push(check(
         "release.app_store.first_setup_manual_steps",
@@ -760,7 +1283,9 @@ pub(super) fn readiness_app_store(
 }
 
 pub(super) fn readiness_microsoft_store(
+    project_dir: &Path,
     track: Option<&str>,
+    format: Option<PackageFormat>,
     artifact: Option<&Path>,
     config: &PublishManifest,
     checks: &mut Vec<ReadinessCheck>,
@@ -774,6 +1299,7 @@ pub(super) fn readiness_microsoft_store(
         .as_ref()
         .map(|manifest| microsoft_store_package_type(&cfg, manifest))
         .or_else(|| artifact.and_then(microsoft_store_package_type_from_artifact_path))
+        .or_else(|| format.and_then(microsoft_store_package_type_from_format))
         .or_else(|| {
             cfg.package_type
                 .clone()
@@ -818,32 +1344,59 @@ pub(super) fn readiness_microsoft_store(
             vec!["Run `msstore` interactively once or configure the msstore CLI in CI; Fission does not pass Partner Center client secrets on the command line."],
         ));
     } else {
+        let token_env = microsoft_store_token_env(&cfg);
+        let token_available = env::var_os(&token_env).is_some();
+        let seller_id_env = microsoft_store_seller_id_env(&cfg);
+        let tenant_id_env = microsoft_store_tenant_id_env(&cfg);
+        let client_id_env = microsoft_store_client_id_env(&cfg);
+        let client_secret_env = microsoft_store_client_secret_env(&cfg);
         checks.push(required_value(
             "release.microsoft_store.seller_id_configured",
             microsoft_store_seller_id(&cfg).as_deref(),
             "Microsoft Store seller id is configured",
-            "Set distribution.microsoft_store.seller_id, MICROSOFT_STORE_SELLER_ID, or PARTNER_CENTER_SELLER_ID.",
+            &format!(
+                "Set distribution.microsoft_store.seller_id, {seller_id_env}, or PARTNER_CENTER_SELLER_ID."
+            ),
         ));
-        checks.push(required_value(
-            "release.microsoft_store.tenant_id_configured",
-            microsoft_store_tenant_id(&cfg).as_deref(),
-            "Microsoft Entra tenant id is configured",
-            "Set distribution.microsoft_store.tenant_id, AZURE_TENANT_ID, or PARTNER_CENTER_TENANT_ID.",
-        ));
-        checks.push(required_value(
-            "release.microsoft_store.client_id_configured",
-            microsoft_store_client_id(&cfg).as_deref(),
-            "Microsoft Entra client id is configured",
-            "Set distribution.microsoft_store.client_id, AZURE_CLIENT_ID, or PARTNER_CENTER_CLIENT_ID.",
-        ));
-        checks.push(secret_check(
-            "release.microsoft_store.credentials_available",
-            &[
-                "MICROSOFT_STORE_CLIENT_SECRET",
-                "PARTNER_CENTER_CLIENT_SECRET",
-            ],
-            "Set MICROSOFT_STORE_CLIENT_SECRET or PARTNER_CENTER_CLIENT_SECRET from your shell or CI secret store.",
-        ));
+        if token_available {
+            checks.push(check(
+                "release.microsoft_store.credentials_available",
+                CheckSeverity::Error,
+                CheckStatus::Passed,
+                "Microsoft Store access token is available",
+                Some(format!("environment variable {token_env}")),
+                vec!["Rotate short-lived access tokens through your shell or CI secret store."],
+            ));
+        } else {
+            checks.push(required_value(
+                "release.microsoft_store.tenant_id_configured",
+                microsoft_store_tenant_id(&cfg).as_deref(),
+                "Microsoft Entra tenant id is configured",
+                &format!(
+                    "Set distribution.microsoft_store.tenant_id, {tenant_id_env}, or PARTNER_CENTER_TENANT_ID."
+                ),
+            ));
+            checks.push(required_value(
+                "release.microsoft_store.client_id_configured",
+                microsoft_store_client_id(&cfg).as_deref(),
+                "Microsoft Entra client id is configured",
+                &format!(
+                    "Set distribution.microsoft_store.client_id, {client_id_env}, or PARTNER_CENTER_CLIENT_ID."
+                ),
+            ));
+            let microsoft_secret_env_names = vec![
+                client_secret_env,
+                "PARTNER_CENTER_CLIENT_SECRET".to_string(),
+            ];
+            checks.push(secret_check_env_names(
+                "release.microsoft_store.credentials_available",
+                &microsoft_secret_env_names,
+                &format!(
+                    "Set {} or {} from your shell or CI secret store, or set {token_env} to a short-lived access token.",
+                    microsoft_secret_env_names[0], microsoft_secret_env_names[1]
+                ),
+            ));
+        }
         checks.push(required_value(
             "release.microsoft_store.package_url_configured",
             cfg.package_url.as_deref(),
@@ -892,6 +1445,10 @@ pub(super) fn readiness_microsoft_store(
                 "Build a Windows MSI or EXE artifact before using the Store MSI/EXE submission API."
             },
         ));
+        checks.push(microsoft_store_package_version_check(
+            Some(manifest),
+            project_dir,
+        ));
         if uses_msix {
             checks.push(check(
                 "release.microsoft_store.msix_upload_artifact_present",
@@ -906,6 +1463,8 @@ pub(super) fn readiness_microsoft_store(
                 vec!["Rebuild the Windows MSIX package and ensure the artifact manifest includes the .msix or .msixupload file."],
             ));
         }
+    } else {
+        checks.push(microsoft_store_package_version_check(None, project_dir));
     }
     checks.push(check(
         "release.microsoft_store.first_setup_manual_steps",
@@ -918,6 +1477,52 @@ pub(super) fn readiness_microsoft_store(
     Ok(())
 }
 
+fn microsoft_store_package_version_check(
+    manifest: Option<&ArtifactManifest>,
+    project_dir: &Path,
+) -> ReadinessCheck {
+    let (version, build, source) = if let Some(manifest) = manifest {
+        (
+            manifest.project.version.clone(),
+            manifest.project.build,
+            "artifact manifest",
+        )
+    } else {
+        match resolve_release_version_config(project_dir, Some(Target::Windows)) {
+            Ok(release) => (release.version, release.build, "fission.toml"),
+            Err(error) => {
+                return check(
+                    "release.microsoft_store.package_version_valid",
+                    CheckSeverity::Error,
+                    CheckStatus::Failed,
+                    "Microsoft Store package version could not be resolved",
+                    Some(error.to_string()),
+                    vec!["Fix fission.toml so the Windows package version/build can be resolved before packaging."],
+                )
+            }
+        }
+    };
+
+    match normalize_windows_package_version(version.as_deref(), build) {
+        Ok(version) => check(
+            "release.microsoft_store.package_version_valid",
+            CheckSeverity::Error,
+            CheckStatus::Passed,
+            "Microsoft Store package version is valid",
+            Some(format!("{version} from {source}")),
+            vec!["Keep this package version for the next Windows package build."],
+        ),
+        Err(error) => check(
+            "release.microsoft_store.package_version_valid",
+            CheckSeverity::Error,
+            CheckStatus::Failed,
+            "Microsoft Store package version is invalid",
+            Some(format!("{source}: {error}")),
+            vec!["Set [package.windows].version or [app].version/build to a numeric Windows package version, then rebuild the artifact."],
+        ),
+    }
+}
+
 fn microsoft_store_package_type_from_artifact_path(path: &Path) -> Option<String> {
     path.parent()
         .and_then(Path::file_name)
@@ -926,808 +1531,15 @@ fn microsoft_store_package_type_from_artifact_path(path: &Path) -> Option<String
         .filter(|value| matches!(value.as_str(), "msix" | "msixupload" | "msi" | "exe"))
 }
 
-fn create_play_edit(client: &Client, token: &str, package_name: &str) -> Result<String> {
-    let url = format!("{PLAY_API}/androidpublisher/v3/applications/{package_name}/edits");
-    let response = client
-        .post(url)
-        .bearer_auth(token)
-        .json(&json!({}))
-        .send()
-        .context("failed to create Google Play edit")?;
-    let value = json_response(response, "Google Play edit insert")?;
-    value
-        .get("id")
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .context("Google Play edit insert response did not contain id")
-}
-
-fn upload_play_artifact(
-    client: &Client,
-    token: &str,
-    package_name: &str,
-    edit_id: &str,
-    path: &Path,
-    artifact_kind: &str,
-) -> Result<String> {
-    let endpoint = match artifact_kind {
-        "aab" => "bundles",
-        "apk" => "apks",
-        other => bail!("Google Play upload expected .aab or .apk, got .{other}"),
-    };
-    let url = format!(
-        "{PLAY_UPLOAD_API}/androidpublisher/v3/applications/{package_name}/edits/{edit_id}/{endpoint}?uploadType=media"
-    );
-    let bytes = fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
-    let response = client
-        .post(url)
-        .bearer_auth(token)
-        .header("Content-Type", "application/octet-stream")
-        .body(bytes)
-        .send()
-        .with_context(|| format!("failed to upload {} to Google Play", path.display()))?;
-    let value = json_response(response, "Google Play artifact upload")?;
-    let version = value
-        .get("versionCode")
-        .and_then(|value| {
-            value
-                .as_i64()
-                .map(|value| value.to_string())
-                .or_else(|| value.as_str().map(str::to_string))
-        })
-        .context("Google Play upload response did not contain versionCode")?;
-    Ok(version)
-}
-
-fn update_play_track(
-    client: &Client,
-    token: &str,
-    package_name: &str,
-    edit_id: &str,
-    track: &str,
-    release_status: &str,
-    version_code: &str,
-) -> Result<()> {
-    let url = format!(
-        "{PLAY_API}/androidpublisher/v3/applications/{package_name}/edits/{edit_id}/tracks/{track}"
-    );
-    let body = json!({
-        "releases": [{
-            "status": release_status,
-            "versionCodes": [version_code]
-        }]
-    });
-    let response = client
-        .put(url)
-        .bearer_auth(token)
-        .json(&body)
-        .send()
-        .context("failed to update Google Play track")?;
-    json_response(response, "Google Play track update")?;
-    Ok(())
-}
-
-fn validate_play_edit(
-    client: &Client,
-    token: &str,
-    package_name: &str,
-    edit_id: &str,
-) -> Result<()> {
-    let url = format!(
-        "{PLAY_API}/androidpublisher/v3/applications/{package_name}/edits/{edit_id}:validate"
-    );
-    let response = client
-        .post(url)
-        .bearer_auth(token)
-        .header(CONTENT_LENGTH, "0")
-        .body(Vec::new())
-        .send()
-        .context("failed to validate Google Play edit")?;
-    json_response(response, "Google Play edit validate")?;
-    Ok(())
-}
-
-fn commit_play_edit(client: &Client, token: &str, package_name: &str, edit_id: &str) -> Result<()> {
-    let url = format!(
-        "{PLAY_API}/androidpublisher/v3/applications/{package_name}/edits/{edit_id}:commit"
-    );
-    let response = client
-        .post(url)
-        .bearer_auth(token)
-        .header(CONTENT_LENGTH, "0")
-        .body(Vec::new())
-        .send()
-        .context("failed to commit Google Play edit")?;
-    json_response(response, "Google Play edit commit")?;
-    Ok(())
-}
-
-fn google_play_access_token(_cfg: &PlayStoreConfig, client: &Client) -> Result<String> {
-    if let Some(token) = env_value("PLAY_STORE_ACCESS_TOKEN") {
-        return Ok(token);
-    }
-    let service_account_base64 = decode_base64_env("PLAY_STORE_SERVICE_ACCOUNT_JSON_BASE64")?;
-    let secret_source = env_value("PLAY_STORE_SERVICE_ACCOUNT_JSON")
-        .or(service_account_base64)
-        .or_else(|| env_value("GOOGLE_APPLICATION_CREDENTIALS"));
-    let Some(source) = secret_source else {
-        bail!("Google Play credentials are missing; set PLAY_STORE_SERVICE_ACCOUNT_JSON, PLAY_STORE_SERVICE_ACCOUNT_JSON_BASE64, PLAY_STORE_ACCESS_TOKEN, or GOOGLE_APPLICATION_CREDENTIALS")
-    };
-    if looks_like_bearer_token(&source) {
-        return Ok(source);
-    }
-    let service_account = load_google_service_account(&source)?;
-    service_account_access_token(&service_account, client)
-}
-
-fn service_account_access_token(account: &GoogleServiceAccount, client: &Client) -> Result<String> {
-    let token_uri = account.token_uri.as_deref().unwrap_or(GOOGLE_TOKEN_URI);
-    let iat = now_unix_seconds();
-    let claims = GoogleJwtClaims {
-        iss: &account.client_email,
-        scope: GOOGLE_PLAY_SCOPE,
-        aud: token_uri,
-        iat,
-        exp: iat + 3600,
-    };
-    let key = EncodingKey::from_rsa_pem(account.private_key.as_bytes())
-        .context("failed to parse Google service account private_key as RSA PEM")?;
-    let jwt = encode(&Header::new(Algorithm::RS256), &claims, &key)
-        .context("failed to sign Google service account JWT")?;
-    let response = client
-        .post(token_uri)
-        .form(&[
-            ("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer"),
-            ("assertion", jwt.as_str()),
-        ])
-        .send()
-        .context("failed to exchange Google service account JWT")?;
-    let token: OAuthTokenResponse = response
-        .error_for_status()
-        .context("Google OAuth token exchange failed")?
-        .json()
-        .context("failed to parse Google OAuth token response")?;
-    let _ = (&token.token_type, token.expires_in);
-    Ok(token.access_token)
-}
-
-fn app_store_access_token(cfg: &AppStoreConfig) -> Result<String> {
-    if let Some(token) = env_value("APP_STORE_CONNECT_ACCESS_TOKEN") {
-        return Ok(token);
-    }
-    let issuer_id = env_value("APP_STORE_CONNECT_ISSUER_ID")
-        .or(cfg.issuer_id.clone())
-        .context("distribution.app_store.issuer_id or APP_STORE_CONNECT_ISSUER_ID is required")?;
-    let key_id = env_value("APP_STORE_CONNECT_KEY_ID")
-        .or(cfg.key_id.clone())
-        .context("distribution.app_store.key_id or APP_STORE_CONNECT_KEY_ID is required")?;
-    let key_source = app_store_api_key_source()?;
-    if looks_like_bearer_token(&key_source) {
-        return Ok(key_source);
-    }
-    let key_text = if key_source.contains("-----BEGIN PRIVATE KEY-----") {
-        key_source
-    } else {
-        fs::read_to_string(&key_source).with_context(|| {
-            format!("failed to read App Store Connect API key from {key_source}")
-        })?
-    };
-    let now = now_unix_seconds();
-    let claims = AppStoreJwtClaims {
-        iss: &issuer_id,
-        aud: "appstoreconnect-v1",
-        iat: now,
-        exp: now + 20 * 60,
-    };
-    let mut header = Header::new(Algorithm::ES256);
-    header.kid = Some(key_id);
-    encode(
-        &header,
-        &claims,
-        &EncodingKey::from_ec_pem(key_text.as_bytes())
-            .context("failed to parse App Store Connect .p8 key as EC private key")?,
-    )
-    .context("failed to sign App Store Connect JWT")
-}
-
-struct AppStoreApiKeyFile {
-    path: PathBuf,
-    temp_dir: Option<PathBuf>,
-}
-
-impl Drop for AppStoreApiKeyFile {
-    fn drop(&mut self) {
-        if let Some(dir) = self.temp_dir.take() {
-            let _ = fs::remove_dir_all(dir);
-        }
-    }
-}
-
-fn app_store_api_key_file(key_id: &str) -> Result<AppStoreApiKeyFile> {
-    if let Some(path) = env_value("APP_STORE_CONNECT_API_KEY_PATH") {
-        return Ok(AppStoreApiKeyFile {
-            path: PathBuf::from(path),
-            temp_dir: None,
-        });
-    }
-
-    let key_text = app_store_api_key_text()?;
-    let temp_dir = env::temp_dir().join(format!(
-        "fission-app-store-key-{}-{}",
-        std::process::id(),
-        now_unix_seconds()
-    ));
-    fs::create_dir_all(&temp_dir).with_context(|| {
-        format!(
-            "failed to create temporary App Store key directory {}",
-            temp_dir.display()
-        )
-    })?;
-    let path = temp_dir.join(format!("AuthKey_{key_id}.p8"));
-    fs::write(&path, key_text).with_context(|| {
-        format!(
-            "failed to write temporary App Store key file {}",
-            path.display()
-        )
-    })?;
-    Ok(AppStoreApiKeyFile {
-        path,
-        temp_dir: Some(temp_dir),
-    })
-}
-
-fn app_store_api_key_text() -> Result<String> {
-    let source = app_store_api_key_source()?;
-    if source.contains("-----BEGIN PRIVATE KEY-----") {
-        Ok(source)
-    } else {
-        fs::read_to_string(&source)
-            .with_context(|| format!("failed to read App Store Connect API key from {source}"))
-    }
-}
-
-fn app_store_api_key_source() -> Result<String> {
-    env_value("APP_STORE_CONNECT_API_KEY")
-        .or(decode_base64_env("APP_STORE_CONNECT_API_KEY_BASE64")?)
-        .or_else(|| env_value("APP_STORE_CONNECT_API_KEY_PATH"))
-        .context("APP_STORE_CONNECT_API_KEY, APP_STORE_CONNECT_API_KEY_BASE64, or APP_STORE_CONNECT_API_KEY_PATH is required")
-}
-
-fn app_store_app_id(cfg: &AppStoreConfig, client: &Client, token: &str) -> Result<String> {
-    if let Some(app_id) = cfg
-        .app_id
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
-    {
-        return Ok(app_id.to_string());
-    }
-    let bundle_id = cfg.bundle_id.as_deref().context(
-        "distribution.app_store.app_id or bundle_id is required for App Store Connect status",
-    )?;
-    let url = format!("{APP_STORE_API}/v1/apps?filter[bundleId]={bundle_id}&limit=1");
-    let response = client
-        .get(url)
-        .bearer_auth(token)
-        .send()
-        .context("failed to resolve App Store Connect app id from bundle id")?;
-    let value = json_response(response, "App Store app lookup")?;
-    value
-        .get("data")
-        .and_then(Value::as_array)
-        .and_then(|items| items.first())
-        .and_then(|item| item.get("id"))
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .with_context(|| {
-            format!("App Store Connect did not return an app for bundle id {bundle_id}")
-        })
-}
-
-fn microsoft_store_access_token(cfg: &MicrosoftStoreConfig, client: &Client) -> Result<String> {
-    if let Some(token) = env_value("MICROSOFT_STORE_TOKEN") {
-        return Ok(token);
-    }
-    let tenant_id = microsoft_store_tenant_id(cfg).context(
-        "distribution.microsoft_store.tenant_id, AZURE_TENANT_ID, or PARTNER_CENTER_TENANT_ID is required",
-    )?;
-    let client_id = microsoft_store_client_id(cfg).context(
-        "distribution.microsoft_store.client_id, AZURE_CLIENT_ID, or PARTNER_CENTER_CLIENT_ID is required",
-    )?;
-    let client_secret = microsoft_store_client_secret()
-        .context("MICROSOFT_STORE_CLIENT_SECRET or PARTNER_CENTER_CLIENT_SECRET is required")?;
-    let url = format!("https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token");
-    let response = client
-        .post(url)
-        .form(&[
-            ("grant_type", "client_credentials"),
-            ("client_id", client_id.as_str()),
-            ("client_secret", client_secret.as_str()),
-            ("scope", MICROSOFT_STORE_SCOPE),
-        ])
-        .send()
-        .context("failed to request Microsoft Store access token")?;
-    let token: OAuthTokenResponse = response
-        .error_for_status()
-        .context("Microsoft Store access token request failed")?
-        .json()
-        .context("failed to parse Microsoft Store access token response")?;
-    Ok(token.access_token)
-}
-
-fn run_msstore(args: &[String], operation: &str) -> Result<(String, String)> {
-    let output = Command::new("msstore")
-        .args(args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .with_context(|| {
-            format!(
-                "failed to run msstore; install Microsoft Store Developer CLI before {operation}"
-            )
-        })?;
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    if !output.status.success() {
-        let detail = if stderr.trim().is_empty() {
-            stdout.trim()
-        } else {
-            stderr.trim()
-        };
-        bail!("{operation} failed with {}: {}", output.status, detail);
-    }
-    Ok((stdout, stderr))
-}
-
-fn load_google_service_account(source: &str) -> Result<GoogleServiceAccount> {
-    let text = if source.trim_start().starts_with('{') {
-        source.to_string()
-    } else {
-        fs::read_to_string(source)
-            .with_context(|| format!("failed to read Google service account JSON from {source}"))?
-    };
-    serde_json::from_str(&text).context("failed to parse Google service account JSON")
-}
-
-fn json_response(response: Response, operation: &str) -> Result<Value> {
-    let status = response.status();
-    let text = response
-        .text()
-        .with_context(|| format!("failed to read {operation} response"))?;
-    if !status.is_success() {
-        bail!("{operation} failed with {status}: {text}");
-    }
-    if text.trim().is_empty() {
-        Ok(Value::Null)
-    } else {
-        serde_json::from_str(&text)
-            .with_context(|| format!("failed to parse {operation} JSON response: {text}"))
-    }
-}
-
-fn microsoft_store_success(value: &Value, operation: &str) -> Result<()> {
-    if value
-        .get("isSuccess")
-        .and_then(Value::as_bool)
-        .unwrap_or(true)
-    {
-        Ok(())
-    } else {
-        bail!("{operation} returned an unsuccessful response: {value}")
-    }
-}
-
-fn http_client() -> Result<Client> {
-    Client::builder()
-        .timeout(Duration::from_secs(300))
-        .user_agent("cargo-fission-release/0.1")
-        .build()
-        .context("failed to build release HTTP client")
-}
-
-fn play_store_config(config: &PublishManifest) -> PlayStoreConfig {
-    config
-        .distribution
-        .as_ref()
-        .and_then(|distribution| distribution.play_store.clone())
-        .unwrap_or_default()
-}
-
-fn app_store_config(config: &PublishManifest) -> AppStoreConfig {
-    config
-        .distribution
-        .as_ref()
-        .and_then(|distribution| distribution.app_store.clone())
-        .unwrap_or_default()
-}
-
-fn microsoft_store_config(config: &PublishManifest) -> MicrosoftStoreConfig {
-    config
-        .distribution
-        .as_ref()
-        .and_then(|distribution| distribution.microsoft_store.clone())
-        .unwrap_or_default()
-}
-
-fn primary_artifact_with_extensions(manifest: &ArtifactManifest, exts: &[&str]) -> Result<PathBuf> {
-    manifest
-        .artifacts
-        .iter()
-        .map(|file| PathBuf::from(&file.path))
-        .find(|path| {
-            path.extension()
-                .and_then(|value| value.to_str())
-                .is_some_and(|ext| {
-                    exts.iter()
-                        .any(|candidate| ext.eq_ignore_ascii_case(candidate))
-                })
-        })
-        .with_context(|| {
-            format!(
-                "artifact manifest does not contain one of: {}",
-                exts.join(", ")
-            )
-        })
-}
-
-fn primary_artifact_extension(manifest: &ArtifactManifest) -> Option<&str> {
-    manifest
-        .artifacts
-        .iter()
-        .map(|file| Path::new(&file.path))
-        .find_map(|path| path.extension().and_then(|value| value.to_str()))
-}
-
-fn has_artifact_with_extension(manifest: &ArtifactManifest, exts: &[&str]) -> bool {
-    manifest.artifacts.iter().any(|file| {
-        Path::new(&file.path)
-            .extension()
-            .and_then(|value| value.to_str())
-            .is_some_and(|ext| {
-                exts.iter()
-                    .any(|candidate| ext.eq_ignore_ascii_case(candidate))
-            })
-    })
-}
-
-fn microsoft_store_package_type(cfg: &MicrosoftStoreConfig, manifest: &ArtifactManifest) -> String {
-    cfg.package_type
-        .as_deref()
-        .or_else(|| primary_artifact_extension(manifest))
-        .unwrap_or("exe")
-        .to_ascii_lowercase()
-}
-
-fn is_microsoft_store_msix_type(package_type: &str) -> bool {
-    MICROSOFT_STORE_MSIX_TYPES
-        .iter()
-        .any(|candidate| package_type.eq_ignore_ascii_case(candidate))
-}
-
-fn microsoft_store_msstore_project(
-    options: &DistributeOptions,
-    cfg: &MicrosoftStoreConfig,
-) -> PathBuf {
-    cfg.msstore_project
-        .as_deref()
-        .map(|path| {
-            let path = PathBuf::from(path);
-            if path.is_absolute() {
-                path
-            } else {
-                options.project_dir.join(path)
-            }
-        })
-        .unwrap_or_else(|| options.project_dir.clone())
-}
-
-fn msstore_publish_args(
-    project_path: &Path,
-    artifact: &Path,
-    product_id: &str,
-    flight_id: Option<&str>,
-    rollout: Option<u8>,
-    should_submit: bool,
-) -> Vec<String> {
-    let mut args = vec![
-        "publish".to_string(),
-        project_path.display().to_string(),
-        "-i".to_string(),
-        artifact.display().to_string(),
-        "-id".to_string(),
-        product_id.to_string(),
-    ];
-    if !should_submit {
-        args.push("-nc".to_string());
-    }
-    if let Some(flight_id) = flight_id.filter(|value| !value.trim().is_empty()) {
-        args.push("-f".to_string());
-        args.push(flight_id.to_string());
-    }
-    if let Some(rollout) = rollout {
-        args.push("-prp".to_string());
-        args.push(rollout.to_string());
-    }
-    args
-}
-
-fn microsoft_store_should_submit(options: &DistributeOptions, cfg: &MicrosoftStoreConfig) -> bool {
-    cfg.submit.unwrap_or(false) || options.track.as_deref() == Some("public") && options.yes
-}
-
-fn microsoft_store_flight_id(
-    track: Option<&str>,
-    cfg: &MicrosoftStoreConfig,
-) -> Result<Option<String>> {
-    match track.map(str::trim).filter(|value| !value.is_empty()) {
-        Some("public") | None => Ok(None),
-        Some("private") => cfg.flight_id.clone().map(Some).context(
-            "distribution.microsoft_store.flight_id is required when --track private is used for MSIX publishing",
-        ),
-        Some(flight_id) => Ok(Some(flight_id.to_string())),
-    }
-}
-
-fn microsoft_store_rollout_percentage(cfg: &MicrosoftStoreConfig) -> Result<Option<u8>> {
-    if let Some(rollout) = cfg.package_rollout_percentage {
-        if rollout > 100 {
-            bail!(
-                "distribution.microsoft_store.package_rollout_percentage must be between 0 and 100"
-            );
-        }
-    }
-    Ok(cfg.package_rollout_percentage)
-}
-
-fn microsoft_store_seller_id(cfg: &MicrosoftStoreConfig) -> Option<String> {
-    env_value("MICROSOFT_STORE_SELLER_ID")
-        .or_else(|| env_value("PARTNER_CENTER_SELLER_ID"))
-        .or_else(|| cfg.seller_id.clone())
-}
-
-fn microsoft_store_tenant_id(cfg: &MicrosoftStoreConfig) -> Option<String> {
-    env_value("AZURE_TENANT_ID")
-        .or_else(|| env_value("PARTNER_CENTER_TENANT_ID"))
-        .or_else(|| cfg.tenant_id.clone())
-}
-
-fn microsoft_store_client_id(cfg: &MicrosoftStoreConfig) -> Option<String> {
-    env_value("AZURE_CLIENT_ID")
-        .or_else(|| env_value("PARTNER_CENTER_CLIENT_ID"))
-        .or_else(|| cfg.client_id.clone())
-}
-
-fn microsoft_store_client_secret() -> Option<String> {
-    env_value("MICROSOFT_STORE_CLIENT_SECRET").or_else(|| env_value("PARTNER_CENTER_CLIENT_SECRET"))
-}
-
-fn command_line(program: &str, args: &[String]) -> String {
-    std::iter::once(program.to_string())
-        .chain(args.iter().map(|arg| shell_word(arg)))
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-fn shell_word(value: &str) -> String {
-    if value
-        .chars()
-        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '/' | ':' | '\\'))
-    {
-        value.to_string()
-    } else {
-        format!("'{}'", value.replace('\'', "'\\''"))
-    }
-}
-
-fn artifact_format_check(
-    id: &str,
-    manifest: &ArtifactManifest,
-    accepted: &[&str],
-    remediation: &str,
-) -> ReadinessCheck {
-    check(
-        id,
-        CheckSeverity::Error,
-        if accepted.iter().any(|format| manifest.format == *format) {
-            CheckStatus::Passed
-        } else {
-            CheckStatus::Failed
-        },
-        format!("artifact format is one of {}", accepted.join(", ")),
-        Some(format!("manifest format: {}", manifest.format)),
-        vec![remediation],
-    )
-}
-
-fn secret_check(id: &str, env_names: &[&str], remediation: &str) -> ReadinessCheck {
-    let env_name = env_names.iter().find(|name| env::var_os(name).is_some());
-    check(
-        id,
-        CheckSeverity::Error,
-        if env_name.is_some() {
-            CheckStatus::Passed
-        } else {
-            CheckStatus::Missing
-        },
-        "provider credentials are available",
-        env_name.map(|name| format!("environment variable {name}")),
-        vec![remediation],
-    )
-}
-
-fn store_receipt(
-    options: &DistributeOptions,
-    provider: &str,
-    artifact_path: &Path,
-    status: &str,
-    deployment_id: Option<String>,
-    canonical_url: Option<String>,
-    manual_follow_up: Vec<String>,
-) -> DistributionReceipt {
-    DistributionReceipt {
-        schema_version: 1,
-        created_at_unix_seconds: now_unix_seconds(),
-        provider: provider.to_string(),
-        site: options.site.clone(),
-        action: "publish".to_string(),
-        artifact_manifest: Some(artifact_path.display().to_string()),
-        deployment_id,
-        canonical_url,
-        preview_url: None,
-        custom_domain: None,
-        status: status.to_string(),
-        stdout: None,
-        stderr: None,
-        manual_follow_up,
-    }
-}
-
-fn package_name_from_project(manifest: &ArtifactManifest) -> Option<&str> {
-    (!manifest.project.app_id.trim().is_empty()).then_some(manifest.project.app_id.as_str())
-}
-
-fn looks_like_bearer_token(value: &str) -> bool {
-    let trimmed = value.trim();
-    !trimmed.starts_with('{') && !Path::new(trimmed).exists() && trimmed.matches('.').count() >= 2
-}
-
-fn env_value(name: &str) -> Option<String> {
-    env::var(name).ok().filter(|value| !value.trim().is_empty())
-}
-
-fn decode_base64_env(name: &str) -> Result<Option<String>> {
-    let Some(value) = env_value(name) else {
-        return Ok(None);
-    };
-    let bytes = BASE64_STANDARD
-        .decode(value.trim())
-        .with_context(|| format!("failed to decode base64 environment variable {name}"))?;
-    String::from_utf8(bytes)
-        .map(Some)
-        .with_context(|| format!("base64 environment variable {name} is not valid UTF-8"))
-}
-
-fn env_value_ref(name: &str) -> Option<&'static str> {
-    if env::var_os(name).is_some() {
-        Some("set")
-    } else {
-        None
+fn microsoft_store_package_type_from_format(format: PackageFormat) -> Option<String> {
+    match format {
+        PackageFormat::Msix => Some("msix".to_string()),
+        PackageFormat::Msi => Some("msi".to_string()),
+        PackageFormat::Exe => Some("exe".to_string()),
+        _ => None,
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn options(track: Option<&str>, yes: bool) -> DistributeOptions {
-        DistributeOptions {
-            project_dir: PathBuf::from("/project"),
-            provider: DistributionProvider::MicrosoftStore,
-            action: DistributeAction::Publish,
-            artifact: None,
-            site: "production".to_string(),
-            deploy: None,
-            track: track.map(str::to_string),
-            dry_run: false,
-            yes,
-            json: false,
-        }
-    }
-
-    #[test]
-    fn msstore_publish_args_keep_submission_as_draft_by_default() {
-        let args = msstore_publish_args(
-            Path::new("/project"),
-            Path::new("/artifacts/app.msixupload"),
-            "9N123",
-            None,
-            None,
-            false,
-        );
-        assert_eq!(
-            args,
-            vec![
-                "publish",
-                "/project",
-                "-i",
-                "/artifacts/app.msixupload",
-                "-id",
-                "9N123",
-                "-nc"
-            ]
-        );
-    }
-
-    #[test]
-    fn msstore_publish_args_include_flight_and_rollout_when_configured() {
-        let args = msstore_publish_args(
-            Path::new("/project"),
-            Path::new("/artifacts/app.msix"),
-            "9N123",
-            Some("beta"),
-            Some(25),
-            true,
-        );
-        assert_eq!(
-            args,
-            vec![
-                "publish",
-                "/project",
-                "-i",
-                "/artifacts/app.msix",
-                "-id",
-                "9N123",
-                "-f",
-                "beta",
-                "-prp",
-                "25"
-            ]
-        );
-    }
-
-    #[test]
-    fn microsoft_store_private_track_uses_configured_flight_id() {
-        let cfg = MicrosoftStoreConfig {
-            flight_id: Some("insiders".to_string()),
-            ..Default::default()
-        };
-        assert_eq!(
-            microsoft_store_flight_id(Some("private"), &cfg).unwrap(),
-            Some("insiders".to_string())
-        );
-        assert_eq!(
-            microsoft_store_flight_id(Some("preview"), &cfg).unwrap(),
-            Some("preview".to_string())
-        );
-        assert!(microsoft_store_flight_id(Some("public"), &cfg)
-            .unwrap()
-            .is_none());
-    }
-
-    #[test]
-    fn microsoft_store_submit_requires_explicit_commit_intent() {
-        let cfg = MicrosoftStoreConfig::default();
-        assert!(!microsoft_store_should_submit(&options(None, false), &cfg));
-        assert!(!microsoft_store_should_submit(
-            &options(Some("public"), false),
-            &cfg
-        ));
-        assert!(microsoft_store_should_submit(
-            &options(Some("public"), true),
-            &cfg
-        ));
-        let cfg = MicrosoftStoreConfig {
-            submit: Some(true),
-            ..Default::default()
-        };
-        assert!(microsoft_store_should_submit(&options(None, false), &cfg));
-    }
-
-    #[test]
-    fn microsoft_store_rollout_rejects_out_of_range_percentages() {
-        let cfg = MicrosoftStoreConfig {
-            package_rollout_percentage: Some(101),
-            ..Default::default()
-        };
-        assert!(microsoft_store_rollout_percentage(&cfg).is_err());
-    }
-}
+#[path = "stores_tests.rs"]
+mod tests;

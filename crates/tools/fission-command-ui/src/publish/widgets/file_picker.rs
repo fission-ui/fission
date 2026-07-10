@@ -35,17 +35,20 @@ impl From<FilePickerPanel> for Widget {
         let mut entries = widgets![FileEntryButton {
             label: "../".into(),
             action_index: 0,
-            is_dir: true
+            is_dir: true,
+            selected: picker.selected_index == 0,
         }];
         entries.extend(picker.entries.iter().enumerate().map(|(idx, entry)| {
+            let action_index = idx + 1;
             FileEntryButton {
                 label: if entry.is_dir {
                     format!("{}/", entry.label)
                 } else {
                     entry.label.clone()
                 },
-                action_index: idx + 1,
+                action_index,
                 is_dir: entry.is_dir,
+                selected: picker.selected_index == action_index,
             }
             .into()
         }));
@@ -271,6 +274,7 @@ impl From<InlineFilePicker> for Widget {
             label: "../".into(),
             action_index: 0,
             is_dir: true,
+            selected: picker.selected_index == 0,
         }];
         entries.extend(
             picker
@@ -279,14 +283,16 @@ impl From<InlineFilePicker> for Widget {
                 .take(80)
                 .enumerate()
                 .map(|(idx, entry)| {
+                    let action_index = idx + 1;
                     FileEntryButton {
                         label: if entry.is_dir {
                             format!("{}/", entry.label)
                         } else {
                             entry.label.clone()
                         },
-                        action_index: idx + 1,
+                        action_index,
                         is_dir: entry.is_dir,
+                        selected: picker.selected_index == action_index,
                     }
                     .into()
                 }),
@@ -391,6 +397,7 @@ struct FileEntryButton {
     label: String,
     action_index: usize,
     is_dir: bool,
+    selected: bool,
 }
 
 impl From<FileEntryButton> for Widget {
@@ -404,13 +411,17 @@ impl From<FileEntryButton> for Widget {
             publish_pick_file_entry
         );
         if layout.terminal {
-            return Text::new(if entry.is_dir {
+            return Text::new(if entry.selected {
+                format!("* {}", entry.label)
+            } else if entry.is_dir {
                 format!("> {}", entry.label)
             } else {
                 format!("  {}", entry.label)
             })
             .size(10.0)
-            .color(if entry.is_dir {
+            .color(if entry.selected {
+                palette.warning
+            } else if entry.is_dir {
                 palette.accent
             } else {
                 palette.text
@@ -434,12 +445,21 @@ impl From<FileEntryButton> for Widget {
         .width(entry_width)
         .height(if layout.terminal { 2.0 } else { 30.0 })
         .padding([8.0, 8.0, 3.0, 3.0])
-        .bg(if entry.is_dir {
+        .bg(if entry.selected {
+            palette.background_alt
+        } else if entry.is_dir {
             palette.input
         } else {
             palette.panel_soft
         })
-        .border(palette.hairline, if layout.terminal { 0.0 } else { 1.0 })
+        .border(
+            if entry.selected {
+                palette.accent
+            } else {
+                palette.hairline
+            },
+            if layout.terminal { 0.0 } else { 1.0 },
+        )
         .border_radius(if layout.terminal { 1.0 } else { 6.0 });
         GestureDetector {
             child: child.into(),
