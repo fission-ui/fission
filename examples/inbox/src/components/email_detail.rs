@@ -335,13 +335,7 @@ impl From<EmailDetail> for Widget {
                         .into(),
                         AspectRatio {
                             ratio: 16.0 / 9.0,
-                            child: Video {
-                                source: "docs/video1.mp4".into(),
-                                autoplay: false,
-                                loop_playback: false,
-                                ..Default::default()
-                            }
-                            .into(),
+                            child: Video::asset("docs/video1.mp4").into(),
                         }
                         .into(),
                     ],

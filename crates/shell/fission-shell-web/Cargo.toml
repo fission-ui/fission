@@ -12,6 +12,7 @@ readme = "README.md"
 [features]
 default = []
 three-d = ["fission-shell-winit/three-d"]
+video = ["fission-shell-winit/video"]
 
 [dependencies]
 anyhow = "1.0"

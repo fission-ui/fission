@@ -25,15 +25,13 @@ fn display_surfaces(harness: &TestHarness<EmbedState>) -> Vec<DisplayOp> {
 #[test]
 fn video_embed_registers_runtime_state_and_draws_surface() {
     let widget_id = WidgetId::explicit("test.video");
-    let mut harness = TestHarness::new(EmbedState).with_root_widget(Video {
-        id: Some(widget_id),
-        source: "fixtures/demo.mp4".into(),
-        width: Some(320.0),
-        height: Some(180.0),
-        autoplay: true,
-        loop_playback: true,
-        ..Default::default()
-    });
+    let mut harness = TestHarness::new(EmbedState).with_root_widget(
+        Video::asset("fixtures/demo.mp4")
+            .id(widget_id)
+            .size(320.0, 180.0)
+            .autoplay(true)
+            .loop_playback(true),
+    );
 
     harness.pump().expect("pump video embed");
 

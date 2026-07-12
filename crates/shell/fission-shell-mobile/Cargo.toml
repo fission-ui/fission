@@ -12,6 +12,7 @@ readme = "README.md"
 [features]
 default = []
 three-d = ["fission-shell-winit/three-d"]
+video = ["fission-shell-winit/video"]
 
 [dependencies]
 fission-shell = { path = "../fission-shell", version = "0.7.1" }

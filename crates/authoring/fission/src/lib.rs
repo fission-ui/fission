@@ -70,7 +70,9 @@ pub mod three_d {
 
 /// Derive and attribute macros — `#[fission_action]`, `#[fission_reducer]`, and friends.
 pub mod macros {
-    pub use fission_core::{reduce, reduce_with, widgets, with_reducer};
+    pub use fission_core::{
+        reduce, reduce_with, video_asset, video_file, video_network, widgets, with_reducer,
+    };
     pub use fission_macros::*;
 }
 
@@ -163,7 +165,7 @@ pub use fission_core::ui::{
     IosAudioSessionMode, IosVideoAudioOptions, LayoutBuilder, LazyColumn, Overlay, Positioned,
     Provider, Radio, RichText, RichTextRun, Row, SafeArea, Scroll, SemanticsRegion, Slider, Spacer,
     Switch, Text, TextContent, TextFontStyle, TextInput, TextRunStyle, Video, VideoAudioActivation,
-    VideoAudioOptions, VideoAudioPolicy, Widget, WidgetIdExt, ZStack,
+    VideoAudioOptions, VideoAudioPolicy, VideoSource, Widget, WidgetIdExt, ZStack,
 };
 
 // Core action/state types
@@ -365,6 +367,7 @@ pub use fission_shell_web::{
 };
 
 // Macros
+pub use fission_core::{video_asset, video_file, video_network};
 pub use fission_macros::{
     fission_action, fission_component, fission_reducer, Action as ActionDerive, FissionGlobalState,
     FissionStateView,
@@ -384,8 +387,8 @@ pub mod prelude {
         IosAudioSessionCategoryOption, IosAudioSessionMode, IosVideoAudioOptions, LayoutBuilder,
         LazyColumn, Overlay, Positioned, Radio, RichText, RichTextRun, Row, SafeArea, Scroll,
         SemanticsRegion, Slider, Spacer, Switch, Text, TextContent, TextFontStyle, TextInput,
-        TextRunStyle, Video, VideoAudioActivation, VideoAudioOptions, VideoAudioPolicy, Widget,
-        WidgetIdExt, ZStack,
+        TextRunStyle, Video, VideoAudioActivation, VideoAudioOptions, VideoAudioPolicy,
+        VideoSource, Widget, WidgetIdExt, ZStack,
     };
     pub use fission_widgets::*;
 
@@ -394,7 +397,9 @@ pub mod prelude {
     pub use fission_core::event::{InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent};
     pub use fission_core::op::{Color, Fill, PaintOp};
     pub use fission_core::Bytes;
-    pub use fission_core::{reduce, reduce_with, widgets, with_reducer};
+    pub use fission_core::{
+        reduce, reduce_with, video_asset, video_file, video_network, widgets, with_reducer,
+    };
     pub use fission_core::{
         Action, ActionEnvelope, ActionId, ActionScopeId, AuthenticateBiometricCapability,
         BiometricAuthenticateRequest, BiometricAuthenticateResult, BiometricAvailability,
