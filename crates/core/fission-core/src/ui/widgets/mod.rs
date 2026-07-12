@@ -61,6 +61,7 @@ pub use transform::Transform;
 pub use video::{
     IosAudioSessionCategory, IosAudioSessionCategoryOption, IosAudioSessionMode,
     IosVideoAudioOptions, Video, VideoAudioActivation, VideoAudioOptions, VideoAudioPolicy,
+    VideoSource,
 };
 
 pub mod gesture_detector;

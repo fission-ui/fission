@@ -16,5 +16,5 @@ pub use widgets::{
     IosVideoAudioOptions, LayoutBuilder, LazyColumn, Overlay, Positioned, Provider, Radio,
     RichText, RichTextRun, Row, SafeArea, Scroll, SemanticsRegion, Slider, Spacer, Switch, Text,
     TextContent, TextFontStyle, TextInput, TextInputChangePayload, TextRunStyle, Video,
-    VideoAudioActivation, VideoAudioOptions, VideoAudioPolicy, ZStack,
+    VideoAudioActivation, VideoAudioOptions, VideoAudioPolicy, VideoSource, ZStack,
 };

@@ -8,7 +8,7 @@ use winit::window::Window;
 pub use android::AndroidVideoBackend;
 #[cfg(target_os = "ios")]
 pub use ios::IosVideoBackend;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "video"))]
 pub use linux::LinuxVideoBackend;
 #[cfg(target_os = "macos")]
 pub use mac::MacVideoBackend;
@@ -47,14 +47,22 @@ pub fn create_video_backend(window: Option<&Window>) -> Arc<dyn VideoBackend> {
     #[cfg(target_os = "windows")]
     panic!("Fission Video for Windows requires a Win32 window handle");
 
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", feature = "video"))]
     if let Some(window) = window {
         if let Some(backend) = LinuxVideoBackend::try_new(window) {
             return Arc::new(backend);
         }
     }
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", feature = "video"))]
     panic!("Fission Video for Linux requires an X11 or Wayland window handle");
+
+    #[cfg(all(target_os = "linux", not(feature = "video")))]
+    {
+        let _ = window;
+        return Arc::new(unsupported::UnsupportedVideoBackend::new(
+            "Fission native Video on Linux requires the `video` feature and GStreamer development packages. Enable `fission = { version = \"...\", features = [\"desktop\", \"video\"] }`; on Debian/Ubuntu install `sudo apt install libglib2.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev`. Static site, SSR, and Web video do not require this native backend.",
+        ));
+    }
 
     #[cfg(target_os = "android")]
     {
@@ -71,11 +79,77 @@ pub fn create_video_backend(window: Option<&Window>) -> Arc<dyn VideoBackend> {
         target_os = "macos",
         target_os = "ios",
         target_os = "windows",
-        target_os = "linux",
+        all(target_os = "linux", feature = "video"),
         target_os = "android",
         target_arch = "wasm32"
     )))]
     panic!("Fission Video is unsupported on this platform");
+}
+
+#[cfg(all(target_os = "linux", not(feature = "video")))]
+mod unsupported {
+    use super::{VideoBackend, VideoEvent, VideoPlayer};
+    use fission_core::ui::VideoAudioOptions;
+    use fission_shell::VideoSurfaceFrame;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    pub struct UnsupportedVideoBackend {
+        message: &'static str,
+        next_id: AtomicU64,
+    }
+
+    impl UnsupportedVideoBackend {
+        pub fn new(message: &'static str) -> Self {
+            Self {
+                message,
+                next_id: AtomicU64::new(1),
+            }
+        }
+    }
+
+    impl VideoBackend for UnsupportedVideoBackend {
+        fn create_player(&self, _source: &str, _audio: &VideoAudioOptions) -> Box<dyn VideoPlayer> {
+            Box::new(UnsupportedVideoPlayer {
+                surface_id: self.next_id.fetch_add(1, Ordering::Relaxed),
+                message: self.message,
+                error_sent: false,
+            })
+        }
+
+        fn present_surfaces(&self, _frames: &[VideoSurfaceFrame]) {}
+    }
+
+    struct UnsupportedVideoPlayer {
+        surface_id: u64,
+        message: &'static str,
+        error_sent: bool,
+    }
+
+    impl VideoPlayer for UnsupportedVideoPlayer {
+        fn play(&mut self) {}
+        fn pause(&mut self) {}
+        fn stop(&mut self) {}
+        fn position(&self) -> u64 {
+            0
+        }
+        fn duration(&self) -> Option<u64> {
+            None
+        }
+        fn surface_id(&self) -> u64 {
+            self.surface_id
+        }
+        fn poll_events(&mut self) -> Vec<VideoEvent> {
+            if self.error_sent {
+                return Vec::new();
+            }
+            self.error_sent = true;
+            vec![VideoEvent::Error(self.message.to_string())]
+        }
+        fn seek_to(&mut self, _position_ms: u64) {}
+        fn set_rate(&mut self, _rate: f32) {}
+        fn set_volume(&mut self, _volume: f32) {}
+        fn set_muted(&mut self, _muted: bool) {}
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -211,14 +285,7 @@ mod mac {
         fn create_player(&self, source: &str, _audio: &VideoAudioOptions) -> Box<dyn VideoPlayer> {
             let resolved_source = resolve_video_source(source);
             let pending_error = resolved_source.error_message();
-            let player = unsafe {
-                create_av_player(
-                    resolved_source
-                        .resolved_path
-                        .as_deref()
-                        .unwrap_or_else(|| Path::new(source)),
-                )
-            };
+            let player = unsafe { create_av_player(&resolved_source, source) };
             let ended_flag = Arc::new(AtomicBool::new(false));
             let observer = unsafe { register_end_observer(*player, Arc::clone(&ended_flag)) };
             let player_id = self.registry.register(player);
@@ -519,11 +586,27 @@ mod mac {
         }
     }
 
-    unsafe fn create_av_player(source_path: &Path) -> StrongPtr {
-        let url = file_url_from_path(source_path);
+    unsafe fn create_av_player(source: &ResolvedVideoSource, fallback: &str) -> StrongPtr {
+        let url = if let Some(url) = source.remote_url.as_deref() {
+            url_from_string(url)
+        } else {
+            file_url_from_path(
+                source
+                    .resolved_path
+                    .as_deref()
+                    .unwrap_or_else(|| Path::new(fallback)),
+            )
+        };
         let player: id = msg_send![class!(AVPlayer), playerWithURL: url];
         // playerWithURL returns an autoreleased object; retain to own it.
         StrongPtr::retain(player)
+    }
+
+    fn url_from_string(url: &str) -> id {
+        unsafe {
+            let ns_string = NSString::alloc(nil).init_str(url);
+            msg_send![class!(NSURL), URLWithString: ns_string]
+        }
     }
 
     fn file_url_from_path(path: &Path) -> id {
@@ -536,6 +619,7 @@ mod mac {
     struct ResolvedVideoSource {
         requested: String,
         resolved_path: Option<PathBuf>,
+        remote_url: Option<String>,
         diagnostic: Option<String>,
     }
 
@@ -562,6 +646,7 @@ mod mac {
             return ResolvedVideoSource {
                 requested,
                 resolved_path: None,
+                remote_url: None,
                 diagnostic: Some("video source path is empty".to_string()),
             };
         }
@@ -569,10 +654,8 @@ mod mac {
             return ResolvedVideoSource {
                 requested,
                 resolved_path: None,
-                diagnostic: Some(
-                    "video backend only supports local filesystem paths for media sources"
-                        .to_string(),
-                ),
+                remote_url: Some(trimmed.to_string()),
+                diagnostic: None,
             };
         }
 
@@ -585,6 +668,7 @@ mod mac {
                     return ResolvedVideoSource {
                         requested,
                         resolved_path: None,
+                        remote_url: None,
                         diagnostic: Some(format!(
                             "failed to resolve relative video source against current directory: {error}"
                         )),
@@ -607,6 +691,7 @@ mod mac {
         ResolvedVideoSource {
             requested,
             resolved_path: Some(resolved_path),
+            remote_url: None,
             diagnostic,
         }
     }
@@ -839,14 +924,7 @@ mod ios {
                     Err(error) => pending_error = pending_error.or(Some(error)),
                 }
             }
-            let player = unsafe {
-                create_av_player(
-                    resolved_source
-                        .resolved_path
-                        .as_deref()
-                        .unwrap_or_else(|| Path::new(source)),
-                )
-            };
+            let player = unsafe { create_av_player(&resolved_source, source) };
             let ended_flag = Arc::new(AtomicBool::new(false));
             let observer = unsafe { register_end_observer(*player, Arc::clone(&ended_flag)) };
             let player_id = self.registry.register(player);
@@ -1132,10 +1210,26 @@ mod ios {
         }
     }
 
-    unsafe fn create_av_player(source_path: &Path) -> StrongPtr {
-        let url = file_url_from_path(source_path);
+    unsafe fn create_av_player(source: &ResolvedVideoSource, fallback: &str) -> StrongPtr {
+        let url = if let Some(url) = source.remote_url.as_deref() {
+            url_from_string(url)
+        } else {
+            file_url_from_path(
+                source
+                    .resolved_path
+                    .as_deref()
+                    .unwrap_or_else(|| Path::new(fallback)),
+            )
+        };
         let player: Id = msg_send![class!(AVPlayer), playerWithURL: url];
         StrongPtr::retain(player)
+    }
+
+    fn url_from_string(url: &str) -> Id {
+        unsafe {
+            let ns_url = ns_string(url);
+            msg_send![class!(NSURL), URLWithString: ns_url]
+        }
     }
 
     fn file_url_from_path(path: &Path) -> Id {
@@ -1256,6 +1350,7 @@ mod ios {
     struct ResolvedVideoSource {
         requested: String,
         resolved_path: Option<PathBuf>,
+        remote_url: Option<String>,
         diagnostic: Option<String>,
     }
 
@@ -1282,6 +1377,7 @@ mod ios {
             return ResolvedVideoSource {
                 requested,
                 resolved_path: None,
+                remote_url: None,
                 diagnostic: Some("video source path is empty".to_string()),
             };
         }
@@ -1289,10 +1385,8 @@ mod ios {
             return ResolvedVideoSource {
                 requested,
                 resolved_path: None,
-                diagnostic: Some(
-                    "native Apple video backend only supports local filesystem paths for media sources"
-                        .to_string(),
-                ),
+                remote_url: Some(trimmed.to_string()),
+                diagnostic: None,
             };
         }
         let candidate = if Path::new(trimmed).is_absolute() {
@@ -1304,6 +1398,7 @@ mod ios {
                     return ResolvedVideoSource {
                         requested,
                         resolved_path: None,
+                        remote_url: None,
                         diagnostic: Some(format!(
                             "failed to resolve relative video source against current directory: {error}"
                         )),
@@ -1324,6 +1419,7 @@ mod ios {
         ResolvedVideoSource {
             requested,
             resolved_path: Some(resolved_path),
+            remote_url: None,
             diagnostic,
         }
     }
@@ -1849,7 +1945,7 @@ mod windows {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "video"))]
 mod linux {
     use super::{VideoBackend, VideoEvent, VideoPlayer};
     use fission_core::ui::VideoAudioOptions;

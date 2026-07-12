@@ -1710,16 +1710,12 @@ mod tests {
     impl From<VideoPage> for Widget {
         fn from(_component: VideoPage) -> Self {
             let (_ctx, _view) = fission_core::build::current::<TestState>();
-            Video {
-                id: Some(WidgetId::explicit("site-video")),
-                source: "https://example.com/demo.mp4".to_string(),
-                width: Some(320.0),
-                height: Some(180.0),
-                autoplay: true,
-                loop_playback: true,
-                ..Default::default()
-            }
-            .into()
+            Video::network("https://example.com/demo.mp4")
+                .id(WidgetId::explicit("site-video"))
+                .size(320.0, 180.0)
+                .autoplay(true)
+                .loop_playback(true)
+                .into()
         }
     }
 

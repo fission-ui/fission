@@ -37,6 +37,11 @@ three-d = [
     "fission-shell-mobile?/three-d",
     "fission-shell-web?/three-d",
 ]
+video = [
+    "fission-shell-desktop?/video",
+    "fission-shell-mobile?/video",
+    "fission-shell-web?/video",
+]
 web = ["dep:fission-shell-web"]
 
 [dependencies]

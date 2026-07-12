@@ -20,15 +20,14 @@ impl From<VideoEmbedApp> for Widget {
                     .size(14.0)
                     .color(tokens.text_secondary)
                     .into(),
-                Container::new(Video {
-                    id: Some(WidgetId::explicit("embed-video.demo")),
-                    source: concat!(env!("CARGO_MANIFEST_DIR"), "/assets/demo.mp4").into(),
-                    width: Some(480.0),
-                    height: Some(270.0),
-                    autoplay: true,
-                    loop_playback: true,
-                    audio: VideoAudioOptions::playback(),
-                })
+                Container::new(
+                    video_file!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/demo.mp4"))
+                        .id(WidgetId::explicit("embed-video.demo"))
+                        .size(480.0, 270.0)
+                        .autoplay(true)
+                        .loop_playback(true)
+                        .audio(VideoAudioOptions::playback()),
+                )
                 .width(480.0)
                 .height(270.0)
                 .border(tokens.border, 1.0)

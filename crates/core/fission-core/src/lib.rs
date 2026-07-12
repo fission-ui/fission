@@ -344,11 +344,15 @@ pub mod public {
     pub use crate::time::{Clock, CurrentTime};
     pub use crate::ui::{
         provider, ActionScope, BadgeTone, Button, ButtonHierarchy, ButtonMotion, CardPattern,
-        Column, ComponentSize, ComponentState, CustomWidget, Provider, Row, Text, Widget,
-        WidgetIdExt,
+        Column, ComponentSize, ComponentState, CustomWidget, IosAudioSessionCategory,
+        IosAudioSessionCategoryOption, IosAudioSessionMode, IosVideoAudioOptions, Provider, Row,
+        Text, Video, VideoAudioActivation, VideoAudioOptions, VideoAudioPolicy, VideoSource,
+        Widget, WidgetIdExt,
     };
     pub use crate::view::{ComputedView, FissionViewField, Selector, ValueView, View};
-    pub use crate::{reduce, reduce_with, widgets, with_reducer};
+    pub use crate::{
+        reduce, reduce_with, video_asset, video_file, video_network, widgets, with_reducer,
+    };
     pub use fission_ir::op;
     pub use fission_ir::{EmbedKind, FocusPolicy, Op, Role, Semantics, WidgetId};
     pub use fission_layout::{
@@ -511,7 +515,10 @@ pub use registry::{
 pub use time::{Clock, CurrentTime};
 pub use ui::{
     provider, ActionScope, BadgeTone, Button, ButtonHierarchy, ButtonMotion, CardPattern, Column,
-    ComponentSize, ComponentState, CustomWidget, Provider, Row, Text, Widget, WidgetIdExt,
+    ComponentSize, ComponentState, CustomWidget, IosAudioSessionCategory,
+    IosAudioSessionCategoryOption, IosAudioSessionMode, IosVideoAudioOptions, Provider, Row, Text,
+    Video, VideoAudioActivation, VideoAudioOptions, VideoAudioPolicy, VideoSource, Widget,
+    WidgetIdExt,
 };
 pub use view::{ComputedView, FissionViewField, Selector, ValueView, View};
 
@@ -555,6 +562,44 @@ macro_rules! widgets {
             widgets
         }
     };
+}
+
+/// Creates a [`Video`](crate::ui::Video) from an app asset literal and fails
+/// compilation when the asset does not exist under `CARGO_MANIFEST_DIR`.
+///
+/// Use [`Video::asset`](crate::ui::Video::asset) when the path is computed at
+/// runtime and cannot be checked by the compiler.
+#[macro_export]
+macro_rules! video_asset {
+    ($path:literal $(,)?) => {{
+        const _: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/", $path));
+        $crate::ui::Video::asset($path)
+    }};
+}
+
+/// Creates a [`Video`](crate::ui::Video) from a compile-time local file path
+/// and fails compilation when that path cannot be resolved by `include_bytes!`.
+///
+/// Relative paths are resolved the same way as `include_bytes!`: relative to the
+/// source file that invokes this macro.
+#[macro_export]
+macro_rules! video_file {
+    ($path:expr $(,)?) => {{
+        const _: &[u8] = include_bytes!($path);
+        $crate::ui::Video::file($path)
+    }};
+}
+
+/// Creates a [`Video`](crate::ui::Video) from a network URL literal.
+///
+/// Network playback support is shell-specific; use this helper for literal URLs
+/// and [`Video::network`](crate::ui::Video::network) when the URL is computed at
+/// runtime.
+#[macro_export]
+macro_rules! video_network {
+    ($url:literal $(,)?) => {{
+        $crate::ui::Video::network($url)
+    }};
 }
 
 /// Binds an action to a reducer in one expression.

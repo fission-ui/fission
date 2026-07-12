@@ -5,6 +5,7 @@ use fission_ir::{
     WidgetId,
 };
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 /// A platform-native video player widget.
 ///
@@ -16,23 +17,20 @@ use serde::{Deserialize, Serialize};
 /// # Example
 ///
 /// ```rust,ignore
-/// Video {
-///     source: "https://example.com/clip.mp4".into(),
-///     width: Some(640.0),
-///     height: Some(360.0),
-///     autoplay: true,
-///     loop_playback: false,
-///     audio: VideoAudioOptions::playback(),
-///     ..Default::default()
-/// }
-/// .into();
+/// Video::network("https://example.com/clip.mp4")
+///     .size(640.0, 360.0)
+///     .autoplay(true)
+///     .loop_playback(false)
+///     .audio(VideoAudioOptions::playback())
+///     .into();
 /// ```
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Video {
     /// Stable widget identity (auto-derived from `source` if `None`).
     pub id: Option<WidgetId>,
-    /// URL or asset path to the video file.
-    pub source: String,
+    /// Typed video source consumed by the active shell.
+    pub source: VideoSource,
     /// Fixed width in layout points.
     pub width: Option<f32>,
     /// Fixed height in layout points.
@@ -51,7 +49,158 @@ pub struct Video {
     pub audio: VideoAudioOptions,
 }
 
-impl Video {}
+impl Default for Video {
+    fn default() -> Self {
+        Self {
+            id: None,
+            source: VideoSource::default(),
+            width: None,
+            height: None,
+            autoplay: false,
+            loop_playback: false,
+            audio: VideoAudioOptions::default(),
+        }
+    }
+}
+
+/// Source of media for a [`Video`] widget.
+///
+/// The source is platform-neutral. Shells translate it into the native media
+/// API they own: static and SSR targets emit HTML `<video>` sources, web uses
+/// `HtmlVideoElement`, and native shells use their platform video backends.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum VideoSource {
+    /// App-bundled asset path, relative to the app/project asset root.
+    Asset { path: String },
+    /// Local filesystem path.
+    File { path: String },
+    /// Network URL. Backend support depends on the active shell and platform.
+    Network { url: String },
+}
+
+impl Default for VideoSource {
+    fn default() -> Self {
+        Self::Asset {
+            path: String::new(),
+        }
+    }
+}
+
+impl VideoSource {
+    /// Returns the shell-facing source string.
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Asset { path } | Self::File { path } => path,
+            Self::Network { url } => url,
+        }
+    }
+
+    /// Returns a stable source key for fallback IDs and runtime comparisons.
+    pub fn key(&self) -> String {
+        match self {
+            Self::Asset { path } => format!("asset:{path}"),
+            Self::File { path } => format!("file:{path}"),
+            Self::Network { url } => format!("network:{url}"),
+        }
+    }
+}
+
+impl From<&str> for VideoSource {
+    fn from(source: &str) -> Self {
+        infer_video_source(source)
+    }
+}
+
+impl From<String> for VideoSource {
+    fn from(source: String) -> Self {
+        infer_video_source(&source)
+    }
+}
+
+fn infer_video_source(source: &str) -> VideoSource {
+    if source.contains("://") {
+        VideoSource::Network {
+            url: source.to_string(),
+        }
+    } else if Path::new(source).is_absolute() {
+        VideoSource::File {
+            path: source.to_string(),
+        }
+    } else {
+        VideoSource::Asset {
+            path: source.to_string(),
+        }
+    }
+}
+
+impl Video {
+    /// Creates a video from an app-bundled asset path.
+    pub fn asset(path: impl Into<String>) -> Self {
+        Self::from_source(VideoSource::Asset { path: path.into() })
+    }
+
+    /// Creates a video from a local filesystem path.
+    pub fn file(path: impl Into<String>) -> Self {
+        Self::from_source(VideoSource::File { path: path.into() })
+    }
+
+    /// Creates a video from a network URL.
+    pub fn network(url: impl Into<String>) -> Self {
+        Self::from_source(VideoSource::Network { url: url.into() })
+    }
+
+    /// Creates a video from a typed source.
+    pub fn from_source(source: impl Into<VideoSource>) -> Self {
+        Self {
+            source: source.into(),
+            ..Self::default()
+        }
+    }
+
+    /// Sets an explicit widget identity.
+    pub fn id(mut self, id: WidgetId) -> Self {
+        self.id = Some(id);
+        self
+    }
+
+    /// Sets a fixed width in layout points.
+    pub fn width(mut self, width: f32) -> Self {
+        self.width = Some(width);
+        self
+    }
+
+    /// Sets a fixed height in layout points.
+    pub fn height(mut self, height: f32) -> Self {
+        self.height = Some(height);
+        self
+    }
+
+    /// Sets a fixed width and height in layout points.
+    pub fn size(mut self, width: f32, height: f32) -> Self {
+        self.width = Some(width);
+        self.height = Some(height);
+        self
+    }
+
+    /// Sets whether playback starts automatically.
+    pub fn autoplay(mut self, autoplay: bool) -> Self {
+        self.autoplay = autoplay;
+        self
+    }
+
+    /// Sets whether playback loops after reaching the end.
+    pub fn loop_playback(mut self, loop_playback: bool) -> Self {
+        self.loop_playback = loop_playback;
+        self
+    }
+
+    /// Sets platform-neutral audio behavior.
+    pub fn audio(mut self, audio: VideoAudioOptions) -> Self {
+        self.audio = audio;
+        self
+    }
+}
 
 /// Audio-session behavior requested by a [`Video`] widget.
 ///
@@ -250,7 +399,9 @@ pub enum IosAudioSessionCategoryOption {
 
 impl InternalLower for Video {
     fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
-        let widget_id = self.id.unwrap_or_else(|| WidgetId::explicit(&self.source));
+        let widget_id = self
+            .id
+            .unwrap_or_else(|| WidgetId::explicit(&self.source.key()));
         let layout_id = cx.widget_node_id(widget_id);
 
         let embed_id = InternalIrBuilder::new(
