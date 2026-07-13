@@ -1262,37 +1262,61 @@ impl InternalLower for TextInput {
 
         // 2. Text Preparation
         let session = cx.runtime_state.text_edit.get(input_id);
-        let session_display = if is_focused {
-            session.map(|st| st.display_text())
+        let retained_session = if is_focused {
+            session.filter(|state| {
+                state.pending_model_sync
+                    || state.preedit.is_some()
+                    || (self.restoration_id.is_some() && self.value.is_empty())
+                    || state.committed_text() == self.value
+            })
         } else {
             None
         };
+        let session_display = retained_session.map(|state| state.display_text());
+        let model_selection = session
+            .map(|state| {
+                (
+                    clamp_text_offset(&self.value, state.caret),
+                    clamp_text_offset(&self.value, state.anchor),
+                )
+            })
+            .unwrap_or((self.value.len(), self.value.len()));
+        let semantic_value = retained_session
+            .map(|state| state.committed_text())
+            .unwrap_or_else(|| self.value.clone());
 
-        let (display_text, preedit_range, preedit_cursor_range, caret, anchor) = if self
-            .obscure_text
-        {
-            let mut combined = self.value.clone();
-            if let Some((display, _)) = &session_display {
-                combined = display.clone();
-            }
-            let (caret, anchor) = session.map(|st| (st.caret, st.anchor)).unwrap_or((0, 0));
-            let masked = Self::mask_text(&combined, self.obscuring_character);
-            let mapped_caret = Self::masked_byte_offset(&combined, &masked, caret);
-            let mapped_anchor = Self::masked_byte_offset(&combined, &masked, anchor);
-            (masked, None, None, mapped_caret, mapped_anchor)
-        } else {
-            match session_display {
-                Some((combined, preedit_range)) => {
-                    let (caret, anchor) = session.map(|st| (st.caret, st.anchor)).unwrap_or((0, 0));
-                    let cursor_range = session.and_then(|st| st.display_preedit_cursor_range());
-                    (combined, preedit_range, cursor_range, caret, anchor)
+        let (display_text, preedit_range, preedit_cursor_range, caret, anchor) =
+            if self.obscure_text {
+                let mut combined = self.value.clone();
+                if let Some((display, _)) = &session_display {
+                    combined = display.clone();
                 }
-                None => {
-                    let (caret, anchor) = session.map(|st| (st.caret, st.anchor)).unwrap_or((0, 0));
-                    (self.value.clone(), None, None, caret, anchor)
+                let (caret, anchor) = retained_session
+                    .map(|state| (state.caret, state.anchor))
+                    .unwrap_or(model_selection);
+                let masked = Self::mask_text(&combined, self.obscuring_character);
+                let mapped_caret = Self::masked_byte_offset(&combined, &masked, caret);
+                let mapped_anchor = Self::masked_byte_offset(&combined, &masked, anchor);
+                (masked, None, None, mapped_caret, mapped_anchor)
+            } else {
+                match session_display {
+                    Some((combined, preedit_range)) => {
+                        let (caret, anchor) = retained_session
+                            .map(|state| (state.caret, state.anchor))
+                            .unwrap_or(model_selection);
+                        let cursor_range =
+                            retained_session.and_then(|state| state.display_preedit_cursor_range());
+                        (combined, preedit_range, cursor_range, caret, anchor)
+                    }
+                    None => (
+                        self.value.clone(),
+                        None,
+                        None,
+                        model_selection.0,
+                        model_selection.1,
+                    ),
                 }
-            }
-        };
+            };
 
         // Construct Runs
         let mut runs = Vec::new();
@@ -1844,7 +1868,7 @@ impl InternalLower for TextInput {
             role: Role::TextInput,
             label: resolved_label.clone().or(resolved_placeholder.clone()),
             identifier: self.semantics_identifier.clone(),
-            value: Some(self.value.clone()),
+            value: Some(semantic_value),
             actions: Default::default(),
             action_scope_id: None,
             focusable: self.enabled,
@@ -1950,6 +1974,14 @@ impl InternalLower for TextInput {
         );
         semantics_id
     }
+}
+
+fn clamp_text_offset(value: &str, mut offset: usize) -> usize {
+    offset = offset.min(value.len());
+    while offset > 0 && !value.is_char_boundary(offset) {
+        offset -= 1;
+    }
+    offset
 }
 
 fn split_runs_for_range(
