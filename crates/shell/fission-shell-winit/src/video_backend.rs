@@ -2090,19 +2090,21 @@ mod linux {
                     events.push(VideoEvent::Error(message));
                 }
             }
+            let mut ended_sent = self.ended_sent;
+            let mut error_sent = self.error_sent;
             self.with_entry(|entry| {
                 if let Some(bus) = entry.bus.as_ref() {
                     for message in bus.iter() {
                         match message.view() {
                             gst::MessageView::Eos(..) => {
-                                if !self.ended_sent {
+                                if !ended_sent {
                                     events.push(VideoEvent::Ended);
                                 }
-                                self.ended_sent = true;
+                                ended_sent = true;
                             }
                             gst::MessageView::Error(error) => {
-                                if !self.error_sent {
-                                    self.error_sent = true;
+                                if !error_sent {
+                                    error_sent = true;
                                     events.push(VideoEvent::Error(format!(
                                         "GStreamer video error: {}",
                                         error.error()
@@ -2114,6 +2116,8 @@ mod linux {
                     }
                 }
             });
+            self.ended_sent = ended_sent;
+            self.error_sent = error_sent;
             if !self.ready_sent {
                 let duration = self.duration().unwrap_or(0);
                 self.ready_sent = true;
