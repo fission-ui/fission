@@ -580,10 +580,10 @@ impl From<Video> for Widget {
     fn from(w: Video) -> Self {
         let node_id = crate::build::current_widget_id()
             .or(w.id)
-            .unwrap_or_else(|| fission_ir::WidgetId::explicit(&w.source));
+            .unwrap_or_else(|| fission_ir::WidgetId::explicit(&w.source.key()));
         crate::build::try_register_video(crate::registry::VideoRegistration {
             node_id,
-            source: w.source.clone(),
+            source: w.source.as_str().to_string(),
             autoplay: w.autoplay,
             loop_playback: w.loop_playback,
             audio: w.audio.clone(),

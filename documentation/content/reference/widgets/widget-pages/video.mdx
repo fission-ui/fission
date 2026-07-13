@@ -38,15 +38,10 @@ use fission::WidgetId;
 let video_id = WidgetId::explicit("welcome_video");
 let controls = ctx.video_controls(video_id);
 
-let player = Video {
-    id: Some(video_id),
-    source: "assets/welcome.mp4".into(),
-    width: Some(640.0),
-    height: Some(360.0),
-    autoplay: false,
-    loop_playback: false,
-    audio: VideoAudioOptions::system_default(),
-}
+let player = video_asset!("assets/welcome.mp4")
+    .id(video_id)
+    .size(640.0, 360.0)
+    .audio(VideoAudioOptions::system_default())
 .into();
 
 let play_button = Button {
@@ -66,7 +61,7 @@ The useful part here is the separation of responsibilities.
 | Field | Type | Meaning | Notes and default behavior |
 | --- | --- | --- | --- |
 | `id` | `Option<WidgetId>` | Stable identity for this video surface and its control actions. | Defaults to an id derived from `source`. Provide an explicit id when you need predictable controls or multiple instances of the same source. |
-| `source` | `String` | Video media source path or web address string. | Required. The backend ultimately decides how that source is resolved. The checked-in winit video backend currently expects local filesystem media paths. |
+| `source` | `VideoSource` | Typed video media source: asset, file, or network URL. | Set this through `Video::asset`, `Video::file`, `Video::network`, `Video::from_source`, or the checked literal helpers. Direct `Video { ... }` construction is intentionally not part of the app-facing API. |
 | `width` | `Option<f32>` | Requested layout width. | Defaults to `None`. |
 | `height` | `Option<f32>` | Requested layout height. | Defaults to `None`. |
 | `autoplay` | `bool` | Whether playback should begin automatically when possible. | Defaults to `false`. On initial registration, the runtime marks the video as playing when autoplay is requested. |
@@ -80,36 +75,28 @@ Audio behavior is a product decision. Fission therefore does not hard-code a sin
 Use the default when the app should inherit the host platform's normal audio behavior:
 
 ```rust
-Video {
-    source: "assets/inline-preview.mp4".into(),
-    audio: VideoAudioOptions::system_default(),
-    ..Default::default()
-}
+Video::asset("assets/inline-preview.mp4")
+    .audio(VideoAudioOptions::system_default())
 ```
 
 Use foreground playback behavior when the video is the primary media experience:
 
 ```rust
-Video {
-    source: "assets/lesson.mp4".into(),
-    audio: VideoAudioOptions::playback(),
-    ..Default::default()
-}
+Video::asset("assets/lesson.mp4").audio(VideoAudioOptions::playback())
 ```
 
 On iOS that maps to `AVAudioSessionCategoryPlayback` and activates the session on first play, which is the equivalent of configuring playback audio manually in the host shell. Apps that need a more precise iOS policy can use the platform escape hatch:
 
 ```rust
-Video {
-    source: "assets/training.mp4".into(),
-    audio: VideoAudioOptions::playback()
+Video::asset("assets/training.mp4")
+    .audio(
+        VideoAudioOptions::playback()
         .mix_with_others(true)
         .ios(
             IosVideoAudioOptions::mode(IosAudioSessionMode::MoviePlayback)
                 .with_option(IosAudioSessionCategoryOption::MixWithOthers),
         ),
-    ..Default::default()
-}
+    )
 ```
 
 If a platform cannot represent a requested option, the shell treats it as a backend limitation rather than changing the cross-platform widget contract.
@@ -128,11 +115,25 @@ What varies is the host API used by each target for this particular media surfac
 
 In the winit shell path, macOS and iOS use AVFoundation player layers, Windows uses Media Foundation, Linux uses GStreamer, Android uses the generated `FissionActivity` Java host bridge backed by Android media playback, and Web uses a browser `<video>` element positioned over the canvas. Static site and SSR output ordinary HTML video markup. Terminal does not support embedded video surfaces. iOS audio-session policy is configured only when requested through `VideoAudioOptions`; the default does not force `AVAudioSessionCategoryPlayback`.
 
+Native Linux video is behind the `video` Cargo feature so ordinary desktop apps do not need GStreamer development packages unless they use embedded video:
+
+```toml
+fission = { version = "0.7", default-features = false, features = ["desktop", "video"] }
+```
+
+On Debian or Ubuntu, enabling that feature requires:
+
+```bash
+sudo apt install libglib2.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+```
+
 The right way to read those differences is very narrow: codec support, local-file access, autoplay rules, z-ordering, and hardware decode behavior are backend-level concerns for this one host-backed media surface. They do not change the shared Fission widget, state, reducer, or layout model.
 
 ## Specific guidance
 
 Give production-critical videos explicit ids and build controls around `ctx.video_controls(...)`. That keeps your commands stable even if the surrounding layout changes.
+
+For compile-time checked literal sources, use `video_asset!("relative/path.mp4")` for app assets or `video_file!(...)` for local file literals. These helpers only fail when the literal path cannot be resolved at compile time. Runtime strings should use `Video::asset`, `Video::file`, or `Video::network` and will be validated by the active shell backend at runtime.
 
 Treat playback user interface as ordinary app user interface. Buttons, labels, progress displays, and surrounding layout still belong to your widget tree and app state, even though the media surface itself is host-managed.
 
