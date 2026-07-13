@@ -162,6 +162,9 @@ impl Default for TextContextMenuConfig {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TextSelectionControls {
+    /// Whether caret and selection-handle overlays are shown.
+    #[serde(default = "default_selection_controls_enabled")]
+    pub enabled: bool,
     pub show_collapsed_handle: bool,
     pub handle_radius: f32,
     pub handle_fill: IrColor,
@@ -169,9 +172,14 @@ pub struct TextSelectionControls {
     pub handle_stroke_width: f32,
 }
 
+fn default_selection_controls_enabled() -> bool {
+    true
+}
+
 impl Default for TextSelectionControls {
     fn default() -> Self {
         Self {
+            enabled: true,
             show_collapsed_handle: true,
             handle_radius: 7.0,
             handle_fill: IrColor {
@@ -1638,33 +1646,35 @@ impl InternalLower for TextInput {
                 let affordances = &session_state.affordances;
                 let mut overlay_children = Vec::new();
 
-                if caret == anchor {
-                    if self.selection_controls.show_collapsed_handle {
-                        if let Some(point) = affordances.caret_handle {
+                if self.selection_controls.enabled {
+                    if caret == anchor {
+                        if self.selection_controls.show_collapsed_handle {
+                            if let Some(point) = affordances.caret_handle {
+                                overlay_children.push(self.build_selection_handle_overlay(
+                                    cx,
+                                    input_id,
+                                    TextSelectionHandleKind::Caret,
+                                    point,
+                                ));
+                            }
+                        }
+                    } else {
+                        if let Some(point) = affordances.selection_start_handle {
                             overlay_children.push(self.build_selection_handle_overlay(
                                 cx,
                                 input_id,
-                                TextSelectionHandleKind::Caret,
+                                TextSelectionHandleKind::Start,
                                 point,
                             ));
                         }
-                    }
-                } else {
-                    if let Some(point) = affordances.selection_start_handle {
-                        overlay_children.push(self.build_selection_handle_overlay(
-                            cx,
-                            input_id,
-                            TextSelectionHandleKind::Start,
-                            point,
-                        ));
-                    }
-                    if let Some(point) = affordances.selection_end_handle {
-                        overlay_children.push(self.build_selection_handle_overlay(
-                            cx,
-                            input_id,
-                            TextSelectionHandleKind::End,
-                            point,
-                        ));
+                        if let Some(point) = affordances.selection_end_handle {
+                            overlay_children.push(self.build_selection_handle_overlay(
+                                cx,
+                                input_id,
+                                TextSelectionHandleKind::End,
+                                point,
+                            ));
+                        }
                     }
                 }
 

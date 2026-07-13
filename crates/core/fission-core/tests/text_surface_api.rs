@@ -3,7 +3,7 @@ use fission_core::internal::InternalLoweringCx;
 use fission_core::ui::widgets::text::{RichTextChild, RichTextSpan, TextScaler, WidgetSpan};
 use fission_core::ui::widgets::text_input::{
     DragStartBehavior, SpellCheckConfiguration, TextAlignVertical, TextContextMenuAction,
-    TextInputRuntimeConfig, TextMagnifierConfiguration, TextUndoController,
+    TextInputRuntimeConfig, TextMagnifierConfiguration, TextSelectionControls, TextUndoController,
 };
 use fission_core::ui::{Button, Container, RichText, RichTextRun, Spacer, Text, TextInput, Widget};
 use fission_core::{ActionEnvelope, ActionId};
@@ -1171,4 +1171,95 @@ fn focused_text_input_lowers_toolbar_handles_and_magnifier_overlays() {
     ));
 
     assert!(paint_ops(&ir).any(|op| matches!(op, PaintOp::DrawRichText { .. })));
+}
+
+#[test]
+fn disabled_text_selection_controls_omit_all_handle_overlays() {
+    let input_id = fission_ir::WidgetId::derived(89, &[0]);
+    let mut selected_runtime = RuntimeState::default();
+    selected_runtime.interaction.set_focused(Some(input_id));
+    let selected_state = selected_runtime.text_edit.get_mut_or_default(input_id);
+    selected_state.caret = 8;
+    selected_state.anchor = 2;
+    selected_state.affordances.selection_start_handle =
+        Some(fission_layout::LayoutPoint::new(18.0, 24.0));
+    selected_state.affordances.selection_end_handle =
+        Some(fission_layout::LayoutPoint::new(96.0, 24.0));
+    selected_state.affordances.toolbar_visible = true;
+    selected_state.affordances.toolbar_anchor = Some(fission_layout::LayoutPoint::new(40.0, 12.0));
+
+    let selected_ir = lower_node_with_runtime(
+        TextInput {
+            id: Some(input_id.into()),
+            value: "abcdefghij".into(),
+            selection_controls: TextSelectionControls {
+                enabled: false,
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+        .into(),
+        selected_runtime,
+    );
+
+    assert!(!selected_ir
+        .nodes
+        .contains_key(&test_text_input_selection_handle_id(
+            input_id,
+            TextSelectionHandleKind::Start,
+        )));
+    assert!(!selected_ir
+        .nodes
+        .contains_key(&test_text_input_selection_handle_id(
+            input_id,
+            TextSelectionHandleKind::End,
+        )));
+    assert!(selected_ir
+        .nodes
+        .contains_key(&test_text_input_toolbar_button_id(
+            input_id,
+            TextContextMenuAction::Copy,
+        )));
+
+    let mut collapsed_runtime = RuntimeState::default();
+    collapsed_runtime.interaction.set_focused(Some(input_id));
+    let collapsed_state = collapsed_runtime.text_edit.get_mut_or_default(input_id);
+    collapsed_state.caret = 4;
+    collapsed_state.anchor = 4;
+    collapsed_state.affordances.caret_handle = Some(fission_layout::LayoutPoint::new(48.0, 24.0));
+    let collapsed_ir = lower_node_with_runtime(
+        TextInput {
+            id: Some(input_id.into()),
+            value: "abcdefghij".into(),
+            selection_controls: TextSelectionControls {
+                enabled: false,
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+        .into(),
+        collapsed_runtime,
+    );
+
+    assert!(!collapsed_ir
+        .nodes
+        .contains_key(&test_text_input_selection_handle_id(
+            input_id,
+            TextSelectionHandleKind::Caret,
+        )));
+}
+
+#[test]
+fn text_selection_controls_deserialize_omitted_enabled_as_true() {
+    let mut serialized = serde_json::to_value(TextSelectionControls::default())
+        .expect("serialize selection controls");
+    serialized
+        .as_object_mut()
+        .expect("selection controls object")
+        .remove("enabled");
+
+    let controls: TextSelectionControls =
+        serde_json::from_value(serialized).expect("deserialize legacy selection controls");
+
+    assert!(controls.enabled);
 }
