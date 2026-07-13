@@ -287,6 +287,15 @@ pub struct Button {
 }
 
 impl Button {
+    /// Sets the stable identifier exposed on the button's semantics node.
+    ///
+    /// This preserves any custom semantics already configured on the button.
+    pub fn semantics_identifier(mut self, identifier: impl Into<String>) -> Self {
+        let semantics = self.semantics.get_or_insert_with(default_button_semantics);
+        semantics.identifier = Some(identifier.into());
+        self
+    }
+
     pub fn background_fill(mut self, fill: Fill) -> Self {
         self.background_fill = Some(fill);
         self

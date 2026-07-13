@@ -367,6 +367,7 @@ fn text_input_lowers_cursor_and_semantics_overrides() {
             scroll_padding: Some([12.0, 13.0, 14.0, 15.0]),
             ..Default::default()
         }
+        .semantics_identifier("profile.email")
         .into(),
     );
 
@@ -382,6 +383,7 @@ fn text_input_lowers_cursor_and_semantics_overrides() {
         .expect("text input semantics");
 
     assert_eq!(semantics.label.as_deref(), Some("Email"));
+    assert_eq!(semantics.identifier.as_deref(), Some("profile.email"));
     assert!(semantics.read_only);
     assert!(semantics.disabled);
     assert!(!semantics.focusable);
