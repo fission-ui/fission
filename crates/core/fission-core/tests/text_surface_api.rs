@@ -1085,6 +1085,73 @@ fn text_semantics_label_builder_sets_label() {
 }
 
 #[test]
+fn focused_text_input_renders_new_controlled_value_after_runtime_buffer_was_empty() {
+    let input_id = fission_ir::WidgetId::derived(87, &[0]);
+    let mut runtime = RuntimeState::default();
+    runtime.interaction.set_focused(Some(input_id));
+    runtime
+        .text_edit
+        .sync_from_runtime(input_id, "", None, None);
+
+    let ir = lower_node_with_runtime(
+        TextInput {
+            id: Some(input_id.into()),
+            value: "Restored by the model".into(),
+            placeholder: Some("Placeholder".into()),
+            ..Default::default()
+        }
+        .into(),
+        runtime,
+    );
+
+    let rendered = paint_ops(&ir)
+        .find_map(|op| match op {
+            PaintOp::DrawRichText { runs, .. } => {
+                Some(runs.iter().map(|run| run.text.as_str()).collect::<String>())
+            }
+            _ => None,
+        })
+        .expect("text input rich text paint op");
+
+    assert_eq!(rendered, "Restored by the model");
+}
+
+#[test]
+fn focused_text_input_keeps_pending_local_value_until_model_catches_up() {
+    let input_id = fission_ir::WidgetId::derived(87, &[1]);
+    let mut runtime = RuntimeState::default();
+    runtime.interaction.set_focused(Some(input_id));
+    runtime
+        .text_edit
+        .sync_from_runtime(input_id, "Old", None, None);
+    runtime
+        .text_edit
+        .get_mut_or_default(input_id)
+        .apply_edit(0..3, "Local edit", 10, 10);
+
+    let ir = lower_node_with_runtime(
+        TextInput {
+            id: Some(input_id.into()),
+            value: "Old".into(),
+            ..Default::default()
+        }
+        .into(),
+        runtime,
+    );
+
+    let rendered = paint_ops(&ir)
+        .find_map(|op| match op {
+            PaintOp::DrawRichText { runs, .. } => {
+                Some(runs.iter().map(|run| run.text.as_str()).collect::<String>())
+            }
+            _ => None,
+        })
+        .expect("text input rich text paint op");
+
+    assert_eq!(rendered, "Local edit");
+}
+
+#[test]
 fn focused_text_input_lowers_toolbar_handles_and_magnifier_overlays() {
     let input_id = fission_ir::WidgetId::derived(88, &[0]);
     let mut runtime = RuntimeState::default();

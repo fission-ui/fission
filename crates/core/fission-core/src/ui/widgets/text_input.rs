@@ -1255,7 +1255,14 @@ impl InternalLower for TextInput {
         // 2. Text Preparation
         let session = cx.runtime_state.text_edit.get(input_id);
         let session_display = if is_focused {
-            session.map(|st| st.display_text())
+            session
+                .filter(|state| {
+                    state.pending_model_sync
+                        || state.preedit.is_some()
+                        || (self.restoration_id.is_some() && self.value.is_empty())
+                        || state.committed_text() == self.value
+                })
+                .map(|state| state.display_text())
         } else {
             None
         };
