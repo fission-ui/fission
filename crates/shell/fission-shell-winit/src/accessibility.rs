@@ -593,6 +593,7 @@ mod imp {
             },
             Role::Image => AccessRole::Image,
             Role::Checkbox => AccessRole::CheckBox,
+            Role::Radio => AccessRole::RadioButton,
             Role::Switch => AccessRole::Switch,
             Role::Dialog => AccessRole::Dialog,
             Role::Slider => AccessRole::Slider,
@@ -1146,6 +1147,17 @@ mod imp {
             assert_eq!(node.label(), Some("Save"));
             assert!(node.supports_action(Action::Click));
             assert_eq!(node.bounds(), Some(Rect::new(20.0, 10.0, 180.0, 70.0)));
+        }
+
+        #[test]
+        fn maps_radio_semantics_to_accesskit_radio_button() {
+            let semantics = Semantics {
+                role: Role::Radio,
+                checked: Some(true),
+                ..Semantics::default()
+            };
+
+            assert_eq!(access_role_for(&semantics), AccessRole::RadioButton);
         }
     }
 }

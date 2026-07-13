@@ -1,7 +1,7 @@
 use fission_core::internal::{InternalLower, InternalLoweringCx};
 use fission_core::ui::GestureDetector;
-use fission_core::{Env, RuntimeState};
-use fission_ir::{Op, Role};
+use fission_core::{ActionEnvelope, ActionId, Env, RuntimeState};
+use fission_ir::{semantics::ActionTrigger, Op, Role};
 use fission_widgets::{Checkbox, Radio, Slider, Spacer, Switch};
 
 #[test]
@@ -58,8 +58,15 @@ fn test_checkbox_lowering() {
 
 #[test]
 fn test_radio_lowering_preserves_semantics_identifier() {
+    let action_id = ActionId::from_name("fission_widgets_test::SelectPrimaryChoice");
+    let expected_action_id = action_id.as_u128();
     let radio = Radio {
         checked: true,
+        label: Some("Primary".into()),
+        on_select: Some(ActionEnvelope {
+            id: action_id,
+            payload: vec![1],
+        }),
         ..Default::default()
     }
     .semantics_identifier("choices.primary");
@@ -71,10 +78,14 @@ fn test_radio_lowering_preserves_semantics_identifier() {
 
     let node = cx.ir.nodes.get(&id).unwrap();
     if let Op::Semantics(s) = &node.op {
-        assert_eq!(s.role, Role::Checkbox);
+        assert_eq!(s.role, Role::Radio);
         assert_eq!(s.identifier.as_deref(), Some("choices.primary"));
         assert_eq!(s.checked, Some(true));
+        assert_eq!(s.label.as_deref(), Some("Primary"));
         assert!(s.focusable);
+        assert!(s.actions.entries.iter().any(|entry| {
+            entry.trigger == ActionTrigger::Default && entry.action_id == expected_action_id
+        }));
     } else {
         panic!("Radio should lower to Semantics root");
     }

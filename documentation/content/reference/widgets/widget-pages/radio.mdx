@@ -48,7 +48,7 @@ Every radio in the group emits a concrete selection action. The reducer stores t
 
 The important product rule is not inside the widget. It is in the reducer: only one item in the group should end up selected after an action. That is why radios pair naturally with an enum or selected index in app state.
 
-One implementation detail is worth knowing: the checked-in visual widget behaves like a radio, but its lowered semantics currently reuse the checkbox role internally. The interaction model still works, but if assistive-technology role precision matters on your target, validate it carefully.
+`Radio` exposes `Role::Radio`, uses `checked` for its selected state, and dispatches `on_select` through its default semantic action.
 
 ## Specific advice
 
@@ -68,4 +68,3 @@ If a screen starts repeating the same `Radio` setup, extract a named component a
 ## Related
 
 [`Checkbox`](/reference/widgets/checkbox), [`Switch`](/reference/widgets/switch), [`SegmentedControl`](/reference/widgets/segmented-control), and [`Select`](/reference/widgets/select).
-

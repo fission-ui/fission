@@ -233,7 +233,7 @@ impl InternalLower for Radio {
         cx.pop_scope();
 
         let mut semantics = fission_ir::Semantics {
-            role: fission_ir::Role::Checkbox, // Reuse Checkbox for Radio behavior?
+            role: fission_ir::Role::Radio,
             label: self.label.clone(),
             identifier: self.semantics_identifier.clone(),
             value: Some(if self.checked {

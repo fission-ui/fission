@@ -1540,7 +1540,12 @@ impl HtmlRenderer<'_> {
             Role::ListItem => "li",
             Role::Dialog => "section",
             Role::Text | Role::Generic => "div",
-            Role::TextInput | Role::Checkbox | Role::Switch | Role::Slider | Role::Input => {
+            Role::TextInput
+            | Role::Checkbox
+            | Role::Radio
+            | Role::Switch
+            | Role::Slider
+            | Role::Input => {
                 unreachable!("interactive controls are rendered before generic semantics")
             }
         };
@@ -1611,6 +1616,17 @@ impl HtmlRenderer<'_> {
                 }
                 Ok(format!(
                     "<label class=\"fission-site-node fission-site-control\" data-fission-node=\"{}\"><input class=\"fission-site-checkbox\" type=\"checkbox\"{attrs}><span class=\"fission-site-control-label\">{}</span>{children}</label>",
+                    node.id,
+                    escape_text(label_text)
+                ))
+            }
+            Role::Radio => {
+                if semantics.checked.unwrap_or(false) {
+                    attrs.push_str(" checked");
+                }
+
+                Ok(format!(
+                    "<label class=\"fission-site-node fission-site-control\" data-fission-node=\"{}\"><input class=\"fission-site-radio\" type=\"radio\"{attrs}><span class=\"fission-site-control-label\">{}</span>{children}</label>",
                     node.id,
                     escape_text(label_text)
                 ))
@@ -2698,7 +2714,7 @@ fn justify_content_css(justify: JustifyContent) -> &'static str {
 fn is_native_control_role(role: Role) -> bool {
     matches!(
         role,
-        Role::TextInput | Role::Checkbox | Role::Switch | Role::Slider | Role::Input
+        Role::TextInput | Role::Checkbox | Role::Radio | Role::Switch | Role::Slider | Role::Input
     )
 }
 
@@ -2998,6 +3014,35 @@ mod tests {
         assert!(rendered.html.contains("loop"));
         assert!(rendered.html.contains("<input"));
         assert!(rendered.html.contains("value=\"fission\""));
+    }
+
+    #[test]
+    fn radio_semantics_render_as_checked_native_radio_input() {
+        let radio = WidgetId::explicit("shipping-express");
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            radio,
+            Op::Semantics(Semantics {
+                role: Role::Radio,
+                label: Some("Express shipping".into()),
+                identifier: Some("shipping.express".into()),
+                checked: Some(true),
+                focusable: true,
+                ..Default::default()
+            }),
+            Vec::new(),
+        );
+        ir.set_root(radio);
+
+        let rendered = render_ir_to_html(&ir, &HtmlRenderOptions::default()).unwrap();
+
+        assert!(rendered.html.contains("class=\"fission-site-radio\""));
+        assert!(rendered.html.contains("type=\"radio\""));
+        assert!(rendered.html.contains(" checked"));
+        assert!(rendered
+            .html
+            .contains("data-fission-semantics=\"shipping.express\""));
+        assert!(!rendered.html.contains("type=\"checkbox\""));
     }
 
     #[test]

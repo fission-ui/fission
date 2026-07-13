@@ -6,6 +6,7 @@ fn test_role_variants() {
         Role::Button,
         Role::Text,
         Role::Image,
+        Role::Radio,
         Role::Slider,
         Role::List,
         Role::ListItem,

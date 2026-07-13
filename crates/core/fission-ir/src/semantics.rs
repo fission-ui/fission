@@ -26,6 +26,8 @@ pub enum Role {
     Image,
     /// A toggle that is either checked or unchecked.
     Checkbox,
+    /// A one-of-many selectable option in a radio group.
+    Radio,
     /// A toggle switch (on/off).
     Switch,
     /// A modal or non-modal dialog overlay.
@@ -332,8 +334,8 @@ pub struct Semantics {
     /// Editable text selection as byte offsets `(anchor, focus)`.
     #[serde(default)]
     pub text_selection: Option<(usize, usize)>,
-    /// For checkboxes and switches: `Some(true)` = checked, `Some(false)` = unchecked,
-    /// `None` = not a toggle.
+    /// For checkboxes, radios, and switches: `Some(true)` = checked or selected,
+    /// `Some(false)` = unchecked or unselected, and `None` = no checked state.
     pub checked: Option<bool>,
     /// Whether the node is disabled (grayed out, non-interactive).
     pub disabled: bool,
