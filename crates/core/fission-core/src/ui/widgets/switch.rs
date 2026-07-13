@@ -26,13 +26,22 @@ use serde::{Deserialize, Serialize};
 pub struct Switch {
     /// Explicit node identity.
     pub id: Option<WidgetId>,
+    /// Stable identifier exposed on the switch's interactive semantics node.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub semantics_identifier: Option<String>,
     /// Current on/off state.
     pub checked: bool,
     /// Action dispatched when the switch is tapped.
     pub on_toggle: Option<ActionEnvelope>,
 }
 
-impl Switch {}
+impl Switch {
+    /// Sets the stable identifier exposed to accessibility and test tooling.
+    pub fn semantics_identifier(mut self, identifier: impl Into<String>) -> Self {
+        self.semantics_identifier = Some(identifier.into());
+        self
+    }
+}
 
 impl InternalLower for Switch {
     fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
@@ -147,7 +156,7 @@ impl InternalLower for Switch {
         let mut semantics = fission_ir::Semantics {
             role: fission_ir::Role::Switch,
             label: None,
-            identifier: None,
+            identifier: self.semantics_identifier.clone(),
             value: Some(if self.checked {
                 "true".into()
             } else {

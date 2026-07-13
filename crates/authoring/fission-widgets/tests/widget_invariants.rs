@@ -128,7 +128,8 @@ fn test_button_widget_lower_with_child_and_semantics() {
             scroll_padding: None,
         }),
         ..Default::default()
-    };
+    }
+    .semantics_identifier("actions.primary");
 
     let env = Env::default();
     let runtime_state = RuntimeState::default();
@@ -144,6 +145,8 @@ fn test_button_widget_lower_with_child_and_semantics() {
     assert!(matches!(semantics_node.op, Op::Semantics(_)));
 
     if let Op::Semantics(s_op) = &semantics_node.op {
+        assert_eq!(s_op.identifier.as_deref(), Some("actions.primary"));
+        assert_eq!(s_op.label.as_deref(), Some("My Button"));
         assert_eq!(s_op.actions.entries.len(), 1);
         assert_eq!(
             s_op.actions.entries[0].action_id,

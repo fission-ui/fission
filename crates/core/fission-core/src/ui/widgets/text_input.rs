@@ -284,6 +284,9 @@ pub(crate) fn text_input_toolbar_button_id(
 pub struct TextInput {
     /// Explicit node identity (used for focus tracking and scroll state).
     pub id: Option<WidgetId>,
+    /// Stable identifier exposed on the input's interactive semantics node.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub semantics_identifier: Option<String>,
     /// The current text value (controlled by the application).
     pub value: String,
     /// Optional label shown above the field.
@@ -468,6 +471,12 @@ pub struct TextInput {
 }
 
 impl TextInput {
+    /// Sets the stable identifier exposed to accessibility and test tooling.
+    pub fn semantics_identifier(mut self, identifier: impl Into<String>) -> Self {
+        self.semantics_identifier = Some(identifier.into());
+        self
+    }
+
     pub fn value(mut self, v: impl Into<String>) -> Self {
         self.value = v.into();
         self
@@ -786,6 +795,7 @@ impl Default for TextInput {
     fn default() -> Self {
         Self {
             id: None,
+            semantics_identifier: None,
             value: String::new(),
             label: None,
             placeholder: None,
@@ -1823,7 +1833,7 @@ impl InternalLower for TextInput {
         let mut semantics = Semantics {
             role: Role::TextInput,
             label: resolved_label.clone().or(resolved_placeholder.clone()),
-            identifier: None,
+            identifier: self.semantics_identifier.clone(),
             value: Some(self.value.clone()),
             actions: Default::default(),
             action_scope_id: None,

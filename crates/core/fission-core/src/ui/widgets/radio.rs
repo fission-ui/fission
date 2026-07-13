@@ -33,6 +33,9 @@ use serde::{Deserialize, Serialize};
 pub struct Radio {
     /// Explicit node identity.
     pub id: Option<WidgetId>,
+    /// Stable identifier exposed on the radio's interactive semantics node.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub semantics_identifier: Option<String>,
     /// Whether this radio button is currently selected.
     pub checked: bool,
     /// Action dispatched when this radio button is tapped.
@@ -41,7 +44,13 @@ pub struct Radio {
     pub label: Option<String>,
 }
 
-impl Radio {}
+impl Radio {
+    /// Sets the stable identifier exposed to accessibility and test tooling.
+    pub fn semantics_identifier(mut self, identifier: impl Into<String>) -> Self {
+        self.semantics_identifier = Some(identifier.into());
+        self
+    }
+}
 
 impl InternalLower for Radio {
     fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
@@ -224,9 +233,9 @@ impl InternalLower for Radio {
         cx.pop_scope();
 
         let mut semantics = fission_ir::Semantics {
-            role: fission_ir::Role::Checkbox, // Reuse Checkbox for Radio behavior?
+            role: fission_ir::Role::Radio,
             label: self.label.clone(),
-            identifier: None,
+            identifier: self.semantics_identifier.clone(),
             value: Some(if self.checked {
                 "true".into()
             } else {

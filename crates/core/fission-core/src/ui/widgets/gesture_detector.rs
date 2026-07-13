@@ -37,6 +37,9 @@ use serde::{Deserialize, Serialize};
 pub struct GestureDetector {
     /// Explicit node identity.
     pub id: Option<WidgetId>,
+    /// Stable identifier exposed on the detector's interactive semantics node.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub semantics_identifier: Option<String>,
     /// The child widget that receives gesture detection.
     pub child: Widget,
     /// Action dispatched on a single tap (pointer up after pointer down).
@@ -72,6 +75,7 @@ impl Default for GestureDetector {
     fn default() -> Self {
         Self {
             id: None,
+            semantics_identifier: None,
             child: crate::ui::widgets::spacer::Spacer::default().into(),
             on_tap: None,
             on_double_tap: None,
@@ -97,6 +101,12 @@ impl GestureDetector {
             ..Default::default()
         }
     }
+
+    /// Sets the stable identifier exposed to accessibility and test tooling.
+    pub fn semantics_identifier(mut self, identifier: impl Into<String>) -> Self {
+        self.semantics_identifier = Some(identifier.into());
+        self
+    }
 }
 
 impl InternalLower for GestureDetector {
@@ -110,7 +120,7 @@ impl InternalLower for GestureDetector {
         let mut semantics = Semantics {
             role: Role::Generic,
             label: None,
-            identifier: None,
+            identifier: self.semantics_identifier.clone(),
             value: None,
             actions: Default::default(),
             action_scope_id: None,

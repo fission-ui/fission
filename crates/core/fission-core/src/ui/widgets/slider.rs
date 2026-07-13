@@ -33,6 +33,9 @@ use serde::{Deserialize, Serialize};
 pub struct Slider {
     /// Explicit node identity.
     pub id: Option<WidgetId>,
+    /// Stable identifier exposed on the slider's interactive semantics node.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub semantics_identifier: Option<String>,
     /// Current value (clamped to `[min, max]`).
     pub value: f32,
     /// Minimum value (default: 0.0).
@@ -43,12 +46,19 @@ pub struct Slider {
     pub on_change: Option<ActionEnvelope>,
 }
 
-impl Slider {}
+impl Slider {
+    /// Sets the stable identifier exposed to accessibility and test tooling.
+    pub fn semantics_identifier(mut self, identifier: impl Into<String>) -> Self {
+        self.semantics_identifier = Some(identifier.into());
+        self
+    }
+}
 
 impl Default for Slider {
     fn default() -> Self {
         Self {
             id: None,
+            semantics_identifier: None,
             value: 0.0,
             min: 0.0,
             max: 1.0,
@@ -229,7 +239,7 @@ impl InternalLower for Slider {
         let mut semantics = fission_ir::Semantics {
             role: fission_ir::Role::Slider,
             label: None,
-            identifier: None,
+            identifier: self.semantics_identifier.clone(),
             value: Some(format!("{:.2}", self.value)),
             actions: Default::default(),
             action_scope_id: None,

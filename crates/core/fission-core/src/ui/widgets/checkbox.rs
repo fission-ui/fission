@@ -28,6 +28,9 @@ use serde::{Deserialize, Serialize};
 pub struct Checkbox {
     /// Explicit node identity.
     pub id: Option<WidgetId>,
+    /// Stable identifier exposed on the checkbox's interactive semantics node.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub semantics_identifier: Option<String>,
     /// Current checked state.
     pub checked: bool,
     /// Action dispatched when the checkbox is tapped.
@@ -36,7 +39,13 @@ pub struct Checkbox {
     pub label: Option<String>,
 }
 
-impl Checkbox {}
+impl Checkbox {
+    /// Sets the stable identifier exposed to accessibility and test tooling.
+    pub fn semantics_identifier(mut self, identifier: impl Into<String>) -> Self {
+        self.semantics_identifier = Some(identifier.into());
+        self
+    }
+}
 
 impl InternalLower for Checkbox {
     fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
@@ -198,7 +207,7 @@ impl InternalLower for Checkbox {
         let mut semantics = fission_ir::Semantics {
             role: fission_ir::Role::Checkbox,
             label: self.label.clone(),
-            identifier: None,
+            identifier: self.semantics_identifier.clone(),
             value: Some(if self.checked {
                 "true".into()
             } else {
