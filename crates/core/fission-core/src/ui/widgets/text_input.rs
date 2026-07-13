@@ -162,7 +162,7 @@ impl Default for TextContextMenuConfig {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TextSelectionControls {
-    /// Whether caret and selection-handle overlays are shown.
+    /// Whether touch-style caret and selection-handle overlays are shown.
     #[serde(default = "default_selection_controls_enabled")]
     pub enabled: bool,
     pub show_collapsed_handle: bool,

@@ -1086,9 +1086,14 @@ fn text_semantics_label_builder_sets_label() {
 
 #[test]
 fn focused_text_input_lowers_toolbar_handles_and_magnifier_overlays() {
+    assert!(TextSelectionControls::default().enabled);
+
     let input_id = fission_ir::WidgetId::derived(88, &[0]);
     let mut runtime = RuntimeState::default();
     runtime.interaction.set_focused(Some(input_id));
+    runtime
+        .text_edit
+        .sync_from_runtime(input_id, "abcdefghij", None, None);
     let state = runtime.text_edit.get_mut_or_default(input_id);
     state.caret = 8;
     state.anchor = 2;
@@ -1178,6 +1183,9 @@ fn disabled_text_selection_controls_omit_all_handle_overlays() {
     let input_id = fission_ir::WidgetId::derived(89, &[0]);
     let mut selected_runtime = RuntimeState::default();
     selected_runtime.interaction.set_focused(Some(input_id));
+    selected_runtime
+        .text_edit
+        .sync_from_runtime(input_id, "abcdefghij", None, None);
     let selected_state = selected_runtime.text_edit.get_mut_or_default(input_id);
     selected_state.caret = 8;
     selected_state.anchor = 2;
@@ -1187,6 +1195,10 @@ fn disabled_text_selection_controls_omit_all_handle_overlays() {
         Some(fission_layout::LayoutPoint::new(96.0, 24.0));
     selected_state.affordances.toolbar_visible = true;
     selected_state.affordances.toolbar_anchor = Some(fission_layout::LayoutPoint::new(40.0, 12.0));
+    selected_state.affordances.active_handle = Some(TextSelectionHandleKind::End);
+    selected_state.affordances.magnifier_visible = true;
+    selected_state.affordances.magnifier_anchor =
+        Some(fission_layout::LayoutPoint::new(96.0, 24.0));
 
     let selected_ir = lower_node_with_runtime(
         TextInput {
@@ -1196,33 +1208,66 @@ fn disabled_text_selection_controls_omit_all_handle_overlays() {
                 enabled: false,
                 ..Default::default()
             },
+            magnifier_configuration: TextMagnifierConfiguration {
+                diameter: 74.0,
+                ..Default::default()
+            },
             ..Default::default()
         }
         .into(),
         selected_runtime,
     );
 
-    assert!(!selected_ir
+    for kind in [
+        TextSelectionHandleKind::Caret,
+        TextSelectionHandleKind::Start,
+        TextSelectionHandleKind::End,
+    ] {
+        assert!(!selected_ir
+            .nodes
+            .contains_key(&test_text_input_selection_handle_id(input_id, kind)));
+    }
+    let semantics = selected_ir
         .nodes
-        .contains_key(&test_text_input_selection_handle_id(
-            input_id,
-            TextSelectionHandleKind::Start,
-        )));
-    assert!(!selected_ir
-        .nodes
-        .contains_key(&test_text_input_selection_handle_id(
-            input_id,
-            TextSelectionHandleKind::End,
-        )));
+        .values()
+        .find_map(|node| match &node.op {
+            Op::Semantics(semantics) if semantics.role == fission_ir::Role::TextInput => {
+                Some(semantics)
+            }
+            _ => None,
+        })
+        .expect("text input semantics");
+    assert_eq!(semantics.text_selection, Some((2, 8)));
+    let selection_highlight = paint_ops(&selected_ir).find_map(|op| match op {
+        PaintOp::DrawRichText { runs, .. } => runs
+            .iter()
+            .find(|run| run.text == "cdefgh" && run.style.background_color.is_some()),
+        _ => None,
+    });
+    assert!(selection_highlight.is_some());
     assert!(selected_ir
         .nodes
         .contains_key(&test_text_input_toolbar_button_id(
             input_id,
             TextContextMenuAction::Copy,
         )));
+    let magnifier_box = selected_ir.nodes.values().find(|node| {
+        matches!(
+            node.op,
+            Op::Layout(LayoutOp::Positioned {
+                width: Some(width),
+                height: Some(height),
+                ..
+            }) if (width - 74.0).abs() < 0.001 && (height - 74.0).abs() < 0.001
+        )
+    });
+    assert!(magnifier_box.is_some());
 
     let mut collapsed_runtime = RuntimeState::default();
     collapsed_runtime.interaction.set_focused(Some(input_id));
+    collapsed_runtime
+        .text_edit
+        .sync_from_runtime(input_id, "abcdefghij", None, None);
     let collapsed_state = collapsed_runtime.text_edit.get_mut_or_default(input_id);
     collapsed_state.caret = 4;
     collapsed_state.anchor = 4;
@@ -1241,12 +1286,24 @@ fn disabled_text_selection_controls_omit_all_handle_overlays() {
         collapsed_runtime,
     );
 
-    assert!(!collapsed_ir
-        .nodes
-        .contains_key(&test_text_input_selection_handle_id(
-            input_id,
-            TextSelectionHandleKind::Caret,
-        )));
+    for kind in [
+        TextSelectionHandleKind::Caret,
+        TextSelectionHandleKind::Start,
+        TextSelectionHandleKind::End,
+    ] {
+        assert!(!collapsed_ir
+            .nodes
+            .contains_key(&test_text_input_selection_handle_id(input_id, kind)));
+    }
+    assert!(paint_ops(&collapsed_ir).any(|op| {
+        matches!(
+            op,
+            PaintOp::DrawRichText {
+                caret_color: Some(_),
+                ..
+            }
+        )
+    }));
 }
 
 #[test]
