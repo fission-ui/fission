@@ -80,6 +80,7 @@ The empty string inside `SetEmail(String::new())` is only a placeholder so `ctx.
 | `styled_runs` | `Option<Vec<TextRun>>` | Pre-styled text runs for syntax-highlighted rendering. | When present, the concatenated runs must match `value` exactly. |
 | `locale` | `Option<String>` | Locale override for shaping and accessibility. | Defaults to `None`. |
 | `scroll_padding` | `Option<[f32; 4]>` | Extra space kept around the caret during auto-scroll. | Defaults to `None`. |
+| `selection_controls` | `TextSelectionControls` | Configures caret and selection-handle overlays. | Set `enabled` to `false` for mouse-first editors that should not show touch-style handles. Defaults to enabled. |
 
 ## How text, actions, and input method editor state work together
 
@@ -105,4 +106,3 @@ If a screen starts repeating the same `TextInput` setup, extract a named compone
 ## Related
 
 [`FormControl`](/reference/widgets/form-control), [`Editable`](/reference/widgets/editable), [`Combobox`](/reference/widgets/combobox), and [`Environment, input, and input method editor`](/reference/core/environment-input-and-ime).
-
