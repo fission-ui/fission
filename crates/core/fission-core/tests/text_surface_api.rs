@@ -1114,6 +1114,68 @@ fn focused_text_input_renders_new_controlled_value_after_runtime_buffer_was_empt
         .expect("text input rich text paint op");
 
     assert_eq!(rendered, "Restored by the model");
+
+    let semantics = ir
+        .nodes
+        .values()
+        .find_map(|node| match &node.op {
+            Op::Semantics(semantics) if semantics.role == fission_ir::Role::TextInput => {
+                Some(semantics)
+            }
+            _ => None,
+        })
+        .expect("text input semantics");
+    assert_eq!(semantics.value.as_deref(), Some("Restored by the model"));
+    assert_eq!(semantics.text_selection, Some((0, 0)));
+}
+
+#[test]
+fn focused_text_input_clamps_stale_selection_to_new_controlled_value() {
+    let input_id = fission_ir::WidgetId::derived(87, &[2]);
+    let mut runtime = RuntimeState::default();
+    runtime.interaction.set_focused(Some(input_id));
+    runtime
+        .text_edit
+        .sync_from_runtime(input_id, "A much longer retained value", None, None);
+    let stale_state = runtime.text_edit.get_mut_or_default(input_id);
+    stale_state.caret = usize::MAX;
+    stale_state.anchor = 1;
+
+    let ir = lower_node_with_runtime(
+        TextInput {
+            id: Some(input_id.into()),
+            value: "é".into(),
+            ..Default::default()
+        }
+        .into(),
+        runtime,
+    );
+
+    let rendered = paint_ops(&ir)
+        .find_map(|op| match op {
+            PaintOp::DrawRichText { runs, .. } => {
+                Some(runs.iter().map(|run| run.text.as_str()).collect::<String>())
+            }
+            _ => None,
+        })
+        .expect("text input rich text paint op");
+    assert_eq!(rendered, "é");
+
+    let semantics = ir
+        .nodes
+        .values()
+        .find_map(|node| match &node.op {
+            Op::Semantics(semantics) if semantics.role == fission_ir::Role::TextInput => {
+                Some(semantics)
+            }
+            _ => None,
+        })
+        .expect("text input semantics");
+    assert_eq!(semantics.value.as_deref(), Some("é"));
+    assert_eq!(semantics.text_selection, Some((0, "é".len())));
+    let (anchor, caret) = semantics.text_selection.expect("text selection");
+    assert!("é".is_char_boundary(anchor));
+    assert!("é".is_char_boundary(caret));
 }
 
 #[test]
@@ -1149,6 +1211,19 @@ fn focused_text_input_keeps_pending_local_value_until_model_catches_up() {
         .expect("text input rich text paint op");
 
     assert_eq!(rendered, "Local edit");
+
+    let semantics = ir
+        .nodes
+        .values()
+        .find_map(|node| match &node.op {
+            Op::Semantics(semantics) if semantics.role == fission_ir::Role::TextInput => {
+                Some(semantics)
+            }
+            _ => None,
+        })
+        .expect("text input semantics");
+    assert_eq!(semantics.value.as_deref(), Some("Local edit"));
+    assert_eq!(semantics.text_selection, Some((10, 10)));
 }
 
 #[test]
