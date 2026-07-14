@@ -78,6 +78,7 @@ impl From<CheckboxPreview<'_>> for Widget {
                         },
                         child: Checkbox {
                             id: Some(id),
+                            semantics_identifier: Some("gallery.checkbox.accept_motion".into()),
                             checked: preview_active(state),
                             on_toggle: Some(on_toggle),
                             label: Some("Accept motion terms".into()),
@@ -137,6 +138,7 @@ const SOURCE: &str = r#"Motion {
     )],
     child: Checkbox {
         id: Some(WidgetId::explicit("accept_terms")),
+        semantics_identifier: Some("gallery.checkbox.accept_terms".into()),
         checked: state.accepted,
         label: Some("Accept terms".into()),
         on_toggle: Some(toggle_terms),

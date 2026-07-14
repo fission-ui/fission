@@ -6,7 +6,7 @@ Static site shell for Fission applications and documentation sites.
 
 ```toml
 [dependencies]
-fission = { version = "0.7.1", features = ["site"] }
+fission = { version = "0.8.0", features = ["site"] }
 ```
 
 ```sh

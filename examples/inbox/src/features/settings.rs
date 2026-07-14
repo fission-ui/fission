@@ -577,6 +577,7 @@ impl From<SettingsModal> for Widget {
                                 helper: Some(t("settings.zoom.helper")),
                                 child: Slider {
                                     id: None,
+                                    semantics_identifier: Some("inbox.settings.zoom_level".into()),
                                     value: view.state().zoom_level,
                                     min: 0.75,
                                     max: 1.25,

@@ -77,6 +77,7 @@ impl From<SwitchPreview<'_>> for Widget {
                         },
                         child: Switch {
                             id: Some(WidgetId::explicit("gallery.real.switch")),
+                            semantics_identifier: Some("gallery.switch.sync_preview".into()),
                             checked: preview_active(state),
                             on_toggle: Some(on_toggle),
                         }
@@ -134,6 +135,7 @@ const SOURCE: &str = r#"Motion {
     )],
     child: Switch {
         id: Some(WidgetId::explicit("sync_switch")),
+        semantics_identifier: Some("gallery.switch.sync".into()),
         checked: state.sync_enabled,
         on_toggle: Some(toggle_sync),
     }.into(),
