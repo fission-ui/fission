@@ -115,6 +115,17 @@ pub enum TestCommand {
         dx: f32,
         dy: f32,
     },
+    ExternalFileHover {
+        x: f32,
+        y: f32,
+        paths: Vec<String>,
+    },
+    ExternalFileDrop {
+        x: f32,
+        y: f32,
+        paths: Vec<String>,
+    },
+    ExternalFileCancel {},
     TypeText {
         text: String,
     },
@@ -209,6 +220,17 @@ pub enum TestEvent {
         dx: f32,
         dy: f32,
     },
+    ExternalFileHover {
+        x: f32,
+        y: f32,
+        paths: Vec<String>,
+    },
+    ExternalFileDrop {
+        x: f32,
+        y: f32,
+        paths: Vec<String>,
+    },
+    ExternalFileCancel,
     Resize {
         width: u32,
         height: u32,
@@ -770,6 +792,32 @@ impl LiveTestClient {
             end_y,
             steps,
         })?;
+        self.pump()?;
+        Ok(())
+    }
+
+    pub fn external_file_hover(&self, x: f32, y: f32, paths: impl Into<Vec<String>>) -> Result<()> {
+        self.send(TestCommand::ExternalFileHover {
+            x,
+            y,
+            paths: paths.into(),
+        })?;
+        self.pump()?;
+        Ok(())
+    }
+
+    pub fn external_file_drop(&self, x: f32, y: f32, paths: impl Into<Vec<String>>) -> Result<()> {
+        self.send(TestCommand::ExternalFileDrop {
+            x,
+            y,
+            paths: paths.into(),
+        })?;
+        self.pump()?;
+        Ok(())
+    }
+
+    pub fn external_file_cancel(&self) -> Result<()> {
+        self.send(TestCommand::ExternalFileCancel {})?;
         self.pump()?;
         Ok(())
     }
