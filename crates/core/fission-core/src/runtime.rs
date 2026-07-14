@@ -1009,6 +1009,26 @@ impl Runtime {
     /// schedule another frame.
     pub fn post_layout_hook(&mut self, ir: &CoreIR, layout: &LayoutSnapshot) -> bool {
         let needs_follow_up_frame = self.apply_pending_scroll_into_view(ir, layout);
+        let active_scroll_nodes: HashSet<WidgetId> = ir
+            .nodes
+            .iter()
+            .filter_map(|(id, node)| match node.op {
+                Op::Layout(LayoutOp::Scroll { .. }) => Some(*id),
+                _ => None,
+            })
+            .collect();
+        self.runtime_state
+            .scroll
+            .retain_active(&active_scroll_nodes);
+        if self
+            .runtime_state
+            .gesture
+            .scrollbar_drag
+            .is_some_and(|drag| !active_scroll_nodes.contains(&drag.node_id))
+        {
+            self.runtime_state.gesture.scrollbar_drag = None;
+        }
+
         let mut current_heroes = HashMap::new();
 
         for (id, node) in &ir.nodes {

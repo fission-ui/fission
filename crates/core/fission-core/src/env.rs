@@ -209,6 +209,10 @@ impl ScrollStateMap {
     pub fn set_offset(&mut self, id: WidgetId, offset: f32) {
         self.offsets.insert(id, offset);
     }
+
+    pub fn retain_active(&mut self, active: &std::collections::HashSet<WidgetId>) {
+        self.offsets.retain(|id, _| active.contains(id));
+    }
 }
 
 #[derive(Clone, Debug, Default)]
