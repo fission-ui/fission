@@ -6709,19 +6709,30 @@ where
                                 }
                                 .into();
 
-                                let mut lower_cx = InternalLoweringCx::new(
-                                    &env,
-                                    &runtime.runtime_state,
-                                    runtime.measurer.as_ref(),
-                                    pipeline.last_snapshot.as_ref(),
-                                );
-                                let root_id = fission_core::internal::lower_widget(
-                                    &final_root,
-                                    &mut lower_cx,
-                                );
-                                lower_cx.ir.root = Some(root_id);
+                                let ir = {
+                                    let mut lower_cx = InternalLoweringCx::new(
+                                        &env,
+                                        &runtime.runtime_state,
+                                        runtime.measurer.as_ref(),
+                                        pipeline.last_snapshot.as_ref(),
+                                    );
+                                    let root_id = fission_core::internal::lower_widget(
+                                        &final_root,
+                                        &mut lower_cx,
+                                    );
+                                    lower_cx.ir.root = Some(root_id);
+                                    lower_cx.ir
+                                };
 
-                                let pipeline_invalidations = pipeline.replace_ir(lower_cx.ir, &env);
+                                match runtime.reconcile_focus(&ir) {
+                                    Ok(true) => invalidations.mark_build(),
+                                    Ok(false) => {}
+                                    Err(err) => {
+                                        eprintln!("Runtime focus reconciliation error: {err:?}");
+                                    }
+                                }
+
+                                let pipeline_invalidations = pipeline.replace_ir(ir, &env);
                                 invalidations.merge(pipeline_invalidations);
                                 last_built_viewport = Some(build_viewport);
                             }

@@ -178,32 +178,14 @@ pub fn find_next_focus_node(
     current: Option<WidgetId>,
     reverse: bool,
 ) -> Option<WidgetId> {
-    // Identify current scope if focused node is provided
-    let (current_scope_id, current_is_barrier) = if let Some(id) = current {
-        let scope = find_parent_scope(id, ir);
-        let mut is_barrier = false;
-        if let Some(sid) = scope {
-            if let Some(node) = ir.nodes.get(&sid) {
-                if let Op::Semantics(s) = &node.op {
-                    is_barrier = s.is_focus_barrier;
-                }
-            }
+    let nodes_in_scope = if let Some(barrier_id) = topmost_focus_barrier(ir) {
+        focusable_nodes_in_scope(ir, barrier_id)
+    } else if let Some(scope_id) = current.and_then(|id| find_containing_focus_scope(id, ir)) {
+        if is_focus_barrier(ir, scope_id) {
+            focusable_nodes_in_scope(ir, scope_id)
+        } else {
+            get_all_focusable_nodes(ir)
         }
-        (scope, is_barrier)
-    } else {
-        (None, false)
-    };
-
-    let nodes_in_scope = if current_is_barrier {
-        let scope_id = current_scope_id.unwrap();
-        let mut list = Vec::new();
-        // Start recursion on CHILDREN of the barrier root to avoid skipping it
-        if let Some(node) = ir.nodes.get(&scope_id) {
-            for child in &node.children {
-                collect_focusable_nodes(*child, ir, &mut list, true, 0);
-            }
-        }
-        sort_focusable_nodes(ir, list)
     } else {
         get_all_focusable_nodes(ir)
     };
@@ -248,6 +230,61 @@ pub fn get_all_focusable_nodes(ir: &CoreIR) -> Vec<WidgetId> {
         collect_focusable_nodes(root, ir, &mut list, false, 0);
     }
     sort_focusable_nodes(ir, list)
+}
+
+/// Returns focus barriers in tree order. The last barrier is the topmost active
+/// barrier because overlays lower after their underlying content.
+pub fn focus_barriers_in_tree_order(ir: &CoreIR) -> Vec<WidgetId> {
+    let mut barriers = Vec::new();
+    if let Some(root) = ir.root {
+        collect_focus_barriers(root, ir, &mut barriers);
+    }
+    barriers
+}
+
+/// Returns the topmost active focus barrier in the current semantic tree.
+pub fn topmost_focus_barrier(ir: &CoreIR) -> Option<WidgetId> {
+    focus_barriers_in_tree_order(ir).last().copied()
+}
+
+/// Returns enabled focusable nodes inside `scope_id` in traversal order.
+pub fn focusable_nodes_in_scope(ir: &CoreIR, scope_id: WidgetId) -> Vec<WidgetId> {
+    let mut list = Vec::new();
+    if let Some(scope) = ir.nodes.get(&scope_id) {
+        let mut order = 0;
+        for child in &scope.children {
+            collect_focusable_nodes(*child, ir, &mut list, false, order);
+            order = list.last().map(|(_, index)| *index + 1).unwrap_or(order);
+        }
+    }
+    sort_focusable_nodes(ir, list)
+}
+
+/// Returns the preferred entry target for a focus scope.
+pub fn preferred_focus_node_in_scope(ir: &CoreIR, scope_id: WidgetId) -> Option<WidgetId> {
+    let nodes = focusable_nodes_in_scope(ir, scope_id);
+    nodes
+        .iter()
+        .copied()
+        .find(|id| semantics(ir, *id).is_some_and(|value| value.autofocus))
+        .or_else(|| nodes.first().copied())
+}
+
+/// Returns whether `node_id` is an enabled focus target.
+pub fn is_enabled_focus_node(ir: &CoreIR, node_id: WidgetId) -> bool {
+    semantics(ir, node_id).is_some_and(|value| value.focusable && !value.disabled)
+}
+
+/// Returns whether `node_id` is `ancestor_id` or belongs to its subtree.
+pub fn is_descendant_or_self(ir: &CoreIR, node_id: WidgetId, ancestor_id: WidgetId) -> bool {
+    let mut current = Some(node_id);
+    while let Some(id) = current {
+        if id == ancestor_id {
+            return true;
+        }
+        current = ir.nodes.get(&id).and_then(|node| node.parent);
+    }
+    false
 }
 
 fn sort_focusable_nodes(ir: &CoreIR, mut list: Vec<(WidgetId, usize)>) -> Vec<WidgetId> {
@@ -320,8 +357,20 @@ fn collect_focusable_nodes(
     }
 }
 
-fn find_parent_scope(node_id: WidgetId, ir: &CoreIR) -> Option<WidgetId> {
-    let mut curr = ir.nodes.get(&node_id)?.parent;
+fn collect_focus_barriers(node_id: WidgetId, ir: &CoreIR, barriers: &mut Vec<WidgetId>) {
+    let Some(node) = ir.nodes.get(&node_id) else {
+        return;
+    };
+    if matches!(&node.op, Op::Semantics(value) if value.is_focus_scope && value.is_focus_barrier) {
+        barriers.push(node_id);
+    }
+    for child in &node.children {
+        collect_focus_barriers(*child, ir, barriers);
+    }
+}
+
+fn find_containing_focus_scope(node_id: WidgetId, ir: &CoreIR) -> Option<WidgetId> {
+    let mut curr = Some(node_id);
     while let Some(pid) = curr {
         if let Some(node) = ir.nodes.get(&pid) {
             if let Op::Semantics(s) = &node.op {
@@ -335,6 +384,17 @@ fn find_parent_scope(node_id: WidgetId, ir: &CoreIR) -> Option<WidgetId> {
         }
     }
     None
+}
+
+fn is_focus_barrier(ir: &CoreIR, node_id: WidgetId) -> bool {
+    semantics(ir, node_id).is_some_and(|value| value.is_focus_barrier)
+}
+
+fn semantics(ir: &CoreIR, node_id: WidgetId) -> Option<&fission_ir::Semantics> {
+    match &ir.nodes.get(&node_id)?.op {
+        Op::Semantics(value) => Some(value),
+        _ => None,
+    }
 }
 
 pub fn find_neighbor_focus_node(

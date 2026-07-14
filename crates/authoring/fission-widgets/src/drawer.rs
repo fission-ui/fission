@@ -1,6 +1,6 @@
 use crate::motion_support::{
     dedupe, exit_for, fade_in, push_enter_with_exit, slide_x_in, slide_y_in, slot_id,
-    SLOT_BACKDROP, SLOT_PANEL,
+    SLOT_BACKDROP, SLOT_FOCUS_SCOPE, SLOT_PANEL,
 };
 use fission_core::motion::{MotionTrack, Presence};
 use fission_core::op::{BoxShadow, Color};
@@ -343,7 +343,7 @@ impl From<Drawer> for Widget {
             bottom: Some(0.0),
             child: Some(
                 fission_core::ui::widgets::FocusScope {
-                    id: None,
+                    id: Some(slot_id(this.id, SLOT_FOCUS_SCOPE)),
                     is_barrier: true,
                     children: vec![root],
                 }
