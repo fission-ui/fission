@@ -9,6 +9,7 @@ use toml_edit::{value, Array, DocumentMut, InlineTable, Item, Table, Value};
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const ANDROID_GRADLE_PLUGIN_VERSION: &str = "8.13.2";
 const DEFAULT_APP_ICON_PNG: &[u8] = include_bytes!("../assets/fission_logo.png");
+const GENERATED_APP_AGENTS_MARKER: &str = "<!-- fission-cli-generated-agents:v1 -->";
 const GENERATED_APP_AGENTS_MD: &str = include_str!("../assets/AGENTS.md");
 
 mod icons;
@@ -2961,21 +2962,48 @@ fn scaffold_web_bundle(
 fn write_generated_app_agents(project_root: &Path) -> Result<()> {
     let repo_root = find_git_root(project_root).unwrap_or_else(|| project_root.to_path_buf());
     let root_agents = repo_root.join("AGENTS.md");
-    let path = if fs::read_to_string(&root_agents)
-        .map(|existing| existing == GENERATED_APP_AGENTS_MD)
-        .unwrap_or(false)
-    {
-        root_agents
-    } else if root_agents.exists() {
-        repo_root.join("AGENTS.fission.md")
-    } else {
-        root_agents
-    };
+    if let Some(existing) = read_optional_string(&root_agents)? {
+        if is_generated_app_agents(&existing) {
+            return write_file_with_policy(
+                &root_agents,
+                GENERATED_APP_AGENTS_MD,
+                WritePolicy::Overwrite,
+            );
+        }
+
+        let fission_agents = repo_root.join("AGENTS.fission.md");
+        let write_policy = read_optional_string(&fission_agents)?
+            .filter(|existing| is_generated_app_agents(existing))
+            .map(|_| WritePolicy::Overwrite)
+            .unwrap_or(WritePolicy::PreserveExisting);
+
+        return write_file_with_policy(&fission_agents, GENERATED_APP_AGENTS_MD, write_policy);
+    }
+
     write_file_with_policy(
-        &path,
+        &root_agents,
         GENERATED_APP_AGENTS_MD,
-        WritePolicy::PreserveExisting,
+        WritePolicy::Overwrite,
     )
+}
+
+fn read_optional_string(path: &Path) -> Result<Option<String>> {
+    match fs::read_to_string(path) {
+        Ok(contents) => Ok(Some(contents)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error).with_context(|| format!("failed to read {}", path.display())),
+    }
+}
+
+fn is_generated_app_agents(contents: &str) -> bool {
+    contents.contains(GENERATED_APP_AGENTS_MARKER)
+        || contents == GENERATED_APP_AGENTS_MD
+        || (contents.contains("# Fission App Guidelines")
+            && contents.contains(
+                "These instructions apply when building or reviewing a Fission-based app",
+            )
+            && contents.contains("## Source-Grounded Work")
+            && contents.contains("## Validation"))
 }
 
 fn find_git_root(start: &Path) -> Option<PathBuf> {

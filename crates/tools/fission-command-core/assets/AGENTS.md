@@ -1,3 +1,5 @@
+<!-- fission-cli-generated-agents:v1 -->
+
 # Fission App Guidelines
 
 These instructions apply when building or reviewing a Fission-based app in this
@@ -167,6 +169,11 @@ binds reducers that update app state.
 - Do not start network requests, file writes, or host operations during component
   conversion. Request work through effects, jobs, services, capabilities, or
   resources.
+- Never block the UI thread while a job, service call, persistence operation,
+  network request, export, or other host operation is running. Dispatch the work
+  through an asynchronous effect, job, service, capability, or resource; retain
+  an explicit loading state; and render either a product-specific loader or
+  Fission's built-in spinner until the operation completes or fails.
 - For local-state components rendered from dynamic, reorderable, insertable, or
   filterable data, assign stable widget identities with
   `.id(WidgetId::explicit(...))`. Use a durable data id, not the list index.

@@ -919,8 +919,10 @@ mkdir -p "$(dirname "$artifact")"
         let readme = std::fs::read_to_string(dir.join("README.md")).unwrap();
         let agents = std::fs::read_to_string(dir.join("AGENTS.md")).unwrap();
         assert!(agents.contains("# Fission App Guidelines"));
+        assert!(agents.contains("fission-cli-generated-agents:v1"));
         assert!(agents.contains("#[fission_component]"));
         assert!(agents.contains("Use Fission's native Router and RouterParams"));
+        assert!(agents.contains("Never block the UI thread"));
         assert!(readme.contains("fission devices --project-dir ."));
         assert!(readme.contains("fission run --project-dir ."));
         assert!(readme.contains("fission logs --target <target>"));
@@ -987,6 +989,27 @@ mkdir -p "$(dirname "$artifact")"
         );
         let fission_agents = fs::read_to_string(repo.join("AGENTS.fission.md")).unwrap();
         assert!(fission_agents.contains("# Fission App Guidelines"));
+        assert!(fission_agents.contains("fission-cli-generated-agents:v1"));
+        assert!(!app.join("AGENTS.md").exists());
+    }
+
+    #[test]
+    fn init_updates_existing_fission_agents_at_git_root() {
+        let repo = unique_dir("init-agents-update-existing");
+        fs::create_dir_all(repo.join(".git")).unwrap();
+        fs::write(
+            repo.join("AGENTS.md"),
+            "# Fission App Guidelines\n\nThese instructions apply when building or reviewing a Fission-based app in this tree.\n\n## Source-Grounded Work\n\nold generated content\n\n## Validation\n",
+        )
+        .unwrap();
+        let app = repo.join("apps/todo");
+
+        run(["fission", "init", app.to_str().unwrap(), "--name", "todo"]).unwrap();
+
+        let agents = fs::read_to_string(repo.join("AGENTS.md")).unwrap();
+        assert!(agents.contains("fission-cli-generated-agents:v1"));
+        assert!(agents.contains("Never block the UI thread"));
+        assert!(!repo.join("AGENTS.fission.md").exists());
         assert!(!app.join("AGENTS.md").exists());
     }
 
