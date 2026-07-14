@@ -581,6 +581,27 @@ fn test_ime_preedit_tracks_cursor_without_dispatching_change() {
 }
 
 #[test]
+fn pending_text_edit_accepts_transformed_model_value_on_sync() {
+    let node_id = WidgetId::derived(40, &[3]);
+    let mut text_edit = TextEditStateMap::default();
+    text_edit.sync_from_runtime(node_id, "First item\n", None, None);
+    text_edit.get_mut_or_default(node_id).apply_edit(
+        "First item".len().."First item".len(),
+        "Second item",
+        "First itemSecond item".len(),
+        "First itemSecond item".len(),
+    );
+
+    text_edit.sync_from_runtime(node_id, "First item\nSecond item", None, None);
+
+    let state = text_edit.get(node_id).expect("text input state");
+    assert_eq!(state.committed_text(), "First item\nSecond item");
+    assert!(!state.pending_model_sync);
+    assert_eq!(state.caret, "First item\nSecond item".len());
+    assert_eq!(state.anchor, "First item\nSecond item".len());
+}
+
+#[test]
 fn runtime_updates_ime_cursor_area_from_text_caret() {
     let input_id = WidgetId::derived(45, &[0]);
     let scroll_id = WidgetId::derived(45, &[1]);
