@@ -1227,6 +1227,76 @@ fn focused_text_input_keeps_pending_local_value_until_model_catches_up() {
 }
 
 #[test]
+fn focused_text_input_ignores_stale_styled_runs_for_pending_local_value() {
+    let input_id = fission_ir::WidgetId::derived(87, &[3]);
+    let mut runtime = RuntimeState::default();
+    runtime.interaction.set_focused(Some(input_id));
+    runtime
+        .text_edit
+        .sync_from_runtime(input_id, "Old", None, None);
+    runtime
+        .text_edit
+        .get_mut_or_default(input_id)
+        .apply_edit(0..3, "Local edit", 10, 10);
+
+    let stale_styled_runs = vec![fission_ir::op::TextRun {
+        text: "Old".into(),
+        style: fission_ir::op::TextStyle {
+            font_size: 14.0,
+            color: Color {
+                r: 200,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
+            underline: false,
+            font_family: None,
+            locale: None,
+            font_weight: 400,
+            font_style: fission_ir::op::FontStyle::Normal,
+            line_height: None,
+            letter_spacing: 0.0,
+            background_color: None,
+        },
+    }];
+
+    let ir = lower_node_with_runtime(
+        TextInput {
+            id: Some(input_id.into()),
+            value: "Old".into(),
+            styled_runs: Some(stale_styled_runs),
+            ..Default::default()
+        }
+        .into(),
+        runtime,
+    );
+
+    let rendered = paint_ops(&ir)
+        .find_map(|op| match op {
+            PaintOp::DrawRichText { runs, .. } => {
+                Some(runs.iter().map(|run| run.text.as_str()).collect::<String>())
+            }
+            _ => None,
+        })
+        .expect("text input rich text paint op");
+
+    assert_eq!(rendered, "Local edit");
+
+    let semantics = ir
+        .nodes
+        .values()
+        .find_map(|node| match &node.op {
+            Op::Semantics(semantics) if semantics.role == fission_ir::Role::TextInput => {
+                Some(semantics)
+            }
+            _ => None,
+        })
+        .expect("text input semantics");
+    assert_eq!(semantics.value.as_deref(), Some("Local edit"));
+    assert_eq!(semantics.text_selection, Some((10, 10)));
+}
+
+#[test]
 fn focused_text_input_lowers_toolbar_handles_and_magnifier_overlays() {
     assert!(TextSelectionControls::default().enabled);
 
