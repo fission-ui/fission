@@ -183,6 +183,26 @@ fn nearest_alignment_keeps_already_visible_target_stationary() {
 }
 
 #[test]
+fn nearest_if_needed_keeps_partially_visible_oversized_target_stationary() {
+    let (ir, mut layout, scroll, target) = vertical_scroll_tree();
+    layout.nodes.get_mut(&target).unwrap().rect = LayoutRect::new(0.0, 20.0, 100.0, 220.0);
+    let mut runtime = Runtime::default();
+
+    runtime.queue_scroll_into_view(ScrollIntoViewRequest {
+        container: Some(scroll),
+        target,
+        axis: ScrollAxis::Vertical,
+        alignment: ScrollAlignment::Nearest,
+        padding: [0.0, 0.0, 8.0, 8.0],
+        behavior: ScrollBehavior::Instant,
+        if_needed: true,
+    });
+
+    assert!(!runtime.post_layout_hook(&ir, &layout));
+    assert_eq!(runtime.runtime_state.scroll.get_offset(scroll), 0.0);
+}
+
+#[test]
 fn missing_target_is_retried_once_after_next_layout() {
     let (mut ir, mut layout, scroll, target) = vertical_scroll_tree();
     ir.nodes.remove(&target);

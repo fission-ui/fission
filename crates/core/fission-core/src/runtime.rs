@@ -915,6 +915,14 @@ impl Runtime {
         if if_needed && reveal_start >= viewport_start && reveal_end <= viewport_end {
             return current_offset.min(max_offset);
         }
+        if if_needed
+            && matches!(alignment, ScrollAlignment::Nearest)
+            && reveal_end - reveal_start > viewport_size
+            && reveal_start < viewport_end
+            && reveal_end > viewport_start
+        {
+            return current_offset.min(max_offset);
+        }
 
         let desired = match alignment {
             ScrollAlignment::Start => reveal_start,
