@@ -18,3 +18,4 @@ fission-command-release = { path = "../fission-command-release", version = "0.7.
 fission-command-run = { path = "../fission-command-run", version = "0.7.1" }
 rfd = { version = "0.14.1", default-features = true }
 serde = { version = "1.0", features = ["derive"] }
+toml_edit = "0.23"

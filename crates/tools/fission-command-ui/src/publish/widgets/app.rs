@@ -1,5 +1,6 @@
 use super::boards::PublishBoardCanvas;
 use super::chrome::{PublishFooter, PublishHeader};
+use super::config_editor::FissionTomlEditorPanel;
 use super::*;
 
 #[derive(Clone)]
@@ -11,13 +12,14 @@ impl From<PublishApp> for Widget {
         let size = view.env().viewport_size;
         let palette = PublishPalette::for_mode(view.state().theme_mode);
         let layout = PublishLayout::from_viewport(size);
+        let main: Widget = if view.state().config_editor.is_some() {
+            FissionTomlEditorPanel { layout }.into()
+        } else {
+            PublishBoardCanvas { layout }.into()
+        };
         let body = Column {
             gap: Some(layout.gap),
-            children: widgets![
-                PublishHeader { layout },
-                PublishBoardCanvas { layout },
-                PublishFooter { layout },
-            ],
+            children: widgets![PublishHeader { layout }, main, PublishFooter { layout },],
             ..Default::default()
         };
         Container::new(body)

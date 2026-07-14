@@ -5,6 +5,7 @@ use fission::op::{AlignItems, JustifyContent};
 mod app;
 mod boards;
 mod chrome;
+mod config_editor;
 mod file_picker;
 mod panel;
 mod primitives;

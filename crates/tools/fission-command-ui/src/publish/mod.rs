@@ -4,7 +4,7 @@ use fission::prelude::*;
 use fission_command_core::{read_project_config, DistributionProvider, Target};
 use fission_command_package::{
     package_silent, publish_flow_snapshot, CheckSeverity, CheckStatus, PackageFormat,
-    PackageOptions, PublishShellOptions, ReadinessCheck,
+    PackageOptions, PublishFlowSnapshot, PublishShellOptions, ReadinessCheck,
 };
 use fission_command_release::{
     publish_workflow, release_plan_snapshot, release_readiness_checks, PublishWorkflowOptions,
@@ -18,12 +18,14 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+mod fission_toml;
 mod fs_ops;
 mod style;
 #[cfg(test)]
 mod tests;
 mod widgets;
 
+use fission_toml::*;
 use fs_ops::*;
 use style::theme_for_mode;
 pub use widgets::PublishApp;
@@ -62,7 +64,7 @@ pub fn run_publish_tui(options: PublishUiOptions) -> Result<()> {
         .with_env(|env| env.theme = fission::theme::Theme::dark())
         .with_sync_env(|state, env| env.theme = theme_for_mode(state.theme_mode))
         .with_key_handler(publish_key_handler)
-        .with_state_update(|state, _runtime, _env| state.poll_task())
+        .with_state_update(|state, _runtime, _env| state.poll_background_tasks())
         .run_with_options(run_options)
 }
 
@@ -74,7 +76,7 @@ pub fn run_publish_window(options: PublishUiOptions) -> Result<()> {
         .with_title("Fission Publish")
         .with_sync_env(|state, env| env.theme = theme_for_mode(state.theme_mode))
         .with_key_handler(publish_key_handler)
-        .with_frame_hook(|state| state.poll_task())
+        .with_frame_hook(|state| state.poll_background_tasks())
         .run()
 }
 
@@ -110,6 +112,7 @@ pub struct PublishUiState {
     pub theme_mode: ThemeMode,
     pub file_picker: Option<FilePickerState>,
     pub selected_file: Option<FileSelection>,
+    pub(crate) config_editor: Option<FissionTomlEditorState>,
     pub play_json_path: String,
     pub android_jks_path: String,
     pub android_alias: String,
@@ -131,6 +134,8 @@ pub struct PublishUiState {
     pub task: Option<PublishTaskState>,
     pub task_revision_seen: u64,
     pub task_log: Vec<String>,
+    pub(crate) snapshot_task: Option<SnapshotRefreshState>,
+    pub snapshot_task_revision_seen: u64,
     pub native_file_dialog: bool,
 }
 
@@ -180,6 +185,7 @@ impl PublishUiState {
             theme_mode: ThemeMode::Dark,
             file_picker: None,
             selected_file: None,
+            config_editor: None,
             play_json_path: String::new(),
             android_jks_path: String::new(),
             android_alias: String::new(),
@@ -201,6 +207,8 @@ impl PublishUiState {
             task: None,
             task_revision_seen: 0,
             task_log: Vec::new(),
+            snapshot_task: None,
+            snapshot_task_revision_seen: 0,
             native_file_dialog: options.native_file_dialog,
         };
         state.refresh_snapshot();
@@ -238,54 +246,88 @@ impl PublishUiState {
     }
 
     fn refresh_snapshot(&mut self) {
-        match publish_flow_snapshot(&self.options()) {
-            Ok(snapshot) => {
-                self.app_name = snapshot.app_name;
-                self.app_id = snapshot.app_id;
-                self.provider = snapshot.provider;
-                self.target = snapshot.target;
-                self.format = snapshot.format;
-                self.site = snapshot.site;
-                self.track = snapshot
-                    .track
-                    .unwrap_or_else(|| self.board.default_track().to_string());
-                if !snapshot.locales.is_empty() && self.locales_input.trim().is_empty() {
-                    self.locales_input = snapshot.locales.join(", ");
-                }
-                self.workspace = snapshot.workspace;
-                self.artifact_manifest = snapshot.artifact_manifest;
-                self.package_checks = snapshot
-                    .package_checks
-                    .into_iter()
-                    .map(UiCheck::from)
-                    .collect();
-                self.distribution_checks = snapshot
-                    .distribution_checks
-                    .into_iter()
-                    .map(UiCheck::from)
-                    .collect();
-                self.release_plan = load_release_plan(self).ok();
-                self.release_checks = load_release_checks(self)
-                    .unwrap_or_else(|err| readiness_error("release.plan.readiness_failed", err))
-                    .into_iter()
-                    .map(UiCheck::from)
-                    .collect();
-                self.status_message = "Preflight refreshed".to_string();
-                if self.android_alias.trim().is_empty() {
-                    self.android_alias = sanitize_workspace_name(&self.app_name).replace('.', "-");
-                }
-            }
-            Err(err) => {
-                self.status_message = format!("Preflight failed: {err}");
-                self.package_checks = vec![UiCheck::failed(
-                    "Project could not be loaded",
-                    err.to_string(),
-                )];
-                self.distribution_checks.clear();
-                self.release_checks.clear();
-                self.release_plan = None;
-            }
+        match collect_refresh_snapshot(self.options()) {
+            Ok(result) => self.apply_refresh_result(result),
+            Err(err) => self.apply_refresh_error(err.to_string()),
         }
+    }
+
+    fn apply_refresh_result(&mut self, result: SnapshotRefreshResult) {
+        let snapshot = result.snapshot;
+        self.app_name = snapshot.app_name;
+        self.app_id = snapshot.app_id;
+        self.provider = snapshot.provider;
+        self.target = snapshot.target;
+        self.format = snapshot.format;
+        self.site = snapshot.site;
+        self.track = snapshot
+            .track
+            .unwrap_or_else(|| self.board.default_track().to_string());
+        if !snapshot.locales.is_empty() && self.locales_input.trim().is_empty() {
+            self.locales_input = snapshot.locales.join(", ");
+        }
+        self.workspace = snapshot.workspace;
+        self.artifact_manifest = snapshot.artifact_manifest;
+        self.package_checks = snapshot
+            .package_checks
+            .into_iter()
+            .map(UiCheck::from)
+            .collect();
+        self.distribution_checks = snapshot
+            .distribution_checks
+            .into_iter()
+            .map(UiCheck::from)
+            .collect();
+        self.release_plan = result.release_plan;
+        self.release_checks = result
+            .release_checks
+            .into_iter()
+            .map(UiCheck::from)
+            .collect();
+        self.status_message = "Preflight refreshed".to_string();
+        if self.android_alias.trim().is_empty() {
+            self.android_alias = sanitize_workspace_name(&self.app_name).replace('.', "-");
+        }
+    }
+
+    fn apply_refresh_error(&mut self, err: String) {
+        self.status_message = format!("Preflight failed: {err}");
+        self.package_checks = vec![UiCheck::failed("Project could not be loaded", err)];
+        self.distribution_checks.clear();
+        self.release_checks.clear();
+        self.release_plan = None;
+    }
+
+    fn start_snapshot_refresh(&mut self) {
+        if self
+            .snapshot_task
+            .as_ref()
+            .is_some_and(|task| task.status() == TaskStatus::Running)
+        {
+            self.status_message = "Preflight refresh is already running".to_string();
+            return;
+        }
+        let options = self.options();
+        let task = SnapshotRefreshState::new();
+        let shared = task.shared.clone();
+        thread::spawn(move || {
+            let result = collect_refresh_snapshot(options).map_err(|err| err.to_string());
+            let mut data = shared.lock().expect("snapshot refresh lock poisoned");
+            data.status = if result.is_ok() {
+                TaskStatus::Ok
+            } else {
+                TaskStatus::Failed
+            };
+            data.message = match &result {
+                Ok(_) => "Preflight refreshed".to_string(),
+                Err(err) => format!("Preflight failed: {err}"),
+            };
+            data.result = Some(result);
+            data.revision = data.revision.saturating_add(1);
+        });
+        self.snapshot_task = Some(task);
+        self.snapshot_task_revision_seen = 0;
+        self.status_message = "Refreshing preflight...".to_string();
     }
 
     fn load_release_env_values(&mut self) {
@@ -400,7 +442,7 @@ impl PublishUiState {
                 self.save_values(&values);
             }
         }
-        self.refresh_snapshot();
+        self.start_snapshot_refresh();
     }
 
     fn save_values(&mut self, values: &[(&str, String)]) {
@@ -489,6 +531,10 @@ impl PublishUiState {
     }
 
     fn handle_key(&mut self, code: &fission::KeyCode) -> bool {
+        if self.config_editor.is_some() && matches!(code, fission::KeyCode::Escape) {
+            self.config_editor = None;
+            return true;
+        }
         if self.file_picker.is_some() {
             return self.handle_file_picker_key(code);
         }
@@ -644,7 +690,7 @@ impl PublishUiState {
         match fission_command_release::skip_release_requirement(&self.project_dir, &id, true) {
             Ok(()) => {
                 self.status_message = format!("Skipped recommended release check {id}");
-                self.refresh_snapshot();
+                self.start_snapshot_refresh();
             }
             Err(err) => self.status_message = format!("Failed to skip {id}: {err}"),
         }
@@ -723,9 +769,49 @@ impl PublishUiState {
         self.task_log = task.output();
         if task.status() != TaskStatus::Running {
             self.status_message = format!("{}: {}", task.kind.label(), task.status().label());
-            self.refresh_snapshot();
+            self.start_snapshot_refresh();
         }
         true
+    }
+
+    fn poll_snapshot_task(&mut self) -> bool {
+        let Some(task) = &self.snapshot_task else {
+            return false;
+        };
+        let revision = task.revision();
+        if self.snapshot_task_revision_seen == revision {
+            return false;
+        }
+        self.snapshot_task_revision_seen = revision;
+        if task.status() == TaskStatus::Running {
+            self.status_message = task.message();
+            return true;
+        }
+        let result = task.result();
+        self.snapshot_task = None;
+        self.snapshot_task_revision_seen = 0;
+        match result {
+            Some(Ok(result)) => {
+                self.apply_refresh_result(result);
+                if let Some(editor) = &mut self.config_editor {
+                    editor.status_message = "Saved and readiness refreshed.".to_string();
+                }
+            }
+            Some(Err(err)) => {
+                self.apply_refresh_error(err.clone());
+                if let Some(editor) = &mut self.config_editor {
+                    editor.status_message = format!("Saved, but readiness refresh failed: {err}");
+                }
+            }
+            None => self.status_message = "Preflight refresh finished without a result".to_string(),
+        }
+        true
+    }
+
+    fn poll_background_tasks(&mut self) -> bool {
+        let task_changed = self.poll_task();
+        let snapshot_changed = self.poll_snapshot_task();
+        task_changed || snapshot_changed
     }
 
     fn is_ready_to_publish(&self) -> bool {
@@ -745,6 +831,53 @@ impl PublishUiState {
 
     fn previous_step(&mut self) {
         self.current_step = self.current_step.saturating_sub(1).max(1);
+    }
+
+    fn go_to_step(&mut self, step: usize) {
+        self.current_step = step.clamp(1, self.board.step_count());
+    }
+
+    fn open_config_editor(&mut self, field: Option<String>) {
+        self.config_editor = Some(FissionTomlEditorState::load(&self.project_dir, field));
+    }
+
+    fn select_config_field(&mut self, field: String) {
+        if self.config_editor.is_none() {
+            self.open_config_editor(Some(field.clone()));
+        }
+        let value = read_fission_toml_field(&self.project_dir, &field).unwrap_or_default();
+        if let Some(editor) = &mut self.config_editor {
+            editor.selected_preset = field_specs()
+                .iter()
+                .position(|spec| spec.path == field)
+                .unwrap_or(editor.selected_preset);
+            editor.field_path = field;
+            editor.value = value;
+            editor.status_message = "Loaded current field value from fission.toml.".to_string();
+        }
+    }
+
+    fn apply_config_editor_field(&mut self) {
+        let Some((field_path, value)) = self
+            .config_editor
+            .as_ref()
+            .map(|editor| (editor.field_path.clone(), editor.value.clone()))
+        else {
+            return;
+        };
+        match apply_fission_toml_field(&self.project_dir, &field_path, &value) {
+            Ok(message) => {
+                if let Some(editor) = &mut self.config_editor {
+                    editor.status_message = format!("{message}. Refreshing readiness...");
+                }
+                self.start_snapshot_refresh();
+            }
+            Err(err) => {
+                if let Some(editor) = &mut self.config_editor {
+                    editor.status_message = format!("Failed to update fission.toml: {err}");
+                }
+            }
+        }
     }
 }
 
@@ -793,35 +926,48 @@ fn secretish_env_key(key: &str) -> bool {
     .any(|needle| key.contains(needle))
 }
 
-fn load_release_checks(state: &PublishUiState) -> Result<Vec<ReadinessCheck>> {
-    release_readiness_checks(publish_workflow_options_for_state(state))
+#[derive(Clone, Debug)]
+struct SnapshotRefreshResult {
+    snapshot: PublishFlowSnapshot,
+    release_plan: Option<ReleasePlanSnapshot>,
+    release_checks: Vec<ReadinessCheck>,
 }
 
-fn load_release_plan(state: &PublishUiState) -> Result<ReleasePlanSnapshot> {
-    release_plan_snapshot(publish_workflow_options_for_state(state))
+fn collect_refresh_snapshot(options: PublishShellOptions) -> Result<SnapshotRefreshResult> {
+    let snapshot = publish_flow_snapshot(&options)?;
+    let workflow_options = publish_workflow_options_for_snapshot(&options, &snapshot);
+    let release_plan = release_plan_snapshot(workflow_options.clone()).ok();
+    let release_checks = release_readiness_checks(workflow_options)
+        .unwrap_or_else(|err| readiness_error("release.plan.readiness_failed", err));
+    Ok(SnapshotRefreshResult {
+        snapshot,
+        release_plan,
+        release_checks,
+    })
 }
 
-fn publish_workflow_options_for_state(state: &PublishUiState) -> PublishWorkflowOptions {
+fn publish_workflow_options_for_snapshot(
+    options: &PublishShellOptions,
+    snapshot: &PublishFlowSnapshot,
+) -> PublishWorkflowOptions {
     PublishWorkflowOptions {
-        project_dir: state.project_dir.clone(),
-        provider: state.provider,
-        target: Some(state.target),
-        format: Some(state.format),
-        artifact: if state.artifact_manifest.as_os_str().is_empty() {
+        project_dir: snapshot.project_dir.clone(),
+        provider: snapshot.provider,
+        target: Some(snapshot.target),
+        format: Some(snapshot.format),
+        artifact: if snapshot.artifact_manifest.as_os_str().is_empty() {
             None
         } else {
-            Some(state.artifact_manifest.clone())
+            Some(snapshot.artifact_manifest.clone())
         },
-        site: state.site.clone(),
-        deploy: state.deploy.clone(),
-        track: Some(state.track.clone()).filter(|value| !value.trim().is_empty()),
-        locales: state
-            .locales_input
-            .split(',')
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string)
-            .collect(),
+        site: snapshot.site.clone(),
+        deploy: options.deploy.clone(),
+        track: snapshot.track.clone().or_else(|| options.track.clone()),
+        locales: if snapshot.locales.is_empty() {
+            options.locales.clone()
+        } else {
+            snapshot.locales.clone()
+        },
         overwrite_remote: false,
         dry_run: true,
         yes: true,
@@ -917,6 +1063,17 @@ impl UiCheck {
     fn is_non_blocking(&self) -> bool {
         self.severity != CheckSeverity::Error || self.status == CheckStatus::Passed
     }
+
+    fn needs_attention(&self) -> bool {
+        matches!(
+            self.status,
+            CheckStatus::Missing | CheckStatus::Failed | CheckStatus::Warning
+        )
+    }
+
+    fn action_hints(&self, board: PublishBoard, current_step: usize) -> Vec<PublishCheckAction> {
+        check_action_hints(self, board, current_step)
+    }
 }
 
 impl From<ReadinessCheck> for UiCheck {
@@ -930,6 +1087,312 @@ impl From<ReadinessCheck> for UiCheck {
             remediation: value.remediation,
         }
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PublishCheckAction {
+    pub label: String,
+    pub kind: PublishCheckActionKind,
+    pub primary: bool,
+}
+
+impl PublishCheckAction {
+    fn primary(label: impl Into<String>, kind: PublishCheckActionKind) -> Self {
+        Self {
+            label: label.into(),
+            kind,
+            primary: true,
+        }
+    }
+
+    fn secondary(label: impl Into<String>, kind: PublishCheckActionKind) -> Self {
+        Self {
+            label: label.into(),
+            kind,
+            primary: false,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PublishCheckActionKind {
+    GoToStep(usize),
+    OpenFilePicker(FilePurpose),
+    OpenConfigEditor(String),
+    SaveCredentials,
+    GenerateAndroidKey,
+    StartTask(PublishTaskKind),
+    SkipRequirement(String),
+    Refresh,
+}
+
+fn check_action_hints(
+    check: &UiCheck,
+    board: PublishBoard,
+    current_step: usize,
+) -> Vec<PublishCheckAction> {
+    if !check.needs_attention() {
+        return Vec::new();
+    }
+    let haystack = check_search_text(check);
+    let mut actions = Vec::new();
+
+    if mentions_any(
+        &haystack,
+        &[
+            "google_application_credentials",
+            "service account",
+            "play service",
+            "play store credential",
+        ],
+    ) {
+        actions.push(PublishCheckAction::primary(
+            "Select service JSON",
+            PublishCheckActionKind::OpenFilePicker(FilePurpose::PlayServiceJson),
+        ));
+        actions.push(PublishCheckAction::secondary(
+            "Credential step",
+            PublishCheckActionKind::GoToStep(3),
+        ));
+    }
+
+    if mentions_any(
+        &haystack,
+        &["android_keystore", "keystore", "upload key", ".jks", "jks"],
+    ) {
+        actions.push(PublishCheckAction::primary(
+            "Select JKS",
+            PublishCheckActionKind::OpenFilePicker(FilePurpose::AndroidKeystore),
+        ));
+        actions.push(PublishCheckAction::secondary(
+            "Generate key",
+            PublishCheckActionKind::GenerateAndroidKey,
+        ));
+        actions.push(PublishCheckAction::secondary(
+            "Signing step",
+            PublishCheckActionKind::GoToStep(4),
+        ));
+    }
+
+    if mentions_any(
+        &haystack,
+        &[
+            "app_store_connect_api_key_path",
+            "app store connect",
+            ".p8",
+            "issuer id",
+            "key id",
+        ],
+    ) {
+        if mentions_any(&haystack, &[".p8", "api_key_path", "key path"]) {
+            actions.push(PublishCheckAction::primary(
+                "Select .p8 key",
+                PublishCheckActionKind::OpenFilePicker(FilePurpose::AppStoreKey),
+            ));
+        }
+        actions.push(PublishCheckAction::secondary(
+            "Credential step",
+            PublishCheckActionKind::GoToStep(4),
+        ));
+        actions.push(PublishCheckAction::secondary(
+            "Save settings",
+            PublishCheckActionKind::SaveCredentials,
+        ));
+    }
+
+    if mentions_any(
+        &haystack,
+        &[
+            "windows_certificate",
+            "certificate",
+            ".pfx",
+            ".p12",
+            "signtool",
+        ],
+    ) {
+        if mentions_any(&haystack, &["certificate", ".pfx", ".p12"]) {
+            actions.push(PublishCheckAction::primary(
+                "Select certificate",
+                PublishCheckActionKind::OpenFilePicker(FilePurpose::WindowsCertificate),
+            ));
+        }
+        actions.push(PublishCheckAction::secondary(
+            "Signing step",
+            PublishCheckActionKind::GoToStep(3),
+        ));
+    }
+
+    if mentions_any(
+        &haystack,
+        &[
+            "azure_tenant_id",
+            "azure_client_id",
+            "microsoft_store_client_secret",
+            "client secret",
+            "tenant id",
+            "seller id",
+        ],
+    ) {
+        actions.push(PublishCheckAction::primary(
+            "Store credential step",
+            PublishCheckActionKind::GoToStep(4),
+        ));
+        actions.push(PublishCheckAction::secondary(
+            "Save settings",
+            PublishCheckActionKind::SaveCredentials,
+        ));
+    }
+
+    if mentions_any(
+        &haystack,
+        &[
+            "aws_profile",
+            "aws_region",
+            "aws_access_key_id",
+            "aws_secret_access_key",
+            "s3",
+            "bucket",
+        ],
+    ) {
+        actions.push(PublishCheckAction::primary(
+            "S3 settings step",
+            PublishCheckActionKind::GoToStep(4),
+        ));
+        actions.push(PublishCheckAction::secondary(
+            "Save settings",
+            PublishCheckActionKind::SaveCredentials,
+        ));
+    }
+
+    if check.id.starts_with("release.package.")
+        || mentions_any(
+            &haystack,
+            &[
+                "artifact",
+                "package",
+                "rebuild",
+                "build the",
+                "manifest",
+                "stale",
+            ],
+        )
+    {
+        actions.push(PublishCheckAction::primary(
+            "Build artifact",
+            PublishCheckActionKind::StartTask(PublishTaskKind::Package),
+        ));
+        actions.push(PublishCheckAction::secondary(
+            "Build step",
+            PublishCheckActionKind::GoToStep(match board {
+                PublishBoard::Android => 6,
+                PublishBoard::Ios => 6,
+                PublishBoard::Windows => 6,
+                PublishBoard::S3 => 5,
+            }),
+        ));
+    }
+
+    if mentions_any(
+        &haystack,
+        &[
+            "version code",
+            "version_code",
+            "build number",
+            "build_number",
+            "already been used",
+            "release.build",
+        ],
+    ) {
+        actions.push(PublishCheckAction::primary(
+            "Bump build",
+            PublishCheckActionKind::StartTask(PublishTaskKind::BumpBuild),
+        ));
+        actions.push(PublishCheckAction::secondary(
+            "Rebuild artifact",
+            PublishCheckActionKind::StartTask(PublishTaskKind::Package),
+        ));
+    }
+
+    if let Some(field) = config_field_for_check(check, board) {
+        actions.push(PublishCheckAction::primary(
+            format!("Configure {field}"),
+            PublishCheckActionKind::OpenConfigEditor(field),
+        ));
+    } else if check.id.starts_with("release_config.") || check.id.starts_with("release_content.") {
+        actions.push(PublishCheckAction::primary(
+            "Open config editor",
+            PublishCheckActionKind::OpenConfigEditor(String::new()),
+        ));
+    }
+
+    if actions.is_empty() {
+        actions.push(PublishCheckAction::secondary(
+            "Refresh after manual fix",
+            PublishCheckActionKind::Refresh,
+        ));
+    }
+
+    if is_skippable_ui_check(check) {
+        actions.push(PublishCheckAction::secondary(
+            format!("Skip {}", short_check_action_label(&check.id)),
+            PublishCheckActionKind::SkipRequirement(check.id.clone()),
+        ));
+    }
+
+    let actions = actions
+        .into_iter()
+        .filter(|action| !matches!(action.kind, PublishCheckActionKind::GoToStep(step) if step == current_step))
+        .collect();
+    dedupe_check_actions(actions)
+}
+
+fn is_skippable_ui_check(check: &UiCheck) -> bool {
+    check.severity != CheckSeverity::Error
+        && matches!(
+            check.status,
+            CheckStatus::Missing | CheckStatus::Failed | CheckStatus::Warning
+        )
+}
+
+fn check_search_text(check: &UiCheck) -> String {
+    let mut text = String::new();
+    text.push_str(&check.id);
+    text.push(' ');
+    text.push_str(&check.summary);
+    if let Some(details) = &check.details {
+        text.push(' ');
+        text.push_str(details);
+    }
+    for remediation in &check.remediation {
+        text.push(' ');
+        text.push_str(remediation);
+    }
+    text.to_ascii_lowercase()
+}
+
+fn mentions_any(text: &str, needles: &[&str]) -> bool {
+    needles.iter().any(|needle| text.contains(needle))
+}
+
+fn short_check_action_label(id: &str) -> String {
+    id.rsplit('.')
+        .next()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(id)
+        .replace('_', " ")
+}
+
+fn dedupe_check_actions(actions: Vec<PublishCheckAction>) -> Vec<PublishCheckAction> {
+    let mut deduped = Vec::new();
+    for action in actions {
+        if !deduped
+            .iter()
+            .any(|existing: &PublishCheckAction| existing.kind == action.kind)
+        {
+            deduped.push(action);
+        }
+    }
+    deduped
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -1109,6 +1572,15 @@ impl PublishTaskRequest {
                 })?;
                 Ok("release workflow completed".to_string())
             }
+            PublishTaskKind::BumpBuild => {
+                fission_command_release::bump_release_build(
+                    &self.project_dir,
+                    Some(self.target),
+                    1,
+                    true,
+                )?;
+                Ok("release build bumped".to_string())
+            }
             PublishTaskKind::GenerateAndroidKey => Ok("Android upload key generated".to_string()),
         }
     }
@@ -1119,6 +1591,7 @@ pub enum PublishTaskKind {
     Package,
     DryRun,
     Publish,
+    BumpBuild,
     GenerateAndroidKey,
 }
 
@@ -1128,6 +1601,7 @@ impl PublishTaskKind {
             Self::Package => "package build",
             Self::DryRun => "dry-run publish",
             Self::Publish => "publish",
+            Self::BumpBuild => "build number bump",
             Self::GenerateAndroidKey => "Android upload key generation",
         }
     }
@@ -1187,6 +1661,68 @@ struct PublishTaskData {
     output: Vec<String>,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct SnapshotRefreshState {
+    shared: Arc<Mutex<SnapshotRefreshData>>,
+}
+
+impl SnapshotRefreshState {
+    fn new() -> Self {
+        Self {
+            shared: Arc::new(Mutex::new(SnapshotRefreshData {
+                status: TaskStatus::Running,
+                revision: 1,
+                message: "Refreshing preflight...".to_string(),
+                result: None,
+            })),
+        }
+    }
+
+    fn status(&self) -> TaskStatus {
+        self.shared
+            .lock()
+            .expect("snapshot refresh lock poisoned")
+            .status
+    }
+
+    fn revision(&self) -> u64 {
+        self.shared
+            .lock()
+            .expect("snapshot refresh lock poisoned")
+            .revision
+    }
+
+    fn message(&self) -> String {
+        self.shared
+            .lock()
+            .expect("snapshot refresh lock poisoned")
+            .message
+            .clone()
+    }
+
+    fn result(&self) -> Option<Result<SnapshotRefreshResult, String>> {
+        self.shared
+            .lock()
+            .expect("snapshot refresh lock poisoned")
+            .result
+            .clone()
+    }
+}
+
+impl PartialEq for SnapshotRefreshState {
+    fn eq(&self, other: &Self) -> bool {
+        self.revision() == other.revision()
+    }
+}
+
+#[derive(Clone, Debug)]
+struct SnapshotRefreshData {
+    status: TaskStatus,
+    revision: u64,
+    message: String,
+    result: Option<Result<SnapshotRefreshResult, String>>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum TaskStatus {
     Running,
@@ -1214,9 +1750,14 @@ fn publish_previous_step(state: &mut PublishUiState) {
     state.previous_step();
 }
 
+#[fission_reducer(PublishGoToStep)]
+fn publish_go_to_step(state: &mut PublishUiState, step: usize) {
+    state.go_to_step(step);
+}
+
 #[fission_reducer(PublishRefresh)]
 fn publish_refresh(state: &mut PublishUiState) {
-    state.refresh_snapshot();
+    state.start_snapshot_refresh();
 }
 
 #[fission_reducer(PublishToggleTheme)]
@@ -1230,13 +1771,15 @@ fn publish_toggle_theme(state: &mut PublishUiState) {
 #[fission_reducer(PublishSetTrack)]
 fn publish_set_track(state: &mut PublishUiState, value: String) {
     state.track = value;
-    state.refresh_snapshot();
+    state.status_message =
+        "Track updated; refresh preflight to re-check provider readiness.".into();
 }
 
 #[fission_reducer(PublishSetLocales)]
 fn publish_set_locales(state: &mut PublishUiState, value: String) {
     state.locales_input = value;
-    state.refresh_snapshot();
+    state.status_message =
+        "Locales updated; refresh preflight to re-check release readiness.".into();
 }
 
 #[fission_reducer(PublishSetPlayJson)]
@@ -1332,6 +1875,41 @@ fn publish_set_confirmation(state: &mut PublishUiState, value: String) {
 #[fission_reducer(PublishSaveCredentials)]
 fn publish_save_credentials(state: &mut PublishUiState) {
     state.save_current_credentials();
+}
+
+#[fission_reducer(PublishOpenConfigEditor)]
+fn publish_open_config_editor(state: &mut PublishUiState, field: String) {
+    let field = (!field.trim().is_empty()).then_some(field);
+    state.open_config_editor(field);
+}
+
+#[fission_reducer(PublishCloseConfigEditor)]
+fn publish_close_config_editor(state: &mut PublishUiState) {
+    state.config_editor = None;
+}
+
+#[fission_reducer(PublishSetConfigFieldPath)]
+fn publish_set_config_field_path(state: &mut PublishUiState, value: String) {
+    if let Some(editor) = &mut state.config_editor {
+        editor.field_path = value;
+    }
+}
+
+#[fission_reducer(PublishSetConfigFieldValue)]
+fn publish_set_config_field_value(state: &mut PublishUiState, value: String) {
+    if let Some(editor) = &mut state.config_editor {
+        editor.value = value;
+    }
+}
+
+#[fission_reducer(PublishSelectConfigField)]
+fn publish_select_config_field(state: &mut PublishUiState, field: String) {
+    state.select_config_field(field);
+}
+
+#[fission_reducer(PublishApplyConfigField)]
+fn publish_apply_config_field(state: &mut PublishUiState) {
+    state.apply_config_editor_field();
 }
 
 #[fission_reducer(PublishOpenFilePicker)]

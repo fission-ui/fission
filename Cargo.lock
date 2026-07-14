@@ -2742,6 +2742,7 @@ dependencies = [
  "fission-command-run",
  "rfd",
  "serde",
+ "toml_edit 0.23.10+spec-1.0.0",
 ]
 
 [[package]]

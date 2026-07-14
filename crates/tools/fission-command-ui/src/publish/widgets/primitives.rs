@@ -83,11 +83,7 @@ impl From<CheckList> for Widget {
                 detail: "Run refresh or continue to collect provider checks.".into(),
             }]
         } else {
-            list.checks
-                .into_iter()
-                .take(list.limit)
-                .map(|check| CheckListRow { check }.into())
-                .collect()
+            grouped_check_widgets(list.checks, list.limit)
         };
         Column {
             gap: Some(if layout.terminal { 0.0 } else { 6.0 }),
@@ -98,6 +94,77 @@ impl From<CheckList> for Widget {
     }
 }
 
+fn grouped_check_widgets(checks: Vec<UiCheck>, limit: usize) -> Vec<Widget> {
+    let (_ctx, view) = fission::build::current::<PublishUiState>();
+    let layout = PublishLayout::from_viewport(view.env().viewport_size);
+    let palette = PublishPalette::for_mode(view.state().theme_mode);
+    let max = if limit == 0 { usize::MAX } else { limit };
+    let mut remaining = max;
+    let mut children = Vec::new();
+    let groups = [
+        (
+            "Needs action",
+            checks
+                .iter()
+                .filter(|check| matches!(check.status, CheckStatus::Missing | CheckStatus::Failed))
+                .cloned()
+                .collect::<Vec<_>>(),
+        ),
+        (
+            "Warnings",
+            checks
+                .iter()
+                .filter(|check| check.status == CheckStatus::Warning)
+                .cloned()
+                .collect::<Vec<_>>(),
+        ),
+        (
+            "Passed",
+            checks
+                .iter()
+                .filter(|check| check.status == CheckStatus::Passed)
+                .cloned()
+                .collect::<Vec<_>>(),
+        ),
+        (
+            "Skipped",
+            checks
+                .into_iter()
+                .filter(|check| check.status == CheckStatus::Skipped)
+                .collect::<Vec<_>>(),
+        ),
+    ];
+    let mut hidden = false;
+    for (label, group) in groups {
+        if group.is_empty() || remaining == 0 {
+            hidden |= !group.is_empty();
+            continue;
+        }
+        children.push(
+            Text::new(format!("{label} ({})", group.len()))
+                .size(if layout.terminal { 10.0 } else { 11.0 })
+                .color(palette.blue)
+                .into(),
+        );
+        let group_len = group.len();
+        let before = remaining;
+        for check in group.into_iter().take(remaining) {
+            children.push(CheckListRow { check }.into());
+            remaining = remaining.saturating_sub(1);
+        }
+        hidden |= group_len > before;
+    }
+    if limit != 0 && hidden {
+        children.push(
+            Text::new("Open the matching wizard step to see the full check list.")
+                .size(if layout.terminal { 10.0 } else { 11.0 })
+                .color(palette.muted)
+                .into(),
+        );
+    }
+    children
+}
+
 #[derive(Clone)]
 struct CheckListRow {
     check: UiCheck,
@@ -105,7 +172,7 @@ struct CheckListRow {
 
 impl From<CheckListRow> for Widget {
     fn from(row: CheckListRow) -> Widget {
-        let (_ctx, view) = fission::build::current::<PublishUiState>();
+        let (ctx, view) = fission::build::current::<PublishUiState>();
         let layout = PublishLayout::from_viewport(view.env().viewport_size);
         let palette = PublishPalette::for_mode(view.state().theme_mode);
         let tone = match row.check.status {
@@ -115,6 +182,21 @@ impl From<CheckListRow> for Widget {
             CheckStatus::Skipped => StatusTone::Muted,
         };
         let status = row.check.status;
+        let actions = row
+            .check
+            .action_hints(view.state().board, view.state().current_step);
+        let mut content = check_text_widgets(&row.check, &actions, layout, palette);
+        if !actions.is_empty() {
+            content.push(
+                ButtonRow {
+                    buttons: actions
+                        .into_iter()
+                        .map(|hint| check_action_button(ctx.clone(), hint, layout))
+                        .collect(),
+                }
+                .into(),
+            );
+        }
         Row {
             gap: Some(if layout.terminal { 1.0 } else { 8.0 }),
             align_items: AlignItems::Start,
@@ -122,7 +204,7 @@ impl From<CheckListRow> for Widget {
                 ToneMarker { tone },
                 Column {
                     gap: Some(if layout.terminal { 0.0 } else { 2.0 }),
-                    children: check_text_widgets(row.check, layout, palette),
+                    children: content,
                     ..Default::default()
                 }
                 .flex_grow(1.0),
@@ -136,15 +218,82 @@ impl From<CheckListRow> for Widget {
     }
 }
 
+fn check_action_button(
+    ctx: BuildCtxHandle<PublishUiState>,
+    hint: PublishCheckAction,
+    layout: PublishLayout,
+) -> PublishButton {
+    let action = match hint.kind {
+        PublishCheckActionKind::GoToStep(step) => Some(with_reducer!(
+            ctx,
+            PublishGoToStep(step),
+            publish_go_to_step
+        )),
+        PublishCheckActionKind::OpenFilePicker(purpose) => Some(with_reducer!(
+            ctx,
+            PublishOpenFilePicker(purpose),
+            publish_open_file_picker
+        )),
+        PublishCheckActionKind::OpenConfigEditor(field) => Some(with_reducer!(
+            ctx,
+            PublishOpenConfigEditor(field),
+            publish_open_config_editor
+        )),
+        PublishCheckActionKind::SaveCredentials => Some(with_reducer!(
+            ctx,
+            PublishSaveCredentials,
+            publish_save_credentials
+        )),
+        PublishCheckActionKind::GenerateAndroidKey => Some(with_reducer!(
+            ctx,
+            PublishStartTask(PublishTaskKind::GenerateAndroidKey),
+            publish_start_task
+        )),
+        PublishCheckActionKind::StartTask(kind) => Some(with_reducer!(
+            ctx,
+            PublishStartTask(kind),
+            publish_start_task
+        )),
+        PublishCheckActionKind::SkipRequirement(id) => Some(with_reducer!(
+            ctx,
+            PublishSkipRequirement(id),
+            publish_skip_requirement
+        )),
+        PublishCheckActionKind::Refresh => {
+            Some(with_reducer!(ctx, PublishRefresh, publish_refresh))
+        }
+    };
+    PublishButton {
+        label: hint.label,
+        action,
+        tone: if hint.primary {
+            ButtonTone::Primary
+        } else {
+            ButtonTone::Secondary
+        },
+        width: if layout.terminal { 190.0 } else { 145.0 },
+    }
+}
+
 fn check_text_widgets(
-    check: UiCheck,
+    check: &UiCheck,
+    actions: &[PublishCheckAction],
     layout: PublishLayout,
     palette: PublishPalette,
 ) -> Vec<Widget> {
-    let mut children = widgets![Text::new(check.summary)
-        .size(if layout.terminal { 11.0 } else { 12.5 })
-        .color(palette.text)];
-    if let Some(details) = check.details.filter(|details| !details.trim().is_empty()) {
+    let mut children = widgets![
+        Text::new(check.summary.clone())
+            .size(if layout.terminal { 11.0 } else { 12.5 })
+            .color(palette.text),
+        Text::new(check.id.clone())
+            .size(if layout.terminal { 9.0 } else { 10.0 })
+            .color(palette.subtle),
+    ];
+    if let Some(details) = check
+        .details
+        .clone()
+        .filter(|details| !details.trim().is_empty())
+    {
         children.push(
             Text::new(details)
                 .size(if layout.terminal { 10.0 } else { 11.0 })
@@ -152,13 +301,25 @@ fn check_text_widgets(
                 .into(),
         );
     }
-    if matches!(check.status, CheckStatus::Missing | CheckStatus::Failed) {
-        if let Some(remediation) = check.remediation.first() {
+    if check.needs_attention() {
+        for remediation in &check.remediation {
             children.push(
-                Text::new(remediation.clone())
+                Text::new(format!("Fix: {remediation}"))
                     .size(if layout.terminal { 10.0 } else { 11.0 })
                     .color(palette.warning)
                     .into(),
+            );
+        }
+        let only_manual_refresh =
+            actions.len() == 1 && matches!(actions[0].kind, PublishCheckActionKind::Refresh);
+        if (actions.is_empty() || only_manual_refresh) && check.remediation.is_empty() {
+            children.push(
+                Text::new(
+                    "No automatic fix is available. Fix the project/provider setting, then refresh.",
+                )
+                .size(if layout.terminal { 10.0 } else { 11.0 })
+                .color(palette.warning)
+                .into(),
             );
         }
     }
@@ -278,18 +439,11 @@ pub(super) struct ReleaseContentReview {
 
 impl From<ReleaseContentReview> for Widget {
     fn from(review: ReleaseContentReview) -> Widget {
-        let (ctx, view) = fission::build::current::<PublishUiState>();
-        let layout = PublishLayout::from_viewport(view.env().viewport_size);
+        let (_ctx, _view) = fission::build::current::<PublishUiState>();
         let relevant = review
             .checks
             .into_iter()
             .filter(is_release_content_check)
-            .collect::<Vec<_>>();
-        let skippable = relevant
-            .iter()
-            .filter(|check| is_skippable_release_check(check))
-            .take(3)
-            .cloned()
             .collect::<Vec<_>>();
         let mut children = widgets![
             ReadinessDigest {
@@ -300,49 +454,18 @@ impl From<ReleaseContentReview> for Widget {
             },
             CheckList {
                 checks: relevant.clone(),
-                limit: if layout.terminal { 4 } else { 5 },
+                limit: 0,
             },
         ];
-        if skippable.is_empty() {
-            children.push(
-                Callout {
-                    tone: StatusTone::Info,
-                    text: "Provider-required checks cannot be skipped; recommended omissions can be skipped when they appear here.".into(),
-                }
-                .into(),
-            );
-        } else {
-            children.push(
-                Callout {
-                    tone: StatusTone::Warning,
-                    text: "These are recommended, not provider-required. Skip only when the omission is intentional.".into(),
-                }
-                .into(),
-            );
-            children.push(
-                ButtonRow {
-                    buttons: skippable
-                        .into_iter()
-                        .map(|check| {
-                            let id = check.id.clone();
-                            PublishButton {
-                                label: format!("Skip {}", short_requirement_label(&check.id)),
-                                action: Some(with_reducer!(
-                                    ctx,
-                                    PublishSkipRequirement(id),
-                                    publish_skip_requirement
-                                )),
-                                tone: ButtonTone::Secondary,
-                                width: 190.0,
-                            }
-                        })
-                        .collect(),
-                }
-                .into(),
-            );
-        }
+        children.push(
+            Callout {
+                tone: StatusTone::Info,
+                text: "Every content check is listed. Rows with direct fixes expose action buttons; rows without a safe automatic fix show the exact remediation to perform.".into(),
+            }
+            .into(),
+        );
         Column {
-            gap: Some(if layout.terminal { 1.0 } else { 8.0 }),
+            gap: Some(8.0),
             children,
             ..Default::default()
         }
@@ -352,22 +475,6 @@ impl From<ReleaseContentReview> for Widget {
 
 fn is_release_content_check(check: &UiCheck) -> bool {
     check.id.starts_with("release_config.") || check.id.starts_with("release_content.")
-}
-
-fn is_skippable_release_check(check: &&UiCheck) -> bool {
-    check.severity != CheckSeverity::Error
-        && matches!(
-            check.status,
-            CheckStatus::Missing | CheckStatus::Failed | CheckStatus::Warning
-        )
-}
-
-fn short_requirement_label(id: &str) -> String {
-    id.rsplit('.')
-        .next()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or(id)
-        .replace('_', " ")
 }
 
 #[derive(Default)]
