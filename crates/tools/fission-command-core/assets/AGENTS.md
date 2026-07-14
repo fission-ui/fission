@@ -15,10 +15,74 @@ tree.
 - Keep edits scoped to the component, widget, route, shell, or target behavior
   being changed. Avoid broad cleanup unless it is required for the task.
 
+## Product and UX Principles
+
+- Design for users with limited attention, uncertainty, effort, and motivation.
+  Strong product UX is about reducing friction and helping users complete their
+  own goals, not only visual polish.
+- Use smart defaults when the likely answer is predictable. Defaults should be
+  editable, visible, and chosen for the user's benefit rather than to quietly
+  advantage the business.
+- Give users a truthful sense of progress. Credit real completed work, show what
+  remains, and avoid fake progress percentages.
+- Demonstrate useful value before asking for account creation, payment, or other
+  commitment. The ask should preserve, extend, or personalize something the user
+  already understands.
+- Move creation before administration where possible: choose, create, see a
+  result, then save. Do not manufacture busywork or tedious sunk costs.
+- Make genuine consequences of inaction visible without inventing urgency,
+  scarcity, guilt, or risk. Prefer neutral labels such as "Continue without
+  backup" over shaming labels.
+- Provide pricing and plan context with fair comparisons: total cost, cost per
+  active user, included usage, time saved, or risk covered. Do not hide the true
+  total behind a smaller unit.
+
+## Product-Led Growth and Shareability
+
+- Prefer features that can demonstrate themselves quickly. A good product moment
+  should be understandable in a few seconds without a long explanation.
+- Build at least one memorable, repeatable product action that can appear inside
+  natural user stories, screenshots, short demos, or creator content.
+- Let the product itself be the creative: show the problem, the action, and the
+  satisfying result directly in the UI.
+- Create curiosity ethically. It is fine for a feature to invite "what app is
+  that?" moments; it is not fine to mislead users or hide essential information.
+- Design shareable outputs, saved states, exports, or previews when they serve
+  the user's goal. Do not add viral mechanics that interrupt the core task.
+
+## Visual Design and Progressive Disclosure
+
+- Use a modern, calm visual design with clear hierarchy, strong typography, and
+  purposeful spacing.
+- Use progressive disclosure. Show the next meaningful action first, then reveal
+  advanced options when the user needs them.
+- Build responsive UIs by default. At minimum, design and verify mobile and
+  desktop layouts rather than assuming one fixed window size.
+- Boxes are for grouping related things. If everything is inside a box, boxes
+  stop communicating structure and make the interface feel noisy.
+- Prefer specific, outcome-oriented actions over generic labels. For example,
+  "View 12 results" is usually better than "Search" once the result count is
+  known.
+- Empty states should explain what is missing, why it matters, and the smallest
+  next step the user can take.
+
 ## Widget Structure
 
+- Keep Rust source files below 2,000 lines. Refactor into focused modules before
+  a file grows past that limit.
+- Organize Rust code using production module boundaries: entrypoints, app state,
+  routes, screens, reusable widgets, effects/jobs/services, design-system code,
+  and test helpers should not collapse into one large file.
+- Prefer the Fission CLI for project, target, packaging, and shell scaffolding
+  instead of hand-rolling platform boilerplate.
+- For multi-platform apps, put the app state, reducers, routes, widgets,
+  services, design system, and i18n setup in a shared core. Keep each
+  feature-gated shell entrypoint thin: it should configure the shell and run the
+  shared core rather than duplicating app behavior per target.
 - Prefer one reusable widget per file when introducing app UI.
 - Model widgets as concrete structs and implement `From<YourWidget> for Widget`.
+- Add semantics to every interactive widget and to semantic regions where they
+  improve navigation, testing, or accessibility.
 - Use `#[fission_component]` for components that own retained local widget
   state. Do not model retained UI state as ordinary mutable struct fields.
 - Keep screen modules focused on app state, routing, effects, and composition.
@@ -27,8 +91,10 @@ tree.
   fragment is meaningful or reused, make it a named widget struct instead.
 - Small private helper functions are acceptable for narrow formatting,
   conversion, or leaf construction, but they should not hide reusable component
-  boundaries. In fact, completely avoid functions that return Widget altogether if possible.
-  Fission is a retained UI like Flutter, just like Flutter, functions break some of the optimisations Fission can do with Widget objects so building a UI with functions is an antipattern that should be avoided in almost all cases.
+  boundaries. Avoid functions that return `Widget` when a named widget struct
+  would represent the boundary better. Fission is a retained UI; building
+  meaningful UI fragments through anonymous functions can hide identity and
+  weaken optimizations.
 
 Local-state component shape:
 
@@ -117,6 +183,11 @@ binds reducers that update app state.
 Fission supports Adobe's Design System Package (DSP). Use DSP JSON as the design
 source, generate the Rust design-system type at build time, and read generated
 tokens from the active Fission environment at runtime.
+
+- Prefer a generated Fission design system and its tokens over hard-coded sizes,
+  colors, typography, spacing, radii, shadows, or component properties.
+- Hard-coded visual values are acceptable only for narrow one-off geometry that
+  is not part of the app's design language.
 
 Use these Fission defaults as the starting point for a custom design system:
 
@@ -241,6 +312,9 @@ writes, job startup, or ordinary domain data.
 Follow the Fission theming and i18n guide:
 <https://github.com/fission-ui/fission/blob/main/documentation/content/docs/guides/theming-and-i18n.mdx>.
 
+- Include an i18n setup from the start with at least two languages. Always
+  include English. If the system default language is not English, add that
+  language too; if it is English, add Spanish as the second language.
 - Do not hard-code user-facing text inside reusable widgets.
 - Use stable translation keys based on meaning, not on the current layout.
 - Keep translations in checked-in files and embed them with `include_str!` unless
@@ -325,6 +399,8 @@ widgets guess.
   <https://github.com/fission-ui/fission/blob/main/examples/todo-design-system/build.rs>
 - Design-system example `main.rs`:
   <https://github.com/fission-ui/fission/blob/main/examples/todo-design-system/src/main.rs>
+- Design-system guide:
+  <https://github.com/fission-ui/fission/blob/main/documentation/content/docs/guides/design-system.mdx>
 - Theming and i18n guide:
   <https://github.com/fission-ui/fission/blob/main/documentation/content/docs/guides/theming-and-i18n.mdx>
 - State, handles, and providers guide:
@@ -339,6 +415,11 @@ widgets guess.
 - Run formatting before handing off code changes.
 - Run the narrowest compile or test command that exercises the changed app,
   widget crate, route, or target shell.
+- Use the Fission LiveTest API for end-to-end UI tests:
+  <https://fission.rs/docs/cookbook/write-a-live-ui-test/>.
+- For visual UI work, use a client such as `curl` to send `/cmd` requests to the
+  LiveTest API when needed, drive the app like a user, take screenshots, and
+  inspect those screenshots before calling the UI production-ready.
 - For UI changes, verify a real rendered target when possible, and check mobile
   and desktop layouts when the screen is responsive.
 - If docs or configuration target names are changed, keep terminology consistent
