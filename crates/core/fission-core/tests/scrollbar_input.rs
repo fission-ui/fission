@@ -1,5 +1,6 @@
 use fission_core::env::{
-    Clipboard, GestureState, InteractionStateMap, ScrollStateMap, TextEditStateMap,
+    Clipboard, ContextMenuState, GestureState, InteractionStateMap, ScrollStateMap,
+    SelectableTextStateMap, TextEditStateMap,
 };
 use fission_core::event::{InputEvent, PointerButton, PointerEvent};
 use fission_core::input::gesture::GestureController;
@@ -44,6 +45,8 @@ fn dragging_scrollbar_thumb_updates_scroll_offset_directly() {
         ir: &ir,
         layout: &layout,
         text_edit: &mut text_edit,
+        selectable_text: &mut SelectableTextStateMap::default(),
+        context_menu: &mut ContextMenuState::default(),
         interaction: &mut interaction,
         scroll: &mut scroll_map,
         gesture: &mut gesture,
@@ -150,6 +153,8 @@ fn dragging_nested_scrollbar_uses_visual_pointer_coordinates() {
         ir: &ir,
         layout: &layout,
         text_edit: &mut text_edit,
+        selectable_text: &mut SelectableTextStateMap::default(),
+        context_menu: &mut ContextMenuState::default(),
         interaction: &mut interaction,
         scroll: &mut scroll_map,
         gesture: &mut gesture,

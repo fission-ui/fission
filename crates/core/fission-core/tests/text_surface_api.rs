@@ -2,10 +2,13 @@ use fission_core::env::{Env, RuntimeState, TextSelectionHandleKind};
 use fission_core::internal::InternalLoweringCx;
 use fission_core::ui::widgets::text::{RichTextChild, RichTextSpan, TextScaler, WidgetSpan};
 use fission_core::ui::widgets::text_input::{
-    DragStartBehavior, SpellCheckConfiguration, TextAlignVertical, TextContextMenuAction,
-    TextInputRuntimeConfig, TextMagnifierConfiguration, TextSelectionControls, TextUndoController,
+    DragStartBehavior, SpellCheckConfiguration, TextAlignVertical, TextInputRuntimeConfig,
+    TextMagnifierConfiguration, TextSelectionControls, TextUndoController,
 };
-use fission_core::ui::{Button, Container, RichText, RichTextRun, Spacer, Text, TextInput, Widget};
+use fission_core::ui::{
+    Button, Container, RichText, RichTextRun, Spacer, Text, TextContextMenuAction, TextInput,
+    Widget,
+};
 use fission_core::{ActionEnvelope, ActionId};
 use fission_ir::op::{
     decode_inline_widget_marker, Color, Fill, LayoutOp, MouseCursor, Op, PaintOp,

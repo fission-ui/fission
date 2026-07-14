@@ -1,10 +1,10 @@
 use super::custom_render::CustomRenderObject;
 use super::traits::{InternalLower, InternalLowerer};
 use super::widgets::{
-    ActionScope, Align, Button, Checkbox, Clip, Column, Composite, Container, FocusScope,
-    GestureDetector, Grid, GridItem, Icon, Image, LazyColumn, Overlay, Positioned, Radio, RichText,
-    Row, SafeArea, Scroll, SemanticsRegion, Slider, Spacer, Switch, Text, TextInput, Transform,
-    Video, ZStack,
+    ActionScope, Align, Button, Checkbox, Clip, Column, Composite, Container, ContextMenuRegion,
+    FocusScope, GestureDetector, Grid, GridItem, Icon, Image, LazyColumn, Overlay, Positioned,
+    Radio, RichText, Row, SafeArea, Scroll, SemanticsRegion, Slider, Spacer, Switch, Text,
+    TextInput, Transform, Video, ZStack,
 };
 use crate::lowering::InternalLoweringCx;
 use fission_ir::{Op, StructuralOp, WidgetId};
@@ -37,6 +37,7 @@ enum WidgetKind {
     ZStack(ZStack),
     Overlay(Overlay),
     Container(Container),
+    ContextMenuRegion(ContextMenuRegion),
     GestureDetector(GestureDetector),
     Grid(Grid),
     GridItem(GridItem),
@@ -136,6 +137,10 @@ impl Widget {
             WidgetKind::Container(mut w) => {
                 w.id = Some(id);
                 WidgetKind::Container(w)
+            }
+            WidgetKind::ContextMenuRegion(mut w) => {
+                w.id = Some(id);
+                WidgetKind::ContextMenuRegion(w)
             }
             WidgetKind::GestureDetector(mut w) => {
                 w.id = Some(id);
@@ -238,6 +243,7 @@ impl Widget {
             WidgetKind::ZStack(_) => "ZStack",
             WidgetKind::Overlay(_) => "Overlay",
             WidgetKind::Container(_) => "Container",
+            WidgetKind::ContextMenuRegion(_) => "ContextMenuRegion",
             WidgetKind::GestureDetector(_) => "GestureDetector",
             WidgetKind::Grid(_) => "Grid",
             WidgetKind::GridItem(_) => "GridItem",
@@ -383,6 +389,7 @@ impl Widget {
             WidgetKind::ZStack(w) => w.lower(cx),
             WidgetKind::Overlay(w) => w.lower(cx),
             WidgetKind::Container(w) => w.lower(cx),
+            WidgetKind::ContextMenuRegion(w) => w.lower(cx),
             WidgetKind::GestureDetector(w) => w.lower(cx),
             WidgetKind::Grid(w) => w.lower(cx),
             WidgetKind::GridItem(w) => w.lower(cx),
@@ -607,6 +614,14 @@ impl From<Overlay> for Widget {
         }
     }
 }
+impl From<ContextMenuRegion> for Widget {
+    fn from(w: ContextMenuRegion) -> Self {
+        Self {
+            kind: Box::new(WidgetKind::ContextMenuRegion(w)),
+        }
+    }
+}
+
 impl From<Container> for Widget {
     fn from(w: Container) -> Self {
         Self {

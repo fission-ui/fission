@@ -10,11 +10,13 @@ pub use node::{CustomWidget, Widget, WidgetIdExt};
 pub use widgets::{
     provider, ActionScope, Align, BadgeTone, Builder, Button, ButtonContentAlign, ButtonHierarchy,
     ButtonMotion, ButtonVariant, CardPattern, Checkbox, Column, ComponentSize, ComponentState,
-    Composite, Container, FocusScope, GestureDetector, Grid, GridItem, HttpHeader, Icon, Image,
-    ImageAlignment, ImageCachePolicy, ImageErrorBehavior, ImageLoadingBehavior, ImageRequest,
-    ImageSource, IosAudioSessionCategory, IosAudioSessionCategoryOption, IosAudioSessionMode,
+    Composite, Container, ContextMenu, ContextMenuEntry, ContextMenuItem, ContextMenuRegion,
+    FocusScope, GestureDetector, Grid, GridItem, HttpHeader, Icon, Image, ImageAlignment,
+    ImageCachePolicy, ImageErrorBehavior, ImageLoadingBehavior, ImageRequest, ImageSource,
+    IosAudioSessionCategory, IosAudioSessionCategoryOption, IosAudioSessionMode,
     IosVideoAudioOptions, LayoutBuilder, LazyColumn, Overlay, Positioned, Provider, Radio,
     RichText, RichTextRun, Row, SafeArea, Scroll, SemanticsRegion, Slider, Spacer, Switch, Text,
-    TextContent, TextFontStyle, TextInput, TextInputChangePayload, TextRunStyle, Video,
-    VideoAudioActivation, VideoAudioOptions, VideoAudioPolicy, VideoSource, ZStack,
+    TextContent, TextContextMenuAction, TextContextMenuConfig, TextFontStyle, TextInput,
+    TextInputChangePayload, TextRunStyle, Video, VideoAudioActivation, VideoAudioOptions,
+    VideoAudioPolicy, VideoSource, ZStack,
 };

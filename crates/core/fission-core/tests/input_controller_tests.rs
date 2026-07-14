@@ -1,5 +1,6 @@
 use fission_core::env::{
-    Clipboard, ImeHandler, InteractionStateMap, ScrollStateMap, TextEditStateMap,
+    Clipboard, ContextMenuState, ImeHandler, InteractionStateMap, ScrollStateMap,
+    SelectableTextStateMap, TextEditStateMap,
 };
 use fission_core::event::{
     ImeEvent, InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent, MOD_CTRL, MOD_SHIFT,
@@ -8,8 +9,9 @@ use fission_core::event::{
 use fission_core::input::text::TextInputController;
 use fission_core::input::{ControllerContext, InputController};
 use fission_core::ui::widgets::text_input::{
-    DragStartBehavior, TextContextMenuAction, TextInputRuntimeConfig, TextUndoController,
+    DragStartBehavior, TextInputRuntimeConfig, TextUndoController,
 };
+use fission_core::ui::TextContextMenuAction;
 use fission_core::Runtime;
 use fission_ir::op::{Color, TextRun, TextStyle};
 use fission_ir::{
@@ -354,10 +356,14 @@ fn setup_ctx<'a>(
     clipboard: &'a Arc<dyn Clipboard>,
     measurer: Option<&'a Arc<dyn TextMeasurer>>,
 ) -> ControllerContext<'a> {
+    let selectable_text = Box::leak(Box::new(SelectableTextStateMap::default()));
+    let context_menu = Box::leak(Box::new(ContextMenuState::default()));
     ControllerContext {
         ir,
         layout,
         text_edit,
+        selectable_text,
+        context_menu,
         interaction,
         scroll,
         gesture,
@@ -396,6 +402,8 @@ fn create_text_node(id: WidgetId, val: &str, multiline: bool) -> CoreIR {
                 ime_preedit_range: None,
                 ime_preedit_cursor_range: None,
                 text_selection: None,
+                selectable_text: false,
+                context_menu: false,
                 checked: None,
                 disabled: false,
                 read_only: false,
@@ -817,6 +825,8 @@ fn create_rich_text_input_tree(
                 ime_preedit_range: None,
                 ime_preedit_cursor_range: None,
                 text_selection: None,
+                selectable_text: false,
+                context_menu: false,
                 checked: None,
                 disabled: false,
                 read_only: false,

@@ -172,21 +172,30 @@ impl InputController for GestureController {
                                         || self.is_descendant(ctx, up_hit, target)
                                         || self.is_descendant(ctx, target, up_hit)
                                     {
-                                        let rich_text_path = self.path_for_node(ctx, up_hit);
-                                        if let Some((annotation_node_id, annotation)) =
-                                            crate::input::hover::resolve_rich_text_annotation_at_point(
-                                                ctx,
-                                                &rich_text_path,
-                                                *point,
-                                            )
+                                        if let Some(menu_owner) =
+                                            self.find_context_menu_owner(ctx, up_hit)
                                         {
-                                            handled = self.dispatch_annotation_trigger(
-                                                ctx,
-                                                annotation_node_id,
-                                                &annotation,
-                                                ActionTrigger::SecondaryClick,
-                                                *point,
-                                            );
+                                            ctx.context_menu.open(menu_owner, *point);
+                                            handled = true;
+                                        }
+
+                                        let rich_text_path = self.path_for_node(ctx, up_hit);
+                                        if !handled {
+                                            if let Some((annotation_node_id, annotation)) =
+                                                crate::input::hover::resolve_rich_text_annotation_at_point(
+                                                    ctx,
+                                                    &rich_text_path,
+                                                    *point,
+                                                )
+                                            {
+                                                handled = self.dispatch_annotation_trigger(
+                                                    ctx,
+                                                    annotation_node_id,
+                                                    &annotation,
+                                                    ActionTrigger::SecondaryClick,
+                                                    *point,
+                                                );
+                                            }
                                         }
 
                                         if !handled
@@ -246,6 +255,9 @@ impl InputController for GestureController {
                             }
                         }
 
+                        if !was_secondary {
+                            ctx.context_menu.close();
+                        }
                         ctx.gesture.start_point = None;
                         ctx.gesture.is_panning = false;
                         ctx.gesture.dragging_payload = None;
@@ -289,6 +301,26 @@ impl GestureController {
             }
         }
         false
+    }
+
+    fn find_context_menu_owner(
+        &self,
+        ctx: &ControllerContext,
+        start_node: WidgetId,
+    ) -> Option<WidgetId> {
+        let mut current_id = Some(start_node);
+        while let Some(node_id) = current_id {
+            let Some(node) = ctx.ir.nodes.get(&node_id) else {
+                break;
+            };
+            if let Op::Semantics(semantics) = &node.op {
+                if semantics.context_menu && !semantics.disabled {
+                    return Some(node_id);
+                }
+            }
+            current_id = node.parent;
+        }
+        None
     }
 
     fn dispatch_annotation_trigger(

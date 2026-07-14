@@ -31,6 +31,8 @@ fn test_semantics_serialization() {
         ime_preedit_range: None,
         ime_preedit_cursor_range: None,
         text_selection: None,
+        selectable_text: false,
+        context_menu: false,
         checked: None,
         disabled: false,
         read_only: false,
