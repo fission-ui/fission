@@ -7,10 +7,11 @@ use fission::prelude::fission_action;
 use fission::prelude::DesktopApp;
 use fission::widgets::{
     Accordion, AccordionItem, Alert, AlertKind, Avatar, Badge, Breadcrumb, BreadcrumbItem, Card,
-    CircularProgress, Code, Divider, Drawer, DrawerSide, EmptyState, HStack, Kbd, Link, MenuButton,
-    MenuItem, Modal, ModalAction, NumberInput, Pagination, ProgressBar, SegmentedControl, Select,
-    SelectItem, Skeleton, SkeletonMotion, Spacer, Spinner, SpinnerMotion, Stat, Stepper, TabItem,
-    Tabs, Tag, Timeline, TimelineItem, Toast, ToastKind, Tooltip, TreeItem, TreeView, VStack,
+    CircularProgress, Code, ColourHsva, ColourPicker, ColourPickerVariant, Divider, Drawer,
+    DrawerSide, EmptyState, HStack, Kbd, Link, MenuButton, MenuItem, Modal, ModalAction,
+    NumberInput, Pagination, ProgressBar, SegmentedControl, Select, SelectItem, Skeleton,
+    SkeletonMotion, Spacer, Spinner, SpinnerMotion, Stat, Stepper, TabItem, Tabs, Tag, Timeline,
+    TimelineItem, Toast, ToastKind, Tooltip, TreeItem, TreeView, VStack, Wrap,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -23,6 +24,8 @@ struct GalleryState {
     slider_val: f32,
     range_start: f32,
     range_end: f32,
+    colour_value: IrColor,
+    colour_variant: usize,
     checked: bool,
     switch_on: bool,
     text_value: String,
@@ -50,6 +53,13 @@ impl Default for GalleryState {
             slider_val: 50.0,
             range_start: 0.0,
             range_end: 0.0,
+            colour_value: IrColor {
+                r: 59,
+                g: 130,
+                b: 246,
+                a: 255,
+            },
+            colour_variant: 0,
             checked: true,
             switch_on: true,
             text_value: String::new(),
@@ -78,6 +88,34 @@ impl GlobalState for GalleryState {}
 #[fission_action(no_eq)]
 #[serde(transparent)]
 struct SetSlider(f32);
+
+#[fission_action(no_eq)]
+#[serde(transparent)]
+struct SetGalleryColour(IrColor);
+
+#[fission_action(no_eq)]
+#[serde(transparent)]
+struct SetGalleryColourHue(f32);
+
+#[fission_action(no_eq)]
+#[serde(transparent)]
+struct SetGalleryColourSaturation(f32);
+
+#[fission_action(no_eq)]
+#[serde(transparent)]
+struct SetGalleryColourValue(f32);
+
+#[fission_action(no_eq)]
+#[serde(transparent)]
+struct SetGalleryColourAlpha(f32);
+
+#[fission_action]
+#[serde(transparent)]
+struct SetGalleryColourHex(String);
+
+#[fission_action]
+#[serde(transparent)]
+struct SetColourVariant(usize);
 
 #[fission_action]
 struct ToggleChecked;
@@ -178,6 +216,85 @@ impl BuildInline for Divider {
             .flex_grow(1.0)
             .into()
     }
+}
+
+fn colour_variants() -> &'static [(&'static str, ColourPickerVariant)] {
+    &[
+        ("Chrome", ColourPickerVariant::Chrome),
+        ("Sketch", ColourPickerVariant::Sketch),
+        ("Photoshop", ColourPickerVariant::Photoshop),
+        ("Compact", ColourPickerVariant::Compact),
+        ("Circle", ColourPickerVariant::Circle),
+        ("GitHub", ColourPickerVariant::Github),
+        ("Twitter", ColourPickerVariant::Twitter),
+        ("Material", ColourPickerVariant::Material),
+        ("Slider", ColourPickerVariant::Slider),
+        ("Swatches", ColourPickerVariant::Swatches),
+        ("Block", ColourPickerVariant::Block),
+        ("Hue", ColourPickerVariant::Hue),
+        ("Alpha", ColourPickerVariant::Alpha),
+    ]
+}
+
+fn colour_variant_chip_width(label: &str) -> f32 {
+    match label {
+        "Photoshop" => 112.0,
+        "Swatches" => 104.0,
+        "Material" | "Compact" => 96.0,
+        "GitHub" | "Twitter" | "Chrome" | "Sketch" => 86.0,
+        _ => 74.0,
+    }
+}
+
+fn parse_gallery_hex(value: &str) -> Option<IrColor> {
+    let hex = value.trim().strip_prefix('#').unwrap_or(value.trim());
+    if hex.len() != 6 && hex.len() != 8 {
+        return None;
+    }
+    let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+    let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+    let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+    let a = if hex.len() == 8 {
+        u8::from_str_radix(&hex[6..8], 16).ok()?
+    } else {
+        255
+    };
+    Some(IrColor { r, g, b, a })
+}
+
+fn gallery_hex_string(colour: IrColor) -> String {
+    if colour.a == 255 {
+        format!("#{:02X}{:02X}{:02X}", colour.r, colour.g, colour.b)
+    } else {
+        format!(
+            "#{:02X}{:02X}{:02X}{:02X}",
+            colour.r, colour.g, colour.b, colour.a
+        )
+    }
+}
+
+fn set_colour_hue(state: &mut GalleryState, hue: f32) {
+    let mut hsva = ColourHsva::from_color(state.colour_value);
+    hsva.hue = hue;
+    state.colour_value = hsva.to_color();
+}
+
+fn set_colour_saturation(state: &mut GalleryState, saturation: f32) {
+    let mut hsva = ColourHsva::from_color(state.colour_value);
+    hsva.saturation = saturation;
+    state.colour_value = hsva.to_color();
+}
+
+fn set_colour_value(state: &mut GalleryState, value: f32) {
+    let mut hsva = ColourHsva::from_color(state.colour_value);
+    hsva.value = value;
+    state.colour_value = hsva.to_color();
+}
+
+fn set_colour_alpha(state: &mut GalleryState, alpha: f32) {
+    let mut hsva = ColourHsva::from_color(state.colour_value);
+    hsva.alpha = alpha;
+    state.colour_value = hsva.to_color();
 }
 
 // --- App Widget ---
@@ -355,6 +472,156 @@ impl From<GalleryApp> for Widget {
                     on_decrement: Some(ctx.bind(
                         DecrementNumber,
                         reduce_with!((|s: &mut GalleryState, _, _| s.number_val -= 1.0)),
+                    )),
+                    ..Default::default()
+                }
+                .into(),
+            ],
+        );
+
+        // -- Colour Picker --
+        let colour_variants = colour_variants();
+        let active_colour_variant = colour_variants
+            .get(s.colour_variant)
+            .map(|(_, variant)| *variant)
+            .unwrap_or(ColourPickerVariant::Chrome);
+        let colour_change = Arc::new({
+            let env = ctx.bind(
+                SetGalleryColour(s.colour_value),
+                reduce_with!((|s: &mut GalleryState, a: SetGalleryColour, _| s.colour_value = a.0)),
+            );
+            move |colour: IrColor| ActionEnvelope {
+                id: env.id,
+                payload: serde_json::to_vec(&colour).unwrap(),
+            }
+        });
+        let colour_section = section(
+            "Colour Picker",
+            vec![
+                Text::new(
+                    "Built-in picker variants covering Chrome, Sketch, Photoshop, Compact, Circle, GitHub, Twitter, Material, Slider, Swatches, Block, Hue and Alpha layouts.",
+                )
+                .color(tokens.colors.text_secondary)
+                .into(),
+                HStack {
+                    spacing: Some(10.0),
+                    children: vec![
+                        Container::new(Text::new(""))
+                            .size(28.0, 28.0)
+                            .bg(s.colour_value)
+                            .border(tokens.colors.border, 1.0)
+                            .border_radius(tokens.radii.small)
+                            .into(),
+                        Text::new(format!("Current {}", gallery_hex_string(s.colour_value)))
+                            .color(tokens.colors.text_secondary)
+                            .into(),
+                    ],
+                    ..Default::default()
+                }
+                .into(),
+                Wrap {
+                    direction: FlexDirection::Row,
+                    spacing: Some(6.0),
+                    children: colour_variants
+                        .iter()
+                        .enumerate()
+                        .map(|(idx, (label, _))| {
+                            Button {
+                                variant: if idx == s.colour_variant {
+                                    ButtonVariant::Filled
+                                } else {
+                                    ButtonVariant::Outline
+                                },
+                                child: Some(Text::new(*label).into()),
+                                on_press: Some(ctx.bind(
+                                    SetColourVariant(idx),
+                                    reduce_with!(
+                                        (|s: &mut GalleryState, a: SetColourVariant, _| {
+                                            s.colour_variant = a.0
+                                        })
+                                    ),
+                                )),
+                                width: Some(colour_variant_chip_width(label)),
+                                height: Some(34.0),
+                                padding: Some([10.0, 10.0, 6.0, 6.0]),
+                                ..Default::default()
+                            }
+                            .semantics_identifier(format!("gallery.colour.variant.{label}"))
+                            .into()
+                        })
+                        .collect(),
+                }
+                .into(),
+                ColourPicker {
+                    id: Some(WidgetId::explicit("gallery_colour_picker")),
+                    semantics_identifier: Some("gallery.colour".into()),
+                    value: s.colour_value,
+                    variant: active_colour_variant,
+                    show_alpha: true,
+                    show_inputs: true,
+                    width: Some(control_width.min(420.0).max(260.0)),
+                    recent: vec![
+                        IrColor {
+                            r: 16,
+                            g: 185,
+                            b: 129,
+                            a: 255,
+                        },
+                        IrColor {
+                            r: 244,
+                            g: 63,
+                            b: 94,
+                            a: 255,
+                        },
+                        IrColor {
+                            r: 245,
+                            g: 158,
+                            b: 11,
+                            a: 255,
+                        },
+                    ],
+                    on_change: Some(colour_change),
+                    on_hue_change: Some(ctx.bind(
+                        SetGalleryColourHue(0.0),
+                        reduce_with!(
+                            (|s: &mut GalleryState, a: SetGalleryColourHue, _| {
+                                set_colour_hue(s, a.0)
+                            })
+                        ),
+                    )),
+                    on_saturation_change: Some(ctx.bind(
+                        SetGalleryColourSaturation(0.0),
+                        reduce_with!(
+                            (|s: &mut GalleryState, a: SetGalleryColourSaturation, _| {
+                                set_colour_saturation(s, a.0)
+                            })
+                        ),
+                    )),
+                    on_value_change: Some(ctx.bind(
+                        SetGalleryColourValue(0.0),
+                        reduce_with!(
+                            (|s: &mut GalleryState, a: SetGalleryColourValue, _| {
+                                set_colour_value(s, a.0)
+                            })
+                        ),
+                    )),
+                    on_alpha_change: Some(ctx.bind(
+                        SetGalleryColourAlpha(1.0),
+                        reduce_with!(
+                            (|s: &mut GalleryState, a: SetGalleryColourAlpha, _| {
+                                set_colour_alpha(s, a.0)
+                            })
+                        ),
+                    )),
+                    on_hex_change: Some(ctx.bind(
+                        SetGalleryColourHex(String::new()),
+                        reduce_with!(
+                            (|s: &mut GalleryState, a: SetGalleryColourHex, _| {
+                                if let Some(colour) = parse_gallery_hex(&a.0) {
+                                    s.colour_value = colour;
+                                }
+                            })
+                        ),
                     )),
                     ..Default::default()
                 }
@@ -904,6 +1171,7 @@ impl From<GalleryApp> for Widget {
                     .into(),
                 display_section,
                 input_section,
+                colour_section,
                 feedback_section,
                 nav_section,
                 data_section,
