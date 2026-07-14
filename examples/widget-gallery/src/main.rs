@@ -1,6 +1,8 @@
 use fission::core::op::Color as IrColor;
 use fission::core::ui::{
-    Button, ButtonVariant, Checkbox, Container, Scroll, Slider, Switch, Text, TextInput, Widget,
+    Button, ButtonVariant, Checkbox, Container, ContextMenu, ContextMenuEntry, ContextMenuItem,
+    ContextMenuRegion, RichText, RichTextRun, Scroll, Slider, Switch, Text, TextContent, TextInput,
+    Widget,
 };
 use fission::core::{reduce_with, ActionEnvelope, FlexDirection, GlobalState, WidgetId};
 use fission::prelude::fission_action;
@@ -240,6 +242,55 @@ impl From<GalleryApp> for Widget {
                     value: "1,234".into(),
                     help_text: Some("+12% this month".into()),
                 }
+                .into(),
+                Text {
+                    id: Some(WidgetId::explicit("gallery.selectable.text")),
+                    content: TextContent::Literal(
+                        "Selectable Text: drag across this sentence, then use Ctrl/Cmd+C or right-click for Copy and Select All.".into(),
+                    ),
+                    selectable: true,
+                    width: Some(control_width),
+                    ..Default::default()
+                }
+                .into(),
+                RichText {
+                    id: Some(WidgetId::explicit("gallery.selectable.rich_text")),
+                    runs: vec![
+                        RichTextRun::new("Selectable RichText: "),
+                        RichTextRun::new("mixed style text can be selected too.")
+                            .color(tokens.colors.primary)
+                            .weight(700),
+                    ],
+                    selectable: true,
+                    width: Some(control_width),
+                    ..Default::default()
+                }
+                .into(),
+                ContextMenuRegion::new(
+                    Container::new(Text::new("Right-click this custom region for a widget-backed context menu."))
+                        .padding_all(12.0)
+                        .border(tokens.colors.border, 1.0)
+                        .border_radius(12.0),
+                    ContextMenu::with_items([ContextMenuEntry::Item(ContextMenuItem::new(
+                        "custom-help",
+                        HStack {
+                            spacing: Some(8.0),
+                            children: vec![
+                                Badge {
+                                    text: "Tip".into(),
+                                    ..Default::default()
+                                }
+                                .into(),
+                                Text::new(TextContent::KeyWithFallback {
+                                    key: "gallery.context_menu.copy_help".into(),
+                                    fallback: "Menu items can be arbitrary widgets".into(),
+                                })
+                                .into(),
+                            ],
+                        },
+                    ))]),
+                )
+                .id(WidgetId::explicit("gallery.custom.context_menu"))
                 .into(),
             ],
         );

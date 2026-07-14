@@ -26,7 +26,7 @@ let title = Text::new(TextContent::Key("settings.profile_title".into()))
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
 | `id` | `Option<WidgetId>` | Stable widget identity. | Defaults to `None`. |
-| `content` | `TextContent` | The text source to render. | Use `Literal(...)` for direct strings or `Key(...)` for translated lookup. |
+| `content` | `TextContent` | The text source to render. | Use `Literal(...)` for direct strings, `Key(...)` for translated lookup, or `KeyWithFallback { .. }` when framework UI needs an English fallback. |
 | `semantics` | `Option<Semantics>` | Optional wrapper semantics for the text block. | Defaults to `None`. Builder helpers can also attach labels and actions. |
 
 ## Typography table
@@ -62,13 +62,15 @@ let title = Text::new(TextContent::Key("settings.profile_title".into()))
 | `selection_range` | `Option<(usize, usize)>` | Highlighted selection range. | Defaults to `None`. |
 | `selection_color` | `Option<IrColor>` | Selection highlight override. | Defaults to `None`. |
 | `selection_text_color` | `Option<IrColor>` | Selected text color override. | Defaults to `None`. |
+| `selectable` | `bool` | Enables native pointer/keyboard selection for read-only text. | Defaults to `false`; provide a stable `id` when selection should survive rebuilds. |
+| `context_menu` | `TextContextMenuConfig` | Configures the built-in selected-text menu. | Defaults to Copy and Select All for read-only text. |
 | `flex_grow` / `flex_shrink` | `f32` | Flex behavior inside parent layout. | Defaults to `0.0`. |
 
 ## Plain language behavior
 
 `TextContent::Literal` renders exactly the string you provide. `TextContent::Key` looks up the current locale in `Env.i18n`. In the checked-in implementation, a missing translation key renders visibly as `MISSING:key`, which is useful during development because it fails loudly instead of silently disappearing.
 
-`Text` can also carry semantics and actions through helper methods like `.semantics_label(...)` and `.on_tap(...)`. That is useful for interactive labels or annotated text, but if different parts of one sentence need different actions, `RichText` is the better model.
+`Text` can also carry semantics and actions through helper methods like `.semantics_label(...)` and `.on_tap(...)`. Set `.selectable(true)` for read-only paragraphs that users should be able to select and copy; Fission then exposes text selection in semantics and provides the standard Copy / Select All context menu. That is useful for interactive labels or annotated text, but if different parts of one sentence need different actions, `RichText` is the better model.
 
 ## Specific advice
 

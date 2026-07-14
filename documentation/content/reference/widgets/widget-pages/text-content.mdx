@@ -15,6 +15,10 @@ You encounter it when a text widget should either render a literal string direct
 use fission::prelude::*;
 let title = Text::new(TextContent::Key("settings.title".into())).into();
 let caption = Text::new(TextContent::Literal("Version 1.2.0".into())).into();
+let menu_item = Text::new(TextContent::KeyWithFallback {
+    key: "menu.copy".into(),
+    fallback: "Copy".into(),
+}).into();
 ```
 
 ## Choice table
@@ -23,10 +27,11 @@ let caption = Text::new(TextContent::Literal("Version 1.2.0".into())).into();
 | --- | --- | --- | --- |
 | `Literal(String)` | `TextContent` | Render this exact string. | Good for dynamic values, ids, or already-translated text. |
 | `Key(String)` | `TextContent` | Look up the string through the current locale in `Env.i18n`. | Missing keys render as `MISSING:key` in the checked-in implementation. |
+| `KeyWithFallback { key, fallback }` | `TextContent` | Look up a translation key, falling back to a supplied string when no translation exists. | Use for framework-provided UI such as default context menu labels where a missing app bundle should not render `MISSING:key`. |
 
 ## Specific advice
 
-Use `Key` for product copy that should participate in internationalization. Use `Literal` for values that are already data, such as file names, counts, or user input.
+Use `Key` for product copy that should participate in internationalization. Use `KeyWithFallback` for built-in or library-provided UI where the component should be localizable but must remain readable if the host app has not supplied a translation. Use `Literal` for values that are already data, such as file names, counts, or user input.
 
 ## Production checklist
 
