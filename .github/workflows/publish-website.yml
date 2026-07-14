@@ -39,6 +39,9 @@ jobs:
       - name: Cache Rust build output
         uses: Swatinem/rust-cache@v2
 
+      - name: Install Linux native build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev pkg-config
+
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 

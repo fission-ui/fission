@@ -27,6 +27,9 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install Linux native build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev pkg-config
+
       - name: Check CLI dependency boundaries
         run: ./scripts/check_command_dependency_boundaries.sh
 
@@ -49,6 +52,9 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
+
+      - name: Install Linux native build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev pkg-config
 
       - name: Check wasm core crates
         run: |
@@ -91,6 +97,9 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+
+      - name: Install Linux native build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev pkg-config
 
       - name: Set up Gradle
         run: |
