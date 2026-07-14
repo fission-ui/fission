@@ -58,6 +58,12 @@ struct PendingScrollIntoView {
     retries_remaining: u8,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct FocusBarrierFrame {
+    id: WidgetId,
+    restore_target: Option<WidgetId>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ScrollIntoViewOutcome {
     Applied { changed: bool },
@@ -118,6 +124,8 @@ pub struct Runtime {
     pub pending_effects: Vec<EffectEnvelope>,
     /// Post-layout scroll requests that need computed geometry before applying.
     pending_scroll_into_view: Vec<PendingScrollIntoView>,
+    /// Active focus barriers and the targets restored as each barrier closes.
+    focus_barriers: Vec<FocusBarrierFrame>,
     /// Monotonically increasing counter for deterministic request id generation.
     pub next_req_id: u64,
     /// Declarative runtime resources that currently exist.
@@ -138,6 +146,7 @@ impl Default for Runtime {
             ime_handler: None,
             pending_effects: Vec::new(),
             pending_scroll_into_view: Vec::new(),
+            focus_barriers: Vec::new(),
             next_req_id: 0,
             active_resources: HashMap::new(),
             next_resource_generation: 1,
@@ -171,6 +180,118 @@ impl Runtime {
     pub fn with_ime_handler(mut self, handler: Arc<dyn ImeHandler>) -> Self {
         self.ime_handler = Some(handler);
         self
+    }
+
+    /// Reconciles keyboard focus with the focus barriers in a newly lowered IR.
+    ///
+    /// New barriers capture focus, nested barriers retain a restoration chain,
+    /// and closing barriers restores the most recent valid target.
+    pub fn reconcile_focus(&mut self, ir: &CoreIR) -> Result<bool> {
+        use crate::hit_test::{
+            focus_barriers_in_tree_order, get_all_focusable_nodes, is_descendant_or_self,
+            is_enabled_focus_node, preferred_focus_node_in_scope,
+        };
+
+        let active_barriers = focus_barriers_in_tree_order(ir);
+        let common_prefix = self
+            .focus_barriers
+            .iter()
+            .map(|frame| frame.id)
+            .zip(active_barriers.iter().copied())
+            .take_while(|(tracked, active)| tracked == active)
+            .count();
+        let popped_any = self.focus_barriers.len() > common_prefix;
+        let mut restore_target = None;
+        while self.focus_barriers.len() > common_prefix {
+            restore_target = self
+                .focus_barriers
+                .pop()
+                .and_then(|frame| frame.restore_target);
+        }
+
+        for (index, barrier_id) in active_barriers
+            .iter()
+            .copied()
+            .enumerate()
+            .skip(common_prefix)
+        {
+            let restore = if index == 0 {
+                restore_target
+                    .filter(|id| is_enabled_focus_node(ir, *id))
+                    .or_else(|| {
+                        self.runtime_state
+                            .interaction
+                            .focused
+                            .filter(|id| is_enabled_focus_node(ir, *id))
+                    })
+            } else {
+                let parent_barrier_id = active_barriers[index - 1];
+                self.runtime_state
+                    .interaction
+                    .focused
+                    .filter(|id| {
+                        is_enabled_focus_node(ir, *id)
+                            && is_descendant_or_self(ir, *id, parent_barrier_id)
+                            && !is_descendant_or_self(ir, *id, barrier_id)
+                    })
+                    .or_else(|| preferred_focus_node_in_scope(ir, parent_barrier_id))
+            };
+            self.focus_barriers.push(FocusBarrierFrame {
+                id: barrier_id,
+                restore_target: restore,
+            });
+        }
+
+        let current = self.runtime_state.interaction.focused;
+        let next = if let Some(barrier_id) = active_barriers.last().copied() {
+            current
+                .filter(|id| {
+                    is_enabled_focus_node(ir, *id) && is_descendant_or_self(ir, *id, barrier_id)
+                })
+                .or_else(|| {
+                    restore_target.filter(|id| {
+                        is_enabled_focus_node(ir, *id) && is_descendant_or_self(ir, *id, barrier_id)
+                    })
+                })
+                .or_else(|| preferred_focus_node_in_scope(ir, barrier_id))
+        } else if popped_any {
+            restore_target
+                .filter(|id| is_enabled_focus_node(ir, *id))
+                .or_else(|| {
+                    let nodes = get_all_focusable_nodes(ir);
+                    nodes
+                        .iter()
+                        .copied()
+                        .find(|id| {
+                            matches!(
+                                ir.nodes.get(id).map(|node| &node.op),
+                                Some(Op::Semantics(semantics)) if semantics.autofocus
+                            )
+                        })
+                        .or_else(|| nodes.first().copied())
+                })
+        } else {
+            current.filter(|id| is_enabled_focus_node(ir, *id))
+        };
+
+        if current == next {
+            return Ok(false);
+        }
+
+        self.clear_text_pending_on_blur(current, next);
+        self.dispatch_custom_blur_actions(ir, current)?;
+        self.runtime_state.interaction.set_focused(next);
+        if let Some(ime_handler) = &self.ime_handler {
+            let accepts_text = next.is_some_and(|id| {
+                matches!(
+                    ir.nodes.get(&id).map(|node| &node.op),
+                    Some(Op::Semantics(semantics))
+                        if semantics.role == fission_ir::semantics::Role::TextInput
+                )
+            });
+            ime_handler.set_ime_allowed(accepts_text);
+        }
+        Ok(true)
     }
 
     pub fn caret_from_point_in_text(
@@ -913,6 +1034,8 @@ impl Runtime {
         use crate::input::{ControllerContext, InputController};
         use crate::scrollbar::scrollbar_hit_test;
         use crate::ui::custom_render::downcast_render_object;
+
+        self.reconcile_focus(ir)?;
 
         if self.runtime_state.interaction.focused.is_none() {
             if let Some(autofocus_id) = Self::find_autofocus_node(ir) {

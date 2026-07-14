@@ -191,17 +191,21 @@ where
         }
 
         let node_tree = self.build_widget_tree(viewport)?;
-        let mut cx = InternalLoweringCx::new(
-            &self.env,
-            &self.runtime.runtime_state,
-            Some(&self.measurer),
-            self.last_snapshot.as_ref(),
-        );
-        let root_id = fission_core::internal::lower_widget(&node_tree, &mut cx);
-        cx.ir.root = Some(root_id);
-        verify_terminal_ir(&cx.ir).context("terminal shell support check failed")?;
+        let (ir, root_id) = {
+            let mut cx = InternalLoweringCx::new(
+                &self.env,
+                &self.runtime.runtime_state,
+                Some(&self.measurer),
+                self.last_snapshot.as_ref(),
+            );
+            let root_id = fission_core::internal::lower_widget(&node_tree, &mut cx);
+            cx.ir.root = Some(root_id);
+            (cx.ir, root_id)
+        };
+        verify_terminal_ir(&ir).context("terminal shell support check failed")?;
+        self.runtime.reconcile_focus(&ir)?;
 
-        let layout_input_nodes = build_layout_tree(&cx.ir, &self.env);
+        let layout_input_nodes = build_layout_tree(&ir, &self.env);
         self.layout_engine.update(&layout_input_nodes);
         self.layout_engine
             .verify_post_update(&layout_input_nodes, root_id)?;
@@ -213,13 +217,13 @@ where
 
         let renderer = TerminalRenderer::from_theme(&self.env.theme);
         let frame = renderer.render(
-            &cx.ir,
+            &ir,
             &snapshot,
             &self.runtime.runtime_state.scroll,
             width,
             height,
         )?;
-        self.last_ir = Some(cx.ir);
+        self.last_ir = Some(ir);
         self.last_snapshot = Some(snapshot);
         Ok(frame)
     }

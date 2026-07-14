@@ -379,17 +379,21 @@ impl<S: GlobalState> TestHarness<S> {
             if trace {
                 eprintln!("[test-trace] lower start");
             }
-            let mut cx = InternalLoweringCx::new(
-                &self.env,
-                &self.runtime.runtime_state,
-                Some(&self.measurer),
-                self.last_snapshot.as_ref(),
-            );
-            let root_id = fission_core::internal::lower_widget(&node_tree, &mut cx);
-            cx.ir.root = Some(root_id);
+            let (ir, root_id) = {
+                let mut cx = InternalLoweringCx::new(
+                    &self.env,
+                    &self.runtime.runtime_state,
+                    Some(&self.measurer),
+                    self.last_snapshot.as_ref(),
+                );
+                let root_id = fission_core::internal::lower_widget(&node_tree, &mut cx);
+                cx.ir.root = Some(root_id);
+                (cx.ir, root_id)
+            };
+            self.runtime.reconcile_focus(&ir)?;
 
-            let layout_input_nodes = build_layout_tree(&cx.ir, &self.env);
-            self.last_ir = Some(cx.ir);
+            let layout_input_nodes = build_layout_tree(&ir, &self.env);
+            self.last_ir = Some(ir);
             if trace {
                 eprintln!("[test-trace] lower done nodes={}", layout_input_nodes.len());
             }
