@@ -160,7 +160,7 @@ fn configured_icon_path(manifest: &IconManifest, target: Target) -> Option<&str>
         Target::Web | Target::Site => icons
             .and_then(|icons| icons.web.as_ref())
             .and_then(|icons| icons.source.as_deref().or(icons.favicon.as_deref())),
-        Target::Server => None,
+        Target::Server | Target::Terminal => None,
     };
     platform
         .or_else(|| icons.and_then(|icons| icons.source.as_deref()))
@@ -187,7 +187,7 @@ fn fallback_icon_paths(target: Target) -> &'static [&'static str] {
             "assets/icon.svg",
             "assets/icon.png",
         ],
-        Target::Server => &[],
+        Target::Server | Target::Terminal => &[],
         _ => &[DEFAULT_APP_ICON, "assets/icon.png"],
     }
 }
@@ -208,7 +208,7 @@ fn validate_icon_file(path: &Path, target: Target) -> Result<()> {
         Target::Macos => &["icns", "png", "jpg", "jpeg"][..],
         Target::Windows => &["ico", "png", "jpg", "jpeg"][..],
         Target::Linux => &["png", "svg"][..],
-        Target::Server => &[][..],
+        Target::Server | Target::Terminal => &[][..],
         Target::Web | Target::Site => &["ico", "png", "jpg", "jpeg", "svg", "webp"][..],
     };
     if !allowed.contains(&extension.as_str()) {

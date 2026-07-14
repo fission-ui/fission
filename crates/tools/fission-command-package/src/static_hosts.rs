@@ -1,6 +1,5 @@
 use super::*;
 use anyhow::{bail, Context, Result};
-use fission_credentials as credentials;
 use reqwest::blocking::Client;
 use serde_json::Value;
 use std::fs;
@@ -249,8 +248,7 @@ fn add_zip_entries<W: Write + std::io::Seek>(
 }
 
 fn netlify_token() -> Result<String> {
-    credentials::provider_secret(DistributionProvider::Netlify, &["NETLIFY_AUTH_TOKEN"])?
-        .context("NETLIFY_AUTH_TOKEN or Fission vault credentials are required for Netlify")
+    env_secret(&["NETLIFY_AUTH_TOKEN"])?.context("NETLIFY_AUTH_TOKEN is required for Netlify")
 }
 
 fn http_client() -> Result<Client> {

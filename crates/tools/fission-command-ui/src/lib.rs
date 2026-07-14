@@ -3,17 +3,28 @@ mod app;
 mod commands;
 mod components;
 mod density;
+mod publish;
+mod release_config;
 mod routes;
 mod screens;
 mod state;
 mod theme;
 
 use anyhow::Result;
-use fission::terminal::TerminalRunOptions;
 use std::path::PathBuf;
+
+#[cfg(test)]
 use theme::UiThemeMode;
 
 pub use app::CliUiApp;
+pub use publish::{
+    default_publish_options, run_publish_tui, run_publish_window, PublishApp, PublishUiOptions,
+    PublishUiState,
+};
+pub use release_config::{
+    run_release_config_tui, ReleaseConfigEditorApp, ReleaseConfigEditorOptions,
+    ReleaseConfigEditorState,
+};
 pub use state::UiState;
 
 #[derive(Clone, Debug)]
@@ -26,32 +37,12 @@ pub struct UiOptions {
 }
 
 pub fn run_ui(options: UiOptions) -> Result<()> {
-    let state = UiState::load(options.project_dir.clone());
-    let run_options = TerminalRunOptions {
-        width: options.width,
-        height: options.height,
-        screenshot: options.screenshot,
-        exit_after_render: options.exit_after_render,
-        ..TerminalRunOptions::default()
-    };
-    fission::terminal::TerminalApp::with_state(CliUiApp, state)
-        .with_title("Fission command")
-        .with_env(|env| {
-            env.theme = fission::theme::Theme::dark();
-        })
-        .with_sync_env(|state, env| {
-            env.theme = match state.theme_mode {
-                UiThemeMode::Dark => fission::theme::Theme::dark(),
-                UiThemeMode::Light => fission::theme::Theme::default(),
-            };
-        })
-        .with_state_update(|state, runtime, env| state.poll_command_status(runtime, env))
-        .with_exit_request(|state, _runtime, _env| {
-            state.request_exit_confirmation();
-            false
-        })
-        .with_should_exit(|state, _runtime, _env| state.exit_confirmed)
-        .run_with_options(run_options)
+    let mut publish_options = publish::default_publish_options(options.project_dir);
+    publish_options.screenshot = options.screenshot;
+    publish_options.exit_after_render = options.exit_after_render;
+    publish_options.width = options.width;
+    publish_options.height = options.height;
+    run_publish_tui(publish_options)
 }
 
 #[cfg(test)]

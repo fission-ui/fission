@@ -9,6 +9,7 @@ mod app;
 mod frame;
 mod render;
 mod screenshot;
+mod test_control;
 mod text;
 mod verify;
 
@@ -16,5 +17,6 @@ pub use app::{TerminalApp, TerminalRunOptions};
 pub use frame::{TerminalCell, TerminalColor, TerminalFrame, TerminalStyle};
 pub use render::TerminalRenderer;
 pub use screenshot::{write_frame_png, ScreenshotOptions};
+pub use test_control::TerminalLiveTest;
 pub use text::TerminalTextMeasurer;
 pub use verify::{verify_terminal_ir, TerminalSupportError};

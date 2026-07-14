@@ -272,27 +272,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
-name = "aead"
-version = "0.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d122413f284cf2d62fb1b7db97e02edb8cda96d769b16e443a4f6195e35662b0"
-dependencies = [
- "crypto-common 0.1.7",
- "generic-array",
-]
-
-[[package]]
-name = "aes"
-version = "0.8.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b169f7a6d4742236a0a00c541b845991d0ac43e546831af1249753ab4c3aa3a0"
-dependencies = [
- "cfg-if",
- "cipher",
- "cpufeatures 0.2.17",
-]
-
-[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -363,7 +342,7 @@ dependencies = [
 
 [[package]]
 name = "animation-gallery"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "fission",
@@ -1052,7 +1031,7 @@ dependencies = [
  "http 1.4.2",
  "http-body 1.0.1",
  "http-body-util",
- "md-5",
+ "md-5 0.11.0",
  "pin-project-lite",
  "sha1 0.11.0",
  "sha2 0.11.0",
@@ -1433,15 +1412,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "block-padding"
-version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8894febbff9f758034a5b8e12d87918f56dfc64a8e1fe757d65e29041538d93"
-dependencies = [
- "generic-array",
-]
-
-[[package]]
 name = "block2"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1594,7 +1564,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-fission"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -1605,15 +1575,6 @@ dependencies = [
  "fission-command-server",
  "fission-command-site",
  "fission-command-ui",
-]
-
-[[package]]
-name = "cbc"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26b52a9543ae338f279b96b0b9fed9c8093744685043739079ce85cd58f289a6"
-dependencies = [
- "cipher",
 ]
 
 [[package]]
@@ -1673,32 +1634,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
-name = "chacha20"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3613f74bd2eac03dad61bd53dbe620703d4371614fe0bc3b9f04dd36fe4e818"
-dependencies = [
- "cfg-if",
- "cipher",
- "cpufeatures 0.2.17",
-]
-
-[[package]]
-name = "chacha20poly1305"
-version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "10cd79432192d1c0f4e1a0fef9527696cc039165d729fb41b3f4f4f354c2dc35"
-dependencies = [
- "aead",
- "chacha20",
- "cipher",
- "poly1305",
- "zeroize",
-]
-
-[[package]]
 name = "chart-gallery"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "fission",
@@ -1721,17 +1658,6 @@ dependencies = [
  "serde",
  "wasm-bindgen",
  "windows-link",
-]
-
-[[package]]
-name = "cipher"
-version = "0.4.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "773f3b9af64447d2ce9850330c473515014aa235e6a783b02db81ff39e4a3dad"
-dependencies = [
- "crypto-common 0.1.7",
- "inout",
- "zeroize",
 ]
 
 [[package]]
@@ -1994,7 +1920,7 @@ dependencies = [
 
 [[package]]
 name = "counter"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "fission",
@@ -2123,7 +2049,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "78c8292055d1c1df0cce5d180393dc8cce0abec0a7102adb6c7b1eef6016d60a"
 dependencies = [
  "generic-array",
- "rand_core 0.6.4",
  "typenum",
 ]
 
@@ -2183,33 +2108,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f27ae1dd37df86211c42e150270f82743308803d90a6f6e6651cd730d5e1732f"
 
 [[package]]
-name = "dbus"
-version = "0.9.11"
+name = "data-encoding"
+version = "2.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b942602992bb7acfd1f51c49811c58a610ef9181b6e66f3e519d79b540a3bf73"
-dependencies = [
- "libc",
- "libdbus-sys",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "dbus-secret-service"
-version = "4.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "708b509edf7889e53d7efb0ffadd994cc6c2345ccb62f55cfd6b0682165e4fa6"
-dependencies = [
- "aes",
- "block-padding",
- "cbc",
- "dbus",
- "fastrand",
- "hkdf",
- "num",
- "once_cell",
- "sha2 0.10.9",
- "zeroize",
-]
+checksum = "a4ae5f15dda3c708c0ade84bfee31ccab44a3da4f88015ed22f63732abe300c8"
 
 [[package]]
 name = "deltae"
@@ -2424,7 +2326,7 @@ dependencies = [
 
 [[package]]
 name = "embed-3d"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "fission",
@@ -2434,7 +2336,7 @@ dependencies = [
 
 [[package]]
 name = "embed-video"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "fission",
@@ -2444,7 +2346,7 @@ dependencies = [
 
 [[package]]
 name = "embed-webview"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "fission",
@@ -2619,7 +2521,7 @@ dependencies = [
 
 [[package]]
 name = "field-inspector"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "console_error_panic_hook",
@@ -2676,7 +2578,7 @@ checksum = "9844ddc3a6e533d62bba727eb6c28b5d360921d5175e9ff0f1e621a5c590a4d5"
 
 [[package]]
 name = "fission"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "fission-3d",
  "fission-charts",
@@ -2703,7 +2605,7 @@ dependencies = [
 
 [[package]]
 name = "fission-3d"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "bincode",
  "bytemuck",
@@ -2730,7 +2632,7 @@ dependencies = [
 
 [[package]]
 name = "fission-charts"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "chrono",
  "fission-core",
@@ -2743,7 +2645,7 @@ dependencies = [
 
 [[package]]
 name = "fission-command-core"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -2754,19 +2656,20 @@ dependencies = [
 
 [[package]]
 name = "fission-command-package"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "aws-config",
  "aws-sdk-s3",
+ "base64",
  "clap",
  "fission-command-core",
  "fission-command-run",
  "fission-command-site",
- "fission-credentials",
  "flate2",
  "jsonwebtoken",
  "reqwest",
+ "rpassword",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -2778,16 +2681,15 @@ dependencies = [
 
 [[package]]
 name = "fission-command-release"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "base64",
  "clap",
  "fission-command-core",
  "fission-command-package",
- "fission-command-ui",
- "fission-credentials",
  "jsonwebtoken",
+ "md-5 0.10.6",
  "reqwest",
  "serde",
  "serde_json",
@@ -2798,19 +2700,21 @@ dependencies = [
 
 [[package]]
 name = "fission-command-run"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "fission-command-core",
  "fission-command-server",
  "fission-command-site",
+ "fission-test-driver",
  "serde",
  "serde_json",
+ "ureq",
 ]
 
 [[package]]
 name = "fission-command-server"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "toml 0.8.2",
@@ -2818,7 +2722,7 @@ dependencies = [
 
 [[package]]
 name = "fission-command-site"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "fission-shell-site",
@@ -2828,18 +2732,22 @@ dependencies = [
 
 [[package]]
 name = "fission-command-ui"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "fission",
  "fission-command-core",
+ "fission-command-package",
+ "fission-command-release",
  "fission-command-run",
+ "rfd",
  "serde",
+ "toml_edit 0.23.10+spec-1.0.0",
 ]
 
 [[package]]
 name = "fission-core"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "blake3",
@@ -2862,22 +2770,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "fission-credentials"
-version = "0.7.0"
-dependencies = [
- "anyhow",
- "base64",
- "chacha20poly1305",
- "fission-command-core",
- "getrandom 0.2.17",
- "keyring",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "fission-design-system-codegen"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -2885,7 +2779,7 @@ dependencies = [
 
 [[package]]
 name = "fission-diagnostics"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "bitflags 2.13.0",
  "once_cell",
@@ -2896,7 +2790,7 @@ dependencies = [
 
 [[package]]
 name = "fission-documentation"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "fission",
@@ -2904,7 +2798,7 @@ dependencies = [
 
 [[package]]
 name = "fission-editor"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "fission",
@@ -2921,14 +2815,14 @@ dependencies = [
 
 [[package]]
 name = "fission-i18n"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "fission-icons"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "heck 0.4.1",
  "serde_json",
@@ -2937,7 +2831,7 @@ dependencies = [
 
 [[package]]
 name = "fission-ir"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "blake3",
  "serde",
@@ -2947,7 +2841,7 @@ dependencies = [
 
 [[package]]
 name = "fission-layout"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "fission-diagnostics",
@@ -2957,7 +2851,7 @@ dependencies = [
 
 [[package]]
 name = "fission-macros"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "proc-macro-crate 3.5.0",
  "proc-macro2",
@@ -2967,7 +2861,7 @@ dependencies = [
 
 [[package]]
 name = "fission-render"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "fission-ir",
@@ -2978,7 +2872,7 @@ dependencies = [
 
 [[package]]
 name = "fission-render-vello"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "fission-diagnostics",
@@ -3002,7 +2896,7 @@ dependencies = [
 
 [[package]]
 name = "fission-semantics"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "fission-ir",
  "serde",
@@ -3011,7 +2905,7 @@ dependencies = [
 
 [[package]]
 name = "fission-shell"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "fission-core",
@@ -3025,7 +2919,7 @@ dependencies = [
 
 [[package]]
 name = "fission-shell-desktop"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "fission-core",
@@ -3045,7 +2939,7 @@ dependencies = [
 
 [[package]]
 name = "fission-shell-mobile"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "fission-core",
@@ -3057,7 +2951,7 @@ dependencies = [
 
 [[package]]
 name = "fission-shell-server"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "actix-web",
  "anyhow",
@@ -3084,7 +2978,7 @@ dependencies = [
 
 [[package]]
 name = "fission-shell-site"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "base64",
@@ -3101,14 +2995,16 @@ dependencies = [
 
 [[package]]
 name = "fission-shell-terminal"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "ab_glyph",
  "anyhow",
+ "base64",
  "crossterm",
  "fission-core",
  "fission-ir",
  "fission-layout",
+ "fission-test-driver",
  "fission-theme",
  "image 0.25.8",
  "unicode-segmentation",
@@ -3117,7 +3013,7 @@ dependencies = [
 
 [[package]]
 name = "fission-shell-web"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "fission-core",
@@ -3128,7 +3024,7 @@ dependencies = [
 
 [[package]]
 name = "fission-shell-winit"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "accesskit",
  "anyhow",
@@ -3186,7 +3082,7 @@ dependencies = [
 
 [[package]]
 name = "fission-test"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "fission-core",
@@ -3209,25 +3105,26 @@ dependencies = [
 
 [[package]]
 name = "fission-test-driver"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "base64",
  "serde",
  "serde_json",
+ "tungstenite",
  "ureq",
 ]
 
 [[package]]
 name = "fission-text-engine"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "ropey",
 ]
 
 [[package]]
 name = "fission-theme"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "fission-design-system-codegen",
  "fission-ir",
@@ -3275,7 +3172,7 @@ dependencies = [
 
 [[package]]
 name = "fission-widgets"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "arboard",
@@ -4234,15 +4131,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
 
 [[package]]
-name = "hkdf"
-version = "0.12.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b5f8eb2ad728638ea2c7d47a21db23b7b58a72ed6a38256b8a1849f15fbbdf7"
-dependencies = [
- "hmac 0.12.1",
-]
-
-[[package]]
 name = "hmac"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4471,7 +4359,7 @@ dependencies = [
 
 [[package]]
 name = "icons_gallery"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "fission",
@@ -4669,7 +4557,7 @@ checksum = "35a84fd5aa25fae5c0f4a33d9cac2ca017fc622cbd089be2229993514990f870"
 
 [[package]]
 name = "inbox"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4691,16 +4579,6 @@ checksum = "d466e9454f08e4a911e14806c24e16fba1b4c121d1ea474396f396069cf949d9"
 dependencies = [
  "equivalent",
  "hashbrown 0.17.1",
-]
-
-[[package]]
-name = "inout"
-version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "879f10e63c20629ecabbb64a8010319738c66a5cd0c29b02d63d272b03751d01"
-dependencies = [
- "block-padding",
- "generic-array",
 ]
 
 [[package]]
@@ -4881,23 +4759,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "keyring"
-version = "3.6.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eebcc3aff044e5944a8fbaf69eb277d11986064cba30c468730e8b9909fb551c"
-dependencies = [
- "byteorder",
- "dbus-secret-service",
- "linux-keyutils",
- "log",
- "secret-service",
- "security-framework 2.11.1",
- "security-framework 3.7.0",
- "windows-sys 0.60.2",
- "zeroize",
-]
-
-[[package]]
 name = "khronos-egl"
 version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4989,15 +4850,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
 
 [[package]]
-name = "libdbus-sys"
-version = "0.2.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "328c4789d42200f1eeec05bd86c9c13c7f091d2ba9a6ea35acdf51f31bc0f043"
-dependencies = [
- "pkg-config",
-]
-
-[[package]]
 name = "libfuzzer-sys"
 version = "0.4.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5069,16 +4921,6 @@ name = "linebender_resource_handle"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4a5ff6bcca6c4867b1c4fd4ef63e4db7436ef363e0ad7531d1558856bae64f4"
-
-[[package]]
-name = "linux-keyutils"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83270a18e9f90d0707c41e9f35efada77b64c0e6f3f1810e71c8368a864d5590"
-dependencies = [
- "bitflags 2.13.0",
- "libc",
-]
 
 [[package]]
 name = "linux-raw-sys"
@@ -5205,6 +5047,16 @@ dependencies = [
 
 [[package]]
 name = "md-5"
+version = "0.10.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d89e7ee0cfbedfc4da3340218492196241d89eefb6dab27de5df917a6d2e78cf"
+dependencies = [
+ "cfg-if",
+ "digest 0.10.7",
+]
+
+[[package]]
+name = "md-5"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "69b6441f590336821bb897fb28fc622898ccceb1d6cea3fde5ea86b090c4de98"
@@ -5313,7 +5165,7 @@ dependencies = [
 
 [[package]]
 name = "mobile-smoke"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "fission",
@@ -5338,7 +5190,7 @@ dependencies = [
 
 [[package]]
 name = "motion-memory-repro"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "fission",
@@ -5946,12 +5798,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
-name = "opaque-debug"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
-
-[[package]]
 name = "openssl-probe"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6386,7 +6232,7 @@ dependencies = [
 
 [[package]]
 name = "pokemon-card-store"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "fission",
@@ -6413,17 +6259,6 @@ name = "pollster"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "22686f4785f02a4fcc856d3b3bb19bf6c8160d103f7a99cc258bddd0251dc7f2"
-
-[[package]]
-name = "poly1305"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8159bd90725d2df49889a078b54f4f79e87f1f8a8444194cdca81d38f5393abf"
-dependencies = [
- "cpufeatures 0.2.17",
- "opaque-debug",
- "universal-hash",
-]
 
 [[package]]
 name = "portable-atomic"
@@ -6564,7 +6399,7 @@ dependencies = [
 
 [[package]]
 name = "product-browser"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "fission",
@@ -7107,6 +6942,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "rpassword"
+version = "7.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2da316a15f47e3d053de9cb2c439650bd8fa4aaeb9365f2e5f27f492ff73c196"
+dependencies = [
+ "libc",
+ "rtoolbox",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "rtoolbox"
+version = "0.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "50a0e551c1e27e1731aba276dbeaeac73f53c7cd34d1bda485d02bd1e0f36844"
+dependencies = [
+ "libc",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "rushdown"
 version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7202,7 +7058,7 @@ dependencies = [
  "openssl-probe",
  "rustls-pki-types",
  "schannel",
- "security-framework 3.7.0",
+ "security-framework",
 ]
 
 [[package]]
@@ -7377,38 +7233,6 @@ dependencies = [
  "pkcs8",
  "subtle",
  "zeroize",
-]
-
-[[package]]
-name = "secret-service"
-version = "4.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4d35ad99a181be0a60ffcbe85d680d98f87bdc4d7644ade319b87076b9dbfd4"
-dependencies = [
- "aes",
- "cbc",
- "futures-util",
- "generic-array",
- "hkdf",
- "num",
- "once_cell",
- "rand 0.8.6",
- "serde",
- "sha2 0.10.9",
- "zbus 4.4.0",
-]
-
-[[package]]
-name = "security-framework"
-version = "2.11.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "897b2245f0b511c87893af39b033e5ca9cce68824c4d7e7630b5a1d339658d02"
-dependencies = [
- "bitflags 2.13.0",
- "core-foundation 0.9.4",
- "core-foundation-sys",
- "libc",
- "security-framework-sys",
 ]
 
 [[package]]
@@ -8217,7 +8041,7 @@ dependencies = [
 
 [[package]]
 name = "terminal"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "arboard",
@@ -8249,7 +8073,7 @@ dependencies = [
 
 [[package]]
 name = "text-lab"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "fission",
@@ -8409,7 +8233,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "todo-design-system"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "fission",
@@ -8730,6 +8554,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2df906b07856748fa3f6e0ad0cbaa047052d4a7dd609e231c4f72cee8c36f31"
 
 [[package]]
+name = "tungstenite"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "18e5b8366ee7a95b16d32197d0b2604b43a0be89dc5fac9f8e96ccafbaedda8a"
+dependencies = [
+ "byteorder",
+ "bytes",
+ "data-encoding",
+ "http 1.4.2",
+ "httparse",
+ "log",
+ "rand 0.8.6",
+ "sha1 0.10.6",
+ "thiserror 1.0.69",
+ "utf-8",
+]
+
+[[package]]
 name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8792,16 +8634,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
 
 [[package]]
-name = "universal-hash"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc1de2c688dc15305988b563c3854064043356019f97a4b46276fe734c4f07ea"
-dependencies = [
- "crypto-common 0.1.7",
- "subtle",
-]
-
-[[package]]
 name = "untrusted"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8819,6 +8651,8 @@ dependencies = [
  "once_cell",
  "rustls 0.23.41",
  "rustls-pki-types",
+ "serde",
+ "serde_json",
  "url",
  "webpki-roots 0.26.11",
 ]
@@ -8841,6 +8675,12 @@ name = "urlencoding"
 version = "2.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "daf8dba3b7eb870caf1ddeed7bc9d2a049f3cfdfae7cb521b087cc33ae4c49da"
+
+[[package]]
+name = "utf-8"
+version = "0.7.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09cc8ee72d2a9becf2f2febe0205bbed8fc6615b7cb429ad062dc7b7ddd036a9"
 
 [[package]]
 name = "utf8_iter"
@@ -9105,7 +8945,7 @@ dependencies = [
 
 [[package]]
 name = "web-smoke"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "console_error_panic_hook",
@@ -9365,7 +9205,7 @@ dependencies = [
 
 [[package]]
 name = "widget-gallery"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "fission",
@@ -10277,20 +10117,6 @@ name = "zeroize"
 version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e13c156562582aa81c60cb29407084cdb54c4164760106ab78e6c5b0858cf64e"
-dependencies = [
- "zeroize_derive",
-]
-
-[[package]]
-name = "zeroize_derive"
-version = "1.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c50655cbb0fe3fc43170059e702f1ce5e19b84cec58dc87b037a09935c2f328"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.118",
-]
 
 [[package]]
 name = "zerotrie"

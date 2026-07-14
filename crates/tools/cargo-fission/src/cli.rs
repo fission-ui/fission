@@ -170,6 +170,9 @@ pub(crate) enum Command {
         /// Provider track/channel/group, such as internal, testflight, or production.
         #[arg(long)]
         track: Option<String>,
+        /// Locale to include in this distribution decision. Can be repeated.
+        #[arg(long = "locale")]
+        locales: Vec<String>,
         /// Show what would happen without mutating provider state.
         #[arg(long)]
         dry_run: bool,
@@ -183,12 +186,18 @@ pub(crate) enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Publish a packaged artifact to a configured distribution provider.
+    /// Run the shared package/publish workflow, or open an interactive publish flow.
     Publish {
         /// Distribution provider.
         #[arg(long, value_enum)]
         provider: DistributionProvider,
-        /// Artifact manifest emitted by `fission package`.
+        /// Target to build/package before publishing. Defaults from the provider.
+        #[arg(long, value_enum)]
+        target: Option<Target>,
+        /// Package format to build before publishing. Defaults from the target/provider.
+        #[arg(long, value_enum)]
+        format: Option<package::PackageFormat>,
+        /// Artifact manifest emitted by `fission package`. When omitted, the workflow packages the provider default target/format first.
         #[arg(long)]
         artifact: Option<PathBuf>,
         /// Named distribution site/profile from fission.toml.
@@ -200,20 +209,32 @@ pub(crate) enum Command {
         /// Provider track/channel/group, such as internal, testflight, or production.
         #[arg(long)]
         track: Option<String>,
+        /// Locale to include in this publish decision. Can be repeated.
+        #[arg(long = "locale")]
+        locales: Vec<String>,
+        /// Open the guided publish flow as a windowed app when available.
+        #[arg(long)]
+        app: bool,
+        /// Use the line-oriented guided CLI flow instead of the Fission TUI.
+        #[arg(long)]
+        guided: bool,
         /// Show what would happen without mutating provider state.
         #[arg(long)]
         dry_run: bool,
-        /// Confirm overwrites or provider-side setup changes.
+        /// Replace provider release metadata even when no fresh release-config lock is present.
+        #[arg(long)]
+        overwrite_remote: bool,
+        /// Confirm non-interactive package and publish mutations.
         #[arg(long)]
         yes: bool,
         /// Project directory; defaults to the current working directory.
         #[arg(long, default_value = ".")]
         project_dir: PathBuf,
-        /// Emit machine-readable JSON.
+        /// Emit machine-readable JSON for the publish workflow.
         #[arg(long)]
         json: bool,
     },
-    /// Run package or distribution readiness checks.
+    /// Run package, distribution, or release readiness checks.
     Readiness {
         /// Readiness area to check.
         #[arg(value_enum)]
@@ -224,6 +245,9 @@ pub(crate) enum Command {
         /// Package format.
         #[arg(long, value_enum)]
         format: Option<package::PackageFormat>,
+        /// Check release packaging requirements where package readiness is selected.
+        #[arg(long)]
+        release: bool,
         /// Distribution provider.
         #[arg(long, value_enum)]
         provider: Option<DistributionProvider>,
@@ -236,6 +260,9 @@ pub(crate) enum Command {
         /// Provider track/channel/group, such as internal, testflight, or production.
         #[arg(long)]
         track: Option<String>,
+        /// Locale to include in release readiness. Can be repeated.
+        #[arg(long = "locale")]
+        locales: Vec<String>,
         /// Project directory; defaults to the current working directory.
         #[arg(long, default_value = ".")]
         project_dir: PathBuf,
@@ -248,7 +275,7 @@ pub(crate) enum Command {
         #[command(subcommand)]
         command: release::ReleaseConfigCommand,
     },
-    /// Capture, render, or validate release screenshots and store assets.
+    /// Capture, render, validate, or push release screenshots and store assets.
     ReleaseContent {
         #[command(subcommand)]
         command: release::ReleaseContentCommand,
@@ -293,8 +320,23 @@ pub(crate) enum Command {
         #[arg(long)]
         follow: bool,
     },
-    /// Open the interactive Fission command terminal UI.
+    /// Open the interactive Fission publish terminal UI.
     Ui {
+        /// Publish provider to open in the TUI.
+        #[arg(long, value_enum, default_value = "play-store")]
+        provider: DistributionProvider,
+        /// Target to package before publishing. Defaults from provider.
+        #[arg(long, value_enum)]
+        target: Option<Target>,
+        /// Package format. Defaults from target/provider.
+        #[arg(long, value_enum)]
+        format: Option<package::PackageFormat>,
+        /// Provider track/channel/group.
+        #[arg(long)]
+        track: Option<String>,
+        /// Locale to include in this publish decision. Can be repeated.
+        #[arg(long = "locale")]
+        locales: Vec<String>,
         /// Project directory; defaults to the current working directory.
         #[arg(long, default_value = ".")]
         project_dir: PathBuf,

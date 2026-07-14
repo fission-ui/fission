@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-07-10
+
+### Added
+
+- **Shared release workflow** - Direct CLI, guided prompts, Terminal TUI, windowed publish UI, and CI JSON mode now consume the same release plan, requirement model, workflow events, and publish receipts.
+- **Provider-aware publish receipts** - Publish flows now retain provider request/response summaries, upload plans, per-asset events, uploaded byte totals, provider status, manual follow-up, omitted requirements, and non-overwriting receipt files.
+- **Release workflow recipes** - `release-workflow run` supports declarative Fission command recipes with readiness gates, declared inputs/outputs, normalized argv, exit codes, dry-run, confirmation, and timestamped receipts.
+- **Selector-driven release screenshots** - Release-content capture scenarios can wait for and act on semantic/test/accessibility/widget-id/role/label selectors without fragile coordinate math.
+
+### Changed
+
+- **Release readiness is stricter and clearer** - Store-bound flows classify release notes, screenshots, localized metadata, privacy/review information, signing, provider auth, version/build state, and package validation as provider-required, Fission-recommended, optional, or not applicable.
+- **Package and artifact validation is more deterministic** - Artifact manifests now carry source config facts, icon manifest details, package validation state, signing/notarization state, and secondary artifact coverage so publishing can reject stale or failed release assets before provider mutation.
+- **Provider publishing is more complete** - Google Play, App Store Connect, Microsoft Store, GitHub Releases, S3/object storage, Docker registries, and static hosts now expose more precise publish/status behavior, idempotency policy, and provider follow-up.
+- **Secure release configuration is enforced** - Secret-bearing paths/material stay out of `fission.toml`; local interactive flows use `~/.fission/<app-name>/`, while CI uses env/base64 env/provider-owned credential sources.
+- **Generated dependency snippets** - Current examples, documentation snippets, README fragments, and `fission init` templates now point at `0.7.1`.
+
+### Fixed
+
+- **Google Play edit validation** - Empty-body validate calls now send the required content length instead of failing with `411 Length Required`.
+- **Duplicate/stale provider mutations** - Play version-code reuse, GitHub duplicate assets, S3 overwrite policy, stale artifact manifests, and provider metadata locks now produce explicit diagnostics before mutation where the provider exposes enough state.
+- **Guided subprocess visibility** - Guided publishing now keeps bounded live subprocess output visible during long-running operations while preserving full logs/events for receipts.
+- **Release UI false readiness** - Local UI gates remain `not checked` until backed by deterministic checks or completed workflow events.
+
 ## [0.7.0] - 2026-07-03
 
 ### Added

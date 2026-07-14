@@ -10,14 +10,14 @@ Docker registry publishing is for Fission SSR and Static site targets packaged a
 ## 1. Package the image
 
 ```bash
-fission package --project-dir examples/pokemon-card-store --target server --format docker-image --release
+fission package --project-dir examples/pokemon-card-store --target ssr --format docker-image --release
 ```
 
 The package step should build or prepare the image with the tags configured in [`fission.toml`](/reference/config/fission-toml/).
 
 ## 2. Authenticate with the registry
 
-Use the Docker-compatible registry authentication flow for the target registry. Fission should not store registry passwords in plain text. Use the Docker CLI session, CI secrets, environment references, operating-system key stores, or the Fission credential vault.
+Use the Docker-compatible registry authentication flow for the target registry. Fission does not store registry passwords. Use the Docker CLI session, CI secrets, environment references, or operating-system key stores.
 
 ## 3. Publish tags
 
@@ -25,8 +25,22 @@ Use the Docker-compatible registry authentication flow for the target registry. 
 fission publish \
   --project-dir examples/pokemon-card-store \
   --provider docker-registry \
-  --artifact target/fission/release/server/docker-image/artifact-manifest.json \
+  --artifact target/fission/release/ssr/docker-image/artifact-manifest.json \
   --site production
 ```
 
 The receipt should record image tags, digests where available, registry host, pushed byte counts, and provider output.
+
+After publishing, check the remote registry state with:
+
+```bash
+fission distribute status \
+  --project-dir examples/pokemon-card-store \
+  --provider docker-registry \
+  --site production
+```
+
+The status receipt inspects each configured tag. If the distribution profile does
+not list tags, pass `--artifact` so Fission can inspect the image tags recorded
+in `image-metadata.json`. The receipt reports the manifest digest when Docker
+exposes it.

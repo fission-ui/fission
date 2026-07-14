@@ -6,20 +6,38 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::fs;
+use std::io::Read;
 use std::net::TcpListener;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Deserialize, Default)]
 struct ContentToml {
     release: Option<ReleaseContentRoot>,
+    #[serde(default)]
+    releases: Vec<ReleaseEntryContent>,
 }
 
 #[derive(Debug, Deserialize, Default)]
 struct ReleaseContentRoot {
+    active_release: Option<String>,
+    #[serde(default)]
+    default_locales: Vec<String>,
     screenshots: Option<ScreenshotConfig>,
     assets: Option<ProviderAssets>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ReleaseEntryContent {
+    id: Option<String>,
+    version: Option<String>,
+    #[serde(default)]
+    locales: Vec<String>,
+    metadata: Option<String>,
+    release_notes: Option<String>,
+    review: Option<String>,
+    privacy: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -48,8 +66,10 @@ struct ScreenshotScenario {
 #[derive(Debug, Deserialize, Default)]
 struct ScreenshotStep {
     cmd: String,
+    selector: Option<String>,
     text: Option<String>,
     key: Option<String>,
+    value: Option<String>,
     modifiers: Option<u8>,
     ms: Option<u64>,
     x: Option<f32>,
@@ -112,7 +132,7 @@ struct RenderedAsset {
     height: Option<u32>,
 }
 
-pub(super) fn validate_release_content_model(
+pub(crate) fn validate_release_content_model(
     project_dir: &Path,
     provider: Option<DistributionProvider>,
 ) -> LifecycleReport {
@@ -255,6 +275,155 @@ pub(super) fn render_release_content(
     });
     finalize_status(&mut report);
     Ok(report)
+}
+
+pub(crate) fn materialize_release_content_manifest(
+    project_dir: &Path,
+    provider: DistributionProvider,
+) -> Result<Option<PathBuf>> {
+    let config = load_content_config(project_dir)?;
+    let Some(release) = config.release.as_ref() else {
+        return Ok(None);
+    };
+    let content_root = project_dir.join("release-content");
+    if !content_root.exists() {
+        return Ok(None);
+    }
+    fs::create_dir_all(&content_root)?;
+    let active_release = release.active_release.as_deref();
+    let selected_releases = selected_release_content_entries(&config, active_release);
+    let mut referenced_files = Vec::new();
+    for entry in &selected_releases {
+        for relative in [
+            entry.metadata.as_deref(),
+            entry.release_notes.as_deref(),
+            entry.review.as_deref(),
+            entry.privacy.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            collect_referenced_content_files(project_dir, relative, &mut referenced_files)?;
+        }
+    }
+    let rendered_manifest_path = project_dir
+        .join(
+            release
+                .screenshots
+                .as_ref()
+                .and_then(|screenshots| screenshots.rendered_dir.as_deref())
+                .unwrap_or("release-content/screenshots/rendered"),
+        )
+        .join(provider.as_str())
+        .join("release-content-manifest.json");
+    let rendered_manifest = if rendered_manifest_path.exists() {
+        let value: Value = serde_json::from_slice(&fs::read(&rendered_manifest_path)?)?;
+        Some(json!({
+            "path": display_project_path(project_dir, &rendered_manifest_path),
+            "sha256": sha256_file(&rendered_manifest_path)?,
+            "asset_count": value.get("assets").and_then(Value::as_array).map(Vec::len).unwrap_or_default(),
+            "manifest": value,
+        }))
+    } else {
+        None
+    };
+    let fission_toml = project_dir.join("fission.toml");
+    let manifest = json!({
+        "schema_version": 1,
+        "created_at_unix_seconds": now_unix_seconds(),
+        "provider": provider.as_str(),
+        "active_release": active_release,
+        "default_locales": &release.default_locales,
+        "releases": selected_releases.iter().map(release_entry_manifest).collect::<Vec<_>>(),
+        "source_config": {
+            "path": display_project_path(project_dir, &fission_toml),
+            "sha256": sha256_file(&fission_toml)?,
+        },
+        "referenced_files": referenced_files,
+        "rendered_screenshots": rendered_manifest,
+    });
+    let path = content_root.join("content-manifest.json");
+    fs::write(&path, serde_json::to_vec_pretty(&manifest)?)?;
+    Ok(Some(path))
+}
+
+fn selected_release_content_entries<'a>(
+    config: &'a ContentToml,
+    active_release: Option<&str>,
+) -> Vec<&'a ReleaseEntryContent> {
+    if let Some(active_release) = active_release {
+        let entries = config
+            .releases
+            .iter()
+            .filter(|entry| entry.id.as_deref() == Some(active_release))
+            .collect::<Vec<_>>();
+        if !entries.is_empty() {
+            return entries;
+        }
+    }
+    config.releases.iter().collect()
+}
+
+fn release_entry_manifest(entry: &&ReleaseEntryContent) -> Value {
+    json!({
+        "id": entry.id.as_deref(),
+        "version": entry.version.as_deref(),
+        "locales": &entry.locales,
+        "metadata": entry.metadata.as_deref(),
+        "release_notes": entry.release_notes.as_deref(),
+        "review": entry.review.as_deref(),
+        "privacy": entry.privacy.as_deref(),
+    })
+}
+
+fn collect_referenced_content_files(
+    project_dir: &Path,
+    relative: &str,
+    files: &mut Vec<Value>,
+) -> Result<()> {
+    let path = project_dir.join(relative);
+    if !path.exists() {
+        return Ok(());
+    }
+    if path.is_dir() {
+        let mut children = Vec::new();
+        collect_file_paths(&path, &mut children)?;
+        children.sort();
+        for child in children {
+            files.push(content_file_entry(project_dir, &child)?);
+        }
+    } else {
+        files.push(content_file_entry(project_dir, &path)?);
+    }
+    Ok(())
+}
+
+fn collect_file_paths(root: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
+    for entry in fs::read_dir(root).with_context(|| format!("failed to read {}", root.display()))? {
+        let entry = entry?;
+        let path = entry.path();
+        if entry.file_type()?.is_dir() {
+            collect_file_paths(&path, files)?;
+        } else {
+            files.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn content_file_entry(project_dir: &Path, path: &Path) -> Result<Value> {
+    Ok(json!({
+        "path": display_project_path(project_dir, path),
+        "sha256": sha256_file(path)?,
+        "size_bytes": fs::metadata(path).map(|metadata| metadata.len()).unwrap_or_default(),
+    }))
+}
+
+fn display_project_path(project_dir: &Path, path: &Path) -> String {
+    path.strip_prefix(project_dir)
+        .unwrap_or(path)
+        .display()
+        .to_string()
 }
 
 fn capture_scenario(
@@ -490,6 +659,14 @@ fn run_test_control_steps(
         &format!("release_content.capture.{id}.test_control_ready"),
         format!("http://127.0.0.1:{port}"),
     ));
+    if let Some(wait_for) = scenario.wait_for.as_deref() {
+        let payload = wait_for_payload(wait_for, timeout)?;
+        send_test_command(&client, port, &payload)?;
+        checks.push(ok_check(
+            &format!("release_content.capture.{id}.wait_for"),
+            wait_for.to_string(),
+        ));
+    }
     let mut saw_screenshot = false;
     for (index, step) in scenario.steps.iter().enumerate() {
         let response = send_test_command(&client, port, &step_payload(step, raw_dir, set, id)?)?;
@@ -567,6 +744,65 @@ fn send_test_command(client: &Client, port: u16, payload: &serde_json::Value) ->
 fn step_payload(step: &ScreenshotStep, raw_dir: &Path, set: &str, id: &str) -> Result<Value> {
     match step.cmd.as_str() {
         "tap_text" => Ok(json!({"cmd": "TapText", "text": required_step_text(step, "text")?})),
+        "tap_selector" => Ok(json!({
+            "cmd": "TapSelector",
+            "query": required_step_selector(step)?
+        })),
+        "activate_selector" => Ok(json!({
+            "cmd": "ActivateSelector",
+            "query": required_step_selector(step)?
+        })),
+        "focus_selector" => Ok(json!({
+            "cmd": "FocusSelector",
+            "query": required_step_selector(step)?
+        })),
+        "scroll_into_view" => Ok(json!({
+            "cmd": "ScrollIntoView",
+            "query": required_step_selector(step)?
+        })),
+        "fill_text" => Ok(json!({
+            "cmd": "FillText",
+            "query": required_step_selector(step)?,
+            "text": required_step_text(step, "text")?
+        })),
+        "clear_text" => Ok(json!({
+            "cmd": "ClearText",
+            "query": required_step_selector(step)?
+        })),
+        "toggle" => Ok(json!({
+            "cmd": "Toggle",
+            "query": required_step_selector(step)?
+        })),
+        "select_option" => Ok(json!({
+            "cmd": "SelectOption",
+            "query": required_step_selector(step)?
+        })),
+        "wait_for_selector" => Ok(json!({
+            "cmd": "WaitForSelector",
+            "query": required_step_selector(step)?,
+            "timeout_ms": step.ms.unwrap_or(5_000)
+        })),
+        "wait_for_visible" => Ok(json!({
+            "cmd": "WaitForVisible",
+            "query": required_step_selector(step)?,
+            "timeout_ms": step.ms.unwrap_or(5_000)
+        })),
+        "wait_for_enabled" => Ok(json!({
+            "cmd": "WaitForEnabled",
+            "query": required_step_selector(step)?,
+            "timeout_ms": step.ms.unwrap_or(5_000)
+        })),
+        "wait_for_value" => Ok(json!({
+            "cmd": "WaitForValue",
+            "query": required_step_selector(step)?,
+            "value": step.value.as_deref().or(step.text.as_deref()).context("wait_for_value step requires value or text")?,
+            "timeout_ms": step.ms.unwrap_or(5_000)
+        })),
+        "wait_for_text" => Ok(json!({
+            "cmd": "WaitForText",
+            "text": required_step_text(step, "text")?,
+            "timeout_ms": step.ms.unwrap_or(5_000)
+        })),
         "type_text" => Ok(json!({"cmd": "TypeText", "text": required_step_text(step, "text")?})),
         "press_key" => Ok(json!({
             "cmd": "PressKey",
@@ -598,6 +834,89 @@ fn step_payload(step: &ScreenshotStep, raw_dir: &Path, set: &str, id: &str) -> R
         }
         other => bail!("unsupported screenshot scenario step `{other}`"),
     }
+}
+
+fn wait_for_payload(wait_for: &str, timeout: Duration) -> Result<Value> {
+    if let Some(text) = wait_for.strip_prefix("text:") {
+        return Ok(json!({
+            "cmd": "WaitForText",
+            "text": text,
+            "timeout_ms": timeout.as_millis().min(u64::MAX as u128) as u64,
+        }));
+    }
+    Ok(json!({
+        "cmd": "WaitForVisible",
+        "query": selector_query_payload(wait_for)?,
+        "timeout_ms": timeout.as_millis().min(u64::MAX as u128) as u64,
+    }))
+}
+
+fn required_step_selector(step: &ScreenshotStep) -> Result<Value> {
+    selector_query_payload(
+        step.selector
+            .as_deref()
+            .context("selector step requires selector")?,
+    )
+}
+
+fn selector_query_payload(selector: &str) -> Result<Value> {
+    let (selector, index) = split_selector_index(selector);
+    let value = selector.trim();
+    if value.is_empty() {
+        bail!("selector cannot be empty");
+    }
+    let mut query = json!({
+        "selector": selector_payload(value)?,
+        "include_hidden": false,
+    });
+    if let Some(index) = index {
+        query["index"] = json!(index);
+    }
+    Ok(query)
+}
+
+fn split_selector_index(selector: &str) -> (&str, Option<usize>) {
+    let Some((base, suffix)) = selector.rsplit_once('#') else {
+        return (selector, None);
+    };
+    match suffix.parse::<usize>() {
+        Ok(index) => (base, Some(index)),
+        Err(_) => (selector, None),
+    }
+}
+
+fn selector_payload(selector: &str) -> Result<Value> {
+    if let Some(value) = selector.strip_prefix("semantic:") {
+        return Ok(json!({"SemanticIdentifier": {"identifier": value}}));
+    }
+    if let Some(value) = selector
+        .strip_prefix("test_id:")
+        .or_else(|| selector.strip_prefix("test-id:"))
+    {
+        return Ok(json!({"TestId": {"test_id": value}}));
+    }
+    if let Some(value) = selector
+        .strip_prefix("widget_id:")
+        .or_else(|| selector.strip_prefix("widget:"))
+    {
+        return Ok(json!({"WidgetId": {"widget_id": value}}));
+    }
+    if let Some(value) = selector
+        .strip_prefix("accessibility:")
+        .or_else(|| selector.strip_prefix("a11y:"))
+    {
+        return Ok(json!({"AccessibilityIdentifier": {"identifier": value}}));
+    }
+    if let Some(value) = selector.strip_prefix("label:") {
+        return Ok(json!({"Label": {"label": value}}));
+    }
+    if let Some(value) = selector.strip_prefix("role:") {
+        let (role, label) = value
+            .split_once(':')
+            .context("role selector must be role:<role>:<label>")?;
+        return Ok(json!({"RoleLabel": {"role": role, "label": label}}));
+    }
+    Ok(json!({"SemanticIdentifier": {"identifier": selector}}))
 }
 
 fn write_screenshot_response(
@@ -796,7 +1115,53 @@ fn validate_screenshots(
                 provider.as_str()
             )],
         });
+        validate_required_provider_assets(project_dir, config, provider, &provider_dir, checks);
         validate_rendered_asset_rules(provider, &provider_dir, checks);
+    }
+}
+
+fn validate_required_provider_assets(
+    project_dir: &Path,
+    config: &ContentToml,
+    provider: DistributionProvider,
+    rendered_provider_dir: &Path,
+    checks: &mut Vec<LifecycleCheck>,
+) {
+    let rendered_count = count_assets(rendered_provider_dir).unwrap_or(0);
+    let configured_screenshot_count =
+        configured_provider_screenshot_count(project_dir, config, provider).unwrap_or(0);
+    let total_screenshots = rendered_count + configured_screenshot_count;
+    let (min_screenshots, _) = provider_screenshot_count(provider);
+    checks.push(LifecycleCheck {
+        id: format!("release_content.{}.required_assets", provider.as_str()),
+        status: if total_screenshots >= min_screenshots {
+            "passed"
+        } else {
+            "missing"
+        }
+        .to_string(),
+        summary: "provider-required screenshot assets exist".to_string(),
+        details: Some(format!(
+            "{total_screenshots} screenshot asset(s), minimum {min_screenshots}"
+        )),
+        remediation: vec![format!(
+            "Render release-content screenshots for {} or configure the provider screenshot directory.",
+            provider.as_str()
+        )],
+    });
+
+    if provider == DistributionProvider::MicrosoftStore {
+        let logos = configured_microsoft_logo_count(project_dir, config).unwrap_or(0);
+        checks.push(LifecycleCheck {
+            id: "release_content.microsoft_store.required_logos".to_string(),
+            status: if logos > 0 { "passed" } else { "missing" }.to_string(),
+            summary: "Microsoft Store logo assets exist".to_string(),
+            details: Some(format!("{logos} logo asset(s)")),
+            remediation: vec![
+                "Configure release.assets.microsoft_store.logo_dir with generated Store logo assets."
+                    .to_string(),
+            ],
+        });
     }
 }
 
@@ -852,6 +1217,13 @@ fn validate_provider_assets(
                     "App Store preview video directory exists",
                     checks,
                 );
+                if let Some(dir) = app
+                    .app_previews_dir
+                    .as_deref()
+                    .filter(|value| !value.trim().is_empty())
+                {
+                    validate_app_store_preview_assets(&project_dir.join(dir), checks);
+                }
                 for path in &app.review_attachments {
                     checks.push(path_check(
                         "release_content.app_store.review_attachment",
@@ -890,6 +1262,46 @@ fn validate_provider_assets(
     }
 }
 
+fn configured_provider_screenshot_count(
+    project_dir: &Path,
+    config: &ContentToml,
+    provider: DistributionProvider,
+) -> Result<usize> {
+    let assets = config
+        .release
+        .as_ref()
+        .and_then(|release| release.assets.as_ref());
+    let dir = match provider {
+        DistributionProvider::PlayStore => assets
+            .and_then(|assets| assets.play_store.as_ref())
+            .and_then(|assets| assets.screenshot_sets_dir.as_deref()),
+        DistributionProvider::AppStore => assets
+            .and_then(|assets| assets.app_store.as_ref())
+            .and_then(|assets| assets.screenshot_sets_dir.as_deref()),
+        DistributionProvider::MicrosoftStore => assets
+            .and_then(|assets| assets.microsoft_store.as_ref())
+            .and_then(|assets| assets.screenshot_sets_dir.as_deref()),
+        _ => None,
+    };
+    match dir.filter(|value| !value.trim().is_empty()) {
+        Some(dir) => count_assets(&project_dir.join(dir)),
+        None => Ok(0),
+    }
+}
+
+fn configured_microsoft_logo_count(project_dir: &Path, config: &ContentToml) -> Result<usize> {
+    let dir = config
+        .release
+        .as_ref()
+        .and_then(|release| release.assets.as_ref())
+        .and_then(|assets| assets.microsoft_store.as_ref())
+        .and_then(|assets| assets.logo_dir.as_deref());
+    match dir.filter(|value| !value.trim().is_empty()) {
+        Some(dir) => count_assets(&project_dir.join(dir)),
+        None => Ok(0),
+    }
+}
+
 fn collect_render_assets(
     root: &Path,
     current: &Path,
@@ -917,9 +1329,14 @@ fn collect_render_assets(
         fs::copy(&path, &dest)?;
         let size = fs::metadata(&dest)?.len();
         let sha256 = sha256_file(&dest)?;
-        let dimensions = image_dimensions(&dest).ok().flatten();
+        let kind = asset_kind(&dest);
+        let dimensions = if kind == "image" {
+            image_dimensions(&dest).ok().flatten()
+        } else {
+            None
+        };
         assets.push(RenderedAsset {
-            kind: asset_kind(&dest).to_string(),
+            kind: kind.to_string(),
             source: path.display().to_string(),
             output: dest.display().to_string(),
             sha256,
@@ -932,9 +1349,19 @@ fn collect_render_assets(
 }
 
 fn sha256_file(path: &Path) -> Result<String> {
-    let bytes = fs::read(path)?;
     let mut hasher = Sha256::new();
-    hasher.update(bytes);
+    let mut file =
+        fs::File::open(path).with_context(|| format!("failed to open {}", path.display()))?;
+    let mut buffer = [0; 64 * 1024];
+    loop {
+        let len = file
+            .read(&mut buffer)
+            .with_context(|| format!("failed to read {}", path.display()))?;
+        if len == 0 {
+            break;
+        }
+        hasher.update(&buffer[..len]);
+    }
     Ok(hex_lower(&hasher.finalize()))
 }
 
@@ -1092,6 +1519,84 @@ fn validate_image_asset(
             ],
         }),
     }
+    if provider == DistributionProvider::AppStore {
+        validate_app_store_display_type(path, id_stem, checks);
+    }
+}
+
+fn validate_app_store_display_type(path: &Path, id_stem: &str, checks: &mut Vec<LifecycleCheck>) {
+    let display_type = app_store_screenshot_display_type(path);
+    checks.push(LifecycleCheck {
+        id: format!("release_content.app-store.image.{id_stem}.display_type"),
+        status: if display_type.is_some() {
+            "passed"
+        } else {
+            "failed"
+        }
+        .to_string(),
+        summary: "App Store screenshot display type is explicit".to_string(),
+        details: display_type
+            .map(str::to_string)
+            .or_else(|| Some(path.display().to_string())),
+        remediation: vec![
+            "Place each App Store screenshot under a display type directory such as APP_IPHONE_67, APP_IPHONE_65, APP_IPAD_PRO_3GEN_129, APP_IPAD_PRO_3GEN_11, or APP_DESKTOP.".to_string(),
+        ],
+    });
+}
+
+fn app_store_screenshot_display_type(path: &Path) -> Option<&'static str> {
+    path.components()
+        .filter_map(|component| component.as_os_str().to_str())
+        .find_map(app_store_screenshot_display_type_segment)
+}
+
+fn app_store_screenshot_display_type_segment(segment: &str) -> Option<&'static str> {
+    match segment
+        .to_ascii_uppercase()
+        .replace(['-', '.', ' '], "_")
+        .as_str()
+    {
+        "APP_IPHONE_67" | "IPHONE_67" | "IPHONE_6_7" => Some("APP_IPHONE_67"),
+        "APP_IPHONE_65" | "IPHONE_65" | "IPHONE_6_5" => Some("APP_IPHONE_65"),
+        "APP_IPHONE_61" | "IPHONE_61" | "IPHONE_6_1" => Some("APP_IPHONE_61"),
+        "APP_IPHONE_58" | "IPHONE_58" | "IPHONE_5_8" => Some("APP_IPHONE_58"),
+        "APP_IPAD_PRO_3GEN_129" | "IPAD_129" | "IPAD_12_9" | "TABLET_129" | "TABLET_12_9" => {
+            Some("APP_IPAD_PRO_3GEN_129")
+        }
+        "APP_IPAD_PRO_3GEN_11" | "IPAD_11" | "TABLET_11" => Some("APP_IPAD_PRO_3GEN_11"),
+        "APP_DESKTOP" | "MAC" | "DESKTOP" => Some("APP_DESKTOP"),
+        _ => None,
+    }
+}
+
+fn app_store_preview_type(path: &Path) -> Option<&'static str> {
+    path.components()
+        .filter_map(|component| component.as_os_str().to_str())
+        .find_map(app_store_preview_type_segment)
+}
+
+fn app_store_preview_type_segment(segment: &str) -> Option<&'static str> {
+    match segment
+        .to_ascii_uppercase()
+        .replace(['-', '.', ' '], "_")
+        .as_str()
+    {
+        "APP_IPHONE_67" | "IPHONE_67" | "IPHONE_6_7" => Some("IPHONE_67"),
+        "APP_IPHONE_65" | "IPHONE_65" | "IPHONE_6_5" => Some("IPHONE_65"),
+        "APP_IPHONE_61" | "IPHONE_61" | "IPHONE_6_1" => Some("IPHONE_61"),
+        "APP_IPHONE_58" | "IPHONE_58" | "IPHONE_5_8" => Some("IPHONE_58"),
+        "APP_IPAD_PRO_3GEN_129"
+        | "IPAD_PRO_3GEN_129"
+        | "IPAD_129"
+        | "IPAD_12_9"
+        | "TABLET_129"
+        | "TABLET_12_9" => Some("IPAD_PRO_3GEN_129"),
+        "APP_IPAD_PRO_3GEN_11" | "IPAD_PRO_3GEN_11" | "IPAD_11" | "TABLET_11" => {
+            Some("IPAD_PRO_3GEN_11")
+        }
+        "APP_DESKTOP" | "DESKTOP" | "MAC" => Some("DESKTOP"),
+        _ => None,
+    }
 }
 
 fn validate_video_asset(
@@ -1123,6 +1628,40 @@ fn validate_video_asset(
         summary: "video format is accepted by the provider".to_string(),
         details: Some(path.display().to_string()),
         remediation: vec![format!("Use one of: {}.", allowed.join(", "))],
+    });
+}
+
+fn validate_app_store_preview_assets(root: &Path, checks: &mut Vec<LifecycleCheck>) {
+    let Ok(files) = rendered_asset_files(root) else {
+        return;
+    };
+    for path in files.iter().filter(|path| asset_kind(path) == "video") {
+        validate_video_asset(DistributionProvider::AppStore, path, checks);
+        validate_app_store_preview_type(path, checks);
+    }
+}
+
+fn validate_app_store_preview_type(path: &Path, checks: &mut Vec<LifecycleCheck>) {
+    let id_stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("preview");
+    let preview_type = app_store_preview_type(path);
+    checks.push(LifecycleCheck {
+        id: format!("release_content.app-store.video.{id_stem}.preview_type"),
+        status: if preview_type.is_some() {
+            "passed"
+        } else {
+            "failed"
+        }
+        .to_string(),
+        summary: "App Store preview type is explicit".to_string(),
+        details: preview_type
+            .map(str::to_string)
+            .or_else(|| Some(path.display().to_string())),
+        remediation: vec![
+            "Place each App Store preview under a preview type directory such as IPHONE_67, IPHONE_65, IPAD_PRO_3GEN_129, IPAD_PRO_3GEN_11, or DESKTOP.".to_string(),
+        ],
     });
 }
 
@@ -1348,125 +1887,5 @@ fn load_content_config(project_dir: &Path) -> Result<ContentToml> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::path::PathBuf;
-
-    fn unique_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "fission-release-content-{name}-{}",
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
-    fn write_content_project(dir: &Path) {
-        fs::create_dir_all(dir.join("release-content/screenshots/raw/en-US")).unwrap();
-        fs::write(
-            dir.join("release-content/screenshots/raw/en-US/home.png"),
-            b"png",
-        )
-        .unwrap();
-        fs::create_dir_all(dir.join("tests/release_screenshots")).unwrap();
-        fs::write(
-            dir.join("tests/release_screenshots/home.toml"),
-            "wait = true\n",
-        )
-        .unwrap();
-        fs::write(
-            dir.join("fission.toml"),
-            r#"[app]
-name = "content-demo"
-app_id = "com.example.content_demo"
-
-[release.screenshots]
-raw_dir = "release-content/screenshots/raw"
-rendered_dir = "release-content/screenshots/rendered"
-
-[[release.screenshots.scenarios]]
-id = "home"
-name = "Home"
-targets = ["web"]
-script = "tests/release_screenshots/home.toml"
-wait_for = "semantic:home"
-
-[release.assets.play_store]
-screenshot_sets_dir = "release-content/screenshots/rendered/play-store"
-feature_graphic = "release-content/screenshots/raw/en-US/home.png"
-"#,
-        )
-        .unwrap();
-    }
-
-    fn png_header(width: u32, height: u32) -> Vec<u8> {
-        let mut bytes = b"\x89PNG\r\n\x1a\n".to_vec();
-        bytes.extend_from_slice(&13u32.to_be_bytes());
-        bytes.extend_from_slice(b"IHDR");
-        bytes.extend_from_slice(&width.to_be_bytes());
-        bytes.extend_from_slice(&height.to_be_bytes());
-        bytes.extend_from_slice(&[8, 6, 0, 0, 0]);
-        bytes.extend_from_slice(&0u32.to_be_bytes());
-        bytes
-    }
-
-    #[test]
-    fn render_release_content_copies_raw_assets_and_writes_manifest() {
-        let dir = unique_dir("render");
-        write_content_project(&dir);
-        let report = render_release_content(&dir, DistributionProvider::PlayStore).unwrap();
-        assert_ne!(report.status, "blocked");
-        assert!(dir
-            .join("release-content/screenshots/rendered/play-store/en-US/home.png")
-            .exists());
-        let manifest = dir
-            .join("release-content/screenshots/rendered/play-store/release-content-manifest.json");
-        assert!(manifest.exists());
-        let manifest: serde_json::Value =
-            serde_json::from_slice(&fs::read(manifest).unwrap()).unwrap();
-        let sha = manifest["assets"][0]["sha256"].as_str().unwrap();
-        assert_eq!(sha.len(), 64);
-    }
-
-    #[test]
-    fn image_dimensions_reads_png_header() {
-        let dir = unique_dir("png-dimensions");
-        let path = dir.join("screen.png");
-        fs::write(&path, png_header(1440, 2560)).unwrap();
-        assert_eq!(image_dimensions(&path).unwrap(), Some((1440, 2560)));
-    }
-
-    #[test]
-    fn provider_asset_validation_reports_dimensions() {
-        let dir = unique_dir("asset-rules");
-        let provider_dir = dir.join("release-content/screenshots/rendered/play-store/en-US");
-        fs::create_dir_all(&provider_dir).unwrap();
-        fs::write(provider_dir.join("one.png"), png_header(1440, 2560)).unwrap();
-        fs::write(provider_dir.join("two.png"), png_header(1440, 2560)).unwrap();
-        let mut checks = Vec::new();
-        validate_rendered_asset_rules(
-            DistributionProvider::PlayStore,
-            &dir.join("release-content/screenshots/rendered/play-store"),
-            &mut checks,
-        );
-        assert!(checks.iter().any(|check| {
-            check.id == "release_content.play-store.screenshot_count" && check.status == "passed"
-        }));
-        assert!(checks
-            .iter()
-            .any(|check| { check.id.ends_with(".dimensions") && check.status == "passed" }));
-    }
-
-    #[test]
-    fn screenshot_step_payload_uses_test_control_protocol() {
-        let step = ScreenshotStep {
-            cmd: "tap_text".to_string(),
-            text: Some("Save".to_string()),
-            ..Default::default()
-        };
-        let payload = step_payload(&step, Path::new("/tmp"), "store", "save").unwrap();
-        assert_eq!(payload["cmd"], "TapText");
-        assert_eq!(payload["text"], "Save");
-    }
-}
+#[path = "content_tests.rs"]
+mod tests;

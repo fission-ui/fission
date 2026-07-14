@@ -27,6 +27,9 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Check CLI dependency boundaries
+        run: ./scripts/check_command_dependency_boundaries.sh
+
       - name: Test generated platform scripts
         run: cargo test -p cargo-fission
 

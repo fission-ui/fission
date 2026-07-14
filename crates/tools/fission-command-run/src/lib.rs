@@ -9,9 +9,9 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, IsTerminal, Read, Seek, Write};
-use std::net::TcpListener;
+use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 #[derive(Clone, Debug, Serialize)]
@@ -137,7 +137,9 @@ pub fn run_app(options: RunOptions) -> Result<()> {
     sync_target_platform_config(&options.project_dir, &project, device.target)?;
 
     match device.target {
-        Target::Linux | Target::Macos | Target::Windows => run_desktop(&project, &options, &device),
+        Target::Linux | Target::Macos | Target::Terminal | Target::Windows => {
+            run_desktop(&project, &options, &device)
+        }
         Target::Web => run_web(&options, &device),
         Target::Site => site_serve(
             &options.project_dir,
@@ -168,6 +170,7 @@ pub fn build_app(options: BuildOptions) -> Result<()> {
             require_desktop_host(target)?;
             build_desktop(&options.project_dir, options.release)
         }
+        Target::Terminal => build_desktop(&options.project_dir, options.release),
         Target::Web => build_web(&options.project_dir, options.release),
         Target::Site => site_build(&options.project_dir, options.release),
         Target::Server => fission_command_server::build(&options.project_dir, options.release),
@@ -202,13 +205,14 @@ pub fn test_app(options: TestOptions) -> Result<()> {
             command.arg("test").current_dir(&options.project_dir);
             run_status(&mut command, "desktop tests")
         }
-        Target::Web => run_target_script(
-            &options.project_dir,
-            "platforms/web/test-browser.sh",
-            |_| {},
-        ),
-        Target::Site => site_check(&options.project_dir, false),
-        Target::Server => fission_command_server::check(&options.project_dir, false),
+        Target::Terminal => {
+            let mut command = Command::new("cargo");
+            command.arg("test").current_dir(&options.project_dir);
+            run_status(&mut command, "terminal tests")
+        }
+        Target::Web => browser_test_web(&options.project_dir),
+        Target::Site => browser_test_site(&options.project_dir),
+        Target::Server => browser_test_server(&options.project_dir),
         Target::Ios => {
             require_host(Target::Ios)?;
             run_target_script(
@@ -259,14 +263,14 @@ pub fn attach_logs(options: LogOptions) -> Result<()> {
             options.follow,
         ),
         Target::Site => tail_log_file(
-            &detached_log_path(&options.project_dir, "site"),
+            &detached_log_path(&options.project_dir, Target::Site.as_str()),
             options.follow,
         ),
         Target::Server => tail_log_file(
-            &detached_log_path(&options.project_dir, "server"),
+            &detached_log_path(&options.project_dir, Target::Server.as_str()),
             options.follow,
         ),
-        Target::Linux | Target::Macos | Target::Windows => tail_log_file(
+        Target::Linux | Target::Macos | Target::Terminal | Target::Windows => tail_log_file(
             &detached_log_path(&options.project_dir, "desktop"),
             options.follow,
         ),
@@ -304,6 +308,209 @@ pub fn site_serve(
     fission_command_site::serve(project_dir, release, host, port, open)
 }
 
+fn browser_test_web(project_dir: &Path) -> Result<()> {
+    build_web(project_dir, false)?;
+    let server = StaticTestServer::start(project_dir.to_path_buf())?;
+    let url = format!("{}/platforms/web/", server.base_url());
+    let report = fission_test_driver::run_browser_smoke(
+        fission_test_driver::BrowserTestOptions::new(url).fission_canvas(),
+    )?;
+    println!(
+        "Web browser smoke passed: renderer={} canvas={}x{}",
+        report.renderer.unwrap_or_else(|| "unknown".into()),
+        report.width,
+        report.height
+    );
+    Ok(())
+}
+
+fn browser_test_site(project_dir: &Path) -> Result<()> {
+    match fission_command_site::build_for_browser_test(project_dir, false)? {
+        Some(output_dir) => {
+            let server = StaticTestServer::start(output_dir)?;
+            let report = fission_test_driver::run_browser_smoke(
+                fission_test_driver::BrowserTestOptions::new(format!("{}/", server.base_url())),
+            )?;
+            println!(
+                "Static site browser smoke passed: title=\"{}\" body_text_len={}",
+                report.title, report.body_text_len
+            );
+            Ok(())
+        }
+        None => {
+            println!("Custom static site entry built; run its project-specific browser tests for route coverage.");
+            Ok(())
+        }
+    }
+}
+
+fn browser_test_server(project_dir: &Path) -> Result<()> {
+    let port = free_local_port()?;
+    let mut child = ServerChild::new(fission_command_server::spawn_serve(
+        project_dir,
+        false,
+        "127.0.0.1".to_string(),
+        port,
+    )?);
+    let url = format!("http://127.0.0.1:{port}/");
+    wait_for_http(&url, Duration::from_secs(60))?;
+    let report = fission_test_driver::run_browser_smoke(
+        fission_test_driver::BrowserTestOptions::new(url.clone()),
+    )?;
+    println!(
+        "SSR browser smoke passed: title=\"{}\" body_text_len={}",
+        report.title, report.body_text_len
+    );
+    child.kill();
+    Ok(())
+}
+
+struct ServerChild {
+    child: Option<Child>,
+}
+
+impl ServerChild {
+    fn new(child: Child) -> Self {
+        Self { child: Some(child) }
+    }
+
+    fn kill(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+impl Drop for ServerChild {
+    fn drop(&mut self) {
+        self.kill();
+    }
+}
+
+struct StaticTestServer {
+    base_url: String,
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    handle: Option<std::thread::JoinHandle<()>>,
+}
+
+impl StaticTestServer {
+    fn start(root: PathBuf) -> Result<Self> {
+        let listener = TcpListener::bind(("127.0.0.1", 0))?;
+        listener.set_nonblocking(true)?;
+        let port = listener.local_addr()?.port();
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let thread_stop = stop.clone();
+        let handle = std::thread::spawn(move || {
+            while !thread_stop.load(std::sync::atomic::Ordering::Relaxed) {
+                match listener.accept() {
+                    Ok((stream, _)) => {
+                        let _ = serve_static_test_request(stream, &root);
+                    }
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(20));
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+        Ok(Self {
+            base_url: format!("http://127.0.0.1:{port}"),
+            stop,
+            handle: Some(handle),
+        })
+    }
+
+    fn base_url(&self) -> &str {
+        &self.base_url
+    }
+}
+
+impl Drop for StaticTestServer {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        let _ = TcpStream::connect(self.base_url.trim_start_matches("http://"));
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+fn serve_static_test_request(mut stream: TcpStream, root: &Path) -> Result<()> {
+    let mut buffer = [0u8; 4096];
+    let n = stream.read(&mut buffer)?;
+    let request = String::from_utf8_lossy(&buffer[..n]);
+    let path = request
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .unwrap_or("/")
+        .split('?')
+        .next()
+        .unwrap_or("/");
+    let relative = path.trim_start_matches('/');
+    let mut candidate = root.join(relative);
+    if path.ends_with('/') || candidate.is_dir() {
+        candidate = candidate.join("index.html");
+    }
+    let (status, content_type, body) = if candidate.is_file() {
+        (
+            "200 OK",
+            static_content_type(&candidate),
+            fs::read(&candidate).unwrap_or_default(),
+        )
+    } else {
+        ("404 Not Found", "text/plain", b"not found".to_vec())
+    };
+    let header = format!(
+        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    stream.write_all(header.as_bytes())?;
+    stream.write_all(&body)?;
+    Ok(())
+}
+
+fn static_content_type(path: &Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or_default()
+    {
+        "html" => "text/html; charset=utf-8",
+        "css" => "text/css; charset=utf-8",
+        "js" => "text/javascript; charset=utf-8",
+        "wasm" => "application/wasm",
+        "json" => "application/json; charset=utf-8",
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        _ => "application/octet-stream",
+    }
+}
+
+fn free_local_port() -> Result<u16> {
+    Ok(TcpListener::bind(("127.0.0.1", 0))?.local_addr()?.port())
+}
+
+fn wait_for_http(url: &str, timeout: Duration) -> Result<()> {
+    let deadline = Instant::now() + timeout;
+    let mut last_error = None;
+    while Instant::now() < deadline {
+        match ureq::get(url).call() {
+            Ok(response) if response.status() < 500 => return Ok(()),
+            Ok(response) => last_error = Some(format!("HTTP {}", response.status())),
+            Err(error) => last_error = Some(error.to_string()),
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
+    bail!(
+        "timed out waiting for {url}: {}",
+        last_error.unwrap_or_else(|| "no response".into())
+    )
+}
+
 pub fn discover_devices(_project_dir: &Path) -> Vec<Device> {
     let mut devices = Vec::new();
     devices.push(Device {
@@ -311,6 +518,15 @@ pub fn discover_devices(_project_dir: &Path) -> Vec<Device> {
         name: desktop_name().to_string(),
         target: host_desktop_target(),
         kind: "desktop".to_string(),
+        status: "available".to_string(),
+        detail: current_os_detail(),
+        available: true,
+    });
+    devices.push(Device {
+        id: "terminal".to_string(),
+        name: "Current terminal".to_string(),
+        target: Target::Terminal,
+        kind: "terminal".to_string(),
         status: "available".to_string(),
         detail: current_os_detail(),
         available: true,
@@ -341,19 +557,19 @@ pub fn discover_devices(_project_dir: &Path) -> Vec<Device> {
     devices.extend(discover_ios_simulators());
     devices.extend(discover_android_devices());
     devices.push(Device {
-        id: "site".to_string(),
+        id: Target::Site.as_str().to_string(),
         name: "Static site".to_string(),
         target: Target::Site,
-        kind: "site-server".to_string(),
+        kind: "static-site-server".to_string(),
         status: "available".to_string(),
         detail: "multi-page static output".to_string(),
         available: true,
     });
     devices.push(Device {
-        id: "server".to_string(),
-        name: "Server-rendered web app".to_string(),
+        id: Target::Server.as_str().to_string(),
+        name: "SSR web app".to_string(),
         target: Target::Server,
-        kind: "server".to_string(),
+        kind: "ssr-server".to_string(),
         status: "available".to_string(),
         detail: "dynamic HTML server".to_string(),
         available: true,
@@ -483,6 +699,7 @@ fn preferred_device_for_target(target: Option<Target>, devices: &[Device]) -> Op
         | Target::Server
         | Target::Linux
         | Target::Macos
+        | Target::Terminal
         | Target::Windows => None,
     }
 }

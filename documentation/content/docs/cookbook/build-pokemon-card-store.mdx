@@ -11,7 +11,7 @@ This cookbook recreates the structure of the Pokémon Card Store example. The go
 ## 1. Configure the server target
 
 ```toml
-targets = ["server"]
+targets = ["ssr"]
 
 [app]
 name = "pokemon-card-store"
@@ -157,8 +157,8 @@ tags = ["ghcr.io/example/pokemon-card-store:0.1.0"]
 ```
 
 ```sh
-fission package --project-dir examples/pokemon-card-store --target server --format docker-image --release
-fission publish --project-dir examples/pokemon-card-store --provider docker-registry --artifact target/fission/release/server/docker-image/artifact-manifest.json --site production
+fission package --project-dir examples/pokemon-card-store --target ssr --format docker-image --release
+fission publish --project-dir examples/pokemon-card-store --provider docker-registry --artifact target/fission/release/ssr/docker-image/artifact-manifest.json --site production
 ```
 
 The resulting package manifest is the release record for the server image context and tags.

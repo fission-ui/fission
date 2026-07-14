@@ -1264,7 +1264,9 @@ impl Runtime {
                     self.runtime_state.interaction.set_focused(next);
                 }
                 KeyCode::Up | KeyCode::Down | KeyCode::Left | KeyCode::Right => {
-                    if let Some(focused) = self.runtime_state.interaction.focused {
+                    let reverse = matches!(key_code, KeyCode::Up | KeyCode::Left);
+                    let old_focus = self.runtime_state.interaction.focused;
+                    let next = if let Some(focused) = old_focus {
                         let dir = match key_code {
                             KeyCode::Up => FocusDirection::Up,
                             KeyCode::Down => FocusDirection::Down,
@@ -1272,11 +1274,15 @@ impl Runtime {
                             KeyCode::Right => FocusDirection::Right,
                             _ => unreachable!(),
                         };
-                        if let Some(next) = find_neighbor_focus_node(ir, layout, focused, dir) {
-                            self.clear_text_pending_on_blur(Some(focused), Some(next));
-                            self.dispatch_custom_blur_actions(ir, Some(focused))?;
-                            self.runtime_state.interaction.set_focused(Some(next));
-                        }
+                        find_neighbor_focus_node(ir, layout, focused, dir)
+                            .or_else(|| find_next_focus_node(ir, Some(focused), reverse))
+                    } else {
+                        find_next_focus_node(ir, None, reverse)
+                    };
+                    if next != old_focus {
+                        self.clear_text_pending_on_blur(old_focus, next);
+                        self.dispatch_custom_blur_actions(ir, old_focus)?;
+                        self.runtime_state.interaction.set_focused(next);
                     }
                 }
                 KeyCode::Enter | KeyCode::Space => {

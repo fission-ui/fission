@@ -198,3 +198,31 @@ fn terminal_renderer_shows_text_input_caret_when_focused() {
     let focused = app.render_frame(24, 6).expect("focused render");
     assert!(focused.as_plain_text().contains('|'));
 }
+
+#[test]
+fn terminal_live_test_captures_text_and_screenshots() {
+    let app = TerminalApp::<State, _>::new(HelloApp);
+    let mut harness = fission_shell_terminal::TerminalLiveTest::new(app, 40, 10)
+        .expect("create terminal LiveTest harness");
+
+    let fission_test_driver::TestResponse::Text { items } =
+        harness.dispatch(fission_test_driver::TestCommand::GetText {})
+    else {
+        panic!("expected text response");
+    };
+    assert!(items
+        .iter()
+        .any(|item| item.text.contains("Hello terminal")));
+
+    let fission_test_driver::TestResponse::Screenshot {
+        png_base64,
+        width,
+        height,
+    } = harness.dispatch(fission_test_driver::TestCommand::CaptureScreenshot {})
+    else {
+        panic!("expected screenshot response");
+    };
+    assert!(!png_base64.is_empty());
+    assert_eq!(width, 400);
+    assert_eq!(height, 180);
+}

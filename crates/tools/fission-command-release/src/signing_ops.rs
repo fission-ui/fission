@@ -1,5 +1,5 @@
 use super::*;
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use std::env;
 use std::fs;
@@ -21,9 +21,11 @@ struct PackageToml {
 
 #[derive(Debug, Deserialize, Default)]
 struct AndroidPackageToml {
-    keystore: Option<String>,
-    upload_keystore: Option<String>,
     keystore_alias: Option<String>,
+    keystore_env: Option<String>,
+    keystore_base64_env: Option<String>,
+    keystore_password_env: Option<String>,
+    key_password_env: Option<String>,
     package_name: Option<String>,
 }
 
@@ -39,6 +41,7 @@ struct ApplePackageToml {
 #[derive(Debug, Deserialize, Default)]
 struct MacosPackageToml {
     bundle_id: Option<String>,
+    team_id: Option<String>,
     entitlements: Option<String>,
     signing_identity: Option<String>,
     installer_identity: Option<String>,
@@ -49,8 +52,11 @@ struct MacosPackageToml {
 struct WindowsPackageToml {
     identity_name: Option<String>,
     publisher: Option<String>,
-    certificate: Option<String>,
     certificate_thumbprint: Option<String>,
+    certificate_thumbprint_env: Option<String>,
+    certificate_env: Option<String>,
+    certificate_base64_env: Option<String>,
+    certificate_password_env: Option<String>,
 }
 
 pub(super) fn status(project_dir: &Path, target: Target, json: bool) -> Result<()> {
@@ -58,6 +64,10 @@ pub(super) fn status(project_dir: &Path, target: Target, json: bool) -> Result<(
         build_status_report("signing.status", project_dir, target),
         json,
     )
+}
+
+pub(super) fn status_checks(project_dir: &Path, target: Target) -> Vec<LifecycleCheck> {
+    build_status_report("signing.status", project_dir, target).checks
 }
 
 pub(super) fn sync(project_dir: &Path, target: Target, readonly: bool, json: bool) -> Result<()> {
@@ -92,8 +102,13 @@ pub(super) fn import(
     target: Target,
     keystore: Option<PathBuf>,
     alias: Option<String>,
+    dry_run: bool,
+    yes: bool,
     json: bool,
 ) -> Result<()> {
+    if !dry_run && !yes {
+        bail!("signing import rewrites fission.toml signing references; pass --yes after reviewing the target and alias");
+    }
     let mut report = base_report("signing.import", None, Some(target));
     report.checks.push(path_check(
         "signing.project_config_exists",
@@ -101,7 +116,7 @@ pub(super) fn import(
         "fission.toml exists",
     ));
     match target {
-        Target::Android => import_android(project_dir, keystore, alias, &mut report)?,
+        Target::Android => import_android(project_dir, keystore, alias, dry_run, &mut report)?,
         Target::Ios | Target::Macos | Target::Windows => report.checks.push(failed_check(
             "signing.import.target_requires_platform_store",
             format!(
@@ -121,19 +136,21 @@ fn import_android(
     project_dir: &Path,
     keystore: Option<PathBuf>,
     alias: Option<String>,
+    dry_run: bool,
     report: &mut LifecycleReport,
 ) -> Result<()> {
-    let keystore = keystore.context("signing import --target android requires --keystore")?;
     let alias = alias.context("signing import --target android requires --alias")?;
-    report.checks.push(path_check(
-        "signing.android.keystore_exists",
-        keystore.clone(),
-        "Android upload keystore exists",
-    ));
-    if !keystore.exists() {
-        return Ok(());
+    if let Some(keystore) = keystore {
+        report.checks.push(path_check(
+            "signing.android.keystore_exists",
+            keystore,
+            "Android upload keystore exists",
+        ));
+        report.checks.push(warning_check(
+            "signing.android.keystore_not_recorded",
+            "Android keystore paths are secrets-adjacent and machine-specific; Fission does not write them to fission.toml".to_string(),
+        ));
     }
-    let relative = project_relative_or_absolute(project_dir, &keystore);
     let path = project_dir.join("fission.toml");
     let data = fs::read_to_string(&path).unwrap_or_default();
     let mut root = if data.trim().is_empty() {
@@ -143,22 +160,33 @@ fn import_android(
     };
     set_toml_edit_path(
         &mut root,
-        "package.android.keystore",
-        toml_edit::value(relative.clone()),
-    )?;
-    set_toml_edit_path(
-        &mut root,
         "package.android.keystore_alias",
         toml_edit::value(alias.clone()),
     )?;
-    write_toml_edit_document(&path, &root)?;
+    set_toml_edit_path(
+        &mut root,
+        "package.android.keystore_env",
+        toml_edit::value("ANDROID_KEYSTORE"),
+    )?;
+    set_toml_edit_path(
+        &mut root,
+        "package.android.keystore_base64_env",
+        toml_edit::value("ANDROID_KEYSTORE_BASE64"),
+    )?;
+    if !dry_run {
+        write_toml_edit_document(&path, &root)?;
+    }
     report.checks.push(ok_check(
-        "signing.android.config_written",
-        format!("package.android.keystore = {relative}, alias = {alias}"),
+        if dry_run {
+            "signing.android.config_would_write"
+        } else {
+            "signing.android.config_written"
+        },
+        format!("package.android.keystore_alias = {alias}; keystore source comes from ANDROID_KEYSTORE or ANDROID_KEYSTORE_BASE64"),
     ));
     report.checks.push(warning_check(
-        "signing.android.password_not_imported",
-        "keystore passwords were not stored in fission.toml; use ANDROID_KEYSTORE_PASSWORD and ANDROID_KEY_PASSWORD in CI or an OS-backed secret store".to_string(),
+        "signing.android.secret_not_imported",
+        "keystore files and passwords were not stored in fission.toml; use CI secrets, environment variables, or an OS-backed secret store".to_string(),
     ));
     Ok(())
 }
@@ -205,10 +233,23 @@ fn android_checks(
     cfg: Option<AndroidPackageToml>,
     report: &mut LifecycleReport,
 ) {
-    let keystore = env::var("ANDROID_KEYSTORE")
-        .ok()
-        .or_else(|| cfg.as_ref().and_then(|cfg| cfg.keystore.clone()))
-        .or_else(|| cfg.as_ref().and_then(|cfg| cfg.upload_keystore.clone()));
+    let _ = project_dir;
+    let keystore_env = cfg
+        .as_ref()
+        .and_then(|cfg| cfg.keystore_env.as_deref())
+        .unwrap_or("ANDROID_KEYSTORE");
+    let keystore_base64_env = cfg
+        .as_ref()
+        .and_then(|cfg| cfg.keystore_base64_env.as_deref())
+        .unwrap_or("ANDROID_KEYSTORE_BASE64");
+    let store_password_env = cfg
+        .as_ref()
+        .and_then(|cfg| cfg.keystore_password_env.as_deref())
+        .unwrap_or("ANDROID_KEYSTORE_PASSWORD");
+    let key_password_env = cfg
+        .as_ref()
+        .and_then(|cfg| cfg.key_password_env.as_deref())
+        .unwrap_or("ANDROID_KEY_PASSWORD");
     report.checks.push(required_text(
         "signing.android.package_name",
         cfg.as_ref().and_then(|cfg| cfg.package_name.as_deref()),
@@ -219,26 +260,17 @@ fn android_checks(
         "signing.android.alias",
         cfg.as_ref().and_then(|cfg| cfg.keystore_alias.as_deref()),
         "Android keystore alias is configured",
-        "Run `fission signing import --target android --keystore <file> --alias <alias>`.",
+        "Set package.android.keystore_alias or ANDROID_KEYSTORE_ALIAS.",
     ));
-    match keystore {
-        Some(path) => report.checks.push(path_check(
-            "signing.android.keystore_exists",
-            project_dir.join(path),
-            "Android upload keystore exists",
-        )),
-        None => report.checks.push(required_text(
-            "signing.android.keystore",
-            None,
-            "Android upload keystore is configured",
-            "Set ANDROID_KEYSTORE or package.android.keystore.",
-        )),
-    }
+    report.checks.push(android_keystore_source_check(
+        keystore_env,
+        keystore_base64_env,
+    ));
     report.checks.push(env_or_warning(
         "signing.android.keystore_password",
-        &["ANDROID_KEYSTORE_PASSWORD", "ANDROID_KEY_PASSWORD"],
+        &[store_password_env, key_password_env],
         "Android signing password source is configured",
-        "Set ANDROID_KEYSTORE_PASSWORD and ANDROID_KEY_PASSWORD in CI or an OS-backed secret store; do not write passwords to fission.toml.",
+        "Set Android signing passwords through CI/local environment variables; do not write passwords to fission.toml.",
     ));
     report.checks.push(tool_check(
         "signing.android.keytool_available",
@@ -314,6 +346,12 @@ fn macos_checks(project_dir: &Path, cfg: Option<MacosPackageToml>, report: &mut 
         "macOS bundle identifier is configured",
         "Set package.macos.bundle_id.",
     ));
+    report.checks.push(required_text(
+        "signing.macos.team_id",
+        cfg.as_ref().and_then(|cfg| cfg.team_id.as_deref()),
+        "Apple team id is configured for macOS signing",
+        "Set package.macos.team_id when signing or notarizing macOS packages.",
+    ));
     check_optional_path(
         project_dir,
         &mut report.checks,
@@ -369,6 +407,7 @@ fn windows_checks(
     cfg: Option<WindowsPackageToml>,
     report: &mut LifecycleReport,
 ) {
+    let _ = project_dir;
     report.checks.push(required_text(
         "signing.windows.identity_name",
         cfg.as_ref().and_then(|cfg| cfg.identity_name.as_deref()),
@@ -381,27 +420,45 @@ fn windows_checks(
         "Windows publisher identity is configured",
         "Set package.windows.publisher to the certificate subject.",
     ));
-    if let Some(certificate) = cfg.as_ref().and_then(|cfg| cfg.certificate.as_deref()) {
-        report.checks.push(path_check(
-            "signing.windows.certificate_exists",
-            project_dir.join(certificate),
-            "Windows signing certificate file exists",
-        ));
-    } else {
+    if windows_certificate_thumbprint(&cfg).is_none() {
+        let certificate_env = cfg
+            .as_ref()
+            .and_then(|cfg| cfg.certificate_env.as_deref())
+            .unwrap_or("WINDOWS_CERTIFICATE");
+        let certificate_base64_env = cfg
+            .as_ref()
+            .and_then(|cfg| cfg.certificate_base64_env.as_deref())
+            .unwrap_or("WINDOWS_CERTIFICATE_BASE64");
+        let certificate_thumbprint_env = cfg
+            .as_ref()
+            .and_then(|cfg| cfg.certificate_thumbprint_env.as_deref())
+            .unwrap_or("WINDOWS_CERTIFICATE_THUMBPRINT");
         report.checks.push(required_text(
             "signing.windows.certificate_reference",
-            cfg.as_ref()
-                .and_then(|cfg| cfg.certificate_thumbprint.as_deref()),
+            env::var(certificate_env)
+                .ok()
+                .or_else(|| env::var(certificate_base64_env).ok())
+                .or_else(|| env::var(certificate_thumbprint_env).ok())
+                .as_deref(),
             "Windows signing certificate reference is configured",
-            "Set package.windows.certificate or package.windows.certificate_thumbprint.",
+            "Set package.windows.certificate_thumbprint, package.windows.certificate_thumbprint_env, WINDOWS_CERTIFICATE_THUMBPRINT, WINDOWS_CERTIFICATE, or WINDOWS_CERTIFICATE_BASE64.",
+        ));
+        let password_env = cfg
+            .as_ref()
+            .and_then(|cfg| cfg.certificate_password_env.as_deref())
+            .unwrap_or("WINDOWS_CERTIFICATE_PASSWORD");
+        report.checks.push(env_or_warning(
+            "signing.windows.certificate_password",
+            &[password_env],
+            "Windows certificate password source is configured",
+            "Set the Windows certificate password through CI/local environment variables; do not write passwords to fission.toml.",
+        ));
+    } else {
+        report.checks.push(ok_check(
+            "signing.windows.certificate_reference",
+            "Windows signing certificate thumbprint configured",
         ));
     }
-    report.checks.push(env_or_warning(
-        "signing.windows.certificate_password",
-        &["WINDOWS_CERTIFICATE_PASSWORD"],
-        "Windows certificate password source is configured",
-        "Set WINDOWS_CERTIFICATE_PASSWORD in CI or use an OS certificate store; do not write passwords to fission.toml.",
-    ));
     report.checks.push(tool_check(
         "signing.windows.signtool_available",
         "signtool",
@@ -433,6 +490,49 @@ fn check_optional_path(
             summary,
             "Configure this path in fission.toml if the app requires the capability.",
         ));
+    }
+}
+
+fn windows_certificate_thumbprint(cfg: &Option<WindowsPackageToml>) -> Option<String> {
+    cfg.as_ref()
+        .and_then(|cfg| cfg.certificate_thumbprint.clone())
+        .or_else(|| {
+            let env_name = cfg
+                .as_ref()
+                .and_then(|cfg| cfg.certificate_thumbprint_env.as_deref())
+                .unwrap_or("WINDOWS_CERTIFICATE_THUMBPRINT");
+            env::var(env_name)
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+        })
+}
+
+fn android_keystore_source_check(keystore_env: &str, keystore_base64_env: &str) -> LifecycleCheck {
+    if env::var_os(keystore_base64_env).is_some() {
+        return LifecycleCheck {
+            id: "signing.android.keystore_source".to_string(),
+            status: "passed".to_string(),
+            summary: "Android upload keystore source is configured".to_string(),
+            details: Some(format!("environment variable {keystore_base64_env}")),
+            remediation: Vec::new(),
+        };
+    }
+    if let Some(path) = env::var_os(keystore_env) {
+        let path = PathBuf::from(path);
+        return path_check(
+            "signing.android.keystore_source",
+            path,
+            "Android upload keystore source is configured",
+        );
+    }
+    LifecycleCheck {
+        id: "signing.android.keystore_source".to_string(),
+        status: "missing".to_string(),
+        summary: "Android upload keystore source is configured".to_string(),
+        details: None,
+        remediation: vec![format!(
+            "Set {keystore_env} to a local keystore path or {keystore_base64_env} to base64 keystore bytes from CI secrets."
+        )],
     }
 }
 
@@ -568,28 +668,12 @@ fn command_exists(program: &str) -> bool {
     })
 }
 
-fn project_relative_or_absolute(project_dir: &Path, path: &Path) -> String {
-    let absolute = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        env::current_dir()
-            .unwrap_or_else(|_| project_dir.to_path_buf())
-            .join(path)
-    };
-    absolute
-        .strip_prefix(project_dir)
-        .unwrap_or(&absolute)
-        .to_string_lossy()
-        .trim_start_matches(std::path::MAIN_SEPARATOR)
-        .to_string()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn android_import_writes_non_secret_references() {
+    fn android_import_writes_only_env_references() {
         let dir = std::env::temp_dir().join(format!(
             "fission-signing-import-{}-{}",
             std::process::id(),
@@ -607,12 +691,82 @@ mod tests {
             &dir,
             Some(dir.join("upload.jks")),
             Some("upload".to_string()),
+            false,
             &mut report,
         )
         .unwrap();
         let text = fs::read_to_string(dir.join("fission.toml")).unwrap();
-        assert!(text.contains("keystore = \"upload.jks\""));
         assert!(text.contains("keystore_alias = \"upload\""));
+        assert!(text.contains("keystore_env = \"ANDROID_KEYSTORE\""));
+        assert!(text.contains("keystore_base64_env = \"ANDROID_KEYSTORE_BASE64\""));
+        assert!(!text.contains("upload.jks"));
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn android_import_dry_run_does_not_rewrite_manifest() {
+        let dir = std::env::temp_dir().join(format!(
+            "fission-signing-import-dry-run-{}-{}",
+            std::process::id(),
+            now_unix_seconds()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            &dir.join("fission.toml"),
+            "[package.android]\npackage_name = \"com.example.todo\"\n",
+        )
+        .unwrap();
+        let original = fs::read_to_string(dir.join("fission.toml")).unwrap();
+        let mut report = base_report("test", None, Some(Target::Android));
+        import_android(&dir, None, Some("upload".to_string()), true, &mut report).unwrap();
+        assert_eq!(
+            fs::read_to_string(dir.join("fission.toml")).unwrap(),
+            original
+        );
+        assert!(report
+            .checks
+            .iter()
+            .any(|check| check.id == "signing.android.config_would_write"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn signing_import_requires_yes_before_manifest_rewrite() {
+        let dir = std::env::temp_dir().join(format!(
+            "fission-signing-import-requires-yes-{}-{}",
+            std::process::id(),
+            now_unix_seconds()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(&dir.join("fission.toml"), "").unwrap();
+        let err = import(
+            &dir,
+            Target::Android,
+            None,
+            Some("upload".to_string()),
+            false,
+            false,
+            false,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("pass --yes"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn windows_certificate_thumbprint_can_come_from_named_env() {
+        let env_name = format!("FISSION_WINDOWS_THUMBPRINT_{}", std::process::id());
+        env::set_var(&env_name, "ABCDEF123456");
+        let cfg = Some(WindowsPackageToml {
+            certificate_thumbprint_env: Some(env_name.clone()),
+            ..Default::default()
+        });
+
+        assert_eq!(
+            windows_certificate_thumbprint(&cfg),
+            Some("ABCDEF123456".to_string())
+        );
+
+        env::remove_var(env_name);
     }
 }

@@ -1,7 +1,7 @@
 use anyhow::{bail, Context, Result};
 use std::net::TcpListener;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Child, Command, Stdio};
 
 pub fn check(project_dir: &Path, release: bool) -> Result<()> {
     ensure_server_entry_configured(project_dir)?;
@@ -18,6 +18,19 @@ pub fn build(project_dir: &Path, release: bool) -> Result<()> {
 pub fn routes(project_dir: &Path) -> Result<()> {
     ensure_server_entry_configured(project_dir)?;
     run_server_builder(project_dir, false, "routes", &[])
+}
+
+pub fn spawn_serve(project_dir: &Path, release: bool, host: String, port: u16) -> Result<Child> {
+    ensure_server_entry_configured(project_dir)?;
+    ensure_server_address_available(&host, port)?;
+    artifacts(project_dir, release, true).context("failed to build server browser artifacts")?;
+    let port_text = port.to_string();
+    spawn_server_builder(
+        project_dir,
+        release,
+        "serve",
+        &["--host", host.as_str(), "--port", port_text.as_str()],
+    )
 }
 
 pub fn serve(project_dir: &Path, release: bool, host: String, port: u16) -> Result<()> {
@@ -103,6 +116,39 @@ fn package_features(project_dir: &Path) -> Result<Vec<String>> {
         .and_then(|features| features.as_table())
         .map(|features| features.keys().cloned().collect())
         .unwrap_or_default())
+}
+
+fn spawn_server_builder(
+    project_dir: &Path,
+    release: bool,
+    command_name: &str,
+    extra_args: &[&str],
+) -> Result<Child> {
+    let manifest_path = project_dir.join("Cargo.toml");
+    if !manifest_path.exists() {
+        bail!(
+            "server entry is configured but {} is missing",
+            manifest_path.display()
+        );
+    }
+    let manifest_path = manifest_path
+        .canonicalize()
+        .with_context(|| format!("failed to resolve {}", manifest_path.display()))?;
+    let mut command = Command::new("cargo");
+    command.current_dir(project_dir);
+    command
+        .arg("run")
+        .arg("--manifest-path")
+        .arg(&manifest_path);
+    if release {
+        command.arg("--release");
+    }
+    command.arg("--").arg(command_name);
+    for arg in extra_args {
+        command.arg(arg);
+    }
+    command.stdout(Stdio::null()).stderr(Stdio::null());
+    command.spawn().context("failed to spawn server app")
 }
 
 fn run_server_builder(

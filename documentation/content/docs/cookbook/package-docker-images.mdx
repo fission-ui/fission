@@ -43,7 +43,7 @@ tags = ["ghcr.io/example/my-docs:1.0.0"]
 ## 2. Run readiness
 
 ```sh
-fission readiness package --project-dir . --target server --format docker-image
+fission readiness package --project-dir . --target ssr --format docker-image
 ```
 
 Readiness checks that Docker and Cargo are available, that the target exists in [`fission.toml`](/reference/config/fission-toml/), and that server apps have `[server].entry` configured.
@@ -53,13 +53,13 @@ Readiness checks that Docker and Cargo are available, that the target exists in 
 Server app:
 
 ```sh
-fission package --project-dir . --target server --format docker-image --release
+fission package --project-dir . --target ssr --format docker-image --release
 ```
 
 Static site:
 
 ```sh
-fission package --project-dir . --target site --format docker-image --release
+fission package --project-dir . --target static-site --format docker-image --release
 ```
 
 By default, Fission runs `docker build` and applies the configured tags. Set `build = false` if CI should build the generated context itself.
@@ -76,7 +76,7 @@ docker login ghcr.io
 fission publish \
   --project-dir . \
   --provider docker-registry \
-  --artifact target/fission/release/server/docker-image/artifact-manifest.json \
+  --artifact target/fission/release/ssr/docker-image/artifact-manifest.json \
   --site production
 ```
 

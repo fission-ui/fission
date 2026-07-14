@@ -23,11 +23,11 @@ Use these names in user-facing documentation:
 | Web | `web` | Web |
 | Android | `android` | Mobile |
 | iOS | `ios` | Mobile |
-| Terminal | `TerminalApp` / `fission ui` | Terminal |
-| Static site | `site` | Site |
-| SSR | `server` | Server |
+| Terminal | `terminal` / `TerminalApp` / `fission ui` | Terminal |
+| Static site | `static-site` | Site |
+| SSR | `ssr` | Server |
 
-Use the lowercase identifiers when referring to manifest values, generated target folders, or command arguments for scaffolded and packaged hosts. The `server` identifier is the SSR target.
+Use the lowercase identifiers when referring to manifest values, generated target folders, or command arguments for scaffolded and packaged hosts. The `ssr` identifier is the SSR target; `server` remains the subcommand and configuration table name.
 
 A fresh `fission init` project starts with the desktop family scaffolded. You add scaffolded hosts with `fission add-target ...` when the product or host you care about requires them. Terminal uses the terminal shell and package workflow rather than a mobile-style generated host folder.
 
@@ -93,15 +93,15 @@ Terminal validation should check cell layout, keyboard navigation, pointer suppo
 
 ## Static site expectations
 
-The `site` target renders Fission widgets and Markdown content into static HTML, CSS, search assets, sitemap files, robots files, and copied assets. Use it for documentation, marketing, reference, blog, and other mostly-read pages where crawlable output matters.
+The `static-site` target renders Fission widgets and Markdown content into static HTML, CSS, search assets, sitemap files, robots files, and copied assets. Use it for documentation, marketing, reference, blog, and other mostly-read pages where crawlable output matters.
 
-Static sites are validated with `fission site check`, built with `fission site build`, and packaged with `fission package --target site --format static` or `--format docker-image`.
+Static sites are validated with `fission site check`, built with `fission site build`, and packaged with `fission package --target static-site --format static` or `--format docker-image`.
 
 ## SSR expectations
 
-The `server` target is the SSR target. It runs a Fission server app that renders HTML at request time or through revalidated cache entries. Use it when pages need server jobs, request-time data, signed actions, cache invalidation, progressive workers, or focused WASM islands.
+The `ssr` target runs a Fission server app that renders HTML at request time or through revalidated cache entries. Use it when pages need server jobs, request-time data, signed actions, cache invalidation, progressive workers, or focused WASM islands.
 
-SSR apps are validated with `fission server check`, run locally with `fission server serve`, and packaged as Docker images with `fission package --target server --format docker-image`.
+SSR apps are validated with `fission server check`, run locally with `fission server serve`, and packaged as Docker images with `fission package --target ssr --format docker-image`.
 
 ## Files and paths worth knowing
 

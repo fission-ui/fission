@@ -1,19 +1,31 @@
 use super::*;
 use anyhow::{bail, Context, Result};
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use reqwest::blocking::{Client, Response};
+use reqwest::header::CONTENT_LENGTH;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs;
-use std::path::Path;
-use std::time::Duration;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const PLAY_API: &str = "https://androidpublisher.googleapis.com";
+const PLAY_UPLOAD_API: &str = "https://androidpublisher.googleapis.com/upload";
 const GOOGLE_PLAY_SCOPE: &str = "https://www.googleapis.com/auth/androidpublisher";
 const GOOGLE_TOKEN_URI: &str = "https://oauth2.googleapis.com/token";
 const APP_STORE_API: &str = "https://api.appstoreconnect.apple.com";
+
+mod play_content;
+mod provider_content;
+mod release_config_ops;
+mod review_beta_ops;
+
+pub(crate) use release_config_ops::remote_state;
+use release_config_ops::*;
 
 #[derive(Debug, Deserialize, Default)]
 struct ReleaseProviderToml {
@@ -56,6 +68,18 @@ struct ReleaseRootToml {
     default_locales: Vec<String>,
     #[serde(default)]
     store_listing: BTreeMap<String, BTreeMap<String, StoreListingToml>>,
+    assets: Option<ReleaseAssetsToml>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ReleaseAssetsToml {
+    play_store: Option<PlayStoreAssetsToml>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct PlayStoreAssetsToml {
+    screenshot_sets_dir: Option<String>,
+    feature_graphic: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -127,7 +151,10 @@ struct AppStoreLocalization {
 #[derive(Clone, Debug, Deserialize, Default)]
 struct PlayStoreConfig {
     package_name: Option<String>,
-    service_account: Option<String>,
+    access_token_env: Option<String>,
+    service_account_json_env: Option<String>,
+    service_account_json_base64_env: Option<String>,
+    google_application_credentials_env: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -136,7 +163,12 @@ struct AppStoreConfig {
     bundle_id: Option<String>,
     issuer_id: Option<String>,
     key_id: Option<String>,
-    api_key_path: Option<String>,
+    access_token_env: Option<String>,
+    issuer_id_env: Option<String>,
+    key_id_env: Option<String>,
+    api_key_env: Option<String>,
+    api_key_base64_env: Option<String>,
+    api_key_path_env: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -169,6 +201,36 @@ struct OAuthTokenResponse {
     access_token: String,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct ReleaseConfigRemoteState {
+    provider: String,
+    subject: String,
+    locales: Vec<String>,
+    remote_revision: String,
+    snapshot: Value,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct ReleaseConfigLock {
+    provider: Option<String>,
+    subject: Option<String>,
+    remote_revision: Option<String>,
+    #[serde(default)]
+    locales: Vec<String>,
+    locked_at_unix_seconds: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ReleaseConfigLocksToml {
+    release: Option<ReleaseConfigLocksRoot>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ReleaseConfigLocksRoot {
+    #[serde(default)]
+    provider_locks: BTreeMap<String, ReleaseConfigLock>,
+}
+
 pub(super) fn reviews_list(
     provider: DistributionProvider,
     since: Option<String>,
@@ -176,8 +238,12 @@ pub(super) fn reviews_list(
     json_output: bool,
 ) -> Result<()> {
     match provider {
-        DistributionProvider::PlayStore => play_reviews_list(project_dir, since, json_output),
-        DistributionProvider::AppStore => app_store_reviews_list(project_dir, since, json_output),
+        DistributionProvider::PlayStore => {
+            review_beta_ops::play_reviews_list(project_dir, since, json_output)
+        }
+        DistributionProvider::AppStore => {
+            review_beta_ops::app_store_reviews_list(project_dir, since, json_output)
+        }
         _ => unsupported_reviews(provider, "list"),
     }
 }
@@ -188,15 +254,27 @@ pub(super) fn reviews_reply(
     message_file: &Path,
     project_dir: &Path,
     dry_run: bool,
+    yes: bool,
     json_output: bool,
 ) -> Result<()> {
+    if !dry_run && !yes {
+        bail!("replying to a provider review mutates provider state; pass --yes after reviewing the dry run");
+    }
     match provider {
-        DistributionProvider::PlayStore => {
-            play_reviews_reply(project_dir, review, message_file, dry_run, json_output)
-        }
-        DistributionProvider::AppStore => {
-            app_store_reviews_reply(project_dir, review, message_file, dry_run, json_output)
-        }
+        DistributionProvider::PlayStore => review_beta_ops::play_reviews_reply(
+            project_dir,
+            review,
+            message_file,
+            dry_run,
+            json_output,
+        ),
+        DistributionProvider::AppStore => review_beta_ops::app_store_reviews_reply(
+            project_dir,
+            review,
+            message_file,
+            dry_run,
+            json_output,
+        ),
         _ => unsupported_reviews(provider, "reply"),
     }
 }
@@ -207,8 +285,12 @@ pub(super) fn beta_groups_list(
     json_output: bool,
 ) -> Result<()> {
     match provider {
-        DistributionProvider::PlayStore => play_beta_groups_list(project_dir, json_output),
-        DistributionProvider::AppStore => app_store_beta_groups_list(project_dir, json_output),
+        DistributionProvider::PlayStore => {
+            review_beta_ops::play_beta_groups_list(project_dir, json_output)
+        }
+        DistributionProvider::AppStore => {
+            review_beta_ops::app_store_beta_groups_list(project_dir, json_output)
+        }
         _ => unsupported_beta(provider, "groups list"),
     }
 }
@@ -218,11 +300,12 @@ pub(super) fn beta_groups_sync(
     from: &Path,
     project_dir: &Path,
     dry_run: bool,
+    yes: bool,
     json_output: bool,
 ) -> Result<()> {
     match provider {
         DistributionProvider::PlayStore => {
-            play_beta_groups_sync(project_dir, from, dry_run, json_output)
+            review_beta_ops::play_beta_groups_sync(project_dir, from, dry_run, yes, json_output)
         }
         _ => unsupported_beta(provider, "groups sync"),
     }
@@ -235,15 +318,26 @@ pub(super) fn beta_testers_import(
     csv: &Path,
     project_dir: &Path,
     dry_run: bool,
+    yes: bool,
     json_output: bool,
 ) -> Result<()> {
     match provider {
-        DistributionProvider::PlayStore => {
-            play_beta_testers_import(project_dir, track, csv, dry_run, json_output)
-        }
-        DistributionProvider::AppStore => {
-            app_store_beta_testers_import(project_dir, group, csv, dry_run, json_output)
-        }
+        DistributionProvider::PlayStore => review_beta_ops::play_beta_testers_import(
+            project_dir,
+            track,
+            csv,
+            dry_run,
+            yes,
+            json_output,
+        ),
+        DistributionProvider::AppStore => review_beta_ops::app_store_beta_testers_import(
+            project_dir,
+            group,
+            csv,
+            dry_run,
+            yes,
+            json_output,
+        ),
         _ => unsupported_beta(provider, "testers import"),
     }
 }
@@ -258,32 +352,56 @@ pub(super) fn beta_testers_export(
 ) -> Result<()> {
     match provider {
         DistributionProvider::PlayStore => {
-            play_beta_testers_export(project_dir, track, output, json_output)
+            review_beta_ops::play_beta_testers_export(project_dir, track, output, json_output)
         }
         DistributionProvider::AppStore => {
-            app_store_beta_testers_export(project_dir, group, output, json_output)
+            review_beta_ops::app_store_beta_testers_export(project_dir, group, output, json_output)
         }
         _ => unsupported_beta(provider, "testers export"),
     }
 }
 
+pub(super) fn app_store_beta_distribute(
+    project_dir: &Path,
+    artifact: &Path,
+    group: Option<&str>,
+    dry_run: bool,
+    yes: bool,
+    json_output: bool,
+) -> Result<()> {
+    review_beta_ops::app_store_beta_distribute(
+        project_dir,
+        artifact,
+        group,
+        dry_run,
+        yes,
+        json_output,
+    )
+}
+
 pub(super) fn release_config_import(
     provider: DistributionProvider,
     locales: Option<String>,
+    dry_run: bool,
     yes: bool,
     project_dir: &Path,
     json_output: bool,
 ) -> Result<()> {
     match provider {
         DistributionProvider::PlayStore => {
-            play_release_config_import(project_dir, locales.as_deref(), yes, json_output)
+            play_release_config_import(project_dir, locales.as_deref(), dry_run, yes, json_output)
         }
-        DistributionProvider::AppStore => {
-            app_store_release_config_import(project_dir, locales.as_deref(), yes, json_output)
-        }
+        DistributionProvider::AppStore => app_store_release_config_import(
+            project_dir,
+            locales.as_deref(),
+            dry_run,
+            yes,
+            json_output,
+        ),
         DistributionProvider::MicrosoftStore => super::microsoft_store_ops::release_config_import(
             project_dir,
             locales.as_deref(),
+            dry_run,
             yes,
             json_output,
         ),
@@ -309,1597 +427,453 @@ pub(super) fn release_config_diff(
 pub(super) fn release_config_push(
     provider: DistributionProvider,
     locales: Option<String>,
+    overwrite_remote: bool,
     dry_run: bool,
     yes: bool,
     project_dir: &Path,
     json_output: bool,
 ) -> Result<()> {
+    let summary = release_config_push_value(
+        provider,
+        locales.as_deref(),
+        overwrite_remote,
+        dry_run,
+        yes,
+        project_dir,
+    )?;
+    print_release_config_push_summary(provider, &summary, json_output)
+}
+
+pub(crate) fn release_config_push_value(
+    provider: DistributionProvider,
+    locales: Option<&str>,
+    overwrite_remote: bool,
+    dry_run: bool,
+    yes: bool,
+    project_dir: &Path,
+) -> Result<Value> {
+    if !dry_run {
+        ensure_release_config_content_manifest_fresh(project_dir)?;
+        ensure_release_config_remote_lock(project_dir, provider, locales, overwrite_remote)?;
+    }
+    let mut value = match provider {
+        DistributionProvider::PlayStore => {
+            play_release_config_push(project_dir, locales, dry_run, yes)
+        }
+        DistributionProvider::AppStore => {
+            app_store_release_config_push(project_dir, locales, dry_run, yes)
+        }
+        DistributionProvider::MicrosoftStore => {
+            super::microsoft_store_ops::release_config_push_value(project_dir, locales, dry_run, yes)
+        }
+        _ => bail!(
+            "{} release-config push is not exposed by the current provider API backend; Google Play, App Store, and Microsoft Store metadata import/diff/push are implemented",
+            provider.as_str()
+        ),
+    }?;
+    if !dry_run {
+        let state = release_config_remote_state(provider, project_dir, locales)?;
+        write_release_config_lock(project_dir, provider, &state)?;
+        if let Some(object) = value.as_object_mut() {
+            object.insert(
+                "remote_lock".to_string(),
+                json!({
+                    "subject": state.subject,
+                    "locales": state.locales,
+                    "remote_revision": state.remote_revision,
+                    "locked_at_unix_seconds": now_unix_seconds(),
+                }),
+            );
+        }
+    }
+    Ok(value)
+}
+
+pub(super) fn release_config_lock(
+    provider: DistributionProvider,
+    locales: Option<String>,
+    dry_run: bool,
+    yes: bool,
+    project_dir: &Path,
+    json_output: bool,
+) -> Result<()> {
+    if !dry_run && !yes {
+        bail!("release-config lock rewrites fission.toml; pass --yes after reviewing the provider and locales");
+    }
+    let state = release_config_remote_state(provider, project_dir, locales.as_deref())?;
+    let value = json!({
+        "schema_version": 1,
+        "action": "release-config.lock",
+        "status": if dry_run { "dry-run" } else { "applied" },
+        "provider": provider.as_str(),
+        "subject": state.subject,
+        "locales": state.locales,
+        "remote_revision": state.remote_revision,
+        "project_dir": project_dir.display().to_string(),
+    });
+    if !dry_run {
+        write_release_config_lock(project_dir, provider, &state)?;
+    }
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&value)?);
+    } else {
+        println!(
+            "release-config.lock: {} {} {}",
+            value
+                .get("status")
+                .and_then(Value::as_str)
+                .unwrap_or("applied"),
+            provider.as_str(),
+            value
+                .get("remote_revision")
+                .and_then(Value::as_str)
+                .unwrap_or("<revision>")
+        );
+    }
+    Ok(())
+}
+
+pub(super) fn release_config_lock_check(
+    project_dir: &Path,
+    provider: DistributionProvider,
+    overwrite_remote: bool,
+) -> LifecycleCheck {
+    if overwrite_remote {
+        return LifecycleCheck {
+            id: format!("release_config.{}.remote_lock", provider.as_str()),
+            status: "skipped".to_string(),
+            summary: "provider metadata baseline lock is intentionally bypassed".to_string(),
+            details: Some("--overwrite-remote was supplied".to_string()),
+            remediation: vec![
+                "Use --overwrite-remote only after reviewing release-config diff.".to_string(),
+            ],
+        };
+    }
+    match read_release_config_lock(project_dir, provider) {
+        Ok(Some(lock)) if lock.remote_revision.as_deref().is_some() => LifecycleCheck {
+            id: format!("release_config.{}.remote_lock", provider.as_str()),
+            status: "passed".to_string(),
+            summary: "provider metadata baseline lock exists".to_string(),
+            details: Some(format!(
+                "{} locked at {:?}",
+                lock.remote_revision.as_deref().unwrap_or("<revision>"),
+                lock.locked_at_unix_seconds
+            )),
+            remediation: Vec::new(),
+        },
+        Ok(_) => LifecycleCheck {
+            id: format!("release_config.{}.remote_lock", provider.as_str()),
+            status: "missing".to_string(),
+            summary: "provider metadata baseline lock is missing".to_string(),
+            details: None,
+            remediation: vec![format!(
+                "Run `fission release-config lock --provider {} --yes` after reviewing remote metadata, or pass --overwrite-remote to intentionally replace provider metadata.",
+                provider.as_str()
+            )],
+        },
+        Err(error) => LifecycleCheck {
+            id: format!("release_config.{}.remote_lock", provider.as_str()),
+            status: "failed".to_string(),
+            summary: "provider metadata baseline lock could not be read".to_string(),
+            details: Some(error.to_string()),
+            remediation: vec!["Fix fission.toml release.provider_locks and rerun readiness.".to_string()],
+        },
+    }
+}
+
+fn ensure_release_config_remote_lock(
+    project_dir: &Path,
+    provider: DistributionProvider,
+    locales: Option<&str>,
+    overwrite_remote: bool,
+) -> Result<()> {
+    if overwrite_remote {
+        return Ok(());
+    }
+    let Some(lock) = read_release_config_lock(project_dir, provider)? else {
+        bail!(
+            "release-config push requires a provider baseline lock; run `fission release-config lock --provider {} --yes` after reviewing remote state, or pass --overwrite-remote to intentionally replace provider metadata",
+            provider.as_str()
+        );
+    };
+    let state = release_config_remote_state(provider, project_dir, locales)?;
+    ensure_release_config_lock_matches(provider, &lock, &state)
+}
+
+fn ensure_release_config_lock_matches(
+    provider: DistributionProvider,
+    lock: &ReleaseConfigLock,
+    state: &ReleaseConfigRemoteState,
+) -> Result<()> {
+    if lock.provider.as_deref() != Some(provider.as_str()) {
+        bail!(
+            "release-config lock provider mismatch: lock={:?}, current={}",
+            lock.provider,
+            provider.as_str()
+        );
+    }
+    if lock.subject.as_deref() != Some(state.subject.as_str()) {
+        bail!(
+            "release-config lock subject mismatch: lock={:?}, current={}",
+            lock.subject,
+            state.subject
+        );
+    }
+    if lock.remote_revision.as_deref() != Some(state.remote_revision.as_str()) {
+        bail!(
+            "remote {} metadata changed since the last import/lock; run `fission release-config diff --provider {}` and then `fission release-config lock --provider {} --yes`, or pass --overwrite-remote to intentionally replace provider metadata",
+            provider.as_str(),
+            provider.as_str(),
+            provider.as_str()
+        );
+    }
+    let mut locked_locales = lock.locales.clone();
+    locked_locales.sort();
+    if locked_locales != state.locales {
+        bail!(
+            "release-config lock locales mismatch: lock={:?}, current={:?}; lock the same locale set or pass --overwrite-remote",
+            locked_locales,
+            state.locales
+        );
+    }
+    Ok(())
+}
+
+fn release_config_remote_state(
+    provider: DistributionProvider,
+    project_dir: &Path,
+    locales_arg: Option<&str>,
+) -> Result<ReleaseConfigRemoteState> {
+    match provider {
+        DistributionProvider::PlayStore => play_release_config_remote_state(project_dir, locales_arg),
+        DistributionProvider::AppStore => app_store_release_config_remote_state(project_dir, locales_arg),
+        DistributionProvider::MicrosoftStore => {
+            super::microsoft_store_ops::release_config_remote_state(project_dir, locales_arg)
+        }
+        _ => bail!(
+            "{} release-config lock is not exposed by the current provider API backend; Google Play, App Store, and Microsoft Store metadata locks are implemented",
+            provider.as_str()
+        ),
+    }
+}
+
+fn read_release_config_lock(
+    project_dir: &Path,
+    provider: DistributionProvider,
+) -> Result<Option<ReleaseConfigLock>> {
+    let path = project_dir.join("fission.toml");
+    if !path.exists() {
+        return Ok(None);
+    }
+    let config: ReleaseConfigLocksToml = toml::from_str(
+        &fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?,
+    )
+    .with_context(|| format!("failed to parse {}", path.display()))?;
+    Ok(config
+        .release
+        .and_then(|mut release| release.provider_locks.remove(&provider_lock_key(provider))))
+}
+
+pub(crate) fn write_release_config_lock(
+    project_dir: &Path,
+    provider: DistributionProvider,
+    state: &ReleaseConfigRemoteState,
+) -> Result<()> {
+    let path = project_dir.join("fission.toml");
+    let data =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    let mut doc = parse_toml_edit_document(&data, &path)?;
+    let prefix = format!("release.provider_locks.{}", provider_lock_key(provider));
+    set_toml_edit_path(
+        &mut doc,
+        &format!("{prefix}.provider"),
+        toml_edit::value(provider.as_str()),
+    )?;
+    set_toml_edit_path(
+        &mut doc,
+        &format!("{prefix}.subject"),
+        toml_edit::value(state.subject.clone()),
+    )?;
+    set_toml_edit_path(
+        &mut doc,
+        &format!("{prefix}.remote_revision"),
+        toml_edit::value(state.remote_revision.clone()),
+    )?;
+    set_toml_edit_path(
+        &mut doc,
+        &format!("{prefix}.locked_at_unix_seconds"),
+        toml_edit::value(
+            i64::try_from(now_unix_seconds()).context("current timestamp is too large")?,
+        ),
+    )?;
+    set_toml_edit_path(
+        &mut doc,
+        &format!("{prefix}.locales"),
+        toml_edit_string_array(state.locales.clone()),
+    )?;
+    write_toml_edit_document(&path, &doc)
+}
+
+fn provider_lock_key(provider: DistributionProvider) -> String {
+    provider.as_str().replace('-', "_")
+}
+
+fn ensure_release_config_content_manifest_fresh(project_dir: &Path) -> Result<()> {
+    let path = project_dir.join("release-content/content-manifest.json");
+    if !path.exists() {
+        return Ok(());
+    }
+    let value: Value = serde_json::from_slice(
+        &fs::read(&path).with_context(|| format!("failed to read {}", path.display()))?,
+    )
+    .with_context(|| format!("failed to parse {}", path.display()))?;
+    for file in value
+        .get("referenced_files")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let relative = file
+            .get("path")
+            .and_then(Value::as_str)
+            .context("content manifest referenced file is missing path")?;
+        let expected = file
+            .get("sha256")
+            .and_then(Value::as_str)
+            .context("content manifest referenced file is missing sha256")?;
+        let actual = sha256_file(&project_dir.join(relative))?;
+        if actual != expected {
+            bail!(
+                "release metadata file `{relative}` changed since release-content/content-manifest.json was materialized; rerun `fission release-content validate` or the publish workflow to refresh the content manifest before pushing metadata"
+            );
+        }
+    }
+    Ok(())
+}
+
+fn sha256_json(value: &Value) -> Result<String> {
+    let bytes = serde_json::to_vec(value)?;
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn sha256_file(path: &Path) -> Result<String> {
+    let bytes = fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+pub(super) fn release_content_push(
+    provider: DistributionProvider,
+    locales: Option<String>,
+    dry_run: bool,
+    yes: bool,
+    project_dir: &Path,
+    json_output: bool,
+) -> Result<()> {
+    let summary =
+        release_content_push_value(provider, locales.as_deref(), dry_run, yes, project_dir)?;
+    print_release_content_push_summary(provider, &summary, json_output)
+}
+
+pub(crate) fn release_content_push_value(
+    provider: DistributionProvider,
+    locales: Option<&str>,
+    dry_run: bool,
+    yes: bool,
+    project_dir: &Path,
+) -> Result<Value> {
     match provider {
         DistributionProvider::PlayStore => {
-            play_release_config_push(project_dir, locales.as_deref(), dry_run, yes, json_output)
+            play_content::play_release_content_push(project_dir, locales, dry_run, yes)
         }
-        DistributionProvider::AppStore => app_store_release_config_push(
-            project_dir,
-            locales.as_deref(),
-            dry_run,
-            yes,
-            json_output,
+        DistributionProvider::AppStore => {
+            provider_content::app_store_release_content_push(project_dir, locales, dry_run, yes)
+        }
+        DistributionProvider::MicrosoftStore => {
+            provider_content::microsoft_store_release_content_push(project_dir, locales, dry_run, yes)
+        }
+        _ => bail!(
+            "{} release-content push is not exposed by the current provider API backend; Google Play image upload, App Store screenshot/preview/review-attachment upload, and Microsoft Store screenshot/logo upload are implemented",
+            provider.as_str()
         ),
-        DistributionProvider::MicrosoftStore => super::microsoft_store_ops::release_config_push(
-            project_dir,
-            locales.as_deref(),
-            dry_run,
-            yes,
-            json_output,
+    }
+}
+
+fn print_release_config_push_summary(
+    provider: DistributionProvider,
+    value: &Value,
+    json_output: bool,
+) -> Result<()> {
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(value)?);
+        return Ok(());
+    }
+    let count = value
+        .get("updated_locales")
+        .or_else(|| value.get("pushed_locales"))
+        .or_else(|| value.get("locales"))
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or_default();
+    let status = value
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("complete");
+    if status == "dry-run" {
+        println!(
+            "Would push {count} {} release metadata locale(s)",
+            provider.as_str()
+        );
+    } else {
+        println!(
+            "Pushed {count} {} release metadata locale(s)",
+            provider.as_str()
+        );
+    }
+    Ok(())
+}
+
+fn print_release_content_push_summary(
+    provider: DistributionProvider,
+    value: &Value,
+    json_output: bool,
+) -> Result<()> {
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(value)?);
+        return Ok(());
+    }
+    let count = value
+        .get("assets")
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or_default();
+    let status = value
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("complete");
+    match status {
+        "dry-run" => println!(
+            "Would push {count} {} release-content asset(s)",
+            provider.as_str()
         ),
-        _ => unsupported_release_config(provider, "push"),
-    }
-}
-
-fn app_store_release_config_import(
-    project_dir: &Path,
-    locales: Option<&str>,
-    yes: bool,
-    json_output: bool,
-) -> Result<()> {
-    if !yes {
-        bail!("release-config import mutates fission.toml/release metadata; pass --yes after reviewing the provider and locales");
-    }
-    let root = read_release_provider_toml(project_dir)?;
-    let cfg = app_store_config(project_dir)?;
-    let client = http_client()?;
-    let token = app_store_access_token(&cfg)?;
-    let app_id = app_store_app_id(&cfg, &client, &token)?;
-    let version_id = app_store_version_id(&root, &client, &token, &app_id)?;
-    let remote = fetch_app_store_version_localizations(&client, &token, &version_id)?;
-    write_imported_app_store_localizations(project_dir, &root, locales, &remote)?;
-    let summary = json!({
-        "provider": "app-store",
-        "app_id": app_id,
-        "version_id": version_id,
-        "imported_locales": remote.iter().map(|item| item.locale.as_str()).collect::<Vec<_>>(),
-        "status": "imported"
-    });
-    if json_output {
-        println!("{}", serde_json::to_string_pretty(&summary)?);
-    } else {
-        println!("Imported {} App Store localization(s)", remote.len());
+        "staged" => println!(
+            "Staged {count} {} release-content asset(s) for provider handoff",
+            provider.as_str()
+        ),
+        "partial" => println!(
+            "Pushed {count} {} release-content asset(s); staged remaining assets for provider handoff",
+            provider.as_str()
+        ),
+        "skipped" => println!("No {} release-content assets to push", provider.as_str()),
+        _ => println!(
+            "Pushed {count} {} release-content asset(s)",
+            provider.as_str()
+        ),
     }
     Ok(())
-}
-
-fn app_store_release_config_diff(project_dir: &Path, json_output: bool) -> Result<()> {
-    let root = read_release_provider_toml(project_dir)?;
-    let cfg = app_store_config(project_dir)?;
-    let client = http_client()?;
-    let token = app_store_access_token(&cfg)?;
-    let app_id = app_store_app_id(&cfg, &client, &token)?;
-    let version_id = app_store_version_id(&root, &client, &token, &app_id)?;
-    let locales = resolve_release_locales(&root, None)?;
-    let local = resolve_app_store_localizations(project_dir, &root, &locales)?;
-    let remote = fetch_app_store_version_localizations(&client, &token, &version_id)?;
-    let diff = app_store_localization_diff(&local, &remote);
-    if json_output {
-        println!("{}", serde_json::to_string_pretty(&diff)?);
-    } else if diff.as_array().is_some_and(Vec::is_empty) {
-        println!(
-            "App Store metadata is in sync for {} locale(s)",
-            locales.len()
-        );
-    } else {
-        println!("App Store metadata differences:");
-        for item in diff.as_array().into_iter().flatten() {
-            println!(
-                "{} {}: local={:?} remote={:?}",
-                item.get("locale")
-                    .and_then(Value::as_str)
-                    .unwrap_or("<locale>"),
-                item.get("field")
-                    .and_then(Value::as_str)
-                    .unwrap_or("<field>"),
-                item.get("local"),
-                item.get("remote")
-            );
-        }
-    }
-    Ok(())
-}
-
-fn app_store_release_config_push(
-    project_dir: &Path,
-    locales_arg: Option<&str>,
-    dry_run: bool,
-    yes: bool,
-    json_output: bool,
-) -> Result<()> {
-    if !dry_run && !yes {
-        bail!("release-config push mutates provider metadata; pass --yes after reviewing `release-config diff`");
-    }
-    let root = read_release_provider_toml(project_dir)?;
-    let cfg = app_store_config(project_dir)?;
-    let locales = resolve_release_locales(&root, locales_arg)?;
-    let localizations = resolve_app_store_localizations(project_dir, &root, &locales)?;
-    if dry_run {
-        let value = json!({
-            "provider": "app-store",
-            "locales": locales,
-            "localizations": localizations,
-            "status": "dry-run"
-        });
-        if json_output {
-            println!("{}", serde_json::to_string_pretty(&value)?);
-        } else {
-            println!(
-                "Would push {} App Store localization(s)",
-                localizations.len()
-            );
-        }
-        return Ok(());
-    }
-    let client = http_client()?;
-    let token = app_store_access_token(&cfg)?;
-    let app_id = app_store_app_id(&cfg, &client, &token)?;
-    let version_id = app_store_version_id(&root, &client, &token, &app_id)?;
-    let remote = fetch_app_store_version_localizations(&client, &token, &version_id)?;
-    let mut responses = Vec::new();
-    for localization in &localizations {
-        if let Some(existing) = remote
-            .iter()
-            .find(|item| item.locale == localization.locale)
-        {
-            let response = client
-                .patch(format!(
-                    "{APP_STORE_API}/v1/appStoreVersionLocalizations/{}",
-                    existing
-                        .id
-                        .as_deref()
-                        .context("remote localization missing id")?
-                ))
-                .bearer_auth(&token)
-                .json(&app_store_localization_update_payload(
-                    existing.id.as_deref().unwrap(),
-                    localization,
-                ))
-                .send()
-                .with_context(|| {
-                    format!(
-                        "failed to update App Store localization {}",
-                        localization.locale
-                    )
-                })?;
-            responses.push(json_response(response, "App Store localization update")?);
-        } else {
-            let response = client
-                .post(format!("{APP_STORE_API}/v1/appStoreVersionLocalizations"))
-                .bearer_auth(&token)
-                .json(&app_store_localization_create_payload(
-                    &version_id,
-                    localization,
-                ))
-                .send()
-                .with_context(|| {
-                    format!(
-                        "failed to create App Store localization {}",
-                        localization.locale
-                    )
-                })?;
-            responses.push(json_response(response, "App Store localization create")?);
-        }
-    }
-    let value = json!({
-        "provider": "app-store",
-        "app_id": app_id,
-        "version_id": version_id,
-        "updated_locales": localizations.iter().map(|item| item.locale.as_str()).collect::<Vec<_>>(),
-        "responses": responses,
-        "status": "pushed"
-    });
-    if json_output {
-        println!("{}", serde_json::to_string_pretty(&value)?);
-    } else {
-        println!("Pushed {} App Store localization(s)", localizations.len());
-    }
-    Ok(())
-}
-
-fn play_release_config_import(
-    project_dir: &Path,
-    locales: Option<&str>,
-    yes: bool,
-    json_output: bool,
-) -> Result<()> {
-    if !yes {
-        bail!("release-config import mutates fission.toml/release metadata; pass --yes after reviewing the provider and locales");
-    }
-    let mut root = read_release_provider_toml(project_dir)?;
-    let cfg = root
-        .distribution
-        .as_ref()
-        .and_then(|distribution| distribution.play_store.clone())
-        .unwrap_or_default();
-    let package_name = cfg
-        .package_name
-        .as_deref()
-        .context("distribution.play_store.package_name is required for Play metadata import")?;
-    let client = http_client()?;
-    let token = google_play_access_token(&cfg, &client)?;
-    let edit_id = create_play_edit(&client, &token, package_name)?;
-    let remote = fetch_play_listings(&client, &token, package_name, &edit_id, locales)?;
-    write_imported_play_listings(project_dir, &mut root, &remote)?;
-    let summary = json!({
-        "provider": "play-store",
-        "package_name": package_name,
-        "imported_locales": remote.iter().map(|listing| listing.locale.as_str()).collect::<Vec<_>>(),
-        "status": "imported"
-    });
-    if json_output {
-        println!("{}", serde_json::to_string_pretty(&summary)?);
-    } else {
-        println!(
-            "Imported {} Google Play listing locale(s) into fission.toml/release metadata",
-            remote.len()
-        );
-    }
-    Ok(())
-}
-
-fn play_release_config_diff(project_dir: &Path, json_output: bool) -> Result<()> {
-    let root = read_release_provider_toml(project_dir)?;
-    let cfg = root
-        .distribution
-        .as_ref()
-        .and_then(|distribution| distribution.play_store.clone())
-        .unwrap_or_default();
-    let package_name = cfg
-        .package_name
-        .as_deref()
-        .context("distribution.play_store.package_name is required for Play metadata diff")?;
-    let locales = resolve_release_locales(&root, None)?;
-    let local = resolve_play_listings(project_dir, &root, &locales)?;
-    let client = http_client()?;
-    let token = google_play_access_token(&cfg, &client)?;
-    let edit_id = create_play_edit(&client, &token, package_name)?;
-    let remote = fetch_play_listings(
-        &client,
-        &token,
-        package_name,
-        &edit_id,
-        Some(&locales.join(",")),
-    )?;
-    let diff = play_listing_diff(&local, &remote);
-    if json_output {
-        println!("{}", serde_json::to_string_pretty(&diff)?);
-    } else if diff.as_array().is_some_and(Vec::is_empty) {
-        println!(
-            "Google Play listing metadata is in sync for {} locale(s)",
-            locales.len()
-        );
-    } else {
-        println!("Google Play listing metadata differences:");
-        for item in diff.as_array().into_iter().flatten() {
-            println!(
-                "{} {}: local={:?} remote={:?}",
-                item.get("locale")
-                    .and_then(Value::as_str)
-                    .unwrap_or("<locale>"),
-                item.get("field")
-                    .and_then(Value::as_str)
-                    .unwrap_or("<field>"),
-                item.get("local"),
-                item.get("remote")
-            );
-        }
-    }
-    Ok(())
-}
-
-fn play_release_config_push(
-    project_dir: &Path,
-    locales_arg: Option<&str>,
-    dry_run: bool,
-    yes: bool,
-    json_output: bool,
-) -> Result<()> {
-    if !dry_run && !yes {
-        bail!("release-config push mutates provider metadata; pass --yes after reviewing `release-config diff`");
-    }
-    let root = read_release_provider_toml(project_dir)?;
-    let cfg = root
-        .distribution
-        .as_ref()
-        .and_then(|distribution| distribution.play_store.clone())
-        .unwrap_or_default();
-    let package_name = cfg
-        .package_name
-        .as_deref()
-        .context("distribution.play_store.package_name is required for Play metadata push")?;
-    let locales = resolve_release_locales(&root, locales_arg)?;
-    let listings = resolve_play_listings(project_dir, &root, &locales)?;
-    if dry_run {
-        let value = json!({
-            "provider": "play-store",
-            "package_name": package_name,
-            "locales": locales,
-            "listings": listings,
-            "status": "dry-run"
-        });
-        if json_output {
-            println!("{}", serde_json::to_string_pretty(&value)?);
-        } else {
-            println!(
-                "Would push {} Google Play listing locale(s) for {package_name}",
-                listings.len()
-            );
-        }
-        return Ok(());
-    }
-    let client = http_client()?;
-    let token = google_play_access_token(&cfg, &client)?;
-    let edit_id = create_play_edit(&client, &token, package_name)?;
-    let mut responses = Vec::new();
-    for listing in &listings {
-        let url = format!(
-            "{PLAY_API}/androidpublisher/v3/applications/{package_name}/edits/{edit_id}/listings/{}",
-            listing.locale
-        );
-        let response = client
-            .put(url)
-            .bearer_auth(&token)
-            .json(&json!({
-                "title": listing.title,
-                "shortDescription": listing.short_description,
-                "fullDescription": listing.full_description,
-                "video": listing.video,
-            }))
-            .send()
-            .with_context(|| format!("failed to update Google Play listing {}", listing.locale))?;
-        responses.push(json_response(response, "Google Play listing update")?);
-    }
-    validate_play_edit(&client, &token, package_name, &edit_id)?;
-    commit_play_edit(&client, &token, package_name, &edit_id)?;
-    let value = json!({
-        "provider": "play-store",
-        "package_name": package_name,
-        "updated_locales": listings.iter().map(|listing| listing.locale.as_str()).collect::<Vec<_>>(),
-        "responses": responses,
-        "status": "pushed"
-    });
-    if json_output {
-        println!("{}", serde_json::to_string_pretty(&value)?);
-    } else {
-        println!(
-            "Pushed {} Google Play listing locale(s) for {package_name}",
-            listings.len()
-        );
-    }
-    Ok(())
-}
-
-fn app_store_reviews_list(
-    project_dir: &Path,
-    since: Option<String>,
-    json_output: bool,
-) -> Result<()> {
-    let cfg = app_store_config(project_dir)?;
-    let client = http_client()?;
-    let token = app_store_access_token(&cfg)?;
-    let app_id = app_store_app_id(&cfg, &client, &token)?;
-    let url = format!(
-        "{APP_STORE_API}/v1/apps/{app_id}/customerReviews?limit=200&sort=-createdDate&fields[customerReviews]=rating,title,body,reviewerNickname,createdDate,territory,response"
-    );
-    let response = client
-        .get(url)
-        .bearer_auth(token)
-        .send()
-        .context("failed to list App Store customer reviews")?;
-    let value = json_response(response, "App Store customer reviews list")?;
-    if json_output {
-        println!("{}", serde_json::to_string_pretty(&value)?);
-        return Ok(());
-    }
-    println!("App Store reviews for app {app_id}");
-    if let Some(since) = since {
-        println!("Requested window: {since} (App Store Connect returned newest-first; filter locally if needed)");
-    }
-    for review in value
-        .get("data")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-    {
-        let id = review.get("id").and_then(Value::as_str).unwrap_or("<id>");
-        let attrs = review.get("attributes").unwrap_or(&Value::Null);
-        let rating = attrs
-            .get("rating")
-            .and_then(Value::as_i64)
-            .map(|rating| rating.to_string())
-            .unwrap_or_else(|| "?".to_string());
-        let title = attrs.get("title").and_then(Value::as_str).unwrap_or("");
-        let body = attrs
-            .get("body")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .replace('\n', " ");
-        println!("{id} [{rating}/5] {title}: {body}");
-    }
-    Ok(())
-}
-
-fn app_store_reviews_reply(
-    project_dir: &Path,
-    review: &str,
-    message_file: &Path,
-    dry_run: bool,
-    json_output: bool,
-) -> Result<()> {
-    let reply = fs::read_to_string(message_file)
-        .with_context(|| format!("failed to read {}", message_file.display()))?;
-    let payload = app_store_review_response_payload(review, reply.trim());
-    if dry_run {
-        let value = json!({
-            "provider": "app-store",
-            "review": review,
-            "reply_text_bytes": reply.len(),
-            "payload": payload,
-            "status": "dry-run"
-        });
-        if json_output {
-            println!("{}", serde_json::to_string_pretty(&value)?);
-        } else {
-            println!("Would reply to App Store review {review}");
-        }
-        return Ok(());
-    }
-    let cfg = app_store_config(project_dir)?;
-    let client = http_client()?;
-    let token = app_store_access_token(&cfg)?;
-    let response = client
-        .post(format!("{APP_STORE_API}/v1/customerReviewResponses"))
-        .bearer_auth(token)
-        .json(&payload)
-        .send()
-        .context("failed to reply to App Store review")?;
-    let value = json_response(response, "App Store review reply")?;
-    if json_output {
-        println!("{}", serde_json::to_string_pretty(&value)?);
-    } else {
-        println!("Replied to App Store review {review}");
-    }
-    Ok(())
-}
-
-fn app_store_review_response_payload(review: &str, response_body: &str) -> Value {
-    json!({
-        "data": {
-            "type": "customerReviewResponses",
-            "attributes": {
-                "responseBody": response_body,
-            },
-            "relationships": {
-                "review": {
-                    "data": {
-                        "type": "customerReviews",
-                        "id": review,
-                    }
-                }
-            }
-        }
-    })
-}
-
-fn play_reviews_list(project_dir: &Path, since: Option<String>, json_output: bool) -> Result<()> {
-    let cfg = play_config(project_dir)?;
-    let package_name = cfg
-        .package_name
-        .as_deref()
-        .context("distribution.play_store.package_name is required for Play reviews")?;
-    let client = http_client()?;
-    let token = google_play_access_token(&cfg, &client)?;
-    let url =
-        format!("{PLAY_API}/androidpublisher/v3/applications/{package_name}/reviews?maxResults=50");
-    let response = client
-        .get(url)
-        .bearer_auth(token)
-        .send()
-        .context("failed to list Google Play reviews")?;
-    let value = json_response(response, "Google Play reviews list")?;
-    if json_output {
-        println!("{}", serde_json::to_string_pretty(&value)?);
-        return Ok(());
-    }
-    println!("Google Play reviews for {package_name}");
-    if let Some(since) = since {
-        println!("Requested window: {since} (Google Play API pagination is returned newest-first; filter locally if needed)");
-    }
-    for review in value
-        .get("reviews")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-    {
-        let id = review
-            .get("reviewId")
-            .and_then(Value::as_str)
-            .unwrap_or("<id>");
-        let author = review
-            .get("authorName")
-            .and_then(Value::as_str)
-            .unwrap_or("<anonymous>");
-        let user = latest_user_comment(review);
-        let rating = user
-            .and_then(|comment| comment.get("starRating"))
-            .and_then(Value::as_i64)
-            .map(|rating| rating.to_string())
-            .unwrap_or_else(|| "?".to_string());
-        let text = user
-            .and_then(|comment| comment.get("text"))
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .replace('\n', " ");
-        println!("{id} [{rating}/5] {author}: {text}");
-    }
-    Ok(())
-}
-
-fn play_reviews_reply(
-    project_dir: &Path,
-    review: &str,
-    message_file: &Path,
-    dry_run: bool,
-    json_output: bool,
-) -> Result<()> {
-    let cfg = play_config(project_dir)?;
-    let package_name = cfg
-        .package_name
-        .as_deref()
-        .context("distribution.play_store.package_name is required for Play reviews")?;
-    let reply = fs::read_to_string(message_file)
-        .with_context(|| format!("failed to read {}", message_file.display()))?;
-    if dry_run {
-        let value = json!({
-            "provider": "play-store",
-            "package_name": package_name,
-            "review": review,
-            "reply_text_bytes": reply.len(),
-            "status": "dry-run"
-        });
-        if json_output {
-            println!("{}", serde_json::to_string_pretty(&value)?);
-        } else {
-            println!("Would reply to Google Play review {review} for {package_name}");
-        }
-        return Ok(());
-    }
-    let client = http_client()?;
-    let token = google_play_access_token(&cfg, &client)?;
-    let url = format!(
-        "{PLAY_API}/androidpublisher/v3/applications/{package_name}/reviews/{review}:reply"
-    );
-    let response = client
-        .post(url)
-        .bearer_auth(token)
-        .json(&json!({ "replyText": reply.trim() }))
-        .send()
-        .context("failed to reply to Google Play review")?;
-    let value = json_response(response, "Google Play review reply")?;
-    if json_output {
-        println!("{}", serde_json::to_string_pretty(&value)?);
-    } else {
-        println!("Replied to Google Play review {review}");
-    }
-    Ok(())
-}
-
-fn play_beta_groups_list(project_dir: &Path, json_output: bool) -> Result<()> {
-    let cfg = play_config(project_dir)?;
-    let package_name = cfg
-        .package_name
-        .as_deref()
-        .context("distribution.play_store.package_name is required for Play beta groups")?;
-    let client = http_client()?;
-    let token = google_play_access_token(&cfg, &client)?;
-    let edit_id = create_play_edit(&client, &token, package_name)?;
-    let mut tracks = Vec::new();
-    for track in ["internal", "closed", "open"] {
-        let url = format!(
-            "{PLAY_API}/androidpublisher/v3/applications/{package_name}/edits/{edit_id}/testers/{track}"
-        );
-        let response = client
-            .get(url)
-            .bearer_auth(&token)
-            .send()
-            .with_context(|| format!("failed to get Google Play testers for {track}"))?;
-        let value = json_response(response, "Google Play testers get")?;
-        tracks.push(json!({
-            "track": track,
-            "googleGroups": value.get("googleGroups").cloned().unwrap_or_else(|| json!([]))
-        }));
-    }
-    let value = json!({ "package_name": package_name, "tracks": tracks });
-    if json_output {
-        println!("{}", serde_json::to_string_pretty(&value)?);
-    } else {
-        println!("Google Play tester groups for {package_name}");
-        for track in value
-            .get("tracks")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-        {
-            let name = track
-                .get("track")
-                .and_then(Value::as_str)
-                .unwrap_or("<track>");
-            let groups = track
-                .get("googleGroups")
-                .and_then(Value::as_array)
-                .map(|groups| {
-                    groups
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                })
-                .unwrap_or_default();
-            println!("{name}: {groups}");
-        }
-    }
-    Ok(())
-}
-
-fn app_store_beta_groups_list(project_dir: &Path, json_output: bool) -> Result<()> {
-    let cfg = app_store_config(project_dir)?;
-    let client = http_client()?;
-    let token = app_store_access_token(&cfg)?;
-    let app_id = app_store_app_id(&cfg, &client, &token)?;
-    let value = app_store_beta_groups(&client, &token, &app_id)?;
-    if json_output {
-        println!("{}", serde_json::to_string_pretty(&value)?);
-    } else {
-        println!("App Store TestFlight groups for app {app_id}");
-        for group in value
-            .get("data")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-        {
-            let id = group.get("id").and_then(Value::as_str).unwrap_or("<id>");
-            let attrs = group.get("attributes").unwrap_or(&Value::Null);
-            let name = attrs
-                .get("name")
-                .and_then(Value::as_str)
-                .unwrap_or("<name>");
-            let public_link = attrs
-                .get("publicLink")
-                .and_then(Value::as_str)
-                .unwrap_or("");
-            println!("{id} {name} {public_link}");
-        }
-    }
-    Ok(())
-}
-
-fn app_store_beta_testers_import(
-    project_dir: &Path,
-    group: Option<&str>,
-    csv: &Path,
-    dry_run: bool,
-    json_output: bool,
-) -> Result<()> {
-    let group = group.context("App Store tester import requires --group <group-id-or-name>")?;
-    let testers = read_app_store_tester_csv(csv)?;
-    let cfg = app_store_config(project_dir)?;
-    let client = http_client()?;
-    let token = app_store_access_token(&cfg)?;
-    let app_id = app_store_app_id(&cfg, &client, &token)?;
-    let group_id = resolve_app_store_beta_group(&client, &token, &app_id, group)?;
-    if dry_run {
-        let value = json!({
-            "provider": "app-store",
-            "app_id": app_id,
-            "group": group,
-            "group_id": group_id,
-            "testers": testers,
-            "status": "dry-run"
-        });
-        if json_output {
-            println!("{}", serde_json::to_string_pretty(&value)?);
-        } else {
-            println!(
-                "Would import {} App Store TestFlight tester(s) into group {group}",
-                testers.len()
-            );
-        }
-        return Ok(());
-    }
-    let mut responses = Vec::new();
-    for tester in &testers {
-        let response = client
-            .post(format!("{APP_STORE_API}/v1/betaTesters"))
-            .bearer_auth(&token)
-            .json(&app_store_beta_tester_payload(tester, &group_id))
-            .send()
-            .with_context(|| format!("failed to create App Store beta tester {}", tester.email))?;
-        responses.push(json_response(response, "App Store beta tester create")?);
-    }
-    let value = json!({
-        "provider": "app-store",
-        "app_id": app_id,
-        "group": group,
-        "group_id": group_id,
-        "created": responses.len(),
-        "responses": responses,
-        "status": "imported"
-    });
-    if json_output {
-        println!("{}", serde_json::to_string_pretty(&value)?);
-    } else {
-        println!(
-            "Imported {} App Store TestFlight tester(s) into group {group}",
-            responses.len()
-        );
-    }
-    Ok(())
-}
-
-fn app_store_beta_testers_export(
-    project_dir: &Path,
-    group: Option<&str>,
-    output: &Path,
-    json_output: bool,
-) -> Result<()> {
-    let group = group.context("App Store tester export requires --group <group-id-or-name>")?;
-    let cfg = app_store_config(project_dir)?;
-    let client = http_client()?;
-    let token = app_store_access_token(&cfg)?;
-    let app_id = app_store_app_id(&cfg, &client, &token)?;
-    let group_id = resolve_app_store_beta_group(&client, &token, &app_id, group)?;
-    let url = format!(
-        "{APP_STORE_API}/v1/betaGroups/{group_id}/betaTesters?limit=200&fields[betaTesters]=email,firstName,lastName,inviteType,state"
-    );
-    let response = client
-        .get(url)
-        .bearer_auth(&token)
-        .send()
-        .context("failed to list App Store beta testers")?;
-    let value = json_response(response, "App Store beta testers list")?;
-    let testers = value
-        .get("data")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .map(app_store_tester_from_value)
-        .collect::<Vec<_>>();
-    if let Some(parent) = output.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let mut csv = String::from("email,first_name,last_name\n");
-    for tester in &testers {
-        csv.push_str(&format!(
-            "{},{},{}\n",
-            csv_cell(&tester.email),
-            csv_cell(tester.first_name.as_deref().unwrap_or("")),
-            csv_cell(tester.last_name.as_deref().unwrap_or(""))
-        ));
-    }
-    fs::write(output, csv)?;
-    if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&json!({
-                "provider": "app-store",
-                "app_id": app_id,
-                "group": group,
-                "group_id": group_id,
-                "output": output,
-                "count": testers.len()
-            }))?
-        );
-    } else {
-        println!(
-            "Exported {} App Store TestFlight tester(s) to {}",
-            testers.len(),
-            output.display()
-        );
-    }
-    Ok(())
-}
-
-fn play_beta_groups_sync(
-    project_dir: &Path,
-    source: &Path,
-    dry_run: bool,
-    json_output: bool,
-) -> Result<()> {
-    let source = if source.is_absolute() {
-        source.to_path_buf()
-    } else {
-        project_dir.join(source)
-    };
-    let root = read_release_provider_toml_from_path(&source)?;
-    let tracks = root
-        .beta
-        .and_then(|beta| beta.play_store)
-        .map(|play| play.tracks)
-        .unwrap_or_default();
-    if tracks.is_empty() {
-        bail!(
-            "{} does not contain [beta.play_store.tracks.<track>] entries",
-            source.display()
-        );
-    }
-    let updates = tracks
-        .into_iter()
-        .map(|(track, config)| {
-            let mut groups = config.groups;
-            if let Some(group) = config.group {
-                groups.push(group);
-            }
-            groups.retain(|group| !group.trim().is_empty());
-            groups.sort();
-            groups.dedup();
-            if groups.is_empty() {
-                bail!("beta.play_store.tracks.{track} must set group or groups");
-            }
-            if config
-                .tester_source
-                .as_deref()
-                .is_some_and(|source| source != "google_group")
-            {
-                bail!("Google Play beta group sync supports tester_source = \"google_group\" for track {track}");
-            }
-            Ok((track, groups))
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let cfg = play_config(project_dir)?;
-    let package_name = cfg
-        .package_name
-        .as_deref()
-        .context("distribution.play_store.package_name is required for Play beta group sync")?;
-    if dry_run {
-        let value = json!({
-            "provider": "play-store",
-            "package_name": package_name,
-            "tracks": updates.iter().map(|(track, groups)| json!({"track": track, "googleGroups": groups})).collect::<Vec<_>>(),
-            "status": "dry-run"
-        });
-        if json_output {
-            println!("{}", serde_json::to_string_pretty(&value)?);
-        } else {
-            println!(
-                "Would sync Google Play tester groups for {} track(s)",
-                updates.len()
-            );
-        }
-        return Ok(());
-    }
-    let client = http_client()?;
-    let token = google_play_access_token(&cfg, &client)?;
-    let edit_id = create_play_edit(&client, &token, package_name)?;
-    let mut responses = Vec::new();
-    for (track, groups) in &updates {
-        let url = format!(
-            "{PLAY_API}/androidpublisher/v3/applications/{package_name}/edits/{edit_id}/testers/{track}"
-        );
-        let response = client
-            .put(url)
-            .bearer_auth(&token)
-            .json(&json!({ "googleGroups": groups }))
-            .send()
-            .with_context(|| format!("failed to update Google Play testers for {track}"))?;
-        responses.push(json_response(response, "Google Play testers update")?);
-    }
-    validate_play_edit(&client, &token, package_name, &edit_id)?;
-    commit_play_edit(&client, &token, package_name, &edit_id)?;
-    let value = json!({
-        "provider": "play-store",
-        "package_name": package_name,
-        "tracks": updates.iter().map(|(track, groups)| json!({"track": track, "googleGroups": groups})).collect::<Vec<_>>(),
-        "responses": responses,
-        "status": "synced"
-    });
-    if json_output {
-        println!("{}", serde_json::to_string_pretty(&value)?);
-    } else {
-        println!(
-            "Synced Google Play tester groups for {} track(s)",
-            updates.len()
-        );
-    }
-    Ok(())
-}
-
-fn play_beta_testers_import(
-    project_dir: &Path,
-    track: Option<&str>,
-    csv: &Path,
-    dry_run: bool,
-    json_output: bool,
-) -> Result<()> {
-    let track = track.context("Google Play tester import requires --track internal|closed|open")?;
-    let groups = read_google_group_csv(csv)?;
-    let cfg = play_config(project_dir)?;
-    let package_name = cfg
-        .package_name
-        .as_deref()
-        .context("distribution.play_store.package_name is required for Play beta testers")?;
-    if dry_run {
-        let value = json!({
-            "provider": "play-store",
-            "package_name": package_name,
-            "track": track,
-            "googleGroups": groups,
-            "status": "dry-run"
-        });
-        if json_output {
-            println!("{}", serde_json::to_string_pretty(&value)?);
-        } else {
-            println!(
-                "Would set {} Google Groups on Play track {track}",
-                value
-                    .get("googleGroups")
-                    .and_then(Value::as_array)
-                    .map(Vec::len)
-                    .unwrap_or(0)
-            );
-        }
-        return Ok(());
-    }
-    let client = http_client()?;
-    let token = google_play_access_token(&cfg, &client)?;
-    let edit_id = create_play_edit(&client, &token, package_name)?;
-    let url = format!(
-        "{PLAY_API}/androidpublisher/v3/applications/{package_name}/edits/{edit_id}/testers/{track}"
-    );
-    let response = client
-        .put(url)
-        .bearer_auth(&token)
-        .json(&json!({ "googleGroups": groups }))
-        .send()
-        .context("failed to update Google Play testers")?;
-    let value = json_response(response, "Google Play testers update")?;
-    validate_play_edit(&client, &token, package_name, &edit_id)?;
-    commit_play_edit(&client, &token, package_name, &edit_id)?;
-    if json_output {
-        println!("{}", serde_json::to_string_pretty(&value)?);
-    } else {
-        println!("Updated Google Play tester groups for {package_name} track {track}");
-    }
-    Ok(())
-}
-
-fn play_beta_testers_export(
-    project_dir: &Path,
-    track: Option<&str>,
-    output: &Path,
-    json_output: bool,
-) -> Result<()> {
-    let track = track.context("Google Play tester export requires --track internal|closed|open")?;
-    let cfg = play_config(project_dir)?;
-    let package_name = cfg
-        .package_name
-        .as_deref()
-        .context("distribution.play_store.package_name is required for Play beta testers")?;
-    let client = http_client()?;
-    let token = google_play_access_token(&cfg, &client)?;
-    let edit_id = create_play_edit(&client, &token, package_name)?;
-    let url = format!(
-        "{PLAY_API}/androidpublisher/v3/applications/{package_name}/edits/{edit_id}/testers/{track}"
-    );
-    let response = client
-        .get(url)
-        .bearer_auth(&token)
-        .send()
-        .context("failed to get Google Play testers")?;
-    let value = json_response(response, "Google Play testers get")?;
-    let groups = value
-        .get("googleGroups")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .collect::<Vec<_>>();
-    if let Some(parent) = output.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    fs::write(output, groups.join("\n") + "\n")?;
-    if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&json!({
-                "provider": "play-store",
-                "package_name": package_name,
-                "track": track,
-                "output": output,
-                "googleGroups": groups
-            }))?
-        );
-    } else {
-        println!(
-            "Exported {} Google Groups to {}",
-            groups.len(),
-            output.display()
-        );
-    }
-    Ok(())
-}
-
-fn fetch_app_store_version_localizations(
-    client: &Client,
-    token: &str,
-    version_id: &str,
-) -> Result<Vec<AppStoreLocalization>> {
-    let response = client
-        .get(format!(
-            "{APP_STORE_API}/v1/appStoreVersions/{version_id}/appStoreVersionLocalizations?limit=200"
-        ))
-        .bearer_auth(token)
-        .send()
-        .context("failed to list App Store version localizations")?;
-    let value = json_response(response, "App Store localizations list")?;
-    value
-        .get("data")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .map(app_store_localization_from_value)
-        .collect()
-}
-
-fn app_store_localization_from_value(value: &Value) -> Result<AppStoreLocalization> {
-    let attrs = value.get("attributes").unwrap_or(&Value::Null);
-    Ok(AppStoreLocalization {
-        id: value.get("id").and_then(Value::as_str).map(str::to_string),
-        locale: attrs
-            .get("locale")
-            .and_then(Value::as_str)
-            .context("App Store localization missing locale")?
-            .to_string(),
-        description: attrs
-            .get("description")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string(),
-        keywords: attrs
-            .get("keywords")
-            .and_then(Value::as_str)
-            .map(str::to_string),
-        marketing_url: attrs
-            .get("marketingUrl")
-            .and_then(Value::as_str)
-            .map(str::to_string),
-        promotional_text: attrs
-            .get("promotionalText")
-            .and_then(Value::as_str)
-            .map(str::to_string),
-        support_url: attrs
-            .get("supportUrl")
-            .and_then(Value::as_str)
-            .map(str::to_string),
-        whats_new: attrs
-            .get("whatsNew")
-            .and_then(Value::as_str)
-            .map(str::to_string),
-    })
-}
-
-fn resolve_app_store_localizations(
-    project_dir: &Path,
-    root: &ReleaseProviderToml,
-    locales: &[String],
-) -> Result<Vec<AppStoreLocalization>> {
-    let metadata = active_release(root)
-        .and_then(|release| release.metadata.as_deref())
-        .map(|metadata| read_release_metadata(project_dir, metadata))
-        .transpose()?
-        .unwrap_or_default();
-    locales
-        .iter()
-        .map(|locale| resolve_app_store_localization(project_dir, root, &metadata, locale))
-        .collect()
-}
-
-fn resolve_app_store_localization(
-    project_dir: &Path,
-    root: &ReleaseProviderToml,
-    metadata: &ReleaseMetadataToml,
-    locale: &str,
-) -> Result<AppStoreLocalization> {
-    let listing = root
-        .release
-        .as_ref()
-        .and_then(|release| release.store_listing.get("app_store"))
-        .and_then(|listings| listings.get(locale))
-        .cloned()
-        .unwrap_or_default();
-    let meta = metadata.app_store.get(locale).cloned().unwrap_or_default();
-    let description = meta.description.with_context(|| {
-        format!("active release metadata [app_store.{locale}].description is required")
-    })?;
-    let whats_new = active_release(root)
-        .and_then(|release| release.release_notes.as_deref())
-        .map(|notes| project_dir.join(notes).join(format!("{locale}.md")))
-        .filter(|path| path.exists())
-        .map(fs::read_to_string)
-        .transpose()?;
-    Ok(AppStoreLocalization {
-        id: None,
-        locale: locale.to_string(),
-        description,
-        keywords: (!listing.keywords.is_empty()).then(|| listing.keywords.join(",")),
-        marketing_url: listing.marketing_url,
-        promotional_text: meta.promotional_text,
-        support_url: listing.support_url,
-        whats_new: whats_new
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty()),
-    })
-}
-
-fn app_store_version_id(
-    root: &ReleaseProviderToml,
-    client: &Client,
-    token: &str,
-    app_id: &str,
-) -> Result<String> {
-    let version = active_release(root)
-        .and_then(|release| release.version.as_deref())
-        .or_else(|| {
-            root.release
-                .as_ref()?
-                .active_release
-                .as_deref()
-                .and_then(|id| id.split('+').next())
-        })
-        .context("active [[releases]].version is required for App Store metadata sync")?;
-    let response = client
-        .get(format!(
-            "{APP_STORE_API}/v1/apps/{app_id}/appStoreVersions?filter[versionString]={version}&limit=1"
-        ))
-        .bearer_auth(token)
-        .send()
-        .context("failed to list App Store versions")?;
-    let value = json_response(response, "App Store versions list")?;
-    value
-        .get("data")
-        .and_then(Value::as_array)
-        .and_then(|items| items.first())
-        .and_then(|item| item.get("id"))
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .with_context(|| format!("App Store version {version} was not found for app {app_id}"))
-}
-
-fn app_store_localization_update_payload(id: &str, localization: &AppStoreLocalization) -> Value {
-    json!({
-        "data": {
-            "type": "appStoreVersionLocalizations",
-            "id": id,
-            "attributes": app_store_localization_attributes(localization)
-        }
-    })
-}
-
-fn app_store_localization_create_payload(
-    version_id: &str,
-    localization: &AppStoreLocalization,
-) -> Value {
-    json!({
-        "data": {
-            "type": "appStoreVersionLocalizations",
-            "attributes": app_store_localization_attributes(localization),
-            "relationships": {
-                "appStoreVersion": {
-                    "data": {"type": "appStoreVersions", "id": version_id}
-                }
-            }
-        }
-    })
-}
-
-fn app_store_localization_attributes(localization: &AppStoreLocalization) -> Value {
-    let mut attrs = serde_json::Map::new();
-    attrs.insert(
-        "locale".to_string(),
-        Value::String(localization.locale.clone()),
-    );
-    attrs.insert(
-        "description".to_string(),
-        Value::String(localization.description.clone()),
-    );
-    if let Some(value) = &localization.keywords {
-        attrs.insert("keywords".to_string(), Value::String(value.clone()));
-    }
-    if let Some(value) = &localization.marketing_url {
-        attrs.insert("marketingUrl".to_string(), Value::String(value.clone()));
-    }
-    if let Some(value) = &localization.promotional_text {
-        attrs.insert("promotionalText".to_string(), Value::String(value.clone()));
-    }
-    if let Some(value) = &localization.support_url {
-        attrs.insert("supportUrl".to_string(), Value::String(value.clone()));
-    }
-    if let Some(value) = &localization.whats_new {
-        attrs.insert("whatsNew".to_string(), Value::String(value.clone()));
-    }
-    Value::Object(attrs)
-}
-
-fn write_imported_app_store_localizations(
-    project_dir: &Path,
-    root: &ReleaseProviderToml,
-    locales_arg: Option<&str>,
-    remote: &[AppStoreLocalization],
-) -> Result<()> {
-    let selected = locales_arg.map(parse_locale_list).transpose()?;
-    let selected = selected.as_ref();
-    let fission_path = project_dir.join("fission.toml");
-    let metadata_path = active_release(root)
-        .and_then(|release| release.metadata.as_deref())
-        .map(|metadata| project_dir.join(metadata))
-        .context("active release metadata path is required for App Store metadata import")?;
-    let mut metadata_doc: toml::Value = if metadata_path.exists() {
-        toml::from_str(&fs::read_to_string(&metadata_path)?)?
-    } else {
-        toml::Value::Table(Default::default())
-    };
-    let mut fission_doc =
-        parse_toml_edit_document(&fs::read_to_string(&fission_path)?, &fission_path)?;
-    for item in remote {
-        if selected.is_some_and(|selected| !selected.contains(&item.locale)) {
-            continue;
-        }
-        set_toml_path(
-            &mut metadata_doc,
-            &format!("app_store.{}.description", item.locale),
-            toml::Value::String(item.description.clone()),
-        )?;
-        if let Some(value) = &item.promotional_text {
-            set_toml_path(
-                &mut metadata_doc,
-                &format!("app_store.{}.promotional_text", item.locale),
-                toml::Value::String(value.clone()),
-            )?;
-        }
-        if let Some(value) = &item.support_url {
-            set_toml_edit_path(
-                &mut fission_doc,
-                &format!(
-                    "release.store_listing.app_store.{}.support_url",
-                    item.locale
-                ),
-                toml_edit::value(value.clone()),
-            )?;
-        }
-        if let Some(value) = &item.marketing_url {
-            set_toml_edit_path(
-                &mut fission_doc,
-                &format!(
-                    "release.store_listing.app_store.{}.marketing_url",
-                    item.locale
-                ),
-                toml_edit::value(value.clone()),
-            )?;
-        }
-        if let Some(value) = &item.keywords {
-            set_toml_edit_path(
-                &mut fission_doc,
-                &format!("release.store_listing.app_store.{}.keywords", item.locale),
-                toml_edit_string_array(
-                    value
-                        .split(',')
-                        .map(|item| item.trim().to_string())
-                        .collect::<Vec<_>>(),
-                ),
-            )?;
-        }
-    }
-    if let Some(parent) = metadata_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    fs::write(
-        &metadata_path,
-        toml::to_string_pretty(&metadata_doc)? + "\n",
-    )?;
-    write_toml_edit_document(&fission_path, &fission_doc)?;
-    Ok(())
-}
-
-fn app_store_localization_diff(
-    local: &[AppStoreLocalization],
-    remote: &[AppStoreLocalization],
-) -> Value {
-    let mut remote_by_locale = remote
-        .iter()
-        .map(|item| (item.locale.as_str(), item))
-        .collect::<BTreeMap<_, _>>();
-    let mut diffs = Vec::new();
-    for local_item in local {
-        match remote_by_locale.remove(local_item.locale.as_str()) {
-            Some(remote_item) => {
-                push_field_diff(&mut diffs, &local_item.locale, "description", &local_item.description, &remote_item.description);
-                push_option_diff(&mut diffs, &local_item.locale, "keywords", &local_item.keywords, &remote_item.keywords);
-                push_option_diff(&mut diffs, &local_item.locale, "marketing_url", &local_item.marketing_url, &remote_item.marketing_url);
-                push_option_diff(&mut diffs, &local_item.locale, "promotional_text", &local_item.promotional_text, &remote_item.promotional_text);
-                push_option_diff(&mut diffs, &local_item.locale, "support_url", &local_item.support_url, &remote_item.support_url);
-                push_option_diff(&mut diffs, &local_item.locale, "whats_new", &local_item.whats_new, &remote_item.whats_new);
-            }
-            None => diffs.push(json!({"locale": local_item.locale, "field": "localization", "local": "present", "remote": "missing"})),
-        }
-    }
-    Value::Array(diffs)
-}
-
-fn push_option_diff(
-    diffs: &mut Vec<Value>,
-    locale: &str,
-    field: &str,
-    local: &Option<String>,
-    remote: &Option<String>,
-) {
-    if local != remote {
-        diffs.push(json!({"locale": locale, "field": field, "local": local, "remote": remote}));
-    }
-}
-
-fn fetch_play_listings(
-    client: &Client,
-    token: &str,
-    package_name: &str,
-    edit_id: &str,
-    locales: Option<&str>,
-) -> Result<Vec<PlayListing>> {
-    let locale_list = locales.map(parse_locale_list).transpose()?;
-    if let Some(locales) = locale_list {
-        return locales
-            .into_iter()
-            .map(|locale| fetch_play_listing(client, token, package_name, edit_id, &locale))
-            .collect();
-    }
-    let url = format!(
-        "{PLAY_API}/androidpublisher/v3/applications/{package_name}/edits/{edit_id}/listings"
-    );
-    let response = client
-        .get(url)
-        .bearer_auth(token)
-        .send()
-        .context("failed to list Google Play listings")?;
-    let value = json_response(response, "Google Play listings list")?;
-    value
-        .get("listings")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .map(play_listing_from_value)
-        .collect()
-}
-
-fn fetch_play_listing(
-    client: &Client,
-    token: &str,
-    package_name: &str,
-    edit_id: &str,
-    locale: &str,
-) -> Result<PlayListing> {
-    let url = format!(
-        "{PLAY_API}/androidpublisher/v3/applications/{package_name}/edits/{edit_id}/listings/{locale}"
-    );
-    let response = client
-        .get(url)
-        .bearer_auth(token)
-        .send()
-        .with_context(|| format!("failed to get Google Play listing {locale}"))?;
-    play_listing_from_value(&json_response(response, "Google Play listing get")?)
-}
-
-fn play_listing_from_value(value: &Value) -> Result<PlayListing> {
-    let locale = value
-        .get("language")
-        .or_else(|| value.get("locale"))
-        .and_then(Value::as_str)
-        .context("Google Play listing response did not contain language")?
-        .to_string();
-    Ok(PlayListing {
-        locale,
-        title: value
-            .get("title")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string(),
-        short_description: value
-            .get("shortDescription")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string(),
-        full_description: value
-            .get("fullDescription")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string(),
-        video: value
-            .get("video")
-            .and_then(Value::as_str)
-            .map(str::to_string),
-    })
-}
-
-fn resolve_release_locales(
-    root: &ReleaseProviderToml,
-    locales_arg: Option<&str>,
-) -> Result<Vec<String>> {
-    if let Some(locales) = locales_arg {
-        return parse_locale_list(locales);
-    }
-    let active = active_release(root);
-    if let Some(release) = active
-        .as_ref()
-        .filter(|release| !release.locales.is_empty())
-    {
-        return Ok(release.locales.clone());
-    }
-    if let Some(release) = root
-        .release
-        .as_ref()
-        .filter(|release| !release.default_locales.is_empty())
-    {
-        return Ok(release.default_locales.clone());
-    }
-    let listing_locales = root
-        .release
-        .as_ref()
-        .and_then(|release| release.store_listing.get("play_store"))
-        .map(|listings| listings.keys().cloned().collect::<Vec<_>>())
-        .unwrap_or_default();
-    if listing_locales.is_empty() {
-        bail!("no release locales configured; set release.default_locales, [[releases]].locales, or pass --locales")
-    }
-    Ok(listing_locales)
-}
-
-fn resolve_play_listings(
-    project_dir: &Path,
-    root: &ReleaseProviderToml,
-    locales: &[String],
-) -> Result<Vec<PlayListing>> {
-    let metadata = active_release(root)
-        .and_then(|release| release.metadata.as_deref())
-        .map(|metadata| read_release_metadata(project_dir, metadata))
-        .transpose()?
-        .unwrap_or_default();
-    locales
-        .iter()
-        .map(|locale| resolve_play_listing(root, &metadata, locale))
-        .collect()
-}
-
-fn resolve_play_listing(
-    root: &ReleaseProviderToml,
-    metadata: &ReleaseMetadataToml,
-    locale: &str,
-) -> Result<PlayListing> {
-    let listing = root
-        .release
-        .as_ref()
-        .and_then(|release| release.store_listing.get("play_store"))
-        .and_then(|listings| listings.get(locale))
-        .cloned()
-        .unwrap_or_default();
-    let meta = metadata.play_store.get(locale).cloned().unwrap_or_default();
-    let title = listing.title.or(listing.name).with_context(|| {
-        format!("release.store_listing.play_store.{locale}.title or .name is required")
-    })?;
-    let short_description = listing
-        .short_description
-        .or(listing.subtitle)
-        .with_context(|| {
-            format!("release.store_listing.play_store.{locale}.short_description is required")
-        })?;
-    let full_description = meta
-        .full_description
-        .or(meta.description)
-        .with_context(|| {
-            format!("active release metadata [play_store.{locale}].full_description is required")
-        })?;
-    Ok(PlayListing {
-        locale: locale.to_string(),
-        title,
-        short_description,
-        full_description,
-        video: listing.video.or(listing.video_url),
-    })
-}
-
-fn write_imported_play_listings(
-    project_dir: &Path,
-    root: &mut ReleaseProviderToml,
-    listings: &[PlayListing],
-) -> Result<()> {
-    let fission_path = project_dir.join("fission.toml");
-    let data = fs::read_to_string(&fission_path)
-        .with_context(|| format!("failed to read {}", fission_path.display()))?;
-    let mut doc = parse_toml_edit_document(&data, &fission_path)?;
-    for listing in listings {
-        set_toml_edit_path(
-            &mut doc,
-            &format!("release.store_listing.play_store.{}.title", listing.locale),
-            toml_edit::value(listing.title.clone()),
-        )?;
-        set_toml_edit_path(
-            &mut doc,
-            &format!(
-                "release.store_listing.play_store.{}.short_description",
-                listing.locale
-            ),
-            toml_edit::value(listing.short_description.clone()),
-        )?;
-        if let Some(video) = &listing.video {
-            set_toml_edit_path(
-                &mut doc,
-                &format!("release.store_listing.play_store.{}.video", listing.locale),
-                toml_edit::value(video.clone()),
-            )?;
-        }
-    }
-    write_toml_edit_document(&fission_path, &doc)?;
-
-    let metadata_path = active_release(root)
-        .and_then(|release| release.metadata.as_deref())
-        .map(|metadata| project_dir.join(metadata));
-    if let Some(metadata_path) = metadata_path {
-        let mut metadata_doc: toml::Value = if metadata_path.exists() {
-            toml::from_str(&fs::read_to_string(&metadata_path)?)?
-        } else {
-            toml::Value::Table(Default::default())
-        };
-        for listing in listings {
-            set_toml_path(
-                &mut metadata_doc,
-                &format!("play_store.{}.full_description", listing.locale),
-                toml::Value::String(listing.full_description.clone()),
-            )?;
-        }
-        if let Some(parent) = metadata_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::write(
-            &metadata_path,
-            toml::to_string_pretty(&metadata_doc)? + "\n",
-        )
-        .with_context(|| format!("failed to write {}", metadata_path.display()))?;
-    }
-    Ok(())
-}
-
-fn play_listing_diff(local: &[PlayListing], remote: &[PlayListing]) -> Value {
-    let mut remote_by_locale = remote
-        .iter()
-        .map(|listing| (listing.locale.as_str(), listing))
-        .collect::<BTreeMap<_, _>>();
-    let mut diffs = Vec::new();
-    for local_listing in local {
-        let remote_listing = remote_by_locale.remove(local_listing.locale.as_str());
-        match remote_listing {
-            Some(remote_listing) => {
-                push_field_diff(&mut diffs, &local_listing.locale, "title", &local_listing.title, &remote_listing.title);
-                push_field_diff(&mut diffs, &local_listing.locale, "short_description", &local_listing.short_description, &remote_listing.short_description);
-                push_field_diff(&mut diffs, &local_listing.locale, "full_description", &local_listing.full_description, &remote_listing.full_description);
-                if local_listing.video != remote_listing.video {
-                    diffs.push(json!({"locale": local_listing.locale, "field": "video", "local": local_listing.video, "remote": remote_listing.video}));
-                }
-            }
-            None => diffs.push(json!({"locale": local_listing.locale, "field": "listing", "local": "present", "remote": "missing"})),
-        }
-    }
-    for remote_listing in remote_by_locale.values() {
-        diffs.push(json!({"locale": remote_listing.locale, "field": "listing", "local": "missing", "remote": "present"}));
-    }
-    Value::Array(diffs)
-}
-
-fn push_field_diff(diffs: &mut Vec<Value>, locale: &str, field: &str, local: &str, remote: &str) {
-    if local != remote {
-        diffs.push(json!({"locale": locale, "field": field, "local": local, "remote": remote}));
-    }
 }
 
 fn read_release_provider_toml(project_dir: &Path) -> Result<ReleaseProviderToml> {
@@ -1994,6 +968,8 @@ fn validate_play_edit(
     let response = client
         .post(url)
         .bearer_auth(token)
+        .header(CONTENT_LENGTH, "0")
+        .body(Vec::new())
         .send()
         .context("failed to validate Google Play edit")?;
     json_response(response, "Google Play edit validate")?;
@@ -2007,6 +983,8 @@ fn commit_play_edit(client: &Client, token: &str, package_name: &str, edit_id: &
     let response = client
         .post(url)
         .bearer_auth(token)
+        .header(CONTENT_LENGTH, "0")
+        .body(Vec::new())
         .send()
         .context("failed to commit Google Play edit")?;
     json_response(response, "Google Play edit commit")?;
@@ -2056,20 +1034,25 @@ fn app_store_config(project_dir: &Path) -> Result<AppStoreConfig> {
 }
 
 fn app_store_access_token(cfg: &AppStoreConfig) -> Result<String> {
-    if let Some(token) = env_value("APP_STORE_CONNECT_ACCESS_TOKEN") {
+    let access_token_env = app_store_access_token_env(cfg);
+    if let Some(token) = env_value(&access_token_env) {
         return Ok(token);
     }
-    let issuer_id = env_value("APP_STORE_CONNECT_ISSUER_ID")
+    let issuer_id_env = app_store_issuer_id_env(cfg);
+    let key_id_env = app_store_key_id_env(cfg);
+    let api_key_env = app_store_api_key_env(cfg);
+    let api_key_base64_env = app_store_api_key_base64_env(cfg);
+    let api_key_path_env = app_store_api_key_path_env(cfg);
+    let issuer_id = env_value(&issuer_id_env)
         .or(cfg.issuer_id.clone())
-        .context("distribution.app_store.issuer_id or APP_STORE_CONNECT_ISSUER_ID is required")?;
-    let key_id = env_value("APP_STORE_CONNECT_KEY_ID")
+        .with_context(|| {
+            format!("distribution.app_store.issuer_id or {issuer_id_env} is required")
+        })?;
+    let key_id = env_value(&key_id_env)
         .or(cfg.key_id.clone())
-        .context("distribution.app_store.key_id or APP_STORE_CONNECT_KEY_ID is required")?;
-    let key_source = env_value("APP_STORE_CONNECT_API_KEY")
-        .or_else(|| env_value("APP_STORE_CONNECT_API_KEY_PATH"))
-        .or(cfg.api_key_path.clone())
-        .or_else(|| provider_secret(DistributionProvider::AppStore, &[]).ok().flatten())
-        .context("APP_STORE_CONNECT_API_KEY, APP_STORE_CONNECT_API_KEY_PATH, distribution.app_store.api_key_path, or vault credentials are required")?;
+        .with_context(|| format!("distribution.app_store.key_id or {key_id_env} is required"))?;
+    let (key_source, _temp_key) =
+        app_store_api_key_source_with_temp(&api_key_env, &api_key_base64_env, &api_key_path_env)?;
     if looks_like_bearer_token(&key_source) {
         return Ok(key_source);
     }
@@ -2136,6 +1119,15 @@ struct AppStoreTester {
     last_name: Option<String>,
 }
 
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+struct AppStoreBuild {
+    id: String,
+    version: String,
+    processing_state: Option<String>,
+    uploaded_date: Option<String>,
+    expired: Option<bool>,
+}
+
 fn app_store_beta_groups(client: &Client, token: &str, app_id: &str) -> Result<Value> {
     let url = format!(
         "{APP_STORE_API}/v1/apps/{app_id}/betaGroups?limit=200&fields[betaGroups]=name,createdDate,isInternalGroup,hasAccessToAllBuilds,publicLinkEnabled,publicLink,feedbackEnabled"
@@ -2146,6 +1138,110 @@ fn app_store_beta_groups(client: &Client, token: &str, app_id: &str) -> Result<V
         .send()
         .context("failed to list App Store beta groups")?;
     json_response(response, "App Store beta groups list")
+}
+
+fn resolve_app_store_beta_build(
+    client: &Client,
+    token: &str,
+    app_id: &str,
+    build_number: Option<&str>,
+) -> Result<AppStoreBuild> {
+    let response = client
+        .get(app_store_builds_url(app_id, build_number))
+        .bearer_auth(token)
+        .send()
+        .context("failed to list App Store builds")?;
+    let value = json_response(response, "App Store builds list")?;
+    app_store_build_from_response(&value).with_context(|| match build_number {
+        Some(build) => format!("App Store build {build} was not found for app {app_id}"),
+        None => format!("No App Store builds were found for app {app_id}"),
+    })
+}
+
+fn app_store_builds_url(app_id: &str, build_number: Option<&str>) -> String {
+    let mut url = format!(
+        "{APP_STORE_API}/v1/apps/{app_id}/builds?limit=10&sort=-uploadedDate&fields[builds]=version,uploadedDate,processingState,expired,minOsVersion,usesNonExemptEncryption"
+    );
+    if let Some(build_number) = build_number.filter(|value| !value.trim().is_empty()) {
+        url.push_str("&filter[version]=");
+        url.push_str(&encode_query_component(build_number.trim()));
+    }
+    url
+}
+
+fn app_store_build_from_response(value: &Value) -> Option<AppStoreBuild> {
+    let item = value.get("data")?.as_array()?.first()?;
+    let id = item.get("id")?.as_str()?.to_string();
+    let attributes = item.get("attributes").unwrap_or(&Value::Null);
+    let version = attributes.get("version")?.as_str()?.to_string();
+    Some(AppStoreBuild {
+        id,
+        version,
+        processing_state: attributes
+            .get("processingState")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        uploaded_date: attributes
+            .get("uploadedDate")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        expired: attributes.get("expired").and_then(Value::as_bool),
+    })
+}
+
+fn ensure_app_store_build_assignable(build: &AppStoreBuild) -> Result<()> {
+    if build.expired == Some(true) {
+        bail!(
+            "App Store build {} is expired and cannot be assigned to TestFlight groups",
+            build.version
+        );
+    }
+    if let Some(state) = build.processing_state.as_deref() {
+        if !state.eq_ignore_ascii_case("valid") {
+            bail!(
+                "App Store build {} is not ready for TestFlight assignment; processingState={state}",
+                build.version
+            );
+        }
+    }
+    Ok(())
+}
+
+fn app_store_artifact_build_number(path: &Path) -> Result<Option<String>> {
+    let value: Value = serde_json::from_slice(
+        &fs::read(path).with_context(|| format!("failed to read {}", path.display()))?,
+    )
+    .with_context(|| format!("failed to parse artifact manifest {}", path.display()))?;
+    Ok(value
+        .pointer("/project/build")
+        .and_then(|value| {
+            value
+                .as_u64()
+                .map(|value| value.to_string())
+                .or_else(|| value.as_str().map(str::to_string))
+        })
+        .filter(|value| !value.trim().is_empty()))
+}
+
+fn app_store_beta_build_assignment_payload(build_id: &str) -> Value {
+    json!({
+        "data": [{
+            "type": "builds",
+            "id": build_id
+        }]
+    })
+}
+
+fn encode_query_component(value: &str) -> String {
+    value
+        .bytes()
+        .flat_map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                vec![byte as char]
+            }
+            _ => format!("%{byte:02X}").chars().collect(),
+        })
+        .collect()
 }
 
 fn resolve_app_store_beta_group(
@@ -2281,19 +1377,28 @@ fn play_config(project_dir: &Path) -> Result<PlayStoreConfig> {
 }
 
 fn google_play_access_token(cfg: &PlayStoreConfig, client: &Client) -> Result<String> {
-    if let Some(token) = env_value("PLAY_STORE_ACCESS_TOKEN") {
+    let access_token_env = play_access_token_env(cfg);
+    if let Some(token) = env_value(&access_token_env) {
         return Ok(token);
     }
-    let secret_source = env_value("PLAY_STORE_SERVICE_ACCOUNT_JSON")
-        .or_else(|| env_value("GOOGLE_APPLICATION_CREDENTIALS"))
-        .or_else(|| cfg.service_account.clone())
+    let service_account_json_env = play_service_account_json_env(cfg);
+    let service_account_json_base64_env = play_service_account_json_base64_env(cfg);
+    let google_application_credentials_env = play_google_application_credentials_env(cfg);
+    let service_account_base64 = base64_env_secret_file(
+        &service_account_json_base64_env,
+        "play-service-account.json",
+    )?;
+    let secret_source = env_value(&service_account_json_env)
         .or_else(|| {
-            provider_secret(DistributionProvider::PlayStore, &[])
-                .ok()
-                .flatten()
-        });
+            service_account_base64
+                .as_ref()
+                .map(|file| file.path.display().to_string())
+        })
+        .or_else(|| env_value(&google_application_credentials_env));
     let Some(source) = secret_source else {
-        bail!("Google Play credentials are missing; set PLAY_STORE_SERVICE_ACCOUNT_JSON, PLAY_STORE_ACCESS_TOKEN, GOOGLE_APPLICATION_CREDENTIALS, or import play-store credentials")
+        bail!(
+            "Google Play credentials are missing; set {service_account_json_env}, {service_account_json_base64_env}, {access_token_env}, or {google_application_credentials_env}"
+        )
     };
     if looks_like_bearer_token(&source) {
         return Ok(source);
@@ -2365,8 +1470,181 @@ fn looks_like_bearer_token(value: &str) -> bool {
     !trimmed.starts_with('{') && !Path::new(trimmed).exists() && trimmed.matches('.').count() >= 2
 }
 
+fn play_access_token_env(cfg: &PlayStoreConfig) -> String {
+    configured_env_name(cfg.access_token_env.as_deref(), "PLAY_STORE_ACCESS_TOKEN")
+}
+
+fn play_service_account_json_env(cfg: &PlayStoreConfig) -> String {
+    configured_env_name(
+        cfg.service_account_json_env.as_deref(),
+        "PLAY_STORE_SERVICE_ACCOUNT_JSON",
+    )
+}
+
+fn play_service_account_json_base64_env(cfg: &PlayStoreConfig) -> String {
+    configured_env_name(
+        cfg.service_account_json_base64_env.as_deref(),
+        "PLAY_STORE_SERVICE_ACCOUNT_JSON_BASE64",
+    )
+}
+
+fn play_google_application_credentials_env(cfg: &PlayStoreConfig) -> String {
+    configured_env_name(
+        cfg.google_application_credentials_env.as_deref(),
+        "GOOGLE_APPLICATION_CREDENTIALS",
+    )
+}
+
+fn app_store_access_token_env(cfg: &AppStoreConfig) -> String {
+    configured_env_name(
+        cfg.access_token_env.as_deref(),
+        "APP_STORE_CONNECT_ACCESS_TOKEN",
+    )
+}
+
+fn app_store_issuer_id_env(cfg: &AppStoreConfig) -> String {
+    configured_env_name(cfg.issuer_id_env.as_deref(), "APP_STORE_CONNECT_ISSUER_ID")
+}
+
+fn app_store_key_id_env(cfg: &AppStoreConfig) -> String {
+    configured_env_name(cfg.key_id_env.as_deref(), "APP_STORE_CONNECT_KEY_ID")
+}
+
+fn app_store_api_key_env(cfg: &AppStoreConfig) -> String {
+    configured_env_name(cfg.api_key_env.as_deref(), "APP_STORE_CONNECT_API_KEY")
+}
+
+fn app_store_api_key_base64_env(cfg: &AppStoreConfig) -> String {
+    configured_env_name(
+        cfg.api_key_base64_env.as_deref(),
+        "APP_STORE_CONNECT_API_KEY_BASE64",
+    )
+}
+
+fn app_store_api_key_path_env(cfg: &AppStoreConfig) -> String {
+    configured_env_name(
+        cfg.api_key_path_env.as_deref(),
+        "APP_STORE_CONNECT_API_KEY_PATH",
+    )
+}
+
+fn configured_env_name(configured: Option<&str>, default: &str) -> String {
+    configured
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(default)
+        .to_string()
+}
+
 fn env_value(name: &str) -> Option<String> {
     env::var(name).ok().filter(|value| !value.trim().is_empty())
+}
+
+struct TemporarySecretFile {
+    path: PathBuf,
+    temp_dir: PathBuf,
+}
+
+impl Drop for TemporarySecretFile {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.temp_dir);
+    }
+}
+
+fn app_store_api_key_source_with_temp(
+    api_key_env: &str,
+    api_key_base64_env: &str,
+    api_key_path_env: &str,
+) -> Result<(String, Option<TemporarySecretFile>)> {
+    if let Some(value) = env_value(api_key_env) {
+        return Ok((value, None));
+    }
+    if let Some(file) = base64_env_secret_file(api_key_base64_env, "AuthKey.p8")? {
+        return Ok((file.path.display().to_string(), Some(file)));
+    }
+    if let Some(path) = env_value(api_key_path_env) {
+        return Ok((path, None));
+    }
+    bail!("{api_key_env}, {api_key_base64_env}, or {api_key_path_env} is required")
+}
+
+fn base64_env_secret_file(name: &str, file_name: &str) -> Result<Option<TemporarySecretFile>> {
+    let Some(value) = env_value(name) else {
+        return Ok(None);
+    };
+    let bytes = BASE64_STANDARD
+        .decode(value.trim())
+        .with_context(|| format!("failed to decode base64 environment variable {name}"))?;
+    temporary_secret_file(name, file_name, &bytes).map(Some)
+}
+
+fn temporary_secret_file(
+    kind: &str,
+    file_name: &str,
+    contents: &[u8],
+) -> Result<TemporarySecretFile> {
+    let temp_dir = env::temp_dir().join(format!(
+        "fission-secret-{}-{}-{}",
+        sanitize_temp_component(kind),
+        std::process::id(),
+        temp_nanos()
+    ));
+    fs::create_dir_all(&temp_dir).with_context(|| {
+        format!(
+            "failed to create temporary secret directory {}",
+            temp_dir.display()
+        )
+    })?;
+    set_private_dir_permissions(&temp_dir)?;
+    let path = temp_dir.join(sanitize_temp_component(file_name));
+    fs::write(&path, contents)
+        .with_context(|| format!("failed to write temporary secret file {}", path.display()))?;
+    set_private_file_permissions(&path)?;
+    Ok(TemporarySecretFile { path, temp_dir })
+}
+
+fn temp_nanos() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default()
+}
+
+fn sanitize_temp_component(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_') {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect()
+}
+
+#[cfg(unix)]
+fn set_private_dir_permissions(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn set_private_dir_permissions(_path: &Path) -> Result<()> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn set_private_file_permissions(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn set_private_file_permissions(_path: &Path) -> Result<()> {
+    Ok(())
 }
 
 #[cfg(test)]
@@ -2403,6 +1681,37 @@ mod tests {
                 "other@example.com".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn base64_env_secret_file_writes_private_temp_and_cleans_up() {
+        let env_name = format!("FISSION_RELEASE_TEST_SECRET_B64_{}", std::process::id());
+        env::set_var(&env_name, BASE64_STANDARD.encode("secret payload"));
+        let path;
+        let temp_dir;
+        {
+            let secret = base64_env_secret_file(&env_name, "secret.json")
+                .unwrap()
+                .unwrap();
+            path = secret.path.clone();
+            temp_dir = path.parent().unwrap().to_path_buf();
+            assert_eq!(fs::read_to_string(&path).unwrap(), "secret payload");
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                assert_eq!(
+                    fs::metadata(&temp_dir).unwrap().permissions().mode() & 0o777,
+                    0o700
+                );
+                assert_eq!(
+                    fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                    0o600
+                );
+            }
+        }
+        assert!(!path.exists());
+        assert!(!temp_dir.exists());
+        env::remove_var(env_name);
     }
 
     #[test]
@@ -2457,7 +1766,10 @@ groups = ["qa@example.com"]
 
     #[test]
     fn app_store_review_response_payload_targets_review() {
-        let payload = app_store_review_response_payload("review-123", "Thanks for the report.");
+        let payload = review_beta_ops::app_store_review_response_payload(
+            "review-123",
+            "Thanks for the report.",
+        );
         assert_eq!(
             payload.pointer("/data/type").and_then(Value::as_str),
             Some("customerReviewResponses")
@@ -2474,6 +1786,27 @@ groups = ["qa@example.com"]
                 .and_then(Value::as_str),
             Some("review-123")
         );
+    }
+
+    #[test]
+    fn reviews_reply_requires_yes_before_provider_mutation() {
+        let dir = std::env::temp_dir().join(format!("fission-review-reply-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let message = dir.join("reply.txt");
+        fs::write(&message, "Thanks for the report.").unwrap();
+
+        let err = reviews_reply(
+            DistributionProvider::AppStore,
+            "review-123",
+            &message,
+            &dir,
+            false,
+            false,
+            false,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("pass --yes"));
     }
 
     #[test]
@@ -2500,6 +1833,59 @@ groups = ["qa@example.com"]
                 .and_then(Value::as_str),
             Some("group-123")
         );
+    }
+
+    #[test]
+    fn app_store_beta_build_assignment_payload_targets_build() {
+        let payload = app_store_beta_build_assignment_payload("build-123");
+        assert_eq!(
+            payload.pointer("/data/0/type").and_then(Value::as_str),
+            Some("builds")
+        );
+        assert_eq!(
+            payload.pointer("/data/0/id").and_then(Value::as_str),
+            Some("build-123")
+        );
+    }
+
+    #[test]
+    fn app_store_build_lookup_filters_artifact_build() {
+        let url = app_store_builds_url("app-123", Some("42"));
+        assert!(url.contains("/v1/apps/app-123/builds?"));
+        assert!(url.contains("filter[version]=42"));
+        assert!(url.contains("sort=-uploadedDate"));
+    }
+
+    #[test]
+    fn app_store_build_from_response_reports_processing_state() {
+        let value = json!({
+            "data": [{
+                "id": "build-123",
+                "attributes": {
+                    "version": "42",
+                    "processingState": "VALID",
+                    "uploadedDate": "2026-07-10T10:00:00Z",
+                    "expired": false
+                }
+            }]
+        });
+        let build = app_store_build_from_response(&value).unwrap();
+        assert_eq!(build.id, "build-123");
+        assert_eq!(build.version, "42");
+        assert_eq!(build.processing_state.as_deref(), Some("VALID"));
+        ensure_app_store_build_assignable(&build).unwrap();
+    }
+
+    #[test]
+    fn app_store_processing_build_is_not_assignable() {
+        let build = AppStoreBuild {
+            id: "build-123".to_string(),
+            version: "42".to_string(),
+            processing_state: Some("PROCESSING".to_string()),
+            uploaded_date: None,
+            expired: None,
+        };
+        assert!(ensure_app_store_build_assignable(&build).is_err());
     }
 
     #[test]
@@ -2531,5 +1917,102 @@ groups = ["qa@example.com"]
                 .and_then(Value::as_str),
             Some("version-123")
         );
+    }
+
+    #[test]
+    fn release_config_lock_round_trips_provider_revision() {
+        let dir = std::env::temp_dir().join(format!(
+            "fission-release-config-lock-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("fission.toml"), "[app]\nname = \"Demo\"\n").unwrap();
+
+        let state = remote_state(
+            DistributionProvider::PlayStore,
+            "com.example.demo".to_string(),
+            vec!["en-US".to_string()],
+            json!({"listing": {"title": "Demo"}}),
+        )
+        .unwrap();
+        write_release_config_lock(&dir, DistributionProvider::PlayStore, &state).unwrap();
+
+        let lock = read_release_config_lock(&dir, DistributionProvider::PlayStore)
+            .unwrap()
+            .unwrap();
+        ensure_release_config_lock_matches(DistributionProvider::PlayStore, &lock, &state).unwrap();
+
+        let text = fs::read_to_string(dir.join("fission.toml")).unwrap();
+        assert!(text.contains("[release.provider_locks.play_store]"));
+        assert!(text.contains("remote_revision = \"sha256:"));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn release_config_lock_rejects_changed_remote_revision() {
+        let old_state = remote_state(
+            DistributionProvider::AppStore,
+            "app:version".to_string(),
+            vec!["en-US".to_string()],
+            json!({"description": "old"}),
+        )
+        .unwrap();
+        let new_state = remote_state(
+            DistributionProvider::AppStore,
+            "app:version".to_string(),
+            vec!["en-US".to_string()],
+            json!({"description": "new"}),
+        )
+        .unwrap();
+        let lock = ReleaseConfigLock {
+            provider: Some(DistributionProvider::AppStore.as_str().to_string()),
+            subject: Some(old_state.subject),
+            remote_revision: Some(old_state.remote_revision),
+            locales: old_state.locales,
+            locked_at_unix_seconds: Some(1),
+        };
+
+        let err =
+            ensure_release_config_lock_matches(DistributionProvider::AppStore, &lock, &new_state)
+                .unwrap_err()
+                .to_string();
+        assert!(err.contains("metadata changed since the last import/lock"));
+    }
+
+    #[test]
+    fn release_content_manifest_freshness_rejects_changed_referenced_files() {
+        let dir = std::env::temp_dir().join(format!(
+            "fission-release-content-fresh-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        let notes_dir = dir.join("release-content/metadata/1.0.0+1/notes");
+        fs::create_dir_all(&notes_dir).unwrap();
+        let notes = notes_dir.join("en-US.md");
+        fs::write(&notes, "Initial notes").unwrap();
+        let relative = "release-content/metadata/1.0.0+1/notes/en-US.md";
+        fs::write(
+            dir.join("release-content/content-manifest.json"),
+            serde_json::to_vec_pretty(&json!({
+                "schema_version": 1,
+                "referenced_files": [{
+                    "path": relative,
+                    "sha256": sha256_file(&notes).unwrap(),
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        ensure_release_config_content_manifest_fresh(&dir).unwrap();
+        fs::write(&notes, "Changed notes").unwrap();
+        let err = ensure_release_config_content_manifest_fresh(&dir)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("changed since release-content/content-manifest.json"));
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

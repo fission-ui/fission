@@ -39,7 +39,7 @@ That is why Fission can aim for one app model across macOS, Windows, Linux, Web,
 
 A host project is the platform-specific folder that knows how to launch your shared app on one target.
 
-When you add scaffolded targets with the command-line interface, Fission generates folders such as `platforms/web/`, `platforms/android/`, `platforms/ios/`, `platforms/site/`, or `platforms/server/`. Those folders contain the files and scripts that belong to that host. Terminal apps use the terminal shell and package path rather than a mobile-style generated host folder.
+When you add scaffolded targets with the command-line interface, Fission generates folders such as `platforms/web/`, `platforms/android/`, `platforms/ios/`, `platforms/static-site/`, or `platforms/ssr/`. Those folders contain the files and scripts that belong to that host. Terminal apps use the terminal shell and package path rather than a mobile-style generated host folder.
 
 A host script is just a helper that runs the repeated platform commands for you. On web, that means building and serving the WebAssembly output. WebAssembly is the compiled format that lets your Rust app run in the browser. On Android and iOS, that means packaging and launching through the documented emulator or simulator path instead of making you remember every step manually.
 

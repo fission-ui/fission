@@ -119,6 +119,121 @@ fn test_explicit_focus_order() {
 }
 
 #[test]
+fn arrow_keys_enter_and_traverse_focus_order_without_prior_focus() {
+    let env = Env::default();
+    let runtime_state = RuntimeState::default();
+
+    #[derive(Debug)]
+    struct FocusButtonInternalLowerer {
+        index: i32,
+    }
+
+    impl fission_core::internal::InternalLowerer for FocusButtonInternalLowerer {
+        fn lower_dyn(
+            &self,
+            cx: &mut fission_core::internal::InternalLoweringCx,
+        ) -> fission_ir::WidgetId {
+            let id = cx.next_node_id();
+            let semantics = Semantics {
+                role: Role::Button,
+                focusable: true,
+                focus_index: Some(self.index),
+                ..Default::default()
+            };
+            fission_core::internal::InternalIrBuilder::new(id, Op::Semantics(semantics)).build(cx)
+        }
+
+        fn stable_key(&self) -> u64 {
+            self.index as u64
+        }
+    }
+
+    fn button_with_focus(index: i32) -> Widget {
+        fission_core::internal::custom_render_widget(fission_core::internal::InternalRenderNode {
+            debug_tag: format!("Button({index})"),
+            lowerer: Some(std::sync::Arc::new(FocusButtonInternalLowerer { index })),
+            render_object: None,
+        })
+    }
+
+    let root = crate::ui::widgets::column::Column {
+        children: vec![
+            button_with_focus(1),
+            button_with_focus(2),
+            button_with_focus(3),
+        ],
+        ..Default::default()
+    };
+    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
+    let root_id = root.lower(&mut cx);
+    cx.ir.root = Some(root_id);
+    let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 50.0));
+    let focus_nodes = crate::hit_test::get_all_focusable_nodes(&cx.ir);
+
+    let mut runtime = Runtime::default();
+    runtime
+        .handle_input(
+            InputEvent::Keyboard(KeyEvent::Down {
+                key_code: KeyCode::Down,
+                modifiers: 0,
+            }),
+            &cx.ir,
+            &layout,
+        )
+        .unwrap();
+    assert_eq!(
+        runtime.runtime_state.interaction.focused,
+        focus_nodes.first().copied()
+    );
+
+    runtime
+        .handle_input(
+            InputEvent::Keyboard(KeyEvent::Down {
+                key_code: KeyCode::Right,
+                modifiers: 0,
+            }),
+            &cx.ir,
+            &layout,
+        )
+        .unwrap();
+    assert_eq!(
+        runtime.runtime_state.interaction.focused,
+        focus_nodes.get(1).copied()
+    );
+
+    let mut runtime = Runtime::default();
+    runtime
+        .handle_input(
+            InputEvent::Keyboard(KeyEvent::Down {
+                key_code: KeyCode::Up,
+                modifiers: 0,
+            }),
+            &cx.ir,
+            &layout,
+        )
+        .unwrap();
+    assert_eq!(
+        runtime.runtime_state.interaction.focused,
+        focus_nodes.last().copied()
+    );
+
+    runtime
+        .handle_input(
+            InputEvent::Keyboard(KeyEvent::Down {
+                key_code: KeyCode::Left,
+                modifiers: 0,
+            }),
+            &cx.ir,
+            &layout,
+        )
+        .unwrap();
+    assert_eq!(
+        runtime.runtime_state.interaction.focused,
+        focus_nodes.get(1).copied()
+    );
+}
+
+#[test]
 fn test_autofocus_assigns_initial_focus() {
     let env = Env::default();
     let runtime_state = RuntimeState::default();

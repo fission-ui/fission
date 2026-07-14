@@ -11,7 +11,7 @@ Static hosting publishes generated site files. It is the right path for document
 
 ```bash
 fission site check --project-dir documentation --release
-fission package --project-dir documentation --target site --format static --release
+fission package --project-dir documentation --target static-site --format static --release
 ```
 
 Use the static artifact manifest for publishing. It records files, hashes, MIME types, route metadata, and validation results.
@@ -22,7 +22,7 @@ Use the static artifact manifest for publishing. It records files, hashes, MIME 
 fission publish \
   --project-dir documentation \
   --provider github-pages \
-  --artifact target/fission/release/site/static/artifact-manifest.json \
+  --artifact target/fission/release/static-site/static/artifact-manifest.json \
   --site production
 ```
 

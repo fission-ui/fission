@@ -1,4 +1,4 @@
-targets = ["site"]
+targets = ["static-site"]
 
 [app]
 name = "fission-documentation"

@@ -65,6 +65,7 @@ where
     state_update: Option<Box<dyn FnMut(&mut S, &mut RuntimeState, &Env) -> bool>>,
     exit_request: Option<Box<dyn FnMut(&mut S, &mut RuntimeState, &Env) -> bool>>,
     should_exit: Option<Box<dyn Fn(&S, &RuntimeState, &Env) -> bool>>,
+    key_handler: Option<Box<dyn FnMut(&mut S, &KeyCode, u8) -> bool>>,
     measurer: Arc<dyn TextMeasurer>,
     last_ir: Option<CoreIR>,
     last_snapshot: Option<LayoutSnapshot>,
@@ -103,6 +104,7 @@ where
             state_update: None,
             exit_request: None,
             should_exit: None,
+            key_handler: None,
             measurer,
             last_ir: None,
             last_snapshot: None,
@@ -164,6 +166,14 @@ where
         self
     }
 
+    pub fn with_key_handler<F>(mut self, handler: F) -> Self
+    where
+        F: FnMut(&mut S, &KeyCode, u8) -> bool + 'static,
+    {
+        self.key_handler = Some(Box::new(handler));
+        self
+    }
+
     pub fn render_frame(&mut self, width: u16, height: u16) -> Result<TerminalFrame> {
         let width = width.max(1);
         let height = height.max(1);
@@ -221,6 +231,24 @@ where
         self.runtime.handle_input(event, ir, snapshot)
     }
 
+    fn handle_key_handler(&mut self, event: &InputEvent) -> Result<bool> {
+        let Some(handler) = &mut self.key_handler else {
+            return Ok(false);
+        };
+        let InputEvent::Keyboard(KeyEvent::Down {
+            key_code,
+            modifiers,
+        }) = event
+        else {
+            return Ok(false);
+        };
+        let state = self
+            .runtime
+            .get_global_state_mut::<S>()
+            .context("terminal app state is missing")?;
+        Ok(handler(state, key_code, *modifiers))
+    }
+
     pub fn run(self) -> Result<()> {
         self.run_with_options(TerminalRunOptions::default())
     }
@@ -266,7 +294,10 @@ where
                 }
                 Event::Key(key) => {
                     if let Some(input) = map_key_event(key.code, key.kind, key.modifiers) {
-                        self.send_event(input)?;
+                        let consumed = self.handle_key_handler(&input)?;
+                        if !consumed {
+                            self.send_event(input)?;
+                        }
                         dirty = true;
                     }
                 }

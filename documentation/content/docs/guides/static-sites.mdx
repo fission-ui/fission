@@ -8,11 +8,11 @@ description: Build documentation, marketing, and content sites with the Fission 
 
 Fission can build a static website from the same widget model used for applications. The static site target is for documentation, marketing pages, reference pages, blogs, and other mostly-read experiences where the final output should be ordinary HTML, CSS, and small progressive-enhancement JavaScript.
 
-This documentation site is the real-world example. The project under `documentation/` is a Fission app with the `site` target enabled. Its home page is a custom Fission widget tree, its docs and reference pages come from Markdown content, its footer is another Fission widget, and the build emits static HTML suitable for GitHub Pages. That means the site you are reading is not a separate documentation framework bolted on beside Fission; it is built by Fission's own static site shell.
+This documentation site is the real-world example. The project under `documentation/` is a Fission app with the `static-site` target enabled. Its home page is a custom Fission widget tree, its docs and reference pages come from Markdown content, its footer is another Fission widget, and the build emits static HTML suitable for GitHub Pages. That means the site you are reading is not a separate documentation framework bolted on beside Fission; it is built by Fission's own static site shell.
 
-## When to use the site target
+## When to use the static-site target
 
-Use the site target when a route can be decided at conversion time and the user should receive a fast, crawlable document. Good fits include product landing pages, documentation, API reference pages, blog posts, changelogs, legal pages, and chart galleries that can show static screenshots with links into richer examples.
+Use the static-site target when a route can be decided at conversion time and the user should receive a fast, crawlable document. Good fits include product landing pages, documentation, API reference pages, blog posts, changelogs, legal pages, and chart galleries that can show static screenshots with links into richer examples.
 
 Do not use the site target as a replacement for the normal web app target. If a page needs continuous runtime state, canvas rendering, device APIs, live collaboration, background workers, or heavy in-page interaction, use the web target for that app. A static site can still contain light progressive enhancement such as search, theme switching, collapsible sidebars, and code highlighting, but the base page should remain useful as static HTML.
 
@@ -49,10 +49,10 @@ That combination is the intended baseline for real sites. A small project can us
 
 ## Project shape
 
-A site project is just a Fission project with the `site` target enabled.
+A site project is just a Fission project with the `static-site` target enabled.
 
 ```toml
-targets = ["site"]
+targets = ["static-site"]
 
 [app]
 name = "my-docs"
@@ -221,7 +221,7 @@ Use front matter to describe each post:
 
 ```mdx
 ---
-title: Fission 0.7.0
+title: Fission 0.7.1
 description: A release note for the authoring API update.
 authors:
   - fission
@@ -232,7 +232,7 @@ tags:
   - authoring
 ---
 
-# Fission 0.7.0
+# Fission 0.7.1
 
 Write the post body here.
 ```

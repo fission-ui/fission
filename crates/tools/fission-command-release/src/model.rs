@@ -40,7 +40,7 @@ struct ReleaseEntry {
     privacy: Option<String>,
 }
 
-pub(super) fn validate_release_config_model(
+pub(crate) fn validate_release_config_model(
     project_dir: &Path,
     provider: Option<DistributionProvider>,
 ) -> Result<LifecycleReport> {
@@ -75,6 +75,7 @@ pub(super) fn validate_release_config_model(
         }
     };
     let manifest: ReleaseToml = toml::from_str(&data).context("failed to parse release schema")?;
+    validate_no_secret_fields(&value, &mut report.checks);
 
     report.checks.push(value_path_check(
         &value,
@@ -82,6 +83,7 @@ pub(super) fn validate_release_config_model(
         "release_config.app_table",
         "[app] table exists",
     ));
+    validate_app_metadata(&value, &mut report.checks);
     report.checks.push(value_path_check(
         &value,
         "release",
@@ -161,6 +163,59 @@ pub(super) fn validate_release_config_model(
 
     finalize_status(&mut report);
     Ok(report)
+}
+
+fn validate_app_metadata(value: &toml::Value, checks: &mut Vec<LifecycleCheck>) {
+    let app = value.get("app");
+    checks.push(required_scalar_check(
+        "release_config.app.name",
+        toml_child_str(app, "name"),
+        "[app].name is set",
+    ));
+    checks.push(required_scalar_check(
+        "release_config.app.id",
+        toml_child_str(app, "app_id").or_else(|| toml_child_str(app, "id")),
+        "[app].id or [app].app_id is set",
+    ));
+    if let (Some(app_id), Some(id)) = (toml_child_str(app, "app_id"), toml_child_str(app, "id")) {
+        checks.push(LifecycleCheck {
+            id: "release_config.app.id_alias_consistent".to_string(),
+            status: if app_id == id { "passed" } else { "failed" }.to_string(),
+            summary: "[app].id and [app].app_id are consistent".to_string(),
+            details: Some(format!("app_id = {app_id}, id = {id}")),
+            remediation: vec![
+                "Keep only one app identifier field, or make [app].id and [app].app_id identical."
+                    .to_string(),
+            ],
+        });
+    }
+    for (field, summary) in [
+        ("publisher", "[app].publisher identifies the publisher"),
+        ("homepage", "[app].homepage points to the product website"),
+        ("support_url", "[app].support_url points to support"),
+        (
+            "privacy_url",
+            "[app].privacy_url points to the privacy policy",
+        ),
+        ("license", "[app].license identifies the app license"),
+    ] {
+        checks.push(recommended_scalar_check(
+            &format!("release_config.app.{field}"),
+            toml_child_str(app, field),
+            summary,
+            &format!(
+                "Set [app].{field} in fission.toml unless the selected provider/track does not need it."
+            ),
+        ));
+    }
+}
+
+fn toml_child_str<'a>(value: Option<&'a toml::Value>, key: &str) -> Option<&'a str> {
+    value
+        .and_then(|value| value.get(key))
+        .and_then(toml::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
 }
 
 fn validate_release_entry(
@@ -353,19 +408,101 @@ fn validate_listing_value(
     checks: &mut Vec<LifecycleCheck>,
 ) {
     let table = value.as_table();
-    for field in [
-        "title",
-        "name",
-        "short_description",
-        "privacy_url",
-        "support_url",
-    ] {
-        if table.and_then(|table| table.get(field)).is_some() {
-            checks.push(ok_check(
-                &format!("release_config.{provider_key}.{locale}.{field}"),
-                format!("{field} configured"),
-            ));
-        }
+    for (id, fields, summary) in listing_field_groups(provider_key) {
+        let present = table
+            .map(|table| {
+                fields.iter().any(|field| {
+                    table
+                        .get(*field)
+                        .and_then(toml::Value::as_str)
+                        .is_some_and(|value| !value.trim().is_empty())
+                })
+            })
+            .unwrap_or(false);
+        checks.push(LifecycleCheck {
+            id: format!("release_config.{provider_key}.{locale}.{id}"),
+            status: if present { "passed" } else { "warning" }.to_string(),
+            summary: summary.to_string(),
+            details: Some(fields.join(" or ")),
+            remediation: vec![format!(
+                "Add {} to [release.store_listing.{provider_key}.{locale}] unless the provider/track does not need it.",
+                fields.join(" or ")
+            )],
+        });
+    }
+}
+
+fn listing_field_groups(
+    provider_key: &str,
+) -> Vec<(&'static str, Vec<&'static str>, &'static str)> {
+    match provider_key {
+        "play_store" => vec![
+            (
+                "title",
+                vec!["title", "name"],
+                "Play Store listing has an app title",
+            ),
+            (
+                "short_description",
+                vec!["short_description"],
+                "Play Store listing has a short description",
+            ),
+            (
+                "privacy_url",
+                vec!["privacy_url"],
+                "Play Store listing has a privacy policy URL",
+            ),
+            (
+                "support_url",
+                vec!["support_url"],
+                "Play Store listing has a support URL",
+            ),
+        ],
+        "app_store" => vec![
+            (
+                "name",
+                vec!["name", "title"],
+                "App Store listing has an app name",
+            ),
+            (
+                "subtitle",
+                vec!["subtitle", "short_description"],
+                "App Store listing has a subtitle",
+            ),
+            (
+                "privacy_url",
+                vec!["privacy_url"],
+                "App Store listing has a privacy policy URL",
+            ),
+            (
+                "support_url",
+                vec!["support_url"],
+                "App Store listing has a support URL",
+            ),
+        ],
+        "microsoft_store" => vec![
+            (
+                "title",
+                vec!["title", "name"],
+                "Microsoft Store listing has an app title",
+            ),
+            (
+                "short_description",
+                vec!["short_description"],
+                "Microsoft Store listing has a short description",
+            ),
+            (
+                "privacy_url",
+                vec!["privacy_url"],
+                "Microsoft Store listing has a privacy policy URL",
+            ),
+            (
+                "support_url",
+                vec!["support_url"],
+                "Microsoft Store listing has a support URL",
+            ),
+        ],
+        _ => Vec::new(),
     }
 }
 
@@ -392,6 +529,117 @@ fn validate_tracks_match_provider(
             "Add a track entry such as {prefix}:internal/testflight/public."
         )],
     });
+}
+
+fn validate_no_secret_fields(value: &toml::Value, checks: &mut Vec<LifecycleCheck>) {
+    scan_secret_fields(value, "fission.toml", checks);
+}
+
+fn scan_secret_fields(value: &toml::Value, path: &str, checks: &mut Vec<LifecycleCheck>) {
+    match value {
+        toml::Value::Table(table) => {
+            for (key, value) in table {
+                let child_path = format!("{path}.{key}");
+                if secret_field_key_is_forbidden(key) || secret_path_value_is_forbidden(key, value)
+                {
+                    checks.push(LifecycleCheck {
+                        id: format!("release_config.secret_field.{}", check_id_fragment(&child_path)),
+                        status: "failed".to_string(),
+                        summary: "fission.toml does not contain secret material or secret file paths"
+                            .to_string(),
+                        details: Some(child_path.clone()),
+                        remediation: vec![
+                            "Remove secret material and secret file paths from fission.toml. Store only non-secret config and env var names; provide secrets through environment variables, base64 CI secrets, provider CLI auth, or platform key stores.".to_string(),
+                        ],
+                    });
+                }
+                scan_secret_fields(value, &child_path, checks);
+            }
+        }
+        toml::Value::Array(items) => {
+            for (index, value) in items.iter().enumerate() {
+                scan_secret_fields(value, &format!("{path}[{index}]"), checks);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn secret_field_key_is_forbidden(key: &str) -> bool {
+    let key = key.to_ascii_lowercase();
+    if key.ends_with("_env")
+        || key.ends_with("_env_var")
+        || key.ends_with("_env_vars")
+        || key == "keystore_alias"
+        || key == "key_id"
+        || key == "client_id"
+        || key == "issuer_id"
+        || key == "tenant_id"
+        || key == "certificate_thumbprint"
+    {
+        return false;
+    }
+    [
+        "password",
+        "secret",
+        "token",
+        "private_key",
+        "service_account_json",
+        "keystore",
+        "key_path",
+        "p8",
+        "certificate_path",
+        "pfx_path",
+    ]
+    .iter()
+    .any(|needle| key.contains(needle))
+}
+
+pub(crate) fn release_config_field_is_forbidden_secret(field: &str, value: &str) -> bool {
+    let key = field.rsplit('.').next().unwrap_or(field);
+    secret_field_key_is_forbidden(key)
+        || secret_path_value_is_forbidden(key, &toml::Value::String(value.to_string()))
+}
+
+fn secret_path_value_is_forbidden(key: &str, value: &toml::Value) -> bool {
+    let Some(value) = value.as_str() else {
+        return false;
+    };
+    let key = key.to_ascii_lowercase();
+    let looks_like_secret = key.contains("credential")
+        || key.contains("certificate")
+        || key.contains("keystore")
+        || key.contains("private")
+        || key.contains("service_account")
+        || key.contains("api_key")
+        || key.contains("key_path")
+        || key.contains("secret")
+        || key.contains("token")
+        || key.contains("password")
+        || key.contains("p8")
+        || key.contains("pfx");
+    let contains_material = value.contains("BEGIN PRIVATE KEY")
+        || value.contains("BEGIN CERTIFICATE")
+        || value.trim_start().starts_with('{') && value.contains("private_key");
+    let is_env_reference =
+        key.ends_with("_env") || key.ends_with("_env_var") || key.ends_with("_env_vars");
+    let env_reference_is_path = is_env_reference
+        && (Path::new(value).is_absolute() || value.contains('/') || value.contains('\\'));
+    env_reference_is_path
+        || (looks_like_secret && Path::new(value).is_absolute())
+        || contains_material
+}
+
+fn check_id_fragment(path: &str) -> String {
+    path.chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 fn validate_no_placeholder_text(id: &str, path: &Path, checks: &mut Vec<LifecycleCheck>) {
@@ -438,6 +686,26 @@ fn required_scalar_check(id: &str, value: Option<&str>, summary: &str) -> Lifecy
         summary: summary.to_string(),
         details: value.map(str::to_string),
         remediation: vec!["Set the missing scalar field in fission.toml.".to_string()],
+    }
+}
+
+fn recommended_scalar_check(
+    id: &str,
+    value: Option<&str>,
+    summary: &str,
+    remediation: &str,
+) -> LifecycleCheck {
+    LifecycleCheck {
+        id: id.to_string(),
+        status: if value.is_some_and(|value| !value.trim().is_empty()) {
+            "passed"
+        } else {
+            "warning"
+        }
+        .to_string(),
+        summary: summary.to_string(),
+        details: value.map(str::to_string),
+        remediation: vec![remediation.to_string()],
     }
 }
 
@@ -503,6 +771,11 @@ mod tests {
             r#"[app]
 name = "release-demo"
 app_id = "com.example.release_demo"
+publisher = "Example Software Ltd"
+homepage = "https://example.com/release-demo"
+support_url = "https://example.com/support"
+privacy_url = "https://example.com/privacy"
+license = "MIT"
 
 [release]
 active_release = "1.0.0+1"
@@ -541,6 +814,63 @@ privacy_url = "https://example.com/privacy"
     }
 
     #[test]
+    fn release_config_validation_warns_for_incomplete_store_listing() {
+        let dir = unique_dir("listing-guidance");
+        write_release_project(&dir, "A precise release note.\n");
+        let report =
+            validate_release_config_model(&dir, Some(DistributionProvider::PlayStore)).unwrap();
+
+        assert!(report.checks.iter().any(|check| {
+            check.id == "release_config.play_store.en-US.support_url" && check.status == "warning"
+        }));
+        assert!(report.checks.iter().any(|check| {
+            check.id == "release_config.play_store.en-US.title" && check.status == "passed"
+        }));
+    }
+
+    #[test]
+    fn release_config_validation_warns_for_missing_recommended_app_metadata() {
+        let dir = unique_dir("app-metadata-guidance");
+        write_release_project(&dir, "A precise release note.\n");
+        let text = fs::read_to_string(dir.join("fission.toml"))
+            .unwrap()
+            .replace("homepage = \"https://example.com/release-demo\"\n", "");
+        fs::write(dir.join("fission.toml"), text).unwrap();
+
+        let report =
+            validate_release_config_model(&dir, Some(DistributionProvider::PlayStore)).unwrap();
+
+        assert!(report.checks.iter().any(|check| {
+            check.id == "release_config.app.homepage" && check.status == "warning"
+        }));
+        assert!(report
+            .checks
+            .iter()
+            .any(|check| { check.id == "release_config.app.id" && check.status == "passed" }));
+    }
+
+    #[test]
+    fn release_config_validation_rejects_conflicting_app_id_aliases() {
+        let dir = unique_dir("app-id-conflict");
+        write_release_project(&dir, "A precise release note.\n");
+        let text = fs::read_to_string(dir.join("fission.toml"))
+            .unwrap()
+            .replace(
+                "app_id = \"com.example.release_demo\"\n",
+                "app_id = \"com.example.release_demo\"\nid = \"com.example.other\"\n",
+            );
+        fs::write(dir.join("fission.toml"), text).unwrap();
+
+        let report =
+            validate_release_config_model(&dir, Some(DistributionProvider::PlayStore)).unwrap();
+
+        assert_eq!(report.status, "blocked");
+        assert!(report.checks.iter().any(|check| {
+            check.id == "release_config.app.id_alias_consistent" && check.status == "failed"
+        }));
+    }
+
+    #[test]
     fn release_config_validation_rejects_placeholder_release_notes() {
         let dir = unique_dir("placeholder");
         write_release_project(&dir, "TODO fill this in.\n");
@@ -551,5 +881,87 @@ privacy_url = "https://example.com/privacy"
             .checks
             .iter()
             .any(|check| check.id.ends_with("notes.en-US.content") && check.status == "failed"));
+    }
+
+    #[test]
+    fn release_config_validation_rejects_secret_fields() {
+        let dir = unique_dir("secret-fields");
+        write_release_project(&dir, "A precise release note.\n");
+        let mut text = fs::read_to_string(dir.join("fission.toml")).unwrap();
+        text.push_str(
+            r#"
+[distribution.play_store]
+service_account_json = "/Users/example/secrets/play-service-account.json"
+"#,
+        );
+        fs::write(dir.join("fission.toml"), text).unwrap();
+
+        let report =
+            validate_release_config_model(&dir, Some(DistributionProvider::PlayStore)).unwrap();
+        assert_eq!(report.status, "blocked");
+        assert!(report.checks.iter().any(|check| {
+            check.id.starts_with("release_config.secret_field.") && check.status == "failed"
+        }));
+    }
+
+    #[test]
+    fn release_config_validation_rejects_secret_paths_in_env_reference_fields() {
+        let dir = unique_dir("secret-env-reference-paths");
+        write_release_project(&dir, "A precise release note.\n");
+        let mut text = fs::read_to_string(dir.join("fission.toml")).unwrap();
+        text.push_str(
+            r#"
+[distribution.app_store]
+api_key_path_env = "/Users/example/secrets/AuthKey_ABC123.p8"
+"#,
+        );
+        fs::write(dir.join("fission.toml"), text).unwrap();
+
+        let report =
+            validate_release_config_model(&dir, Some(DistributionProvider::AppStore)).unwrap();
+        assert_eq!(report.status, "blocked");
+        assert!(report.checks.iter().any(|check| {
+            check.id.starts_with("release_config.secret_field.") && check.status == "failed"
+        }));
+    }
+
+    #[test]
+    fn release_config_validation_allows_non_secret_signing_identifiers() {
+        let dir = unique_dir("non-secret-signing-identifiers");
+        write_release_project(&dir, "A precise release note.\n");
+        let mut text = fs::read_to_string(dir.join("fission.toml")).unwrap();
+        text.push_str(
+            r#"
+[package.android]
+keystore_alias = "upload"
+keystore_env = "ANDROID_KEYSTORE"
+keystore_base64_env = "ANDROID_KEYSTORE_BASE64"
+
+[package.windows]
+certificate_thumbprint = "ABCDEF123456"
+certificate_thumbprint_env = "WINDOWS_CERTIFICATE_THUMBPRINT"
+certificate_base64_env = "WINDOWS_CERTIFICATE_BASE64"
+certificate_password_env = "WINDOWS_CERTIFICATE_PASSWORD"
+
+[distribution.play_store]
+service_account_json_env = "PLAY_STORE_SERVICE_ACCOUNT_JSON"
+service_account_json_base64_env = "PLAY_STORE_SERVICE_ACCOUNT_JSON_BASE64"
+
+[distribution.app_store]
+api_key_base64_env = "APP_STORE_CONNECT_API_KEY_BASE64"
+api_key_path_env = "APP_STORE_CONNECT_API_KEY_PATH"
+
+[distribution.microsoft_store]
+client_secret_env = "MICROSOFT_STORE_CLIENT_SECRET"
+"#,
+        );
+        fs::write(dir.join("fission.toml"), text).unwrap();
+
+        let report =
+            validate_release_config_model(&dir, Some(DistributionProvider::PlayStore)).unwrap();
+        assert!(!report
+            .checks
+            .iter()
+            .any(|check| check.id.starts_with("release_config.secret_field.")));
     }
 }

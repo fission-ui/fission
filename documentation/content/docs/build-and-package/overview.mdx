@@ -45,7 +45,7 @@ Release commands should consume the manifest. That keeps publishing safe to retr
 
 Signing is platform-owned. Fission orchestrates checks, configuration, command flow, and receipts, but platform signing should use the tools provided by the platform owner.
 
-Do not commit signing passwords, private keys, tokens, or certificates into [`fission.toml`](/reference/config/fission-toml/). Use CI secrets, environment variables, authenticated platform tooling, operating-system key stores, or the Fission credential vault.
+Do not commit signing passwords, private keys, tokens, or certificates into [`fission.toml`](/reference/config/fission-toml/). Use CI secrets, environment variables, authenticated platform tooling, or operating-system key stores.
 
 ## Next steps
 

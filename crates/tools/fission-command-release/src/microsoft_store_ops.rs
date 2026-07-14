@@ -76,6 +76,11 @@ struct MicrosoftStoreConfig {
     tenant_id: Option<String>,
     client_id: Option<String>,
     seller_id: Option<String>,
+    token_env: Option<String>,
+    tenant_id_env: Option<String>,
+    client_id_env: Option<String>,
+    client_secret_env: Option<String>,
+    seller_id_env: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -100,10 +105,11 @@ struct OAuthTokenResponse {
 pub(super) fn release_config_import(
     project_dir: &Path,
     locales: Option<&str>,
+    dry_run: bool,
     yes: bool,
     json_output: bool,
 ) -> Result<()> {
-    if !yes {
+    if !dry_run && !yes {
         bail!("release-config import mutates fission.toml/release metadata; pass --yes after reviewing the provider and locales");
     }
     let root = read_release_provider_toml(project_dir)?;
@@ -112,18 +118,36 @@ pub(super) fn release_config_import(
     let seller_id = seller_id(&cfg)?;
     let client = http_client()?;
     let token = microsoft_store_access_token(&cfg, &client)?;
-    let remote = fetch_microsoft_listings(&client, &token, &seller_id, product_id, locales)?;
-    write_imported_microsoft_listings(project_dir, &root, &remote)?;
+    let mut remote = fetch_microsoft_listings(&client, &token, &seller_id, product_id, locales)?;
+    remote.sort_by(|a, b| a.language.cmp(&b.language));
+    if !dry_run {
+        write_imported_microsoft_listings(project_dir, &root, &remote)?;
+        let state = super::store_ops::remote_state(
+            DistributionProvider::MicrosoftStore,
+            product_id.to_string(),
+            remote.iter().map(|item| item.language.clone()).collect(),
+            json!({
+                "product_id": product_id,
+                "listings": remote.clone(),
+            }),
+        )?;
+        super::store_ops::write_release_config_lock(
+            project_dir,
+            DistributionProvider::MicrosoftStore,
+            &state,
+        )?;
+    }
     let summary = json!({
         "provider": "microsoft-store",
         "product_id": product_id,
         "imported_locales": remote.iter().map(|item| item.language.as_str()).collect::<Vec<_>>(),
-        "status": "imported"
+        "status": if dry_run { "dry-run" } else { "imported" }
     });
     if json_output {
         println!("{}", serde_json::to_string_pretty(&summary)?);
     } else {
-        println!("Imported {} Microsoft Store listing(s)", remote.len());
+        let verb = if dry_run { "Would import" } else { "Imported" };
+        println!("{verb} {} Microsoft Store listing(s)", remote.len());
     }
     Ok(())
 }
@@ -165,13 +189,12 @@ pub(super) fn release_config_diff(project_dir: &Path, json_output: bool) -> Resu
     Ok(())
 }
 
-pub(super) fn release_config_push(
+pub(super) fn release_config_push_value(
     project_dir: &Path,
     locales_arg: Option<&str>,
     dry_run: bool,
     yes: bool,
-    json_output: bool,
-) -> Result<()> {
+) -> Result<Value> {
     if !dry_run && !yes {
         bail!("release-config push mutates provider metadata; pass --yes after reviewing `release-config diff`");
     }
@@ -182,19 +205,13 @@ pub(super) fn release_config_push(
     let locales = resolve_release_locales(&root, locales_arg)?;
     let local = resolve_microsoft_listings(project_dir, &root, &locales)?;
     if dry_run {
-        let value = json!({
+        return Ok(json!({
             "provider": "microsoft-store",
             "product_id": product_id,
             "locales": locales,
             "listings": local,
             "status": "dry-run"
-        });
-        if json_output {
-            println!("{}", serde_json::to_string_pretty(&value)?);
-        } else {
-            println!("Would push {} Microsoft Store listing(s)", local.len());
-        }
-        return Ok(());
+        }));
     }
 
     let client = http_client()?;
@@ -222,19 +239,43 @@ pub(super) fn release_config_push(
         microsoft_store_success(&value, "Microsoft Store metadata push")?;
         responses.push(value);
     }
-    let summary = json!({
+    Ok(json!({
         "provider": "microsoft-store",
         "product_id": product_id,
         "pushed_locales": local.iter().map(|item| item.language.as_str()).collect::<Vec<_>>(),
         "responses": responses,
         "status": "pushed"
-    });
-    if json_output {
-        println!("{}", serde_json::to_string_pretty(&summary)?);
-    } else {
-        println!("Pushed {} Microsoft Store listing(s)", local.len());
-    }
-    Ok(())
+    }))
+}
+
+pub(super) fn release_config_remote_state(
+    project_dir: &Path,
+    locales_arg: Option<&str>,
+) -> Result<super::store_ops::ReleaseConfigRemoteState> {
+    let root = read_release_provider_toml(project_dir)?;
+    let cfg = microsoft_store_config(project_dir)?;
+    let product_id = product_id(&cfg)?;
+    let seller_id = seller_id(&cfg)?;
+    let locales = resolve_release_locales(&root, locales_arg)?;
+    let client = http_client()?;
+    let token = microsoft_store_access_token(&cfg, &client)?;
+    let mut listings = fetch_microsoft_listings(
+        &client,
+        &token,
+        &seller_id,
+        product_id,
+        Some(&locales.join(",")),
+    )?;
+    listings.sort_by(|a, b| a.language.cmp(&b.language));
+    super::store_ops::remote_state(
+        DistributionProvider::MicrosoftStore,
+        product_id.to_string(),
+        locales,
+        json!({
+            "product_id": product_id,
+            "listings": listings,
+        }),
+    )
 }
 
 fn fetch_microsoft_listings(
@@ -670,28 +711,37 @@ fn product_id(cfg: &MicrosoftStoreConfig) -> Result<&str> {
 }
 
 fn seller_id(cfg: &MicrosoftStoreConfig) -> Result<String> {
-    env_value("MICROSOFT_STORE_SELLER_ID")
+    let seller_id_env = microsoft_store_seller_id_env(cfg);
+    env_value(&seller_id_env)
         .or(cfg.seller_id.clone())
-        .context("distribution.microsoft_store.seller_id or MICROSOFT_STORE_SELLER_ID is required")
+        .with_context(|| {
+            format!("distribution.microsoft_store.seller_id or {seller_id_env} is required")
+        })
 }
 
 fn microsoft_store_access_token(cfg: &MicrosoftStoreConfig, client: &Client) -> Result<String> {
-    if let Some(token) = env_value("MICROSOFT_STORE_TOKEN") {
+    let token_env = microsoft_store_token_env(cfg);
+    if let Some(token) = env_value(&token_env) {
         return Ok(token);
     }
-    let tenant_id = env_value("AZURE_TENANT_ID")
+    let tenant_id_env = microsoft_store_tenant_id_env(cfg);
+    let client_id_env = microsoft_store_client_id_env(cfg);
+    let client_secret_env = microsoft_store_client_secret_env(cfg);
+    let tenant_id = env_value(&tenant_id_env)
         .or(cfg.tenant_id.clone())
-        .context("distribution.microsoft_store.tenant_id or AZURE_TENANT_ID is required")?;
-    let client_id = env_value("AZURE_CLIENT_ID")
+        .with_context(|| {
+            format!("distribution.microsoft_store.tenant_id or {tenant_id_env} is required")
+        })?;
+    let client_id = env_value(&client_id_env)
         .or(cfg.client_id.clone())
-        .context("distribution.microsoft_store.client_id or AZURE_CLIENT_ID is required")?;
-    let client_secret = env_value("MICROSOFT_STORE_CLIENT_SECRET")
-        .or_else(|| {
-            provider_secret(DistributionProvider::MicrosoftStore, &[])
-                .ok()
-                .flatten()
-        })
-        .context("MICROSOFT_STORE_CLIENT_SECRET or vault credentials are required")?;
+        .with_context(|| {
+            format!("distribution.microsoft_store.client_id or {client_id_env} is required")
+        })?;
+    let client_secret = env_value(&client_secret_env)
+        .or_else(|| env_value("PARTNER_CENTER_CLIENT_SECRET"))
+        .with_context(|| {
+            format!("{client_secret_env} or PARTNER_CENTER_CLIENT_SECRET is required")
+        })?;
     let url = format!("https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token");
     let response = client
         .post(url)
@@ -827,6 +877,37 @@ fn encode_query(value: &str) -> String {
         }
     }
     out
+}
+
+fn microsoft_store_token_env(cfg: &MicrosoftStoreConfig) -> String {
+    configured_env_name(cfg.token_env.as_deref(), "MICROSOFT_STORE_TOKEN")
+}
+
+fn microsoft_store_seller_id_env(cfg: &MicrosoftStoreConfig) -> String {
+    configured_env_name(cfg.seller_id_env.as_deref(), "MICROSOFT_STORE_SELLER_ID")
+}
+
+fn microsoft_store_tenant_id_env(cfg: &MicrosoftStoreConfig) -> String {
+    configured_env_name(cfg.tenant_id_env.as_deref(), "AZURE_TENANT_ID")
+}
+
+fn microsoft_store_client_id_env(cfg: &MicrosoftStoreConfig) -> String {
+    configured_env_name(cfg.client_id_env.as_deref(), "AZURE_CLIENT_ID")
+}
+
+fn microsoft_store_client_secret_env(cfg: &MicrosoftStoreConfig) -> String {
+    configured_env_name(
+        cfg.client_secret_env.as_deref(),
+        "MICROSOFT_STORE_CLIENT_SECRET",
+    )
+}
+
+fn configured_env_name(configured: Option<&str>, default: &str) -> String {
+    configured
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(default)
+        .to_string()
 }
 
 fn env_value(name: &str) -> Option<String> {

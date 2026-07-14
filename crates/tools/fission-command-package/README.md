@@ -13,7 +13,7 @@ Packaging, readiness, and distribution workflows for the `fission` command.
 
 ## Design notes
 
-Fission uses platform-provider tools where the platform requires them. This crate orchestrates those tools, validates inputs, records generated artifacts, and keeps credentials out of project files through the shared credential store.
+Fission uses platform-provider tools where the platform requires them. This crate orchestrates those tools, validates inputs, records generated artifacts, and keeps credentials out of project files by reading secrets only from environment variables, CI secret injection, or provider-owned tooling.
 
 ## Documentation
 

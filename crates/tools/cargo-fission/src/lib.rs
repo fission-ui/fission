@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 use clap::Parser;
 use std::path::Path;
 
@@ -148,66 +148,234 @@ where
             site,
             deploy,
             track,
+            locales,
             dry_run,
             yes,
             project_dir,
             json,
-        } => fission_command_package::distribute(fission_command_package::DistributeOptions {
-            project_dir,
-            provider,
-            action: action.unwrap_or(fission_command_package::DistributeAction::Publish),
-            artifact,
-            site,
-            deploy,
-            track,
-            dry_run,
-            yes,
-            json,
-        }),
+        } => {
+            let action = action.unwrap_or(fission_command_package::DistributeAction::Publish);
+            if action == fission_command_package::DistributeAction::Publish {
+                fission_command_release::publish_workflow(
+                    fission_command_release::PublishWorkflowOptions {
+                        project_dir,
+                        provider,
+                        target: None,
+                        format: None,
+                        artifact,
+                        site,
+                        deploy,
+                        track,
+                        locales,
+                        overwrite_remote: false,
+                        dry_run,
+                        yes,
+                        json,
+                    },
+                )
+            } else {
+                fission_command_package::distribute(fission_command_package::DistributeOptions {
+                    project_dir,
+                    provider,
+                    action,
+                    target: None,
+                    format: None,
+                    artifact,
+                    site,
+                    deploy,
+                    track,
+                    locales,
+                    dry_run,
+                    yes,
+                    json,
+                })
+            }
+        }
         Command::Publish {
             provider,
+            target,
+            format,
             artifact,
             site,
             deploy,
             track,
+            locales,
+            app,
+            guided,
             dry_run,
+            overwrite_remote,
             yes,
             project_dir,
             json,
-        } => fission_command_package::distribute(fission_command_package::DistributeOptions {
-            project_dir,
-            provider,
-            action: fission_command_package::DistributeAction::Publish,
-            artifact,
-            site,
-            deploy,
-            track,
-            dry_run,
-            yes,
-            json,
-        }),
+        } => {
+            if app {
+                if guided || dry_run || yes || json || overwrite_remote {
+                    bail!(
+                        "publish --app opens the interactive windowed publish app; remove --app for --guided/--dry-run/--yes/--json/--overwrite-remote automation"
+                    );
+                }
+                fission_command_ui::run_publish_window(fission_command_ui::PublishUiOptions {
+                    project_dir,
+                    provider,
+                    target,
+                    format,
+                    artifact,
+                    site,
+                    deploy,
+                    track,
+                    locales,
+                    screenshot: None,
+                    exit_after_render: false,
+                    width: None,
+                    height: None,
+                    native_file_dialog: true,
+                })
+            } else if artifact.is_some()
+                && target.is_none()
+                && format.is_none()
+                && locales.is_empty()
+                && !guided
+            {
+                fission_command_release::publish_workflow(
+                    fission_command_release::PublishWorkflowOptions {
+                        project_dir,
+                        provider,
+                        target,
+                        format,
+                        artifact,
+                        site,
+                        deploy,
+                        track,
+                        locales,
+                        overwrite_remote,
+                        dry_run,
+                        yes,
+                        json,
+                    },
+                )
+            } else if !guided && (dry_run || yes || json) {
+                fission_command_release::publish_workflow(
+                    fission_command_release::PublishWorkflowOptions {
+                        project_dir,
+                        provider,
+                        target,
+                        format,
+                        artifact,
+                        site,
+                        deploy,
+                        track,
+                        locales,
+                        overwrite_remote,
+                        dry_run,
+                        yes,
+                        json,
+                    },
+                )
+            } else if guided || dry_run || yes || json {
+                fission_command_package::run_publish_shell_with_hooks(
+                    fission_command_package::PublishShellOptions {
+                        project_dir,
+                        provider,
+                        target,
+                        format,
+                        artifact,
+                        site,
+                        deploy,
+                        track,
+                        locales,
+                        overwrite_remote,
+                        dry_run,
+                        yes,
+                        json,
+                        app,
+                    },
+                    publish_shell_hooks(),
+                )
+            } else {
+                fission_command_ui::run_publish_tui(fission_command_ui::PublishUiOptions {
+                    project_dir,
+                    provider,
+                    target,
+                    format,
+                    artifact,
+                    site,
+                    deploy,
+                    track,
+                    locales,
+                    screenshot: None,
+                    exit_after_render: false,
+                    width: None,
+                    height: None,
+                    native_file_dialog: false,
+                })
+            }
+        }
         Command::Readiness {
             kind,
             target,
             format,
+            release,
             provider,
             artifact,
             site,
             track,
+            locales,
             project_dir,
             json,
-        } => fission_command_package::readiness(fission_command_package::ReadinessOptions {
-            project_dir,
-            kind,
-            target,
-            format,
-            provider,
-            artifact,
-            site,
-            track,
-            json,
-        }),
-        Command::ReleaseConfig { command } => fission_command_release::release_config(command),
+        } => {
+            if kind == fission_command_package::ReadinessKind::Release {
+                let Some(provider) = provider else {
+                    bail!("readiness release requires --provider");
+                };
+                fission_command_release::readiness_release(
+                    fission_command_release::PublishWorkflowOptions {
+                        project_dir,
+                        provider,
+                        target,
+                        format,
+                        artifact,
+                        site,
+                        deploy: None,
+                        track,
+                        locales,
+                        overwrite_remote: false,
+                        dry_run: true,
+                        yes: true,
+                        json,
+                    },
+                )
+            } else {
+                fission_command_package::readiness(fission_command_package::ReadinessOptions {
+                    project_dir,
+                    kind,
+                    target,
+                    format,
+                    provider,
+                    artifact,
+                    site,
+                    track,
+                    release,
+                    json,
+                })
+            }
+        }
+        Command::ReleaseConfig { command } => match command {
+            fission_command_release::ReleaseConfigCommand::Edit {
+                project_dir,
+                tui: true,
+                provider,
+            } => fission_command_ui::run_release_config_tui(
+                fission_command_ui::ReleaseConfigEditorOptions {
+                    project_dir,
+                    provider,
+                    screenshot: None,
+                    exit_after_render: false,
+                    width: None,
+                    height: None,
+                },
+            ),
+            command => fission_command_release::release_config(command),
+        },
         Command::ReleaseContent { command } => fission_command_release::release_content(command),
         Command::Beta { command } => fission_command_release::beta(command),
         Command::Signing { command } => fission_command_release::signing(command),
@@ -226,17 +394,31 @@ where
             follow,
         }),
         Command::Ui {
+            provider,
+            target,
+            format,
+            track,
+            locales,
             project_dir,
             screenshot,
             exit_after_render,
             width,
             height,
-        } => fission_command_ui::run_ui(fission_command_ui::UiOptions {
+        } => fission_command_ui::run_publish_tui(fission_command_ui::PublishUiOptions {
             project_dir,
+            provider,
+            target,
+            format,
+            artifact: None,
+            site: "production".to_string(),
+            deploy: None,
+            track,
+            locales,
             screenshot,
             exit_after_render,
             width,
             height,
+            native_file_dialog: false,
         }),
         Command::ServeWeb {
             project_dir,
@@ -249,6 +431,132 @@ where
             port,
             open,
         }),
+    }
+}
+
+fn publish_shell_hooks() -> fission_command_package::PublishShellHooks {
+    fission_command_package::PublishShellHooks {
+        release_plan: publish_shell_release_plan,
+        release_checks: publish_shell_release_checks,
+        publish: publish_shell_publish,
+        skip_requirement: publish_shell_skip_requirement,
+        bump_build: publish_shell_bump_build,
+    }
+}
+
+fn publish_shell_release_plan(
+    request: fission_command_package::PublishShellWorkflowRequest,
+) -> Result<fission_command_package::PublishShellReleasePlan> {
+    let plan = fission_command_release::release_plan_snapshot(publish_workflow_options(request))?;
+    Ok(fission_command_package::PublishShellReleasePlan {
+        status: plan.status,
+        provider: plan.provider,
+        target: plan.target,
+        format: plan.format,
+        track: plan.track,
+        locales: plan.locales,
+        steps: plan
+            .steps
+            .into_iter()
+            .map(|step| fission_command_package::PublishShellReleaseStep {
+                id: step.id,
+                title: step.title,
+                status: step.status,
+            })
+            .collect(),
+        capabilities: plan
+            .capabilities
+            .into_iter()
+            .map(
+                |capability| fission_command_package::PublishShellProviderCapability {
+                    id: capability.id,
+                    status: capability.status,
+                    summary: capability.summary,
+                },
+            )
+            .collect(),
+        requirements: plan
+            .requirements
+            .into_iter()
+            .map(publish_shell_requirement_check)
+            .collect(),
+    })
+}
+
+fn publish_shell_release_checks(
+    request: fission_command_package::PublishShellWorkflowRequest,
+) -> Result<Vec<fission_command_package::ReadinessCheck>> {
+    fission_command_release::release_readiness_checks(publish_workflow_options(request))
+}
+
+fn publish_shell_publish(
+    request: fission_command_package::PublishShellWorkflowRequest,
+) -> Result<String> {
+    let dry_run = request.dry_run;
+    fission_command_release::publish_workflow(publish_workflow_options(request))?;
+    Ok(if dry_run {
+        "publish dry-run completed".to_string()
+    } else {
+        "publish workflow completed".to_string()
+    })
+}
+
+fn publish_shell_skip_requirement(
+    request: fission_command_package::PublishShellWorkflowRequest,
+    id: String,
+) -> Result<String> {
+    fission_command_release::skip_release_requirement(&request.project_dir, &id, true)?;
+    Ok(format!("recorded explicit skip for {id}"))
+}
+
+fn publish_shell_bump_build(
+    request: fission_command_package::PublishShellWorkflowRequest,
+) -> Result<String> {
+    fission_command_release::bump_release_build(&request.project_dir, request.target, 1, true)?;
+    Ok("bumped release build".to_string())
+}
+
+fn publish_workflow_options(
+    request: fission_command_package::PublishShellWorkflowRequest,
+) -> fission_command_release::PublishWorkflowOptions {
+    fission_command_release::PublishWorkflowOptions {
+        project_dir: request.project_dir,
+        provider: request.provider,
+        target: request.target,
+        format: request.format,
+        artifact: request.artifact,
+        site: request.site,
+        deploy: request.deploy,
+        track: request.track,
+        locales: request.locales,
+        overwrite_remote: request.overwrite_remote,
+        dry_run: request.dry_run,
+        yes: request.yes,
+        json: request.json,
+    }
+}
+
+fn publish_shell_requirement_check(
+    requirement: fission_command_release::ReleaseRequirementSnapshot,
+) -> fission_command_package::ReadinessCheck {
+    fission_command_package::ReadinessCheck {
+        id: requirement.id,
+        severity: match requirement.level.as_str() {
+            "provider-required" => fission_command_package::CheckSeverity::Error,
+            "fission-recommended" => fission_command_package::CheckSeverity::Warning,
+            _ => fission_command_package::CheckSeverity::Info,
+        },
+        status: match requirement.status.as_str() {
+            "passed" => fission_command_package::CheckStatus::Passed,
+            "missing" => fission_command_package::CheckStatus::Missing,
+            "failed" => fission_command_package::CheckStatus::Failed,
+            "warning" => fission_command_package::CheckStatus::Warning,
+            "skipped" => fission_command_package::CheckStatus::Skipped,
+            _ => fission_command_package::CheckStatus::Warning,
+        },
+        summary: requirement.summary,
+        details: requirement.details,
+        remediation: requirement.remediation,
     }
 }
 
@@ -539,21 +847,31 @@ if [[ -z "$project" ]]; then
   exit 2
 fi
 variant="debug"
+kind="apk"
 for arg in "$@"; do
-  if [[ "$arg" == *"assembleRelease"* ]]; then
+  if [[ "$arg" == *"Release"* ]]; then
     variant="release"
   fi
+  if [[ "$arg" == *"bundle"* ]]; then
+    kind="aab"
+  fi
 done
-apk="$project/app/build/outputs/apk/$variant/app-$variant.apk"
-mkdir -p "$(dirname "$apk")"
+if [[ "$kind" == "aab" ]]; then
+  artifact="$project/app/build/outputs/bundle/$variant/app-$variant.aab"
+  prefix="AAB"
+else
+  artifact="$project/app/build/outputs/apk/$variant/app-$variant.apk"
+  prefix="APK"
+fi
+mkdir -p "$(dirname "$artifact")"
 {
   printf 'GRADLE_MANIFEST_BEGIN\n'
   cat "$project/AndroidManifest.xml"
   printf '\nGRADLE_MANIFEST_END\n'
   if [[ -d "$project/app/src/main/jniLibs" ]]; then
-    (cd "$project/app/src/main/jniLibs" && find . -type f | sort | sed 's#^\./#APK_ENTRY=lib/#')
+    (cd "$project/app/src/main/jniLibs" && find . -type f | sort | sed "s#^\./#${prefix}_ENTRY=lib/#")
   fi
-} > "$apk"
+} > "$artifact"
 "#,
         );
     }
@@ -577,8 +895,27 @@ mkdir -p "$(dirname "$apk")"
         assert!(dir.join("assets/app-icon.png").exists());
         assert!(dir.join("fission.toml").exists());
         assert!(dir.join("platforms/windows/README.md").exists());
+        assert!(dir.join("platforms/windows/Package.appxmanifest").exists());
+        assert!(dir.join("platforms/windows/package-msix.ps1").exists());
+        assert!(dir.join("platforms/windows/package-msi.ps1").exists());
         assert!(dir.join("platforms/macos/README.md").exists());
         assert!(dir.join("platforms/linux/README.md").exists());
+        let windows_manifest =
+            std::fs::read_to_string(dir.join("platforms/windows/Package.appxmanifest")).unwrap();
+        assert!(windows_manifest.contains("Windows.FullTrustApplication"));
+        assert!(windows_manifest.contains("runFullTrust"));
+        let windows_msix =
+            std::fs::read_to_string(dir.join("platforms/windows/package-msix.ps1")).unwrap();
+        assert!(windows_msix.contains("makeappx"));
+        assert!(windows_msix.contains("WINDOWS_CERTIFICATE_BASE64"));
+        assert!(windows_msix.contains("finally"));
+        assert!(windows_msix.contains("Remove-Item -Force $TempCertificate"));
+        let windows_msi =
+            std::fs::read_to_string(dir.join("platforms/windows/package-msi.ps1")).unwrap();
+        assert!(windows_msi.contains("WiX"));
+        assert!(windows_msi.contains("WINDOWS_MSI_UPGRADE_CODE"));
+        assert!(windows_msi.contains("finally"));
+        assert!(windows_msi.contains("Remove-Item -Force $TempCertificate"));
         let readme = std::fs::read_to_string(dir.join("README.md")).unwrap();
         let agents = std::fs::read_to_string(dir.join("AGENTS.md")).unwrap();
         assert!(agents.contains("# Fission App Guidelines"));
@@ -592,6 +929,35 @@ mkdir -p "$(dirname "$apk")"
         let manifest = std::fs::read_to_string(dir.join("Cargo.toml")).unwrap();
         assert!(manifest.contains("default-features = false"));
         assert!(manifest.contains("features = [\"desktop\"]"));
+    }
+
+    #[test]
+    fn publish_app_rejects_noninteractive_flags() {
+        let err = run([
+            "fission",
+            "publish",
+            "--provider",
+            "play-store",
+            "--app",
+            "--dry-run",
+        ])
+        .unwrap_err()
+        .to_string();
+
+        assert!(err.contains("publish --app opens the interactive windowed publish app"));
+
+        let err = run([
+            "fission",
+            "publish",
+            "--provider",
+            "play-store",
+            "--app",
+            "--overwrite-remote",
+        ])
+        .unwrap_err()
+        .to_string();
+
+        assert!(err.contains("--overwrite-remote"));
     }
 
     #[test]
@@ -656,6 +1022,7 @@ mkdir -p "$(dirname "$apk")"
         assert!(dir.join("platforms/ios/Info.plist").exists());
         assert!(dir.join("platforms/ios/LaunchScreen.storyboard").exists());
         assert!(dir.join("platforms/ios/package-sim.sh").exists());
+        assert!(dir.join("platforms/ios/package-ipa.sh").exists());
         assert!(dir.join("platforms/ios/run-sim.sh").exists());
         assert!(dir.join("platforms/ios/test-sim.sh").exists());
         assert!(dir.join("platforms/ios/Package.swift").exists());
@@ -686,6 +1053,7 @@ mkdir -p "$(dirname "$apk")"
             .join("platforms/android/res/drawable/fission_splash_background.xml")
             .exists());
         assert!(dir.join("platforms/android/package-apk.sh").exists());
+        assert!(dir.join("platforms/android/package-aab.sh").exists());
         assert!(dir.join("platforms/android/run-emulator.sh").exists());
         assert!(dir.join("platforms/android/test-emulator.sh").exists());
         let android_manifest =
@@ -715,6 +1083,11 @@ mkdir -p "$(dirname "$apk")"
         assert!(android_package_script.contains(":app:assemble"));
         assert!(android_package_script.contains("app/src/main/jniLibs/arm64-v8a"));
         assert!(android_package_script.contains("FISSION_GRADLE"));
+        let android_aab_script =
+            std::fs::read_to_string(dir.join("platforms/android/package-aab.sh")).unwrap();
+        assert!(android_aab_script.contains(":app:bundle"));
+        assert!(android_aab_script.contains("app/build/outputs/bundle"));
+        assert!(android_aab_script.contains(".aab"));
         assert!(android_package_script.contains("Gradle is required"));
         let android_run_script =
             std::fs::read_to_string(dir.join("platforms/android/run-emulator.sh")).unwrap();
@@ -751,6 +1124,12 @@ mkdir -p "$(dirname "$apk")"
         assert!(ios_package_script.contains("ibtool"));
         assert!(ios_package_script.contains("LaunchScreen.storyboardc"));
         assert!(ios_package_script.contains("SplashImage.png"));
+        let ios_ipa_script =
+            std::fs::read_to_string(dir.join("platforms/ios/package-ipa.sh")).unwrap();
+        assert!(ios_ipa_script.contains(r#"IOS_TARGET="${IOS_TARGET:-aarch64-apple-ios}""#));
+        assert!(ios_ipa_script.contains("IOS_SIGNING_IDENTITY"));
+        assert!(ios_ipa_script.contains("embedded.mobileprovision"));
+        assert!(ios_ipa_script.contains("zip -qry"));
         let ios_plist = std::fs::read_to_string(dir.join("platforms/ios/Info.plist")).unwrap();
         assert!(ios_plist.contains("UILaunchStoryboardName"));
         let ios_run_script = std::fs::read_to_string(dir.join("platforms/ios/run-sim.sh")).unwrap();
@@ -1044,6 +1423,32 @@ PY
         assert!(apk_payload.contains("android:targetSdkVersion=\"35\""));
         assert!(apk_payload.contains("APK_ENTRY=lib/arm64-v8a/libandroid_package_e2e.so"));
         assert!(!apk_payload.contains("APK_ENTRY=classes.dex"));
+
+        let output = Command::new("bash")
+            .arg("platforms/android/package-aab.sh")
+            .current_dir(&dir)
+            .env("PATH", path_with_fake_bin(&fake_bin))
+            .env("FAKE_TARGET_DIR", &fake_target)
+            .env("ANDROID_HOME", &android_home)
+            .env("ANDROID_PROFILE", "release")
+            .env("ANDROID_KEYSTORE", &keystore)
+            .env("ANDROID_KEYSTORE_PASSWORD", "secret")
+            .env("ANDROID_KEYSTORE_ALIAS", "upload")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "package-aab.sh failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let aab = String::from_utf8(output.stdout).unwrap();
+        let aab = PathBuf::from(aab.trim());
+        assert_eq!(aab.extension().and_then(|ext| ext.to_str()), Some("aab"));
+        let aab_payload = fs::read_to_string(aab).unwrap();
+        assert!(aab_payload.contains("android:hasCode=\"true\""));
+        assert!(aab_payload.contains("AAB_ENTRY=lib/arm64-v8a/libandroid_package_e2e.so"));
+        assert!(!aab_payload.contains("AAB_ENTRY=classes.dex"));
     }
 
     #[test]

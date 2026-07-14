@@ -56,7 +56,7 @@ fission site check --project-dir . --seo --links --a11y --json
 fission site routes --project-dir .
 ```
 
-`fission build --target site` may be an alias for `fission site build`, but the `site` subcommand is useful because static sites need route, metadata, link, SEO, content, and browser-code checks that are not normal app-package concerns.
+`fission build --target static-site` may be an alias for `fission site build`, but the `site` subcommand is useful because static sites need route, metadata, link, SEO, content, and browser-code checks that are not normal app-package concerns.
 
 ### 4.1 Build pipeline
 
@@ -651,11 +651,11 @@ site.browser_code_budget_exceeded
 Static site deployment should reuse the post-build distribution system.
 
 ```text
-fission package --target site --format static --release
-fission distribute --provider s3 --artifact target/fission/release/site/static/artifact-manifest.json
-fission distribute --provider google-drive --artifact target/fission/release/site/static/artifact-manifest.json
-fission distribute --provider onedrive --artifact target/fission/release/site/static/artifact-manifest.json
-fission distribute --provider dropbox --artifact target/fission/release/site/static/artifact-manifest.json
+fission package --target static-site --format static --release
+fission distribute --provider s3 --artifact target/fission/release/static-site/static/artifact-manifest.json
+fission distribute --provider google-drive --artifact target/fission/release/static-site/static/artifact-manifest.json
+fission distribute --provider onedrive --artifact target/fission/release/static-site/static/artifact-manifest.json
+fission distribute --provider dropbox --artifact target/fission/release/static-site/static/artifact-manifest.json
 ```
 
 The artifact manifest must include:
