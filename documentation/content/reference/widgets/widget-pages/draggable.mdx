@@ -15,15 +15,26 @@ It takes a visible child and a payload of bytes. When the user begins dragging, 
 use fission::prelude::*;
 
 let widget: Widget = Draggable {
+    id: Some(WidgetId::explicit("release_checklist_drag")),
+    semantics_identifier: Some("cards.release_checklist.drag".into()),
     payload: view.state().card_id.as_bytes().to_vec(),
-    on_drag_start: Some(start_drag_action),
-    on_drag_end: Some(end_drag_action),
     child: Button {
         child: Some(Text::new("Release checklist").into()),
         on_press: Some(open_card_action),
         ..Default::default()
     }
     .into(),
+    preview: Some(Tag {
+        label: "Release checklist".into(),
+        on_close: None,
+    }
+    .into()),
+    preview_options: DragPreviewOptions {
+        snap_grid: Some(24.0),
+        ..Default::default()
+    },
+    on_drag_start: Some(start_drag_action),
+    on_drag_end: Some(end_drag_action),
 }
 .into();
 ```
@@ -34,8 +45,12 @@ The payload carries just enough information for the eventual drop target to know
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
+| `id` | `Option<WidgetId>` | Stable identity for the drag source. | Use explicit IDs for reordered, filtered, or generated rows. |
+| `semantics_identifier` | `Option<String>` | Stable semantic/test identifier. | Lets tests and accessibility tooling identify the drag source. |
 | `payload` | `Vec<u8>` | Bytes attached to the drag. | Required. The reducer on the drop target decodes them from `ctx.input.as_internal_drop()`. |
 | `child` | `Widget` | Visible content that the user drags. | Required. |
+| `preview` | `Option<Widget>` | Optional drag avatar rendered near the pointer. | Defaults to `None`; provide `id` or `semantics_identifier` so the runtime can match the source during rebuilds. |
+| `preview_options` | `DragPreviewOptions` | Pointer offset and optional preview snapping. | Defaults to a small pointer offset and no snapping. |
 | `on_drag_start` | `Option<ActionEnvelope>` | Action fired when dragging begins. | Defaults to `None`. Useful for visual state such as highlighting the source item. |
 | `on_drag_end` | `Option<ActionEnvelope>` | Action fired when dragging ends. | Defaults to `None`, regardless of whether a target accepted the drop. |
 

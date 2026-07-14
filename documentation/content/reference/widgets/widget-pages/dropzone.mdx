@@ -15,17 +15,21 @@ Use it when a part of the screen should visibly respond as something is dragged 
 use fission::prelude::*;
 
 let widget: Widget = Dropzone {
-child: upload_panel_node,
-on_drag_enter: Some(with_reducer!(ctx, SetHoveringUpload(true), on_set_hovering_upload)),
-on_drag_leave: Some(with_reducer!(ctx, SetHoveringUpload(false), on_set_hovering_upload)),
-on_drop: Some(ctx.bind(
-    FilesDropped,
-    reduce_with!((|state: &mut ComposerState, _action: FilesDropped, ctx| {
-        if let Some(paths) = ctx.input.as_drop_paths() {
-            state.attachments.extend(paths.iter().cloned());
-        }
-    })),
-)),
+    id: Some(WidgetId::explicit("composer_upload_dropzone")),
+    semantics_identifier: Some("composer.attachments.dropzone".into()),
+    child: upload_panel_node,
+    active_child: Some(upload_panel_active_node),
+    hover_child: Some(upload_panel_hover_node),
+    on_drag_enter: Some(with_reducer!(ctx, SetHoveringUpload(true), on_set_hovering_upload)),
+    on_drag_leave: Some(with_reducer!(ctx, SetHoveringUpload(false), on_set_hovering_upload)),
+    on_drop: Some(ctx.bind(
+        FilesDropped,
+        reduce_with!((|state: &mut ComposerState, _action: FilesDropped, ctx| {
+            if let Some(paths) = ctx.input.as_drop_paths() {
+                state.attachments.extend(paths.iter().cloned());
+            }
+        })),
+    )),
 }
 .into();
 ```
@@ -36,7 +40,11 @@ Here the hover state lives in `GlobalState`, so the next build can re-render the
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
+| `id` | `Option<WidgetId>` | Stable identity for the drop surface. | Use explicit IDs for repeated or dynamic dropzones. |
+| `semantics_identifier` | `Option<String>` | Stable semantic/test identifier. | Lets tests target this surface without coordinates. |
 | `child` | `Widget` | Visible content wrapped by the drop surface. | Required. |
+| `active_child` | `Option<Widget>` | Alternate child shown while any drag is active in the window. | Defaults to `None`, so `child` remains visible. |
+| `hover_child` | `Option<Widget>` | Alternate child shown while this dropzone is the hovered target. | Defaults to `None`, so `child` remains visible. |
 | `on_drop` | `Option<ActionEnvelope>` | Action dispatched when something is dropped on the surface. | Read external paths with `ctx.input.as_drop_paths()` or internal bytes with `ctx.input.as_internal_drop()`. |
 | `on_drag_enter` | `Option<ActionEnvelope>` | Action dispatched when a drag enters the bounds. | Useful for setting hover state in `GlobalState`. |
 | `on_drag_leave` | `Option<ActionEnvelope>` | Action dispatched when a drag leaves the bounds. | Useful for clearing hover state. |
@@ -63,4 +71,3 @@ If a screen starts repeating the same `Dropzone` setup, extract a named componen
 ## Related
 
 [`Draggable`](/reference/widgets/draggable), [`DragTarget`](/reference/widgets/drag-target), [`FormControl`](/reference/widgets/form-control), and [`GestureDetector`](/reference/widgets/gesture-detector).
-

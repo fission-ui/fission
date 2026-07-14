@@ -15,15 +15,18 @@ It wraps a child and dispatches one action when something is dropped on it. Use 
 use fission::prelude::*;
 
 let widget: Widget = DragTarget {
-child: Text::new("Drop here to move").into(),
-on_drop: Some(ctx.bind(
-    MoveCardHere,
-    reduce_with!((|state: &mut BoardState, _action: MoveCardHere, ctx| {
-        if let Some(bytes) = ctx.input.as_internal_drop() {
-            state.pending_drop_card_id = Some(String::from_utf8(bytes.to_vec()).unwrap());
-        }
-    })),
-)),
+    id: Some(WidgetId::explicit("move_card_target")),
+    semantics_identifier: Some("board.move_card_target".into()),
+    child: Text::new("Drop here to move").into(),
+    hover_child: Some(Text::new("Release to move here").into()),
+    on_drop: Some(ctx.bind(
+        MoveCardHere,
+        reduce_with!((|state: &mut BoardState, _action: MoveCardHere, ctx| {
+            if let Some(bytes) = ctx.input.as_internal_drop() {
+                state.pending_drop_card_id = Some(String::from_utf8(bytes.to_vec()).unwrap());
+            }
+        })),
+    )),
 }
 .into();
 ```
@@ -34,7 +37,10 @@ The dropped payload travels through `ctx.input`, not through the action type its
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
+| `id` | `Option<WidgetId>` | Stable identity for the drop target. | Use explicit IDs for repeated or dynamic targets. |
+| `semantics_identifier` | `Option<String>` | Stable semantic/test identifier. | Lets tests target this drop surface without coordinates. |
 | `child` | `Widget` | The visible drop target surface. | Required. |
+| `hover_child` | `Option<Widget>` | Alternate surface while this target is hovered by a drag. | Defaults to `None`, so `child` remains visible. |
 | `on_drop` | `Option<ActionEnvelope>` | Action dispatched when the runtime delivers a drop to this target. | Defaults to `None`. Read payloads from `ReducerContext::input`. |
 
 ## How drop data reaches your reducer
@@ -59,4 +65,3 @@ If a screen starts repeating the same `DragTarget` setup, extract a named compon
 ## Related
 
 [`Draggable`](/reference/widgets/draggable), [`Dropzone`](/reference/widgets/dropzone), [`GestureDetector`](/reference/widgets/gesture-detector), and [`Overlay`](/reference/widgets/overlay).
-

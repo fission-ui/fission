@@ -49,6 +49,8 @@ fn test_internal_drag_drop_flow() {
         children: vec![
             build::enter(&mut build_ctx, &view, || {
                 Draggable {
+                    id: None,
+                    semantics_identifier: None,
                     payload: "hello".as_bytes().to_vec(),
                     on_drag_start: None,
                     on_drag_end: None,
@@ -60,11 +62,15 @@ fn test_internal_drag_drop_flow() {
                         ..Default::default()
                     }
                     .into(),
+                    preview: None,
+                    preview_options: Default::default(),
                 }
                 .into()
             }),
             build::enter(&mut build_ctx, &view, || {
                 DragTarget {
+                    id: None,
+                    semantics_identifier: None,
                     on_drop: Some(ActionEnvelope {
                         id: OnDrop::static_id(),
                         payload: OnDrop.encode(),
@@ -74,6 +80,7 @@ fn test_internal_drag_drop_flow() {
                         .height(100.0)
                         .bg(fission_core::op::Color::RED)
                         .into(),
+                    hover_child: None,
                 }
                 .into()
             }),
