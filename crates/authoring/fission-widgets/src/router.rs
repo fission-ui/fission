@@ -1,5 +1,7 @@
 use fission_core::build::{self, BuildCtxHandle, ViewHandle};
+use fission_core::ui::Composite;
 use fission_core::{GlobalState, Widget};
+use fission_ir::WidgetId;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -25,12 +27,18 @@ impl<S: GlobalState> From<Router<S>> for Widget {
 
         for route in &this.routes {
             if let Some(params) = match_route(&route.path, &this.current_path) {
-                return (route.builder)(ctx, view, &params);
+                return route_scoped_widget(
+                    &format!("{}=>{}", route.path, this.current_path),
+                    (route.builder)(ctx, view, &params),
+                );
             }
         }
 
         if let Some(not_found) = &this.not_found {
-            return not_found(ctx, view, &HashMap::new());
+            return route_scoped_widget(
+                &format!("not_found=>{}", this.current_path),
+                not_found(ctx, view, &HashMap::new()),
+            );
         }
 
         fission_core::ui::Text::new(format!("404: {}", this.current_path)).into()
@@ -79,6 +87,17 @@ impl<S: GlobalState> Router<S> {
         self.not_found = Some(Arc::new(move |_ctx, _view, _| builder().into()));
         self
     }
+}
+
+fn route_scoped_widget(route_key: &str, child: Widget) -> Widget {
+    Composite {
+        id: Some(WidgetId::explicit(&format!(
+            "fission.router.route:{route_key}"
+        ))),
+        child,
+        ..Default::default()
+    }
+    .into()
 }
 
 // Simple route matcher: "/users/:id" matches "/users/123" -> {"id": "123"}
