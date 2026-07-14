@@ -1262,9 +1262,17 @@ impl InternalLower for TextInput {
 
         // 2. Text Preparation
         let session = cx.runtime_state.text_edit.get(input_id);
+        let pending_model_transform = session.is_some_and(|state| {
+            state.pending_model_sync
+                && state.preedit.is_none()
+                && state.committed_text() != self.value
+                && state.last_model_text != self.value
+        });
         let retained_session = if is_focused {
             session.filter(|state| {
-                state.pending_model_sync
+                (state.pending_model_sync
+                    && (state.committed_text() == self.value
+                        || state.last_model_text == self.value))
                     || state.preedit.is_some()
                     || (self.restoration_id.is_some() && self.value.is_empty())
                     || state.committed_text() == self.value
@@ -1275,10 +1283,14 @@ impl InternalLower for TextInput {
         let session_display = retained_session.map(|state| state.display_text());
         let model_selection = session
             .map(|state| {
-                (
-                    clamp_text_offset(&self.value, state.caret),
-                    clamp_text_offset(&self.value, state.anchor),
-                )
+                if pending_model_transform && state.caret == state.anchor {
+                    (self.value.len(), self.value.len())
+                } else {
+                    (
+                        clamp_text_offset(&self.value, state.caret),
+                        clamp_text_offset(&self.value, state.anchor),
+                    )
+                }
             })
             .unwrap_or((self.value.len(), self.value.len()));
         let semantic_value = retained_session

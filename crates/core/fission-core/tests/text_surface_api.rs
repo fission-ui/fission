@@ -1227,6 +1227,60 @@ fn focused_text_input_keeps_pending_local_value_until_model_catches_up() {
 }
 
 #[test]
+fn focused_text_input_accepts_transformed_model_value_after_pending_local_edit() {
+    let input_id = fission_ir::WidgetId::derived(87, &[4]);
+    let mut runtime = RuntimeState::default();
+    runtime.interaction.set_focused(Some(input_id));
+    runtime
+        .text_edit
+        .sync_from_runtime(input_id, "First item\n", None, None);
+    runtime.text_edit.get_mut_or_default(input_id).apply_edit(
+        "First item".len().."First item".len(),
+        "Second item",
+        "First itemSecond item".len(),
+        "First itemSecond item".len(),
+    );
+
+    let accepted_model_value = "First item\nSecond item";
+    let ir = lower_node_with_runtime(
+        TextInput {
+            id: Some(input_id.into()),
+            value: accepted_model_value.into(),
+            ..Default::default()
+        }
+        .into(),
+        runtime,
+    );
+
+    let rendered = paint_ops(&ir)
+        .find_map(|op| match op {
+            PaintOp::DrawRichText { runs, .. } => {
+                Some(runs.iter().map(|run| run.text.as_str()).collect::<String>())
+            }
+            _ => None,
+        })
+        .expect("text input rich text paint op");
+
+    assert_eq!(rendered, accepted_model_value);
+
+    let semantics = ir
+        .nodes
+        .values()
+        .find_map(|node| match &node.op {
+            Op::Semantics(semantics) if semantics.role == fission_ir::Role::TextInput => {
+                Some(semantics)
+            }
+            _ => None,
+        })
+        .expect("text input semantics");
+    assert_eq!(semantics.value.as_deref(), Some(accepted_model_value));
+    assert_eq!(
+        semantics.text_selection,
+        Some((accepted_model_value.len(), accepted_model_value.len()))
+    );
+}
+
+#[test]
 fn focused_text_input_lowers_toolbar_handles_and_magnifier_overlays() {
     assert!(TextSelectionControls::default().enabled);
 

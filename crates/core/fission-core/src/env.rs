@@ -225,6 +225,12 @@ pub struct TextEditState {
     pub history: TextEditHistory,
     pub preedit: Option<TextPreeditState>,
     pub pending_model_sync: bool, // True when edits are newer than the currently lowered semantics value
+    /// Last semantic model value observed for this input.
+    ///
+    /// While a local edit is pending, this lets the input distinguish "the app
+    /// has not observed the edit yet" from "the app observed it and produced a
+    /// transformed value".
+    pub last_model_text: String,
     /// Last cursor position that was dispatched as a CursorChanged action.
     /// Used to deduplicate dispatches and prevent unnecessary model updates
     /// that could cause extra rebuild cycles.
@@ -241,6 +247,7 @@ impl Default for TextEditState {
             history: TextEditHistory::default(),
             preedit: None,
             pending_model_sync: false,
+            last_model_text: String::new(),
             last_dispatched_cursor: None,
             affordances: TextInputAffordanceState::default(),
         }
@@ -408,6 +415,7 @@ impl TextEditState {
         self.anchor = snapshot.anchor.min(snapshot.value.len());
         self.preedit = None;
         self.pending_model_sync = false;
+        self.last_model_text = snapshot.value.clone();
         self.last_dispatched_cursor = None;
         self.history = TextEditHistory::default();
     }
@@ -430,17 +438,41 @@ impl TextEditState {
     }
 
     pub fn sync_from_model(&mut self, semantic_value: &str) {
-        if self.pending_model_sync && self.buffer.to_string() == semantic_value {
+        let buffer_text = self.buffer.to_string();
+        if self.pending_model_sync {
+            if buffer_text == semantic_value {
+                self.pending_model_sync = false;
+                self.last_model_text = semantic_value.to_string();
+                return;
+            }
+            if semantic_value == self.last_model_text {
+                return;
+            }
+
+            let selection_was_collapsed = self.caret == self.anchor;
+            self.buffer = TextBuffer::from_str(semantic_value);
+            if selection_was_collapsed {
+                self.caret = semantic_value.len();
+                self.anchor = semantic_value.len();
+            } else {
+                self.caret = self.caret.min(semantic_value.len());
+                self.anchor = self.anchor.min(semantic_value.len());
+            }
+            self.preedit = None;
+            self.history = TextEditHistory::default();
             self.pending_model_sync = false;
+            self.last_model_text = semantic_value.to_string();
+            return;
         }
 
-        if !self.pending_model_sync && self.buffer.to_string() != semantic_value {
+        if buffer_text != semantic_value {
             self.buffer = TextBuffer::from_str(semantic_value);
             self.caret = self.caret.min(semantic_value.len());
             self.anchor = self.anchor.min(semantic_value.len());
             self.preedit = None;
             self.history = TextEditHistory::default();
         }
+        self.last_model_text = semantic_value.to_string();
     }
 
     pub fn selection_range(&self) -> (usize, usize) {
