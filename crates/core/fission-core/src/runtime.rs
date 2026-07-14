@@ -1447,7 +1447,12 @@ impl Runtime {
                         while let Some(node_id) = current_id {
                             if let Some(node) = ir.nodes.get(&node_id) {
                                 if let Op::Semantics(semantics) = &node.op {
-                                    if let Some(action_entry) = semantics.actions.entries.first() {
+                                    if let Some(action_entry) =
+                                        semantics.actions.entries.iter().find(|entry| {
+                                            entry.trigger
+                                                == fission_ir::semantics::ActionTrigger::Default
+                                        })
+                                    {
                                         if let Some(payload) = &action_entry.payload_data {
                                             let envelope = ActionEnvelope {
                                                 id: ActionId::from_u128(action_entry.action_id),
@@ -1591,7 +1596,11 @@ impl Runtime {
                             if let Op::Semantics(semantics) = &node.op {
                                 if semantics.role == fission_ir::semantics::Role::TextInput {
                                     // No action
-                                } else if let Some(action_entry) = semantics.actions.entries.first()
+                                } else if let Some(action_entry) =
+                                    semantics.actions.entries.iter().find(|entry| {
+                                        entry.trigger
+                                            == fission_ir::semantics::ActionTrigger::Default
+                                    })
                                 {
                                     if let Some(payload) = &action_entry.payload_data {
                                         let envelope = ActionEnvelope {

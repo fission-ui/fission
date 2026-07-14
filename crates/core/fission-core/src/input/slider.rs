@@ -71,7 +71,7 @@ impl SliderController {
                         let new_val = min + t * (max - min);
 
                         if let Some(entry) = sem.actions.entries.first() {
-                            let payload = serde_json::to_vec(&new_val).unwrap();
+                            let payload = slider_payload(entry.payload_data.as_deref(), new_val);
                             let envelope = ActionEnvelope {
                                 id: ActionId::from_u128(entry.action_id),
                                 payload,
@@ -87,5 +87,86 @@ impl SliderController {
                 }
             }
         }
+    }
+}
+
+fn slider_payload(template: Option<&[u8]>, new_value: f32) -> Vec<u8> {
+    let Some(template) = template else {
+        return serde_json::to_vec(&new_value).expect("slider value serialization failed");
+    };
+    let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(template) else {
+        return serde_json::to_vec(&new_value).expect("slider value serialization failed");
+    };
+    let Some(number) = serde_json::Number::from_f64(new_value as f64) else {
+        return serde_json::to_vec(&new_value).expect("slider value serialization failed");
+    };
+
+    if replace_numeric_payload(&mut value, number) {
+        serde_json::to_vec(&value).expect("slider action serialization failed")
+    } else {
+        serde_json::to_vec(&new_value).expect("slider value serialization failed")
+    }
+}
+
+fn replace_numeric_payload(value: &mut serde_json::Value, number: serde_json::Number) -> bool {
+    match value {
+        serde_json::Value::Number(slot) => {
+            *slot = number;
+            true
+        }
+        serde_json::Value::Array(items) if items.len() == 1 && items[0].is_number() => {
+            items[0] = serde_json::Value::Number(number);
+            true
+        }
+        serde_json::Value::Object(fields) => {
+            if let Some(slot) = fields.get_mut("value").filter(|slot| slot.is_number()) {
+                *slot = serde_json::Value::Number(number);
+                return true;
+            }
+            let mut numeric_keys = fields
+                .iter()
+                .filter_map(|(key, field)| field.is_number().then_some(key.clone()))
+                .collect::<Vec<_>>();
+            if numeric_keys.len() == 1 {
+                let key = numeric_keys.pop().expect("one numeric key");
+                if let Some(slot) = fields.get_mut(&key) {
+                    *slot = serde_json::Value::Number(number);
+                    return true;
+                }
+            }
+            false
+        }
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::slider_payload;
+    use serde::Deserialize;
+
+    #[derive(Debug, Deserialize, PartialEq)]
+    #[serde(transparent)]
+    struct TransparentSliderValue(f32);
+
+    #[derive(Debug, Deserialize, PartialEq)]
+    struct NamedSliderValue {
+        value: f32,
+    }
+
+    #[test]
+    fn slider_payload_preserves_transparent_action_shape() {
+        let payload = slider_payload(Some(b"0.0"), 75.0);
+        let action: TransparentSliderValue = serde_json::from_slice(&payload).unwrap();
+
+        assert_eq!(action, TransparentSliderValue(75.0));
+    }
+
+    #[test]
+    fn slider_payload_preserves_named_value_action_shape() {
+        let payload = slider_payload(Some(br#"{"value":0.0}"#), 25.0);
+        let action: NamedSliderValue = serde_json::from_slice(&payload).unwrap();
+
+        assert_eq!(action, NamedSliderValue { value: 25.0 });
     }
 }

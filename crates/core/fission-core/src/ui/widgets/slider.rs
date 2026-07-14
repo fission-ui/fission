@@ -42,6 +42,18 @@ pub struct Slider {
     pub min: f32,
     /// Maximum value (default: 1.0).
     pub max: f32,
+    /// Visual track height in layout points. Defaults to `4.0`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub track_height: Option<f32>,
+    /// Visual thumb diameter in layout points. Defaults to `16.0`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thumb_size: Option<f32>,
+    /// Optional track fill. Defaults to the active theme border colour.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub track_fill: Option<Fill>,
+    /// Optional thumb fill. Defaults to the active theme primary colour.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thumb_fill: Option<Fill>,
     /// Action dispatched when the user drags the thumb.
     pub on_change: Option<ActionEnvelope>,
 }
@@ -62,6 +74,10 @@ impl Default for Slider {
             value: 0.0,
             min: 0.0,
             max: 1.0,
+            track_height: None,
+            thumb_size: None,
+            track_fill: None,
+            thumb_fill: None,
             on_change: None,
         }
     }
@@ -73,42 +89,23 @@ impl InternalLower for Slider {
         cx.push_scope(id);
 
         let tokens = &cx.env.theme.tokens;
-        let thumb_size = 16.0;
-        let track_height = 4.0;
+        let thumb_size = self.thumb_size.unwrap_or(16.0).max(1.0);
+        let track_height = self.track_height.unwrap_or(4.0).max(1.0);
+        let control_height = thumb_size.max(track_height);
 
         let range = (self.max - self.min).max(0.0001);
         let pct = ((self.value - self.min) / range).clamp(0.0, 1.0) * 100.0;
 
-        // Visual Structure:
-        // Grid [Percent(pct), Fixed(thumb), Auto]
-        // Row 1: Height(max(track, thumb))
-
-        // Track Background: DrawRect on the main container (centered vertically?)
-        // Actually, we want the track to be vertically centered.
-        // And Thumb centered.
-
-        // Let's make the root a Grid.
-        // It has a background PaintOp for the Track line?
-        // If we paint on Root, it fills the whole area.
-        // We want track to be thin.
-        // So we need a child for Track?
-        // But Track must span the whole width.
-        // Use ZStack.
-        // Layer 1: Track (Centered vertically).
-        // Layer 2: Thumb Grid.
-
         let layout_id = cx.next_node_id();
 
         let track_layer = {
-            // Center the thin track in the thumb-height z-stack without
-            // materialising detached helper nodes in the IR.
-            let p_y = (thumb_size - track_height) / 2.0;
+            let p_y = (control_height - track_height) / 2.0;
 
             let mut track_container = InternalIrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::Box {
                     width: None,
-                    height: None,
+                    height: Some(control_height),
                     min_width: None,
                     max_width: None,
                     min_height: None,
@@ -123,7 +120,11 @@ impl InternalLower for Slider {
             let inner_paint = InternalIrBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRect {
-                    fill: Some(Fill::Solid(tokens.colors.border)),
+                    fill: Some(
+                        self.track_fill
+                            .clone()
+                            .unwrap_or(Fill::Solid(tokens.colors.border)),
+                    ),
                     stroke: None,
                     corner_radius: track_height / 2.0,
                     shadow: None,
@@ -131,20 +132,8 @@ impl InternalLower for Slider {
             )
             .build(cx);
 
-            // We need inner box to have height `track_height`.
-            // The padding pushes the content in.
-            // The inner box fills the remaining height.
-            // If container height is `thumb_size`, and padding is `(thumb-track)/2`, remaining is `track`.
-            // But container height is `Auto` (driven by ZStack constraint?).
-            // ZStack constraints are "largest child".
-            // If Thumb layer is `thumb_size` height, Root is `thumb_size`.
-            // Track container fills Root.
-
-            // So yes, Padding approach works if Root height is constrained by Thumb.
-
-            // But `inner_paint` needs a layout node to fill?
             let mut inner_box =
-                InternalIrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::AbsoluteFill)); // Fill the padded area
+                InternalIrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::AbsoluteFill));
             inner_box.add_child(inner_paint);
             let inner_id = inner_box.build(cx);
 
@@ -157,7 +146,11 @@ impl InternalLower for Slider {
             let thumb_paint = InternalIrBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRect {
-                    fill: Some(Fill::Solid(tokens.colors.primary)),
+                    fill: Some(
+                        self.thumb_fill
+                            .clone()
+                            .unwrap_or(Fill::Solid(tokens.colors.primary)),
+                    ),
                     stroke: None,
                     corner_radius: thumb_size / 2.0,
                     shadow: Some(fission_ir::op::BoxShadow {
@@ -190,7 +183,36 @@ impl InternalLower for Slider {
                 }),
             );
             thumb_box.add_child(thumb_paint);
-            let thumb_id = thumb_box.build(cx);
+            let thumb_box_id = thumb_box.build(cx);
+
+            // Grid placement positions the thumb's left edge at the value
+            // percentage. Translate the visual thumb so its centre sits on the
+            // track point the user clicked or dragged to.
+            let mut transformed_thumb = InternalIrBuilder::new(
+                cx.next_node_id(),
+                Op::Layout(LayoutOp::Transform {
+                    transform: [
+                        1.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        1.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        1.0,
+                        0.0,
+                        -thumb_size / 2.0,
+                        (control_height - thumb_size) / 2.0,
+                        0.0,
+                        1.0,
+                    ],
+                }),
+            );
+            transformed_thumb.add_child(thumb_box_id);
+            let transformed_thumb_id = transformed_thumb.build(cx);
 
             let mut grid = InternalIrBuilder::new(
                 cx.next_node_id(),
@@ -200,7 +222,7 @@ impl InternalLower for Slider {
                         GridTrack::Points(thumb_size),
                         GridTrack::Fr(1.0),
                     ],
-                    rows: vec![GridTrack::Points(thumb_size)],
+                    rows: vec![GridTrack::Points(control_height)],
                     column_gap: None,
                     row_gap: None,
                     padding: [0.0; 4],
@@ -217,7 +239,7 @@ impl InternalLower for Slider {
                     col_end: fission_ir::op::GridPlacement::Auto,
                 }),
             );
-            item.add_child(thumb_id);
+            item.add_child(transformed_thumb_id);
             let item_id = item.build(cx);
 
             grid.add_child(item_id);
