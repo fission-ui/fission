@@ -2,8 +2,9 @@ pub mod doctor;
 
 use anyhow::{bail, Context, Result};
 use fission_command_core::{
-    ios_executable_name, normalized_extension, read_project_config, resolve_app_icon,
-    sync_platform_config, FissionProject, PlatformCapability, Target,
+    ios_executable_name, normalized_extension, read_macos_package_config, read_project_config,
+    resolve_app_icon, sign_macos_app_if_configured, sync_platform_config, FissionProject,
+    MacosPackageConfig, PlatformCapability, Target,
 };
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -1209,6 +1210,7 @@ fn package_macos_run_app(
             project_dir.display()
         )
     })?;
+    let macos = read_macos_package_config(&project_dir)?;
     let binary = build_desktop_binary(&project_dir, release)?;
     let profile = if release { "release" } else { "debug" };
     let app_name = macos_display_name(&project.app.name);
@@ -1251,9 +1253,10 @@ fn package_macos_run_app(
 
     fs::write(
         contents.join("Info.plist"),
-        render_macos_run_info_plist(project, &binary, &app_name),
+        render_macos_run_info_plist(project, &binary, &app_name, &macos),
     )?;
     fs::write(contents.join("PkgInfo"), "APPL????")?;
+    sign_macos_app_if_configured(&project_dir, &app_bundle, &macos)?;
 
     Ok(MacosRunApp { bundle: app_bundle })
 }
@@ -1432,7 +1435,13 @@ fn render_macos_run_info_plist(
     project: &FissionProject,
     binary: &DesktopBinary,
     app_name: &str,
+    macos: &MacosPackageConfig,
 ) -> String {
+    let bundle_id = macos
+        .bundle_id
+        .as_deref()
+        .unwrap_or(project.app.app_id.as_str());
+    let minimum_os = macos.minimum_os.as_deref().unwrap_or("13.0");
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -1453,7 +1462,7 @@ fn render_macos_run_info_plist(
   <key>CFBundleVersion</key>
   <string>{}</string>
   <key>LSMinimumSystemVersion</key>
-  <string>13.0</string>
+  <string>{}</string>
   <key>CFBundleIconFile</key>
   <string>AppIcon</string>
   <key>NSHighResolutionCapable</key>
@@ -1462,12 +1471,13 @@ fn render_macos_run_info_plist(
 </dict>
 </plist>
 "#,
-        escape_xml(&project.app.app_id),
+        escape_xml(bundle_id),
         escape_xml(app_name),
         escape_xml(app_name),
         escape_xml(&binary.executable_name),
         escape_xml(&binary.version),
         escape_xml(&binary.version),
+        escape_xml(minimum_os),
         render_macos_run_capability_plist_entries(project)
     )
 }
@@ -2032,5 +2042,24 @@ mod tests {
         assert!(manifest.contains("com.fission.examples.fieldinspector"));
         assert!(manifest.contains("PerMonitorV2"));
         assert!(manifest.contains("asInvoker"));
+    }
+
+    #[test]
+    fn macos_development_plist_uses_package_identity() {
+        let binary = DesktopBinary {
+            version: "1.2.3".into(),
+            executable_name: "field-inspector".into(),
+            path: PathBuf::from("/tmp/field-inspector"),
+        };
+        let config = MacosPackageConfig {
+            bundle_id: Some("com.example.packaged".into()),
+            minimum_os: Some("14.0".into()),
+            ..Default::default()
+        };
+
+        let plist = render_macos_run_info_plist(&project(), &binary, "Field Inspector", &config);
+
+        assert!(plist.contains("<string>com.example.packaged</string>"));
+        assert!(plist.contains("<key>LSMinimumSystemVersion</key>\n  <string>14.0</string>"));
     }
 }

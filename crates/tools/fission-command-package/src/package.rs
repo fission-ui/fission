@@ -2,8 +2,9 @@ use super::*;
 use anyhow::{bail, Context, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use fission_command_core::{
-    cargo_package_name, normalized_extension, read_project_config, resolve_app_icon,
-    sync_platform_config, FissionProject, PlatformCapability, Target,
+    cargo_package_name, normalized_extension, read_macos_package_config, read_project_config,
+    resolve_app_icon, sign_macos_app_if_configured, sync_platform_config, FissionProject,
+    MacosPackageConfig, PlatformCapability, Target,
 };
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -25,7 +26,6 @@ struct PackageManifest {
 #[derive(Debug, Deserialize, Default)]
 struct PackageRoot {
     docker: Option<DockerPackageConfig>,
-    macos: Option<MacosPackageConfig>,
     #[serde(default)]
     secondary_artifacts: Vec<SecondaryArtifactConfig>,
     #[serde(default)]
@@ -41,16 +41,6 @@ struct SecondaryArtifactConfig {
     platform: Option<String>,
     path: Option<String>,
     upload_provider: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Default)]
-struct MacosPackageConfig {
-    bundle_id: Option<String>,
-    minimum_os: Option<String>,
-    entitlements: Option<String>,
-    signing_identity: Option<String>,
-    installer_identity: Option<String>,
-    notarize: Option<bool>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -301,7 +291,7 @@ fn package_macos_app(options: &PackageOptions) -> Result<ArtifactManifest> {
     let project = read_project_config(&options.project_dir)?;
     let profile = profile_name(options.release);
     let staging_dir = clean_package_dir(options)?;
-    let macos = macos_package_config(&options.project_dir)?;
+    let macos = read_macos_package_config(&options.project_dir)?;
     let app_bundle = create_macos_app_bundle(options, &project, &staging_dir, &macos)?;
     sign_macos_app_if_configured(&options.project_dir, &app_bundle, &macos)?;
     println!("{}", app_bundle.display());
@@ -315,7 +305,7 @@ fn package_macos_pkg(options: &PackageOptions) -> Result<ArtifactManifest> {
     let profile = profile_name(options.release);
     let staging_dir = clean_package_dir(options)?;
     let app_staging = staging_dir.join("app-staging");
-    let macos = macos_package_config(&options.project_dir)?;
+    let macos = read_macos_package_config(&options.project_dir)?;
     let app_bundle = create_macos_app_bundle(options, &project, &app_staging, &macos)?;
     sign_macos_app_if_configured(&options.project_dir, &app_bundle, &macos)?;
     let version = resolved_package_version(&options.project_dir, options.target)?;
@@ -1495,65 +1485,6 @@ fn render_macos_info_plist_capability_entries(project: &FissionProject) -> Strin
         );
     }
     out
-}
-
-fn macos_package_config(project_dir: &Path) -> Result<MacosPackageConfig> {
-    let path = project_dir.join("fission.toml");
-    let data =
-        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
-    let manifest: PackageManifest =
-        toml::from_str(&data).with_context(|| format!("failed to parse {}", path.display()))?;
-    Ok(manifest
-        .package
-        .and_then(|package| package.macos)
-        .unwrap_or_default())
-}
-
-fn sign_macos_app_if_configured(
-    project_dir: &Path,
-    app_bundle: &Path,
-    macos: &MacosPackageConfig,
-) -> Result<()> {
-    let Some(identity) = macos
-        .signing_identity
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
-    else {
-        return Ok(());
-    };
-    let mut command = Command::new("codesign");
-    command
-        .arg("--force")
-        .arg("--timestamp")
-        .arg("--options")
-        .arg("runtime")
-        .arg("--sign")
-        .arg(identity);
-    if let Some(entitlements) = macos
-        .entitlements
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
-    {
-        command
-            .arg("--entitlements")
-            .arg(resolve_project_path(project_dir, entitlements.to_string()));
-    }
-    let status = command
-        .arg(app_bundle)
-        .status()
-        .context("failed to run codesign")?;
-    if !status.success() {
-        bail!("codesign failed with {status}");
-    }
-    let verify = Command::new("codesign")
-        .args(["--verify", "--deep", "--strict", "--verbose=2"])
-        .arg(app_bundle)
-        .status()
-        .context("failed to verify macOS code signature")?;
-    if !verify.success() {
-        bail!("codesign verification failed with {verify}");
-    }
-    Ok(())
 }
 
 fn pkgbuild_signing_args(macos: &MacosPackageConfig) -> Vec<String> {

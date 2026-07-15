@@ -13,8 +13,12 @@ const GENERATED_APP_AGENTS_MARKER: &str = "<!-- fission-cli-generated-agents:v1 
 const GENERATED_APP_AGENTS_MD: &str = include_str!("../assets/AGENTS.md");
 
 mod icons;
+mod macos_signing;
 mod splash;
 pub use icons::{copy_icon_for_bundle, normalized_extension, resolve_app_icon, ResolvedIcon};
+pub use macos_signing::{
+    read_macos_package_config, sign_macos_app_if_configured, MacosPackageConfig,
+};
 pub use splash::{SplashConfig, SplashResizeMode};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, ValueEnum, Serialize, Deserialize)]
