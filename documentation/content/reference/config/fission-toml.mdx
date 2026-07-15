@@ -115,6 +115,51 @@ provisioning_profile = "profiles/FileProviderDevelopment.provisionprofile"
 signing_identity = "Apple Development"
 ```
 
+### `[native.modules.windows]`
+
+Windows native modules attach an MSBuild/WDK project to the desktop lifecycle.
+`fission build`, `fission run`, and Windows package commands build the declared
+project. `fission test --target windows` also runs each declared test binary
+through `vstest.console.exe`.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `msbuild_project` | string | Yes when products or tests are declared | none | Project-relative `.sln`, `.slnx`, or MSBuild project passed to `msbuild`. |
+| `platform` | string | No | `x64` | MSBuild platform, such as `x64` or `ARM64`. |
+| `build_target` | string | No | `Build` | MSBuild target invoked for the module. |
+| `test_binaries` | array of strings | No | `[]` | VSTest executables. Paths may contain `{configuration}`, `{profile}`, and `{platform}`. |
+
+Each `[[native.modules.windows.products]]` entry accepts:
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `name` | string | Yes | Stable product identity used in package manifests. |
+| `path` | string | Yes | Built file or directory. Supports `{configuration}`, `{profile}`, and `{platform}`. |
+| `kind` | string | Yes | `runtime` or `driver-package`. Runtime products are staged beside the app; driver packages are installer inputs and are excluded from MSIX manifests. |
+| `destination` | string | No | Safe relative path under the run/package root. Defaults to the source file or directory name. |
+
+```toml
+[[native.modules]]
+name = "windows-protection"
+path = "platforms/windows/native"
+
+[native.modules.windows]
+msbuild_project = "platforms/windows/native/Protection.sln"
+platform = "x64"
+test_binaries = ["platforms/windows/native/{platform}/{configuration}/ProtectionTests.exe"]
+
+[[native.modules.windows.products]]
+name = "cloud-files-provider"
+path = "platforms/windows/native/{platform}/{configuration}/Provider.dll"
+kind = "runtime"
+destination = "native/Provider.dll"
+
+[[native.modules.windows.products]]
+name = "filesystem-minifilter"
+path = "platforms/windows/native/{platform}/{configuration}/DriverPackage"
+kind = "driver-package"
+```
+
 ## `[app]`
 
 `[app]` identifies the product and package. It is required by normal app commands.
@@ -618,6 +663,7 @@ Keystore files and passwords are not stored in `fission.toml`. For local release
 | `certificate_env` | string | No | Environment variable containing a local certificate path. Defaults to `WINDOWS_CERTIFICATE`. |
 | `certificate_base64_env` | string | No | Environment variable containing base64 certificate bytes. Defaults to `WINDOWS_CERTIFICATE_BASE64`. |
 | `certificate_password_env` | string | No | Environment variable containing the certificate password. Defaults to `WINDOWS_CERTIFICATE_PASSWORD`. |
+| `exe_installer_script` | string | No | Project-relative PowerShell or executable packaging script. When set, `windows/exe` passes the built app and native-products manifest through `WINDOWS_BINARY` and `FISSION_WINDOWS_NATIVE_PRODUCTS_MANIFEST`, then stages the emitted `.exe` installer. |
 
 Certificate files and passwords are not stored in `fission.toml`. Prefer `certificate_thumbprint` for certificates installed in the Windows certificate store; otherwise provide certificate file material through environment variables at package time.
 
@@ -1119,6 +1165,7 @@ notarize = true
 identity_name = "Example.App"
 publisher = "CN=Example Ltd"
 certificate_thumbprint = "0123456789ABCDEF"
+exe_installer_script = "platforms/windows/package-exe.ps1"
 
 [distribution.play_store]
 package_name = "com.example.app"

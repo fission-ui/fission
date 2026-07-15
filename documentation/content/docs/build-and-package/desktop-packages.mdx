@@ -25,7 +25,7 @@ Readiness should confirm the target exists in [`fission.toml`](/reference/config
 | --- | --- | --- |
 | macOS | `.app` | Local app-bundle validation and direct distribution. |
 | macOS | `.pkg` | Installer-based distribution and managed deployment. |
-| Windows | `.exe` | Direct installer flow. |
+| Windows | `.exe` | Signed executable, or a project-defined offline installer flow. |
 | Windows | `.msi` | Enterprise or managed Windows installer flow. |
 | Windows | `.msix` | Microsoft Store and modern Windows package identity workflows. |
 | Linux | `.run` | Self-contained Linux installer artifact. |
@@ -46,6 +46,13 @@ embeds app extensions and system extensions in their platform-defined bundle
 locations, signs those nested products, and signs the containing app last. The
 same declaration is used by `fission build`, `fission test`, `fission run`, and
 `fission package`; app-specific build scripts should not duplicate that work.
+
+Windows MSBuild/WDK products use `[native.modules.windows]`. Runtime products
+are staged beside the app for local runs and are exposed to package scripts in a
+structured native-products manifest. Products marked `driver-package` are
+installer inputs and are deliberately excluded from MSIX manifests. Configure
+`package.windows.exe_installer_script` when `windows/exe` must produce a setup
+program rather than stage the application executable itself.
 
 ## 4. Verify the result
 
