@@ -501,6 +501,23 @@ tags = ["ghcr.io/example/pokemon-card-store:0.1.0", "ghcr.io/example/pokemon-car
 | `installer_identity` | string | No | Developer ID Installer identity passed to `pkgbuild`/`productbuild` for `.pkg` output. |
 | `notarize` | boolean | No | When `true`, notarization requires `APP_STORE_CONNECT_KEY_ID`, `APP_STORE_CONNECT_ISSUER_ID`, and key material from `APP_STORE_CONNECT_API_KEY_PATH`, `APP_STORE_CONNECT_API_KEY`, or `APP_STORE_CONNECT_API_KEY_BASE64`. |
 
+### `[run.macos]`
+
+`fission run --target macos` builds a development `.app` and signs it before
+launch when a signing identity is configured. Run signing inherits
+`[package.macos]` by default. Use these optional overrides when development and
+distribution require different identities or entitlement files.
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `entitlements` | string | No | Project-relative development entitlements plist. Inherits `package.macos.entitlements` when omitted. |
+| `signing_identity` | string | No | Development signing identity. Inherits `package.macos.signing_identity` when omitted. |
+
+Restricted entitlements still require an Apple-issued identity and matching
+provisioning. Ad-hoc signing with `"-"` can exercise unrestricted development
+entitlements, but macOS rejects ad-hoc applications that claim restricted
+entitlements.
+
 ### `[package.android]`
 
 | Field | Type | Required | Meaning |

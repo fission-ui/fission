@@ -17,7 +17,8 @@ mod macos_signing;
 mod splash;
 pub use icons::{copy_icon_for_bundle, normalized_extension, resolve_app_icon, ResolvedIcon};
 pub use macos_signing::{
-    read_macos_package_config, sign_macos_app_if_configured, MacosPackageConfig,
+    read_macos_package_config, read_macos_run_config, sign_macos_app_if_configured,
+    MacosPackageConfig,
 };
 pub use splash::{SplashConfig, SplashResizeMode};
 

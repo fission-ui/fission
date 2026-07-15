@@ -18,6 +18,7 @@ pub struct MacosPackageConfig {
 #[derive(Debug, Default, Deserialize)]
 struct PackageManifest {
     package: Option<PackageRoot>,
+    run: Option<RunRoot>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -25,16 +26,51 @@ struct PackageRoot {
     macos: Option<MacosPackageConfig>,
 }
 
+#[derive(Debug, Default, Deserialize)]
+struct RunRoot {
+    macos: Option<MacosRunConfig>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct MacosRunConfig {
+    entitlements: Option<String>,
+    signing_identity: Option<String>,
+}
+
 pub fn read_macos_package_config(project_dir: &Path) -> Result<MacosPackageConfig> {
+    let manifest = read_manifest(project_dir)?;
+    Ok(package_config(manifest.package))
+}
+
+pub fn read_macos_run_config(project_dir: &Path) -> Result<MacosPackageConfig> {
+    Ok(run_config(read_manifest(project_dir)?))
+}
+
+fn run_config(manifest: PackageManifest) -> MacosPackageConfig {
+    let run = manifest.run.and_then(|run| run.macos);
+    let mut config = package_config(manifest.package);
+    if let Some(run) = run {
+        if run.entitlements.is_some() {
+            config.entitlements = run.entitlements;
+        }
+        if run.signing_identity.is_some() {
+            config.signing_identity = run.signing_identity;
+        }
+    }
+    config
+}
+
+fn read_manifest(project_dir: &Path) -> Result<PackageManifest> {
     let path = project_dir.join("fission.toml");
     let data =
         fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
-    let manifest: PackageManifest =
-        toml::from_str(&data).with_context(|| format!("failed to parse {}", path.display()))?;
-    Ok(manifest
-        .package
+    toml::from_str(&data).with_context(|| format!("failed to parse {}", path.display()))
+}
+
+fn package_config(package: Option<PackageRoot>) -> MacosPackageConfig {
+    package
         .and_then(|package| package.macos)
-        .unwrap_or_default())
+        .unwrap_or_default()
 }
 
 pub fn sign_macos_app_if_configured(
@@ -118,6 +154,10 @@ entitlements = "platforms/macos/App.entitlements"
 signing_identity = "Apple Development"
 installer_identity = "Developer ID Installer"
 notarize = true
+
+[run.macos]
+entitlements = "platforms/macos/Development.entitlements"
+signing_identity = "-"
 "#,
         )
         .unwrap();
@@ -133,6 +173,12 @@ notarize = true
                 notarize: Some(true),
             }
         );
+        let run = manifest.run.unwrap().macos.unwrap();
+        assert_eq!(
+            run.entitlements.as_deref(),
+            Some("platforms/macos/Development.entitlements")
+        );
+        assert_eq!(run.signing_identity.as_deref(), Some("-"));
     }
 
     #[test]
@@ -155,5 +201,32 @@ notarize = true
                 OsString::from("/project/platforms/macos/App.entitlements"),
             ]
         );
+    }
+
+    #[test]
+    fn run_signing_overrides_package_signing_only() {
+        let manifest: PackageManifest = toml::from_str(
+            r#"
+[package.macos]
+bundle_id = "com.example.app"
+minimum_os = "14.0"
+entitlements = "platforms/macos/Release.entitlements"
+signing_identity = "Apple Development"
+
+[run.macos]
+entitlements = "platforms/macos/Development.entitlements"
+signing_identity = "-"
+"#,
+        )
+        .unwrap();
+        let config = run_config(manifest);
+
+        assert_eq!(config.bundle_id.as_deref(), Some("com.example.app"));
+        assert_eq!(config.minimum_os.as_deref(), Some("14.0"));
+        assert_eq!(
+            config.entitlements.as_deref(),
+            Some("platforms/macos/Development.entitlements")
+        );
+        assert_eq!(config.signing_identity.as_deref(), Some("-"));
     }
 }

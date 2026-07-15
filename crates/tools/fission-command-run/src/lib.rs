@@ -2,7 +2,7 @@ pub mod doctor;
 
 use anyhow::{bail, Context, Result};
 use fission_command_core::{
-    ios_executable_name, normalized_extension, read_macos_package_config, read_project_config,
+    ios_executable_name, normalized_extension, read_macos_run_config, read_project_config,
     resolve_app_icon, sign_macos_app_if_configured, sync_platform_config, FissionProject,
     MacosPackageConfig, PlatformCapability, Target,
 };
@@ -1210,7 +1210,7 @@ fn package_macos_run_app(
             project_dir.display()
         )
     })?;
-    let macos = read_macos_package_config(&project_dir)?;
+    let macos = read_macos_run_config(&project_dir)?;
     let binary = build_desktop_binary(&project_dir, release)?;
     let profile = if release { "release" } else { "debug" };
     let app_name = macos_display_name(&project.app.name);
