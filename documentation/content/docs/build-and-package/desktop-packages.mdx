@@ -52,7 +52,10 @@ are staged beside the app for local runs and are exposed to package scripts in a
 structured native-products manifest. Products marked `driver-package` are
 installer inputs and are deliberately excluded from MSIX manifests. Configure
 `package.windows.exe_installer_script` when `windows/exe` must produce a setup
-program rather than stage the application executable itself.
+program rather than stage the application executable itself. Set
+`nuget_packages_config` and `nuget_packages_directory` when the native project
+pins the supported WDK NuGet packages; Fission restores them non-interactively
+before every MSBuild invocation.
 
 ## 4. Verify the result
 

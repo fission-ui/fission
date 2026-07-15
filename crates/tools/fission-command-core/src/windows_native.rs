@@ -8,6 +8,10 @@ use std::process::Command;
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NativeWindowsModuleConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nuget_packages_config: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nuget_packages_directory: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub msbuild_project: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub platform: Option<String>,
@@ -21,7 +25,9 @@ pub struct NativeWindowsModuleConfig {
 
 impl NativeWindowsModuleConfig {
     pub fn is_empty(&self) -> bool {
-        self.msbuild_project.is_none()
+        self.nuget_packages_config.is_none()
+            && self.nuget_packages_directory.is_none()
+            && self.msbuild_project.is_none()
             && self.platform.is_none()
             && self.build_target.is_none()
             && self.test_binaries.is_empty()
@@ -67,6 +73,7 @@ pub fn build_windows_native_modules(
         if module.windows.is_empty() {
             continue;
         }
+        restore_windows_native_packages(&project_dir, &module.name, &module.windows)?;
         let build_project = required_config_path(
             &project_dir,
             module.windows.msbuild_project.as_deref(),
@@ -98,6 +105,47 @@ pub fn build_windows_native_modules(
     }
 
     Ok(products)
+}
+
+fn restore_windows_native_packages(
+    project_dir: &Path,
+    module_name: &str,
+    config: &NativeWindowsModuleConfig,
+) -> Result<()> {
+    let Some(packages_config) = optional_value(config.nuget_packages_config.as_deref()) else {
+        if config.nuget_packages_directory.is_some() {
+            bail!(
+                "Windows native module `{module_name}` sets `nuget_packages_directory` without `nuget_packages_config`"
+            );
+        }
+        return Ok(());
+    };
+    let packages_config = resolve_project_path(project_dir, packages_config);
+    if !packages_config.is_file() {
+        bail!(
+            "Windows native module `{module_name}` NuGet packages config does not exist: {}",
+            packages_config.display()
+        );
+    }
+    let packages_directory = optional_value(config.nuget_packages_directory.as_deref())
+        .map(|path| resolve_project_path(project_dir, path))
+        .unwrap_or_else(|| {
+            packages_config
+                .parent()
+                .unwrap_or(project_dir)
+                .join("packages")
+        });
+    let mut command = Command::new("nuget");
+    command
+        .arg("restore")
+        .arg(&packages_config)
+        .arg("-PackagesDirectory")
+        .arg(&packages_directory)
+        .arg("-NonInteractive");
+    run_status(
+        &mut command,
+        &format!("Windows native module `{module_name}` NuGet restore"),
+    )
 }
 
 pub fn test_windows_native_modules(project_dir: &Path, project: &FissionProject) -> Result<()> {
@@ -316,6 +364,8 @@ app_id = "com.example.demo"
 name = "demo-native"
 
 [native.modules.windows]
+nuget_packages_config = "platforms/windows/native/packages.config"
+nuget_packages_directory = "platforms/windows/native/packages"
 msbuild_project = "platforms/windows/native/Demo.sln"
 platform = "x64"
 test_binaries = ["platforms/windows/native/{platform}/{configuration}/DemoTests.exe"]
@@ -336,6 +386,10 @@ kind = "driver-package"
 
         let module = &project.native.modules[0].windows;
         assert_eq!(module.platform.as_deref(), Some("x64"));
+        assert_eq!(
+            module.nuget_packages_config.as_deref(),
+            Some("platforms/windows/native/packages.config")
+        );
         assert_eq!(module.products.len(), 2);
         assert_eq!(
             module.products[1].kind,
