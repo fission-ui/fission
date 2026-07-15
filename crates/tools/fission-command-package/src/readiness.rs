@@ -83,6 +83,18 @@ pub(super) fn readiness_package(
                 "msbuild",
                 "Install Visual Studio Build Tools and the required Windows SDK/WDK workloads, then use a Developer Command Prompt.",
             ));
+            if project
+                .native
+                .modules
+                .iter()
+                .any(|module| module.windows.nuget_packages_config.is_some())
+            {
+                checks.push(check_tool(
+                    "release.package.windows_nuget_available",
+                    "nuget",
+                    "Install the NuGet CLI so Fission can restore the Windows native module's pinned SDK/WDK packages.",
+                ));
+            }
         }
     }
     if matches!(target, Target::Site) {
