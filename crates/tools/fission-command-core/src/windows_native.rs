@@ -1,6 +1,7 @@
 use crate::FissionProject;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
+use std::env;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
@@ -73,7 +74,8 @@ pub fn build_windows_native_modules(
         if module.windows.is_empty() {
             continue;
         }
-        restore_windows_native_packages(&project_dir, &module.name, &module.windows)?;
+        let native_tool_paths =
+            restore_windows_native_packages(&project_dir, &module.name, &module.windows)?;
         let build_project = required_config_path(
             &project_dir,
             module.windows.msbuild_project.as_deref(),
@@ -88,6 +90,7 @@ pub fn build_windows_native_modules(
             .arg(format!("/t:{target}"))
             .arg(format!("/p:Configuration={configuration}"))
             .arg(format!("/p:Platform={platform}"));
+        prepend_windows_native_tool_paths(&mut command, &native_tool_paths)?;
         run_status(
             &mut command,
             &format!("Windows native module `{}`", module.name),
@@ -111,14 +114,14 @@ fn restore_windows_native_packages(
     project_dir: &Path,
     module_name: &str,
     config: &NativeWindowsModuleConfig,
-) -> Result<()> {
+) -> Result<Vec<PathBuf>> {
     let Some(packages_config) = optional_value(config.nuget_packages_config.as_deref()) else {
         if config.nuget_packages_directory.is_some() {
             bail!(
                 "Windows native module `{module_name}` sets `nuget_packages_directory` without `nuget_packages_config`"
             );
         }
-        return Ok(());
+        return Ok(Vec::new());
     };
     let packages_config = resolve_project_path(project_dir, packages_config);
     if !packages_config.is_file() {
@@ -145,7 +148,69 @@ fn restore_windows_native_packages(
     run_status(
         &mut command,
         &format!("Windows native module `{module_name}` NuGet restore"),
-    )
+    )?;
+
+    discover_windows_native_tool_paths(&packages_directory, env::consts::ARCH)
+}
+
+fn discover_windows_native_tool_paths(
+    packages_directory: &Path,
+    host_architecture: &str,
+) -> Result<Vec<PathBuf>> {
+    let host_architecture = match host_architecture {
+        "x86_64" => "x64",
+        "aarch64" => "ARM64",
+        _ => return Ok(Vec::new()),
+    };
+    let mut paths = Vec::new();
+
+    for package in read_directories(packages_directory)? {
+        let bin_root = package.join("c").join("bin");
+        if !bin_root.is_dir() {
+            continue;
+        }
+        for version in read_directories(&bin_root)? {
+            let candidate = version.join(host_architecture);
+            if candidate.is_dir() {
+                paths.push(candidate);
+            }
+        }
+    }
+
+    paths.sort();
+    paths.dedup();
+    Ok(paths)
+}
+
+fn read_directories(root: &Path) -> Result<Vec<PathBuf>> {
+    let mut paths = Vec::new();
+    for entry in fs::read_dir(root).with_context(|| {
+        format!(
+            "failed to inspect restored NuGet directory {}",
+            root.display()
+        )
+    })? {
+        let entry = entry?;
+        if entry.file_type()?.is_dir() {
+            paths.push(entry.path());
+        }
+    }
+    paths.sort();
+    Ok(paths)
+}
+
+fn prepend_windows_native_tool_paths(command: &mut Command, paths: &[PathBuf]) -> Result<()> {
+    if paths.is_empty() {
+        return Ok(());
+    }
+    let mut combined = paths.to_vec();
+    if let Some(current) = env::var_os("PATH") {
+        combined.extend(env::split_paths(&current));
+    }
+    let joined = env::join_paths(combined)
+        .context("failed to construct PATH for Windows native module tools")?;
+    command.env("PATH", joined);
+    Ok(())
 }
 
 pub fn test_windows_native_modules(project_dir: &Path, project: &FissionProject) -> Result<()> {
@@ -447,6 +512,34 @@ kind = "driver-package"
             b"runtime"
         );
         assert!(!destination.join("driver/driver.sys").exists());
+    }
+
+    #[test]
+    fn discovers_restored_wdk_tools_for_host_architecture() {
+        let root = unique_dir("windows-native-tools");
+        let x64 = root
+            .join("Microsoft.Windows.WDK.x64.10.0.1")
+            .join("c/bin/10.0.1/x64");
+        let arm64 = root
+            .join("Microsoft.Windows.WDK.x64.10.0.1")
+            .join("c/bin/10.0.1/ARM64");
+        fs::create_dir_all(&x64).unwrap();
+        fs::create_dir_all(&arm64).unwrap();
+        fs::write(x64.join("stampinf.exe"), b"fixture").unwrap();
+
+        let paths = discover_windows_native_tool_paths(&root, "x86_64").unwrap();
+
+        assert_eq!(paths, vec![x64]);
+    }
+
+    #[test]
+    fn ignores_restored_packages_without_native_host_tools() {
+        let root = unique_dir("windows-native-no-tools");
+        fs::create_dir_all(root.join("Example.Package.1.0.0/lib/net8.0")).unwrap();
+
+        let paths = discover_windows_native_tool_paths(&root, "x86_64").unwrap();
+
+        assert!(paths.is_empty());
     }
 
     fn unique_dir(label: &str) -> PathBuf {

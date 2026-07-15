@@ -124,6 +124,8 @@ through `vstest.console.exe`.
 
 | Field | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
+| `nuget_packages_config` | string | No | none | Project-relative `packages.config` restored before MSBuild. Restored WDK host-tool directories are added to the MSBuild environment. |
+| `nuget_packages_directory` | string | No | sibling `packages` directory | Project-relative restore destination. Requires `nuget_packages_config`. |
 | `msbuild_project` | string | Yes when products or tests are declared | none | Project-relative `.sln`, `.slnx`, or MSBuild project passed to `msbuild`. |
 | `platform` | string | No | `x64` | MSBuild platform, such as `x64` or `ARM64`. |
 | `build_target` | string | No | `Build` | MSBuild target invoked for the module. |
