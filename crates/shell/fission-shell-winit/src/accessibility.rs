@@ -628,12 +628,13 @@ mod imp {
         semantics: &Semantics,
     ) -> Option<String> {
         if semantics.role == Role::TextInput {
-            runtime
-                .runtime_state
-                .text_edit
-                .get(node_id)
-                .map(|state| state.committed_text())
-                .or_else(|| semantics.value.clone())
+            semantics.value.clone().or_else(|| {
+                runtime
+                    .runtime_state
+                    .text_edit
+                    .get(node_id)
+                    .map(|state| state.committed_text())
+            })
         } else {
             semantics.value.clone()
         }
@@ -1158,6 +1159,37 @@ mod imp {
             };
 
             assert_eq!(access_role_for(&semantics), AccessRole::RadioButton);
+        }
+
+        #[test]
+        fn text_input_value_prefers_lowered_semantics_over_retained_runtime_buffer() {
+            let input = WidgetId::from_u128(20);
+            let mut runtime = Runtime::default();
+            runtime.runtime_state.text_edit.sync_from_runtime(
+                input,
+                "Stale retained buffer",
+                None,
+                None,
+            );
+
+            let semantics = Semantics {
+                role: Role::TextInput,
+                value: Some("Lowered model value".into()),
+                ..Semantics::default()
+            };
+            assert_eq!(
+                semantic_value(&runtime, input, &semantics).as_deref(),
+                Some("Lowered model value")
+            );
+
+            let fallback_semantics = Semantics {
+                role: Role::TextInput,
+                ..Semantics::default()
+            };
+            assert_eq!(
+                semantic_value(&runtime, input, &fallback_semantics).as_deref(),
+                Some("Stale retained buffer")
+            );
         }
     }
 }
