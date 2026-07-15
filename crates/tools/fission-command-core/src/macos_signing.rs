@@ -10,6 +10,7 @@ pub struct MacosPackageConfig {
     pub bundle_id: Option<String>,
     pub minimum_os: Option<String>,
     pub entitlements: Option<String>,
+    pub provisioning_profile: Option<String>,
     pub signing_identity: Option<String>,
     pub installer_identity: Option<String>,
     pub notarize: Option<bool>,
@@ -34,6 +35,7 @@ struct RunRoot {
 #[derive(Debug, Default, Deserialize)]
 struct MacosRunConfig {
     entitlements: Option<String>,
+    provisioning_profile: Option<String>,
     signing_identity: Option<String>,
 }
 
@@ -52,6 +54,9 @@ fn run_config(manifest: PackageManifest) -> MacosPackageConfig {
     if let Some(run) = run {
         if run.entitlements.is_some() {
             config.entitlements = run.entitlements;
+        }
+        if run.provisioning_profile.is_some() {
+            config.provisioning_profile = run.provisioning_profile;
         }
         if run.signing_identity.is_some() {
             config.signing_identity = run.signing_identity;
@@ -78,11 +83,25 @@ pub fn sign_macos_app_if_configured(
     app_bundle: &Path,
     macos: &MacosPackageConfig,
 ) -> Result<()> {
-    let Some(identity) = macos
+    let identity = macos
         .signing_identity
         .as_deref()
-        .filter(|value| !value.trim().is_empty())
-    else {
+        .filter(|value| !value.trim().is_empty());
+    let profile = macos
+        .provisioning_profile
+        .as_deref()
+        .filter(|value| !value.trim().is_empty());
+
+    if profile.is_some() && identity.is_none() {
+        bail!(
+            "macOS provisioning_profile requires package.macos.signing_identity or run.macos.signing_identity"
+        );
+    }
+    if let Some(profile) = profile {
+        embed_macos_provisioning_profile(project_dir, app_bundle, profile)?;
+    }
+
+    let Some(identity) = identity else {
         return Ok(());
     };
 
@@ -103,6 +122,30 @@ pub fn sign_macos_app_if_configured(
     if !verify.success() {
         bail!("codesign verification failed with {verify}");
     }
+    Ok(())
+}
+
+fn embed_macos_provisioning_profile(
+    project_dir: &Path,
+    app_bundle: &Path,
+    profile: &str,
+) -> Result<()> {
+    let source = resolve_project_path(project_dir, profile);
+    if !source.is_file() {
+        bail!(
+            "macOS provisioning profile does not exist or is not a file: {}",
+            source.display()
+        );
+    }
+
+    let destination = app_bundle.join("Contents/embedded.provisionprofile");
+    fs::copy(&source, &destination).with_context(|| {
+        format!(
+            "failed to embed macOS provisioning profile {} at {}",
+            source.display(),
+            destination.display()
+        )
+    })?;
     Ok(())
 }
 
@@ -151,12 +194,14 @@ mod tests {
 bundle_id = "com.example.app"
 minimum_os = "14.0"
 entitlements = "platforms/macos/App.entitlements"
+provisioning_profile = "profiles/Developer.provisionprofile"
 signing_identity = "Apple Development"
 installer_identity = "Developer ID Installer"
 notarize = true
 
 [run.macos]
 entitlements = "platforms/macos/Development.entitlements"
+provisioning_profile = "profiles/Developer-Local.provisionprofile"
 signing_identity = "-"
 "#,
         )
@@ -168,6 +213,7 @@ signing_identity = "-"
                 bundle_id: Some("com.example.app".into()),
                 minimum_os: Some("14.0".into()),
                 entitlements: Some("platforms/macos/App.entitlements".into()),
+                provisioning_profile: Some("profiles/Developer.provisionprofile".into()),
                 signing_identity: Some("Apple Development".into()),
                 installer_identity: Some("Developer ID Installer".into()),
                 notarize: Some(true),
@@ -177,6 +223,10 @@ signing_identity = "-"
         assert_eq!(
             run.entitlements.as_deref(),
             Some("platforms/macos/Development.entitlements")
+        );
+        assert_eq!(
+            run.provisioning_profile.as_deref(),
+            Some("profiles/Developer-Local.provisionprofile")
         );
         assert_eq!(run.signing_identity.as_deref(), Some("-"));
     }
@@ -211,10 +261,12 @@ signing_identity = "-"
 bundle_id = "com.example.app"
 minimum_os = "14.0"
 entitlements = "platforms/macos/Release.entitlements"
+provisioning_profile = "profiles/Release.provisionprofile"
 signing_identity = "Apple Development"
 
 [run.macos]
 entitlements = "platforms/macos/Development.entitlements"
+provisioning_profile = "profiles/Development.provisionprofile"
 signing_identity = "-"
 "#,
         )
@@ -227,6 +279,52 @@ signing_identity = "-"
             config.entitlements.as_deref(),
             Some("platforms/macos/Development.entitlements")
         );
+        assert_eq!(
+            config.provisioning_profile.as_deref(),
+            Some("profiles/Development.provisionprofile")
+        );
         assert_eq!(config.signing_identity.as_deref(), Some("-"));
+    }
+
+    #[test]
+    fn embeds_relative_macos_provisioning_profile() {
+        let root =
+            std::env::temp_dir().join(format!("fission-macos-profile-{}", std::process::id()));
+        let project = root.join("project");
+        let app = root.join("Demo.app");
+        fs::remove_dir_all(&root).ok();
+        fs::create_dir_all(project.join("profiles")).unwrap();
+        fs::create_dir_all(app.join("Contents")).unwrap();
+        fs::write(
+            project.join("profiles/Development.provisionprofile"),
+            b"profile-data",
+        )
+        .unwrap();
+
+        embed_macos_provisioning_profile(&project, &app, "profiles/Development.provisionprofile")
+            .unwrap();
+
+        assert_eq!(
+            fs::read(app.join("Contents/embedded.provisionprofile")).unwrap(),
+            b"profile-data"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn provisioning_profile_requires_signing_identity() {
+        let config = MacosPackageConfig {
+            provisioning_profile: Some("profiles/Development.provisionprofile".into()),
+            ..Default::default()
+        };
+
+        let error = sign_macos_app_if_configured(
+            Path::new("/project"),
+            Path::new("/project/Demo.app"),
+            &config,
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("requires"));
     }
 }

@@ -212,6 +212,30 @@ The intended daily workflow is:
 
 Device ids are stable enough for scripts: Android uses the `adb` serial, iOS uses the simulator UDID, web uses `chrome`, and desktop uses `desktop`.
 
+### macOS development signing
+
+`fission run --target macos` builds a real `.app` bundle and uses the signing
+settings from `[package.macos]`. Development runs can override the signing-only
+inputs without changing release packaging:
+
+```toml
+[package.macos]
+bundle_id = "com.example.todo"
+entitlements = "platforms/macos/Release.entitlements"
+provisioning_profile = "profiles/Developer.provisionprofile"
+signing_identity = "Apple Development"
+
+[run.macos]
+entitlements = "platforms/macos/Development.entitlements"
+provisioning_profile = "profiles/Developer-Local.provisionprofile"
+signing_identity = "Apple Development"
+```
+
+Relative entitlement and provisioning-profile paths are resolved from the
+project directory. When configured, Fission embeds the profile at
+`Contents/embedded.provisionprofile` before signing and verifies the completed
+bundle with `codesign`. A provisioning profile requires a signing identity.
+
 ## Toolchains, env vars, and paths
 
 Install the Rust targets:
