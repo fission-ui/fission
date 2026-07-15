@@ -1158,12 +1158,7 @@ fn build_desktop_binary(project_dir: &Path, release: bool) -> Result<DesktopBina
             project_dir.join("Cargo.toml").display()
         )
     })?;
-    let package = metadata
-        .packages
-        .iter()
-        .find(|package| package.manifest_path == manifest_path)
-        .or_else(|| metadata.packages.first())
-        .context("cargo metadata did not include a package for this project")?;
+    let package = desktop_package_for_manifest(&metadata, &manifest_path)?;
     let executable_name = package
         .targets
         .iter()
@@ -1212,6 +1207,35 @@ fn build_desktop_binary(project_dir: &Path, release: bool) -> Result<DesktopBina
         executable_name,
         path,
     })
+}
+
+fn desktop_package_for_manifest<'a>(
+    metadata: &'a CargoMetadata,
+    manifest_path: &Path,
+) -> Result<&'a CargoMetadataPackage> {
+    metadata
+        .packages
+        .iter()
+        .find(|package| package.manifest_path == manifest_path)
+        .or_else(|| {
+            metadata
+                .packages
+                .iter()
+                .find(|package| paths_refer_to_same_file(&package.manifest_path, manifest_path))
+        })
+        .with_context(|| {
+            format!(
+                "cargo metadata did not include the project package at {}",
+                manifest_path.display()
+            )
+        })
+}
+
+fn paths_refer_to_same_file(left: &Path, right: &Path) -> bool {
+    match (fs::canonicalize(left), fs::canonicalize(right)) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
+    }
 }
 
 fn cargo_metadata(project_dir: &Path) -> Result<CargoMetadata> {
@@ -2058,6 +2082,15 @@ mod tests {
     use super::*;
     use std::collections::BTreeSet;
 
+    fn metadata_package(name: &str, manifest_path: &str) -> CargoMetadataPackage {
+        CargoMetadataPackage {
+            name: name.into(),
+            version: "0.1.0".into(),
+            manifest_path: PathBuf::from(manifest_path),
+            targets: Vec::new(),
+        }
+    }
+
     fn project() -> FissionProject {
         FissionProject {
             app: fission_command_core::AppConfig {
@@ -2104,5 +2137,43 @@ mod tests {
 
         assert!(plist.contains("<string>com.example.packaged</string>"));
         assert!(plist.contains("<key>LSMinimumSystemVersion</key>\n  <string>14.0</string>"));
+    }
+
+    #[test]
+    fn desktop_package_selection_uses_nested_project_manifest() {
+        let metadata = CargoMetadata {
+            packages: vec![
+                metadata_package("workspace-first", "/workspace/crates/first/Cargo.toml"),
+                metadata_package("desktop", "/workspace/crates/desktop/Cargo.toml"),
+            ],
+            target_directory: PathBuf::from("/workspace/target"),
+        };
+
+        let package = desktop_package_for_manifest(
+            &metadata,
+            Path::new("/workspace/crates/desktop/Cargo.toml"),
+        )
+        .expect("desktop package should be selected");
+
+        assert_eq!(package.name, "desktop");
+    }
+
+    #[test]
+    fn desktop_package_selection_does_not_fall_back_to_first_workspace_member() {
+        let metadata = CargoMetadata {
+            packages: vec![metadata_package(
+                "workspace-first",
+                "/workspace/crates/first/Cargo.toml",
+            )],
+            target_directory: PathBuf::from("/workspace/target"),
+        };
+
+        let error = desktop_package_for_manifest(
+            &metadata,
+            Path::new("/workspace/crates/desktop/Cargo.toml"),
+        )
+        .expect_err("an unmatched project manifest must fail");
+
+        assert!(error.to_string().contains("crates/desktop/Cargo.toml"));
     }
 }
