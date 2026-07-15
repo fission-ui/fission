@@ -4,5 +4,5 @@
 	branch = worka
 [submodule "third_party/vello"]
 	path = third_party/vello
-	url = git@github.com:worka-ai/vello.git
+	url = https://github.com/worka-ai/vello.git
 	branch = worka/dynamic-gpu-buffers
