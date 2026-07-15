@@ -47,6 +47,14 @@ locations, signs those nested products, and signs the containing app last. The
 same declaration is used by `fission build`, `fission test`, `fission run`, and
 `fission package`; app-specific build scripts should not duplicate that work.
 
+Linux Cargo-native products use `[native.modules.linux]`. Fission builds and
+tests the declared package, stages runtime files and privileged helpers into
+development and package roots, and embeds a digest-bearing native-products
+manifest in Linux `.run` payloads. `privileged-helper` is packaging metadata;
+Fission never silently adds setuid bits, capabilities, or an elevation policy.
+The application installer remains responsible for an explicit, auditable
+privilege transaction.
+
 Windows MSBuild/WDK products use `[native.modules.windows]`. Runtime products
 are staged beside the app for local runs and are exposed to package scripts in a
 structured native-products manifest. Products marked `driver-package` are

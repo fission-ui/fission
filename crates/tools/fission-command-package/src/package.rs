@@ -2,11 +2,13 @@ use super::*;
 use anyhow::{bail, Context, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use fission_command_core::{
-    build_windows_native_modules, cargo_package_name, embed_and_sign_macos_native_modules,
-    normalized_extension, read_macos_package_config, read_project_config, resolve_app_icon,
-    sign_macos_app_if_configured, stage_windows_runtime_products, sync_platform_config,
-    BuiltWindowsNativeProduct, FissionProject, MacosNativeBundleMode, MacosPackageConfig,
-    NativeWindowsProductKind, PlatformCapability, Target,
+    build_linux_native_modules, build_windows_native_modules, cargo_package_name,
+    embed_and_sign_macos_native_modules, normalized_extension, read_macos_package_config,
+    read_project_config, resolve_app_icon, sign_macos_app_if_configured,
+    stage_linux_native_products, stage_windows_runtime_products, sync_platform_config,
+    BuiltLinuxNativeProduct, BuiltWindowsNativeProduct, FissionProject, MacosNativeBundleMode,
+    MacosPackageConfig, NativeLinuxProductKind, NativeWindowsProductKind, PlatformCapability,
+    Target,
 };
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -247,6 +249,10 @@ fn package_linux_run(options: &PackageOptions) -> Result<ArtifactManifest> {
             payload_dir.display()
         )
     })?;
+    let native_products =
+        build_linux_native_modules(&options.project_dir, &project, options.release)?;
+    stage_linux_native_products(&payload_dir, &native_products)?;
+    write_linux_native_products_manifest(&payload_dir, &native_products, profile, "run")?;
     copy_optional_assets(&options.project_dir, &payload_dir)?;
 
     let package_name = sanitize_file_stem(&project.app.name);
@@ -1406,8 +1412,22 @@ fn require_host_os(target: Target) -> Result<()> {
 }
 
 fn build_desktop_binary(project_dir: &Path, release: bool) -> Result<PathBuf> {
+    let project_dir = fs::canonicalize(project_dir).with_context(|| {
+        format!(
+            "failed to resolve project directory {}",
+            project_dir.display()
+        )
+    })?;
+    let manifest_path = project_dir.join("Cargo.toml");
+    let name = cargo_package_name(&project_dir).context("Cargo.toml package.name is required")?;
     let mut command = Command::new("cargo");
-    command.arg("build").current_dir(project_dir);
+    command
+        .arg("build")
+        .arg("--manifest-path")
+        .arg(&manifest_path)
+        .arg("--package")
+        .arg(&name)
+        .current_dir(&project_dir);
     if release {
         command.arg("--release");
     }
@@ -1415,20 +1435,47 @@ fn build_desktop_binary(project_dir: &Path, release: bool) -> Result<PathBuf> {
     if !status.success() {
         bail!("desktop build failed with {status}");
     }
-    let name = cargo_package_name(project_dir).context("Cargo.toml package.name is required")?;
+    let target_directory = cargo_target_directory(&project_dir, &manifest_path)?;
     let executable = if cfg!(target_os = "windows") {
         format!("{name}.exe")
     } else {
         name
     };
-    let path = project_dir
-        .join("target")
+    let path = target_directory
         .join(profile_name(release))
         .join(executable);
     if !path.exists() {
         bail!("expected built binary at {}", path.display());
     }
     Ok(path)
+}
+
+#[derive(Deserialize)]
+struct CargoTargetMetadata {
+    target_directory: PathBuf,
+}
+
+fn cargo_target_directory(project_dir: &Path, manifest_path: &Path) -> Result<PathBuf> {
+    let output = Command::new("cargo")
+        .arg("metadata")
+        .arg("--format-version")
+        .arg("1")
+        .arg("--no-deps")
+        .arg("--manifest-path")
+        .arg(manifest_path)
+        .current_dir(project_dir)
+        .output()
+        .context("failed to run cargo metadata for desktop package")?;
+    if !output.status.success() {
+        bail!(
+            "cargo metadata failed with {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    let metadata: CargoTargetMetadata = serde_json::from_slice(&output.stdout)
+        .context("failed to parse cargo metadata for desktop package")?;
+    Ok(metadata.target_directory)
 }
 
 fn create_macos_app_bundle(
@@ -1811,6 +1858,119 @@ fn copy_optional_assets(project_dir: &Path, dest: &Path) -> Result<()> {
     let assets = project_dir.join("assets");
     if assets.exists() {
         copy_dir_contents(&assets, &dest.join("assets"))?;
+    }
+    Ok(())
+}
+
+#[derive(Serialize)]
+struct LinuxNativeProductsManifest<'a> {
+    schema_version: u32,
+    profile: &'a str,
+    package_format: &'a str,
+    products: Vec<LinuxNativeProductReceipt<'a>>,
+}
+
+#[derive(Serialize)]
+struct LinuxNativeProductReceipt<'a> {
+    module: &'a str,
+    name: &'a str,
+    kind: NativeLinuxProductKind,
+    destination: String,
+    sha256: String,
+    size_bytes: u64,
+}
+
+fn write_linux_native_products_manifest(
+    payload_dir: &Path,
+    products: &[BuiltLinuxNativeProduct],
+    profile: &str,
+    package_format: &str,
+) -> Result<PathBuf> {
+    let products = products
+        .iter()
+        .map(|product| {
+            let staged = payload_dir.join(&product.destination);
+            let (sha256, size_bytes) = hash_native_product(&staged)?;
+            Ok(LinuxNativeProductReceipt {
+                module: &product.module,
+                name: &product.name,
+                kind: product.kind,
+                destination: product.destination.to_string_lossy().replace('\\', "/"),
+                sha256,
+                size_bytes,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let path = payload_dir.join(".fission/native/linux-products.json");
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let manifest = LinuxNativeProductsManifest {
+        schema_version: 1,
+        profile,
+        package_format,
+        products,
+    };
+    fs::write(&path, serde_json::to_vec_pretty(&manifest)?).with_context(|| {
+        format!(
+            "failed to write Linux native product manifest {}",
+            path.display()
+        )
+    })?;
+    Ok(path)
+}
+
+fn hash_native_product(path: &Path) -> Result<(String, u64)> {
+    if path.is_file() {
+        return hash_file(path);
+    }
+    if !path.is_dir() {
+        bail!(
+            "Linux native product is not a file or directory: {}",
+            path.display()
+        );
+    }
+    let mut files = Vec::new();
+    collect_native_product_files(path, path, &mut files)?;
+    files.sort();
+    let mut digest = Sha256::new();
+    let mut total_size = 0_u64;
+    for file in files {
+        let relative = file
+            .strip_prefix(path)
+            .unwrap_or(&file)
+            .to_string_lossy()
+            .replace('\\', "/");
+        let (file_sha256, size_bytes) = hash_file(&file)?;
+        digest.update((relative.len() as u64).to_le_bytes());
+        digest.update(relative.as_bytes());
+        digest.update(file_sha256.as_bytes());
+        digest.update(size_bytes.to_le_bytes());
+        total_size = total_size.saturating_add(size_bytes);
+    }
+    Ok((format!("{:x}", digest.finalize()), total_size))
+}
+
+fn collect_native_product_files(
+    root: &Path,
+    current: &Path,
+    files: &mut Vec<PathBuf>,
+) -> Result<()> {
+    for entry in fs::read_dir(current)
+        .with_context(|| format!("failed to inspect Linux native product {}", root.display()))?
+    {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            collect_native_product_files(root, &entry.path(), files)?;
+        } else if file_type.is_file() {
+            files.push(entry.path());
+        } else {
+            bail!(
+                "Linux native product contains an unsupported filesystem entry: {}",
+                entry.path().display()
+            );
+        }
     }
     Ok(())
 }

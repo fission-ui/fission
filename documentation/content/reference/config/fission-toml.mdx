@@ -115,6 +115,51 @@ provisioning_profile = "profiles/FileProviderDevelopment.provisionprofile"
 signing_identity = "Apple Development"
 ```
 
+### `[native.modules.linux]`
+
+Linux native modules attach a Cargo package to the desktop lifecycle. `fission
+build`, `fission run`, and `fission package` build the declared package;
+`fission test --target linux` runs its tests. Products are staged under their
+declared relative destinations for local runs and Linux `.run` packages.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `cargo_manifest_path` | string | No | `<native.modules.path>/Cargo.toml`, then the app `Cargo.toml` | Project-relative Cargo manifest used for the native package. |
+| `cargo_package` | string | Yes | none | Exact Cargo package passed with `--package`. |
+| `features` | array of strings | No | `[]` | Cargo features enabled for build and test. |
+| `no_default_features` | boolean | No | `false` | Passes `--no-default-features` to Cargo. |
+
+Each `[[native.modules.linux.products]]` entry accepts:
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `name` | string | Yes | Stable product identity recorded in the native-products manifest. |
+| `path` | string | Yes | Built file or directory. Supports `{configuration}`, `{profile}`, and `{architecture}`. |
+| `kind` | string | Yes | `runtime` or `privileged-helper`. Both are staged, but privileged helpers remain explicitly classified for installer policy and review. |
+| `destination` | string | No | Safe relative path under the run/package root. Defaults to the source file or directory name. |
+
+Fission preserves executable modes and rejects destination traversal and
+overwrites. It does not grant privileges to a `privileged-helper`; an installer
+must explicitly install and authorize that helper according to the product's
+platform security design.
+
+```toml
+[[native.modules]]
+name = "linux-protection"
+path = "../linux-mount-helper"
+
+[native.modules.linux]
+cargo_package = "linux-mount-helper"
+no_default_features = true
+features = ["kernel-fuse"]
+
+[[native.modules.linux.products]]
+name = "mount-helper"
+path = "../../target/{profile}/linux-mount-helper"
+kind = "privileged-helper"
+destination = "libexec/linux-mount-helper"
+```
+
 ### `[native.modules.windows]`
 
 Windows native modules attach an MSBuild/WDK project to the desktop lifecycle.

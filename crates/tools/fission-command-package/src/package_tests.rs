@@ -483,6 +483,37 @@ fn msix_native_manifest_excludes_driver_packages() {
 }
 
 #[test]
+fn linux_native_manifest_records_staged_product_digest() {
+    let root = std::env::temp_dir().join(format!(
+        "fission-linux-native-manifest-{}",
+        std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&root);
+    let staged = root.join("libexec/mount-helper");
+    fs::create_dir_all(staged.parent().unwrap()).unwrap();
+    fs::write(&staged, b"helper").unwrap();
+    let products = vec![BuiltLinuxNativeProduct {
+        module: "security".into(),
+        name: "mount-helper".into(),
+        kind: NativeLinuxProductKind::PrivilegedHelper,
+        source: root.join("build/mount-helper"),
+        destination: PathBuf::from("libexec/mount-helper"),
+    }];
+
+    let manifest =
+        write_linux_native_products_manifest(&root, &products, "release", "run").unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&fs::read(manifest).unwrap()).unwrap();
+
+    assert_eq!(value["products"][0]["kind"], "privileged-helper");
+    assert_eq!(value["products"][0]["size_bytes"], 6);
+    assert_eq!(
+        value["products"][0]["sha256"],
+        "e81d3b0e9d82feaaf5f6e55bdff24731d7eee08632ffa63801e6397290c5d20a"
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn windows_package_config_reads_exe_installer_script() {
     let root = std::env::temp_dir().join(format!(
         "fission-windows-package-config-{}",

@@ -13,11 +13,17 @@ const GENERATED_APP_AGENTS_MARKER: &str = "<!-- fission-cli-generated-agents:v1 
 const GENERATED_APP_AGENTS_MD: &str = include_str!("../assets/AGENTS.md");
 
 mod icons;
+mod linux_native;
 mod macos_native;
 mod macos_signing;
 mod splash;
 mod windows_native;
 pub use icons::{copy_icon_for_bundle, normalized_extension, resolve_app_icon, ResolvedIcon};
+pub use linux_native::{
+    build_linux_native_modules, stage_linux_native_products, test_linux_native_modules,
+    BuiltLinuxNativeProduct, NativeLinuxModuleConfig, NativeLinuxProductConfig,
+    NativeLinuxProductKind,
+};
 pub use macos_native::{
     build_macos_native_modules, embed_and_sign_macos_native_modules, test_macos_native_modules,
     MacosNativeBundleMode, NativeMacosModuleConfig, NativeMacosProductConfig,
@@ -268,6 +274,8 @@ pub struct NativeModuleConfig {
     pub android: NativeAndroidModuleConfig,
     #[serde(default, skip_serializing_if = "NativeIosModuleConfig::is_empty")]
     pub ios: NativeIosModuleConfig,
+    #[serde(default, skip_serializing_if = "NativeLinuxModuleConfig::is_empty")]
+    pub linux: NativeLinuxModuleConfig,
     #[serde(default, skip_serializing_if = "NativeMacosModuleConfig::is_empty")]
     pub macos: NativeMacosModuleConfig,
     #[serde(default, skip_serializing_if = "NativeWindowsModuleConfig::is_empty")]

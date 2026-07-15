@@ -2,11 +2,12 @@ pub mod doctor;
 
 use anyhow::{bail, Context, Result};
 use fission_command_core::{
-    build_macos_native_modules, build_windows_native_modules, embed_and_sign_macos_native_modules,
-    ios_executable_name, normalized_extension, read_macos_run_config, read_project_config,
-    resolve_app_icon, sign_macos_app_if_configured, stage_windows_runtime_products,
-    sync_platform_config, test_macos_native_modules, test_windows_native_modules, FissionProject,
-    MacosNativeBundleMode, MacosPackageConfig, PlatformCapability, Target,
+    build_linux_native_modules, build_macos_native_modules, build_windows_native_modules,
+    embed_and_sign_macos_native_modules, ios_executable_name, normalized_extension,
+    read_macos_run_config, read_project_config, resolve_app_icon, sign_macos_app_if_configured,
+    stage_linux_native_products, stage_windows_runtime_products, sync_platform_config,
+    test_linux_native_modules, test_macos_native_modules, test_windows_native_modules,
+    FissionProject, MacosNativeBundleMode, MacosPackageConfig, PlatformCapability, Target,
 };
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -171,7 +172,9 @@ pub fn build_app(options: BuildOptions) -> Result<()> {
     match target {
         Target::Linux => {
             require_desktop_host(target)?;
-            build_desktop(&options.project_dir, options.release)
+            build_desktop(&options.project_dir, options.release)?;
+            build_linux_native_modules(&options.project_dir, &project, options.release)?;
+            Ok(())
         }
         Target::Windows => {
             require_desktop_host(target)?;
@@ -217,7 +220,8 @@ pub fn test_app(options: TestOptions) -> Result<()> {
             require_desktop_host(target)?;
             let mut command = Command::new("cargo");
             command.arg("test").current_dir(&options.project_dir);
-            run_status(&mut command, "desktop tests")
+            run_status(&mut command, "desktop tests")?;
+            test_linux_native_modules(&options.project_dir, &project)
         }
         Target::Windows => {
             require_desktop_host(target)?;
@@ -1355,6 +1359,8 @@ fn package_linux_run_app(
         applications_dir.join(format!("{}.desktop", project.app.app_id)),
         render_linux_desktop_entry(project, &executable),
     )?;
+    let native_products = build_linux_native_modules(&project_dir, project, release)?;
+    stage_linux_native_products(&app_root, &native_products)?;
     Ok(DesktopRunApp { executable })
 }
 
