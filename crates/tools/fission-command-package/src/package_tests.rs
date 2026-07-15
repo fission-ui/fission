@@ -446,3 +446,64 @@ fn terminal_run_package_validation_writes_passing_install_smoke_receipt() {
 
     let _ = fs::remove_dir_all(root);
 }
+
+#[test]
+fn msix_native_manifest_excludes_driver_packages() {
+    let root = std::env::temp_dir().join(format!(
+        "fission-windows-native-manifest-{}",
+        std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    let products = vec![
+        BuiltWindowsNativeProduct {
+            module: "security".into(),
+            name: "provider".into(),
+            kind: NativeWindowsProductKind::Runtime,
+            source: root.join("provider.dll"),
+            destination: PathBuf::from("native/provider.dll"),
+        },
+        BuiltWindowsNativeProduct {
+            module: "security".into(),
+            name: "minifilter".into(),
+            kind: NativeWindowsProductKind::DriverPackage,
+            source: root.join("driver"),
+            destination: PathBuf::from("driver"),
+        },
+    ];
+
+    let manifest =
+        write_windows_native_products_manifest(&root, &products, false, "release", "msix").unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&fs::read(manifest).unwrap()).unwrap();
+    let products = value["products"].as_array().unwrap();
+
+    assert_eq!(products.len(), 1);
+    assert_eq!(products[0]["kind"], "runtime");
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn windows_package_config_reads_exe_installer_script() {
+    let root = std::env::temp_dir().join(format!(
+        "fission-windows-package-config-{}",
+        std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    fs::write(
+        root.join("fission.toml"),
+        r#"
+[package.windows]
+exe_installer_script = "platforms/windows/package-exe.ps1"
+"#,
+    )
+    .unwrap();
+
+    let config = windows_package_config(&root).unwrap();
+
+    assert_eq!(
+        config.exe_installer_script.as_deref(),
+        Some("platforms/windows/package-exe.ps1")
+    );
+    let _ = fs::remove_dir_all(root);
+}

@@ -2,9 +2,10 @@ pub mod doctor;
 
 use anyhow::{bail, Context, Result};
 use fission_command_core::{
-    build_macos_native_modules, embed_and_sign_macos_native_modules, ios_executable_name,
-    normalized_extension, read_macos_run_config, read_project_config, resolve_app_icon,
-    sign_macos_app_if_configured, sync_platform_config, test_macos_native_modules, FissionProject,
+    build_macos_native_modules, build_windows_native_modules, embed_and_sign_macos_native_modules,
+    ios_executable_name, normalized_extension, read_macos_run_config, read_project_config,
+    resolve_app_icon, sign_macos_app_if_configured, stage_windows_runtime_products,
+    sync_platform_config, test_macos_native_modules, test_windows_native_modules, FissionProject,
     MacosNativeBundleMode, MacosPackageConfig, PlatformCapability, Target,
 };
 use serde::{Deserialize, Serialize};
@@ -168,9 +169,15 @@ pub fn build_app(options: BuildOptions) -> Result<()> {
     sync_target_platform_config(&options.project_dir, &project, target)?;
 
     match target {
-        Target::Linux | Target::Windows => {
+        Target::Linux => {
             require_desktop_host(target)?;
             build_desktop(&options.project_dir, options.release)
+        }
+        Target::Windows => {
+            require_desktop_host(target)?;
+            build_desktop(&options.project_dir, options.release)?;
+            build_windows_native_modules(&options.project_dir, &project, options.release)?;
+            Ok(())
         }
         Target::Macos => {
             require_desktop_host(target)?;
@@ -206,11 +213,18 @@ pub fn test_app(options: TestOptions) -> Result<()> {
     sync_target_platform_config(&options.project_dir, &project, target)?;
 
     match target {
-        Target::Linux | Target::Windows => {
+        Target::Linux => {
             require_desktop_host(target)?;
             let mut command = Command::new("cargo");
             command.arg("test").current_dir(&options.project_dir);
             run_status(&mut command, "desktop tests")
+        }
+        Target::Windows => {
+            require_desktop_host(target)?;
+            let mut command = Command::new("cargo");
+            command.arg("test").current_dir(&options.project_dir);
+            run_status(&mut command, "desktop tests")?;
+            test_windows_native_modules(&options.project_dir, &project)
         }
         Target::Macos => {
             require_desktop_host(target)?;
@@ -1395,6 +1409,8 @@ fn package_windows_run_app(
         )),
         render_windows_development_manifest(project),
     )?;
+    let native_products = build_windows_native_modules(&project_dir, project, release)?;
+    stage_windows_runtime_products(&app_root, &native_products)?;
     Ok(DesktopRunApp { executable })
 }
 

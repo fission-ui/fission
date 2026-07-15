@@ -2,17 +2,18 @@ use super::*;
 use anyhow::{bail, Context, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use fission_command_core::{
-    cargo_package_name, embed_and_sign_macos_native_modules, normalized_extension,
-    read_macos_package_config, read_project_config, resolve_app_icon, sign_macos_app_if_configured,
-    sync_platform_config, FissionProject, MacosNativeBundleMode, MacosPackageConfig,
-    PlatformCapability, Target,
+    build_windows_native_modules, cargo_package_name, embed_and_sign_macos_native_modules,
+    normalized_extension, read_macos_package_config, read_project_config, resolve_app_icon,
+    sign_macos_app_if_configured, stage_windows_runtime_products, sync_platform_config,
+    BuiltWindowsNativeProduct, FissionProject, MacosNativeBundleMode, MacosPackageConfig,
+    NativeWindowsProductKind, PlatformCapability, Target,
 };
 use flate2::write::GzEncoder;
 use flate2::Compression;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::env;
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -27,12 +28,18 @@ struct PackageManifest {
 #[derive(Debug, Deserialize, Default)]
 struct PackageRoot {
     docker: Option<DockerPackageConfig>,
+    windows: Option<WindowsPackageConfig>,
     #[serde(default)]
     secondary_artifacts: Vec<SecondaryArtifactConfig>,
     #[serde(default)]
     symbols: Vec<SecondaryArtifactConfig>,
     #[serde(default)]
     crash_assets: Vec<SecondaryArtifactConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
+struct WindowsPackageConfig {
+    exe_installer_script: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -358,10 +365,58 @@ fn package_windows_exe(options: &PackageOptions) -> Result<ArtifactManifest> {
     let profile = profile_name(options.release);
     let staging_dir = clean_package_dir(options)?;
     let binary = build_desktop_binary(&options.project_dir, options.release)?;
-    let dest = staging_dir.join(binary.file_name().unwrap_or_else(|| OsStr::new("app.exe")));
-    fs::copy(&binary, &dest)
-        .with_context(|| format!("failed to copy {} to {}", binary.display(), dest.display()))?;
-    copy_optional_assets(&options.project_dir, &staging_dir)?;
+    let native_products =
+        build_windows_native_modules(&options.project_dir, &project, options.release)?;
+    let windows = windows_package_config(&options.project_dir)?;
+    if let Some(script) = windows
+        .exe_installer_script
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let script = resolve_project_path(&options.project_dir, script.to_string());
+        let manifest = write_windows_native_products_manifest(
+            &options.project_dir,
+            &native_products,
+            true,
+            profile,
+            "exe",
+        )?;
+        let environment = windows_packaging_environment(&binary, &manifest);
+        let output_path = run_packaging_script_with_env(
+            &options.project_dir,
+            &script,
+            options.release,
+            &environment,
+        )?
+        .with_context(|| format!("{} did not print an .exe path", script.display()))?;
+        if output_path.extension().and_then(OsStr::to_str) != Some("exe") {
+            bail!(
+                "{} printed {}, expected an .exe installer",
+                script.display(),
+                output_path.display()
+            );
+        }
+        let destination = staging_dir.join(
+            output_path
+                .file_name()
+                .unwrap_or_else(|| OsStr::new("installer.exe")),
+        );
+        fs::copy(&output_path, &destination).with_context(|| {
+            format!(
+                "failed to copy Windows installer {} to {}",
+                output_path.display(),
+                destination.display()
+            )
+        })?;
+    } else {
+        let dest = staging_dir.join(binary.file_name().unwrap_or_else(|| OsStr::new("app.exe")));
+        fs::copy(&binary, &dest).with_context(|| {
+            format!("failed to copy {} to {}", binary.display(), dest.display())
+        })?;
+        stage_windows_runtime_products(&staging_dir, &native_products)?;
+        copy_optional_assets(&options.project_dir, &staging_dir)?;
+    }
     finish_artifact_manifest(&project, options, &staging_dir, profile)
 }
 
@@ -417,8 +472,28 @@ fn package_with_project_script(
             script.display()
         );
     }
-    let output_path = run_packaging_script(&options.project_dir, &script, options.release)?
-        .with_context(|| format!("{} did not print a package path", script.display()))?;
+    let mut environment = Vec::new();
+    if target == Target::Windows {
+        let binary = build_desktop_binary(&options.project_dir, options.release)?;
+        let native_products =
+            build_windows_native_modules(&options.project_dir, &project, options.release)?;
+        let include_driver_packages = options.format != PackageFormat::Msix;
+        let manifest = write_windows_native_products_manifest(
+            &options.project_dir,
+            &native_products,
+            include_driver_packages,
+            profile,
+            options.format.as_str(),
+        )?;
+        environment = windows_packaging_environment(&binary, &manifest);
+    }
+    let output_path = run_packaging_script_with_env(
+        &options.project_dir,
+        &script,
+        options.release,
+        &environment,
+    )?
+    .with_context(|| format!("{} did not print a package path", script.display()))?;
     if output_path.extension().and_then(OsStr::to_str) != Some(expected_extension) {
         bail!(
             "{} printed {}, expected a .{} artifact",
@@ -596,6 +671,13 @@ fn docker_package_config(project_dir: &Path) -> Result<DockerPackageConfig> {
             tags: None,
             build: None,
         }))
+}
+
+fn windows_package_config(project_dir: &Path) -> Result<WindowsPackageConfig> {
+    Ok(package_manifest(project_dir)?
+        .package
+        .and_then(|package| package.windows)
+        .unwrap_or_default())
 }
 
 fn docker_image_tags(
@@ -1733,10 +1815,71 @@ fn copy_optional_assets(project_dir: &Path, dest: &Path) -> Result<()> {
     Ok(())
 }
 
+#[derive(Serialize)]
+struct WindowsNativeProductsManifest<'a> {
+    schema_version: u32,
+    profile: &'a str,
+    package_format: &'a str,
+    products: Vec<&'a BuiltWindowsNativeProduct>,
+}
+
+fn write_windows_native_products_manifest(
+    project_dir: &Path,
+    products: &[BuiltWindowsNativeProduct],
+    include_driver_packages: bool,
+    profile: &str,
+    package_format: &str,
+) -> Result<PathBuf> {
+    let products = products
+        .iter()
+        .filter(|product| {
+            include_driver_packages || product.kind != NativeWindowsProductKind::DriverPackage
+        })
+        .collect::<Vec<_>>();
+    let directory = project_dir.join(".fission/native/windows/manifests");
+    fs::create_dir_all(&directory)?;
+    let path = directory.join(format!("{profile}-{package_format}.json"));
+    let manifest = WindowsNativeProductsManifest {
+        schema_version: 1,
+        profile,
+        package_format,
+        products,
+    };
+    fs::write(&path, serde_json::to_vec_pretty(&manifest)?).with_context(|| {
+        format!(
+            "failed to write Windows native product manifest {}",
+            path.display()
+        )
+    })?;
+    Ok(path)
+}
+
+fn windows_packaging_environment(binary: &Path, manifest: &Path) -> Vec<(OsString, OsString)> {
+    vec![
+        (
+            OsString::from("WINDOWS_BINARY"),
+            binary.as_os_str().to_os_string(),
+        ),
+        (
+            OsString::from("FISSION_WINDOWS_NATIVE_PRODUCTS_MANIFEST"),
+            manifest.as_os_str().to_os_string(),
+        ),
+    ]
+}
+
 fn run_packaging_script(
     project_dir: &Path,
     script: &Path,
     release: bool,
+) -> Result<Option<PathBuf>> {
+    run_packaging_script_with_env(project_dir, script, release, &[])
+}
+
+fn run_packaging_script_with_env(
+    project_dir: &Path,
+    script: &Path,
+    release: bool,
+    environment: &[(OsString, OsString)],
 ) -> Result<Option<PathBuf>> {
     if !script.exists() {
         bail!("packaging script is missing at {}", script.display());
@@ -1773,6 +1916,9 @@ fn run_packaging_script(
         command.env("ANDROID_PROFILE", "release");
         command.env("IOS_PROFILE", "release");
         command.env("WINDOWS_PROFILE", "release");
+    }
+    for (key, value) in environment {
+        command.env(key, value);
     }
     let output = command
         .output()
