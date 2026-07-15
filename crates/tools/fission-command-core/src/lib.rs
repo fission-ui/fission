@@ -104,7 +104,7 @@ impl Target {
             Self::Linux => "platforms/linux/README.md",
             Self::Macos => "platforms/macos/README.md",
             Self::Server => "platforms/ssr/README.md",
-            Self::Site => "platforms/static-site/README.md",
+            Self::Site => "platforms/site/README.md",
             Self::Terminal => "platforms/terminal/README.md",
             Self::Web => "platforms/web/README.md",
             Self::Windows => "platforms/windows/README.md",
@@ -5808,6 +5808,14 @@ app_id = "com.example.alias"
         assert!(updated.contains("\"ssr\""));
         assert!(!updated.contains("\"site\""));
         assert!(!updated.contains("\"server\""));
+    }
+
+    #[test]
+    fn static_site_uses_the_scaffold_path_created_by_add_target() {
+        assert_eq!(
+            Target::Site.scaffold_relative_path(),
+            "platforms/site/README.md"
+        );
     }
 
     #[test]
