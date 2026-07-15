@@ -102,12 +102,13 @@ pub fn build_macos_native_modules(
 }
 
 pub fn test_macos_native_modules(project_dir: &Path, project: &FissionProject) -> Result<()> {
+    let project_dir = canonical_project_dir(project_dir)?;
     for module in &project.native.modules {
         if module.macos.is_empty() || module.macos.test_schemes.is_empty() {
             continue;
         }
-        let xcode_project = prepare_xcode_project(project_dir, &module.name, &module.macos)?;
-        let derived_data = derived_data_path(project_dir, &module.name, &module.macos, "test");
+        let xcode_project = prepare_xcode_project(&project_dir, &module.name, &module.macos)?;
+        let derived_data = derived_data_path(&project_dir, &module.name, &module.macos, "test");
         for scheme in &module.macos.test_schemes {
             let scheme = required_value(scheme, "macOS native test scheme")?;
             let mut command = Command::new("xcodebuild");
@@ -141,8 +142,15 @@ pub fn embed_and_sign_macos_native_modules(
     mode: MacosNativeBundleMode,
     release: bool,
 ) -> Result<()> {
-    for built in build_products(project_dir, project, release)? {
-        let destination = native_product_destination(app_bundle, &built.config)?;
+    let project_dir = canonical_project_dir(project_dir)?;
+    let app_bundle = fs::canonicalize(app_bundle).with_context(|| {
+        format!(
+            "failed to resolve macOS app bundle {}",
+            app_bundle.display()
+        )
+    })?;
+    for built in build_products(&project_dir, project, release)? {
+        let destination = native_product_destination(&app_bundle, &built.config)?;
         if destination.exists() {
             fs::remove_dir_all(&destination).with_context(|| {
                 format!(
@@ -156,7 +164,13 @@ pub fn embed_and_sign_macos_native_modules(
             .context("macOS native product destination has no parent")?;
         fs::create_dir_all(parent)?;
         copy_bundle(&built.path, &destination)?;
-        sign_native_product(project_dir, &destination, &built.config, host_signing, mode)?;
+        sign_native_product(
+            &project_dir,
+            &destination,
+            &built.config,
+            host_signing,
+            mode,
+        )?;
     }
     Ok(())
 }
@@ -166,6 +180,7 @@ fn build_products(
     project: &FissionProject,
     release: bool,
 ) -> Result<Vec<BuiltProduct>> {
+    let project_dir = canonical_project_dir(project_dir)?;
     let profile = if release { "Release" } else { "Debug" };
     let profile_dir = profile.to_ascii_lowercase();
     let mut built = Vec::new();
@@ -173,10 +188,10 @@ fn build_products(
         if module.macos.is_empty() || module.macos.products.is_empty() {
             continue;
         }
-        let xcode_project = prepare_xcode_project(project_dir, &module.name, &module.macos)?;
+        let xcode_project = prepare_xcode_project(&project_dir, &module.name, &module.macos)?;
         let derived_data =
-            derived_data_path(project_dir, &module.name, &module.macos, &profile_dir);
-        let product_dir = native_output_root(project_dir, &module.name, &profile_dir);
+            derived_data_path(&project_dir, &module.name, &module.macos, &profile_dir);
+        let product_dir = native_output_root(&project_dir, &module.name, &profile_dir);
         if product_dir.exists() {
             fs::remove_dir_all(&product_dir).with_context(|| {
                 format!(
@@ -493,6 +508,15 @@ fn resolve_project_path(project_dir: &Path, value: &str) -> PathBuf {
     } else {
         project_dir.join(path)
     }
+}
+
+fn canonical_project_dir(project_dir: &Path) -> Result<PathBuf> {
+    fs::canonicalize(project_dir).with_context(|| {
+        format!(
+            "failed to resolve project directory {}",
+            project_dir.display()
+        )
+    })
 }
 
 fn required_value<'a>(value: &'a str, label: &str) -> Result<&'a str> {
