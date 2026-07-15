@@ -50,6 +50,71 @@ Clipboard and deep-link APIs are runtime/platform capabilities, but they are not
 
 Terminal is a public Fission target exposed through `TerminalApp`, the terminal shell crate, and `fission ui`. The root `targets` array records generated or packaged host targets, so it accepts `static-site` for Static site, `ssr` for SSR, and `terminal` for terminal-shell package workflows.
 
+## `[[native.modules]]`
+
+Native modules keep platform-owned source, dependencies, extensions, and tests
+attached to the Fission command lifecycle. Each module requires a stable `name`.
+The optional `path` records its project-relative source root; platform paths
+below remain project-relative so they are unambiguous when a module is shared
+by more than one app.
+
+Android modules declare repositories, Gradle dependencies, source directories,
+permissions, and application manifest entries under
+`[native.modules.android]`. iOS modules declare source directories, linked
+frameworks, and Swift package products under `[native.modules.ios]`.
+
+### `[native.modules.macos]`
+
+macOS native modules can build app extensions and system extensions alongside
+the Rust desktop app. `fission build`, `fission run`, and `fission package` all
+compile the declared products. `fission run` and `fission package` additionally
+embed and sign each extension before signing the containing app.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `xcode_project` | string | Yes when products or tests are declared | none | Project-relative `.xcodeproj` used by `xcodebuild`. |
+| `xcodegen_spec` | string | No | none | Project-relative XcodeGen specification. Fission runs `xcodegen` before using `xcode_project`. |
+| `derived_data` | string | No | `.fission/native/macos/<module>/<profile>/DerivedData` | Xcode derived-data directory. |
+| `test_schemes` | array of strings | No | `[]` | Schemes run with signing disabled by `fission test --target macos`. |
+
+Each `[[native.modules.macos.products]]` entry accepts:
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `scheme` | string | Yes | Xcode scheme built with signing disabled. |
+| `bundle` | string | Yes | Full product file name. App extensions must end in `.appex`; system extensions must end in `.systemextension`. |
+| `kind` | string | Yes | `app-extension` or `system-extension`. This selects `Contents/PlugIns` or `Contents/Library/SystemExtensions` in the app bundle. |
+| `entitlements` | string | No | Project-relative package entitlements passed when signing this product. |
+| `provisioning_profile` | string | No | Project-relative package provisioning profile embedded in this product. |
+| `signing_identity` | string | No | Product signing identity. Inherits the containing app identity when omitted. |
+
+`[native.modules.macos.products.run]` accepts `entitlements`,
+`provisioning_profile`, and `signing_identity` as local-run overrides. Any field
+not overridden inherits the product package value, then the containing app's
+run identity where applicable.
+
+```toml
+[[native.modules]]
+name = "security-extensions"
+path = "platforms/macos/native"
+
+[native.modules.macos]
+xcodegen_spec = "platforms/macos/native/project.yml"
+xcode_project = "platforms/macos/native/SecurityExtensions.xcodeproj"
+test_schemes = ["SecurityExtensionsTests"]
+
+[[native.modules.macos.products]]
+scheme = "FileProvider"
+bundle = "FileProvider.appex"
+kind = "app-extension"
+entitlements = "platforms/macos/native/FileProvider.entitlements"
+provisioning_profile = "profiles/FileProvider.provisionprofile"
+
+[native.modules.macos.products.run]
+provisioning_profile = "profiles/FileProviderDevelopment.provisionprofile"
+signing_identity = "Apple Development"
+```
+
 ## `[app]`
 
 `[app]` identifies the product and package. It is required by normal app commands.
@@ -497,6 +562,7 @@ tags = ["ghcr.io/example/pokemon-card-store:0.1.0", "ghcr.io/example/pokemon-car
 | `team_id` | string | No | Apple Developer Team ID used by signing/notarization readiness checks. |
 | `minimum_os` | string | No | Records the intended minimum macOS version for package metadata. |
 | `entitlements` | string | No | Project-relative entitlements plist passed to `codesign` when signing. |
+| `provisioning_profile` | string | No | Project-relative provisioning profile embedded at `Contents/embedded.provisionprofile` before signing. |
 | `signing_identity` | string | No | Developer ID/Application identity used to sign `.app` bundles. If omitted, the app is not code-signed by Fission. |
 | `installer_identity` | string | No | Developer ID Installer identity passed to `pkgbuild`/`productbuild` for `.pkg` output. |
 | `notarize` | boolean | No | When `true`, notarization requires `APP_STORE_CONNECT_KEY_ID`, `APP_STORE_CONNECT_ISSUER_ID`, and key material from `APP_STORE_CONNECT_API_KEY_PATH`, `APP_STORE_CONNECT_API_KEY`, or `APP_STORE_CONNECT_API_KEY_BASE64`. |
@@ -511,6 +577,7 @@ distribution require different identities or entitlement files.
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
 | `entitlements` | string | No | Project-relative development entitlements plist. Inherits `package.macos.entitlements` when omitted. |
+| `provisioning_profile` | string | No | Project-relative development provisioning profile. Inherits `package.macos.provisioning_profile` when omitted. |
 | `signing_identity` | string | No | Development signing identity. Inherits `package.macos.signing_identity` when omitted. |
 
 Restricted entitlements still require an Apple-issued identity and matching

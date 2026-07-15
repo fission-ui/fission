@@ -2,9 +2,10 @@ pub mod doctor;
 
 use anyhow::{bail, Context, Result};
 use fission_command_core::{
-    ios_executable_name, normalized_extension, read_macos_run_config, read_project_config,
-    resolve_app_icon, sign_macos_app_if_configured, sync_platform_config, FissionProject,
-    MacosPackageConfig, PlatformCapability, Target,
+    build_macos_native_modules, embed_and_sign_macos_native_modules, ios_executable_name,
+    normalized_extension, read_macos_run_config, read_project_config, resolve_app_icon,
+    sign_macos_app_if_configured, sync_platform_config, test_macos_native_modules, FissionProject,
+    MacosNativeBundleMode, MacosPackageConfig, PlatformCapability, Target,
 };
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -167,9 +168,14 @@ pub fn build_app(options: BuildOptions) -> Result<()> {
     sync_target_platform_config(&options.project_dir, &project, target)?;
 
     match target {
-        Target::Linux | Target::Macos | Target::Windows => {
+        Target::Linux | Target::Windows => {
             require_desktop_host(target)?;
             build_desktop(&options.project_dir, options.release)
+        }
+        Target::Macos => {
+            require_desktop_host(target)?;
+            build_desktop(&options.project_dir, options.release)?;
+            build_macos_native_modules(&options.project_dir, &project, options.release)
         }
         Target::Terminal => build_desktop(&options.project_dir, options.release),
         Target::Web => build_web(&options.project_dir, options.release),
@@ -200,11 +206,18 @@ pub fn test_app(options: TestOptions) -> Result<()> {
     sync_target_platform_config(&options.project_dir, &project, target)?;
 
     match target {
-        Target::Linux | Target::Macos | Target::Windows => {
+        Target::Linux | Target::Windows => {
             require_desktop_host(target)?;
             let mut command = Command::new("cargo");
             command.arg("test").current_dir(&options.project_dir);
             run_status(&mut command, "desktop tests")
+        }
+        Target::Macos => {
+            require_desktop_host(target)?;
+            let mut command = Command::new("cargo");
+            command.arg("test").current_dir(&options.project_dir);
+            run_status(&mut command, "desktop tests")?;
+            test_macos_native_modules(&options.project_dir, &project)
         }
         Target::Terminal => {
             let mut command = Command::new("cargo");
@@ -1256,6 +1269,14 @@ fn package_macos_run_app(
         render_macos_run_info_plist(project, &binary, &app_name, &macos),
     )?;
     fs::write(contents.join("PkgInfo"), "APPL????")?;
+    embed_and_sign_macos_native_modules(
+        &project_dir,
+        &app_bundle,
+        project,
+        &macos,
+        MacosNativeBundleMode::Run,
+        release,
+    )?;
     sign_macos_app_if_configured(&project_dir, &app_bundle, &macos)?;
 
     Ok(MacosRunApp { bundle: app_bundle })

@@ -2,9 +2,10 @@ use super::*;
 use anyhow::{bail, Context, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use fission_command_core::{
-    cargo_package_name, normalized_extension, read_macos_package_config, read_project_config,
-    resolve_app_icon, sign_macos_app_if_configured, sync_platform_config, FissionProject,
-    MacosPackageConfig, PlatformCapability, Target,
+    cargo_package_name, embed_and_sign_macos_native_modules, normalized_extension,
+    read_macos_package_config, read_project_config, resolve_app_icon, sign_macos_app_if_configured,
+    sync_platform_config, FissionProject, MacosNativeBundleMode, MacosPackageConfig,
+    PlatformCapability, Target,
 };
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -293,6 +294,14 @@ fn package_macos_app(options: &PackageOptions) -> Result<ArtifactManifest> {
     let staging_dir = clean_package_dir(options)?;
     let macos = read_macos_package_config(&options.project_dir)?;
     let app_bundle = create_macos_app_bundle(options, &project, &staging_dir, &macos)?;
+    embed_and_sign_macos_native_modules(
+        &options.project_dir,
+        &app_bundle,
+        &project,
+        &macos,
+        MacosNativeBundleMode::Package,
+        options.release,
+    )?;
     sign_macos_app_if_configured(&options.project_dir, &app_bundle, &macos)?;
     println!("{}", app_bundle.display());
     finish_artifact_manifest(&project, options, &staging_dir, profile)
@@ -307,6 +316,14 @@ fn package_macos_pkg(options: &PackageOptions) -> Result<ArtifactManifest> {
     let app_staging = staging_dir.join("app-staging");
     let macos = read_macos_package_config(&options.project_dir)?;
     let app_bundle = create_macos_app_bundle(options, &project, &app_staging, &macos)?;
+    embed_and_sign_macos_native_modules(
+        &options.project_dir,
+        &app_bundle,
+        &project,
+        &macos,
+        MacosNativeBundleMode::Package,
+        options.release,
+    )?;
     sign_macos_app_if_configured(&options.project_dir, &app_bundle, &macos)?;
     let version = resolved_package_version(&options.project_dir, options.target)?;
     let pkg_path = staging_dir.join(format!(

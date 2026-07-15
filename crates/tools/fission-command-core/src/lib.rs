@@ -13,9 +13,15 @@ const GENERATED_APP_AGENTS_MARKER: &str = "<!-- fission-cli-generated-agents:v1 
 const GENERATED_APP_AGENTS_MD: &str = include_str!("../assets/AGENTS.md");
 
 mod icons;
+mod macos_native;
 mod macos_signing;
 mod splash;
 pub use icons::{copy_icon_for_bundle, normalized_extension, resolve_app_icon, ResolvedIcon};
+pub use macos_native::{
+    build_macos_native_modules, embed_and_sign_macos_native_modules, test_macos_native_modules,
+    MacosNativeBundleMode, NativeMacosModuleConfig, NativeMacosProductConfig,
+    NativeMacosProductKind, NativeMacosProductSigningConfig,
+};
 pub use macos_signing::{
     read_macos_package_config, read_macos_run_config, sign_macos_app_if_configured,
     MacosPackageConfig,
@@ -256,6 +262,8 @@ pub struct NativeModuleConfig {
     pub android: NativeAndroidModuleConfig,
     #[serde(default, skip_serializing_if = "NativeIosModuleConfig::is_empty")]
     pub ios: NativeIosModuleConfig,
+    #[serde(default, skip_serializing_if = "NativeMacosModuleConfig::is_empty")]
+    pub macos: NativeMacosModuleConfig,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
