@@ -9,6 +9,14 @@ use std::process::Command;
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NativeWindowsModuleConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cargo_manifest_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cargo_package: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub features: Vec<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub no_default_features: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nuget_packages_config: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nuget_packages_directory: Option<String>,
@@ -26,7 +34,11 @@ pub struct NativeWindowsModuleConfig {
 
 impl NativeWindowsModuleConfig {
     pub fn is_empty(&self) -> bool {
-        self.nuget_packages_config.is_none()
+        self.cargo_manifest_path.is_none()
+            && self.cargo_package.is_none()
+            && self.features.is_empty()
+            && !self.no_default_features
+            && self.nuget_packages_config.is_none()
             && self.nuget_packages_directory.is_none()
             && self.msbuild_project.is_none()
             && self.platform.is_none()
@@ -34,6 +46,10 @@ impl NativeWindowsModuleConfig {
             && self.test_binaries.is_empty()
             && self.products.is_empty()
     }
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -74,27 +90,40 @@ pub fn build_windows_native_modules(
         if module.windows.is_empty() {
             continue;
         }
-        let native_tool_paths =
-            restore_windows_native_packages(&project_dir, &module.name, &module.windows)?;
-        let build_project = required_config_path(
-            &project_dir,
-            module.windows.msbuild_project.as_deref(),
-            &module.name,
-        )?;
         let platform = optional_value(module.windows.platform.as_deref()).unwrap_or("x64");
-        let target = optional_value(module.windows.build_target.as_deref()).unwrap_or("Build");
-        let mut command = Command::new("msbuild");
-        command
-            .arg(windows_external_tool_path(&build_project))
-            .arg("/m")
-            .arg(format!("/t:{target}"))
-            .arg(format!("/p:Configuration={configuration}"))
-            .arg(format!("/p:Platform={platform}"));
-        prepend_windows_native_tool_paths(&mut command, &native_tool_paths)?;
-        run_status(
-            &mut command,
-            &format!("Windows native module `{}`", module.name),
-        )?;
+        match windows_build_system(&module.name, &module.windows)? {
+            WindowsBuildSystem::Cargo => run_cargo_module_command(
+                &project_dir,
+                module.path.as_deref(),
+                &module.name,
+                &module.windows,
+                "build",
+                release,
+            )?,
+            WindowsBuildSystem::MsBuild => {
+                let native_tool_paths =
+                    restore_windows_native_packages(&project_dir, &module.name, &module.windows)?;
+                let build_project = required_config_path(
+                    &project_dir,
+                    module.windows.msbuild_project.as_deref(),
+                    &module.name,
+                )?;
+                let target =
+                    optional_value(module.windows.build_target.as_deref()).unwrap_or("Build");
+                let mut command = Command::new("msbuild");
+                command
+                    .arg(windows_external_tool_path(&build_project))
+                    .arg("/m")
+                    .arg(format!("/t:{target}"))
+                    .arg(format!("/p:Configuration={configuration}"))
+                    .arg(format!("/p:Platform={platform}"));
+                prepend_windows_native_tool_paths(&mut command, &native_tool_paths)?;
+                run_status(
+                    &mut command,
+                    &format!("Windows native module `{}`", module.name),
+                )?;
+            }
+        }
 
         for product in &module.windows.products {
             products.push(resolve_product(
@@ -225,6 +254,17 @@ pub fn test_windows_native_modules(project_dir: &Path, project: &FissionProject)
         if module.windows.is_empty() {
             continue;
         }
+        if windows_build_system(&module.name, &module.windows)? == WindowsBuildSystem::Cargo {
+            run_cargo_module_command(
+                &project_dir,
+                module.path.as_deref(),
+                &module.name,
+                &module.windows,
+                "test",
+                false,
+            )?;
+            continue;
+        }
         let platform = optional_value(module.windows.platform.as_deref()).unwrap_or("x64");
         for test_binary in &module.windows.test_binaries {
             let test_binary = expand_path(test_binary, "Debug", platform);
@@ -246,6 +286,120 @@ pub fn test_windows_native_modules(project_dir: &Path, project: &FissionProject)
     }
 
     Ok(())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WindowsBuildSystem {
+    Cargo,
+    MsBuild,
+}
+
+fn windows_build_system(
+    module_name: &str,
+    config: &NativeWindowsModuleConfig,
+) -> Result<WindowsBuildSystem> {
+    match (
+        optional_value(config.cargo_package.as_deref()),
+        optional_value(config.msbuild_project.as_deref()),
+    ) {
+        (Some(_), None) => {
+            if config.nuget_packages_config.is_some()
+                || config.nuget_packages_directory.is_some()
+                || config.build_target.is_some()
+                || !config.test_binaries.is_empty()
+            {
+                bail!(
+                    "Windows native Cargo module `{module_name}` cannot set MSBuild, NuGet, or test-binary options"
+                );
+            }
+            Ok(WindowsBuildSystem::Cargo)
+        }
+        (None, Some(_)) => {
+            if config.cargo_manifest_path.is_some()
+                || !config.features.is_empty()
+                || config.no_default_features
+            {
+                bail!(
+                    "Windows native MSBuild module `{module_name}` cannot set Cargo options"
+                );
+            }
+            Ok(WindowsBuildSystem::MsBuild)
+        }
+        (Some(_), Some(_)) => bail!(
+            "Windows native module `{module_name}` must select either `cargo_package` or `msbuild_project`, not both"
+        ),
+        (None, None) => bail!(
+            "Windows native module `{module_name}` requires `cargo_package` or `msbuild_project`"
+        ),
+    }
+}
+
+fn run_cargo_module_command(
+    project_dir: &Path,
+    module_path: Option<&str>,
+    module_name: &str,
+    config: &NativeWindowsModuleConfig,
+    cargo_command: &str,
+    release: bool,
+) -> Result<()> {
+    let package = optional_value(config.cargo_package.as_deref()).with_context(|| {
+        format!("Windows native module `{module_name}` requires `cargo_package`")
+    })?;
+    let manifest = resolve_cargo_manifest_path(
+        project_dir,
+        module_path,
+        config.cargo_manifest_path.as_deref(),
+        module_name,
+    )?;
+    let mut command = Command::new("cargo");
+    command
+        .arg(cargo_command)
+        .arg("--manifest-path")
+        .arg(&manifest)
+        .arg("--package")
+        .arg(package)
+        .current_dir(project_dir);
+    if release && cargo_command == "build" {
+        command.arg("--release");
+    }
+    if config.no_default_features {
+        command.arg("--no-default-features");
+    }
+    if !config.features.is_empty() {
+        let features = config
+            .features
+            .iter()
+            .map(|feature| required_value(feature, "Windows native Cargo feature"))
+            .collect::<Result<Vec<_>>>()?
+            .join(",");
+        command.arg("--features").arg(features);
+    }
+    run_status(
+        &mut command,
+        &format!("Windows native module `{module_name}` Cargo {cargo_command}"),
+    )
+}
+
+fn resolve_cargo_manifest_path(
+    project_dir: &Path,
+    module_path: Option<&str>,
+    configured: Option<&str>,
+    module_name: &str,
+) -> Result<PathBuf> {
+    let manifest = if let Some(configured) = optional_value(configured) {
+        resolve_project_path(project_dir, configured)
+    } else if let Some(module_path) = optional_value(module_path) {
+        resolve_project_path(project_dir, module_path).join("Cargo.toml")
+    } else {
+        project_dir.join("Cargo.toml")
+    };
+    if !manifest.is_file() {
+        bail!(
+            "Windows native Cargo manifest for module `{module_name}` does not exist: {}",
+            manifest.display()
+        );
+    }
+    Ok(manifest)
 }
 
 pub fn stage_windows_runtime_products(
@@ -501,6 +655,57 @@ kind = "driver-package"
             module.products[1].kind,
             NativeWindowsProductKind::DriverPackage
         );
+    }
+
+    #[test]
+    fn parses_windows_cargo_native_products() {
+        let project: FissionProject = toml::from_str(
+            r#"
+targets = ["windows"]
+
+[app]
+name = "demo"
+app_id = "com.example.demo"
+
+[[native.modules]]
+name = "demo-helper"
+path = "../demo-helper"
+
+[native.modules.windows]
+cargo_package = "demo-helper"
+features = ["installer"]
+no_default_features = true
+
+[[native.modules.windows.products]]
+name = "helper"
+path = "../../target/{profile}/demo-helper.exe"
+kind = "runtime"
+destination = "tools/demo-helper.exe"
+"#,
+        )
+        .unwrap();
+
+        let module = &project.native.modules[0].windows;
+        assert_eq!(module.cargo_package.as_deref(), Some("demo-helper"));
+        assert_eq!(module.features, ["installer"]);
+        assert!(module.no_default_features);
+        assert_eq!(
+            windows_build_system("demo-helper", module).unwrap(),
+            WindowsBuildSystem::Cargo
+        );
+    }
+
+    #[test]
+    fn rejects_ambiguous_windows_native_build_systems() {
+        let config = NativeWindowsModuleConfig {
+            cargo_package: Some("demo".into()),
+            msbuild_project: Some("Demo.sln".into()),
+            ..Default::default()
+        };
+        let error = windows_build_system("demo", &config).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("either `cargo_package` or `msbuild_project`"));
     }
 
     #[test]
