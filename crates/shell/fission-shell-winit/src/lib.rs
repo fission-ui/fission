@@ -23,6 +23,8 @@ use winit::platform::ios::WindowAttributesExtIOS;
 use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
 #[cfg(target_arch = "wasm32")]
 use winit::platform::web::{EventLoopExtWebSys, WindowAttributesExtWebSys, WindowExtWebSys};
+#[cfg(target_os = "windows")]
+use winit::platform::windows::WindowAttributesExtWindows;
 use winit::{
     dpi::{PhysicalPosition, PhysicalSize},
     event::{Event, Ime, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent},
@@ -127,8 +129,8 @@ pub use passkey::{MemoryPasskeyHost, PasskeyHost, UnsupportedPasskeyHost};
 pub mod tray;
 #[cfg(feature = "tray")]
 pub use tray::{
-    TrayActivateBehavior, TrayConfig, TrayHostAction, TrayIconSource, TrayMenu, TrayMenuAction,
-    TrayMenuBuilder, TrayMenuEntry, TrayMenuItem, WindowCloseBehavior,
+    TrayActivateBehavior, TrayAppSwitcherPolicy, TrayConfig, TrayHostAction, TrayIconSource,
+    TrayMenu, TrayMenuAction, TrayMenuBuilder, TrayMenuEntry, TrayMenuItem, WindowCloseBehavior,
 };
 pub mod test_control;
 mod wifi;
@@ -1116,6 +1118,7 @@ fn build_window(
     let window_attributes = build_window_attributes(
         title,
         background_test_mode,
+        false,
         _web_mount_selector,
         reported_scale_factor,
     )?;
@@ -1128,11 +1131,17 @@ fn build_window(
 fn build_window_before_run(
     title: &str,
     background_test_mode: bool,
+    tray_skip_taskbar: bool,
     event_loop: &EventLoop<TestEvent>,
     _web_mount_selector: Option<&str>,
 ) -> anyhow::Result<Arc<Window>> {
-    let window_attributes =
-        build_window_attributes(title, background_test_mode, _web_mount_selector, None)?;
+    let window_attributes = build_window_attributes(
+        title,
+        background_test_mode,
+        tray_skip_taskbar,
+        _web_mount_selector,
+        None,
+    )?;
     #[allow(deprecated)]
     Ok(Arc::new(
         event_loop
@@ -1144,6 +1153,7 @@ fn build_window_before_run(
 fn build_window_attributes(
     title: &str,
     background_test_mode: bool,
+    tray_skip_taskbar: bool,
     _web_mount_selector: Option<&str>,
     _reported_scale_factor: Option<f64>,
 ) -> anyhow::Result<WindowAttributes> {
@@ -1158,6 +1168,14 @@ fn build_window_attributes(
         window_attributes = window_attributes.with_scale_factor(ios_effective_scale_factor(
             normalize_scale_factor(reported_scale_factor),
         ));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        window_attributes = window_attributes.with_skip_taskbar(tray_skip_taskbar);
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = tray_skip_taskbar;
     }
     #[cfg(target_arch = "wasm32")]
     {
@@ -4422,8 +4440,24 @@ where
         if let Some(app) = android_app {
             event_loop_builder.with_android_app(app);
         }
+        #[cfg(all(feature = "tray", not(target_os = "android")))]
+        let tray_skip_taskbar = self
+            .tray_config
+            .as_ref()
+            .map(|config| tray::should_skip_taskbar(config.app_switcher_policy, true))
+            .unwrap_or(false);
+        #[cfg(any(not(feature = "tray"), target_os = "android"))]
+        let tray_skip_taskbar = false;
+        #[cfg(all(feature = "tray", target_os = "macos"))]
+        let tray_starts_as_accessory = self
+            .tray_config
+            .as_ref()
+            .map(|config| tray::macos_starts_as_accessory(config.app_switcher_policy))
+            .unwrap_or(false);
+        #[cfg(any(not(feature = "tray"), not(target_os = "macos")))]
+        let tray_starts_as_accessory = false;
         #[cfg(target_os = "macos")]
-        if background_test_mode {
+        if background_test_mode || tray_starts_as_accessory {
             event_loop_builder.with_activation_policy(ActivationPolicy::Accessory);
             event_loop_builder.with_activate_ignoring_other_apps(false);
             event_loop_builder.with_default_menu(false);
@@ -4462,6 +4496,7 @@ where
         let platform_window = build_window_before_run(
             &window_title,
             background_test_mode,
+            tray_skip_taskbar,
             &event_loop,
             web_mount_selector.as_deref(),
         )?;
@@ -7600,14 +7635,10 @@ where
                         }
                         WindowEvent::CloseRequested => {
                             #[cfg(feature = "tray")]
-                            if active_tray
-                                .as_ref()
-                                .map(|tray| {
-                                    tray.close_behavior() == tray::WindowCloseBehavior::HideToTray
-                                })
-                                .unwrap_or(false)
-                            {
-                                tray::hide_window_to_tray(window);
+                            if let Some(tray) = active_tray.as_ref().filter(|tray| {
+                                tray.close_behavior() == tray::WindowCloseBehavior::HideToTray
+                            }) {
+                                tray::hide_window_to_tray(window, tray.app_switcher_policy());
                                 return;
                             }
                             elwt.exit();

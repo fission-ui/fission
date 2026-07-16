@@ -44,6 +44,31 @@ impl Default for TrayActivateBehavior {
     }
 }
 
+/// Whether a tray-enabled desktop app should appear in the OS app switcher,
+/// dock, or taskbar where the platform exposes that control.
+///
+/// `Hidden` is the default for tray apps because tray-first apps should keep
+/// running in the status area without also occupying Cmd+Tab, the Dock, or the
+/// Windows taskbar. Linux window managers do not expose one portable switcher
+/// contract through winit, so Fission applies the policy on a best-effort basis
+/// there by keeping hidden tray windows out of the switcher.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TrayAppSwitcherPolicy {
+    /// Hide the tray app from switchers, docks, and taskbars where possible.
+    Hidden,
+    /// Keep regular foreground app behavior.
+    Visible,
+    /// Use regular foreground behavior while the window is visible, then hide
+    /// from switchers/docks/taskbars when the window is sent to tray.
+    HiddenWhenWindowHidden,
+}
+
+impl Default for TrayAppSwitcherPolicy {
+    fn default() -> Self {
+        Self::Hidden
+    }
+}
+
 /// Built-in shell actions that can be used from a tray menu.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TrayHostAction {
@@ -206,6 +231,7 @@ pub struct TrayConfig<S: GlobalState> {
     pub icon_is_template: bool,
     pub close_behavior: WindowCloseBehavior,
     pub activate_behavior: TrayActivateBehavior,
+    pub app_switcher_policy: TrayAppSwitcherPolicy,
     pub menu_on_left_click: bool,
     pub menu_on_right_click: bool,
     pub include_default_quit: bool,
@@ -221,6 +247,7 @@ impl<S: GlobalState> Clone for TrayConfig<S> {
             icon_is_template: self.icon_is_template,
             close_behavior: self.close_behavior,
             activate_behavior: self.activate_behavior,
+            app_switcher_policy: self.app_switcher_policy,
             menu_on_left_click: self.menu_on_left_click,
             menu_on_right_click: self.menu_on_right_click,
             include_default_quit: self.include_default_quit,
@@ -238,6 +265,7 @@ impl<S: GlobalState> TrayConfig<S> {
             icon_is_template: false,
             close_behavior: WindowCloseBehavior::Exit,
             activate_behavior: TrayActivateBehavior::ToggleMainWindow,
+            app_switcher_policy: TrayAppSwitcherPolicy::Hidden,
             menu_on_left_click: false,
             menu_on_right_click: true,
             include_default_quit: true,
@@ -267,6 +295,11 @@ impl<S: GlobalState> TrayConfig<S> {
 
     pub fn activate_behavior(mut self, behavior: TrayActivateBehavior) -> Self {
         self.activate_behavior = behavior;
+        self
+    }
+
+    pub fn app_switcher_policy(mut self, policy: TrayAppSwitcherPolicy) -> Self {
+        self.app_switcher_policy = policy;
         self
     }
 
@@ -315,6 +348,10 @@ pub(crate) struct ActiveTray<S: GlobalState> {
 impl<S: GlobalState> ActiveTray<S> {
     pub(crate) fn close_behavior(&self) -> WindowCloseBehavior {
         self.config.close_behavior
+    }
+
+    pub(crate) fn app_switcher_policy(&self) -> TrayAppSwitcherPolicy {
+        self.config.app_switcher_policy
     }
 
     pub(crate) fn build(config: TrayConfig<S>) -> Result<Self> {
@@ -367,7 +404,11 @@ impl<S: GlobalState> ActiveTray<S> {
         match event {
             TrayRuntimeEvent::TrayIcon(event) => {
                 if should_activate_from_tray_event(&event) {
-                    apply_activate_behavior(self.config.activate_behavior, window);
+                    apply_activate_behavior(
+                        self.config.activate_behavior,
+                        self.config.app_switcher_policy,
+                        window,
+                    );
                 }
                 Ok(TrayEventOutcome::default())
             }
@@ -383,7 +424,7 @@ impl<S: GlobalState> ActiveTray<S> {
                                 quit: true,
                             });
                         }
-                        apply_host_action(action, window);
+                        apply_host_action(action, self.config.app_switcher_policy, window);
                         Ok(TrayEventOutcome::default())
                     }
                     TrayMenuAction::App(action) => {
@@ -422,25 +463,31 @@ pub(crate) fn install_event_forwarders(
     rx
 }
 
-pub(crate) fn hide_window_to_tray(window: &Window) {
+pub(crate) fn hide_window_to_tray(window: &Window, policy: TrayAppSwitcherPolicy) {
     window.set_visible(false);
+    apply_runtime_app_switcher_policy(window, policy, false);
 }
 
-pub(crate) fn show_window_from_tray(window: &Window) {
+pub(crate) fn show_window_from_tray(window: &Window, policy: TrayAppSwitcherPolicy) {
+    apply_runtime_app_switcher_policy(window, policy, true);
     window.set_visible(true);
     window.set_minimized(false);
     window.focus_window();
 }
 
-pub(crate) fn apply_host_action(action: TrayHostAction, window: &Window) {
+pub(crate) fn apply_host_action(
+    action: TrayHostAction,
+    policy: TrayAppSwitcherPolicy,
+    window: &Window,
+) {
     match action {
-        TrayHostAction::ShowMainWindow => show_window_from_tray(window),
-        TrayHostAction::HideMainWindow => hide_window_to_tray(window),
+        TrayHostAction::ShowMainWindow => show_window_from_tray(window, policy),
+        TrayHostAction::HideMainWindow => hide_window_to_tray(window, policy),
         TrayHostAction::ToggleMainWindow => {
             if window.is_visible().unwrap_or(true) {
-                hide_window_to_tray(window);
+                hide_window_to_tray(window, policy);
             } else {
-                show_window_from_tray(window);
+                show_window_from_tray(window, policy);
             }
         }
         TrayHostAction::QuitApp => {
@@ -449,14 +496,67 @@ pub(crate) fn apply_host_action(action: TrayHostAction, window: &Window) {
     }
 }
 
-pub(crate) fn apply_activate_behavior(behavior: TrayActivateBehavior, window: &Window) {
+pub(crate) fn apply_activate_behavior(
+    behavior: TrayActivateBehavior,
+    policy: TrayAppSwitcherPolicy,
+    window: &Window,
+) {
     match behavior {
         TrayActivateBehavior::None => {}
-        TrayActivateBehavior::ShowMainWindow => show_window_from_tray(window),
+        TrayActivateBehavior::ShowMainWindow => show_window_from_tray(window, policy),
         TrayActivateBehavior::ToggleMainWindow => {
-            apply_host_action(TrayHostAction::ToggleMainWindow, window)
+            apply_host_action(TrayHostAction::ToggleMainWindow, policy, window)
         }
     }
+}
+
+pub(crate) fn should_skip_taskbar(policy: TrayAppSwitcherPolicy, visible: bool) -> bool {
+    match policy {
+        TrayAppSwitcherPolicy::Hidden => true,
+        TrayAppSwitcherPolicy::Visible => false,
+        TrayAppSwitcherPolicy::HiddenWhenWindowHidden => !visible,
+    }
+}
+
+pub(crate) fn macos_starts_as_accessory(policy: TrayAppSwitcherPolicy) -> bool {
+    matches!(policy, TrayAppSwitcherPolicy::Hidden)
+}
+
+#[cfg(target_os = "windows")]
+fn apply_runtime_app_switcher_policy(
+    window: &Window,
+    policy: TrayAppSwitcherPolicy,
+    visible: bool,
+) {
+    use winit::platform::windows::WindowExtWindows;
+
+    window.set_skip_taskbar(should_skip_taskbar(policy, visible));
+}
+
+#[cfg(target_os = "macos")]
+fn apply_runtime_app_switcher_policy(
+    _window: &Window,
+    policy: TrayAppSwitcherPolicy,
+    visible: bool,
+) {
+    use cocoa::appkit::{NSApp, NSApplication, NSApplicationActivationPolicy};
+
+    let activation_policy = if should_skip_taskbar(policy, visible) {
+        NSApplicationActivationPolicy::NSApplicationActivationPolicyAccessory
+    } else {
+        NSApplicationActivationPolicy::NSApplicationActivationPolicyRegular
+    };
+    unsafe {
+        NSApp().setActivationPolicy_(activation_policy);
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn apply_runtime_app_switcher_policy(
+    _window: &Window,
+    _policy: TrayAppSwitcherPolicy,
+    _visible: bool,
+) {
 }
 
 fn should_activate_from_tray_event(event: &TrayIconEvent) -> bool {
@@ -635,6 +735,30 @@ mod tests {
     }
 
     #[test]
+    fn app_switcher_policy_maps_to_taskbar_skip_state() {
+        assert!(should_skip_taskbar(TrayAppSwitcherPolicy::Hidden, true));
+        assert!(should_skip_taskbar(TrayAppSwitcherPolicy::Hidden, false));
+        assert!(!should_skip_taskbar(TrayAppSwitcherPolicy::Visible, true));
+        assert!(!should_skip_taskbar(TrayAppSwitcherPolicy::Visible, false));
+        assert!(!should_skip_taskbar(
+            TrayAppSwitcherPolicy::HiddenWhenWindowHidden,
+            true,
+        ));
+        assert!(should_skip_taskbar(
+            TrayAppSwitcherPolicy::HiddenWhenWindowHidden,
+            false,
+        ));
+    }
+
+    #[test]
+    fn tray_config_defaults_to_hidden_app_switcher_policy() {
+        let config =
+            TrayConfig::<TrayTestState>::new(TrayIconSource::rgba(vec![255, 255, 255, 255], 1, 1));
+
+        assert_eq!(config.app_switcher_policy, TrayAppSwitcherPolicy::Hidden);
+    }
+
+    #[test]
     fn tray_config_builder_sets_desktop_policy_and_click_behavior() {
         let config =
             TrayConfig::<TrayTestState>::new(TrayIconSource::rgba(vec![255, 255, 255, 255], 1, 1))
@@ -643,6 +767,7 @@ mod tests {
                 .icon_template(true)
                 .close_behavior(WindowCloseBehavior::HideToTray)
                 .activate_behavior(TrayActivateBehavior::ShowMainWindow)
+                .app_switcher_policy(TrayAppSwitcherPolicy::Visible)
                 .menu_on_left_click(true)
                 .menu_on_right_click(false)
                 .include_default_quit(false);
@@ -655,6 +780,7 @@ mod tests {
             config.activate_behavior,
             TrayActivateBehavior::ShowMainWindow
         );
+        assert_eq!(config.app_switcher_policy, TrayAppSwitcherPolicy::Visible);
         assert!(config.menu_on_left_click);
         assert!(!config.menu_on_right_click);
         assert!(!config.include_default_quit);

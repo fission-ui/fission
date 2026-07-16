@@ -19,8 +19,8 @@ pub use fission_shell_winit::{
 };
 #[cfg(feature = "tray")]
 pub use fission_shell_winit::{
-    TrayActivateBehavior, TrayConfig, TrayHostAction, TrayIconSource, TrayMenu, TrayMenuAction,
-    TrayMenuBuilder, TrayMenuEntry, TrayMenuItem, WindowCloseBehavior,
+    TrayActivateBehavior, TrayAppSwitcherPolicy, TrayConfig, TrayHostAction, TrayIconSource,
+    TrayMenu, TrayMenuAction, TrayMenuBuilder, TrayMenuEntry, TrayMenuItem, WindowCloseBehavior,
 };
 
 pub struct DesktopApp<S: GlobalState, W>
