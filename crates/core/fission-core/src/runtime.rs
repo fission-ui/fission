@@ -803,7 +803,9 @@ impl Runtime {
             }
             ScrollAlignment::End => reveal_end - viewport_size,
             ScrollAlignment::Nearest => {
-                if reveal_start < viewport_start {
+                if reveal_end - reveal_start > viewport_size {
+                    reveal_start
+                } else if reveal_start < viewport_start {
                     reveal_start
                 } else if reveal_end > viewport_end {
                     reveal_end - viewport_size
