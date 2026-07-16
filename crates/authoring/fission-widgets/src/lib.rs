@@ -348,24 +348,18 @@ struct FlyoutLowerer {
 impl InternalLowerer for FlyoutLowerer {
     fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
         let content_id = fission_core::internal::lower_widget(&self.content, cx);
-        // Create a marker node that tells the layout engine to reposition `content_id`
-        let marker_id = InternalIrBuilder::new(
+        let mut flyout = InternalIrBuilder::new(
             cx.next_node_id(),
             Op::Layout(fission_core::LayoutOp::Flyout {
                 anchor: self.anchor,
                 content: content_id,
             }),
-        )
-        .build(cx);
-
-        // Ensure both the content and marker are attached to the tree via a structural group.
-        let mut wrapper = InternalIrBuilder::new(
-            cx.next_node_id(),
-            Op::Structural(StructuralOp::Group { stable_hash: 0 }),
         );
-        wrapper.add_child(content_id);
-        wrapper.add_child(marker_id);
-        wrapper.build(cx)
+        // The flyout must own its content so layout measures that content with
+        // the flyout's loose constraints instead of the portal wrapper's tight
+        // viewport constraints.
+        flyout.add_child(content_id);
+        flyout.build(cx)
     }
 }
 

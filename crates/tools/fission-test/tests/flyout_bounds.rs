@@ -1,7 +1,8 @@
 use fission_core::ui::{Button, Container, Positioned, Text, Widget, ZStack};
 use fission_core::{GlobalState, WidgetId, WidgetIdExt};
+use fission_render::{DisplayOp, Fill};
 use fission_test::TestHarness;
-use fission_widgets::Popover;
+use fission_widgets::{Popover, Tooltip};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -89,5 +90,66 @@ fn flyout_content_stays_within_viewport_bounds() {
     assert!(
         popup_rect.y() >= viewport.y() && popup_rect.bottom() <= viewport.bottom(),
         "popup should be clamped vertically within viewport: popup={popup_rect:?} viewport={viewport:?}"
+    );
+}
+
+#[derive(Clone)]
+struct TooltipRoot;
+
+impl From<TooltipRoot> for Widget {
+    fn from(_component: TooltipRoot) -> Self {
+        Tooltip {
+            id: WidgetId::explicit("intrinsic-tooltip"),
+            child: Container::new(Text::new("Anchor"))
+                .width(64.0)
+                .height(24.0)
+                .into(),
+            text: "Critical: 34".into(),
+            is_visible: true,
+            motion: None,
+        }
+        .into()
+    }
+}
+
+#[test]
+fn tooltip_surface_uses_intrinsic_size_inside_viewport_portal() {
+    let mut harness =
+        TestHarness::new_with_mock_measurer(State::default()).with_root_widget(TooltipRoot);
+    let tooltip_background = harness.env.theme.components.tooltip.bg_color;
+
+    harness.pump().expect("tooltip frame");
+
+    let display_list = harness
+        .get_last_display_list()
+        .expect("tooltip display list");
+    let tooltip_rect = display_list
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DisplayOp::DrawRect {
+                rect,
+                fill: Some(Fill::Solid(color)),
+                ..
+            } if color.r == tooltip_background.r
+                && color.g == tooltip_background.g
+                && color.b == tooltip_background.b
+                && color.a == tooltip_background.a =>
+            {
+                Some(*rect)
+            }
+            _ => None,
+        })
+        .expect("tooltip background");
+
+    assert!(
+        tooltip_rect.width() < display_list.bounds.width(),
+        "tooltip must not fill the viewport width: tooltip={tooltip_rect:?} viewport={:?}",
+        display_list.bounds
+    );
+    assert!(
+        tooltip_rect.height() < display_list.bounds.height(),
+        "tooltip must not fill the viewport height: tooltip={tooltip_rect:?} viewport={:?}",
+        display_list.bounds
     );
 }
