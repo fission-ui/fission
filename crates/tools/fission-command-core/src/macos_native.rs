@@ -333,9 +333,11 @@ fn sign_native_product(
     mode: MacosNativeBundleMode,
 ) -> Result<()> {
     let signing = effective_signing(product, host_signing, mode);
-    if signing.provisioning_profile.is_some() && signing.signing_identity.is_none() {
+    if signing.provisioning_profile.is_some()
+        && signing.signing_identity.is_none_or(|value| value == "-")
+    {
         bail!(
-            "macOS native product `{}` has a provisioning profile but no signing identity",
+            "macOS native product `{}` has a provisioning profile but no real signing identity; ad-hoc signing with `-` cannot embed a provisioning profile",
             product.bundle
         );
     }
@@ -657,6 +659,29 @@ signing_identity = "Apple Development"
         let error = validate_product(&product).unwrap_err();
 
         assert!(error.to_string().contains(".systemextension"));
+    }
+
+    #[test]
+    fn native_product_rejects_profile_with_ad_hoc_signing_identity() {
+        let product = NativeMacosProductConfig {
+            scheme: "Share".into(),
+            bundle: "Share.appex".into(),
+            kind: NativeMacosProductKind::AppExtension,
+            entitlements: None,
+            provisioning_profile: Some("profiles/Share.provisionprofile".into()),
+            signing_identity: Some("-".into()),
+            run: NativeMacosProductSigningConfig::default(),
+        };
+        let error = sign_native_product(
+            Path::new("/project"),
+            Path::new("/tmp/Share.appex"),
+            &product,
+            &MacosPackageConfig::default(),
+            MacosNativeBundleMode::Package,
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("ad-hoc signing"));
     }
 
     fn product(kind: NativeMacosProductKind, bundle: &str) -> NativeMacosProductConfig {

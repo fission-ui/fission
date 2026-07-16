@@ -92,9 +92,9 @@ pub fn sign_macos_app_if_configured(
         .as_deref()
         .filter(|value| !value.trim().is_empty());
 
-    if profile.is_some() && identity.is_none() {
+    if profile.is_some() && identity.is_none_or(|value| value == "-") {
         bail!(
-            "macOS provisioning_profile requires package.macos.signing_identity or run.macos.signing_identity"
+            "macOS provisioning_profile requires a real package.macos.signing_identity or run.macos.signing_identity; ad-hoc signing with `-` cannot embed a provisioning profile"
         );
     }
     if let Some(profile) = profile {
@@ -284,6 +284,24 @@ signing_identity = "-"
             Some("profiles/Development.provisionprofile")
         );
         assert_eq!(config.signing_identity.as_deref(), Some("-"));
+    }
+
+    #[test]
+    fn provisioning_profile_rejects_ad_hoc_signing_identity() {
+        let config = MacosPackageConfig {
+            provisioning_profile: Some("profiles/Development.provisionprofile".into()),
+            signing_identity: Some("-".into()),
+            ..Default::default()
+        };
+
+        let error = sign_macos_app_if_configured(
+            Path::new("/project"),
+            Path::new("/project/Demo.app"),
+            &config,
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("ad-hoc signing"));
     }
 
     #[test]
