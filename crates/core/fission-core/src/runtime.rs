@@ -1009,6 +1009,26 @@ impl Runtime {
     /// schedule another frame.
     pub fn post_layout_hook(&mut self, ir: &CoreIR, layout: &LayoutSnapshot) -> bool {
         let needs_follow_up_frame = self.apply_pending_scroll_into_view(ir, layout);
+        let active_scroll_nodes: HashSet<WidgetId> = ir
+            .nodes
+            .iter()
+            .filter_map(|(id, node)| match node.op {
+                Op::Layout(LayoutOp::Scroll { .. }) => Some(*id),
+                _ => None,
+            })
+            .collect();
+        self.runtime_state
+            .scroll
+            .retain_active(&active_scroll_nodes);
+        if self
+            .runtime_state
+            .gesture
+            .scrollbar_drag
+            .is_some_and(|drag| !active_scroll_nodes.contains(&drag.node_id))
+        {
+            self.runtime_state.gesture.scrollbar_drag = None;
+        }
+
         let mut current_heroes = HashMap::new();
 
         for (id, node) in &ir.nodes {
@@ -1447,7 +1467,12 @@ impl Runtime {
                         while let Some(node_id) = current_id {
                             if let Some(node) = ir.nodes.get(&node_id) {
                                 if let Op::Semantics(semantics) = &node.op {
-                                    if let Some(action_entry) = semantics.actions.entries.first() {
+                                    if let Some(action_entry) =
+                                        semantics.actions.entries.iter().find(|entry| {
+                                            entry.trigger
+                                                == fission_ir::semantics::ActionTrigger::Default
+                                        })
+                                    {
                                         if let Some(payload) = &action_entry.payload_data {
                                             let envelope = ActionEnvelope {
                                                 id: ActionId::from_u128(action_entry.action_id),
@@ -1591,7 +1616,11 @@ impl Runtime {
                             if let Op::Semantics(semantics) = &node.op {
                                 if semantics.role == fission_ir::semantics::Role::TextInput {
                                     // No action
-                                } else if let Some(action_entry) = semantics.actions.entries.first()
+                                } else if let Some(action_entry) =
+                                    semantics.actions.entries.iter().find(|entry| {
+                                        entry.trigger
+                                            == fission_ir::semantics::ActionTrigger::Default
+                                    })
                                 {
                                     if let Some(payload) = &action_entry.payload_data {
                                         let envelope = ActionEnvelope {

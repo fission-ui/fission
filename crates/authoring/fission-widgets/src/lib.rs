@@ -128,6 +128,11 @@ pub use time_picker::TimePicker;
 pub mod date_range_picker;
 pub use date_range_picker::DateRangePicker;
 
+pub mod colour_picker;
+pub use colour_picker::{
+    ColorPicker, ColorPickerVariant, ColourHsva, ColourPicker, ColourPickerVariant,
+};
+
 pub mod combobox;
 pub use combobox::Combobox;
 

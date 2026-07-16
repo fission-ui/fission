@@ -5,7 +5,7 @@ use crate::motion_support::{
 use crate::stack::{HStack, VStack};
 use fission_core::motion::{follow_x_and_width, Motion, MotionTrack, Presence};
 use fission_core::ui::{
-    Button, ButtonVariant, ComponentSize, ComponentState, Container, Text, Widget,
+    Button, ButtonVariant, ComponentSize, ComponentState, Composite, Container, Text, Widget,
 };
 use fission_core::{ActionEnvelope, WidgetId, WidgetIdExt};
 use serde::{Deserialize, Serialize};
@@ -318,6 +318,15 @@ impl From<Tabs> for Widget {
         } else {
             fission_core::ui::widgets::spacer::Spacer::default().into()
         };
+        active_content = Composite {
+            id: Some(WidgetId::derived(
+                slot_id(base_id, SLOT_CONTENT).as_u128(),
+                &[this.active_index as u32, 0],
+            )),
+            child: active_content,
+            ..Default::default()
+        }
+        .into();
         if let Some(plan) = &motion_plan {
             active_content = Presence {
                 id: WidgetId::derived(
