@@ -627,6 +627,14 @@ pub(super) fn readiness_package_tools(
                 "cargo",
                 "Install Rust from https://rustup.rs/ and ensure cargo is on PATH.",
             ));
+            if let Some(script) = linux_run_installer_script(project_dir) {
+                checks.push(check_path(
+                    "release.package.linux_run_installer_script_exists",
+                    script,
+                    "Linux .run installer script exists",
+                    "Restore package.linux.run.installer_script or remove that field to use Fission's user-local installer.",
+                ));
+            }
         }
         (Target::Terminal, PackageFormat::Run) => {
             checks.push(check_tool(
@@ -813,6 +821,26 @@ fn windows_exe_installer_script(project_dir: &Path) -> Option<PathBuf> {
         .get("package")?
         .get("windows")?
         .get("exe_installer_script")?
+        .as_str()?
+        .trim();
+    if configured.is_empty() {
+        return None;
+    }
+    let path = Path::new(configured);
+    Some(if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        project_dir.join(path)
+    })
+}
+
+fn linux_run_installer_script(project_dir: &Path) -> Option<PathBuf> {
+    let root = read_package_identity_toml(project_dir).ok()?;
+    let configured = root
+        .get("package")?
+        .get("linux")?
+        .get("run")?
+        .get("installer_script")?
         .as_str()?
         .trim();
     if configured.is_empty() {

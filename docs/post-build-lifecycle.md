@@ -252,6 +252,10 @@ default_scope = "user"
 include_desktop_entry = true
 include_appstream_metadata = true
 compression = "zstd"
+# Optional. The script receives FISSION_LINUX_PAYLOAD_DIR, LINUX_BINARY,
+# FISSION_LINUX_NATIVE_PRODUCTS_MANIFEST, and LINUX_PROFILE, and prints the
+# path to the completed .run installer.
+installer_script = "platforms/linux/package-run.sh"
 
 [package.macos]
 bundle_id = "com.example.todo"

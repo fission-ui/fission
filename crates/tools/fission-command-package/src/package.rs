@@ -30,6 +30,7 @@ struct PackageManifest {
 #[derive(Debug, Deserialize, Default)]
 struct PackageRoot {
     docker: Option<DockerPackageConfig>,
+    linux: Option<LinuxPackageConfig>,
     windows: Option<WindowsPackageConfig>,
     #[serde(default)]
     secondary_artifacts: Vec<SecondaryArtifactConfig>,
@@ -37,6 +38,16 @@ struct PackageRoot {
     symbols: Vec<SecondaryArtifactConfig>,
     #[serde(default)]
     crash_assets: Vec<SecondaryArtifactConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
+struct LinuxPackageConfig {
+    run: Option<LinuxRunPackageConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
+struct LinuxRunPackageConfig {
+    installer_script: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -252,7 +263,8 @@ fn package_linux_run(options: &PackageOptions) -> Result<ArtifactManifest> {
     let native_products =
         build_linux_native_modules(&options.project_dir, &project, options.release)?;
     stage_linux_native_products(&payload_dir, &native_products)?;
-    write_linux_native_products_manifest(&payload_dir, &native_products, profile, "run")?;
+    let native_products_manifest =
+        write_linux_native_products_manifest(&payload_dir, &native_products, profile, "run")?;
     copy_optional_assets(&options.project_dir, &payload_dir)?;
 
     let package_name = sanitize_file_stem(&project.app.name);
@@ -261,7 +273,45 @@ fn package_linux_run(options: &PackageOptions) -> Result<ArtifactManifest> {
         cargo_package_version(&options.project_dir).unwrap_or_else(|| "0.0.0".to_string()),
         profile
     ));
-    write_linux_run(&payload_dir, &run_path, &project.app.name, &executable_name)?;
+    let linux = linux_package_config(&options.project_dir)?;
+    if let Some(script) = linux
+        .run
+        .and_then(|run| run.installer_script)
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let script = resolve_project_path(&options.project_dir, script.to_string());
+        let environment = linux_packaging_environment(
+            &payload_dir,
+            &payload_dir.join(&executable_name),
+            &native_products_manifest,
+        );
+        let output_path = run_packaging_script_with_env(
+            &options.project_dir,
+            &script,
+            options.release,
+            &environment,
+        )?
+        .with_context(|| format!("{} did not print a .run installer path", script.display()))?;
+        if output_path.extension().and_then(OsStr::to_str) != Some("run") {
+            bail!(
+                "{} printed {}, expected a .run installer",
+                script.display(),
+                output_path.display()
+            );
+        }
+        fs::copy(&output_path, &run_path).with_context(|| {
+            format!(
+                "failed to copy Linux installer {} to {}",
+                output_path.display(),
+                run_path.display()
+            )
+        })?;
+        set_executable(&run_path)?;
+    } else {
+        write_linux_run(&payload_dir, &run_path, &project.app.name, &executable_name)?;
+    }
     fs::remove_dir_all(&payload_dir).ok();
     finish_artifact_manifest(&project, options, &staging_dir, profile)
 }
@@ -683,6 +733,13 @@ fn windows_package_config(project_dir: &Path) -> Result<WindowsPackageConfig> {
     Ok(package_manifest(project_dir)?
         .package
         .and_then(|package| package.windows)
+        .unwrap_or_default())
+}
+
+fn linux_package_config(project_dir: &Path) -> Result<LinuxPackageConfig> {
+    Ok(package_manifest(project_dir)?
+        .package
+        .and_then(|package| package.linux)
         .unwrap_or_default())
 }
 
@@ -2027,6 +2084,27 @@ fn windows_packaging_environment(binary: &Path, manifest: &Path) -> Vec<(OsStrin
     ]
 }
 
+fn linux_packaging_environment(
+    payload_dir: &Path,
+    binary: &Path,
+    manifest: &Path,
+) -> Vec<(OsString, OsString)> {
+    vec![
+        (
+            OsString::from("FISSION_LINUX_PAYLOAD_DIR"),
+            payload_dir.as_os_str().to_os_string(),
+        ),
+        (
+            OsString::from("LINUX_BINARY"),
+            binary.as_os_str().to_os_string(),
+        ),
+        (
+            OsString::from("FISSION_LINUX_NATIVE_PRODUCTS_MANIFEST"),
+            manifest.as_os_str().to_os_string(),
+        ),
+    ]
+}
+
 fn run_packaging_script(
     project_dir: &Path,
     script: &Path,
@@ -2075,6 +2153,7 @@ fn run_packaging_script_with_env(
     if release {
         command.env("ANDROID_PROFILE", "release");
         command.env("IOS_PROFILE", "release");
+        command.env("LINUX_PROFILE", "release");
         command.env("WINDOWS_PROFILE", "release");
     }
     for (key, value) in environment {
