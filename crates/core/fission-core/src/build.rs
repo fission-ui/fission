@@ -423,7 +423,8 @@ impl<S: GlobalState> BuildCtxHandle<S> {
                   envelope: &crate::ActionEnvelope,
                   _target,
                   _effects,
-                  _input|
+                  _input,
+                  _callback_registry|
                   -> anyhow::Result<()> {
                 let action: A = serde_json::from_slice(&envelope.payload).map_err(|error| {
                     anyhow::anyhow!("Failed to deserialize local action: {error}")

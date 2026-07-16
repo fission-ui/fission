@@ -5,7 +5,7 @@
 //! an [`Effects`] builder for issuing capabilities, jobs, services, and
 //! runtime-control effects plus binding callback actions.
 
-use crate::action::{Action, ActionEnvelope, GlobalState};
+use crate::action::{Action, ActionEnvelope, ActionId, GlobalState};
 use crate::async_runtime::{
     JobRef, JobRequestPayload, JobSpec, ServiceBindings, ServiceCommandPayload, ServiceSlot,
     ServiceSpec, ServiceStartPayload, ServiceStopPayload,
@@ -74,7 +74,16 @@ use crate::platform_wifi::{
     SCAN_WIFI_NETWORKS,
 };
 use crate::registry::{ActionRegistry, IntoHandler};
-use std::marker::PhantomData;
+use crate::EffectCallbackRegistry;
+use std::{
+    marker::PhantomData,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+};
+
+static NEXT_EFFECT_CALLBACK_ID: AtomicU64 = AtomicU64::new(1);
 
 /// The context passed to modern 3-argument reducer handlers.
 ///
@@ -129,6 +138,7 @@ pub struct Effects<'a, S: GlobalState> {
     pub out: Vec<EffectEnvelope>,
     next_req_id: u64,
     pub(crate) registry: Option<&'a mut ActionRegistry<S>>,
+    callback_registry: Option<Arc<EffectCallbackRegistry>>,
     _phantom: PhantomData<S>,
 }
 
@@ -138,6 +148,7 @@ impl<'a, S: GlobalState> Effects<'a, S> {
             out: Vec::new(),
             next_req_id,
             registry: Some(registry),
+            callback_registry: None,
             _phantom: PhantomData,
         }
     }
@@ -147,6 +158,20 @@ impl<'a, S: GlobalState> Effects<'a, S> {
             out: Vec::new(),
             next_req_id,
             registry: None,
+            callback_registry: None,
+            _phantom: PhantomData,
+        }
+    }
+
+    pub(crate) fn new_runtime(
+        next_req_id: u64,
+        callback_registry: Arc<EffectCallbackRegistry>,
+    ) -> Self {
+        Self {
+            out: Vec::new(),
+            next_req_id,
+            registry: None,
+            callback_registry: Some(callback_registry),
             _phantom: PhantomData,
         }
     }
@@ -155,11 +180,25 @@ impl<'a, S: GlobalState> Effects<'a, S> {
     where
         H: IntoHandler<S, A> + Send + Sync + 'static,
     {
+        let action_id = effect_callback_action_id(A::static_id());
         if let Some(registry) = &mut self.registry {
-            registry.register(handler);
+            registry.register_with_id(action_id, handler);
+        } else {
+            let callback_registry = self
+                .callback_registry
+                .as_ref()
+                .unwrap_or_else(|| panic!("Effects::bind requires a runtime or action registry"));
+            let mut registry = ActionRegistry::new();
+            registry.register_with_id(action_id, handler);
+            let mut reducers = registry.into_runtime_reducers();
+            let reducer = reducers
+                .remove(&action_id)
+                .and_then(|mut reducers| reducers.pop())
+                .expect("effect callback reducer must be registered");
+            callback_registry.register(action_id, reducer);
         }
         ActionEnvelope {
-            id: A::static_id(),
+            id: action_id,
             payload: action.encode(),
         }
     }
@@ -464,6 +503,14 @@ impl<'a, S: GlobalState> Effects<'a, S> {
     pub fn ensure_visible(&mut self, request: ScrollIntoViewRequest) -> u64 {
         self.scroll_into_view(request)
     }
+}
+
+fn effect_callback_action_id(action_id: ActionId) -> ActionId {
+    let sequence = NEXT_EFFECT_CALLBACK_ID.fetch_add(1, Ordering::Relaxed);
+    ActionId::from_name(&format!(
+        "fission::effect_callback::{:032x}::{sequence}",
+        action_id.as_u128()
+    ))
 }
 
 /// Convenience builder for the standard notification host capabilities.

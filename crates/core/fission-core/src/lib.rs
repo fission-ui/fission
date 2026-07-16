@@ -38,6 +38,7 @@ use anyhow::Result;
 use lazy_static::lazy_static;
 use std::any::TypeId;
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 extern crate self as fission_core;
 
@@ -681,7 +682,41 @@ pub(crate) type BoxedReducer = Box<
             WidgetId,
             &mut Vec<EffectEnvelope>,
             &ActionInput,
+            &Arc<EffectCallbackRegistry>,
         ) -> Result<()>
         + Send
         + Sync,
 >;
+
+/// One-shot reducers bound to async effect completion actions.
+///
+/// These reducers are separate from the per-frame widget registry so a
+/// completion remains deliverable after the frame that issued the effect.
+pub(crate) struct EffectCallbackRegistry {
+    reducers: Mutex<HashMap<ActionId, Vec<BoxedReducer>>>,
+}
+
+impl EffectCallbackRegistry {
+    pub(crate) fn new() -> Self {
+        Self {
+            reducers: Mutex::new(HashMap::new()),
+        }
+    }
+
+    pub(crate) fn register(&self, action_id: ActionId, reducer: BoxedReducer) {
+        self.reducers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .entry(action_id)
+            .or_default()
+            .push(reducer);
+    }
+
+    pub(crate) fn take(&self, action_id: ActionId) -> Vec<BoxedReducer> {
+        self.reducers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&action_id)
+            .unwrap_or_default()
+    }
+}

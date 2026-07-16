@@ -9,7 +9,7 @@ use crate::registry::{
     ActionRegistry, ResourcePolicy, RuntimeResourceDeclaration, RuntimeResourceKind, TimerResource,
     VideoRegistration,
 };
-use crate::BoxedReducer;
+use crate::{BoxedReducer, EffectCallbackRegistry};
 use crate::{
     Clipboard, Clock, CurrentTime, ImeHandler, InputEvent, KeyCode, KeyEvent, PointerButton,
     PointerEvent, ResourceExecutionContext,
@@ -104,6 +104,8 @@ pub struct Runtime {
     /// Persistent reducers that survive [`clear_reducers`](Runtime::clear_reducers)
     /// calls, installed once at app startup.
     pub(crate) persistent_reducers: HashMap<ActionId, Vec<BoxedReducer>>,
+    /// One-shot reducers bound by reducers to async effect completions.
+    effect_callbacks: Arc<EffectCallbackRegistry>,
     /// Type-indexed application state store.
     pub app_states: HashMap<TypeId, Box<dyn GlobalState>>,
     /// Mutable runtime state (interaction, scroll, text editing, motions).
@@ -131,6 +133,7 @@ impl Default for Runtime {
         let mut runtime = Self {
             reducers: HashMap::new(),
             persistent_reducers: HashMap::new(),
+            effect_callbacks: Arc::new(EffectCallbackRegistry::new()),
             app_states: HashMap::new(),
             runtime_state: RuntimeState::default(),
             measurer: None,
@@ -209,7 +212,8 @@ impl Runtime {
                   action: &ActionEnvelope,
                   target: WidgetId,
                   _effects: &mut Vec<EffectEnvelope>,
-                  _input: &ActionInput|
+                  _input: &ActionInput,
+                  _callback_registry|
                   -> Result<()> {
                 if let Some(state_box) = app_states.get_mut(&state_type_id) {
                     let concrete_state = state_box.downcast_mut::<S>().ok_or_else(|| {
@@ -377,6 +381,19 @@ impl Runtime {
 
         // Collect effects from this dispatch (both persistent and per-frame reducers).
         let mut effects = Vec::new();
+        let callback_registry = self.effect_callbacks.clone();
+
+        let mut callback_reducers = callback_registry.take(action_id);
+        for reducer_wrapper in callback_reducers.iter_mut() {
+            reducer_wrapper(
+                &mut self.app_states,
+                &action,
+                target,
+                &mut effects,
+                input,
+                &callback_registry,
+            )?;
+        }
 
         if let Some(reducers) = self.persistent_reducers.get_mut(&action_id) {
             diag::emit(
@@ -391,7 +408,14 @@ impl Runtime {
 
             let mut temp_reducers: Vec<BoxedReducer> = reducers.drain(..).collect();
             for reducer_wrapper in temp_reducers.iter_mut() {
-                reducer_wrapper(&mut self.app_states, &action, target, &mut effects, input)?;
+                reducer_wrapper(
+                    &mut self.app_states,
+                    &action,
+                    target,
+                    &mut effects,
+                    input,
+                    &callback_registry,
+                )?;
             }
             reducers.extend(temp_reducers);
         }
@@ -409,7 +433,14 @@ impl Runtime {
 
             let mut temp_reducers: Vec<BoxedReducer> = reducers.drain(..).collect();
             for reducer_wrapper in temp_reducers.iter_mut() {
-                reducer_wrapper(&mut self.app_states, &action, target, &mut effects, input)?;
+                reducer_wrapper(
+                    &mut self.app_states,
+                    &action,
+                    target,
+                    &mut effects,
+                    input,
+                    &callback_registry,
+                )?;
             }
             reducers.extend(temp_reducers);
         }
