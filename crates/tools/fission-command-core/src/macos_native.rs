@@ -193,6 +193,15 @@ fn build_products(
         if module.macos.is_empty() || module.macos.products.is_empty() {
             continue;
         }
+        let products = module
+            .macos
+            .products
+            .iter()
+            .filter(|product| product_enabled_for_mode(product, mode))
+            .collect::<Vec<_>>();
+        if products.is_empty() {
+            continue;
+        }
         let xcode_project = prepare_xcode_project(&project_dir, &module.name, &module.macos)?;
         let derived_data =
             derived_data_path(&project_dir, &module.name, &module.macos, &profile_dir);
@@ -207,10 +216,7 @@ fn build_products(
         }
         fs::create_dir_all(&product_dir)?;
 
-        for product in &module.macos.products {
-            if mode == Some(MacosNativeBundleMode::Package) && !product.package {
-                continue;
-            }
+        for product in products {
             validate_product(product)?;
             let mut command = Command::new("xcodebuild");
             command
@@ -247,6 +253,13 @@ fn build_products(
         }
     }
     Ok(built)
+}
+
+fn product_enabled_for_mode(
+    product: &NativeMacosProductConfig,
+    mode: Option<MacosNativeBundleMode>,
+) -> bool {
+    mode != Some(MacosNativeBundleMode::Package) || product.package
 }
 
 const fn enabled_by_default() -> bool {
@@ -623,6 +636,15 @@ signing_identity = "Apple Development"
             NativeMacosProductKind::AppExtension
         );
         assert!(!module.products[0].package);
+        assert!(!product_enabled_for_mode(
+            &module.products[0],
+            Some(MacosNativeBundleMode::Package)
+        ));
+        assert!(product_enabled_for_mode(
+            &module.products[0],
+            Some(MacosNativeBundleMode::Run)
+        ));
+        assert!(product_enabled_for_mode(&module.products[0], None));
         assert_eq!(
             module.products[0].run.provisioning_profile.as_deref(),
             Some("profiles/FileProviderDevelopment.provisionprofile")
