@@ -1366,28 +1366,39 @@ impl InternalLower for TextInput {
         } else if let Some(styled) = &self.styled_runs {
             // Preserve syntax colouring while letting the widget-level typography
             // define the default family/weight/spacing.
-            runs = styled
+            let styled_text = styled
                 .iter()
-                .cloned()
-                .map(|mut run| {
-                    if run.style.font_family.is_none() {
-                        run.style.font_family = base_text_style.font_family.clone();
-                    }
-                    if run.style.font_weight == 400 {
-                        run.style.font_weight = base_text_style.font_weight;
-                    }
-                    if run.style.font_style == fission_ir::op::FontStyle::Normal {
-                        run.style.font_style = base_text_style.font_style;
-                    }
-                    if run.style.line_height.is_none() {
-                        run.style.line_height = base_text_style.line_height;
-                    }
-                    if run.style.letter_spacing == 0.0 {
-                        run.style.letter_spacing = base_text_style.letter_spacing;
-                    }
-                    run
-                })
-                .collect();
+                .map(|run| run.text.as_str())
+                .collect::<String>();
+            if styled_text == display_text {
+                runs = styled
+                    .iter()
+                    .cloned()
+                    .map(|mut run| {
+                        if run.style.font_family.is_none() {
+                            run.style.font_family = base_text_style.font_family.clone();
+                        }
+                        if run.style.font_weight == 400 {
+                            run.style.font_weight = base_text_style.font_weight;
+                        }
+                        if run.style.font_style == fission_ir::op::FontStyle::Normal {
+                            run.style.font_style = base_text_style.font_style;
+                        }
+                        if run.style.line_height.is_none() {
+                            run.style.line_height = base_text_style.line_height;
+                        }
+                        if run.style.letter_spacing == 0.0 {
+                            run.style.letter_spacing = base_text_style.letter_spacing;
+                        }
+                        run
+                    })
+                    .collect();
+            } else {
+                runs.push(fission_ir::op::TextRun {
+                    text: display_text.clone(),
+                    style: base_text_style.clone(),
+                });
+            }
         } else {
             runs.push(fission_ir::op::TextRun {
                 text: display_text.clone(),

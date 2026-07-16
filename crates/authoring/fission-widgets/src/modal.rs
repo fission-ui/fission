@@ -1,6 +1,6 @@
 use crate::motion_support::{
     dedupe, exit_for, fade_in, push_enter_with_exit, scale_in, slide_x_in, slide_y_in, slot_id,
-    SLOT_BACKDROP, SLOT_SURFACE,
+    SLOT_BACKDROP, SLOT_FOCUS_SCOPE, SLOT_SURFACE,
 };
 use crate::stack::{HStack, VStack};
 use crate::Icon;
@@ -448,7 +448,7 @@ impl From<Modal> for Widget {
             bottom: Some(0.0),
             child: Some(
                 fission_core::ui::widgets::FocusScope {
-                    id: None,
+                    id: Some(slot_id(this.id, SLOT_FOCUS_SCOPE)),
                     is_barrier: true,
                     children: vec![root],
                 }
