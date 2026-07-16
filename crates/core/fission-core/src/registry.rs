@@ -92,8 +92,14 @@ impl<S: GlobalState> ActionRegistry<S> {
         &mut self,
         handler: H,
     ) {
-        let action_id = A::static_id();
+        self.register_with_id(A::static_id(), handler);
+    }
 
+    pub(crate) fn register_with_id<A: Action, H: IntoHandler<S, A> + Send + Sync + 'static>(
+        &mut self,
+        action_id: ActionId,
+        handler: H,
+    ) {
         let typed_reducer: TypedReducer<S> = Box::new(
             move |state: &mut S,
                   envelope: &ActionEnvelope,
@@ -176,7 +182,8 @@ impl<S: GlobalState> ActionRegistry<S> {
                           action: &ActionEnvelope,
                           target: WidgetId,
                           out_effects: &mut Vec<EffectEnvelope>,
-                          input: &ActionInput|
+                          input: &ActionInput,
+                          callback_registry|
                           -> Result<()> {
                         if let Some(state_box) = app_states.get_mut(&state_type_id) {
                             let concrete_state =
@@ -184,7 +191,8 @@ impl<S: GlobalState> ActionRegistry<S> {
                                     anyhow!("Failed to downcast GlobalState to concrete type")
                                 })?;
 
-                            let mut effects_builder = Effects::new_headless(0);
+                            let mut effects_builder =
+                                Effects::new_runtime(0, callback_registry.clone());
 
                             typed_reducer(
                                 concrete_state,

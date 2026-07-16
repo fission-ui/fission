@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 struct TestState {
     data: String,
     loading: bool,
+    completions: usize,
 }
 impl GlobalState for TestState {}
 
@@ -61,6 +62,7 @@ fn on_upload_finished<'a, 'b, 'c>(
     ctx: &mut ReducerContext<'a, 'b, 'c, TestState>,
 ) {
     state.loading = false;
+    state.completions += 1;
     if let Some(result) = ctx.input.capability_ok(UPLOAD_FILE) {
         state.data = format!("uploaded {} bytes", result.bytes);
     }
@@ -93,7 +95,6 @@ fn test_capability_effect_loop() {
 
     let mut registry = crate::registry::ActionRegistry::new();
     registry.register(reduce_with!(on_upload_requested));
-    registry.register(reduce_with!(on_upload_finished));
     runtime.absorb_registry(registry);
 
     runtime
@@ -108,9 +109,10 @@ fn test_capability_effect_loop() {
 
     let env = runtime.pending_effects.pop().unwrap();
     let on_ok = env.on_ok.clone().expect("capability continuation");
+    runtime.clear_reducers();
     runtime
         .dispatch_with_input(
-            on_ok,
+            on_ok.clone(),
             crate::WidgetId::from_u128(0),
             &crate::ActionInput::CapabilityOk {
                 capability: "upload-file".into(),
@@ -123,6 +125,22 @@ fn test_capability_effect_loop() {
     let state = runtime.get_global_state::<TestState>().unwrap();
     assert!(!state.loading);
     assert_eq!(state.data, "uploaded 11 bytes");
+    assert_eq!(state.completions, 1);
+
+    runtime
+        .dispatch_with_input(
+            on_ok,
+            crate::WidgetId::from_u128(0),
+            &crate::ActionInput::CapabilityOk {
+                capability: "upload-file".into(),
+                req_id: env.req_id,
+                payload: serde_json::to_vec(&UploadFileOk { bytes: 99 }).unwrap(),
+            },
+        )
+        .unwrap();
+    let state = runtime.get_global_state::<TestState>().unwrap();
+    assert_eq!(state.data, "uploaded 11 bytes");
+    assert_eq!(state.completions, 1);
 }
 
 #[test]
