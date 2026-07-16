@@ -1,4 +1,7 @@
-use crate::env::{Clipboard, InteractionStateMap, ScrollStateMap, TextEditStateMap};
+use crate::env::{
+    Clipboard, ContextMenuState, InteractionStateMap, ScrollStateMap, SelectableTextStateMap,
+    TextEditStateMap,
+};
 use crate::event::InputEvent;
 use crate::{ActionEnvelope, ActionInput};
 use fission_ir::{CoreIR, Op, WidgetId};
@@ -7,6 +10,7 @@ use std::sync::Arc;
 
 pub mod gesture;
 pub mod hover;
+pub mod selectable_text;
 pub mod slider;
 pub mod text;
 
@@ -14,6 +18,8 @@ pub struct ControllerContext<'a> {
     pub ir: &'a CoreIR,
     pub layout: &'a LayoutSnapshot,
     pub text_edit: &'a mut TextEditStateMap,
+    pub selectable_text: &'a mut SelectableTextStateMap,
+    pub context_menu: &'a mut ContextMenuState,
     pub interaction: &'a mut InteractionStateMap,
     pub scroll: &'a mut ScrollStateMap,
     pub gesture: &'a mut crate::env::GestureState,

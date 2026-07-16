@@ -173,6 +173,8 @@ pub struct RuntimeState {
     pub motion: MotionStateMap,
     pub interaction: InteractionStateMap,
     pub text_edit: TextEditStateMap,
+    pub selectable_text: SelectableTextStateMap,
+    pub context_menu: ContextMenuState,
     pub clipboard: String,
     pub caret_visible: HashMap<WidgetId, bool>,
     pub gesture: GestureState,
@@ -212,6 +214,62 @@ impl ScrollStateMap {
 
     pub fn retain_active(&mut self, active: &std::collections::HashSet<WidgetId>) {
         self.offsets.retain(|id, _| active.contains(id));
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ContextMenuState {
+    pub owner: Option<WidgetId>,
+    pub anchor: Option<LayoutPoint>,
+}
+
+impl ContextMenuState {
+    pub fn open(&mut self, owner: WidgetId, anchor: LayoutPoint) {
+        self.owner = Some(owner);
+        self.anchor = Some(anchor);
+    }
+
+    pub fn close(&mut self) {
+        self.owner = None;
+        self.anchor = None;
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct SelectableTextStateMap {
+    pub states: HashMap<WidgetId, SelectableTextState>,
+}
+
+impl SelectableTextStateMap {
+    pub fn get(&self, id: WidgetId) -> Option<&SelectableTextState> {
+        self.states.get(&id)
+    }
+
+    pub fn get_mut_or_default(&mut self, id: WidgetId) -> &mut SelectableTextState {
+        self.states.entry(id).or_default()
+    }
+
+    pub fn selection_range(&self, id: WidgetId) -> Option<(usize, usize)> {
+        self.states
+            .get(&id)
+            .and_then(SelectableTextState::selection_range)
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct SelectableTextState {
+    pub anchor: usize,
+    pub caret: usize,
+    pub selecting: bool,
+}
+
+impl SelectableTextState {
+    pub fn selection_range(&self) -> Option<(usize, usize)> {
+        if self.anchor == self.caret {
+            None
+        } else {
+            Some((self.anchor, self.caret))
+        }
     }
 }
 

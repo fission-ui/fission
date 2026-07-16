@@ -1,8 +1,10 @@
 use crate::env::TextSelectionHandleKind;
 use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
 use crate::ui::{
-    traits::InternalLower, Button, ButtonContentAlign, ButtonVariant, Container, Positioned, Row,
-    Spacer, Text, TextContent, TextFontStyle, Widget,
+    traits::InternalLower,
+    widgets::context_menu::{TextContextMenuAction, TextContextMenuConfig},
+    Button, ButtonContentAlign, ButtonVariant, Container, Positioned, Row, Spacer, Text,
+    TextContent, TextFontStyle, Widget,
 };
 use crate::ActionEnvelope;
 use fission_ir::{
@@ -111,51 +113,6 @@ impl TextAlignVertical {
             Self::Top => fission_ir::op::AlignItems::Start,
             Self::Center => fission_ir::op::AlignItems::Center,
             Self::Bottom => fission_ir::op::AlignItems::End,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum TextContextMenuAction {
-    Copy,
-    Cut,
-    Paste,
-    SelectAll,
-}
-
-impl TextContextMenuAction {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Copy => "Copy",
-            Self::Cut => "Cut",
-            Self::Paste => "Paste",
-            Self::SelectAll => "Select All",
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TextContextMenuConfig {
-    pub enabled: bool,
-    pub actions: Vec<TextContextMenuAction>,
-    pub padding: [f32; 4],
-    pub gap: f32,
-    pub border_radius: f32,
-}
-
-impl Default for TextContextMenuConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            actions: vec![
-                TextContextMenuAction::Copy,
-                TextContextMenuAction::Cut,
-                TextContextMenuAction::Paste,
-                TextContextMenuAction::SelectAll,
-            ],
-            padding: [10.0, 10.0, 8.0, 8.0],
-            gap: 6.0,
-            border_radius: 12.0,
         }
     }
 }
@@ -883,7 +840,7 @@ impl Default for TextInput {
             autofill_hints: Vec::new(),
             scroll_padding: None,
             drag_start_behavior: DragStartBehavior::Start,
-            context_menu: TextContextMenuConfig::default(),
+            context_menu: TextContextMenuConfig::editing(),
             selection_controls: TextSelectionControls::default(),
             magnifier_configuration: TextMagnifierConfiguration::default(),
             undo_controller: None,
@@ -903,6 +860,12 @@ impl TextInput {
                 .get(&cx.env.locale, key)
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| format!("MISSING:{}", key)),
+            TextContent::KeyWithFallback { key, fallback } => cx
+                .env
+                .i18n
+                .get(&cx.env.locale, key)
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| fallback.clone()),
         }
     }
 
@@ -1000,24 +963,27 @@ impl TextInput {
         anchor: fission_layout::LayoutPoint,
     ) -> WidgetId {
         let tokens = &cx.env.theme.tokens;
-        let mut row = Row::default().gap(self.context_menu.gap);
+        let mut row = Row::default().gap(self.context_menu.menu.gap);
         for action in &self.context_menu.actions {
             row.children.push(
                 Button {
                     id: Some(text_input_toolbar_button_id(input_id, *action).into()),
                     semantics: Some(Semantics {
                         role: Role::Button,
-                        label: Some(action.label().into()),
+                        label: Some(action.fallback_label().into()),
                         focusable: true,
                         focus_policy: fission_ir::FocusPolicy::PreserveCurrentOnPointer,
                         ..Semantics::default()
                     }),
                     focus_policy: fission_ir::FocusPolicy::PreserveCurrentOnPointer,
                     child: Some(
-                        Text::new(action.label())
-                            .size(tokens.typography.label_large_size)
-                            .color(tokens.colors.text_primary)
-                            .into(),
+                        Text::new(TextContent::KeyWithFallback {
+                            key: action.label_key().to_string(),
+                            fallback: action.fallback_label().to_string(),
+                        })
+                        .size(tokens.typography.label_large_size)
+                        .color(tokens.colors.text_primary)
+                        .into(),
                     ),
                     padding: Some([10.0, 10.0, 6.0, 6.0]),
                     content_align: ButtonContentAlign::Center,
@@ -1031,8 +997,8 @@ impl TextInput {
         let toolbar: Widget = Container::new(row)
             .bg_fill(Fill::Solid(tokens.colors.surface))
             .border(tokens.colors.border, 1.0)
-            .border_radius(self.context_menu.border_radius)
-            .padding(self.context_menu.padding)
+            .border_radius(self.context_menu.menu.border_radius)
+            .padding(self.context_menu.menu.padding)
             .into();
 
         Positioned {
@@ -1902,6 +1868,8 @@ impl InternalLower for TextInput {
             ime_preedit_range: preedit_range,
             ime_preedit_cursor_range: preedit_cursor_range,
             text_selection: Some((anchor, caret)),
+            selectable_text: false,
+            context_menu: false,
             checked: None,
             disabled: !self.enabled,
             read_only: self.read_only,

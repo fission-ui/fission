@@ -331,9 +331,15 @@ pub struct Semantics {
     /// platform IME exposes a pre-edit cursor or marked sub-range.
     #[serde(default)]
     pub ime_preedit_cursor_range: Option<(usize, usize)>,
-    /// Editable text selection as byte offsets `(anchor, focus)`.
+    /// Editable or selectable text selection as byte offsets `(anchor, focus)`.
     #[serde(default)]
     pub text_selection: Option<(usize, usize)>,
+    /// Whether this read-only text node supports pointer/keyboard selection.
+    #[serde(default)]
+    pub selectable_text: bool,
+    /// Whether this node can open a framework-managed context menu.
+    #[serde(default)]
+    pub context_menu: bool,
     /// For checkboxes, radios, and switches: `Some(true)` = checked or selected,
     /// `Some(false)` = unchecked or unselected, and `None` = no checked state.
     pub checked: Option<bool>,
@@ -414,6 +420,8 @@ impl std::hash::Hash for Semantics {
         self.ime_preedit_range.hash(state);
         self.ime_preedit_cursor_range.hash(state);
         self.text_selection.hash(state);
+        self.selectable_text.hash(state);
+        self.context_menu.hash(state);
         self.checked.hash(state);
         self.disabled.hash(state);
         self.read_only.hash(state);
@@ -466,6 +474,8 @@ impl Default for Semantics {
             ime_preedit_range: None,
             ime_preedit_cursor_range: None,
             text_selection: None,
+            selectable_text: false,
+            context_menu: false,
             checked: None,
             disabled: false,
             read_only: false,

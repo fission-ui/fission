@@ -56,12 +56,16 @@ This keeps one logical sentence together while still giving the status word spec
 | `selection_range` | `Option<(usize, usize)>` | Highlighted text selection range. | Defaults to `None`. |
 | `selection_color` | `Option<IrColor>` | Selection highlight color override. | Defaults to `None`. |
 | `selection_text_color` | `Option<IrColor>` | Selected text color override. | Defaults to `None`. |
+| `selectable` | `bool` | Enables native pointer/keyboard selection for the whole rich-text block. | Defaults to `false`; provide a stable `id` when selection should survive rebuilds. |
+| `context_menu` | `TextContextMenuConfig` | Configures the built-in selected-text menu. | Defaults to Copy and Select All for read-only text. |
 | `flex_grow` | `f32` | Extra width or height the text block may absorb in flex layout. | Defaults to `0.0`. |
 | `flex_shrink` | `f32` | How much the block may shrink in tight layouts. | Defaults to `0.0`. |
 
 ## Practical model
 
 There are two common ways to build rich text. For simple styling changes, `RichText::new(vec![...runs...])` is enough. For more advanced cases such as inline widgets, hoverable spans, or nested semantics, the span-based constructors are the better fit because they generate the annotations and inline-widget bookkeeping for you.
+
+In both cases, the widget stays declarative. Use `.selectable(true)` when the rendered rich text should behave like selectable read-only document text with the standard Copy / Select All context menu.
 
 In both cases, the widget stays declarative. You are still describing the paragraph from state, not mutating a text object in place.
 

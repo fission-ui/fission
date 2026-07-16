@@ -1080,6 +1080,7 @@ impl Runtime {
         };
         use crate::input::gesture::GestureController;
         use crate::input::hover::HoverController;
+        use crate::input::selectable_text::SelectableTextController;
         use crate::input::slider::SliderController;
         use crate::input::text::TextInputController;
         use crate::input::{ControllerContext, InputController};
@@ -1115,6 +1116,8 @@ impl Runtime {
                     ir,
                     layout,
                     text_edit: &mut self.runtime_state.text_edit,
+                    selectable_text: &mut self.runtime_state.selectable_text,
+                    context_menu: &mut self.runtime_state.context_menu,
                     interaction: &mut self.runtime_state.interaction,
                     scroll: &mut self.runtime_state.scroll,
                     gesture: &mut self.runtime_state.gesture,
@@ -1281,6 +1284,8 @@ impl Runtime {
                 ir,
                 layout,
                 text_edit: &mut self.runtime_state.text_edit,
+                selectable_text: &mut self.runtime_state.selectable_text,
+                context_menu: &mut self.runtime_state.context_menu,
                 interaction: &mut self.runtime_state.interaction,
                 scroll: &mut self.runtime_state.scroll,
                 gesture: &mut self.runtime_state.gesture,
@@ -1292,16 +1297,21 @@ impl Runtime {
             let mut hover_controller = HoverController;
             let _ = hover_controller.handle_event(&mut ctx, &event);
 
-            let mut gesture_controller = GestureController;
-            let handled = if gesture_controller.handle_event(&mut ctx, &event) {
+            let mut selectable_text_controller = SelectableTextController;
+            let handled = if selectable_text_controller.handle_event(&mut ctx, &event) {
                 true
             } else {
-                let mut text_controller = TextInputController;
-                if text_controller.handle_event(&mut ctx, &event) {
+                let mut gesture_controller = GestureController;
+                if gesture_controller.handle_event(&mut ctx, &event) {
                     true
                 } else {
-                    let mut slider_controller = SliderController;
-                    slider_controller.handle_event(&mut ctx, &event)
+                    let mut text_controller = TextInputController;
+                    if text_controller.handle_event(&mut ctx, &event) {
+                        true
+                    } else {
+                        let mut slider_controller = SliderController;
+                        slider_controller.handle_event(&mut ctx, &event)
+                    }
                 }
             };
             (handled, ctx.dispatched_actions)
@@ -1669,6 +1679,8 @@ impl Runtime {
                 ir,
                 layout,
                 text_edit: &mut self.runtime_state.text_edit,
+                selectable_text: &mut self.runtime_state.selectable_text,
+                context_menu: &mut self.runtime_state.context_menu,
                 interaction: &mut self.runtime_state.interaction,
                 scroll: &mut self.runtime_state.scroll,
                 gesture: &mut self.runtime_state.gesture,
@@ -1740,6 +1752,8 @@ impl Runtime {
                     ir,
                     layout,
                     text_edit: &mut self.runtime_state.text_edit,
+                    selectable_text: &mut self.runtime_state.selectable_text,
+                    context_menu: &mut self.runtime_state.context_menu,
                     interaction: &mut self.runtime_state.interaction,
                     scroll: &mut self.runtime_state.scroll,
                     gesture: &mut self.runtime_state.gesture,

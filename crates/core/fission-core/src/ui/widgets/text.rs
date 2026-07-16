@@ -1,5 +1,8 @@
 use crate::internal::InternalLower;
 use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::ui::widgets::context_menu::{
+    anchor_to_local, text_context_menu_overlay_widget, TextContextMenuAction, TextContextMenuConfig,
+};
 use crate::ActionEnvelope;
 use fission_ir::{
     op::{
@@ -21,6 +24,7 @@ use std::sync::Arc;
 pub enum TextContent {
     Literal(String),
     Key(String),
+    KeyWithFallback { key: String, fallback: String },
 }
 
 impl From<&str> for TextContent {
@@ -661,6 +665,10 @@ pub struct Text {
     pub selection_range: Option<(usize, usize)>,
     pub selection_color: Option<IrColor>,
     pub selection_text_color: Option<IrColor>,
+    /// Enables read-only pointer and keyboard text selection for this text block.
+    pub selectable: bool,
+    /// Configures the built-in context menu shown for selectable text.
+    pub context_menu: TextContextMenuConfig,
     pub flex_grow: f32,
     pub flex_shrink: f32,
 }
@@ -828,6 +836,16 @@ impl Text {
         self
     }
 
+    pub fn selectable(mut self, selectable: bool) -> Self {
+        self.selectable = selectable;
+        self
+    }
+
+    pub fn context_menu(mut self, context_menu: TextContextMenuConfig) -> Self {
+        self.context_menu = context_menu;
+        self
+    }
+
     pub fn semantics_identifier(mut self, identifier: impl Into<String>) -> Self {
         let mut semantics = self.semantics.take().unwrap_or_default();
         semantics.identifier = Some(identifier.into());
@@ -885,6 +903,12 @@ impl Text {
                 .get(&cx.env.locale, key)
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| format!("MISSING:{}", key)),
+            TextContent::KeyWithFallback { key, fallback } => cx
+                .env
+                .i18n
+                .get(&cx.env.locale, key)
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| fallback.clone()),
         }
     }
 
@@ -946,6 +970,10 @@ pub struct RichText {
     pub selection_range: Option<(usize, usize)>,
     pub selection_color: Option<IrColor>,
     pub selection_text_color: Option<IrColor>,
+    /// Enables read-only pointer and keyboard text selection for this rich-text block.
+    pub selectable: bool,
+    /// Configures the built-in context menu shown for selectable rich text.
+    pub context_menu: TextContextMenuConfig,
     pub flex_grow: f32,
     pub flex_shrink: f32,
 }
@@ -1154,6 +1182,16 @@ impl RichText {
 
     pub fn selection_text_color(mut self, color: IrColor) -> Self {
         self.selection_text_color = Some(color);
+        self
+    }
+
+    pub fn selectable(mut self, selectable: bool) -> Self {
+        self.selectable = selectable;
+        self
+    }
+
+    pub fn context_menu(mut self, context_menu: TextContextMenuConfig) -> Self {
+        self.context_menu = context_menu;
         self
     }
 
@@ -1472,9 +1510,65 @@ fn maybe_wrap_semantics(
     }
 }
 
+fn selectable_text_semantics(
+    mut semantics: Option<Semantics>,
+    value: String,
+    multiline: bool,
+    selection: Option<(usize, usize)>,
+    context_menu: bool,
+) -> Semantics {
+    let mut semantics = semantics.take().unwrap_or_default();
+    if semantics.role == Role::Generic {
+        semantics.role = Role::Text;
+    }
+    semantics.value = Some(value);
+    semantics.multiline = multiline;
+    semantics.focusable = true;
+    semantics.read_only = true;
+    semantics.selectable_text = true;
+    semantics.context_menu = context_menu;
+    semantics.text_selection = selection;
+    semantics
+}
+
+fn wrap_selectable_context_menu(
+    cx: &mut InternalLoweringCx<'_>,
+    owner: WidgetId,
+    visual_id: WidgetId,
+    config: &TextContextMenuConfig,
+    selection: Option<(usize, usize)>,
+    text_len: usize,
+) -> WidgetId {
+    if !config.enabled || cx.runtime_state.context_menu.owner != Some(owner) {
+        return visual_id;
+    }
+
+    let anchor = cx
+        .runtime_state
+        .context_menu
+        .anchor
+        .map(|screen_anchor| anchor_to_local(cx, owner, screen_anchor))
+        .unwrap_or_else(|| fission_layout::LayoutPoint::new(0.0, 0.0));
+    let menu = text_context_menu_overlay_widget(config, owner, anchor, |action| match action {
+        TextContextMenuAction::Copy => selection.is_some(),
+        TextContextMenuAction::Cut | TextContextMenuAction::Paste => false,
+        TextContextMenuAction::SelectAll => text_len > 0,
+    });
+    let menu_id = menu.lower(cx);
+    let mut stack = InternalIrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::ZStack));
+    stack.add_child(visual_id);
+    stack.add_child(menu_id);
+    stack.build(cx)
+}
+
 impl InternalLower for Text {
     fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
-        let layout_node_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
+        let owner_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
+        let layout_node_id = if self.selectable {
+            cx.next_node_id()
+        } else {
+            owner_id
+        };
         let resolved_text = self.resolve_text(cx);
         let style = self.resolved_style(cx);
         let paragraph_style = paragraph_style_metadata(
@@ -1495,14 +1589,20 @@ impl InternalLower for Text {
             ),
         );
         let clip_to_bounds = should_clip_paragraph(self.max_lines, self.overflow);
+        let runtime_selection = if self.selectable {
+            cx.runtime_state.selectable_text.selection_range(owner_id)
+        } else {
+            None
+        };
+        let selection_range = runtime_selection.or(self.selection_range);
 
-        let paint_node_id = if self.needs_rich_text() {
+        let paint_node_id = if self.needs_rich_text() || selection_range.is_some() {
             let runs = apply_selection_to_runs(
                 vec![IrTextRun {
-                    text: resolved_text,
+                    text: resolved_text.clone(),
                     style: style.clone(),
                 }],
-                self.selection_range,
+                selection_range,
                 self.selection_color,
                 self.selection_text_color,
             );
@@ -1524,7 +1624,7 @@ impl InternalLower for Text {
             InternalIrBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawText {
-                    text: resolved_text,
+                    text: resolved_text.clone(),
                     size: style.font_size,
                     color: style.color,
                     underline: style.underline,
@@ -1555,17 +1655,50 @@ impl InternalLower for Text {
             self.flex_shrink,
         );
 
-        maybe_wrap_semantics(cx, layout_node_id, self.semantics.clone(), false)
+        if self.selectable {
+            let visual_id = wrap_selectable_context_menu(
+                cx,
+                owner_id,
+                layout_node_id,
+                &self.context_menu,
+                selection_range,
+                resolved_text.len(),
+            );
+            let semantics = selectable_text_semantics(
+                self.semantics.clone(),
+                resolved_text,
+                false,
+                runtime_selection,
+                self.context_menu.enabled,
+            );
+            let mut builder = InternalIrBuilder::new(owner_id, Op::Semantics(semantics));
+            builder.add_child(visual_id);
+            builder.build(cx)
+        } else {
+            maybe_wrap_semantics(cx, layout_node_id, self.semantics.clone(), false)
+        }
     }
 }
 
 impl InternalLower for RichText {
     fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
-        let layout_node_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
+        let owner_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
+        let layout_node_id = if self.selectable {
+            cx.next_node_id()
+        } else {
+            owner_id
+        };
         let runs = self.lower_runs(cx);
+        let plain_text = runs.iter().map(|run| run.text.as_str()).collect::<String>();
+        let runtime_selection = if self.selectable {
+            cx.runtime_state.selectable_text.selection_range(owner_id)
+        } else {
+            None
+        };
+        let selection_range = runtime_selection.or(self.selection_range);
         let runs = apply_selection_to_runs(
             runs,
-            self.selection_range,
+            selection_range,
             self.selection_color,
             self.selection_text_color,
         );
@@ -1627,6 +1760,27 @@ impl InternalLower for RichText {
             self.flex_shrink,
         );
 
-        maybe_wrap_semantics(cx, layout_node_id, self.semantics.clone(), true)
+        if self.selectable {
+            let visual_id = wrap_selectable_context_menu(
+                cx,
+                owner_id,
+                layout_node_id,
+                &self.context_menu,
+                selection_range,
+                plain_text.len(),
+            );
+            let semantics = selectable_text_semantics(
+                self.semantics.clone(),
+                plain_text,
+                true,
+                runtime_selection,
+                self.context_menu.enabled,
+            );
+            let mut builder = InternalIrBuilder::new(owner_id, Op::Semantics(semantics));
+            builder.add_child(visual_id);
+            builder.build(cx)
+        } else {
+            maybe_wrap_semantics(cx, layout_node_id, self.semantics.clone(), true)
+        }
     }
 }

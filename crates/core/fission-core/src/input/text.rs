@@ -3,9 +3,10 @@ use crate::env::TextSelectionHandleKind;
 use crate::event::{
     InputEvent, KeyCode, KeyEvent, PointerEvent, MOD_ALT, MOD_CTRL, MOD_SHIFT, MOD_SUPER,
 };
+use crate::ui::widgets::context_menu::TextContextMenuAction;
 use crate::ui::widgets::text_input::{
     downcast_text_input_runtime_config, text_input_selection_handle_id,
-    text_input_toolbar_button_id, DragStartBehavior, TextContextMenuAction,
+    text_input_toolbar_button_id, DragStartBehavior,
 };
 use crate::ActionEnvelope;
 use crate::ActionId;
@@ -306,6 +307,7 @@ impl InputController for TextInputController {
                         }
                     }
                 }
+
                 false
             }
             InputEvent::Pointer(PointerEvent::Move { point, .. }) => {
@@ -513,6 +515,7 @@ impl InputController for TextInputController {
                         }
                     }
                 }
+
                 false
             }
             InputEvent::Pointer(PointerEvent::Up { point, button, .. }) => {
@@ -553,6 +556,7 @@ impl InputController for TextInputController {
                         }
                     }
                 }
+
                 false
             }
             _ => false,

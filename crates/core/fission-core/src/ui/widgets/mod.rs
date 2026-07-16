@@ -6,6 +6,7 @@ pub mod checkbox;
 pub mod column;
 pub mod composite;
 pub mod container;
+pub mod context_menu;
 pub mod grid;
 pub mod icon;
 pub mod image;
@@ -35,6 +36,10 @@ pub use checkbox::Checkbox;
 pub use column::Column;
 pub use composite::Composite;
 pub use container::Container;
+pub use context_menu::{
+    ContextMenu, ContextMenuEntry, ContextMenuItem, ContextMenuRegion, TextContextMenuAction,
+    TextContextMenuConfig,
+};
 pub use fission_theme::{BadgeTone, ButtonHierarchy, CardPattern, ComponentSize, ComponentState};
 pub use grid::{Grid, GridItem};
 pub use icon::Icon;
