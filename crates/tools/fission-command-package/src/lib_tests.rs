@@ -1215,6 +1215,35 @@ fn windows_msix_readiness_checks_manifest_packager_and_signing_source() {
 }
 
 #[test]
+fn linux_run_readiness_checks_configured_installer_script() {
+    let dir = unique_dir("linux-run-installer-readiness");
+    write_minimal_site(&dir);
+    fs::write(
+        dir.join("fission.toml"),
+        r#"
+targets = ["linux"]
+
+[app]
+name = "demo"
+app_id = "com.example.demo"
+
+[package.linux.run]
+installer_script = "platforms/linux/package-run.sh"
+"#,
+    )
+    .unwrap();
+
+    let checks = readiness_package(&dir, Some(Target::Linux), Some(PackageFormat::Run), false)
+        .expect("readiness should report a missing custom installer");
+    let installer = checks
+        .iter()
+        .find(|check| check.id == "release.package.linux_run_installer_script_exists")
+        .expect("custom Linux installer readiness check");
+
+    assert_eq!(installer.status, CheckStatus::Missing);
+}
+
+#[test]
 fn terminal_run_is_a_supported_package_pair() {
     let dir = unique_dir("terminal-run-readiness");
     write_minimal_site(&dir);

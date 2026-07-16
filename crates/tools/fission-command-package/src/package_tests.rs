@@ -538,3 +538,60 @@ exe_installer_script = "platforms/windows/package-exe.ps1"
     );
     let _ = fs::remove_dir_all(root);
 }
+
+#[test]
+fn linux_package_config_reads_run_installer_script() {
+    let root = std::env::temp_dir().join(format!(
+        "fission-linux-package-config-{}",
+        std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    fs::write(
+        root.join("fission.toml"),
+        r#"
+[package.linux.run]
+installer_script = "platforms/linux/package-run.sh"
+"#,
+    )
+    .unwrap();
+
+    let config = linux_package_config(&root).unwrap();
+
+    assert_eq!(
+        config.run.and_then(|run| run.installer_script).as_deref(),
+        Some("platforms/linux/package-run.sh")
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn linux_packaging_environment_exposes_payload_binary_and_manifest() {
+    let root = PathBuf::from("/tmp/fission-linux-package");
+    let environment = linux_packaging_environment(
+        &root,
+        &root.join("demo"),
+        &root.join(".fission/native/linux-products.json"),
+    );
+    let environment = environment
+        .into_iter()
+        .collect::<std::collections::BTreeMap<_, _>>();
+
+    assert_eq!(
+        environment.get(&OsString::from("FISSION_LINUX_PAYLOAD_DIR")),
+        Some(&root.as_os_str().to_os_string())
+    );
+    assert_eq!(
+        environment.get(&OsString::from("LINUX_BINARY")),
+        Some(&root.join("demo").as_os_str().to_os_string())
+    );
+    assert_eq!(
+        environment.get(&OsString::from("FISSION_LINUX_NATIVE_PRODUCTS_MANIFEST")),
+        Some(
+            &root
+                .join(".fission/native/linux-products.json")
+                .as_os_str()
+                .to_os_string()
+        )
+    );
+}
