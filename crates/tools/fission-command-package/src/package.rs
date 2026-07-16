@@ -2,15 +2,20 @@ use super::*;
 use anyhow::{bail, Context, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use fission_command_core::{
-    cargo_package_name, normalized_extension, read_project_config, resolve_app_icon,
-    sync_platform_config, FissionProject, PlatformCapability, Target,
+    build_linux_native_modules, build_windows_native_modules, cargo_package_name,
+    embed_and_sign_macos_native_modules, normalized_extension, read_macos_package_config,
+    read_project_config, resolve_app_icon, sign_macos_app_if_configured,
+    stage_linux_native_products, stage_windows_runtime_products, sync_platform_config,
+    BuiltLinuxNativeProduct, BuiltWindowsNativeProduct, FissionProject, MacosNativeBundleMode,
+    MacosPackageConfig, NativeLinuxProductKind, NativeWindowsProductKind, PlatformCapability,
+    Target,
 };
 use flate2::write::GzEncoder;
 use flate2::Compression;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::env;
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -25,7 +30,7 @@ struct PackageManifest {
 #[derive(Debug, Deserialize, Default)]
 struct PackageRoot {
     docker: Option<DockerPackageConfig>,
-    macos: Option<MacosPackageConfig>,
+    windows: Option<WindowsPackageConfig>,
     #[serde(default)]
     secondary_artifacts: Vec<SecondaryArtifactConfig>,
     #[serde(default)]
@@ -35,22 +40,17 @@ struct PackageRoot {
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
+struct WindowsPackageConfig {
+    exe_installer_script: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
 struct SecondaryArtifactConfig {
     kind: Option<String>,
     purpose: Option<String>,
     platform: Option<String>,
     path: Option<String>,
     upload_provider: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Default)]
-struct MacosPackageConfig {
-    bundle_id: Option<String>,
-    minimum_os: Option<String>,
-    entitlements: Option<String>,
-    signing_identity: Option<String>,
-    installer_identity: Option<String>,
-    notarize: Option<bool>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -249,6 +249,10 @@ fn package_linux_run(options: &PackageOptions) -> Result<ArtifactManifest> {
             payload_dir.display()
         )
     })?;
+    let native_products =
+        build_linux_native_modules(&options.project_dir, &project, options.release)?;
+    stage_linux_native_products(&payload_dir, &native_products)?;
+    write_linux_native_products_manifest(&payload_dir, &native_products, profile, "run")?;
     copy_optional_assets(&options.project_dir, &payload_dir)?;
 
     let package_name = sanitize_file_stem(&project.app.name);
@@ -301,8 +305,16 @@ fn package_macos_app(options: &PackageOptions) -> Result<ArtifactManifest> {
     let project = read_project_config(&options.project_dir)?;
     let profile = profile_name(options.release);
     let staging_dir = clean_package_dir(options)?;
-    let macos = macos_package_config(&options.project_dir)?;
+    let macos = read_macos_package_config(&options.project_dir)?;
     let app_bundle = create_macos_app_bundle(options, &project, &staging_dir, &macos)?;
+    embed_and_sign_macos_native_modules(
+        &options.project_dir,
+        &app_bundle,
+        &project,
+        &macos,
+        MacosNativeBundleMode::Package,
+        options.release,
+    )?;
     sign_macos_app_if_configured(&options.project_dir, &app_bundle, &macos)?;
     println!("{}", app_bundle.display());
     finish_artifact_manifest(&project, options, &staging_dir, profile)
@@ -315,8 +327,16 @@ fn package_macos_pkg(options: &PackageOptions) -> Result<ArtifactManifest> {
     let profile = profile_name(options.release);
     let staging_dir = clean_package_dir(options)?;
     let app_staging = staging_dir.join("app-staging");
-    let macos = macos_package_config(&options.project_dir)?;
+    let macos = read_macos_package_config(&options.project_dir)?;
     let app_bundle = create_macos_app_bundle(options, &project, &app_staging, &macos)?;
+    embed_and_sign_macos_native_modules(
+        &options.project_dir,
+        &app_bundle,
+        &project,
+        &macos,
+        MacosNativeBundleMode::Package,
+        options.release,
+    )?;
     sign_macos_app_if_configured(&options.project_dir, &app_bundle, &macos)?;
     let version = resolved_package_version(&options.project_dir, options.target)?;
     let pkg_path = staging_dir.join(format!(
@@ -351,10 +371,58 @@ fn package_windows_exe(options: &PackageOptions) -> Result<ArtifactManifest> {
     let profile = profile_name(options.release);
     let staging_dir = clean_package_dir(options)?;
     let binary = build_desktop_binary(&options.project_dir, options.release)?;
-    let dest = staging_dir.join(binary.file_name().unwrap_or_else(|| OsStr::new("app.exe")));
-    fs::copy(&binary, &dest)
-        .with_context(|| format!("failed to copy {} to {}", binary.display(), dest.display()))?;
-    copy_optional_assets(&options.project_dir, &staging_dir)?;
+    let native_products =
+        build_windows_native_modules(&options.project_dir, &project, options.release)?;
+    let windows = windows_package_config(&options.project_dir)?;
+    if let Some(script) = windows
+        .exe_installer_script
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let script = resolve_project_path(&options.project_dir, script.to_string());
+        let manifest = write_windows_native_products_manifest(
+            &options.project_dir,
+            &native_products,
+            true,
+            profile,
+            "exe",
+        )?;
+        let environment = windows_packaging_environment(&binary, &manifest);
+        let output_path = run_packaging_script_with_env(
+            &options.project_dir,
+            &script,
+            options.release,
+            &environment,
+        )?
+        .with_context(|| format!("{} did not print an .exe path", script.display()))?;
+        if output_path.extension().and_then(OsStr::to_str) != Some("exe") {
+            bail!(
+                "{} printed {}, expected an .exe installer",
+                script.display(),
+                output_path.display()
+            );
+        }
+        let destination = staging_dir.join(
+            output_path
+                .file_name()
+                .unwrap_or_else(|| OsStr::new("installer.exe")),
+        );
+        fs::copy(&output_path, &destination).with_context(|| {
+            format!(
+                "failed to copy Windows installer {} to {}",
+                output_path.display(),
+                destination.display()
+            )
+        })?;
+    } else {
+        let dest = staging_dir.join(binary.file_name().unwrap_or_else(|| OsStr::new("app.exe")));
+        fs::copy(&binary, &dest).with_context(|| {
+            format!("failed to copy {} to {}", binary.display(), dest.display())
+        })?;
+        stage_windows_runtime_products(&staging_dir, &native_products)?;
+        copy_optional_assets(&options.project_dir, &staging_dir)?;
+    }
     finish_artifact_manifest(&project, options, &staging_dir, profile)
 }
 
@@ -410,8 +478,28 @@ fn package_with_project_script(
             script.display()
         );
     }
-    let output_path = run_packaging_script(&options.project_dir, &script, options.release)?
-        .with_context(|| format!("{} did not print a package path", script.display()))?;
+    let mut environment = Vec::new();
+    if target == Target::Windows {
+        let binary = build_desktop_binary(&options.project_dir, options.release)?;
+        let native_products =
+            build_windows_native_modules(&options.project_dir, &project, options.release)?;
+        let include_driver_packages = options.format != PackageFormat::Msix;
+        let manifest = write_windows_native_products_manifest(
+            &options.project_dir,
+            &native_products,
+            include_driver_packages,
+            profile,
+            options.format.as_str(),
+        )?;
+        environment = windows_packaging_environment(&binary, &manifest);
+    }
+    let output_path = run_packaging_script_with_env(
+        &options.project_dir,
+        &script,
+        options.release,
+        &environment,
+    )?
+    .with_context(|| format!("{} did not print a package path", script.display()))?;
     if output_path.extension().and_then(OsStr::to_str) != Some(expected_extension) {
         bail!(
             "{} printed {}, expected a .{} artifact",
@@ -589,6 +677,13 @@ fn docker_package_config(project_dir: &Path) -> Result<DockerPackageConfig> {
             tags: None,
             build: None,
         }))
+}
+
+fn windows_package_config(project_dir: &Path) -> Result<WindowsPackageConfig> {
+    Ok(package_manifest(project_dir)?
+        .package
+        .and_then(|package| package.windows)
+        .unwrap_or_default())
 }
 
 fn docker_image_tags(
@@ -1317,8 +1412,22 @@ fn require_host_os(target: Target) -> Result<()> {
 }
 
 fn build_desktop_binary(project_dir: &Path, release: bool) -> Result<PathBuf> {
+    let project_dir = fs::canonicalize(project_dir).with_context(|| {
+        format!(
+            "failed to resolve project directory {}",
+            project_dir.display()
+        )
+    })?;
+    let manifest_path = project_dir.join("Cargo.toml");
+    let name = cargo_package_name(&project_dir).context("Cargo.toml package.name is required")?;
     let mut command = Command::new("cargo");
-    command.arg("build").current_dir(project_dir);
+    command
+        .arg("build")
+        .arg("--manifest-path")
+        .arg(&manifest_path)
+        .arg("--package")
+        .arg(&name)
+        .current_dir(&project_dir);
     if release {
         command.arg("--release");
     }
@@ -1326,20 +1435,47 @@ fn build_desktop_binary(project_dir: &Path, release: bool) -> Result<PathBuf> {
     if !status.success() {
         bail!("desktop build failed with {status}");
     }
-    let name = cargo_package_name(project_dir).context("Cargo.toml package.name is required")?;
+    let target_directory = cargo_target_directory(&project_dir, &manifest_path)?;
     let executable = if cfg!(target_os = "windows") {
         format!("{name}.exe")
     } else {
         name
     };
-    let path = project_dir
-        .join("target")
+    let path = target_directory
         .join(profile_name(release))
         .join(executable);
     if !path.exists() {
         bail!("expected built binary at {}", path.display());
     }
     Ok(path)
+}
+
+#[derive(Deserialize)]
+struct CargoTargetMetadata {
+    target_directory: PathBuf,
+}
+
+fn cargo_target_directory(project_dir: &Path, manifest_path: &Path) -> Result<PathBuf> {
+    let output = Command::new("cargo")
+        .arg("metadata")
+        .arg("--format-version")
+        .arg("1")
+        .arg("--no-deps")
+        .arg("--manifest-path")
+        .arg(manifest_path)
+        .current_dir(project_dir)
+        .output()
+        .context("failed to run cargo metadata for desktop package")?;
+    if !output.status.success() {
+        bail!(
+            "cargo metadata failed with {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    let metadata: CargoTargetMetadata = serde_json::from_slice(&output.stdout)
+        .context("failed to parse cargo metadata for desktop package")?;
+    Ok(metadata.target_directory)
 }
 
 fn create_macos_app_bundle(
@@ -1495,65 +1631,6 @@ fn render_macos_info_plist_capability_entries(project: &FissionProject) -> Strin
         );
     }
     out
-}
-
-fn macos_package_config(project_dir: &Path) -> Result<MacosPackageConfig> {
-    let path = project_dir.join("fission.toml");
-    let data =
-        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
-    let manifest: PackageManifest =
-        toml::from_str(&data).with_context(|| format!("failed to parse {}", path.display()))?;
-    Ok(manifest
-        .package
-        .and_then(|package| package.macos)
-        .unwrap_or_default())
-}
-
-fn sign_macos_app_if_configured(
-    project_dir: &Path,
-    app_bundle: &Path,
-    macos: &MacosPackageConfig,
-) -> Result<()> {
-    let Some(identity) = macos
-        .signing_identity
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
-    else {
-        return Ok(());
-    };
-    let mut command = Command::new("codesign");
-    command
-        .arg("--force")
-        .arg("--timestamp")
-        .arg("--options")
-        .arg("runtime")
-        .arg("--sign")
-        .arg(identity);
-    if let Some(entitlements) = macos
-        .entitlements
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
-    {
-        command
-            .arg("--entitlements")
-            .arg(resolve_project_path(project_dir, entitlements.to_string()));
-    }
-    let status = command
-        .arg(app_bundle)
-        .status()
-        .context("failed to run codesign")?;
-    if !status.success() {
-        bail!("codesign failed with {status}");
-    }
-    let verify = Command::new("codesign")
-        .args(["--verify", "--deep", "--strict", "--verbose=2"])
-        .arg(app_bundle)
-        .status()
-        .context("failed to verify macOS code signature")?;
-    if !verify.success() {
-        bail!("codesign verification failed with {verify}");
-    }
-    Ok(())
 }
 
 fn pkgbuild_signing_args(macos: &MacosPackageConfig) -> Vec<String> {
@@ -1785,10 +1862,184 @@ fn copy_optional_assets(project_dir: &Path, dest: &Path) -> Result<()> {
     Ok(())
 }
 
+#[derive(Serialize)]
+struct LinuxNativeProductsManifest<'a> {
+    schema_version: u32,
+    profile: &'a str,
+    package_format: &'a str,
+    products: Vec<LinuxNativeProductReceipt<'a>>,
+}
+
+#[derive(Serialize)]
+struct LinuxNativeProductReceipt<'a> {
+    module: &'a str,
+    name: &'a str,
+    kind: NativeLinuxProductKind,
+    destination: String,
+    sha256: String,
+    size_bytes: u64,
+}
+
+fn write_linux_native_products_manifest(
+    payload_dir: &Path,
+    products: &[BuiltLinuxNativeProduct],
+    profile: &str,
+    package_format: &str,
+) -> Result<PathBuf> {
+    let products = products
+        .iter()
+        .map(|product| {
+            let staged = payload_dir.join(&product.destination);
+            let (sha256, size_bytes) = hash_native_product(&staged)?;
+            Ok(LinuxNativeProductReceipt {
+                module: &product.module,
+                name: &product.name,
+                kind: product.kind,
+                destination: product.destination.to_string_lossy().replace('\\', "/"),
+                sha256,
+                size_bytes,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let path = payload_dir.join(".fission/native/linux-products.json");
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let manifest = LinuxNativeProductsManifest {
+        schema_version: 1,
+        profile,
+        package_format,
+        products,
+    };
+    fs::write(&path, serde_json::to_vec_pretty(&manifest)?).with_context(|| {
+        format!(
+            "failed to write Linux native product manifest {}",
+            path.display()
+        )
+    })?;
+    Ok(path)
+}
+
+fn hash_native_product(path: &Path) -> Result<(String, u64)> {
+    if path.is_file() {
+        return hash_file(path);
+    }
+    if !path.is_dir() {
+        bail!(
+            "Linux native product is not a file or directory: {}",
+            path.display()
+        );
+    }
+    let mut files = Vec::new();
+    collect_native_product_files(path, path, &mut files)?;
+    files.sort();
+    let mut digest = Sha256::new();
+    let mut total_size = 0_u64;
+    for file in files {
+        let relative = file
+            .strip_prefix(path)
+            .unwrap_or(&file)
+            .to_string_lossy()
+            .replace('\\', "/");
+        let (file_sha256, size_bytes) = hash_file(&file)?;
+        digest.update((relative.len() as u64).to_le_bytes());
+        digest.update(relative.as_bytes());
+        digest.update(file_sha256.as_bytes());
+        digest.update(size_bytes.to_le_bytes());
+        total_size = total_size.saturating_add(size_bytes);
+    }
+    Ok((format!("{:x}", digest.finalize()), total_size))
+}
+
+fn collect_native_product_files(
+    root: &Path,
+    current: &Path,
+    files: &mut Vec<PathBuf>,
+) -> Result<()> {
+    for entry in fs::read_dir(current)
+        .with_context(|| format!("failed to inspect Linux native product {}", root.display()))?
+    {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            collect_native_product_files(root, &entry.path(), files)?;
+        } else if file_type.is_file() {
+            files.push(entry.path());
+        } else {
+            bail!(
+                "Linux native product contains an unsupported filesystem entry: {}",
+                entry.path().display()
+            );
+        }
+    }
+    Ok(())
+}
+
+#[derive(Serialize)]
+struct WindowsNativeProductsManifest<'a> {
+    schema_version: u32,
+    profile: &'a str,
+    package_format: &'a str,
+    products: Vec<&'a BuiltWindowsNativeProduct>,
+}
+
+fn write_windows_native_products_manifest(
+    project_dir: &Path,
+    products: &[BuiltWindowsNativeProduct],
+    include_driver_packages: bool,
+    profile: &str,
+    package_format: &str,
+) -> Result<PathBuf> {
+    let products = products
+        .iter()
+        .filter(|product| {
+            include_driver_packages || product.kind != NativeWindowsProductKind::DriverPackage
+        })
+        .collect::<Vec<_>>();
+    let directory = project_dir.join(".fission/native/windows/manifests");
+    fs::create_dir_all(&directory)?;
+    let path = directory.join(format!("{profile}-{package_format}.json"));
+    let manifest = WindowsNativeProductsManifest {
+        schema_version: 1,
+        profile,
+        package_format,
+        products,
+    };
+    fs::write(&path, serde_json::to_vec_pretty(&manifest)?).with_context(|| {
+        format!(
+            "failed to write Windows native product manifest {}",
+            path.display()
+        )
+    })?;
+    Ok(path)
+}
+
+fn windows_packaging_environment(binary: &Path, manifest: &Path) -> Vec<(OsString, OsString)> {
+    vec![
+        (
+            OsString::from("WINDOWS_BINARY"),
+            binary.as_os_str().to_os_string(),
+        ),
+        (
+            OsString::from("FISSION_WINDOWS_NATIVE_PRODUCTS_MANIFEST"),
+            manifest.as_os_str().to_os_string(),
+        ),
+    ]
+}
+
 fn run_packaging_script(
     project_dir: &Path,
     script: &Path,
     release: bool,
+) -> Result<Option<PathBuf>> {
+    run_packaging_script_with_env(project_dir, script, release, &[])
+}
+
+fn run_packaging_script_with_env(
+    project_dir: &Path,
+    script: &Path,
+    release: bool,
+    environment: &[(OsString, OsString)],
 ) -> Result<Option<PathBuf>> {
     if !script.exists() {
         bail!("packaging script is missing at {}", script.display());
@@ -1825,6 +2076,9 @@ fn run_packaging_script(
         command.env("ANDROID_PROFILE", "release");
         command.env("IOS_PROFILE", "release");
         command.env("WINDOWS_PROFILE", "release");
+    }
+    for (key, value) in environment {
+        command.env(key, value);
     }
     let output = command
         .output()

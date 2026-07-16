@@ -1,5 +1,7 @@
 #[cfg(target_os = "macos")]
-use block::ConcreteBlock;
+use block::{Block, ConcreteBlock};
+#[cfg(target_os = "macos")]
+use fission_core::NotificationResponse;
 use fission_core::{
     CancelNotificationRequest, NotificationError, NotificationPermission,
     NotificationPermissionRequest, NotificationReceipt, NotificationRequest, NotificationSchedule,
@@ -9,6 +11,10 @@ use fission_core::{
     SET_BADGE_COUNT, SHOW_NOTIFICATION, UNREGISTER_PUSH_NOTIFICATIONS,
 };
 use fission_shell::async_host::AsyncRegistry;
+#[cfg(target_os = "macos")]
+use objc::declare::ClassDecl;
+#[cfg(target_os = "macos")]
+use objc::runtime::{Class, Object, Protocol, Sel};
 #[cfg(target_os = "ios")]
 use objc::{class, msg_send, sel, sel_impl};
 #[cfg(target_os = "macos")]
@@ -21,7 +27,7 @@ use std::os::raw::c_void;
 use std::process::Command;
 use std::sync::Arc;
 #[cfg(target_os = "macos")]
-use std::sync::{Condvar, Mutex};
+use std::sync::{Condvar, Mutex, OnceLock};
 
 #[cfg(target_os = "ios")]
 #[link(name = "UIKit", kind = "framework")]
@@ -38,6 +44,23 @@ extern "C" {}
 #[cfg(target_os = "macos")]
 #[link(name = "UserNotifications", kind = "framework")]
 extern "C" {}
+
+#[cfg(target_os = "macos")]
+type NotificationResponseHandler = Arc<dyn Fn(NotificationResponse) + Send + Sync>;
+
+#[cfg(target_os = "macos")]
+static NOTIFICATION_RESPONSE_HANDLER: OnceLock<Mutex<Option<NotificationResponseHandler>>> =
+    OnceLock::new();
+
+/// Installs the event-loop bridge used by the native notification delegate.
+#[cfg(target_os = "macos")]
+pub(crate) fn install_notification_response_handler(handler: NotificationResponseHandler) {
+    let slot = NOTIFICATION_RESPONSE_HANDLER.get_or_init(|| Mutex::new(None));
+    if let Ok(mut current) = slot.lock() {
+        *current = Some(handler);
+    }
+    install_macos_notification_delegate();
+}
 
 /// Host-side notification provider used by the shell capability registry.
 pub trait NotificationHost: Send + Sync + 'static {
@@ -577,6 +600,139 @@ fn ios_set_badge_count(count: Option<u32>) {
 }
 
 #[cfg(target_os = "macos")]
+fn install_macos_notification_delegate() {
+    static DELEGATE: OnceLock<usize> = OnceLock::new();
+
+    unsafe {
+        let center: *mut Object =
+            msg_send![class!(UNUserNotificationCenter), currentNotificationCenter];
+        if center.is_null() {
+            return;
+        }
+        let delegate = *DELEGATE.get_or_init(|| {
+            let delegate: *mut Object = msg_send![macos_notification_delegate_class(), new];
+            delegate as usize
+        }) as *mut Object;
+        if !delegate.is_null() {
+            let _: () = msg_send![center, setDelegate: delegate];
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_notification_delegate_class() -> &'static Class {
+    static CLASS: OnceLock<usize> = OnceLock::new();
+    let ptr = *CLASS.get_or_init(|| {
+        let superclass = class!(NSObject);
+        let mut decl = ClassDecl::new("FissionNotificationCenterDelegate", superclass)
+            .expect("register FissionNotificationCenterDelegate");
+        if let Some(protocol) = Protocol::get("UNUserNotificationCenterDelegate") {
+            decl.add_protocol(protocol);
+        }
+        unsafe {
+            decl.add_method(
+                sel!(userNotificationCenter:willPresentNotification:withCompletionHandler:),
+                macos_notification_will_present
+                    as extern "C" fn(&mut Object, Sel, *mut Object, *mut Object, *mut c_void),
+            );
+            decl.add_method(
+                sel!(userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:),
+                macos_notification_did_receive_response
+                    as extern "C" fn(&mut Object, Sel, *mut Object, *mut Object, *mut c_void),
+            );
+        }
+        decl.register() as *const Class as usize
+    });
+    unsafe { &*(ptr as *const Class) }
+}
+
+#[cfg(target_os = "macos")]
+extern "C" fn macos_notification_will_present(
+    _this: &mut Object,
+    _cmd: Sel,
+    _center: *mut Object,
+    _notification: *mut Object,
+    completion_handler: *mut c_void,
+) {
+    let completion_handler = completion_handler.cast::<Block<(usize,), ()>>();
+    if let Some(completion_handler) = unsafe { completion_handler.as_ref() } {
+        // Badge, sound, list and banner presentation while the app is foregrounded.
+        unsafe { completion_handler.call((1usize | 2usize | 8usize | 16usize,)) };
+    }
+}
+
+#[cfg(target_os = "macos")]
+extern "C" fn macos_notification_did_receive_response(
+    _this: &mut Object,
+    _cmd: Sel,
+    _center: *mut Object,
+    response: *mut Object,
+    completion_handler: *mut c_void,
+) {
+    if let Some(response) = unsafe { decode_macos_notification_response(response) } {
+        let handler = NOTIFICATION_RESPONSE_HANDLER
+            .get()
+            .and_then(|slot| slot.lock().ok())
+            .and_then(|handler| handler.clone());
+        if let Some(handler) = handler {
+            handler(response);
+        }
+    }
+    let completion_handler = completion_handler.cast::<Block<(), ()>>();
+    if let Some(completion_handler) = unsafe { completion_handler.as_ref() } {
+        unsafe { completion_handler.call(()) };
+    }
+}
+
+#[cfg(target_os = "macos")]
+unsafe fn decode_macos_notification_response(
+    response: *mut Object,
+) -> Option<NotificationResponse> {
+    if response.is_null() {
+        return None;
+    }
+    let notification: *mut Object = msg_send![response, notification];
+    let request: *mut Object = msg_send![notification, request];
+    if request.is_null() {
+        return None;
+    }
+    let identifier: *mut Object = msg_send![request, identifier];
+    let notification_id = ns_string_to_string(identifier)?;
+    let action_identifier: *mut Object = msg_send![response, actionIdentifier];
+    let action_id = ns_string_to_string(action_identifier).and_then(normalize_action_id);
+    let content: *mut Object = msg_send![request, content];
+    let user_info: *mut Object = msg_send![content, userInfo];
+    let deep_link = if user_info.is_null() {
+        None
+    } else {
+        let key = ns_string("fission_deep_link");
+        let value: *mut Object = msg_send![user_info, objectForKey: key];
+        ns_string_to_string(value)
+    };
+    let user_text = if msg_send![response, respondsToSelector: sel!(userText)] {
+        let value: *mut Object = msg_send![response, userText];
+        ns_string_to_string(value)
+    } else {
+        None
+    };
+    Some(NotificationResponse {
+        notification_id: fission_core::NotificationId::new(notification_id),
+        action_id,
+        deep_link,
+        user_text,
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn normalize_action_id(action_id: String) -> Option<String> {
+    match action_id.as_str() {
+        "com.apple.UNNotificationDefaultActionIdentifier"
+        | "com.apple.UNNotificationDismissActionIdentifier" => None,
+        _ => Some(action_id),
+    }
+}
+
+#[cfg(target_os = "macos")]
 fn macos_request_notification_permission() -> Result<NotificationSettings, NotificationError> {
     let pair = Arc::new((Mutex::new(None), Condvar::new()));
     let pair_for_block = pair.clone();
@@ -683,15 +839,24 @@ fn macos_deliver_notification(
     request: &NotificationRequest,
     delay_seconds: Option<f64>,
 ) -> Result<(), NotificationError> {
-    let settings = macos_request_notification_permission()?;
-    if !matches!(
-        settings.permission,
-        NotificationPermission::Granted | NotificationPermission::Provisional
-    ) {
-        return Err(NotificationError::new(
-            "permission_denied",
-            "macOS notification permission is not granted",
-        ));
+    let settings = macos_notification_settings()?;
+    match settings.permission {
+        NotificationPermission::Granted | NotificationPermission::Provisional => {}
+        NotificationPermission::NotDetermined => {
+            return Err(NotificationError::new(
+                "permission_not_determined",
+                "request macOS notification permission before showing a notification",
+            ));
+        }
+        NotificationPermission::Denied => {
+            return Err(NotificationError::new(
+                "permission_denied",
+                "macOS notification permission is not granted",
+            ));
+        }
+        NotificationPermission::Unsupported => {
+            return Err(NotificationError::unsupported("show"));
+        }
     }
 
     let pair = Arc::new((Mutex::new(None), Condvar::new()));
@@ -733,6 +898,13 @@ fn macos_deliver_notification(
             let badge: *mut objc::runtime::Object =
                 msg_send![class!(NSNumber), numberWithUnsignedInteger: badge as usize];
             let _: () = msg_send![content, setBadge: badge];
+        }
+        if let Some(deep_link) = request.deep_link.as_deref() {
+            let key = ns_string("fission_deep_link");
+            let value = ns_string(deep_link);
+            let user_info: *mut objc::runtime::Object =
+                msg_send![class!(NSDictionary), dictionaryWithObject: value forKey: key];
+            let _: () = msg_send![content, setUserInfo: user_info];
         }
 
         let trigger: *mut objc::runtime::Object = if let Some(delay) = delay_seconds {
@@ -976,5 +1148,22 @@ mod tests {
             assert_eq!(settings.permission, NotificationPermission::Unsupported);
             assert!(!settings.alerts);
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_default_notification_actions_are_not_exposed_as_product_actions() {
+        assert_eq!(
+            normalize_action_id("com.apple.UNNotificationDefaultActionIdentifier".into()),
+            None
+        );
+        assert_eq!(
+            normalize_action_id("com.apple.UNNotificationDismissActionIdentifier".into()),
+            None
+        );
+        assert_eq!(
+            normalize_action_id("approve".into()),
+            Some("approve".into())
+        );
     }
 }

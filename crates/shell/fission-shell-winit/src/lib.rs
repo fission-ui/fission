@@ -4376,6 +4376,19 @@ where
             .build()
             .map_err(|e| anyhow::anyhow!("Event loop error: {}", e))?;
         let event_proxy = event_loop.create_proxy();
+        #[cfg(target_os = "macos")]
+        let notification_response_queue = Arc::new(Mutex::new(VecDeque::new()));
+        #[cfg(target_os = "macos")]
+        notifications::install_notification_response_handler({
+            let queue = notification_response_queue.clone();
+            let proxy = event_proxy.clone();
+            Arc::new(move |response| {
+                if let Ok(mut queue) = queue.lock() {
+                    queue.push_back(response);
+                }
+                let _ = proxy.send_event(TestEvent::Wake);
+            })
+        });
         let mut accessibility_bridge = AccessibilityBridge::new(event_proxy.clone());
         #[cfg(feature = "tray")]
         let tray_event_rx = self
@@ -5402,7 +5415,47 @@ where
                         window.request_redraw();
                     }
                     TestEvent::Wake => {
+                        #[cfg(target_os = "macos")]
+                        let handled_notification_response = {
+                            let responses = notification_response_queue
+                                .lock()
+                                .map(|mut queue| queue.drain(..).collect::<Vec<_>>())
+                                .unwrap_or_default();
+                            let handled = !responses.is_empty();
+                            for response in responses {
+                                if let Err(error) = runtime.dispatch(
+                                    NotificationResponseReceived { response }.into(),
+                                    WidgetId::from_u128(0),
+                                ) {
+                                    eprintln!(
+                                        "fission-shell-winit: notification response dispatch failed: {error}"
+                                    );
+                                }
+                            }
+                            if handled {
+                                invalidations.mark_build();
+                                if process_pending_effects(
+                                    &mut runtime,
+                                    &effect_result_tx,
+                                    &event_proxy,
+                                    &async_registry,
+                                    &mut active_services,
+                                    &mut service_bindings,
+                                    &mut next_service_instance_id,
+                                ) {
+                                    invalidations.mark_build();
+                                }
+                            }
+                            handled
+                        };
+                        #[cfg(not(target_os = "macos"))]
+                        let handled_notification_response = false;
                         if let Some(window) = platform_window.active_window() {
+                            if handled_notification_response {
+                                window.set_visible(true);
+                                window.set_minimized(false);
+                                window.focus_window();
+                            }
                             if accessibility_bridge.drain_events(
                                 &mut runtime,
                                 pipeline.prev_ir.as_ref(),

@@ -2,8 +2,12 @@ pub mod doctor;
 
 use anyhow::{bail, Context, Result};
 use fission_command_core::{
-    ios_executable_name, normalized_extension, read_project_config, resolve_app_icon,
-    sync_platform_config, FissionProject, PlatformCapability, Target,
+    build_linux_native_modules, build_macos_native_modules, build_windows_native_modules,
+    embed_and_sign_macos_native_modules, ios_executable_name, normalized_extension,
+    read_macos_run_config, read_project_config, resolve_app_icon, sign_macos_app_if_configured,
+    stage_linux_native_products, stage_windows_runtime_products, sync_platform_config,
+    test_linux_native_modules, test_macos_native_modules, test_windows_native_modules,
+    FissionProject, MacosNativeBundleMode, MacosPackageConfig, PlatformCapability, Target,
 };
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -166,9 +170,22 @@ pub fn build_app(options: BuildOptions) -> Result<()> {
     sync_target_platform_config(&options.project_dir, &project, target)?;
 
     match target {
-        Target::Linux | Target::Macos | Target::Windows => {
+        Target::Linux => {
             require_desktop_host(target)?;
-            build_desktop(&options.project_dir, options.release)
+            build_desktop(&options.project_dir, options.release)?;
+            build_linux_native_modules(&options.project_dir, &project, options.release)?;
+            Ok(())
+        }
+        Target::Windows => {
+            require_desktop_host(target)?;
+            build_desktop(&options.project_dir, options.release)?;
+            build_windows_native_modules(&options.project_dir, &project, options.release)?;
+            Ok(())
+        }
+        Target::Macos => {
+            require_desktop_host(target)?;
+            build_desktop(&options.project_dir, options.release)?;
+            build_macos_native_modules(&options.project_dir, &project, options.release)
         }
         Target::Terminal => build_desktop(&options.project_dir, options.release),
         Target::Web => build_web(&options.project_dir, options.release),
@@ -199,11 +216,26 @@ pub fn test_app(options: TestOptions) -> Result<()> {
     sync_target_platform_config(&options.project_dir, &project, target)?;
 
     match target {
-        Target::Linux | Target::Macos | Target::Windows => {
+        Target::Linux => {
             require_desktop_host(target)?;
             let mut command = Command::new("cargo");
             command.arg("test").current_dir(&options.project_dir);
-            run_status(&mut command, "desktop tests")
+            run_status(&mut command, "desktop tests")?;
+            test_linux_native_modules(&options.project_dir, &project)
+        }
+        Target::Windows => {
+            require_desktop_host(target)?;
+            let mut command = Command::new("cargo");
+            command.arg("test").current_dir(&options.project_dir);
+            run_status(&mut command, "desktop tests")?;
+            test_windows_native_modules(&options.project_dir, &project)
+        }
+        Target::Macos => {
+            require_desktop_host(target)?;
+            let mut command = Command::new("cargo");
+            command.arg("test").current_dir(&options.project_dir);
+            run_status(&mut command, "desktop tests")?;
+            test_macos_native_modules(&options.project_dir, &project)
         }
         Target::Terminal => {
             let mut command = Command::new("cargo");
@@ -1126,12 +1158,7 @@ fn build_desktop_binary(project_dir: &Path, release: bool) -> Result<DesktopBina
             project_dir.join("Cargo.toml").display()
         )
     })?;
-    let package = metadata
-        .packages
-        .iter()
-        .find(|package| package.manifest_path == manifest_path)
-        .or_else(|| metadata.packages.first())
-        .context("cargo metadata did not include a package for this project")?;
+    let package = desktop_package_for_manifest(&metadata, &manifest_path)?;
     let executable_name = package
         .targets
         .iter()
@@ -1182,6 +1209,35 @@ fn build_desktop_binary(project_dir: &Path, release: bool) -> Result<DesktopBina
     })
 }
 
+fn desktop_package_for_manifest<'a>(
+    metadata: &'a CargoMetadata,
+    manifest_path: &Path,
+) -> Result<&'a CargoMetadataPackage> {
+    metadata
+        .packages
+        .iter()
+        .find(|package| package.manifest_path == manifest_path)
+        .or_else(|| {
+            metadata
+                .packages
+                .iter()
+                .find(|package| paths_refer_to_same_file(&package.manifest_path, manifest_path))
+        })
+        .with_context(|| {
+            format!(
+                "cargo metadata did not include the project package at {}",
+                manifest_path.display()
+            )
+        })
+}
+
+fn paths_refer_to_same_file(left: &Path, right: &Path) -> bool {
+    match (fs::canonicalize(left), fs::canonicalize(right)) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
+    }
+}
+
 fn cargo_metadata(project_dir: &Path) -> Result<CargoMetadata> {
     let output = Command::new("cargo")
         .arg("metadata")
@@ -1209,6 +1265,7 @@ fn package_macos_run_app(
             project_dir.display()
         )
     })?;
+    let macos = read_macos_run_config(&project_dir)?;
     let binary = build_desktop_binary(&project_dir, release)?;
     let profile = if release { "release" } else { "debug" };
     let app_name = macos_display_name(&project.app.name);
@@ -1251,9 +1308,18 @@ fn package_macos_run_app(
 
     fs::write(
         contents.join("Info.plist"),
-        render_macos_run_info_plist(project, &binary, &app_name),
+        render_macos_run_info_plist(project, &binary, &app_name, &macos),
     )?;
     fs::write(contents.join("PkgInfo"), "APPL????")?;
+    embed_and_sign_macos_native_modules(
+        &project_dir,
+        &app_bundle,
+        project,
+        &macos,
+        MacosNativeBundleMode::Run,
+        release,
+    )?;
+    sign_macos_app_if_configured(&project_dir, &app_bundle, &macos)?;
 
     Ok(MacosRunApp { bundle: app_bundle })
 }
@@ -1317,6 +1383,8 @@ fn package_linux_run_app(
         applications_dir.join(format!("{}.desktop", project.app.app_id)),
         render_linux_desktop_entry(project, &executable),
     )?;
+    let native_products = build_linux_native_modules(&project_dir, project, release)?;
+    stage_linux_native_products(&app_root, &native_products)?;
     Ok(DesktopRunApp { executable })
 }
 
@@ -1371,6 +1439,8 @@ fn package_windows_run_app(
         )),
         render_windows_development_manifest(project),
     )?;
+    let native_products = build_windows_native_modules(&project_dir, project, release)?;
+    stage_windows_runtime_products(&app_root, &native_products)?;
     Ok(DesktopRunApp { executable })
 }
 
@@ -1432,7 +1502,13 @@ fn render_macos_run_info_plist(
     project: &FissionProject,
     binary: &DesktopBinary,
     app_name: &str,
+    macos: &MacosPackageConfig,
 ) -> String {
+    let bundle_id = macos
+        .bundle_id
+        .as_deref()
+        .unwrap_or(project.app.app_id.as_str());
+    let minimum_os = macos.minimum_os.as_deref().unwrap_or("13.0");
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -1453,7 +1529,7 @@ fn render_macos_run_info_plist(
   <key>CFBundleVersion</key>
   <string>{}</string>
   <key>LSMinimumSystemVersion</key>
-  <string>13.0</string>
+  <string>{}</string>
   <key>CFBundleIconFile</key>
   <string>AppIcon</string>
   <key>NSHighResolutionCapable</key>
@@ -1462,12 +1538,13 @@ fn render_macos_run_info_plist(
 </dict>
 </plist>
 "#,
-        escape_xml(&project.app.app_id),
+        escape_xml(bundle_id),
         escape_xml(app_name),
         escape_xml(app_name),
         escape_xml(&binary.executable_name),
         escape_xml(&binary.version),
         escape_xml(&binary.version),
+        escape_xml(minimum_os),
         render_macos_run_capability_plist_entries(project)
     )
 }
@@ -2005,6 +2082,15 @@ mod tests {
     use super::*;
     use std::collections::BTreeSet;
 
+    fn metadata_package(name: &str, manifest_path: &str) -> CargoMetadataPackage {
+        CargoMetadataPackage {
+            name: name.into(),
+            version: "0.1.0".into(),
+            manifest_path: PathBuf::from(manifest_path),
+            targets: Vec::new(),
+        }
+    }
+
     fn project() -> FissionProject {
         FissionProject {
             app: fission_command_core::AppConfig {
@@ -2032,5 +2118,62 @@ mod tests {
         assert!(manifest.contains("com.fission.examples.fieldinspector"));
         assert!(manifest.contains("PerMonitorV2"));
         assert!(manifest.contains("asInvoker"));
+    }
+
+    #[test]
+    fn macos_development_plist_uses_package_identity() {
+        let binary = DesktopBinary {
+            version: "1.2.3".into(),
+            executable_name: "field-inspector".into(),
+            path: PathBuf::from("/tmp/field-inspector"),
+        };
+        let config = MacosPackageConfig {
+            bundle_id: Some("com.example.packaged".into()),
+            minimum_os: Some("14.0".into()),
+            ..Default::default()
+        };
+
+        let plist = render_macos_run_info_plist(&project(), &binary, "Field Inspector", &config);
+
+        assert!(plist.contains("<string>com.example.packaged</string>"));
+        assert!(plist.contains("<key>LSMinimumSystemVersion</key>\n  <string>14.0</string>"));
+    }
+
+    #[test]
+    fn desktop_package_selection_uses_nested_project_manifest() {
+        let metadata = CargoMetadata {
+            packages: vec![
+                metadata_package("workspace-first", "/workspace/crates/first/Cargo.toml"),
+                metadata_package("desktop", "/workspace/crates/desktop/Cargo.toml"),
+            ],
+            target_directory: PathBuf::from("/workspace/target"),
+        };
+
+        let package = desktop_package_for_manifest(
+            &metadata,
+            Path::new("/workspace/crates/desktop/Cargo.toml"),
+        )
+        .expect("desktop package should be selected");
+
+        assert_eq!(package.name, "desktop");
+    }
+
+    #[test]
+    fn desktop_package_selection_does_not_fall_back_to_first_workspace_member() {
+        let metadata = CargoMetadata {
+            packages: vec![metadata_package(
+                "workspace-first",
+                "/workspace/crates/first/Cargo.toml",
+            )],
+            target_directory: PathBuf::from("/workspace/target"),
+        };
+
+        let error = desktop_package_for_manifest(
+            &metadata,
+            Path::new("/workspace/crates/desktop/Cargo.toml"),
+        )
+        .expect_err("an unmatched project manifest must fail");
+
+        assert!(error.to_string().contains("crates/desktop/Cargo.toml"));
     }
 }

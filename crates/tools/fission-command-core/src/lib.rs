@@ -13,9 +13,32 @@ const GENERATED_APP_AGENTS_MARKER: &str = "<!-- fission-cli-generated-agents:v1 
 const GENERATED_APP_AGENTS_MD: &str = include_str!("../assets/AGENTS.md");
 
 mod icons;
+mod linux_native;
+mod macos_native;
+mod macos_signing;
 mod splash;
+mod windows_native;
 pub use icons::{copy_icon_for_bundle, normalized_extension, resolve_app_icon, ResolvedIcon};
+pub use linux_native::{
+    build_linux_native_modules, stage_linux_native_products, test_linux_native_modules,
+    BuiltLinuxNativeProduct, NativeLinuxModuleConfig, NativeLinuxProductConfig,
+    NativeLinuxProductKind,
+};
+pub use macos_native::{
+    build_macos_native_modules, embed_and_sign_macos_native_modules, test_macos_native_modules,
+    MacosNativeBundleMode, NativeMacosModuleConfig, NativeMacosProductConfig,
+    NativeMacosProductKind, NativeMacosProductSigningConfig,
+};
+pub use macos_signing::{
+    read_macos_package_config, read_macos_run_config, sign_macos_app_if_configured,
+    MacosPackageConfig,
+};
 pub use splash::{SplashConfig, SplashResizeMode};
+pub use windows_native::{
+    build_windows_native_modules, stage_windows_runtime_products, test_windows_native_modules,
+    BuiltWindowsNativeProduct, NativeWindowsModuleConfig, NativeWindowsProductConfig,
+    NativeWindowsProductKind,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, ValueEnum, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -93,7 +116,7 @@ impl Target {
             Self::Linux => "platforms/linux/README.md",
             Self::Macos => "platforms/macos/README.md",
             Self::Server => "platforms/ssr/README.md",
-            Self::Site => "platforms/static-site/README.md",
+            Self::Site => "platforms/site/README.md",
             Self::Terminal => "platforms/terminal/README.md",
             Self::Web => "platforms/web/README.md",
             Self::Windows => "platforms/windows/README.md",
@@ -251,6 +274,12 @@ pub struct NativeModuleConfig {
     pub android: NativeAndroidModuleConfig,
     #[serde(default, skip_serializing_if = "NativeIosModuleConfig::is_empty")]
     pub ios: NativeIosModuleConfig,
+    #[serde(default, skip_serializing_if = "NativeLinuxModuleConfig::is_empty")]
+    pub linux: NativeLinuxModuleConfig,
+    #[serde(default, skip_serializing_if = "NativeMacosModuleConfig::is_empty")]
+    pub macos: NativeMacosModuleConfig,
+    #[serde(default, skip_serializing_if = "NativeWindowsModuleConfig::is_empty")]
+    pub windows: NativeWindowsModuleConfig,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -2678,6 +2707,22 @@ if (-not $MakeAppx) {
 Remove-Item -Recurse -Force $LayoutDir -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $AppDir, $AssetsDir | Out-Null
 Copy-Item $BinaryPath (Join-Path $AppDir $ExecutableName) -Force
+if ($env:FISSION_WINDOWS_NATIVE_PRODUCTS_MANIFEST) {
+  $NativeManifest = Get-Content -Raw $env:FISSION_WINDOWS_NATIVE_PRODUCTS_MANIFEST | ConvertFrom-Json
+  foreach ($Product in $NativeManifest.products) {
+    if ($Product.kind -eq "driver-package") {
+      throw "MSIX native product manifest must not contain driver package $($Product.name)."
+    }
+    $NativeDestination = Join-Path $AppDir $Product.destination
+    $NativeParent = Split-Path -Parent $NativeDestination
+    New-Item -ItemType Directory -Force $NativeParent | Out-Null
+    if (Test-Path $Product.source -PathType Container) {
+      Copy-Item $Product.source $NativeDestination -Recurse -Force
+    } else {
+      Copy-Item $Product.source $NativeDestination -Force
+    }
+  }
+}
 Copy-Item (Join-Path $ScriptDir "Package.appxmanifest") (Join-Path $LayoutDir "AppxManifest.xml") -Force
 
 $IconSource = if ($env:WINDOWS_APP_ICON) { $env:WINDOWS_APP_ICON } else { Join-Path $ProjectDir "assets\app-icon.png" }
@@ -5795,6 +5840,14 @@ app_id = "com.example.alias"
         assert!(updated.contains("\"ssr\""));
         assert!(!updated.contains("\"site\""));
         assert!(!updated.contains("\"server\""));
+    }
+
+    #[test]
+    fn static_site_uses_the_scaffold_path_created_by_add_target() {
+        assert_eq!(
+            Target::Site.scaffold_relative_path(),
+            "platforms/site/README.md"
+        );
     }
 
     #[test]

@@ -71,6 +71,31 @@ pub(super) fn readiness_package(
             release,
             &project,
         ));
+        if target == Target::Windows
+            && project
+                .native
+                .modules
+                .iter()
+                .any(|module| !module.windows.is_empty())
+        {
+            checks.push(check_tool(
+                "release.package.windows_msbuild_available",
+                "msbuild",
+                "Install Visual Studio Build Tools and the required Windows SDK/WDK workloads, then use a Developer Command Prompt.",
+            ));
+            if project
+                .native
+                .modules
+                .iter()
+                .any(|module| module.windows.nuget_packages_config.is_some())
+            {
+                checks.push(check_tool(
+                    "release.package.windows_nuget_available",
+                    "nuget",
+                    "Install the NuGet CLI so Fission can restore the Windows native module's pinned SDK/WDK packages.",
+                ));
+            }
+        }
     }
     if matches!(target, Target::Site) {
         let has_content = project_dir.join("content").exists();
@@ -659,6 +684,23 @@ pub(super) fn readiness_package_tools(
                 "Install Windows SDK signing tools and ensure signtool is on PATH.",
             ));
             checks.push(windows_signing_source_check());
+            if let Some(script) = windows_exe_installer_script(project_dir) {
+                checks.push(check_path(
+                    "release.package.windows_exe_installer_script_exists",
+                    script,
+                    "Windows EXE installer script exists",
+                    "Restore package.windows.exe_installer_script or remove that field to package the application executable instead.",
+                ));
+            } else {
+                checks.push(check(
+                    "release.package.windows_exe_is_application_binary",
+                    CheckSeverity::Warning,
+                    CheckStatus::Warning,
+                    "Windows EXE output is the application executable, not an installer",
+                    None,
+                    vec!["Set package.windows.exe_installer_script when release installation requires privileged components, services, drivers, repair, or uninstall behavior."],
+                ));
+            }
         }
         (Target::Windows, PackageFormat::Msi) => {
             checks.push(host_os_check("release.package.host_is_windows", "windows"));
@@ -763,6 +805,25 @@ pub(super) fn readiness_package_tools(
         }
         _ => {}
     }
+}
+
+fn windows_exe_installer_script(project_dir: &Path) -> Option<PathBuf> {
+    let root = read_package_identity_toml(project_dir).ok()?;
+    let configured = root
+        .get("package")?
+        .get("windows")?
+        .get("exe_installer_script")?
+        .as_str()?
+        .trim();
+    if configured.is_empty() {
+        return None;
+    }
+    let path = Path::new(configured);
+    Some(if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        project_dir.join(path)
+    })
 }
 
 pub(super) fn server_entry_configured(project_dir: &Path) -> bool {

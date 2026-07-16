@@ -50,6 +50,163 @@ Clipboard and deep-link APIs are runtime/platform capabilities, but they are not
 
 Terminal is a public Fission target exposed through `TerminalApp`, the terminal shell crate, and `fission ui`. The root `targets` array records generated or packaged host targets, so it accepts `static-site` for Static site, `ssr` for SSR, and `terminal` for terminal-shell package workflows.
 
+## `[[native.modules]]`
+
+Native modules keep platform-owned source, dependencies, extensions, and tests
+attached to the Fission command lifecycle. Each module requires a stable `name`.
+The optional `path` records its project-relative source root; platform paths
+below remain project-relative so they are unambiguous when a module is shared
+by more than one app.
+
+Android modules declare repositories, Gradle dependencies, source directories,
+permissions, and application manifest entries under
+`[native.modules.android]`. iOS modules declare source directories, linked
+frameworks, and Swift package products under `[native.modules.ios]`.
+
+### `[native.modules.macos]`
+
+macOS native modules can build app extensions and system extensions alongside
+the Rust desktop app. `fission build`, `fission run`, and `fission package` all
+compile the declared products. `fission run` and `fission package` additionally
+embed and sign each extension before signing the containing app.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `xcode_project` | string | Yes when products or tests are declared | none | Project-relative `.xcodeproj` used by `xcodebuild`. |
+| `xcodegen_spec` | string | No | none | Project-relative XcodeGen specification. Fission runs `xcodegen` before using `xcode_project`. |
+| `derived_data` | string | No | `.fission/native/macos/<module>/<profile>/DerivedData` | Xcode derived-data directory. |
+| `test_schemes` | array of strings | No | `[]` | Schemes run with signing disabled by `fission test --target macos`. |
+
+Each `[[native.modules.macos.products]]` entry accepts:
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `scheme` | string | Yes | Xcode scheme built with signing disabled. |
+| `bundle` | string | Yes | Full product file name. App extensions must end in `.appex`; system extensions must end in `.systemextension`. |
+| `kind` | string | Yes | `app-extension` or `system-extension`. This selects `Contents/PlugIns` or `Contents/Library/SystemExtensions` in the app bundle. |
+| `entitlements` | string | No | Project-relative package entitlements passed when signing this product. |
+| `provisioning_profile` | string | No | Project-relative package provisioning profile embedded in this product. |
+| `signing_identity` | string | No | Product signing identity. Inherits the containing app identity when omitted. |
+
+`[native.modules.macos.products.run]` accepts `entitlements`,
+`provisioning_profile`, and `signing_identity` as local-run overrides. Any field
+not overridden inherits the product package value, then the containing app's
+run identity where applicable.
+
+```toml
+[[native.modules]]
+name = "security-extensions"
+path = "platforms/macos/native"
+
+[native.modules.macos]
+xcodegen_spec = "platforms/macos/native/project.yml"
+xcode_project = "platforms/macos/native/SecurityExtensions.xcodeproj"
+test_schemes = ["SecurityExtensionsTests"]
+
+[[native.modules.macos.products]]
+scheme = "FileProvider"
+bundle = "FileProvider.appex"
+kind = "app-extension"
+entitlements = "platforms/macos/native/FileProvider.entitlements"
+provisioning_profile = "profiles/FileProvider.provisionprofile"
+
+[native.modules.macos.products.run]
+provisioning_profile = "profiles/FileProviderDevelopment.provisionprofile"
+signing_identity = "Apple Development"
+```
+
+### `[native.modules.linux]`
+
+Linux native modules attach a Cargo package to the desktop lifecycle. `fission
+build`, `fission run`, and `fission package` build the declared package;
+`fission test --target linux` runs its tests. Products are staged under their
+declared relative destinations for local runs and Linux `.run` packages.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `cargo_manifest_path` | string | No | `<native.modules.path>/Cargo.toml`, then the app `Cargo.toml` | Project-relative Cargo manifest used for the native package. |
+| `cargo_package` | string | Yes | none | Exact Cargo package passed with `--package`. |
+| `features` | array of strings | No | `[]` | Cargo features enabled for build and test. |
+| `no_default_features` | boolean | No | `false` | Passes `--no-default-features` to Cargo. |
+
+Each `[[native.modules.linux.products]]` entry accepts:
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `name` | string | Yes | Stable product identity recorded in the native-products manifest. |
+| `path` | string | Yes | Built file or directory. Supports `{configuration}`, `{profile}`, and `{architecture}`. |
+| `kind` | string | Yes | `runtime` or `privileged-helper`. Both are staged, but privileged helpers remain explicitly classified for installer policy and review. |
+| `destination` | string | No | Safe relative path under the run/package root. Defaults to the source file or directory name. |
+
+Fission preserves executable modes and rejects destination traversal and
+overwrites. It does not grant privileges to a `privileged-helper`; an installer
+must explicitly install and authorize that helper according to the product's
+platform security design.
+
+```toml
+[[native.modules]]
+name = "linux-protection"
+path = "../linux-mount-helper"
+
+[native.modules.linux]
+cargo_package = "linux-mount-helper"
+no_default_features = true
+features = ["kernel-fuse"]
+
+[[native.modules.linux.products]]
+name = "mount-helper"
+path = "../../target/{profile}/linux-mount-helper"
+kind = "privileged-helper"
+destination = "libexec/linux-mount-helper"
+```
+
+### `[native.modules.windows]`
+
+Windows native modules attach an MSBuild/WDK project to the desktop lifecycle.
+`fission build`, `fission run`, and Windows package commands build the declared
+project. `fission test --target windows` also runs each declared test binary
+through `vstest.console.exe`.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `nuget_packages_config` | string | No | none | Project-relative `packages.config` restored before MSBuild. Restored WDK host-tool directories are added to the MSBuild environment. |
+| `nuget_packages_directory` | string | No | sibling `packages` directory | Project-relative restore destination. Requires `nuget_packages_config`. |
+| `msbuild_project` | string | Yes when products or tests are declared | none | Project-relative `.sln`, `.slnx`, or MSBuild project passed to `msbuild`. |
+| `platform` | string | No | `x64` | MSBuild platform, such as `x64` or `ARM64`. |
+| `build_target` | string | No | `Build` | MSBuild target invoked for the module. |
+| `test_binaries` | array of strings | No | `[]` | VSTest executables. Paths may contain `{configuration}`, `{profile}`, and `{platform}`. |
+
+Each `[[native.modules.windows.products]]` entry accepts:
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `name` | string | Yes | Stable product identity used in package manifests. |
+| `path` | string | Yes | Built file or directory. Supports `{configuration}`, `{profile}`, and `{platform}`. |
+| `kind` | string | Yes | `runtime` or `driver-package`. Runtime products are staged beside the app; driver packages are installer inputs and are excluded from MSIX manifests. |
+| `destination` | string | No | Safe relative path under the run/package root. Defaults to the source file or directory name. |
+
+```toml
+[[native.modules]]
+name = "windows-protection"
+path = "platforms/windows/native"
+
+[native.modules.windows]
+msbuild_project = "platforms/windows/native/Protection.sln"
+platform = "x64"
+test_binaries = ["platforms/windows/native/{platform}/{configuration}/ProtectionTests.exe"]
+
+[[native.modules.windows.products]]
+name = "cloud-files-provider"
+path = "platforms/windows/native/{platform}/{configuration}/Provider.dll"
+kind = "runtime"
+destination = "native/Provider.dll"
+
+[[native.modules.windows.products]]
+name = "filesystem-minifilter"
+path = "platforms/windows/native/{platform}/{configuration}/DriverPackage"
+kind = "driver-package"
+```
+
 ## `[app]`
 
 `[app]` identifies the product and package. It is required by normal app commands.
@@ -497,9 +654,28 @@ tags = ["ghcr.io/example/pokemon-card-store:0.1.0", "ghcr.io/example/pokemon-car
 | `team_id` | string | No | Apple Developer Team ID used by signing/notarization readiness checks. |
 | `minimum_os` | string | No | Records the intended minimum macOS version for package metadata. |
 | `entitlements` | string | No | Project-relative entitlements plist passed to `codesign` when signing. |
+| `provisioning_profile` | string | No | Project-relative provisioning profile embedded at `Contents/embedded.provisionprofile` before signing. |
 | `signing_identity` | string | No | Developer ID/Application identity used to sign `.app` bundles. If omitted, the app is not code-signed by Fission. |
 | `installer_identity` | string | No | Developer ID Installer identity passed to `pkgbuild`/`productbuild` for `.pkg` output. |
 | `notarize` | boolean | No | When `true`, notarization requires `APP_STORE_CONNECT_KEY_ID`, `APP_STORE_CONNECT_ISSUER_ID`, and key material from `APP_STORE_CONNECT_API_KEY_PATH`, `APP_STORE_CONNECT_API_KEY`, or `APP_STORE_CONNECT_API_KEY_BASE64`. |
+
+### `[run.macos]`
+
+`fission run --target macos` builds a development `.app` and signs it before
+launch when a signing identity is configured. Run signing inherits
+`[package.macos]` by default. Use these optional overrides when development and
+distribution require different identities or entitlement files.
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `entitlements` | string | No | Project-relative development entitlements plist. Inherits `package.macos.entitlements` when omitted. |
+| `provisioning_profile` | string | No | Project-relative development provisioning profile. Inherits `package.macos.provisioning_profile` when omitted. |
+| `signing_identity` | string | No | Development signing identity. Inherits `package.macos.signing_identity` when omitted. |
+
+Restricted entitlements still require an Apple-issued identity and matching
+provisioning. Ad-hoc signing with `"-"` can exercise unrestricted development
+entitlements, but macOS rejects ad-hoc applications that claim restricted
+entitlements.
 
 ### `[package.android]`
 
@@ -534,6 +710,7 @@ Keystore files and passwords are not stored in `fission.toml`. For local release
 | `certificate_env` | string | No | Environment variable containing a local certificate path. Defaults to `WINDOWS_CERTIFICATE`. |
 | `certificate_base64_env` | string | No | Environment variable containing base64 certificate bytes. Defaults to `WINDOWS_CERTIFICATE_BASE64`. |
 | `certificate_password_env` | string | No | Environment variable containing the certificate password. Defaults to `WINDOWS_CERTIFICATE_PASSWORD`. |
+| `exe_installer_script` | string | No | Project-relative PowerShell or executable packaging script. When set, `windows/exe` passes the built app and native-products manifest through `WINDOWS_BINARY` and `FISSION_WINDOWS_NATIVE_PRODUCTS_MANIFEST`, then stages the emitted `.exe` installer. |
 
 Certificate files and passwords are not stored in `fission.toml`. Prefer `certificate_thumbprint` for certificates installed in the Windows certificate store; otherwise provide certificate file material through environment variables at package time.
 
@@ -1035,6 +1212,7 @@ notarize = true
 identity_name = "Example.App"
 publisher = "CN=Example Ltd"
 certificate_thumbprint = "0123456789ABCDEF"
+exe_installer_script = "platforms/windows/package-exe.ps1"
 
 [distribution.play_store]
 package_name = "com.example.app"

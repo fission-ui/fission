@@ -1510,12 +1510,13 @@ mod ios {
 mod windows {
     use super::{VideoBackend, VideoEvent, VideoPlayer};
     use fission_core::ui::VideoAudioOptions;
-    use fission_ir::WidgetId;
     use fission_render::LayoutRect;
     use fission_shell::VideoSurfaceFrame;
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use std::collections::{HashMap, HashSet};
+    use std::ffi::c_void;
     use std::path::{Path, PathBuf};
+    use std::ptr::null_mut;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
     use winit::window::Window;
@@ -1537,9 +1538,15 @@ mod windows {
     unsafe impl Send for NativeHwnd {}
     unsafe impl Sync for NativeHwnd {}
 
+    #[derive(Clone, Copy)]
+    struct NativeHinstance(HINSTANCE);
+
+    unsafe impl Send for NativeHinstance {}
+    unsafe impl Sync for NativeHinstance {}
+
     pub struct WindowsVideoBackend {
         parent: NativeHwnd,
-        hinstance: HINSTANCE,
+        hinstance: NativeHinstance,
         next_id: AtomicU64,
         registry: Arc<Mutex<HashMap<u64, PlayerEntry>>>,
     }
@@ -1554,11 +1561,11 @@ mod windows {
                 let _ = MFStartup(MF_VERSION, 0);
             }
             Some(Self {
-                parent: NativeHwnd(HWND(handle.hwnd.get() as isize)),
+                parent: NativeHwnd(HWND(handle.hwnd.get() as *mut c_void)),
                 hinstance: handle
                     .hinstance
-                    .map(|hinstance| HINSTANCE(hinstance.get() as isize))
-                    .unwrap_or(HINSTANCE(0)),
+                    .map(|hinstance| NativeHinstance(HINSTANCE(hinstance.get() as *mut c_void)))
+                    .unwrap_or(NativeHinstance(HINSTANCE(null_mut()))),
                 next_id: AtomicU64::new(1),
                 registry: Arc::new(Mutex::new(HashMap::new())),
             })
@@ -1612,7 +1619,7 @@ mod windows {
     impl PlayerEntry {
         fn new(
             parent: NativeHwnd,
-            hinstance: HINSTANCE,
+            hinstance: NativeHinstance,
             uri: &str,
         ) -> ::windows::core::Result<Self> {
             let child = unsafe { create_child_window(parent, hinstance)? };
@@ -1863,7 +1870,7 @@ mod windows {
 
     unsafe fn create_child_window(
         parent: NativeHwnd,
-        hinstance: HINSTANCE,
+        hinstance: NativeHinstance,
     ) -> ::windows::core::Result<NativeHwnd> {
         let class_name = wide_null("STATIC");
         let title = wide_null("");
@@ -1878,7 +1885,7 @@ mod windows {
             1,
             parent.0,
             None,
-            hinstance,
+            hinstance.0,
             None,
         )?;
         Ok(NativeHwnd(hwnd))

@@ -260,6 +260,7 @@ build_number = "42"
 team_id = "TEAMID1234"
 minimum_os = "13.0"
 entitlements = "platforms/macos/entitlements.plist"
+provisioning_profile = "Todo.provisionprofile"
 signing_identity = "Developer ID Application: Example Software Ltd (TEAMID1234)"
 installer_identity = "Developer ID Installer: Example Software Ltd (TEAMID1234)"
 notarize = true
