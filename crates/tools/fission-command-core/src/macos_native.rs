@@ -60,6 +60,10 @@ pub struct NativeMacosProductConfig {
     pub scheme: String,
     pub bundle: String,
     pub kind: NativeMacosProductKind,
+    /// Controls whether `fission package` builds and embeds this product.
+    /// `fission build` and `fission run` always include configured products.
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_enabled")]
+    pub package: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entitlements: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -97,7 +101,7 @@ pub fn build_macos_native_modules(
     project: &FissionProject,
     release: bool,
 ) -> Result<()> {
-    let _ = build_products(project_dir, project, release)?;
+    let _ = build_products(project_dir, project, None, release)?;
     Ok(())
 }
 
@@ -149,7 +153,7 @@ pub fn embed_and_sign_macos_native_modules(
             app_bundle.display()
         )
     })?;
-    for built in build_products(&project_dir, project, release)? {
+    for built in build_products(&project_dir, project, Some(mode), release)? {
         let destination = native_product_destination(&app_bundle, &built.config)?;
         if destination.exists() {
             fs::remove_dir_all(&destination).with_context(|| {
@@ -178,6 +182,7 @@ pub fn embed_and_sign_macos_native_modules(
 fn build_products(
     project_dir: &Path,
     project: &FissionProject,
+    mode: Option<MacosNativeBundleMode>,
     release: bool,
 ) -> Result<Vec<BuiltProduct>> {
     let project_dir = canonical_project_dir(project_dir)?;
@@ -203,6 +208,9 @@ fn build_products(
         fs::create_dir_all(&product_dir)?;
 
         for product in &module.macos.products {
+            if mode == Some(MacosNativeBundleMode::Package) && !product.package {
+                continue;
+            }
             validate_product(product)?;
             let mut command = Command::new("xcodebuild");
             command
@@ -239,6 +247,14 @@ fn build_products(
         }
     }
     Ok(built)
+}
+
+const fn enabled_by_default() -> bool {
+    true
+}
+
+const fn is_enabled(value: &bool) -> bool {
+    *value
 }
 
 fn prepare_xcode_project(
@@ -589,6 +605,7 @@ test_schemes = ["DemoNativeTests"]
 scheme = "DemoFileProvider"
 bundle = "DemoFileProvider.appex"
 kind = "app-extension"
+package = false
 entitlements = "platforms/macos/native/FileProvider.entitlements"
 provisioning_profile = "profiles/FileProvider.provisionprofile"
 
@@ -605,10 +622,35 @@ signing_identity = "Apple Development"
             module.products[0].kind,
             NativeMacosProductKind::AppExtension
         );
+        assert!(!module.products[0].package);
         assert_eq!(
             module.products[0].run.provisioning_profile.as_deref(),
             Some("profiles/FileProviderDevelopment.provisionprofile")
         );
+    }
+
+    #[test]
+    fn macos_native_products_are_packaged_by_default() {
+        let project: FissionProject = toml::from_str(
+            r#"
+targets = ["macos"]
+
+[app]
+name = "demo"
+app_id = "com.example.demo"
+
+[[native.modules]]
+name = "demo-native"
+
+[[native.modules.macos.products]]
+scheme = "DemoEndpointSecurity"
+bundle = "DemoEndpointSecurity.systemextension"
+kind = "system-extension"
+"#,
+        )
+        .unwrap();
+
+        assert!(project.native.modules[0].macos.products[0].package);
     }
 
     #[test]
@@ -667,6 +709,7 @@ signing_identity = "Apple Development"
             scheme: "Share".into(),
             bundle: "Share.appex".into(),
             kind: NativeMacosProductKind::AppExtension,
+            package: true,
             entitlements: None,
             provisioning_profile: Some("profiles/Share.provisionprofile".into()),
             signing_identity: Some("-".into()),
@@ -689,6 +732,7 @@ signing_identity = "Apple Development"
             scheme: "Demo".into(),
             bundle: bundle.into(),
             kind,
+            package: true,
             entitlements: None,
             provisioning_profile: None,
             signing_identity: None,
