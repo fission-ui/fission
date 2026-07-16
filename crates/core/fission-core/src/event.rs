@@ -162,6 +162,31 @@ pub enum GestureEvent {
     LongPress { point: LayoutPoint },
 }
 
+/// File drag-and-drop events delivered by desktop shells.
+///
+/// These events model OS-level drags such as files dragged from Finder,
+/// Explorer, or a Linux file manager into a Fission window. Internal widget
+/// drags use normal pointer events plus the widget drag payload.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ExternalDragEvent {
+    /// One or more external files are hovering over the window.
+    Hover {
+        point: LayoutPoint,
+        paths: Vec<String>,
+        /// Modifier bitmask (Shift=1, Alt=2, Ctrl=4, Super=8).
+        modifiers: u8,
+    },
+    /// The external drag left the window or was cancelled by the platform.
+    Cancel,
+    /// One or more external files were dropped at the current pointer point.
+    Drop {
+        point: LayoutPoint,
+        paths: Vec<String>,
+        /// Modifier bitmask (Shift=1, Alt=2, Ctrl=4, Super=8).
+        modifiers: u8,
+    },
+}
+
 /// The top-level input event type consumed by
 /// [`Runtime::handle_input`](crate::Runtime::handle_input).
 ///
@@ -176,6 +201,8 @@ pub enum InputEvent {
     Ime(ImeEvent),
     /// High-level gesture events.
     Gesture(GestureEvent),
+    /// Desktop shell drag-and-drop events from outside the app.
+    ExternalDrag(ExternalDragEvent),
     /// Application lifecycle transitions.
     Lifecycle(LifecycleEvent),
 }

@@ -308,7 +308,11 @@ impl From<ComposeModal> for Widget {
                 id: None,
                 is_barrier: true,
                 children: vec![Dropzone {
+                    id: None,
+                    semantics_identifier: None,
                     child: content,
+                    active_child: None,
+                    hover_child: None,
                     on_drop: Some(ctx.bind(
                         FileSelected,
                         reduce_with!(

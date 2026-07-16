@@ -220,8 +220,8 @@ pub mod public {
         ScrollBehavior, ScrollIntoViewRequest,
     };
     pub use crate::env::{
-        Clipboard, Env, ImeHandler, InteractionStateMap, RuntimeState, ScrollStateMap, WindowEnv,
-        WindowTitle,
+        Clipboard, DragSessionPayload, DragSessionState, Env, ImeHandler, InteractionStateMap,
+        RuntimeState, ScrollStateMap, WindowEnv, WindowTitle,
     };
     pub use crate::runtime::Runtime;
     pub use crate::state::{LocalStateKey, LocalStateStore, StateField};
@@ -229,7 +229,8 @@ pub mod public {
 
     pub use crate::build::{BuildCtxHandle, ViewHandle};
     pub use crate::event::{
-        InputEvent, KeyCode, KeyEvent, LifecycleEvent, PointerButton, PointerEvent,
+        ExternalDragEvent, InputEvent, KeyCode, KeyEvent, LifecycleEvent, PointerButton,
+        PointerEvent,
     };
     pub use crate::motion::*;
     pub use crate::platform::{
@@ -391,15 +392,17 @@ pub use effect::{
     ScrollBehavior, ScrollIntoViewRequest,
 };
 pub use env::{
-    Clipboard, Env, ImeHandler, InteractionStateMap, RouteLocation, RuntimeState, ScrollStateMap,
-    WindowEnv, WindowTitle,
+    Clipboard, DragSessionPayload, DragSessionState, Env, ImeHandler, InteractionStateMap,
+    RouteLocation, RuntimeState, ScrollStateMap, WindowEnv, WindowTitle,
 };
 pub use motion::*;
 pub use runtime::Runtime;
 pub use state::{LocalStateKey, LocalStateStore, StateField};
 
 pub use build::{BuildCtxHandle, ViewHandle};
-pub use event::{InputEvent, KeyCode, KeyEvent, LifecycleEvent, PointerButton, PointerEvent};
+pub use event::{
+    ExternalDragEvent, InputEvent, KeyCode, KeyEvent, LifecycleEvent, PointerButton, PointerEvent,
+};
 pub use fission_ir::op;
 pub use fission_ir::{EmbedKind, FocusPolicy, Op, Role, Semantics, WidgetId};
 pub use fission_layout::{

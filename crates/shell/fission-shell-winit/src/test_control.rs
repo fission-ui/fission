@@ -242,6 +242,18 @@ fn dispatch_command(cmd: TestCommand, injector: &EventInjector) -> TestResponse 
             inject_event(injector, TestEvent::Scroll { x, y, dx, dy });
             TestResponse::Ok {}
         }
+        TestCommand::ExternalFileHover { x, y, paths } => {
+            inject_event(injector, TestEvent::ExternalFileHover { x, y, paths });
+            TestResponse::Ok {}
+        }
+        TestCommand::ExternalFileDrop { x, y, paths } => {
+            inject_event(injector, TestEvent::ExternalFileDrop { x, y, paths });
+            TestResponse::Ok {}
+        }
+        TestCommand::ExternalFileCancel {} => {
+            inject_event(injector, TestEvent::ExternalFileCancel);
+            TestResponse::Ok {}
+        }
         TestCommand::TypeText { text } => {
             inject_event(injector, TestEvent::TextInput { text });
             TestResponse::Ok {}

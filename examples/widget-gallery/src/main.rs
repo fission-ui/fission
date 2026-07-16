@@ -1,3 +1,6 @@
+mod drag_drop;
+
+use drag_drop::DragDropSection;
 use fission::core::op::Color as IrColor;
 use fission::core::ui::{
     Button, ButtonVariant, Checkbox, Container, ContextMenu, ContextMenuEntry, ContextMenuItem,
@@ -45,6 +48,12 @@ struct GalleryState {
     tree_expanded: HashSet<String>,
     tree_selected: Option<String>,
     show_toast: bool,
+    drag_backlog: Vec<String>,
+    drag_done: Vec<String>,
+    drag_hover_zone: Option<String>,
+    drag_log: Vec<String>,
+    drag_snap_preview: bool,
+    drag_external_files: Vec<String>,
 }
 
 impl Default for GalleryState {
@@ -79,6 +88,16 @@ impl Default for GalleryState {
             tree_expanded,
             tree_selected: None,
             show_toast: false,
+            drag_backlog: vec![
+                "Inbox triage".into(),
+                "Invoice import".into(),
+                "Follow-up".into(),
+            ],
+            drag_done: vec!["Release notes".into()],
+            drag_hover_zone: None,
+            drag_log: Vec::new(),
+            drag_snap_preview: false,
+            drag_external_files: Vec::new(),
         }
     }
 }
@@ -1226,6 +1245,7 @@ impl From<GalleryApp> for Widget {
                 feedback_section,
                 nav_section,
                 data_section,
+                DragDropSection.into(),
                 overlay_section,
                 Spacer {
                     height: Some(40.0),

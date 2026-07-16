@@ -1,10 +1,10 @@
 use super::{ControllerContext, InputController};
-use crate::event::{InputEvent, PointerEvent};
+use crate::event::{ExternalDragEvent, InputEvent, PointerEvent};
 use crate::scrollbar::{
     scrollbar_drag_offset, scrollbar_drag_offset_with_grab, scrollbar_geometry_for_node,
     scrollbar_hit_test, scrollbar_point_for_node, ScrollbarDragState, ScrollbarHitKind,
 };
-use crate::{ActionEnvelope, ActionId, ActionInput};
+use crate::{ActionEnvelope, ActionId, ActionInput, DragSessionPayload, DragSessionState};
 use fission_ir::op::RichTextAnnotation;
 use fission_ir::{semantics::ActionTrigger, Op, WidgetId};
 use fission_layout::LayoutPoint;
@@ -90,6 +90,20 @@ impl InputController for GestureController {
 
                             if !ctx.gesture.is_panning && dist_sq > threshold {
                                 ctx.gesture.is_panning = true;
+                                if let Some(payload) = ctx.gesture.dragging_payload.clone() {
+                                    let target = ctx.gesture.target_node;
+                                    let source_identifier =
+                                        target.and_then(|id| self.semantic_identifier(ctx, id));
+                                    ctx.gesture.drag_session = Some(DragSessionState {
+                                        source_node: target,
+                                        source_identifier,
+                                        payload: DragSessionPayload::Internal(payload),
+                                        point: *point,
+                                        target_node: None,
+                                        target_identifier: None,
+                                    });
+                                    self.update_drag_target(ctx, *point);
+                                }
                                 // Dispatch DragStart now
                                 if let Some(target) = ctx.gesture.target_node {
                                     self.dispatch_trigger(
@@ -103,6 +117,11 @@ impl InputController for GestureController {
                             }
 
                             if ctx.gesture.is_panning {
+                                if let Some(session) = ctx.gesture.drag_session.as_mut() {
+                                    session.point = *point;
+                                }
+                                self.update_drag_target(ctx, *point);
+
                                 let last = ctx.gesture.last_point.unwrap_or(start);
                                 let delta = LayoutPoint {
                                     x: point.x - last.x,
@@ -134,7 +153,9 @@ impl InputController for GestureController {
                             }
                         }
                     }
-                    PointerEvent::Up { point, .. } => {
+                    PointerEvent::Up {
+                        point, modifiers, ..
+                    } => {
                         let scrollbar_drag = ctx.gesture.scrollbar_drag.take();
                         let mut handled = false;
                         let was_secondary = matches!(
@@ -147,8 +168,9 @@ impl InputController for GestureController {
                                 if let Some(up_hit) = crate::hit_test::hit_test_with_scroll(
                                     ctx.ir, ctx.layout, ctx.scroll, *point,
                                 ) {
-                                    let _ =
-                                        self.dispatch_internal_drop(ctx, up_hit, payload, *point);
+                                    let _ = self.dispatch_internal_drop(
+                                        ctx, up_hit, payload, *point, *modifiers,
+                                    );
                                 }
                             }
 
@@ -261,6 +283,8 @@ impl InputController for GestureController {
                         ctx.gesture.start_point = None;
                         ctx.gesture.is_panning = false;
                         ctx.gesture.dragging_payload = None;
+                        self.clear_drag_target(ctx, *point);
+                        ctx.gesture.drag_session = None;
                         ctx.gesture.pressed_button = None;
                         if scrollbar_drag.is_some() {
                             ctx.gesture.target_node = None;
@@ -271,6 +295,79 @@ impl InputController for GestureController {
                     _ => {}
                 }
             }
+            InputEvent::ExternalDrag(event) => match event {
+                ExternalDragEvent::Hover { point, paths, .. } => {
+                    ctx.gesture.drag_session = Some(DragSessionState {
+                        source_node: None,
+                        source_identifier: None,
+                        payload: DragSessionPayload::ExternalFiles(paths.clone()),
+                        point: *point,
+                        target_node: ctx
+                            .gesture
+                            .drag_session
+                            .as_ref()
+                            .and_then(|s| s.target_node),
+                        target_identifier: ctx
+                            .gesture
+                            .drag_session
+                            .as_ref()
+                            .and_then(|s| s.target_identifier.clone()),
+                    });
+                    self.update_drag_target(ctx, *point);
+                    return true;
+                }
+                ExternalDragEvent::Cancel => {
+                    let point = ctx
+                        .gesture
+                        .drag_session
+                        .as_ref()
+                        .map(|session| session.point)
+                        .unwrap_or(LayoutPoint::ZERO);
+                    self.clear_drag_target(ctx, point);
+                    ctx.gesture.drag_session = None;
+                    return true;
+                }
+                ExternalDragEvent::Drop {
+                    point,
+                    paths,
+                    modifiers,
+                } => {
+                    ctx.gesture.drag_session = Some(DragSessionState {
+                        source_node: None,
+                        source_identifier: None,
+                        payload: DragSessionPayload::ExternalFiles(paths.clone()),
+                        point: *point,
+                        target_node: ctx
+                            .gesture
+                            .drag_session
+                            .as_ref()
+                            .and_then(|s| s.target_node),
+                        target_identifier: ctx
+                            .gesture
+                            .drag_session
+                            .as_ref()
+                            .and_then(|s| s.target_identifier.clone()),
+                    });
+                    self.update_drag_target(ctx, *point);
+                    if let Some(target) = ctx
+                        .gesture
+                        .drag_session
+                        .as_ref()
+                        .and_then(|s| s.target_node)
+                    {
+                        let _ = self.dispatch_external_drop(
+                            ctx,
+                            target,
+                            paths.clone(),
+                            *point,
+                            *modifiers,
+                        );
+                    }
+                    self.clear_drag_target(ctx, *point);
+                    ctx.gesture.drag_session = None;
+                    return true;
+                }
+            },
             _ => {}
         }
         false
@@ -380,12 +477,95 @@ impl GestureController {
         None
     }
 
+    fn semantic_identifier(&self, ctx: &ControllerContext, start_node: WidgetId) -> Option<String> {
+        let mut current_id = Some(start_node);
+        while let Some(node_id) = current_id {
+            if let Some(node) = ctx.ir.nodes.get(&node_id) {
+                if let Op::Semantics(sem) = &node.op {
+                    if let Some(identifier) = &sem.identifier {
+                        return Some(identifier.clone());
+                    }
+                }
+                current_id = node.parent;
+            } else {
+                break;
+            }
+        }
+        None
+    }
+
+    fn find_drop_target(&self, ctx: &ControllerContext, start_node: WidgetId) -> Option<WidgetId> {
+        let mut current_id = Some(start_node);
+        while let Some(node_id) = current_id {
+            if let Some(node) = ctx.ir.nodes.get(&node_id) {
+                if let Op::Semantics(sem) = &node.op {
+                    if sem
+                        .actions
+                        .entries
+                        .iter()
+                        .any(|entry| entry.trigger == ActionTrigger::Drop)
+                    {
+                        return Some(node_id);
+                    }
+                }
+                current_id = node.parent;
+            } else {
+                break;
+            }
+        }
+        None
+    }
+
+    fn update_drag_target(&self, ctx: &mut ControllerContext, point: LayoutPoint) {
+        let next_target =
+            crate::hit_test::hit_test_with_scroll(ctx.ir, ctx.layout, ctx.scroll, point)
+                .and_then(|hit| self.find_drop_target(ctx, hit));
+
+        let previous_target = ctx
+            .gesture
+            .drag_session
+            .as_ref()
+            .and_then(|s| s.target_node);
+        if previous_target == next_target {
+            return;
+        }
+
+        if let Some(previous) = previous_target {
+            self.dispatch_trigger(ctx, previous, ActionTrigger::DragLeave, point, None);
+        }
+        if let Some(next) = next_target {
+            self.dispatch_trigger(ctx, next, ActionTrigger::DragEnter, point, None);
+        }
+
+        let next_identifier = next_target.and_then(|id| self.semantic_identifier(ctx, id));
+        if let Some(session) = ctx.gesture.drag_session.as_mut() {
+            session.target_node = next_target;
+            session.target_identifier = next_identifier;
+        }
+    }
+
+    fn clear_drag_target(&self, ctx: &mut ControllerContext, point: LayoutPoint) {
+        if let Some(previous) = ctx
+            .gesture
+            .drag_session
+            .as_ref()
+            .and_then(|s| s.target_node)
+        {
+            self.dispatch_trigger(ctx, previous, ActionTrigger::DragLeave, point, None);
+        }
+        if let Some(session) = ctx.gesture.drag_session.as_mut() {
+            session.target_node = None;
+            session.target_identifier = None;
+        }
+    }
+
     fn dispatch_internal_drop(
         &self,
         ctx: &mut ControllerContext,
         target_node: WidgetId,
         payload: Vec<u8>,
         point: LayoutPoint,
+        modifiers: u8,
     ) -> bool {
         let mut current_id = Some(target_node);
         while let Some(node_id) = current_id {
@@ -405,6 +585,50 @@ impl GestureController {
                                     payload: payload.clone(),
                                     x: point.x,
                                     y: point.y,
+                                    modifiers,
+                                },
+                            );
+
+                            ctx.dispatched_actions.push((node_id, envelope, input));
+                            return true;
+                        }
+                    }
+                }
+                current_id = node.parent;
+            } else {
+                break;
+            }
+        }
+        false
+    }
+
+    fn dispatch_external_drop(
+        &self,
+        ctx: &mut ControllerContext,
+        target_node: WidgetId,
+        paths: Vec<String>,
+        point: LayoutPoint,
+        modifiers: u8,
+    ) -> bool {
+        let mut current_id = Some(target_node);
+        while let Some(node_id) = current_id {
+            if let Some(node) = ctx.ir.nodes.get(&node_id) {
+                if let Op::Semantics(sem) = &node.op {
+                    for entry in &sem.actions.entries {
+                        if entry.trigger == ActionTrigger::Drop {
+                            let envelope = ActionEnvelope {
+                                id: ActionId::from_u128(entry.action_id),
+                                payload: entry.payload_data.clone().unwrap_or_default(),
+                            };
+
+                            let input = crate::input::scoped_action_input(
+                                ctx.ir,
+                                node_id,
+                                ActionInput::Drop {
+                                    paths: paths.clone(),
+                                    x: point.x,
+                                    y: point.y,
+                                    modifiers,
                                 },
                             );
 

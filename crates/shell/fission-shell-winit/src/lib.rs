@@ -38,10 +38,10 @@ use fission_core::internal::InternalLoweringCx;
 use fission_core::ui::VideoAudioOptions;
 use fission_core::{
     Action, ActionEnvelope, ActionId, ActionRegistry, DeepLink, DeepLinkConfig, DeepLinkReceived,
-    Env, GlobalState, InputEvent, KeyCode, KeyEvent as FissionKeyEvent, NotificationResponse,
-    NotificationResponseReceived, OpenUrlRequest, PointerButton, PointerEvent, Runtime,
-    ScrollAlignment, ScrollAxis, ScrollBehavior, ScrollIntoViewRequest, ServiceBindings, View,
-    Widget, WidgetIdExt, OPEN_URL,
+    Env, ExternalDragEvent, GlobalState, InputEvent, KeyCode, KeyEvent as FissionKeyEvent,
+    NotificationResponse, NotificationResponseReceived, OpenUrlRequest, PointerButton,
+    PointerEvent, Runtime, ScrollAlignment, ScrollAxis, ScrollBehavior, ScrollIntoViewRequest,
+    ServiceBindings, View, Widget, WidgetIdExt, OPEN_URL,
 };
 use fission_core::{ActionInput, CapabilityInvocationPayload, Effect};
 use fission_diagnostics::prelude as diag;
@@ -2380,6 +2380,62 @@ fn handle_cursor_moved(
             redraw_pending,
             frame_trace,
             "pointer_move",
+        );
+    }
+}
+
+/// Handle OS drag-and-drop events such as files dragged from Finder/Explorer.
+fn handle_external_drag(
+    event: ExternalDragEvent,
+    runtime: &mut Runtime,
+    pipeline: &Pipeline,
+    effect_result_tx: &mpsc::Sender<EffectResult>,
+    event_proxy: &EventLoopProxy<TestEvent>,
+    async_registry: &AsyncRegistry,
+    active_services: &mut HashMap<ServiceKey, ActiveServiceHandle>,
+    service_bindings: &mut HashMap<ServiceBindingKey, ServiceBindings>,
+    next_service_instance_id: &mut u64,
+    window: &Window,
+    elwt: &EventLoopWindowTarget,
+    last_redraw_at: &mut Instant,
+    min_frame: Duration,
+    redraw_pending: &mut bool,
+    frame_trace: &mut FrameTraceState,
+    invalidations: &mut InvalidationSet,
+) {
+    if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
+        if let Err(e) = runtime.handle_input(InputEvent::ExternalDrag(event), ir, layout) {
+            eprintln!("External drag handling error: {:?}", e);
+        }
+        invalidations.mark_build();
+        if process_pending_effects(
+            runtime,
+            effect_result_tx,
+            event_proxy,
+            async_registry,
+            active_services,
+            service_bindings,
+            next_service_instance_id,
+        ) {
+            invalidations.mark_build();
+            request_redraw_logged(
+                window,
+                elwt,
+                last_redraw_at,
+                min_frame,
+                redraw_pending,
+                frame_trace,
+                "external_drag:effects",
+            );
+        }
+        request_redraw_logged(
+            window,
+            elwt,
+            last_redraw_at,
+            min_frame,
+            redraw_pending,
+            frame_trace,
+            "external_drag",
         );
     }
 }
@@ -4976,6 +5032,83 @@ where
                             &mut invalidations,
                         );
                     }
+                    TestEvent::ExternalFileHover { x, y, paths } => {
+                        let Some(window) = platform_window.active_window() else {
+                            return;
+                        };
+                        handle_external_drag(
+                            ExternalDragEvent::Hover {
+                                point: LayoutPoint { x, y },
+                                paths,
+                                modifiers: 0,
+                            },
+                            &mut runtime,
+                            &pipeline,
+                            &effect_result_tx,
+                            &event_proxy,
+                            &async_registry,
+                            &mut active_services,
+                            &mut service_bindings,
+                            &mut next_service_instance_id,
+                            window,
+                            elwt,
+                            &mut last_redraw_at,
+                            min_frame,
+                            &mut redraw_pending,
+                            &mut frame_trace,
+                            &mut invalidations,
+                        );
+                    }
+                    TestEvent::ExternalFileDrop { x, y, paths } => {
+                        let Some(window) = platform_window.active_window() else {
+                            return;
+                        };
+                        handle_external_drag(
+                            ExternalDragEvent::Drop {
+                                point: LayoutPoint { x, y },
+                                paths,
+                                modifiers: 0,
+                            },
+                            &mut runtime,
+                            &pipeline,
+                            &effect_result_tx,
+                            &event_proxy,
+                            &async_registry,
+                            &mut active_services,
+                            &mut service_bindings,
+                            &mut next_service_instance_id,
+                            window,
+                            elwt,
+                            &mut last_redraw_at,
+                            min_frame,
+                            &mut redraw_pending,
+                            &mut frame_trace,
+                            &mut invalidations,
+                        );
+                    }
+                    TestEvent::ExternalFileCancel => {
+                        let Some(window) = platform_window.active_window() else {
+                            return;
+                        };
+                        handle_external_drag(
+                            ExternalDragEvent::Cancel,
+                            &mut runtime,
+                            &pipeline,
+                            &effect_result_tx,
+                            &event_proxy,
+                            &async_registry,
+                            &mut active_services,
+                            &mut service_bindings,
+                            &mut next_service_instance_id,
+                            window,
+                            elwt,
+                            &mut last_redraw_at,
+                            min_frame,
+                            &mut redraw_pending,
+                            &mut frame_trace,
+                            &mut invalidations,
+                        );
+                    }
                     TestEvent::Resize { width, height } => {
                         let Some(window) = platform_window.active_window() else {
                             return;
@@ -7525,6 +7658,82 @@ where
                                 &mut invalidations,
                             );
                             last_cursor_position = None;
+                        }
+                        WindowEvent::HoveredFile(path) => {
+                            if let Some(position) = last_cursor_position {
+                                let point =
+                                    window_physical_position_to_layout_point(window, position);
+                                handle_external_drag(
+                                    ExternalDragEvent::Hover {
+                                        point,
+                                        paths: vec![path.to_string_lossy().into_owned()],
+                                        modifiers: current_mods,
+                                    },
+                                    &mut runtime,
+                                    &pipeline,
+                                    &effect_result_tx,
+                                    &event_proxy,
+                                    &async_registry,
+                                    &mut active_services,
+                                    &mut service_bindings,
+                                    &mut next_service_instance_id,
+                                    &window,
+                                    elwt,
+                                    &mut last_redraw_at,
+                                    min_frame,
+                                    &mut redraw_pending,
+                                    &mut frame_trace,
+                                    &mut invalidations,
+                                );
+                            }
+                        }
+                        WindowEvent::HoveredFileCancelled => {
+                            handle_external_drag(
+                                ExternalDragEvent::Cancel,
+                                &mut runtime,
+                                &pipeline,
+                                &effect_result_tx,
+                                &event_proxy,
+                                &async_registry,
+                                &mut active_services,
+                                &mut service_bindings,
+                                &mut next_service_instance_id,
+                                &window,
+                                elwt,
+                                &mut last_redraw_at,
+                                min_frame,
+                                &mut redraw_pending,
+                                &mut frame_trace,
+                                &mut invalidations,
+                            );
+                        }
+                        WindowEvent::DroppedFile(path) => {
+                            if let Some(position) = last_cursor_position {
+                                let point =
+                                    window_physical_position_to_layout_point(window, position);
+                                handle_external_drag(
+                                    ExternalDragEvent::Drop {
+                                        point,
+                                        paths: vec![path.to_string_lossy().into_owned()],
+                                        modifiers: current_mods,
+                                    },
+                                    &mut runtime,
+                                    &pipeline,
+                                    &effect_result_tx,
+                                    &event_proxy,
+                                    &async_registry,
+                                    &mut active_services,
+                                    &mut service_bindings,
+                                    &mut next_service_instance_id,
+                                    &window,
+                                    elwt,
+                                    &mut last_redraw_at,
+                                    min_frame,
+                                    &mut redraw_pending,
+                                    &mut frame_trace,
+                                    &mut invalidations,
+                                );
+                            }
                         }
                         WindowEvent::MouseInput { state, button, .. } => {
                             #[cfg(target_arch = "wasm32")]

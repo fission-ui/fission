@@ -338,6 +338,8 @@ impl From<SettingsModal> for Widget {
             .iter()
             .map(|label| {
                 Draggable {
+                    id: None,
+                    semantics_identifier: None,
                     payload: label.as_bytes().to_vec(),
                     on_drag_start: Some(ActionEnvelope {
                         id: drag_active_id,
@@ -352,12 +354,16 @@ impl From<SettingsModal> for Widget {
                         on_close: None,
                     }
                     .into(),
+                    preview: None,
+                    preview_options: Default::default(),
                 }
                 .into()
             })
             .collect::<Vec<_>>();
 
         let drop_target = DragTarget {
+            id: None,
+            semantics_identifier: None,
             on_drop: Some(ActionEnvelope {
                 id: label_drop_id,
                 payload: serde_json::to_vec(&LabelDropped("Pinned".into())).unwrap(),
@@ -374,6 +380,7 @@ impl From<SettingsModal> for Widget {
             .border(tokens.colors.border, 1.0)
             .border_radius(8.0)
             .into(),
+            hover_child: None,
         }
         .into();
 

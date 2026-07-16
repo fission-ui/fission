@@ -17,7 +17,11 @@ fn test_dropzone_structure() {
     let mut ctx = BuildCtx::<TestState>::new();
 
     let dropzone = Dropzone {
+        id: None,
+        semantics_identifier: None,
         child: Spacer::default().into(),
+        active_child: None,
+        hover_child: None,
         on_drop: None,
         on_drag_enter: None,
         on_drag_leave: None,

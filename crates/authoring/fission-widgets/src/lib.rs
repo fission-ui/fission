@@ -160,7 +160,7 @@ pub mod terminal;
 pub use terminal::{TerminalLaunchConfig, TerminalSession, TerminalView};
 
 pub mod draggable;
-pub use draggable::{DragTarget, Draggable};
+pub use draggable::{DragPreviewOptions, DragTarget, Draggable};
 
 pub mod empty_state;
 pub use empty_state::EmptyState;

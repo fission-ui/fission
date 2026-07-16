@@ -196,6 +196,45 @@ pub struct GestureState {
     pub dragging_payload: Option<Vec<u8>>,
     pub pressed_button: Option<crate::event::PointerButton>,
     pub scrollbar_drag: Option<crate::scrollbar::ScrollbarDragState>,
+    /// Runtime drag state used by widgets to render previews and hovered
+    /// drop-target feedback during the current frame.
+    pub drag_session: Option<DragSessionState>,
+}
+
+/// Payload currently carried by a drag session.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DragSessionPayload {
+    /// Opaque bytes from an in-app drag source.
+    Internal(Vec<u8>),
+    /// Files supplied by the host platform during an external drag.
+    ExternalFiles(Vec<String>),
+}
+
+impl DragSessionPayload {
+    /// Human-readable payload family used by demos and diagnostics.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Internal(_) => "internal",
+            Self::ExternalFiles(_) => "files",
+        }
+    }
+}
+
+/// Runtime-only state for a drag gesture currently in progress.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DragSessionState {
+    /// Semantics node that started the drag, when this is an internal drag.
+    pub source_node: Option<WidgetId>,
+    /// Stable source identifier, if supplied by the drag source widget.
+    pub source_identifier: Option<String>,
+    /// Payload carried by the drag.
+    pub payload: DragSessionPayload,
+    /// Pointer position in layout coordinates.
+    pub point: LayoutPoint,
+    /// Target currently under the pointer that advertises a drop action.
+    pub target_node: Option<WidgetId>,
+    /// Stable target identifier, if supplied by the drop target widget.
+    pub target_identifier: Option<String>,
 }
 
 #[derive(Clone, Debug, Default)]

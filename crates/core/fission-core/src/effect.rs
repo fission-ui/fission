@@ -272,9 +272,23 @@ pub enum ActionInput {
         delta_y: f32,
     },
     /// External file drop (e.g. from the OS file manager).
-    Drop { paths: Vec<String>, x: f32, y: f32 },
+    Drop {
+        paths: Vec<String>,
+        x: f32,
+        y: f32,
+        /// Modifier bitmask active during the drop (Shift=1, Alt=2,
+        /// Ctrl=4, Super=8).
+        modifiers: u8,
+    },
     /// Internal drag-and-drop with an opaque byte payload.
-    InternalDrop { payload: Vec<u8>, x: f32, y: f32 },
+    InternalDrop {
+        payload: Vec<u8>,
+        x: f32,
+        y: f32,
+        /// Modifier bitmask active during the drop (Shift=1, Alt=2,
+        /// Ctrl=4, Super=8).
+        modifiers: u8,
+    },
     /// The action was dispatched from a subtree with a raw action scope.
     ScopedRaw {
         scope_id: u128,
@@ -347,6 +361,18 @@ impl ActionInput {
     pub fn as_internal_drop(&self) -> Option<&[u8]> {
         match self.unscoped() {
             ActionInput::InternalDrop { payload, .. } => Some(payload),
+            _ => None,
+        }
+    }
+
+    /// Modifier bitmask active during a drop action.
+    ///
+    /// This lets app reducers choose copy/move/link semantics without binding
+    /// that product rule into the drag runtime itself.
+    pub fn as_drop_modifiers(&self) -> Option<u8> {
+        match self.unscoped() {
+            ActionInput::Drop { modifiers, .. } => Some(*modifiers),
+            ActionInput::InternalDrop { modifiers, .. } => Some(*modifiers),
             _ => None,
         }
     }

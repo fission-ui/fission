@@ -206,6 +206,11 @@ where
                 self.pump()?;
                 Ok(TestResponse::Ok {})
             }
+            TestCommand::ExternalFileHover { .. }
+            | TestCommand::ExternalFileDrop { .. }
+            | TestCommand::ExternalFileCancel {} => Ok(TestResponse::Error {
+                message: "external file drag-and-drop is not supported by the terminal backend".into(),
+            }),
             TestCommand::ResolveSelector { .. }
             | TestCommand::TapSelector { .. }
             | TestCommand::ActivateSelector { .. }
