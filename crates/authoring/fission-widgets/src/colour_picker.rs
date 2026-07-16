@@ -4,7 +4,7 @@ use fission_core::ui::{
 };
 use fission_core::ActionEnvelope;
 use fission_ir::op::{AlignItems, Color, Fill, FlexDirection, JustifyContent};
-use fission_ir::WidgetId;
+use fission_ir::{Role, Semantics, WidgetId};
 use std::sync::Arc;
 
 /// Built-in colour picker layouts inspired by common design-tool pickers.
@@ -814,12 +814,20 @@ fn swatch_grid(
 fn swatch(picker: &ColourPicker, color: Color, size: f32, radius: f32) -> Widget {
     let selected = same_rgb_alpha(picker.value, color);
     let action = picker.on_change.as_ref().map(|callback| callback(color));
-    let id = picker.semantics_identifier.as_ref().map(|prefix| {
-        format!(
-            "{prefix}.swatch.{}",
-            hex_string(color).trim_start_matches('#')
-        )
-    });
+    let hex = hex_string(color);
+    let id = picker
+        .semantics_identifier
+        .as_ref()
+        .map(|prefix| format!("{prefix}.swatch.{}", hex.trim_start_matches('#')))
+        .unwrap_or_else(|| format!("colour.swatch.{}", hex.trim_start_matches('#')));
+    let semantics = Semantics {
+        role: Role::Button,
+        label: Some(format!("Select {hex}")),
+        identifier: Some(id),
+        checked: Some(selected),
+        focusable: true,
+        ..Default::default()
+    };
     Button {
         child: None,
         on_press: action,
@@ -828,10 +836,9 @@ fn swatch(picker: &ColourPicker, color: Color, size: f32, radius: f32) -> Widget
         padding: Some([0.0; 4]),
         variant: ButtonVariant::Ghost,
         background_fill: Some(Fill::Solid(color)),
-        semantics: None,
+        semantics: Some(semantics),
         ..Default::default()
     }
-    .semantics_identifier(id.unwrap_or_else(|| format!("colour.swatch.{}", hex_string(color))))
     .background_fill(Fill::Solid(color))
     .into_with_border(
         if selected {
