@@ -324,8 +324,8 @@ pub use fission_shell_desktop::{
     not(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))
 ))]
 pub use fission_shell_desktop::{
-    TrayActivateBehavior, TrayConfig, TrayHostAction, TrayIconSource, TrayMenu, TrayMenuAction,
-    TrayMenuBuilder, TrayMenuEntry, TrayMenuItem, WindowCloseBehavior,
+    TrayActivateBehavior, TrayAppSwitcherPolicy, TrayConfig, TrayHostAction, TrayIconSource,
+    TrayMenu, TrayMenuAction, TrayMenuBuilder, TrayMenuEntry, TrayMenuItem, WindowCloseBehavior,
 };
 #[cfg(all(
     any(
@@ -518,8 +518,9 @@ pub mod prelude {
         not(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))
     ))]
     pub use fission_shell_desktop::{
-        TrayActivateBehavior, TrayConfig, TrayHostAction, TrayIconSource, TrayMenu, TrayMenuAction,
-        TrayMenuBuilder, TrayMenuEntry, TrayMenuItem, WindowCloseBehavior,
+        TrayActivateBehavior, TrayAppSwitcherPolicy, TrayConfig, TrayHostAction, TrayIconSource,
+        TrayMenu, TrayMenuAction, TrayMenuBuilder, TrayMenuEntry, TrayMenuItem,
+        WindowCloseBehavior,
     };
 
     // Layout

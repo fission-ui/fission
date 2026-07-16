@@ -43,6 +43,26 @@ Desktop, web, and mobile are runtime shells: they keep the app running in a host
 
 Those differences are host differences, not app-model differences. The same state, reducers, selectors, widgets, design system, and environment model stay at the center.
 
+## Desktop tray switcher policy
+
+Desktop tray apps should behave like tray apps by default. When you configure `DesktopApp::with_tray(...)`, Fission now defaults `TrayConfig::app_switcher_policy` to `TrayAppSwitcherPolicy::Hidden`. That is a breaking default: on macOS the app uses an accessory activation policy, on Windows the window asks winit to skip the taskbar, and on Linux the behavior is best-effort because window managers do not expose one portable switcher contract through winit.
+
+Use the explicit policy when your product needs the old foreground-app behavior:
+
+```rust
+use fission::prelude::*;
+use fission::{TrayAppSwitcherPolicy, TrayConfig, TrayIconSource};
+
+DesktopApp::<AppState, _>::new(App)
+    .with_tray(
+        TrayConfig::new(TrayIconSource::path("assets/tray.png"))
+            .app_switcher_policy(TrayAppSwitcherPolicy::Visible),
+    )
+    .run()
+```
+
+`TrayAppSwitcherPolicy::HiddenWhenWindowHidden` keeps the app visible in normal switchers while the main window is open, then switches to the tray-first behavior after `WindowCloseBehavior::HideToTray` or a tray action hides the window.
+
 ## The shared runtime is the same, even when wrappers differ
 
 When you choose `DesktopApp`, `WebApp`, `MobileApp`, or `TerminalApp`, you are not choosing a different application model. You are choosing which shell wrapper should boot the same runtime for the host you care about.
