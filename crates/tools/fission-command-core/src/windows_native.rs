@@ -85,7 +85,7 @@ pub fn build_windows_native_modules(
         let target = optional_value(module.windows.build_target.as_deref()).unwrap_or("Build");
         let mut command = Command::new("msbuild");
         command
-            .arg(&build_project)
+            .arg(windows_external_tool_path(&build_project))
             .arg("/m")
             .arg(format!("/t:{target}"))
             .arg(format!("/p:Configuration={configuration}"))
@@ -141,9 +141,9 @@ fn restore_windows_native_packages(
     let mut command = Command::new("nuget");
     command
         .arg("restore")
-        .arg(&packages_config)
+        .arg(windows_external_tool_path(&packages_config))
         .arg("-PackagesDirectory")
-        .arg(&packages_directory)
+        .arg(windows_external_tool_path(&packages_directory))
         .arg("-NonInteractive");
     run_status(
         &mut command,
@@ -203,7 +203,10 @@ fn prepend_windows_native_tool_paths(command: &mut Command, paths: &[PathBuf]) -
     if paths.is_empty() {
         return Ok(());
     }
-    let mut combined = paths.to_vec();
+    let mut combined = paths
+        .iter()
+        .map(|path| windows_external_tool_path(path))
+        .collect::<Vec<_>>();
     if let Some(current) = env::var_os("PATH") {
         combined.extend(env::split_paths(&current));
     }
@@ -234,7 +237,7 @@ pub fn test_windows_native_modules(project_dir: &Path, project: &FissionProject)
                 );
             }
             let mut command = Command::new("vstest.console.exe");
-            command.arg(&test_binary);
+            command.arg(windows_external_tool_path(&test_binary));
             run_status(
                 &mut command,
                 &format!("Windows native test binary `{}`", test_binary.display()),
@@ -386,6 +389,44 @@ fn canonical_project_dir(project_dir: &Path) -> Result<PathBuf> {
             project_dir.display()
         )
     })
+}
+
+fn windows_external_tool_path(path: &Path) -> PathBuf {
+    #[cfg(windows)]
+    {
+        use std::ffi::OsString;
+        use std::os::windows::ffi::{OsStrExt, OsStringExt};
+
+        let encoded = path.as_os_str().encode_wide().collect::<Vec<_>>();
+        return normalize_windows_verbatim_units(&encoded)
+            .map(|units| PathBuf::from(OsString::from_wide(&units)))
+            .unwrap_or_else(|| path.to_path_buf());
+    }
+
+    #[cfg(not(windows))]
+    path.to_path_buf()
+}
+
+#[cfg(any(windows, test))]
+fn normalize_windows_verbatim_units(path: &[u16]) -> Option<Vec<u16>> {
+    const VERBATIM_PREFIX: &[u16] = &[b'\\' as u16, b'\\' as u16, b'?' as u16, b'\\' as u16];
+    const VERBATIM_UNC_PREFIX: &[u16] = &[
+        b'\\' as u16,
+        b'\\' as u16,
+        b'?' as u16,
+        b'\\' as u16,
+        b'U' as u16,
+        b'N' as u16,
+        b'C' as u16,
+        b'\\' as u16,
+    ];
+
+    if let Some(remainder) = path.strip_prefix(VERBATIM_UNC_PREFIX) {
+        let mut normalized = vec![b'\\' as u16, b'\\' as u16];
+        normalized.extend_from_slice(remainder);
+        return Some(normalized);
+    }
+    path.strip_prefix(VERBATIM_PREFIX).map(Vec::from)
 }
 
 fn required_value<'a>(value: &'a str, label: &str) -> Result<&'a str> {
@@ -540,6 +581,37 @@ kind = "driver-package"
         let paths = discover_windows_native_tool_paths(&root, "x86_64").unwrap();
 
         assert!(paths.is_empty());
+    }
+
+    #[test]
+    fn normalizes_verbatim_drive_path_for_windows_tools() {
+        let path = r"\\?\D:\a\demo\packages".encode_utf16().collect::<Vec<_>>();
+        let normalized = normalize_windows_verbatim_units(&path).unwrap();
+
+        assert_eq!(
+            String::from_utf16(normalized.as_slice()).unwrap(),
+            r"D:\a\demo\packages"
+        );
+    }
+
+    #[test]
+    fn normalizes_verbatim_unc_path_for_windows_tools() {
+        let path = r"\\?\UNC\server\share\packages"
+            .encode_utf16()
+            .collect::<Vec<_>>();
+        let normalized = normalize_windows_verbatim_units(&path).unwrap();
+
+        assert_eq!(
+            String::from_utf16(normalized.as_slice()).unwrap(),
+            r"\\server\share\packages"
+        );
+    }
+
+    #[test]
+    fn leaves_non_verbatim_windows_path_unchanged() {
+        let path = r"D:\a\demo\packages".encode_utf16().collect::<Vec<_>>();
+
+        assert!(normalize_windows_verbatim_units(&path).is_none());
     }
 
     fn unique_dir(label: &str) -> PathBuf {
