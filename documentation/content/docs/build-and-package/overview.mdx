@@ -41,6 +41,28 @@ Every package format should produce an `artifact-manifest.json`. That manifest r
 
 Release commands should consume the manifest. That keeps publishing safe to retry because the command can tell exactly what was built and what it is about to upload.
 
+## Application resources
+
+Put runtime files that must travel with a desktop or terminal application under
+the project's `assets/` directory. Fission preserves the complete directory
+tree for both `fission run` and `fission package`; projects without `assets/`
+remain valid.
+
+Desktop applications resolve the staged tree from the application resource
+root:
+
+| Target | Staged path |
+| --- | --- |
+| macOS | `Contents/Resources/assets/` inside the `.app` |
+| Linux | `assets/` beside the packaged application directories |
+| Windows | `assets/` beside the executable |
+
+Custom Windows packaging scripts receive the source directory in
+`FISSION_WINDOWS_ASSETS_DIR` and are responsible for preserving that tree in
+their installer. Fission rejects an `assets` path that exists but is not a
+directory. On macOS, resources are staged before the application bundle is
+signed.
+
 ## Signing boundaries
 
 Signing is platform-owned. Fission orchestrates checks, configuration, command flow, and receipts, but platform signing should use the tools provided by the platform owner.

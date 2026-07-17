@@ -540,6 +540,41 @@ exe_installer_script = "platforms/windows/package-exe.ps1"
 }
 
 #[test]
+fn windows_packaging_environment_exposes_validated_project_assets() {
+    let root = std::env::temp_dir().join(format!(
+        "fission-windows-package-assets-{}",
+        std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(root.join("assets/intelligence")).unwrap();
+
+    let environment = windows_packaging_environment(
+        &root,
+        &root.join("demo.exe"),
+        &root.join(".fission/native/windows-products.json"),
+    )
+    .unwrap()
+    .into_iter()
+    .collect::<std::collections::BTreeMap<_, _>>();
+
+    assert_eq!(
+        environment.get(&OsString::from("FISSION_WINDOWS_ASSETS_DIR")),
+        Some(&root.join("assets").as_os_str().to_os_string())
+    );
+
+    fs::remove_dir_all(root.join("assets")).unwrap();
+    fs::write(root.join("assets"), b"not a directory").unwrap();
+    let error = windows_packaging_environment(
+        &root,
+        &root.join("demo.exe"),
+        &root.join(".fission/native/windows-products.json"),
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("project assets path"));
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn linux_package_config_reads_run_installer_script() {
     let root = std::env::temp_dir().join(format!(
         "fission-linux-package-config-{}",

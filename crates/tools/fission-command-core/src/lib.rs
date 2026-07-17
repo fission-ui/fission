@@ -1064,6 +1064,44 @@ fn copy_dir_contents(source: &Path, dest: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Stages the project's `assets` directory as an application resource tree.
+///
+/// Desktop run and package commands use the same `assets` layout on every
+/// platform so applications can ship large resources without compiling them
+/// into the executable. A project without an `assets` directory is valid.
+pub fn stage_project_assets(
+    project_dir: &Path,
+    destination_root: &Path,
+) -> Result<Option<PathBuf>> {
+    let source = project_dir.join("assets");
+    if !source.exists() {
+        return Ok(None);
+    }
+    if !source.is_dir() {
+        bail!(
+            "project assets path {} must be a directory",
+            source.display()
+        );
+    }
+    let destination = destination_root.join("assets");
+    if destination.exists() {
+        fs::remove_dir_all(&destination).with_context(|| {
+            format!(
+                "failed to clear staged project assets {}",
+                destination.display()
+            )
+        })?;
+    }
+    copy_dir_contents(&source, &destination).with_context(|| {
+        format!(
+            "failed to stage project assets from {} to {}",
+            source.display(),
+            destination.display()
+        )
+    })?;
+    Ok(Some(destination))
+}
+
 fn apply_mobile_run_script_hardening(root: &Path, project: &FissionProject) -> Result<()> {
     if project.targets.contains(&Target::Ios) {
         apply_ios_run_script_hardening(root)?;
@@ -5664,6 +5702,48 @@ mod tests {
         fs::remove_dir_all(&dir).ok();
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn project_assets_stage_nested_resources_and_replace_stale_output() {
+        let dir = unique_dir("stage-project-assets");
+        let project = dir.join("project");
+        let destination = dir.join("destination");
+        fs::create_dir_all(project.join("assets/intelligence")).unwrap();
+        fs::create_dir_all(destination.join("assets/stale")).unwrap();
+        fs::write(
+            project.join("assets/intelligence/base.pdb.zst"),
+            b"signed base",
+        )
+        .unwrap();
+        fs::write(destination.join("assets/stale/old"), b"stale").unwrap();
+
+        let staged = stage_project_assets(&project, &destination)
+            .unwrap()
+            .expect("assets directory should be staged");
+
+        assert_eq!(staged, destination.join("assets"));
+        assert_eq!(
+            fs::read(staged.join("intelligence/base.pdb.zst")).unwrap(),
+            b"signed base"
+        );
+        assert!(!staged.join("stale/old").exists());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn project_assets_are_optional_but_must_be_a_directory_when_present() {
+        let dir = unique_dir("stage-project-assets-validation");
+        let project = dir.join("project");
+        let destination = dir.join("destination");
+        fs::create_dir_all(&project).unwrap();
+
+        assert_eq!(stage_project_assets(&project, &destination).unwrap(), None);
+
+        fs::write(project.join("assets"), b"not a directory").unwrap();
+        let error = stage_project_assets(&project, &destination).unwrap_err();
+        assert!(error.to_string().contains("project assets path"));
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
