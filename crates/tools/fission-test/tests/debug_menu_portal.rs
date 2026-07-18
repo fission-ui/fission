@@ -177,6 +177,7 @@ fn menu_portal_position_near_anchor() -> Result<()> {
         &mut MockRenderer,
         &runtime.runtime_state.video,
         &runtime.runtime_state.web,
+        &runtime.runtime_state.map,
         &env,
     )?;
 
@@ -248,6 +249,7 @@ fn menu_portal_position_near_anchor() -> Result<()> {
             &mut MockRenderer,
             &runtime.runtime_state.video,
             &runtime.runtime_state.web,
+            &runtime.runtime_state.map,
             &env,
         )?;
 

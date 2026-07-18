@@ -839,6 +839,7 @@ fn inbox_emits_root_texture_compositor_plans() -> Result<()> {
         &runtime_state.motion,
         &runtime_state.video,
         &runtime_state.web,
+        &runtime_state.map,
     )?;
 
     let mut summary = Vec::new();
@@ -874,6 +875,7 @@ fn default_viewport_retained_scene_contains_inbox_rows() -> Result<()> {
         &runtime_state.motion,
         &runtime_state.video,
         &runtime_state.web,
+        &runtime_state.map,
     )?;
 
     let scene = pipeline.retained_scene().expect("retained scene");

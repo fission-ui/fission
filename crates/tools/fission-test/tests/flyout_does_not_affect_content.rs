@@ -151,6 +151,7 @@ fn flyout_does_not_shift_content() -> Result<()> {
         &mut MockRenderer,
         &runtime.runtime_state.video,
         &runtime.runtime_state.web,
+        &runtime.runtime_state.map,
         &env,
     )?;
     let snap1 = pipe.last_snapshot.clone().expect("snapshot1");
@@ -222,6 +223,7 @@ fn flyout_does_not_shift_content() -> Result<()> {
             &mut MockRenderer,
             &runtime.runtime_state.video,
             &runtime.runtime_state.web,
+            &runtime.runtime_state.map,
             &env,
         )?;
         let snap2 = pipe.last_snapshot.clone().expect("snapshot2");

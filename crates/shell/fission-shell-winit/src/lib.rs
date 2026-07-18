@@ -91,6 +91,8 @@ mod software_renderer;
 use software_renderer::SoftwareRenderer;
 mod video_backend;
 use video_backend::create_video_backend;
+mod map_backend;
+use map_backend::create_map_backend;
 mod web_backend;
 use web_backend::PlatformWebBackend;
 
@@ -4466,6 +4468,10 @@ where
         let web_backend = PlatformWebBackend::new(Some(&platform_window));
         #[cfg(target_os = "android")]
         let web_backend = PlatformWebBackend::new(platform_window.as_deref());
+        #[cfg(not(target_os = "android"))]
+        let map_backend = create_map_backend(Some(&platform_window));
+        #[cfg(target_os = "android")]
+        let map_backend = create_map_backend(platform_window.as_deref());
         let mut players: HashMap<WidgetId, ActivePlayer> = HashMap::new();
 
         let mut last_cursor_position: Option<PhysicalPosition<f64>> = None;
@@ -5705,6 +5711,8 @@ where
                     video_backend.present_surfaces(&surfaces);
                     let web_surfaces = pipeline.web_surfaces.clone();
                     web_backend.present_surfaces(&web_surfaces);
+                    let map_surfaces = pipeline.map_surfaces.clone();
+                    map_backend.present_surfaces(&map_surfaces);
 
                     // Video Logic - Process Player Events and Sync State
                     for (widget_id, active_player) in players.iter_mut() {
@@ -6617,6 +6625,7 @@ where
                                     motion_declarations,
                                     videos,
                                     web_views,
+                                    maps,
                                     portals,
                                 ) = {
                                     let state = runtime.get_global_state::<S>().unwrap();
@@ -6634,6 +6643,7 @@ where
                                     let motion_declarations = ctx.take_motion_declarations();
                                     let videos = ctx.take_video_registrations();
                                     let web_views = ctx.take_web_registrations();
+                                    let maps = ctx.take_map_registrations();
                                     let portals_with_ids = ctx.take_portals();
 
                                     let portals = portals_with_ids
@@ -6655,6 +6665,7 @@ where
                                         motion_declarations,
                                         videos,
                                         web_views,
+                                        maps,
                                         portals,
                                     )
                                 };
@@ -6697,6 +6708,7 @@ where
                                 );
                                 runtime.sync_video_nodes(&videos);
                                 runtime.sync_web_nodes(&web_views);
+                                runtime.sync_map_nodes(&maps);
 
                                 let final_root: fission_core::Widget = fission_core::ui::Overlay {
                                     id: None,
@@ -6770,6 +6782,7 @@ where
                                 &runtime.runtime_state.motion,
                                 &runtime.runtime_state.video,
                                 &runtime.runtime_state.web,
+                                &runtime.runtime_state.map,
                             ) {
                                 Ok(_stats) => {
                                     #[cfg(target_arch = "wasm32")]

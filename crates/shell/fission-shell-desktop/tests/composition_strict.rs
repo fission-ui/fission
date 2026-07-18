@@ -195,6 +195,7 @@ where
             &mut renderer,
             &runtime.runtime_state.video,
             &runtime.runtime_state.web,
+            &runtime.runtime_state.map,
             &env,
         )
         .expect("render ok");

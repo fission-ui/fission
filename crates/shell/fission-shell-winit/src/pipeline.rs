@@ -1,7 +1,7 @@
 use crate::web_backend::WebSurfaceFrame;
 use anyhow::Result;
 use fission_core::diff::diff_ir;
-use fission_core::env::{Env, VideoStateMap, WebStateMap};
+use fission_core::env::{Env, MapStateMap, VideoStateMap, WebStateMap};
 use fission_core::internal::build_layout_tree;
 use fission_core::internal::downcast_render_object;
 use fission_core::scrollbar::scrollbar_geometry_for_node;
@@ -15,7 +15,7 @@ use fission_render::{
     embed_surface_id, BoxShadow, Color as RenderColor, DisplayList, DisplayOp, Fill, LayerClip,
     RenderLayer, RenderNode, RenderScene, Renderer, Stroke,
 };
-use fission_shell::VideoSurfaceFrame;
+use fission_shell::{MapSurfaceFrame, VideoSurfaceFrame};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
@@ -173,6 +173,7 @@ pub struct Pipeline {
     boundary_cache: HashMap<WidgetId, BoundaryCacheEntry>,
     pub last_scroll_offsets: HashMap<WidgetId, u32>,
     pub video_surfaces: Vec<VideoSurfaceFrame>,
+    pub map_surfaces: Vec<MapSurfaceFrame>,
     pub web_surfaces: Vec<WebSurfaceFrame>,
     pub scene_3d_surfaces: Vec<(WidgetId, LayoutRect, Vec<u8>)>,
     pub last_viewport: Option<LayoutRect>,
@@ -198,6 +199,7 @@ pub struct PipelineStats {
     pub paint_misses: usize,
     pub paint_hits: usize,
     pub video_surfaces: usize,
+    pub map_surfaces: usize,
 }
 
 impl Pipeline {
@@ -209,6 +211,7 @@ impl Pipeline {
             boundary_cache: HashMap::new(),
             last_scroll_offsets: HashMap::new(),
             video_surfaces: Vec::new(),
+            map_surfaces: Vec::new(),
             web_surfaces: Vec::new(),
             scene_3d_surfaces: Vec::new(),
             last_viewport: None,
@@ -235,6 +238,10 @@ impl Pipeline {
 
     pub fn take_web_surfaces(&mut self) -> Vec<WebSurfaceFrame> {
         std::mem::take(&mut self.web_surfaces)
+    }
+
+    pub fn take_map_surfaces(&mut self) -> Vec<MapSurfaceFrame> {
+        std::mem::take(&mut self.map_surfaces)
     }
 
     pub fn invalidate_layout_all(&mut self) {
@@ -387,6 +394,7 @@ impl Pipeline {
         animation_map: &MotionStateMap,
         video_map: &VideoStateMap,
         web_map: &WebStateMap,
+        map_map: &MapStateMap,
     ) -> Result<PipelineStats> {
         let render_viewport = LayoutRect::new(
             0.0,
@@ -408,6 +416,7 @@ impl Pipeline {
             paint_misses: 0,
             paint_hits: 0,
             video_surfaces: 0,
+            map_surfaces: 0,
         };
 
         let ir = self.prev_ir.as_ref().expect("ir missing before render");
@@ -417,6 +426,7 @@ impl Pipeline {
             .expect("snapshot missing before render");
 
         self.video_surfaces.clear();
+        self.map_surfaces.clear();
         self.web_surfaces.clear();
         self.scene_3d_surfaces.clear();
         if let Some(root) = ir.root {
@@ -426,14 +436,17 @@ impl Pipeline {
                 snapshot,
                 video_map,
                 web_map,
+                map_map,
                 scroll_map,
                 LayoutPoint::ZERO,
                 &mut self.video_surfaces,
                 &mut self.web_surfaces,
+                &mut self.map_surfaces,
                 &mut self.scene_3d_surfaces,
             );
         }
         stats.video_surfaces = self.video_surfaces.len();
+        stats.map_surfaces = self.map_surfaces.len();
 
         if self.retained_scene.is_none() {
             if render_trace_enabled() {
@@ -523,6 +536,7 @@ impl Pipeline {
         animation_map: &MotionStateMap,
         video_map: &VideoStateMap,
         web_map: &WebStateMap,
+        map_map: &MapStateMap,
     ) -> Result<PipelineStats> {
         let stats = self.prepare_current(
             render_viewport_size,
@@ -532,6 +546,7 @@ impl Pipeline {
             animation_map,
             video_map,
             web_map,
+            map_map,
         )?;
         let scene = self
             .retained_scene
@@ -550,6 +565,7 @@ impl Pipeline {
         renderer: &mut dyn Renderer,
         video_map: &VideoStateMap,
         web_map: &WebStateMap,
+        map_map: &MapStateMap,
         env: &Env,
     ) -> Result<PipelineStats> {
         self.replace_ir(next_ir, env);
@@ -564,6 +580,7 @@ impl Pipeline {
             &MotionStateMap::default(),
             video_map,
             web_map,
+            map_map,
         )?;
         stats.layout_updates = layout_updates;
         Ok(stats)
@@ -1828,16 +1845,29 @@ fn push_web_surface(
     }
 }
 
+fn push_map_surface(
+    map_surfaces: &mut Vec<MapSurfaceFrame>,
+    widget_id: WidgetId,
+    rect: LayoutRect,
+    map_map: &MapStateMap,
+) {
+    if map_map.states.contains_key(&widget_id) {
+        map_surfaces.push(MapSurfaceFrame { widget_id, rect });
+    }
+}
+
 fn collect_video_surfaces(
     node_id: WidgetId,
     ir: &CoreIR,
     snapshot: &LayoutSnapshot,
     video_map: &VideoStateMap,
     web_map: &WebStateMap,
+    map_map: &MapStateMap,
     scroll_map: &ScrollStateMap,
     accumulated_offset: LayoutPoint,
     video_surfaces: &mut Vec<VideoSurfaceFrame>,
     web_surfaces: &mut Vec<WebSurfaceFrame>,
+    map_surfaces: &mut Vec<MapSurfaceFrame>,
     scene_3d_surfaces: &mut Vec<(WidgetId, LayoutRect, Vec<u8>)>,
 ) {
     let mut visited = HashSet::new();
@@ -1847,10 +1877,12 @@ fn collect_video_surfaces(
         snapshot,
         video_map,
         web_map,
+        map_map,
         scroll_map,
         accumulated_offset,
         video_surfaces,
         web_surfaces,
+        map_surfaces,
         scene_3d_surfaces,
         &mut visited,
     );
@@ -1862,10 +1894,12 @@ fn collect_video_surfaces_with_visited(
     snapshot: &LayoutSnapshot,
     video_map: &VideoStateMap,
     web_map: &WebStateMap,
+    map_map: &MapStateMap,
     scroll_map: &ScrollStateMap,
     accumulated_offset: LayoutPoint,
     video_surfaces: &mut Vec<VideoSurfaceFrame>,
     web_surfaces: &mut Vec<WebSurfaceFrame>,
+    map_surfaces: &mut Vec<MapSurfaceFrame>,
     scene_3d_surfaces: &mut Vec<(WidgetId, LayoutRect, Vec<u8>)>,
     visited: &mut HashSet<WidgetId>,
 ) {
@@ -1903,6 +1937,14 @@ fn collect_video_surfaces_with_visited(
             let translated_rect = translate_rect(geom.rect, accumulated_offset);
             push_web_surface(web_surfaces, *widget_id, translated_rect, web_map);
         } else if let Op::Layout(LayoutOp::Embed {
+            kind: EmbedKind::Map,
+            widget_id,
+            ..
+        }) = &node.op
+        {
+            let translated_rect = translate_rect(geom.rect, accumulated_offset);
+            push_map_surface(map_surfaces, *widget_id, translated_rect, map_map);
+        } else if let Op::Layout(LayoutOp::Embed {
             kind: EmbedKind::Custom(payload),
             widget_id,
             ..
@@ -1919,10 +1961,12 @@ fn collect_video_surfaces_with_visited(
                 snapshot,
                 video_map,
                 web_map,
+                map_map,
                 scroll_map,
                 child_offset,
                 video_surfaces,
                 web_surfaces,
+                map_surfaces,
                 scene_3d_surfaces,
                 visited,
             );
@@ -2695,6 +2739,7 @@ mod tests {
                 &Default::default(),
                 &Default::default(),
                 &Default::default(),
+                &Default::default(),
             )
             .unwrap();
 
@@ -2927,6 +2972,7 @@ mod tests {
                 &Default::default(),
                 &Default::default(),
                 &Default::default(),
+                &Default::default(),
             )
             .unwrap();
 
@@ -3082,6 +3128,7 @@ mod tests {
                 &Default::default(),
                 &Default::default(),
                 &Default::default(),
+                &Default::default(),
             )
             .unwrap();
 
@@ -3171,6 +3218,7 @@ mod tests {
                 },
                 true,
                 &scroll,
+                &Default::default(),
                 &Default::default(),
                 &Default::default(),
                 &Default::default(),
@@ -3264,6 +3312,7 @@ mod tests {
                 &Default::default(),
                 &Default::default(),
                 &Default::default(),
+                &Default::default(),
             )
             .unwrap();
 
@@ -3281,6 +3330,7 @@ mod tests {
                 },
                 false,
                 &scroll1,
+                &Default::default(),
                 &Default::default(),
                 &Default::default(),
                 &Default::default(),
@@ -3429,6 +3479,7 @@ mod tests {
                 &Default::default(),
                 &Default::default(),
                 &Default::default(),
+                &Default::default(),
             )
             .unwrap();
         let initial_thumb_y = scrollbar_thumb_y(pipeline.retained_scene().unwrap(), scroll)
@@ -3442,6 +3493,7 @@ mod tests {
                 LayoutSize::new(320.0, 240.0),
                 false,
                 &scroll1,
+                &Default::default(),
                 &Default::default(),
                 &Default::default(),
                 &Default::default(),
@@ -3575,6 +3627,7 @@ mod tests {
                 },
                 false,
                 &scroll_map,
+                &Default::default(),
                 &Default::default(),
                 &Default::default(),
                 &Default::default(),
