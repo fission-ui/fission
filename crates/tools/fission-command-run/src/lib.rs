@@ -5,9 +5,10 @@ use fission_command_core::{
     build_linux_native_modules, build_macos_native_modules, build_windows_native_modules,
     embed_and_sign_macos_native_modules, ios_executable_name, normalized_extension,
     read_macos_run_config, read_project_config, resolve_app_icon, sign_macos_app_if_configured,
-    stage_linux_native_products, stage_windows_runtime_products, sync_platform_config,
-    test_linux_native_modules, test_macos_native_modules, test_windows_native_modules,
-    FissionProject, MacosNativeBundleMode, MacosPackageConfig, PlatformCapability, Target,
+    stage_linux_native_products, stage_project_assets, stage_windows_runtime_products,
+    sync_platform_config, test_linux_native_modules, test_macos_native_modules,
+    test_windows_native_modules, FissionProject, MacosNativeBundleMode, MacosPackageConfig,
+    PlatformCapability, Target,
 };
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -1305,6 +1306,7 @@ fn package_macos_run_app(
             )
         })?;
     }
+    stage_project_assets(&project_dir, &resources_dir)?;
 
     fs::write(
         contents.join("Info.plist"),
@@ -1385,6 +1387,7 @@ fn package_linux_run_app(
     )?;
     let native_products = build_linux_native_modules(&project_dir, project, release)?;
     stage_linux_native_products(&app_root, &native_products)?;
+    stage_project_assets(&project_dir, &app_root)?;
     Ok(DesktopRunApp { executable })
 }
 
@@ -1441,6 +1444,7 @@ fn package_windows_run_app(
     )?;
     let native_products = build_windows_native_modules(&project_dir, project, release)?;
     stage_windows_runtime_products(&app_root, &native_products)?;
+    stage_project_assets(&project_dir, &app_root)?;
     Ok(DesktopRunApp { executable })
 }
 

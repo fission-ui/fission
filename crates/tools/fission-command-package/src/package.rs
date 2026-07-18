@@ -5,10 +5,10 @@ use fission_command_core::{
     build_linux_native_modules, build_windows_native_modules, cargo_package_name,
     embed_and_sign_macos_native_modules, normalized_extension, read_macos_package_config,
     read_project_config, resolve_app_icon, sign_macos_app_if_configured,
-    stage_linux_native_products, stage_windows_runtime_products, sync_platform_config,
-    BuiltLinuxNativeProduct, BuiltWindowsNativeProduct, FissionProject, MacosNativeBundleMode,
-    MacosPackageConfig, NativeLinuxProductKind, NativeWindowsProductKind, PlatformCapability,
-    Target,
+    stage_linux_native_products, stage_project_assets, stage_windows_runtime_products,
+    sync_platform_config, BuiltLinuxNativeProduct, BuiltWindowsNativeProduct, FissionProject,
+    MacosNativeBundleMode, MacosPackageConfig, NativeLinuxProductKind, NativeWindowsProductKind,
+    PlatformCapability, Target,
 };
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -265,7 +265,7 @@ fn package_linux_run(options: &PackageOptions) -> Result<ArtifactManifest> {
     stage_linux_native_products(&payload_dir, &native_products)?;
     let native_products_manifest =
         write_linux_native_products_manifest(&payload_dir, &native_products, profile, "run")?;
-    copy_optional_assets(&options.project_dir, &payload_dir)?;
+    stage_project_assets(&options.project_dir, &payload_dir)?;
 
     let package_name = sanitize_file_stem(&project.app.name);
     let run_path = staging_dir.join(format!(
@@ -336,7 +336,7 @@ fn package_terminal_run(options: &PackageOptions) -> Result<ArtifactManifest> {
             payload_dir.display()
         )
     })?;
-    copy_optional_assets(&options.project_dir, &payload_dir)?;
+    stage_project_assets(&options.project_dir, &payload_dir)?;
 
     let package_name = sanitize_file_stem(&project.app.name);
     let run_path = staging_dir.join(format!(
@@ -438,7 +438,7 @@ fn package_windows_exe(options: &PackageOptions) -> Result<ArtifactManifest> {
             profile,
             "exe",
         )?;
-        let environment = windows_packaging_environment(&binary, &manifest);
+        let environment = windows_packaging_environment(&options.project_dir, &binary, &manifest)?;
         let output_path = run_packaging_script_with_env(
             &options.project_dir,
             &script,
@@ -471,7 +471,7 @@ fn package_windows_exe(options: &PackageOptions) -> Result<ArtifactManifest> {
             format!("failed to copy {} to {}", binary.display(), dest.display())
         })?;
         stage_windows_runtime_products(&staging_dir, &native_products)?;
-        copy_optional_assets(&options.project_dir, &staging_dir)?;
+        stage_project_assets(&options.project_dir, &staging_dir)?;
     }
     finish_artifact_manifest(&project, options, &staging_dir, profile)
 }
@@ -541,7 +541,7 @@ fn package_with_project_script(
             profile,
             options.format.as_str(),
         )?;
-        environment = windows_packaging_environment(&binary, &manifest);
+        environment = windows_packaging_environment(&options.project_dir, &binary, &manifest)?;
     }
     let output_path = run_packaging_script_with_env(
         &options.project_dir,
@@ -1572,6 +1572,7 @@ fn create_macos_app_bundle(
             )
         })?;
     }
+    stage_project_assets(&options.project_dir, &resources)?;
     let (version, build) = resolved_macos_bundle_version(&options.project_dir)?;
     let plist = render_info_plist(project, &app_name, &executable, macos, &version, &build);
     fs::write(contents.join("Info.plist"), plist)?;
@@ -1911,14 +1912,6 @@ fn set_executable(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn copy_optional_assets(project_dir: &Path, dest: &Path) -> Result<()> {
-    let assets = project_dir.join("assets");
-    if assets.exists() {
-        copy_dir_contents(&assets, &dest.join("assets"))?;
-    }
-    Ok(())
-}
-
 #[derive(Serialize)]
 struct LinuxNativeProductsManifest<'a> {
     schema_version: u32,
@@ -2071,8 +2064,12 @@ fn write_windows_native_products_manifest(
     Ok(path)
 }
 
-fn windows_packaging_environment(binary: &Path, manifest: &Path) -> Vec<(OsString, OsString)> {
-    vec![
+fn windows_packaging_environment(
+    project_dir: &Path,
+    binary: &Path,
+    manifest: &Path,
+) -> Result<Vec<(OsString, OsString)>> {
+    let mut environment = vec![
         (
             OsString::from("WINDOWS_BINARY"),
             binary.as_os_str().to_os_string(),
@@ -2081,7 +2078,21 @@ fn windows_packaging_environment(binary: &Path, manifest: &Path) -> Vec<(OsStrin
             OsString::from("FISSION_WINDOWS_NATIVE_PRODUCTS_MANIFEST"),
             manifest.as_os_str().to_os_string(),
         ),
-    ]
+    ];
+    let assets = project_dir.join("assets");
+    if assets.exists() && !assets.is_dir() {
+        bail!(
+            "project assets path {} must be a directory",
+            assets.display()
+        );
+    }
+    if assets.exists() {
+        environment.push((
+            OsString::from("FISSION_WINDOWS_ASSETS_DIR"),
+            assets.into_os_string(),
+        ));
+    }
+    Ok(environment)
 }
 
 fn linux_packaging_environment(
