@@ -82,11 +82,11 @@ set -euo pipefail
 payload="$FISSION_LINUX_PAYLOAD_DIR"
 out="target/fission/release/linux/run/acme-notes.run"
 
-# Build your installer from "$payload" and write "$out".
-# The installer should own service/helper policy; Fission only stages inputs.
-
 printf '%s\n' "$out"
 ```
+
+Build your installer from `$payload` and write `$out`. The installer should own
+service/helper policy; Fission only stages inputs.
 
 Keep package scripts deterministic. They should not rebuild the app, discover random files outside the package root, or upload artifacts. Packaging creates artifacts; distribution uploads them.
 
