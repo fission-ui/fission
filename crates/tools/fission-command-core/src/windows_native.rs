@@ -1,4 +1,7 @@
-use crate::FissionProject;
+use crate::{
+    FissionProject,
+    native_cargo::{cargo_target_directory, expand_cargo_target_directory},
+};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -91,15 +94,15 @@ pub fn build_windows_native_modules(
             continue;
         }
         let platform = optional_value(module.windows.platform.as_deref()).unwrap_or("x64");
-        match windows_build_system(&module.name, &module.windows)? {
-            WindowsBuildSystem::Cargo => run_cargo_module_command(
+        let target_directory = match windows_build_system(&module.name, &module.windows)? {
+            WindowsBuildSystem::Cargo => Some(run_cargo_module_command(
                 &project_dir,
                 module.path.as_deref(),
                 &module.name,
                 &module.windows,
                 "build",
                 release,
-            )?,
+            )?),
             WindowsBuildSystem::MsBuild => {
                 let native_tool_paths =
                     restore_windows_native_packages(&project_dir, &module.name, &module.windows)?;
@@ -122,8 +125,9 @@ pub fn build_windows_native_modules(
                     &mut command,
                     &format!("Windows native module `{}`", module.name),
                 )?;
+                None
             }
-        }
+        };
 
         for product in &module.windows.products {
             products.push(resolve_product(
@@ -132,6 +136,7 @@ pub fn build_windows_native_modules(
                 product,
                 configuration,
                 platform,
+                target_directory.as_deref(),
             )?);
         }
     }
@@ -267,7 +272,7 @@ pub fn test_windows_native_modules(project_dir: &Path, project: &FissionProject)
         }
         let platform = optional_value(module.windows.platform.as_deref()).unwrap_or("x64");
         for test_binary in &module.windows.test_binaries {
-            let test_binary = expand_path(test_binary, "Debug", platform);
+            let test_binary = expand_path(test_binary, "Debug", platform, None, &module.name)?;
             let test_binary = resolve_project_path(&project_dir, &test_binary);
             if !test_binary.is_file() {
                 bail!(
@@ -341,7 +346,7 @@ fn run_cargo_module_command(
     config: &NativeWindowsModuleConfig,
     cargo_command: &str,
     release: bool,
-) -> Result<()> {
+) -> Result<PathBuf> {
     let package = optional_value(config.cargo_package.as_deref()).with_context(|| {
         format!("Windows native module `{module_name}` requires `cargo_package`")
     })?;
@@ -377,7 +382,8 @@ fn run_cargo_module_command(
     run_status(
         &mut command,
         &format!("Windows native module `{module_name}` Cargo {cargo_command}"),
-    )
+    )?;
+    cargo_target_directory(project_dir, &manifest, module_name, "Windows")
 }
 
 fn resolve_cargo_manifest_path(
@@ -447,10 +453,18 @@ fn resolve_product(
     product: &NativeWindowsProductConfig,
     configuration: &str,
     platform: &str,
+    cargo_target_directory: Option<&Path>,
 ) -> Result<BuiltWindowsNativeProduct> {
     let name = required_value(&product.name, "Windows native product name")?;
     let path = required_value(&product.path, "Windows native product path")?;
-    let source = resolve_project_path(project_dir, &expand_path(path, configuration, platform));
+    let expanded = expand_path(
+        path,
+        configuration,
+        platform,
+        cargo_target_directory,
+        module_name,
+    )?;
+    let source = resolve_project_path(project_dir, &expanded);
     if !source.exists() {
         bail!(
             "Windows native product `{name}` from module `{module_name}` does not exist: {}",
@@ -497,11 +511,18 @@ fn validate_relative_destination(destination: &Path) -> Result<()> {
     Ok(())
 }
 
-fn expand_path(value: &str, configuration: &str, platform: &str) -> String {
-    value
+fn expand_path(
+    value: &str,
+    configuration: &str,
+    platform: &str,
+    cargo_target_directory: Option<&Path>,
+    module_name: &str,
+) -> Result<String> {
+    let value = value
         .replace("{configuration}", configuration)
         .replace("{profile}", &configuration.to_ascii_lowercase())
-        .replace("{platform}", platform)
+        .replace("{platform}", platform);
+    expand_cargo_target_directory(&value, cargo_target_directory, module_name, "Windows")
 }
 
 fn copy_product(source: &Path, destination: &Path) -> Result<()> {
@@ -712,11 +733,14 @@ destination = "tools/demo-helper.exe"
     fn expands_configuration_and_platform_tokens() {
         assert_eq!(
             expand_path(
-                "out/{platform}/{configuration}/{profile}",
+                "{cargo_target_dir}/{platform}/{configuration}/{profile}",
                 "Release",
-                "ARM64"
-            ),
-            "out/ARM64/Release/release"
+                "ARM64",
+                Some(Path::new("C:/shared/cargo")),
+                "demo-native",
+            )
+            .unwrap(),
+            "C:/shared/cargo/ARM64/Release/release"
         );
     }
 
