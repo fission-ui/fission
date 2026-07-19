@@ -1,0 +1,453 @@
+---
+title: LiveTest command API
+description: Reference for the Fission test-control /cmd protocol, selector queries, semantic tree response, screenshots, input simulation, and wait commands.
+---
+
+# LiveTest command API
+
+Fission live tests drive a running app through an HTTP test-control server. The server is enabled by launching a supported shell with `FISSION_TEST_CONTROL_PORT=<port>`.
+
+```bash
+FISSION_TEST_CONTROL_PORT=9876 cargo run --example counter
+```
+
+The protocol has two endpoints:
+
+| Endpoint | Method | Meaning |
+| --- | --- | --- |
+| `/health` | `GET` | Readiness probe for the test-control server. |
+| `/cmd` | `POST` | Executes one JSON command and returns one JSON response. |
+
+Every `/cmd` payload is tagged by the exact `cmd` variant name:
+
+```json
+{"cmd":"GetTree"}
+```
+
+`LiveTestClient` in `fission-test-driver` wraps this protocol for Rust tests. Direct `/cmd` calls are still useful for manual QA, screenshot capture, CI diagnostics, and non-Rust clients.
+
+## Selector queries
+
+Selector-driven commands receive a `query` object:
+
+```json
+{
+  "selector": {
+    "kind": "semantic_identifier",
+    "identifier": "settings.save"
+  }
+}
+```
+
+`SelectorQuery` fields:
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `selector` | selector object | required | Primary selector. |
+| `scope` | nested selector query | omitted | Restrict matches to descendants of the scoped node. |
+| `index` | number | omitted | Select the Nth candidate after filtering. Useful for intentional duplicate labels. |
+| `include_hidden` | boolean | `false` | Include hidden nodes during resolution. Most user-level tests should leave this false. |
+
+Selector kinds:
+
+| Kind | Fields | Matches |
+| --- | --- | --- |
+| `semantic_identifier` | `identifier` | `Semantics::identifier`, exposed as `SemanticNode.identifier`. |
+| `widget_id` | `widget_id` | Stable widget id. Accepts an explicit widget id key or raw id string. |
+| `test_id` | `test_id` | Test identifier. Currently aliases semantic identifier. |
+| `accessibility_identifier` | `identifier` | Accessibility identifier. Currently aliases semantic identifier. |
+| `role_label` | `role`, `label` | Node with both matching role and label. |
+| `label` | `label` | Node with matching label. |
+
+Scoped query example:
+
+```json
+{
+  "selector": { "kind": "label", "label": "Continue" },
+  "scope": {
+    "selector": {
+      "kind": "semantic_identifier",
+      "identifier": "checkout.payment_dialog"
+    }
+  }
+}
+```
+
+## Responses
+
+All responses are tagged by `status`.
+
+| Status | Fields | Meaning |
+| --- | --- | --- |
+| `Ok` | none | Command completed. |
+| `Text` | `items` | Visible text records returned by `GetText`. |
+| `Tree` | `nodes` | Semantic tree returned by `GetTree`. |
+| `Screenshot` | `png_base64`, `width`, `height` | PNG screenshot payload. |
+| `SelectorResolved` | `node` | Selector resolved to one node. |
+| `SelectorError` | `failure` | Selector failed with structured diagnostic data. |
+| `Error` | `message` | Non-selector command failure. |
+
+`SelectorError.failure.kind` is one of `NoMatch`, `Ambiguous`, `FoundButNotVisible`, `Disabled`, `ReadOnly`, `UnsupportedAction`, `Timeout`, or `StaleFrame`. The failure also includes the selector, considered candidates, rejection reasons, and a message.
+
+## Semantic nodes returned by GetTree
+
+`GetTree` returns `SemanticNode` records. Bounds are logical test-space pixels.
+
+| Field | Meaning |
+| --- | --- |
+| `identifier` | First-class semantic identifier. Do not overload `value` for this. |
+| `widget_id` | Widget id string. |
+| `stable_node_id` | Stable test node id for parent/child relationships. |
+| `parent` | Parent `stable_node_id`, if any. |
+| `children` | Child `stable_node_id` values. |
+| `role` | Semantic/accessibility role, such as `Button`, `TextInput`, `Checkbox`, or `Radio`. |
+| `label` | User-facing or accessibility label. |
+| `value` | Current value if the node exposes one. |
+| `value_present` | Whether a value exists, including masked or empty values. |
+| `focusable` | Whether the node can receive focus. |
+| `disabled` | Whether activation should be blocked. |
+| `read_only` | Whether text/value editing should be blocked. |
+| `checked` | Toggle state for checkbox, switch, radio, or similar controls. |
+| `actions` | Supported semantic actions. |
+| `text_selection` | Text selection byte offsets when exposed. |
+| `masked` | Whether the value is masked, for example password input. |
+| `scrollable_x`, `scrollable_y` | Whether the node scrolls in that axis. |
+| `logical_bounds` | Full logical bounds before clipping. |
+| `visible_bounds` | Bounds after viewport/clipping, or `null` when hidden. |
+| `visibility` | `FullyVisible`, `PartiallyVisible`, or `Hidden`. |
+| `x`, `y`, `width`, `height` | Compatibility bounds matching `logical_bounds`. |
+
+## Command reference
+
+### Tap
+
+```json
+{"cmd":"Tap","x":120,"y":48}
+```
+
+Taps logical coordinates with the primary pointer button. Use selector commands for product tests; use `Tap` for low-level hit-testing bugs.
+
+### Drag
+
+```json
+{"cmd":"Drag","start_x":40,"start_y":40,"end_x":240,"end_y":120,"steps":12}
+```
+
+Sends mouse move, primary down, intermediate moves, and primary up.
+
+### TapText
+
+```json
+{"cmd":"TapText","text":"Add task"}
+```
+
+Finds visible text containing `text` and taps its center. Kept for simple tests and backward compatibility. Prefer selectors when possible.
+
+### ResolveSelector
+
+```json
+{"cmd":"ResolveSelector","query":{"selector":{"kind":"semantic_identifier","identifier":"todo.add"}}}
+```
+
+Resolves a selector and returns `SelectorResolved` with the matching semantic node, or `SelectorError`.
+
+### TapSelector
+
+```json
+{"cmd":"TapSelector","query":{"selector":{"kind":"semantic_identifier","identifier":"todo.add"}}}
+```
+
+Auto-scrolls the target into view, then sends a primary pointer click at the visible target. Fails clearly if the node is missing, ambiguous, disabled, or still not visible.
+
+### ActivateSelector
+
+```json
+{"cmd":"ActivateSelector","query":{"selector":{"kind":"role_label","role":"Button","label":"Save"}}}
+```
+
+Invokes the node's semantic activation path. Use when you want to express "activate this control" rather than pointer-click mechanics.
+
+### FocusSelector
+
+```json
+{"cmd":"FocusSelector","query":{"selector":{"kind":"semantic_identifier","identifier":"login.email"}}}
+```
+
+Auto-scrolls and focuses a focusable node.
+
+### HoverSelector
+
+```json
+{"cmd":"HoverSelector","query":{"selector":{"kind":"semantic_identifier","identifier":"toolbar.help"}}}
+```
+
+Moves the pointer to the selector target without clicking. Useful for tooltip, hover, and drag-hover states.
+
+### RightClickSelector
+
+```json
+{"cmd":"RightClickSelector","query":{"selector":{"kind":"semantic_identifier","identifier":"editor.selection"}}}
+```
+
+Auto-scrolls and right-clicks the selector target. Use for context menus and secondary-click behavior.
+
+### ScrollIntoView
+
+```json
+{"cmd":"ScrollIntoView","query":{"selector":{"kind":"semantic_identifier","identifier":"page.3"}}}
+```
+
+Scrolls the nearest scroll container so the target is visible, then returns the resolved node. This reuses the runtime scroll-into-view behavior rather than duplicating scrolling in tests.
+
+### FillText
+
+```json
+{"cmd":"FillText","query":{"selector":{"kind":"semantic_identifier","identifier":"login.password"}},"text":"secret"}
+```
+
+Auto-scrolls, focuses, replaces the editable value, and pumps the result. For masked fields, assert `value_present` or `masked` through `GetTree` instead of printing the secret.
+
+### ClearText
+
+```json
+{"cmd":"ClearText","query":{"selector":{"kind":"semantic_identifier","identifier":"search.query"}}}
+```
+
+Auto-scrolls, focuses, and clears an editable value.
+
+### Toggle
+
+```json
+{"cmd":"Toggle","query":{"selector":{"kind":"semantic_identifier","identifier":"settings.sync"}}}
+```
+
+Toggles a checkbox, switch, radio-like control where supported, or another control exposing a toggle action. Disabled nodes fail with `SelectorError`.
+
+### SelectOption
+
+```json
+{"cmd":"SelectOption","query":{"selector":{"kind":"semantic_identifier","identifier":"plan.pro"}}}
+```
+
+Activates a selectable option. This is useful for options rendered in menus, popovers, portals, or dropdown lists.
+
+### WaitForSelector
+
+```json
+{"cmd":"WaitForSelector","query":{"selector":{"kind":"semantic_identifier","identifier":"toast.saved"}},"timeout_ms":5000}
+```
+
+Polls until a selector resolves.
+
+### WaitForVisible
+
+```json
+{"cmd":"WaitForVisible","query":{"selector":{"kind":"semantic_identifier","identifier":"toast.saved"}},"timeout_ms":5000}
+```
+
+Polls until a selector resolves to a visible node.
+
+### WaitForEnabled
+
+```json
+{"cmd":"WaitForEnabled","query":{"selector":{"kind":"semantic_identifier","identifier":"submit"}},"timeout_ms":5000}
+```
+
+Polls until a selector resolves to a node that is not disabled.
+
+### WaitForDisabled
+
+```json
+{"cmd":"WaitForDisabled","query":{"selector":{"kind":"semantic_identifier","identifier":"submit"}},"timeout_ms":5000}
+```
+
+Polls until a selector resolves to a disabled node.
+
+### WaitForValue
+
+```json
+{"cmd":"WaitForValue","query":{"selector":{"kind":"semantic_identifier","identifier":"search.query"}},"value":"release","timeout_ms":5000}
+```
+
+Polls until the selector's semantic value matches `value`.
+
+### WaitForText
+
+```json
+{"cmd":"WaitForText","text":"Saved","timeout_ms":5000}
+```
+
+Polls visible text until any item contains `text`.
+
+### WaitForGone
+
+```json
+{"cmd":"WaitForGone","query":{"selector":{"kind":"semantic_identifier","identifier":"loading.spinner"}},"timeout_ms":5000}
+```
+
+Polls until a selector no longer resolves.
+
+### Scroll
+
+```json
+{"cmd":"Scroll","x":400,"y":300,"dx":0,"dy":480}
+```
+
+Sends a wheel/scroll event at logical coordinates.
+
+### ExternalFileHover
+
+```json
+{"cmd":"ExternalFileHover","x":320,"y":240,"paths":["/tmp/example.txt"]}
+```
+
+Simulates dragging external files over the app at coordinates.
+
+### ExternalFileDrop
+
+```json
+{"cmd":"ExternalFileDrop","x":320,"y":240,"paths":["/tmp/example.txt"]}
+```
+
+Simulates dropping external files on the app at coordinates.
+
+### ExternalFileCancel
+
+```json
+{"cmd":"ExternalFileCancel"}
+```
+
+Cancels an external file drag session.
+
+### TypeText
+
+```json
+{"cmd":"TypeText","text":"hello"}
+```
+
+Sends text input to the currently focused control. Prefer `FillText` for form automation.
+
+### ImePreedit
+
+```json
+{"cmd":"ImePreedit","text":"かな","cursor_start":0,"cursor_end":2}
+```
+
+Sends an IME preedit update to the focused control.
+
+### ImeCommit
+
+```json
+{"cmd":"ImeCommit","text":"かな"}
+```
+
+Commits IME text to the focused control.
+
+### ImeCancel
+
+```json
+{"cmd":"ImeCancel"}
+```
+
+Cancels the active IME preedit session.
+
+### PressKey
+
+```json
+{"cmd":"PressKey","key":"Enter","modifiers":0}
+```
+
+Sends key down and key up for the named key. `modifiers` is the shell modifier bitmask used by the test driver.
+
+### Screenshot
+
+```json
+{"cmd":"Screenshot","path":"/tmp/app.png"}
+```
+
+Requests a screenshot written by the app process to `path` and returns `Ok` or `Error`. Prefer `CaptureScreenshot` when the caller should own the file write.
+
+### CaptureScreenshot
+
+```json
+{"cmd":"CaptureScreenshot"}
+```
+
+Returns `Screenshot` with `png_base64`, `width`, and `height`.
+
+### GetText
+
+```json
+{"cmd":"GetText"}
+```
+
+Returns visible text items with text and logical bounds.
+
+### GetTree
+
+```json
+{"cmd":"GetTree"}
+```
+
+Returns the current semantic tree, including first-class `identifier`, role, label, value state, focusability, disabled/read-only state, checked state, actions, text selection, masking, scrollability, parent/child relationships, logical bounds, visible bounds, and visibility.
+
+### Wait
+
+```json
+{"cmd":"Wait","ms":250}
+```
+
+Sleeps on the test-control side and returns `Ok`. Prefer condition-based waits when possible.
+
+### Pump
+
+```json
+{"cmd":"Pump"}
+```
+
+Requests a frame pump and returns after the shell has processed it.
+
+### Quit
+
+```json
+{"cmd":"Quit"}
+```
+
+Requests application shutdown.
+
+### SimulateMouseMove
+
+```json
+{"cmd":"SimulateMouseMove","x":100,"y":100}
+```
+
+Sends a low-level mouse move through the shell event path.
+
+### SimulateRightClick
+
+```json
+{"cmd":"SimulateRightClick","x":100,"y":100}
+```
+
+Sends low-level mouse move, secondary down, and secondary up events.
+
+### SimulateResize
+
+```json
+{"cmd":"SimulateResize","width":390,"height":844}
+```
+
+Resizes the logical test viewport. Use this for responsive layout tests.
+
+## Best-practice command order
+
+For stable end-to-end tests:
+
+1. `GET /health` or `LiveTestClient::wait_for_ready`.
+2. `WaitForVisible` on a stable semantic identifier.
+3. Selector action such as `FillText`, `TapSelector`, or `ActivateSelector`.
+4. `WaitForValue`, `WaitForText`, `WaitForGone`, or `GetTree` assertion.
+5. `CaptureScreenshot` only when visual evidence is required.
+6. `Quit` during teardown.
+
+Avoid fixed `Wait` sleeps unless you are debugging timing itself.

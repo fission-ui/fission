@@ -157,6 +157,11 @@ href = "/reference/platform/targets/"
 level = 1
 
 [[items]]
+title = "Accessibility"
+href = "/reference/platform/accessibility/"
+level = 1
+
+[[items]]
 title = "Accessibility and internationalization"
 href = "/reference/platform/accessibility-and-i18n/"
 level = 1
@@ -174,6 +179,11 @@ level = 1
 [[items]]
 title = "fission.toml manifest"
 href = "/reference/config/fission-toml/"
+level = 1
+
+[[items]]
+title = "Fission release checklist"
+href = "/reference/project/fission-release-checklist/"
 level = 1
 
 [[items]]

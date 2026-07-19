@@ -1,0 +1,110 @@
+---
+title: Linux packages
+description: Configure Fission Linux .run packages, native helpers, installer scripts, and verification.
+---
+
+# Linux packages
+
+Linux packaging produces a self-contained `.run` artifact. Fission can write a built-in user-local installer, or your project can supply an installer script when the product needs services, privileged helpers, custom layout, repair, or uninstall behavior.
+
+## Realistic package configuration
+
+```toml
+[app]
+name = "Acme Notes"
+app_id = "com.acme.notes"
+version = "1.4.0"
+build = 37
+
+[targets.linux]
+enabled = true
+
+[package.linux.run]
+installer_script = "platforms/linux/package-run.sh"
+```
+
+`installer_script` is optional. If it is omitted, Fission uses the built-in user-local installer. Add a script only when installation policy belongs to the product.
+
+## Native helper products
+
+Linux native modules currently use Cargo. Use them for helper binaries that must be built, tested, staged, and described in the package manifest.
+
+```toml
+[[native.modules]]
+name = "linux-file-helper"
+path = "platforms/linux/native"
+
+[native.modules.linux]
+cargo_manifest_path = "platforms/linux/native/Cargo.toml"
+cargo_package = "linux-file-helper"
+features = ["fuse"]
+no_default_features = true
+
+[[native.modules.linux.products]]
+name = "file-helper"
+path = "target/{profile}/linux-file-helper"
+kind = "runtime"
+destination = "libexec/linux-file-helper"
+
+[[native.modules.linux.products]]
+name = "mount-helper"
+path = "target/{profile}/mount-helper"
+kind = "privileged-helper"
+destination = "libexec/mount-helper"
+```
+
+| Product kind | Meaning |
+| --- | --- |
+| `runtime` | Staged into the run/package root for the app to execute or load. |
+| `privileged-helper` | Staged and explicitly identified for installer policy and review. Fission does not grant privileges. |
+
+A `privileged-helper` is metadata, not a privilege escalation. If the helper needs setuid, Linux capabilities, polkit, a systemd unit, or another elevation model, the installer script must do that explicitly and audibly.
+
+## Custom .run installer script
+
+When configured, the script receives:
+
+| Environment variable | Meaning |
+| --- | --- |
+| `FISSION_LINUX_PAYLOAD_DIR` | Directory containing the staged app payload. |
+| `LINUX_BINARY` | Path to the staged app binary. |
+| `FISSION_LINUX_NATIVE_PRODUCTS_MANIFEST` | JSON manifest describing native products. |
+| `LINUX_PROFILE` | Set to `release` for release builds. |
+
+The script must print the completed `.run` artifact path on stdout.
+
+A minimal shape:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+payload="$FISSION_LINUX_PAYLOAD_DIR"
+out="target/fission/release/linux/run/acme-notes.run"
+
+# Build your installer from "$payload" and write "$out".
+# The installer should own service/helper policy; Fission only stages inputs.
+
+printf '%s\n' "$out"
+```
+
+Keep package scripts deterministic. They should not rebuild the app, discover random files outside the package root, or upload artifacts. Packaging creates artifacts; distribution uploads them.
+
+## Readiness and packaging loop
+
+```bash
+fission readiness package --project-dir . --target linux --format run
+fission package --project-dir . --target linux --format run --release
+```
+
+The package output includes `artifact-manifest.json`. Use that manifest for release commands and CI handoff.
+
+## Verify on Linux
+
+Before distribution:
+
+- Run the `.run` artifact on a clean Linux VM matching your supported distro baseline.
+- Verify install location, executable permissions, desktop entry, icon, and uninstall path.
+- If native helpers are included, verify their final installed path and permissions.
+- If a privileged helper is used, verify the privilege grant is explicit, reversible, and documented.
+- Check that the app still launches without relying on local development paths.

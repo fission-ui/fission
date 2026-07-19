@@ -9,6 +9,23 @@ Packaging turns a working Fission app into something another person, device, sto
 
 Use this overview to choose the correct target page, then follow that page for the exact package shape.
 
+## Build, package, release, and publish are different steps
+
+Fission keeps the release pipeline explicit. That makes local developer releases
+and CI releases easier to reason about because each step has a concrete input
+and output.
+
+| Step | Command family | Input | Output |
+| --- | --- | --- | --- |
+| Build | `fission build` | Shared app source, generated target files, native modules | Target build output for local validation. |
+| Package | `fission package` | Build output, icons, signing references, package config | Installable/uploadable artifact plus `artifact-manifest.json`. |
+| Release content | `fission release-content` and `fission release-config` | Release notes, screenshots, store metadata, review/privacy files | Validated provider-facing release files. |
+| Publish | `fission publish` or `fission distribute` | Artifact manifest, provider config, credentials, release content | Provider upload/submission plus receipt. |
+
+Do not publish raw build output. Publish the artifact manifest produced by the
+package step. It records exactly which files, hashes, versions, package ids,
+checks, and secondary artifacts are being handed to a provider.
+
 ## The package loop
 
 A reliable package flow has four steps:
@@ -26,14 +43,35 @@ Do not skip readiness when preparing a release. It is cheaper to discover a miss
 
 | Output | Start here | Typical package formats |
 | --- | --- | --- |
-| Windows, macOS, Linux app | [Desktop packages](/docs/build-and-package/desktop-packages/) | `.exe`, `.msi`, `.msix`, `.app`, `.pkg`, `.run` |
-| Android or iOS app | [Mobile packages](/docs/build-and-package/mobile-packages/) | `.apk`, `.aab`, `.ipa` |
+| macOS app | [macOS packages](/docs/build-and-package/macos-packages/) | `.app`, `.pkg` |
+| Windows app | [Windows packages](/docs/build-and-package/windows-packages/) | `.exe`, `.msi`, `.msix` |
+| Linux app | [Linux packages](/docs/build-and-package/linux-packages/) | `.run` |
+| Android app | [Android packages](/docs/build-and-package/android-packages/) | `.apk`, `.aab` |
+| iOS app | [iOS packages](/docs/build-and-package/ios-packages/) | `.ipa` |
 | Browser app | [Web packages](/docs/build-and-package/web-packages/) | static web artifact directory or archive |
 | Terminal app or command tool | [Terminal packages](/docs/build-and-package/terminal-packages/) | release binary and manifest |
 | Documentation, marketing, reference, blog | [Static site packages](/docs/build-and-package/static-site-packages/) | static artifact or Docker image |
 | Ecommerce, portal, dashboard, dynamic web process | [Server site packages](/docs/build-and-package/server-site-packages/) | Docker image |
 
 If a page is mostly read-only and should be crawlable, use the static site target. If it needs request-time data, sessions, signed actions, cache revalidation, workers, or islands, use the server site target. If it is a full interactive browser app, use the web target.
+
+## Native products belong in native modules
+
+If the package needs platform-owned code such as a macOS extension, Windows
+driver package, Linux helper binary, Android Gradle dependency, or iOS Swift
+package, declare it with `[[native.modules]]` in
+[`fission.toml`](/reference/config/fission-toml/). Fission then builds, tests,
+stages, signs, and manifests the native outputs as part of the normal command
+lifecycle.
+
+Start with [Native modules](/docs/build-and-package/native-modules/) before
+adding ad-hoc scripts. For macOS extensions specifically, also read
+[macOS native XcodeGen](/docs/build-and-package/macos-native-xcodegen/), which
+explains the `platforms/macos/native/project.yml` file Fission-generated
+projects use for Xcode target graphs. Use package scripts only at the installer
+boundary, for example when `linux/run` or `windows/exe` must install services,
+drivers, privileged helpers, repair/uninstall logic, or other
+operating-system-owned integration.
 
 ## Artifact manifests are the handoff point
 
@@ -62,6 +100,40 @@ Custom Windows packaging scripts receive the source directory in
 their installer. Fission rejects an `assets` path that exists but is not a
 directory. On macOS, resources are staged before the application bundle is
 signed.
+
+Use the manifest path directly:
+
+```bash
+fission publish \
+  --project-dir . \
+  --provider play-store \
+  --artifact target/fission/release/android/aab/artifact-manifest.json \
+  --track internal \
+  --yes
+```
+
+If a publish flow does not receive `--artifact`, it packages the provider's
+default target/format first. That is useful for local guided publishing. CI
+should usually pass the manifest explicitly so the build and publish jobs share
+one immutable handoff file.
+
+## Version and build numbers are release inputs
+
+Store targets are sensitive to version/build values. Google Play rejects reused
+Android `versionCode` values. App Store Connect and Microsoft Store also have
+provider-side version and package-state rules. Use release-config commands to
+make those values explicit before packaging:
+
+```bash
+fission release-config add-release --project-dir . --version 1.2.3 --build 42 --yes
+fission release-config bump-build --project-dir . --target android --yes
+fission release-config version-state --project-dir . --provider play-store --target android --track internal --json
+```
+
+Package commands sync the resolved version/build into target-native config where
+Fission owns that generated configuration. If provider state says a build number
+has already been used, fix the release config and rebuild instead of uploading a
+known-bad artifact.
 
 ## Signing boundaries
 

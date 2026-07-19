@@ -13,18 +13,20 @@ These pages are not benchmark pages and not dismissal pages. They are translatio
 
 ## The series
 
-The full series is planned around developer backgrounds rather than platform targets.
+The series is organized around developer backgrounds rather than platform targets.
 
-| Background | What the page will focus on |
+| Background | What the page focuses on |
 | --- | --- |
-| [React developers](/docs/from/react/) | Hooks, component state, context, effects, CSS, routing, and tests translated into Fission state, reducers, widgets, environment, resources, theme tokens, routers, and target tests. |
-| Flutter developers | Widget trees, `setState`, inherited data, platform channels, layout constraints, animation, and native packaging translated into Fission widgets, reducers, providers, shells, motion, and targets. |
-| SwiftUI and Compose developers | Declarative UI, value-driven state, bindings, previews, modifiers, navigation, and native capability access translated into Fission's shared app model and shell boundary. |
-| Electron and Tauri developers | Desktop app structure, webview assumptions, IPC, native packaging, file system access, and update flows translated into Fission's native, web, mobile, terminal, static, and SSR target model. |
-| Leptos, Yew, and Dioxus developers | Rust UI experience, browser-first reactivity, signals, hydration, and WASM assumptions translated into Fission's multi-target runtime and deterministic widget model. |
-| Terminal UI developers | Cell layout, keyboard-first interaction, command workflows, logs, scrollback, and snapshot testing translated into Fission's terminal shell and shared app architecture. |
-
-The React guide is the first complete page in this pattern. The other backgrounds use the same structure so the series can grow without changing the learning model underneath it.
+| [React developers](/docs/fission/for/react-developers/) | Hooks, component state, context, effects, CSS, routing, and tests translated into Fission state, reducers, widgets, environment, resources, theme tokens, routers, and target tests. |
+| [Flutter developers](/docs/fission/for/flutter-developers/) | Widget trees, `setState`, inherited data, platform channels, layout constraints, routing, theme, and widget tests translated into Fission widgets, reducers, providers, shells, routers, tokens, and LiveTest. |
+| [SwiftUI developers](/docs/fission/for/swiftui-developers/) | `View`, `@State`, `ObservableObject`, environment, `.task`, `NavigationStack`, modifiers, and XCTest translated into Fission's shared app model. |
+| [Compose developers](/docs/fission/for/compose-developers/) | Composables, `remember`, ViewModels, `LaunchedEffect`, `MaterialTheme`, `NavHost`, and Compose tests translated into Fission state, reducers, jobs, theme tokens, routers, and LiveTest. |
+| [Electron developers](/docs/fission/for/electron-developers/) | Renderer state, browser windows, IPC, native packaging, filesystem access, and web UI tests translated into Fission's native shell and typed runtime boundary. |
+| [Tauri developers](/docs/fission/for/tauri-developers/) | Web frontend state, Rust commands, plugins, windows, packaging, and tests translated into Fission's Rust-first shared UI model and targets. |
+| [Leptos developers](/docs/fission/for/leptos-developers/) | Signals, resources, components, routers, SSR instincts, and Rust browser UI tests translated into Fission's multi-target runtime. |
+| [Yew developers](/docs/fission/for/yew-developers/) | Function components, hooks, properties, callbacks, browser routing, and browser tests translated into Fission widgets, reducers, resources, routers, and LiveTest. |
+| [Dioxus developers](/docs/fission/for/dioxus-developers/) | RSX components, signals, resources, routers, desktop/mobile runners, and tests translated into Fission widgets, app state, reducers, shells, and package targets. |
+| [Terminal UI developers](/docs/fission/for/terminal-ui-developers/) | Cell layout, keyboard-first interaction, command workflows, logs, scrollback, and snapshot testing translated into Fission's Terminal shell and shared app architecture. |
 
 ## The shared pattern
 
@@ -82,4 +84,4 @@ When a page says "this maps loosely," take that seriously. Some concepts are cou
 
 ## Start here
 
-Begin with [Fission for React developers](/docs/from/react/) if your background is web UI or component-driven frontend work. It introduces the translation pattern the rest of this section will reuse.
+Begin with [Fission for React developers](/docs/fission/for/react-developers/) if your background is web UI or component-driven frontend work. It introduces the translation pattern the rest of this section will reuse.

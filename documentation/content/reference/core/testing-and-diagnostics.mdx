@@ -35,6 +35,13 @@ Important public types include `LiveTestClient`, `TestCommand`, `TestResponse`, 
 
 Use this layer when a real shell matters, such as end-to-end interaction in a real presented app, screenshots, or shell-managed window behavior.
 
+The live shell exposes a test-control HTTP server with `GET /health` and
+`POST /cmd`. Prefer `LiveTestClient` in Rust tests, but the `/cmd` API is also
+public enough for manual QA, screenshot capture, release-content scenarios, and
+non-Rust test drivers. See [LiveTest command API](/reference/core/live-test-command-api/)
+for every supported command, selector shape, semantic tree field, and response
+type.
+
 ### Target smoke validation
 
 Target smoke scripts and generated host launchers are not substitutes for the earlier test layers. They are host-level validation tools.
@@ -100,4 +107,7 @@ Do not use diagnostics as a substitute for ordinary tests. Diagnostics explain a
 
 ## Related reference pages
 
-For shell-specific test boundaries, continue to [Platform testing](/reference/platform/testing). For the teaching guide that explains test order and practical workflow, see [Testing and diagnostics](/docs/guides/testing-and-diagnostics).
+For shell-specific test boundaries, continue to [Platform testing](/reference/platform/testing).
+For the teaching guide that explains unit, headless integration, LiveTest, and
+`/cmd` workflow order, see [Testing Fission apps](/docs/learn/testing/). For
+the exact HTTP protocol, see [LiveTest command API](/reference/core/live-test-command-api/).

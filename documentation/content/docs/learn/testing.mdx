@@ -1,0 +1,218 @@
+---
+title: Testing Fission apps
+description: Learn when to use reducer tests, headless integration tests, LiveTest shell tests, selector-driven commands, and screenshots.
+---
+
+# Testing Fission apps
+
+Fission testing follows the same architecture as Fission apps. Start with the smallest layer that proves the requirement, then move outward only when the behavior depends on rendering, input, accessibility semantics, or a real platform shell.
+
+The practical ladder is:
+
+| Layer | Use it for | Main tools |
+| --- | --- | --- |
+| Unit tests | Reducer rules, selector functions, state invariants, small pure helpers. | Ordinary Rust tests. |
+| Effect tests | Proving a reducer requested a job, service, capability, resource, or runtime effect. | `ReducerContext`, `Effects`, action input inspection. |
+| Headless integration tests | Component conversion, layout, display output, semantic output, runtime interaction without a real window. | `fission-test`, `TestHarness`, `TestDriver`. |
+| Live shell tests | Real shell input, focus, IME, scrolling, screenshots, accessibility metadata, window behavior, and end-to-end release screenshots. | `fission-test-driver`, `LiveTestClient`, `/cmd`. |
+| Target smoke tests | Generated platform host builds and starts for Web, Android, iOS, desktop, terminal, static, or SSR targets. | `fission test`, target smoke commands, package readiness. |
+
+Do not make every behavior a live test. Reducer tests should carry most product rules. Live tests should prove the real integration layers that unit tests cannot see.
+
+## Unit tests: state rules first
+
+Reducers are normal Rust functions. If a business rule can be tested without widgets, test it there.
+
+```rust title="tests/todos_reducer.rs"
+#[test]
+fn add_draft_todo_adds_item_and_clears_draft() {
+    let mut state = TodoState {
+        draft: "Publish release".into(),
+        next_id: 7,
+        ..Default::default()
+    };
+
+    add_draft_todo(&mut state);
+
+    assert_eq!(state.todos.len(), 1);
+    assert_eq!(state.todos[0].id, 7);
+    assert_eq!(state.todos[0].title, "Publish release");
+    assert!(state.draft.is_empty());
+    assert_eq!(state.next_id, 8);
+}
+```
+
+This is the cheapest and most reliable test. It says nothing about pixels, but it proves the product rule.
+
+## Effect tests: outside work is requested explicitly
+
+Reducers are synchronous. They do not `await`; they update state and request outside work through effects, jobs, services, capabilities, resources, or runtime effects.
+
+Test that request directly when the behavior is about orchestration.
+
+```rust title="tests/load_todos_effect.rs"
+use fission::core::{ActionInput, ActionRegistry, Effects, ReducerContext};
+
+#[test]
+fn load_todos_marks_loading_and_requests_job() {
+    let mut state = TodoState::default();
+    let mut registry = ActionRegistry::new();
+    let mut effects = Effects::new(1, &mut registry);
+    let input = ActionInput::None;
+    let mut ctx = ReducerContext {
+        effects: &mut effects,
+        input: &input,
+    };
+
+    load_todos(&mut state, &mut ctx);
+
+    assert!(state.loading);
+    assert_eq!(effects.out.len(), 1);
+}
+```
+
+Use this layer for "did the app request the right work?" Use a service or job test for "did the worker perform the work correctly?"
+
+## Headless integration tests: real widgets without a real shell
+
+`fission-test` runs the shared runtime in-process. It can build the widget tree, lower it, lay it out, pump frames, inspect display operations, inspect semantics, and drive many interaction paths without launching a native window.
+
+```rust title="tests/todos_headless.rs"
+use fission_test::TestHarness;
+use fission_test::prelude::DisplayOp;
+
+#[test]
+fn todo_screen_renders_seed_items() {
+    let state = TodoState {
+        todos: vec![Todo {
+            id: 1,
+            title: "Write release notes".into(),
+            done: false,
+        }],
+        next_id: 2,
+        ..Default::default()
+    };
+
+    let mut harness = TestHarness::new(state).with_root_widget(TodoApp);
+    harness.pump().expect("pump todo app");
+
+    let display_list = harness.get_last_display_list().expect("display list");
+    assert!(display_list.ops.iter().any(|op| matches!(
+        op,
+        DisplayOp::DrawText { text, .. } if text == "Write release notes"
+    )));
+}
+```
+
+Use this layer when the requirement is "the app renders this meaning" rather than "the OS delivered this input."
+
+## Live tests: real shell, semantic selectors, and screenshots
+
+Live tests launch the app as a separate process with the test-control server enabled:
+
+```rust
+Command::new(env!("CARGO_BIN_EXE_todo"))
+    .env("FISSION_TEST_CONTROL_PORT", control_port.to_string())
+    .spawn()?;
+```
+
+The test connects with `LiveTestClient`:
+
+```rust
+use fission_test_driver::{LiveTestClient, SelectorQuery};
+
+let client = LiveTestClient::connect(control_port);
+client.wait_for_ready(15_000)?;
+```
+
+Prefer semantic selectors over coordinates. Coordinates are still useful for low-level input bugs, but product tests should name the UI element they intend to use.
+
+```rust
+client.fill_text_semantic_identifier("todo.title", "Publish 0.8.0")?;
+client.tap_semantic_identifier("todo.add")?;
+client.wait_for_visible(
+    SelectorQuery::semantic_identifier("todo.row.0"),
+    5_000,
+)?;
+client.screenshot(".artifacts/screenshots/todo-added.png")?;
+```
+
+The selector-driven API targets the semantic tree from the current frame. It can resolve semantic identifiers, widget ids, test/accessibility identifiers, labels, role plus label, scopes, duplicate indexes, visibility, enabled/disabled state, values, and text.
+
+## Add semantic identifiers to important UI
+
+A live test is only as stable as the UI it can target. Interactive widgets and meaningful regions should expose stable semantic identifiers.
+
+```rust title="src/widgets/todo_form.rs"
+TextInput {
+    id: Some(WidgetId::explicit("todo-title-input")),
+    value: view.state().draft.clone(),
+    label: Some("New task".into()),
+    on_change: Some(update_draft),
+    ..Default::default()
+}
+.semantics_identifier("todo.title")
+```
+
+```rust title="src/widgets/todo_form.rs"
+Button {
+    variant: ButtonVariant::Primary,
+    child: Some(Text::new("Add task").into()),
+    on_press: Some(add),
+    ..Default::default()
+}
+.semantics_identifier("todo.add")
+```
+
+Use identifiers based on product meaning, not wording or layout. `todo.add` is better than `blue-button-right` because it survives translation and layout changes.
+
+## The `/cmd` API
+
+`LiveTestClient` is a typed Rust wrapper around the same HTTP API that screenshot capture and manual QA can use directly.
+
+The app exposes:
+
+| Endpoint | Meaning |
+| --- | --- |
+| `GET /health` | Returns when the test-control server is alive. |
+| `POST /cmd` | Accepts one JSON command with a `cmd` field and returns a JSON response. |
+
+Example with `curl`:
+
+```bash
+curl -s http://127.0.0.1:9876/cmd \
+  -H 'content-type: application/json' \
+  -d '{"cmd":"TapSelector","query":{"selector":{"kind":"semantic_identifier","identifier":"todo.add"}}}'
+```
+
+For visual QA, capture a screenshot without writing any test code:
+
+```bash
+curl -s http://127.0.0.1:9876/cmd \
+  -H 'content-type: application/json' \
+  -d '{"cmd":"CaptureScreenshot"}' \
+  | jq -r '.png_base64' \
+  | base64 --decode > .artifacts/manual/todo.png
+```
+
+The full command list is in [LiveTest command API](/reference/core/live-test-command-api/).
+
+## What to test where
+
+| Requirement | Best first test |
+| --- | --- |
+| A reducer rejects invalid data | Unit reducer test. |
+| A reducer requests a network job | Effect test. |
+| A screen renders an empty state | Headless `fission-test` test. |
+| A button is reachable by screen readers and automation | Headless semantic assertion or live `GetTree`. |
+| A partially visible button can be clicked after scrolling | Live selector test. |
+| A text field handles focus, IME, paste, or keyboard input | Live test. |
+| A modal, popover, drawer, menu, or portal can be used | Live selector test. |
+| The shipped app starts on a device or browser | Target smoke or package test. |
+| Store screenshots are correct | LiveTest screenshot scenario plus human review. |
+
+## Read next
+
+Use [Write a live interface test](/docs/cookbook/write-a-live-ui-test/) for a complete live-test recipe.
+
+Use [LiveTest command API](/reference/core/live-test-command-api/) when you need the exact `/cmd` JSON payload for automation or manual QA.

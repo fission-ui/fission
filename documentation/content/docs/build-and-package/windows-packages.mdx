@@ -1,0 +1,151 @@
+---
+title: Windows packages
+description: Configure Fission Windows .exe, .msi, and .msix packages with signing, identity, installers, and native products.
+---
+
+# Windows packages
+
+Windows packaging produces artifacts for different installation models. The app configuration must express package identity, version, publisher, signing source, and whether the package is a raw executable, an MSIX package, or a project-defined installer.
+
+## Choose the artifact format
+
+| Format | Use it for |
+| --- | --- |
+| `exe` | Direct app executable packaging, or a project-defined setup program through `exe_installer_script`. |
+| `msi` | Managed enterprise installer workflows. |
+| `msix` | Microsoft Store and modern Windows package identity workflows. |
+
+Use `msix` for Microsoft Store distribution. Use `exe` or `msi` when the product needs an installer outside MSIX, for example services, drivers, repair, or uninstall behavior.
+
+## Realistic package configuration
+
+```toml
+[app]
+name = "Acme Notes"
+app_id = "com.acme.notes"
+version = "1.4.0"
+build = 37
+
+[targets.windows]
+enabled = true
+
+[package.windows]
+identity_name = "AcmeSoftware.AcmeNotes"
+version = "1.4.37.0"
+publisher = "CN=Acme Software Ltd, O=Acme Software Ltd, C=GB"
+certificate_thumbprint = "0123456789ABCDEF0123456789ABCDEF01234567"
+certificate_env = "WINDOWS_CERTIFICATE"
+certificate_base64_env = "WINDOWS_CERTIFICATE_BASE64"
+certificate_password_env = "WINDOWS_CERTIFICATE_PASSWORD"
+exe_installer_script = "platforms/windows/package-exe.ps1"
+```
+
+| Field | Why it exists |
+| --- | --- |
+| `identity_name` | MSIX package identity. For Store packages this should match Partner Center. |
+| `version` | Windows package version. Use four numeric components for MSIX, for example `1.4.37.0`. |
+| `publisher` | Distinguished name expected by package signing and Store identity. |
+| `certificate_thumbprint` | Uses a certificate already installed in the Windows certificate store. |
+| `certificate_env` | Environment variable containing a local certificate path when not using the certificate store. |
+| `certificate_base64_env` | CI-friendly certificate bytes. |
+| `certificate_password_env` | Secret source for the certificate password. |
+| `exe_installer_script` | Optional project-defined setup script for `windows/exe`. |
+
+Do not commit certificate files or passwords. Use the Windows certificate store for local signing or environment/CI secrets for file-based signing.
+
+## Native runtime products
+
+Use Windows native modules when the package needs helper binaries, DLLs, services, or driver installer inputs.
+
+### Cargo helper
+
+```toml
+[[native.modules]]
+name = "windows-helper"
+path = "platforms/windows/helper"
+
+[native.modules.windows]
+cargo_manifest_path = "platforms/windows/helper/Cargo.toml"
+cargo_package = "windows-helper"
+features = ["installer"]
+no_default_features = true
+
+[[native.modules.windows.products]]
+name = "helper"
+path = "target/{profile}/windows-helper.exe"
+kind = "runtime"
+destination = "native/windows-helper.exe"
+```
+
+Cargo native modules are for Rust products built with Cargo. They may set Cargo features, but they must not also declare MSBuild fields.
+
+### MSBuild or WDK module
+
+```toml
+[[native.modules]]
+name = "windows-protection"
+path = "platforms/windows/native"
+
+[native.modules.windows]
+nuget_packages_config = "platforms/windows/native/packages.config"
+nuget_packages_directory = "platforms/windows/native/packages"
+msbuild_project = "platforms/windows/native/Protection.sln"
+platform = "x64"
+build_target = "Build"
+test_binaries = ["platforms/windows/native/{platform}/{configuration}/ProtectionTests.exe"]
+
+[[native.modules.windows.products]]
+name = "cloud-files-provider"
+path = "platforms/windows/native/{platform}/{configuration}/Provider.dll"
+kind = "runtime"
+destination = "native/Provider.dll"
+
+[[native.modules.windows.products]]
+name = "filesystem-minifilter"
+path = "platforms/windows/native/{platform}/{configuration}/DriverPackage"
+kind = "driver-package"
+```
+
+MSBuild modules can restore pinned NuGet packages, build Visual Studio or WDK projects, run native test binaries, and stage products. Product paths support `{configuration}`, `{profile}`, and `{platform}`.
+
+`driver-package` products are installer inputs. Fission records them in the native-products manifest but excludes them from MSIX app manifests because drivers are installed by platform installer policy, not loaded as app files.
+
+## Custom exe installer
+
+When `package.windows.exe_installer_script` is configured, `fission package --target windows --format exe` runs that script instead of treating the app executable as the final installer.
+
+The script receives:
+
+| Environment variable | Meaning |
+| --- | --- |
+| `WINDOWS_BINARY` | Path to the staged application executable. |
+| `FISSION_WINDOWS_NATIVE_PRODUCTS_MANIFEST` | JSON manifest describing staged native products. |
+| `WINDOWS_PROFILE` | Set to `release` for release builds. |
+
+The script must print the completed `.exe` installer path on stdout. Keep the script deterministic: consume the staged inputs, create one installer, and let Fission record it in `artifact-manifest.json`.
+
+## Readiness and packaging loop
+
+```bash
+fission readiness package --project-dir . --target windows --format msix
+fission package --project-dir . --target windows --format msix --release
+```
+
+For a custom setup executable:
+
+```bash
+fission readiness package --project-dir . --target windows --format exe
+fission package --project-dir . --target windows --format exe --release
+```
+
+Readiness checks package identity, signing source, packaging scripts, and native tooling where it can. Microsoft Store provider checks happen during the release/distribute phase.
+
+## Verify on Windows
+
+Before distribution:
+
+- Install on a clean Windows machine or VM.
+- Check Start menu name, icon, publisher, package identity, and uninstall behavior.
+- Verify native helper DLLs or services are installed where expected.
+- Verify any driver installation uses explicit installer policy and can be repaired/uninstalled.
+- For Store packages, validate identity and version against Partner Center before upload.

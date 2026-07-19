@@ -1,54 +1,257 @@
 ---
 title: App store distribution
-description: Distribute Android, iOS, and desktop store packages with release content, tracks, testers, and receipts.
+description: Distribute Android, iOS, and desktop store packages with version checks, release content, tracks, testers, metadata locks, and receipts.
 ---
 
 # App store distribution
 
-Store distribution is provider-owned. Fission should orchestrate readiness, metadata validation, package upload, tracks, testers, rollouts, and receipts while using the platform owner's tools and APIs for the provider-specific operation.
+Store distribution is provider-owned. Fission orchestrates readiness, version/build management, release content, package upload, tracks, testers, rollout decisions, and receipts while using the platform owner's tooling or APIs for the final provider operation.
 
-## 1. Package the store artifact
+The important rule is that store upload is not just "send this file." A production release also has package identity, signing, version/build rules, localized metadata, screenshots, privacy answers, review information, tester groups, track state, provider processing, and follow-up status.
+
+## Store workflow
+
+A reliable store release follows this shape:
+
+| Step | Command | Purpose |
+| --- | --- | --- |
+| Inspect config | `fission release-config validate ...` | Checks app identity, active release, metadata paths, provider config, and obvious missing fields. |
+| Check provider version state | `fission release-config version-state ...` | Catches reused build numbers or provider-side conflicts before upload. |
+| Package | `fission package ... --release` | Creates the store artifact and `artifact-manifest.json`. |
+| Validate release content | `fission release-content validate ...` | Checks notes, screenshots, listings, privacy, review files, and skippable recommendations. |
+| Check release readiness | `fission readiness release ...` | Combines target, package, artifact, provider, track, credential, and content checks. |
+| Publish | `fission publish ... --artifact ... --yes` | Uploads or submits the manifest-backed artifact. |
+| Observe | `fission distribute status ...` or provider-specific commands | Checks processing, review, certification, rollout, or deployment state. |
+
+For CI, use direct commands with `--json` and `--yes`. For local publishing,
+`fission publish --provider <provider>` opens the guided flow, and
+`fission publish --provider <provider> --app` opens the windowed Fission app.
+Both guided shells drive the same release plan as direct CLI commands.
+
+## Android and Google Play
+
+Package an Android App Bundle for Play:
 
 ```bash
 fission package --project-dir . --target android --format aab --release
+```
+
+Minimum project configuration:
+
+```toml
+[package.android]
+package_name = "com.example.notes"
+keystore_alias = "upload"
+keystore_env = "ANDROID_KEYSTORE"
+keystore_base64_env = "ANDROID_KEYSTORE_BASE64"
+keystore_password_env = "ANDROID_KEYSTORE_PASSWORD"
+key_password_env = "ANDROID_KEY_PASSWORD"
+
+[distribution.play_store]
+package_name = "com.example.notes"
+default_track = "internal"
+release_status = "draft"
+service_account_json_env = "PLAY_STORE_SERVICE_ACCOUNT_JSON"
+service_account_json_base64_env = "PLAY_STORE_SERVICE_ACCOUNT_JSON_BASE64"
+google_application_credentials_env = "GOOGLE_APPLICATION_CREDENTIALS"
+```
+
+Before upload, check whether the selected build number is usable:
+
+```bash
+fission release-config version-state \
+  --project-dir . \
+  --provider play-store \
+  --target android \
+  --track internal \
+  --json
+```
+
+If Play already has the Android `versionCode`, do not upload and wait for Play
+to reject it. Bump, rebuild, and publish the new artifact:
+
+```bash
+fission release-config bump-build --project-dir . --target android --yes
+fission package --project-dir . --target android --format aab --release
+fission publish \
+  --project-dir . \
+  --provider play-store \
+  --artifact target/fission/release/android/aab/artifact-manifest.json \
+  --track internal \
+  --yes
+```
+
+Play metadata should be managed through release-config and release-content. A
+first internal test can skip provider-optional marketing assets, but it still
+needs provider-required package access, credentials, package identity, and any
+required release notes.
+
+## iOS and App Store Connect
+
+Package an iOS archive/IPA:
+
+```bash
 fission package --project-dir . --target ios --format ipa --release
+```
+
+Minimum project configuration:
+
+```toml
+[package.ios]
+bundle_id = "com.example.notes"
+team_id = "ABCDE12345"
+entitlements = "platforms/ios/Entitlements.plist"
+provisioning_profile = "release-content/signing/ios/App.mobileprovision"
+signing_identity = "Apple Distribution"
+
+[distribution.app_store]
+app_id = "1234567890"
+bundle_id = "com.example.notes"
+issuer_id = "00000000-0000-0000-0000-000000000000"
+key_id = "ABC123DEFG"
+api_key_env = "APP_STORE_CONNECT_API_KEY"
+api_key_base64_env = "APP_STORE_CONNECT_API_KEY_BASE64"
+default_track = "testflight"
+```
+
+App Store Connect has separate concepts for upload, build processing, TestFlight
+assignment, and App Review submission. Keep those decisions explicit. A common
+beta flow is:
+
+```bash
+fission release-config version-state --project-dir . --provider app-store --target ios --json
+fission package --project-dir . --target ios --format ipa --release
+fission release-content validate --project-dir . --provider app-store
+fission publish \
+  --project-dir . \
+  --provider app-store \
+  --artifact target/fission/release/ios/ipa/artifact-manifest.json \
+  --track testflight \
+  --yes
+fission beta groups list --project-dir . --provider app-store
+```
+
+Use release receipts to track which upload created which App Store build id and
+what provider-side processing remains.
+
+## Windows and Microsoft Store
+
+Package MSIX for Microsoft Store or a desktop distribution flow:
+
+```bash
 fission package --project-dir . --target windows --format msix --release
 ```
 
-## 2. Validate release content
+Minimum project configuration:
 
-```bash
-fission release-content validate --project-dir . --provider play-store
-fission release-content validate --project-dir . --provider app-store
-fission release-content validate --project-dir . --provider microsoft-store
+```toml
+[package.windows]
+identity_name = "ExampleSoftware.Notes"
+publisher = "CN=Example Software Ltd, O=Example Software Ltd, C=GB"
+certificate_thumbprint = "0123456789ABCDEF"
+certificate_base64_env = "WINDOWS_CERTIFICATE_BASE64"
+certificate_password_env = "WINDOWS_CERTIFICATE_PASSWORD"
+
+[distribution.microsoft_store]
+product_id = "9N0000000000"
+package_identity_name = "ExampleSoftware.Notes"
+package_type = "msix"
+tenant_id_env = "AZURE_TENANT_ID"
+client_id_env = "AZURE_CLIENT_ID"
+client_secret_env = "MICROSOFT_STORE_CLIENT_SECRET"
+seller_id_env = "MICROSOFT_STORE_SELLER_ID"
+submit = false
 ```
 
-Release content includes localized notes, screenshots, preview videos, privacy answers, review attachments, tester groups, rollout settings, and provider-specific listing fields.
+Microsoft Store flows can involve draft submissions, private flights, public
+submissions, certification, staged rollout, and package URL flows for MSI/EXE
+where supported. Keep `submit = false` while validating package identity and
+metadata. Set submission behavior only when the publish operation should mutate
+provider state beyond package upload.
 
-## 3. Check provider readiness
+For `windows/exe`, configure `package.windows.exe_installer_script` when the
+release must produce an installer rather than a staged app executable. For
+`windows/msix`, runtime native products are staged into the package, while
+`driver-package` products are excluded from the MSIX manifest and passed to
+installer workflows through the native-products manifest.
+
+## Release metadata locks
+
+Store metadata can change in the provider portal while your branch is under
+review. Fission uses provider locks to prevent accidental overwrites.
+
+1. Import or inspect remote metadata.
+2. Review the diff.
+3. Lock the remote baseline.
+4. Push local metadata only if the remote baseline still matches.
 
 ```bash
-fission readiness distribute \
+fission release-config import --project-dir . --provider play-store --locales en-US --yes
+fission release-config diff --project-dir . --provider play-store
+fission release-config lock --project-dir . --provider play-store --locales en-US --yes
+fission release-config push --project-dir . --provider play-store --locales en-US --yes
+```
+
+If remote metadata changed, Fission blocks the push. Refresh the lock after
+review or pass `--overwrite-remote` only when replacing the provider state is the
+intentional operation.
+
+## Release content and skippable recommendations
+
+Store providers differ in what they require. Fission reports each missing item as
+provider required, Fission recommended, optional, or not applicable. Recommended
+items are shown because they materially improve release quality, but they should
+not block a provider that permits omission.
+
+Use an explicit skip when the team has reviewed a recommendation and decided not
+to include it for this release:
+
+```bash
+fission release-config skip-requirement \
+  --project-dir . \
+  --id release_content.play_store.feature_graphic \
+  --yes
+```
+
+The skip id is stable and reviewable in [`fission.toml`](/reference/config/fission-toml/). Provider-required items cannot be skipped.
+
+## Guided local publishing versus CI
+
+Local guided publishing can help discover missing setup:
+
+```bash
+fission publish --project-dir . --provider play-store
+fission publish --project-dir . --provider play-store --app
+```
+
+CI should be explicit and non-interactive:
+
+```bash
+fission readiness release \
+  --project-dir . \
+  --target android \
+  --format aab \
+  --provider play-store \
+  --track internal \
+  --locale en-US \
+  --json
+
+fission package --project-dir . --target android --format aab --release --json
+
+fission publish \
   --project-dir . \
   --provider play-store \
   --artifact target/fission/release/android/aab/artifact-manifest.json \
-  --track internal
+  --track internal \
+  --locale en-US \
+  --yes \
+  --json
 ```
 
-Readiness should report missing credentials, package identity mismatches, unsupported tracks, missing first-release setup, invalid screenshots, and provider CLI or API problems before upload.
+CI must provide secrets through environment variables, base64 environment
+variables, provider CLI auth state, or platform-owned stores. It must not depend
+on `~/.fission/<app-name>/`, and it must not prompt.
 
-## 4. Distribute
+## Keep receipts
 
-```bash
-fission distribute \
-  --project-dir . \
-  --provider play-store \
-  --artifact target/fission/release/android/aab/artifact-manifest.json \
-  --track internal
-```
-
-Use the same pattern for App Store and Microsoft Store providers, changing the provider, artifact, track or flight, and release profile.
-
-## 5. Keep receipts
-
-Store distribution can involve review, certification, beta tracks, staged rollout, and later status changes. Keep Fission receipts in CI artifacts or release records so the team can see what was uploaded, which provider id was returned, and what follow-up state remains.
+Store distribution can involve review, certification, beta tracks, staged rollout, and later status changes. Keep Fission receipts in CI artifacts or release records so the team can see what was uploaded, which provider id was returned, what metadata changed, and what follow-up state remains.

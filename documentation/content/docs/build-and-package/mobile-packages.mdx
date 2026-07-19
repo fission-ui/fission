@@ -7,6 +7,15 @@ description: Package Fission apps for Android and iOS release workflows.
 
 Mobile packaging turns the shared app into the artifact expected by the mobile platform. The shell keeps your app model shared; the package owns platform metadata, capabilities, signing references, store identity, icons, splash screens, and generated host files.
 
+Use this page for the shared mobile lifecycle. Use the platform pages when you
+are configuring real app ids, version/build values, signing inputs, native
+dependencies, and store handoff:
+
+| Platform | Detailed page |
+| --- | --- |
+| Android | [Android packages](/docs/build-and-package/android-packages/) |
+| iOS | [iOS packages](/docs/build-and-package/ios-packages/) |
+
 ## 1. Run mobile readiness
 
 ```bash
@@ -33,11 +42,51 @@ For local debugging, use `fission run` and the emulator or simulator first. For 
 fission package --project-dir . --target android --format aab --release
 ```
 
+Android release packages are versioned by `versionCode` and `versionName`. Fission
+resolves those values from release configuration, synchronizes generated Android
+packaging files where it owns them, and records the result in the artifact
+manifest. Before a Play Store upload, check provider state so a reused
+`versionCode` fails locally instead of after a long upload:
+
+```bash
+fission release-config version-state \
+  --project-dir . \
+  --provider play-store \
+  --target android \
+  --track internal \
+  --json
+```
+
+If the provider reports the build is already used, bump the build and rebuild:
+
+```bash
+fission release-config bump-build --project-dir . --target android --yes
+fission package --project-dir . --target android --format aab --release
+```
+
 Before publishing, validate release content for the destination provider:
 
 ```bash
 fission release-content validate --project-dir . --provider play-store
 ```
+
+Android signing uses secret sources, not project-local secret paths. Keep
+`[package.android]` limited to stable names and environment-variable names:
+
+```toml
+[package.android]
+package_name = "com.example.notes"
+keystore_alias = "upload"
+keystore_env = "ANDROID_KEYSTORE"
+keystore_base64_env = "ANDROID_KEYSTORE_BASE64"
+keystore_password_env = "ANDROID_KEYSTORE_PASSWORD"
+key_password_env = "ANDROID_KEY_PASSWORD"
+```
+
+For local release builds, `ANDROID_KEYSTORE` can point to a file outside the
+repository or to a file in the private local workspace under
+`~/.fission/<app-name>/`. For CI, prefer `ANDROID_KEYSTORE_BASE64` plus password
+secrets.
 
 ## 4. Package iOS
 
@@ -46,6 +95,36 @@ fission package --project-dir . --target ios --format ipa --release
 ```
 
 iOS packaging depends on Apple tooling and signing configuration. Keep credentials in the platform toolchain, CI secrets, environment variables, or the operating-system key store. Do not put private signing material directly into [`fission.toml`](/reference/config/fission-toml/).
+
+The package should resolve a marketing version, build number, bundle id, team id,
+entitlements, provisioning profile reference, and signing identity:
+
+```toml
+[package.ios]
+bundle_id = "com.example.notes"
+team_id = "ABCDE12345"
+entitlements = "platforms/ios/Entitlements.plist"
+provisioning_profile = "release-content/signing/ios/App.mobileprovision"
+signing_identity = "Apple Distribution"
+```
+
+For App Store Connect, keep API key material in configured environment variables
+or base64 CI secrets:
+
+```toml
+[distribution.app_store]
+bundle_id = "com.example.notes"
+issuer_id = "00000000-0000-0000-0000-000000000000"
+key_id = "ABC123DEFG"
+api_key_env = "APP_STORE_CONNECT_API_KEY"
+api_key_base64_env = "APP_STORE_CONNECT_API_KEY_BASE64"
+default_track = "testflight"
+```
+
+Use `fission release-config version-state --provider app-store --target ios`
+before uploading when the provider credentials are available. Uploading and
+assigning a build to TestFlight or App Review are separate provider operations,
+so keep receipts from both.
 
 ## 5. Verify on the host
 

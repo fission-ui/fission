@@ -1,0 +1,324 @@
+---
+title: Fission release checklist
+sidebar_label: Fission release checklist
+slug: /project/fission-release-checklist
+description: Maintainer checklist for preparing, validating, publishing, tagging, and documenting a Fission framework release.
+---
+
+# Fission release checklist
+
+This checklist is for maintainers releasing the Fission framework itself. It is
+not the app-store publishing flow for apps built with Fission.
+
+Run the release from the repository root on `main`, after every PR intended for
+the release has merged and CI is green.
+
+```sh
+cd /Users/zcourts/projects/fission/fission
+git switch main
+git pull --ff-only origin main
+git status --short
+```
+
+The working tree should be clean before the version bump. If local changes are
+intentional release prep, commit them before tagging. Do not tag from a dirty
+tree.
+
+## 1. Confirm release scope
+
+Decide the exact version and whether it is breaking.
+
+- Patch releases fix bugs or docs without requiring app code changes.
+- Minor releases can include public API additions and coordinated workflow
+  changes.
+- Breaking changes must be called out in the blog post, changelog, GitHub
+  release notes, and migration section.
+
+Collect the merged work since the last tag:
+
+```sh
+git describe --tags --abbrev=0
+git log <previous-tag>..HEAD --oneline --decorate
+gh pr list --state merged --base main --limit 100
+```
+
+Group the scope by user impact rather than by commit order: runtime, widgets,
+shells, CLI, packaging, docs, examples, tests, and migration notes.
+
+## 2. Update versions
+
+Bump every Fission workspace crate and internal dependency requirement to the
+new version. Do not bump forked third-party packages unless that fork actually
+changed.
+
+For a release from `<old-version>` to `<new-version>`, update these values:
+
+- every first-party `package.version = "<old-version>"` to `"<new-version>"`;
+- every first-party dependency `version = "<old-version>"` to `"<new-version>"`;
+- documentation snippets that tell users to depend on the old Fission version;
+- generated-app snippets and `fission init` templates, including the generated
+  `AGENTS.md` design-system codegen version;
+- `documentation/Cargo.toml` and site chrome that displays the current version;
+- `CHANGELOG.md`, release blog post, and any release notes source file.
+
+Keep these dependency versions unchanged unless the corresponding fork release
+is part of the same release:
+
+- `fission-vello`, `fission-vello-encoding`, `fission-vello-shaders`;
+- `fission-winit`;
+- `fission-accesskit-winit`.
+
+Useful search before and after the bump:
+
+```sh
+OLD_VERSION=0.8.0
+rg -n "${OLD_VERSION}|fission = \\{ version|fission-design-system-codegen" \
+  README.md CHANGELOG.md crates documentation examples
+```
+
+After editing, regenerate the lockfile:
+
+```sh
+cargo metadata --format-version 1 >/dev/null
+```
+
+## 3. Update documentation and examples
+
+A release is not ready when the crates compile but the public docs still point
+at the previous version or old behavior.
+
+Check these areas explicitly:
+
+- `README.md` and crate READMEs under `crates/**/README.md`;
+- Learn, Guides, Cookbook, and Reference dependency snippets;
+- CLI reference pages for new or changed commands;
+- `fission.toml` reference for manifest shape changes;
+- platform target pages for generated Android, iOS, macOS, Windows, Linux, Web,
+  Terminal, Static site, and SSR output;
+- examples that demonstrate changed widgets, shell behavior, package flows, or
+  testing APIs;
+- generated project templates and generated `AGENTS.md` content.
+
+When docs describe a breaking change, include the old behavior, the new behavior,
+and the concrete migration step.
+
+## 4. Write the changelog entry
+
+Add the new version to the top of `CHANGELOG.md`.
+
+Use the existing structure:
+
+```md
+## [<new-version>] - YYYY-MM-DD
+
+### Added
+
+### Changed
+
+### Fixed
+
+### Migration notes
+```
+
+Only include headings that have content. Keep entries user-facing: explain the
+capability or bug that changed, not just the module name.
+
+## 5. Write the release blog post
+
+Create a blog post under `documentation/content/blog/` using the existing naming
+pattern:
+
+```text
+documentation/content/blog/YYYY-MM-DD-fission-<version-with-dashes>-short-title.mdx
+```
+
+The post must include:
+
+- frontmatter with `title`, `authors`, `tags`, and `categories`;
+- a short opening that states the release theme;
+- sections for the major user-facing changes;
+- a migration section with the dependency snippet for the new version;
+- any target-specific package prerequisites or feature flags;
+- links to issues or PRs when they clarify why the change exists.
+
+Use the blog post as the source for GitHub release notes unless the release has a
+separate notes file.
+
+## 6. Run pre-release checks
+
+Start with deterministic checks that do not mutate external services.
+
+```sh
+cargo fmt --all -- --check
+cargo test --workspace
+cargo run -p cargo-fission --bin fission -- site check --project-dir documentation --release
+cargo run -p cargo-fission --bin fission -- package --project-dir documentation --target site --format static --release
+```
+
+For release workflow changes, run the narrow package/release tests too:
+
+```sh
+cargo test -p fission-command-package
+cargo test -p fission-command-release
+cargo test -p fission-command-ui
+cargo test -p fission-test-driver
+```
+
+For shell or widget changes, run the affected examples or LiveTests. Prefer
+semantic LiveTest commands and screenshots over coordinate-only checks when the
+feature is visible UI.
+
+If a platform cannot be tested locally, record that limitation in the release
+notes and do not imply it was validated.
+
+## 7. Dry-run crates.io publishing
+
+Publish only first-party crates, not examples or the documentation site crate
+unless that is an explicit release goal.
+
+Use `--dry-run` first. The publish order must respect internal dependencies.
+The current first-party order is:
+
+```text
+fission-command-core
+fission-command-server
+fission-design-system-codegen
+fission-diagnostics
+fission-i18n
+fission-icons
+fission-ir
+fission-macros
+fission-test-driver
+fission-text-engine
+fission-layout
+fission-semantics
+fission-theme
+fission-render
+fission-core
+fission-render-vello
+fission-3d
+fission-shell
+fission-shell-terminal
+fission-widgets
+fission-charts
+fission-shell-site
+fission-shell-winit
+fission-command-site
+fission-shell-server
+fission-shell-desktop
+fission-shell-mobile
+fission-shell-web
+fission-command-run
+fission-test
+fission
+fission-command-package
+fission-command-release
+fission-command-ui
+cargo-fission
+```
+
+Command pattern:
+
+```sh
+cargo publish -p fission-ir --dry-run
+cargo publish -p fission-ir
+```
+
+Wait for crates.io indexing when a later crate depends on a newly published
+version. If a publish fails because the index has not caught up, retry after a
+short wait; do not change versions to work around indexing delay.
+
+## 8. Commit, tag, and push
+
+Create one release-prep commit after all local checks pass.
+
+```sh
+git status --short
+git add CHANGELOG.md README.md crates documentation examples
+git diff --cached --check
+git commit -m "chore(release): prepare fission <new-version>"
+git tag -a v<new-version> -m "Fission <new-version>"
+git push origin main
+git push origin v<new-version>
+```
+
+Do not move a pushed release tag casually. If a tag is wrong, stop and decide
+whether to delete/recreate it before crates are published or issue a follow-up
+patch release after crates are live.
+
+## 9. Publish crates
+
+Run the real `cargo publish -p ...` sequence after the release-prep commit is on
+`main`. Publish from the same commit that carries the version bump and docs.
+
+After publishing, verify the public index for the main user-facing crates:
+
+```sh
+cargo search fission --limit 5
+cargo search cargo-fission --limit 5
+```
+
+If one crate publishes and a later crate fails, fix forward with the smallest
+safe change. Do not yank a crate unless the published artifact is harmful or
+unusable. Document any partial-publish state in the release issue or PR.
+
+## 10. Create the GitHub release
+
+Use the tag and the prepared release notes.
+
+```sh
+gh release create v<new-version> \
+  --title "Fission <new-version>" \
+  --notes-file /tmp/fission-<new-version>-release-notes.md
+```
+
+The GitHub release notes should include:
+
+- a short release theme;
+- added, changed, and fixed sections;
+- migration notes;
+- known limitations;
+- links to the blog post, changelog, and important issues/PRs.
+
+If binaries or generated artifacts are attached, record their source commit and
+how they were built.
+
+## 11. Publish and verify the website
+
+The website publishes through the repository workflow when docs change on `main`.
+Verify the workflow and the live site.
+
+```sh
+gh run list --workflow publish-website.yml --limit 5
+gh run watch <run-id>
+```
+
+Check the live pages after deployment:
+
+- the release blog post is reachable;
+- dependency snippets show the new version;
+- the reference sidebar includes any new reference pages;
+- search indexes include the new pages;
+- the footer/version chrome does not show an old release.
+
+## 12. Post-release verification
+
+Install the released CLI in a clean environment or from crates.io once the index
+is available:
+
+```sh
+cargo install cargo-fission --version <new-version> --locked
+fission --version
+```
+
+Create or update a small app and verify the public happy path:
+
+```sh
+fission init /tmp/fission-release-smoke --name release-smoke
+cd /tmp/fission-release-smoke
+fission add target macos
+fission readiness package --target macos --format app --json
+```
+
+Record any failures as follow-up issues. If the failure blocks normal use, ship a
+patch release rather than editing the already-published release in place.

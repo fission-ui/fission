@@ -1,0 +1,135 @@
+---
+title: macOS packages
+description: Configure, sign, package, and verify Fission macOS .app and .pkg artifacts.
+---
+
+# macOS packages
+
+A macOS package is more than the Rust binary. It is an `.app` bundle with a stable bundle identifier, Info.plist metadata, icons, entitlements, optional embedded provisioning, nested native products, code signing, and optionally a `.pkg` installer and notarization receipt.
+
+Use this page when the target is `macos`. If the app contains app extensions or system extensions, also read [macOS native XcodeGen](/docs/build-and-package/macos-native-xcodegen/).
+
+## Choose the artifact format
+
+| Format | Use it for | Command |
+| --- | --- | --- |
+| `app` | Local validation, direct app-bundle distribution, notarized `.app` handoff. | `fission package --target macos --format app --release` |
+| `pkg` | Installer-based distribution, MDM, managed deployment, or machine-level install policy. | `fission package --target macos --format pkg --release` |
+
+Start with `app` until the app identity, icon, permissions, and signing are correct. Move to `pkg` when installer behavior matters.
+
+## Realistic package configuration
+
+```toml
+[app]
+name = "Acme Notes"
+app_id = "com.acme.notes"
+version = "1.4.0"
+build = 37
+
+[targets.macos]
+enabled = true
+
+[package.macos]
+bundle_id = "com.acme.notes"
+marketing_version = "1.4.0"
+build_number = "37"
+team_id = "ABCDE12345"
+minimum_os = "13.0"
+entitlements = "platforms/macos/AcmeNotes.entitlements"
+provisioning_profile = "profiles/macos/AcmeNotes.provisionprofile"
+signing_identity = "Developer ID Application: Acme Software Ltd (ABCDE12345)"
+installer_identity = "Developer ID Installer: Acme Software Ltd (ABCDE12345)"
+notarize = true
+
+[run.macos]
+entitlements = "platforms/macos/AcmeNotes.dev.entitlements"
+provisioning_profile = "profiles/macos/AcmeNotesDevelopment.provisionprofile"
+signing_identity = "Apple Development: Jane Developer (ABCDE12345)"
+```
+
+The values are deliberately duplicated where the platform needs them:
+
+| Field | Why it exists |
+| --- | --- |
+| `app.app_id` | Fission's cross-platform app identity. Keep it stable before release. |
+| `package.macos.bundle_id` | The bundle identifier written into macOS package metadata. It usually matches `app.app_id`, but can differ when one repository ships multiple platform identities. |
+| `marketing_version` | The user-visible `CFBundleShortVersionString`, such as `1.4.0`. |
+| `build_number` | The macOS `CFBundleVersion`, usually monotonically increasing for release artifacts. |
+| `team_id` | Used by signing, provisioning, notarization readiness, and review diagnostics. |
+| `minimum_os` | Documents and propagates the intended minimum macOS version. |
+| `entitlements` | The app-level entitlements used when signing the containing `.app`. |
+| `provisioning_profile` | Embedded at `Contents/embedded.provisionprofile` before signing when profile-backed entitlements are required. |
+| `signing_identity` | The application signing identity passed to `codesign`. |
+| `installer_identity` | The installer signing identity used for `.pkg` output. |
+| `notarize` | Enables the notarization step. Notarization still needs Apple API credentials from environment variables or platform tools. |
+
+Keep private signing material out of `fission.toml`. The file may reference public identity names and project-relative entitlement/profile files, but passwords, App Store Connect keys, and private certificates must come from environment variables, CI secrets, the login keychain, or platform tooling.
+
+## Development signing versus release signing
+
+`fission run --target macos` builds a development `.app`. It inherits `[package.macos]` signing by default, but many teams need weaker development entitlements or an Apple Development identity locally. Put that difference under `[run.macos]`.
+
+This matters for restricted capabilities. Ad-hoc signing with `"-"` can be useful for unrestricted local experiments, but it cannot satisfy restricted entitlement and provisioning requirements. If a provisioning profile is configured, Fission requires a real signing identity.
+
+## Add app extensions or system extensions
+
+A macOS app extension is not a loose file. It must be built by Xcode, embedded under a platform-defined location, signed with the right entitlements, and then the containing app must be signed last.
+
+Use native modules for this:
+
+```toml
+[[native.modules]]
+name = "security-extensions"
+path = "platforms/macos/native"
+
+[native.modules.macos]
+xcodegen_spec = "platforms/macos/native/project.yml"
+xcode_project = "platforms/macos/native/SecurityExtensions.xcodeproj"
+test_schemes = ["SecurityExtensionsTests"]
+
+[[native.modules.macos.products]]
+scheme = "FileProvider"
+bundle = "FileProvider.appex"
+kind = "app-extension"
+entitlements = "platforms/macos/native/FileProvider.entitlements"
+provisioning_profile = "profiles/macos/FileProvider.provisionprofile"
+signing_identity = "Developer ID Application: Acme Software Ltd (ABCDE12345)"
+
+[native.modules.macos.products.run]
+provisioning_profile = "profiles/macos/FileProviderDevelopment.provisionprofile"
+signing_identity = "Apple Development: Jane Developer (ABCDE12345)"
+```
+
+Use [macOS native XcodeGen](/docs/build-and-package/macos-native-xcodegen/) for the `platforms/macos/native/project.yml` file itself.
+
+## Readiness and packaging loop
+
+Run readiness before packaging:
+
+```bash
+fission readiness package --project-dir . --target macos --format app
+fission readiness package --project-dir . --target macos --format pkg
+```
+
+Build the package:
+
+```bash
+fission package --project-dir . --target macos --format app --release
+fission package --project-dir . --target macos --format pkg --release
+```
+
+The output directory contains the app or installer plus `artifact-manifest.json`. Release commands should consume the manifest, not a guessed `.app` or `.pkg` path.
+
+## Verify the installed behavior
+
+Before publishing or handing the artifact to users, verify on macOS:
+
+- The app name, icon, menu bar name, Dock behavior, and window title are correct.
+- The app launches from Finder, not just from `fission run`.
+- Permission prompts match the capability being used.
+- App extensions appear in the expected system UI and work after a clean install.
+- The `.pkg` installs to the expected location and can be upgraded over the previous build.
+- Gatekeeper and notarization checks pass on a clean machine.
+
+Use [Release and distribute](/docs/release-and-distribute/overview/) when the artifact manifest is ready.

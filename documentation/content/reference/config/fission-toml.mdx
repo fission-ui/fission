@@ -10,6 +10,15 @@ description: Complete reference for every fission.toml section currently read by
 
 Keep this file human-reviewable. Short identifiers and non-secret paths belong here. Long release notes, localized store descriptions, review instructions, privacy declarations, screenshots, and videos can live in referenced files. Certificates, private keys, signing passwords, tokens, keystores, and service-account JSON must come from environment variables, provider tools, platform key stores, or CI secrets.
 
+This reference lists accepted fields. For the release reasoning behind those
+fields, use the platform guides:
+[macOS](/docs/build-and-package/macos-packages/),
+[macOS native XcodeGen](/docs/build-and-package/macos-native-xcodegen/),
+[Windows](/docs/build-and-package/windows-packages/),
+[Linux](/docs/build-and-package/linux-packages/),
+[Android](/docs/build-and-package/android-packages/), and
+[iOS](/docs/build-and-package/ios-packages/).
+
 ## Minimal app manifest
 
 Most app projects need only this at the start:
@@ -193,22 +202,25 @@ destination = "libexec/linux-mount-helper"
 ### `[native.modules.windows]`
 
 Windows native modules attach either a Cargo package or an MSBuild/WDK project
-to the desktop lifecycle. `fission build`, `fission run`, and Windows package
-commands build the declared module. `fission test --target windows` runs Cargo
-tests or each declared MSBuild test binary through `vstest.console.exe`.
+to the desktop lifecycle. A module must choose exactly one build system:
+`cargo_package` or `msbuild_project`. Fission rejects mixed configuration so
+Cargo features cannot be combined accidentally with NuGet/MSBuild/WDK settings.
+`fission build`, `fission run`, and Windows package commands build the declared
+module. `fission test --target windows` runs Cargo tests for Cargo modules and
+each declared VSTest binary for MSBuild modules.
 
 | Field | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
-| `cargo_manifest_path` | string | No | `<native.modules.path>/Cargo.toml`, then the app `Cargo.toml` | Project-relative Cargo manifest used for a Cargo native module. |
-| `cargo_package` | string | Yes for Cargo modules | none | Exact Cargo package passed with `--package`. Mutually exclusive with `msbuild_project`. |
-| `features` | array of strings | No | `[]` | Cargo features enabled for build and test. |
+| `cargo_manifest_path` | string | No | `<native.modules.path>/Cargo.toml`, then app `Cargo.toml` | Project-relative Cargo manifest for Cargo modules. |
+| `cargo_package` | string | Required for Cargo modules | none | Exact Cargo package passed with `--package`. Mutually exclusive with `msbuild_project`. |
+| `features` | array of strings | No | `[]` | Cargo features enabled for Cargo module build and test. |
 | `no_default_features` | boolean | No | `false` | Passes `--no-default-features` to Cargo. |
-| `nuget_packages_config` | string | No | none | Project-relative `packages.config` restored before MSBuild. Restored WDK host-tool directories are added to the MSBuild environment. |
-| `nuget_packages_directory` | string | No | sibling `packages` directory | Project-relative restore destination. Requires `nuget_packages_config`. |
-| `msbuild_project` | string | Yes for MSBuild modules | none | Project-relative `.sln`, `.slnx`, or MSBuild project passed to `msbuild`. Mutually exclusive with `cargo_package`. |
+| `nuget_packages_config` | string | No | none | MSBuild-only project-relative `packages.config` restored before MSBuild. Restored WDK host-tool directories are added to the MSBuild environment. |
+| `nuget_packages_directory` | string | No | sibling `packages` directory | MSBuild-only project-relative restore destination. Requires `nuget_packages_config`. |
+| `msbuild_project` | string | Required for MSBuild modules | none | Project-relative `.sln`, `.slnx`, or MSBuild project passed to `msbuild`. Mutually exclusive with `cargo_package`. |
 | `platform` | string | No | `x64` | MSBuild platform, such as `x64` or `ARM64`. |
 | `build_target` | string | No | `Build` | MSBuild target invoked for the module. |
-| `test_binaries` | array of strings | No | `[]` | VSTest executables. Paths may contain `{configuration}`, `{profile}`, and `{platform}`. |
+| `test_binaries` | array of strings | No | `[]` | MSBuild/VSTest executables. Paths may contain `{configuration}`, `{profile}`, and `{platform}`. |
 
 Each `[[native.modules.windows.products]]` entry accepts:
 
@@ -241,8 +253,7 @@ path = "platforms/windows/native/{platform}/{configuration}/DriverPackage"
 kind = "driver-package"
 ```
 
-Cargo-native Windows products use the same product table without an MSBuild
-project:
+Cargo-native Windows module example:
 
 ```toml
 [[native.modules]]
@@ -250,7 +261,10 @@ name = "windows-helper"
 path = "../windows-helper"
 
 [native.modules.windows]
+cargo_manifest_path = "../windows-helper/Cargo.toml"
 cargo_package = "windows-helper"
+features = ["installer"]
+no_default_features = true
 
 [[native.modules.windows.products]]
 name = "windows-helper"
@@ -267,6 +281,8 @@ destination = "tools/windows-helper.exe"
 | --- | --- | --- | --- |
 | `name` | string | Yes | Rust package/app name used by generated scripts and site fallback title. Prefer a Cargo-compatible kebab-case name such as `field-inspector`. |
 | `app_id` | string | Yes | Stable application identifier used by generated mobile/desktop package metadata. Use a reverse-domain identifier such as `com.example.field_inspector`. `id` is accepted as a shorter alias when reading config; generated files still write `app_id` for compatibility with existing projects. |
+| `version` | string | Recommended for release | Default user-facing version used by release version resolution when target/package-specific fields are absent. |
+| `build` | integer | Recommended for release | Default monotonically increasing build number used by release version resolution when target/package-specific fields are absent. |
 | `publisher` | string | Recommended for release | Publisher or legal owner shown in store/package metadata where applicable. |
 | `homepage` | string | Recommended for release | Product website used by store listings, package metadata, and support surfaces where applicable. |
 | `support_url` | string | Recommended for release | Support URL used by store listings and release checks where applicable. |
@@ -696,6 +712,25 @@ port = 8080
 tags = ["ghcr.io/example/pokemon-card-store:0.1.0", "ghcr.io/example/pokemon-card-store:latest"]
 ```
 
+### `[package.linux.run]`
+
+`[package.linux.run]` configures `fission package --target linux --format run`.
+When no script is configured, Fission writes its built-in user-local `.run`
+installer. Configure a script when the installer must handle services,
+privileged helpers, custom layout, repair/uninstall behavior, or other
+product-owned installation policy.
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `installer_script` | string | No | Project-relative executable or shell script. The script receives `FISSION_LINUX_PAYLOAD_DIR`, `LINUX_BINARY`, `FISSION_LINUX_NATIVE_PRODUCTS_MANIFEST`, and `LINUX_PROFILE` on release builds, then prints the completed `.run` path on stdout. |
+
+Example:
+
+```toml
+[package.linux.run]
+installer_script = "platforms/linux/package-run.sh"
+```
+
 ### `[package.macos]`
 
 | Field | Type | Required | Meaning |
@@ -765,6 +800,8 @@ entitlements.
 | `keystore_password_env` | string | No | Environment variable containing the keystore password. Defaults to `ANDROID_KEYSTORE_PASSWORD`. |
 | `key_password_env` | string | No | Environment variable containing the key password. Defaults to `ANDROID_KEY_PASSWORD`; falls back to `ANDROID_KEYSTORE_PASSWORD` in generated Android packaging. |
 | `package_name` | string | Required for Android signing readiness | Android package name expected by signing/release checks. Usually matches `[app].app_id`. |
+| `version_code` | integer | Recommended for store releases | Android `versionCode`. If omitted, Fission falls back to the active release or `[app].build` where available. |
+| `version_name` | string | Recommended for store releases | Android `versionName`. If omitted, Fission falls back to the active release or `[app].version` where available. |
 
 Keystore files and passwords are not stored in `fission.toml`. For local release builds, set `ANDROID_KEYSTORE` to a path outside the repo. For CI, store the keystore as a base64 secret and expose it through `ANDROID_KEYSTORE_BASE64`. Set `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEYSTORE_ALIAS`, and optionally `ANDROID_KEY_PASSWORD` through your shell or CI secret store.
 
@@ -773,6 +810,8 @@ Keystore files and passwords are not stored in `fission.toml`. For local release
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
 | `bundle_id` | string | No | iOS bundle identifier used by signing readiness. Usually matches `[app].app_id`. |
+| `marketing_version` | string | Recommended for App Store releases | iOS marketing version. If omitted, Fission falls back to the active release or `[app].version` where available. |
+| `build_number` | string | Recommended for App Store releases | iOS build number. If omitted, Fission falls back to the active release or `[app].build` where available. |
 | `team_id` | string | No | Apple Developer Team ID for signing workflows. |
 | `entitlements` | string | No | Project-relative entitlements plist. |
 | `provisioning_profile` | string | No | Project-relative provisioning profile reference. |
@@ -783,6 +822,7 @@ Keystore files and passwords are not stored in `fission.toml`. For local release
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
 | `identity_name` | string | No | MSIX package identity name. |
+| `version` | string | Recommended for Store packages | Windows package version. Fission normalizes release/app version state for package output where applicable. |
 | `publisher` | string | No | Windows package publisher distinguished name. |
 | `certificate_thumbprint` | string | No | Certificate thumbprint used when signing through the Windows certificate store. |
 | `certificate_env` | string | No | Environment variable containing a local certificate path. Defaults to `WINDOWS_CERTIFICATE`. |
@@ -994,6 +1034,7 @@ Release configuration keeps long content out of `fission.toml` by referencing si
 | `metadata_root` | string | Yes | Root directory for release metadata sidecar files. |
 | `content_output_dir` | string | Yes | Output directory for generated/captured release content. |
 | `default_locales` | array of strings | Yes | Locales used when a release entry does not override `locales`. |
+| `skip_requirements` | array of strings | No | Explicit requirement ids the team reviewed and chose to skip. Only provider-optional or Fission-recommended requirements can be skipped; provider-required requirements remain blocking. |
 
 ### `[release.provider_locks.<provider>]`
 
@@ -1261,9 +1302,13 @@ capabilities = ["camera", "geolocation", "notifications"]
 [app]
 name = "example-app"
 app_id = "com.example.app"
+version = "1.0.0"
+build = 1
 
 [package.android]
 package_name = "com.example.app"
+version_code = 1
+version_name = "1.0.0"
 keystore_alias = "upload"
 keystore_env = "ANDROID_KEYSTORE"
 keystore_base64_env = "ANDROID_KEYSTORE_BASE64"
@@ -1272,6 +1317,8 @@ key_password_env = "ANDROID_KEY_PASSWORD"
 
 [package.ios]
 bundle_id = "com.example.app"
+marketing_version = "1.0.0"
+build_number = "1"
 team_id = "ABCDE12345"
 entitlements = "platforms/ios/Entitlements.plist"
 provisioning_profile = "release-content/signing/ios/App.mobileprovision"
@@ -1290,6 +1337,7 @@ notarize = true
 
 [package.windows]
 identity_name = "Example.App"
+version = "1.0.0.0"
 publisher = "CN=Example Ltd"
 certificate_thumbprint = "0123456789ABCDEF"
 exe_installer_script = "platforms/windows/package-exe.ps1"
@@ -1324,6 +1372,7 @@ active_release = "1.0.0+1"
 metadata_root = "release-content/metadata"
 content_output_dir = "release-content"
 default_locales = ["en-US"]
+skip_requirements = []
 
 [release.store_listing.play_store.en-US]
 title = "Example App"

@@ -7,6 +7,16 @@ description: Package Fission desktop apps for Windows, macOS, and Linux.
 
 Desktop packaging takes the shared Fission app and gives it the operating-system metadata users expect: name, icon, bundle identity, installer shape, signing references, and a predictable artifact manifest.
 
+Use this page for the shared desktop lifecycle. Use the platform pages when you
+are filling in real release values:
+
+| Platform | Detailed page |
+| --- | --- |
+| macOS | [macOS packages](/docs/build-and-package/macos-packages/) |
+| macOS app extensions or system extensions | [macOS native XcodeGen](/docs/build-and-package/macos-native-xcodegen/) |
+| Windows | [Windows packages](/docs/build-and-package/windows-packages/) |
+| Linux | [Linux packages](/docs/build-and-package/linux-packages/) |
+
 ## 1. Check the desktop target
 
 Start with readiness. It catches missing target setup and packaging tools before the release build starts.
@@ -49,6 +59,18 @@ selected. Variant artifacts are written below
 `target/fission/<profile>/<target>/<format>/variants/<name>/`, and custom
 packager scripts receive the same name as `FISSION_VARIANT`.
 
+Run with `--json` in CI when a downstream job needs to discover the manifest
+path or primary artifact without scraping console output:
+
+```bash
+fission package --project-dir . --target windows --format msix --release --json
+```
+
+The manifest is the only handoff the release workflow should need. It records
+target, format, package profile, hashes, sizes, validation checks, source
+configuration hashes, signing/notarization facts where available, and any
+secondary artifacts such as symbols or crash diagnostics.
+
 Keep production macOS signing in the release overlay:
 
 ```toml
@@ -69,6 +91,8 @@ enabled, Fission signs the `.app`, creates a private temporary `ditto` ZIP for
 that stapled app, signs the installer, then notarizes, staples, and validates the
 `.pkg` as before. Temporary submission archives and environment-provided key
 material are removed when each operation finishes.
+
+## 4. Add native products when the package needs them
 
 For macOS apps with native extensions, declare the Xcode project and products
 under `[[native.modules]]` in `fission.toml`. Fission builds the native schemes,
@@ -95,7 +119,47 @@ program rather than stage the application executable itself. Set
 pins the supported WDK NuGet packages; Fission restores them non-interactively
 before every MSBuild invocation.
 
-## 4. Verify the result
+For a complete field-by-field guide, use
+[Native modules](/docs/build-and-package/native-modules/). The practical rule is
+that native products are normal release inputs, not hidden build script side
+effects. If the app needs them at runtime, declare them as runtime products. If
+an installer needs them but the app should not load them directly, classify them
+as `driver-package` or `privileged-helper`.
+
+## 5. Use installer scripts only at the installer boundary
+
+Fission can create simple desktop package artifacts itself, but some products
+need a real installer: drivers, services, privileged helpers, repair/uninstall
+behavior, or machine-level integration. Use the package script hooks for those
+cases.
+
+Linux `.run` package script:
+
+```toml
+[package.linux.run]
+installer_script = "platforms/linux/package-run.sh"
+```
+
+The script receives `FISSION_LINUX_PAYLOAD_DIR`, `LINUX_BINARY`,
+`FISSION_LINUX_NATIVE_PRODUCTS_MANIFEST`, and `LINUX_PROFILE` on release builds.
+It prints the completed `.run` path on stdout.
+
+Windows `.exe` installer script:
+
+```toml
+[package.windows]
+exe_installer_script = "platforms/windows/package-exe.ps1"
+```
+
+The script receives `WINDOWS_BINARY`,
+`FISSION_WINDOWS_NATIVE_PRODUCTS_MANIFEST`, and `WINDOWS_PROFILE` on release
+builds. It prints the completed `.exe` path on stdout.
+
+Keep installer scripts deterministic. They should consume the staged package
+inputs, create one installer artifact, and let Fission record the final artifact
+in `artifact-manifest.json`.
+
+## 6. Verify the result
 
 Open or install the produced package on the target operating system. Check the app name, icon, dock or taskbar behavior, permission prompts, window title, and any capability the app needs. Packaging is not complete until the installed app behaves like an app, not like an unnamed development binary.
 
