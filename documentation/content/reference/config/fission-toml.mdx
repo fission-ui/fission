@@ -705,24 +705,50 @@ tags = ["ghcr.io/example/pokemon-card-store:0.1.0", "ghcr.io/example/pokemon-car
 | `build_number` | string | No | macOS `CFBundleVersion`. If omitted, Fission falls back to the resolved release/app build number. |
 | `team_id` | string | No | Apple Developer Team ID used by signing/notarization readiness checks. |
 | `minimum_os` | string | No | Records the intended minimum macOS version for package metadata. |
-| `entitlements` | string | No | Project-relative entitlements plist passed to `codesign` when signing. |
-| `provisioning_profile` | string | No | Project-relative provisioning profile embedded at `Contents/embedded.provisionprofile` before signing. |
-| `signing_identity` | string | No | Developer ID/Application identity used to sign `.app` bundles. If omitted, the app is not code-signed by Fission. |
-| `installer_identity` | string | No | Developer ID Installer identity passed to `pkgbuild`/`productbuild` for `.pkg` output. |
-| `notarize` | boolean | No | When `true`, notarization requires `APP_STORE_CONNECT_KEY_ID`, `APP_STORE_CONNECT_ISSUER_ID`, and key material from `APP_STORE_CONNECT_API_KEY_PATH`, `APP_STORE_CONNECT_API_KEY`, or `APP_STORE_CONNECT_API_KEY_BASE64`. |
+| `entitlements` | string | No | Base project-relative entitlements plist passed to `codesign` when signing. |
+| `provisioning_profile` | string | No | Base project-relative provisioning profile embedded at `Contents/embedded.provisionprofile` before signing. |
+| `signing_identity` | string | No | Base application signing identity. Flat signing fields apply to debug and release packaging for backward compatibility. |
+| `installer_identity` | string | No | Base installer identity passed to `pkgbuild` for `.pkg` output. |
+| `notarize` | boolean | No | Base notarization setting. Prefer the release overlay below for production notarization. |
+
+### `[package.macos.release]`
+
+`[package.macos.release]` is applied when `fission package --release` creates a
+macOS artifact. Its app-signing values also provide the inherited package
+configuration for `fission run --release`; run-specific values can still
+override them. Each configured value overrides its matching `[package.macos]`
+value. Keep Developer ID identities, distribution entitlements, provisioning,
+and notarization in this table so debug builds and packages do not need
+production credentials.
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `entitlements` | string | No | Project-relative release entitlements plist. |
+| `provisioning_profile` | string | No | Project-relative release provisioning profile embedded before signing. |
+| `signing_identity` | string | No | Developer ID Application identity used to sign release `.app` bundles. |
+| `installer_identity` | string | No | Developer ID Installer identity passed to `pkgbuild` for release `.pkg` output. |
+| `notarize` | boolean | No | When `true`, notarizes the signed `.app` and, for `.pkg` output, the signed installer. Requires `APP_STORE_CONNECT_KEY_ID`, `APP_STORE_CONNECT_ISSUER_ID`, and key material from `APP_STORE_CONNECT_API_KEY_PATH`, `APP_STORE_CONNECT_API_KEY`, or `APP_STORE_CONNECT_API_KEY_BASE64`. |
+
+Fission submits an app bundle through a private temporary ZIP created with
+`ditto --keepParent`, then staples and validates the original `.app`. The ZIP
+and any API key material decoded from environment values are removed after the
+operation. `.pkg` notarization continues to submit, staple, and validate the
+signed installer itself.
 
 ### `[run.macos]`
 
 `fission run --target macos` builds a development `.app` and signs it before
-launch when a signing identity is configured. Run signing inherits
-`[package.macos]` by default. Use these optional overrides when development and
-distribution require different identities or entitlement files.
+launch when a signing identity is configured. Debug run signing inherits only
+the base `[package.macos]` values. A release run resolves
+`[package.macos.release]` first. `[run.macos]` then overrides either effective
+configuration, so it can keep local launch signing distinct from package
+signing.
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `entitlements` | string | No | Project-relative development entitlements plist. Inherits `package.macos.entitlements` when omitted. |
-| `provisioning_profile` | string | No | Project-relative development provisioning profile. Inherits `package.macos.provisioning_profile` when omitted. |
-| `signing_identity` | string | No | Development signing identity. Inherits `package.macos.signing_identity` when omitted. |
+| `entitlements` | string | No | Run-specific entitlements plist. Inherits the effective package value when omitted. |
+| `provisioning_profile` | string | No | Run-specific provisioning profile. Inherits the effective package value when omitted. |
+| `signing_identity` | string | No | Run-specific signing identity. Inherits the effective package value when omitted. |
 
 Restricted entitlements still require an Apple-issued identity and matching
 provisioning. Ad-hoc signing with `"-"` can exercise unrestricted development
@@ -1255,6 +1281,8 @@ bundle_id = "com.example.app"
 marketing_version = "1.2.3"
 build_number = "42"
 team_id = "ABCDE12345"
+
+[package.macos.release]
 signing_identity = "Developer ID Application: Example Ltd"
 installer_identity = "Developer ID Installer: Example Ltd"
 entitlements = "platforms/macos/Entitlements.plist"

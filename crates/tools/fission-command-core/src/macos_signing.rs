@@ -24,7 +24,7 @@ struct PackageManifest {
 
 #[derive(Debug, Default, Deserialize)]
 struct PackageRoot {
-    macos: Option<MacosPackageConfig>,
+    macos: Option<MacosPackageManifest>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -39,27 +39,95 @@ struct MacosRunConfig {
     signing_identity: Option<String>,
 }
 
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+struct MacosPackageManifest {
+    #[serde(flatten)]
+    base: MacosPackageConfig,
+    release: Option<MacosReleasePackageConfig>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+struct MacosReleasePackageConfig {
+    entitlements: Option<String>,
+    provisioning_profile: Option<String>,
+    signing_identity: Option<String>,
+    installer_identity: Option<String>,
+    notarize: Option<bool>,
+}
+
+impl MacosPackageManifest {
+    fn effective(&self, release: bool) -> MacosPackageConfig {
+        let mut config = self.base.clone();
+        if release {
+            if let Some(overlay) = &self.release {
+                overlay.apply_to(&mut config);
+            }
+        }
+        config
+    }
+}
+
+impl MacosReleasePackageConfig {
+    fn apply_to(&self, config: &mut MacosPackageConfig) {
+        if self.entitlements.is_some() {
+            config.entitlements.clone_from(&self.entitlements);
+        }
+        if self.provisioning_profile.is_some() {
+            config
+                .provisioning_profile
+                .clone_from(&self.provisioning_profile);
+        }
+        if self.signing_identity.is_some() {
+            config.signing_identity.clone_from(&self.signing_identity);
+        }
+        if self.installer_identity.is_some() {
+            config
+                .installer_identity
+                .clone_from(&self.installer_identity);
+        }
+        if self.notarize.is_some() {
+            config.notarize = self.notarize;
+        }
+    }
+}
+
 pub fn read_macos_package_config(project_dir: &Path) -> Result<MacosPackageConfig> {
+    read_macos_package_config_for_profile(project_dir, false)
+}
+
+pub fn read_macos_package_config_for_profile(
+    project_dir: &Path,
+    release: bool,
+) -> Result<MacosPackageConfig> {
     let manifest = read_manifest(project_dir)?;
-    Ok(package_config(manifest.package))
+    Ok(package_config(manifest.package.as_ref(), release))
 }
 
 pub fn read_macos_run_config(project_dir: &Path) -> Result<MacosPackageConfig> {
-    Ok(run_config(read_manifest(project_dir)?))
+    read_macos_run_config_for_profile(project_dir, false)
 }
 
-fn run_config(manifest: PackageManifest) -> MacosPackageConfig {
-    let run = manifest.run.and_then(|run| run.macos);
-    let mut config = package_config(manifest.package);
+pub fn read_macos_run_config_for_profile(
+    project_dir: &Path,
+    release: bool,
+) -> Result<MacosPackageConfig> {
+    Ok(run_config(&read_manifest(project_dir)?, release))
+}
+
+fn run_config(manifest: &PackageManifest, release: bool) -> MacosPackageConfig {
+    let run = manifest.run.as_ref().and_then(|run| run.macos.as_ref());
+    let mut config = package_config(manifest.package.as_ref(), release);
     if let Some(run) = run {
         if run.entitlements.is_some() {
-            config.entitlements = run.entitlements;
+            config.entitlements.clone_from(&run.entitlements);
         }
         if run.provisioning_profile.is_some() {
-            config.provisioning_profile = run.provisioning_profile;
+            config
+                .provisioning_profile
+                .clone_from(&run.provisioning_profile);
         }
         if run.signing_identity.is_some() {
-            config.signing_identity = run.signing_identity;
+            config.signing_identity.clone_from(&run.signing_identity);
         }
     }
     config
@@ -72,9 +140,10 @@ fn read_manifest(project_dir: &Path) -> Result<PackageManifest> {
     toml::from_str(&data).with_context(|| format!("failed to parse {}", path.display()))
 }
 
-fn package_config(package: Option<PackageRoot>) -> MacosPackageConfig {
+fn package_config(package: Option<&PackageRoot>, release: bool) -> MacosPackageConfig {
     package
-        .and_then(|package| package.macos)
+        .and_then(|package| package.macos.as_ref())
+        .map(|macos| macos.effective(release))
         .unwrap_or_default()
 }
 
@@ -94,7 +163,7 @@ pub fn sign_macos_app_if_configured(
 
     if profile.is_some() && identity.is_none_or(|value| value == "-") {
         bail!(
-            "macOS provisioning_profile requires a real package.macos.signing_identity or run.macos.signing_identity; ad-hoc signing with `-` cannot embed a provisioning profile"
+            "macOS provisioning_profile requires a real effective package.macos signing identity or run.macos.signing_identity; ad-hoc signing with `-` cannot embed a provisioning profile"
         );
     }
     if let Some(profile) = profile {
@@ -208,7 +277,7 @@ signing_identity = "-"
         .unwrap();
 
         assert_eq!(
-            manifest.package.unwrap().macos.unwrap(),
+            package_config(manifest.package.as_ref(), false),
             MacosPackageConfig {
                 bundle_id: Some("com.example.app".into()),
                 minimum_os: Some("14.0".into()),
@@ -219,7 +288,7 @@ signing_identity = "-"
                 notarize: Some(true),
             }
         );
-        let run = manifest.run.unwrap().macos.unwrap();
+        let run = manifest.run.as_ref().unwrap().macos.as_ref().unwrap();
         assert_eq!(
             run.entitlements.as_deref(),
             Some("platforms/macos/Development.entitlements")
@@ -229,6 +298,62 @@ signing_identity = "-"
             Some("profiles/Developer-Local.provisionprofile")
         );
         assert_eq!(run.signing_identity.as_deref(), Some("-"));
+    }
+
+    #[test]
+    fn release_signing_overlay_is_ignored_for_debug_packages() {
+        let manifest: PackageManifest = toml::from_str(
+            r#"
+[package.macos]
+bundle_id = "com.example.app"
+minimum_os = "14.0"
+entitlements = "platforms/macos/Development.entitlements"
+signing_identity = "-"
+
+[package.macos.release]
+entitlements = "platforms/macos/Release.entitlements"
+provisioning_profile = "profiles/Distribution.provisionprofile"
+signing_identity = "Developer ID Application: Example Ltd"
+installer_identity = "Developer ID Installer: Example Ltd"
+notarize = true
+"#,
+        )
+        .unwrap();
+
+        let debug = package_config(manifest.package.as_ref(), false);
+        assert_eq!(
+            debug.entitlements.as_deref(),
+            Some("platforms/macos/Development.entitlements")
+        );
+        assert_eq!(debug.signing_identity.as_deref(), Some("-"));
+        assert_eq!(debug.provisioning_profile, None);
+        assert_eq!(debug.installer_identity, None);
+        assert_eq!(debug.notarize, None);
+
+        let release = package_config(manifest.package.as_ref(), true);
+        assert_eq!(
+            release.entitlements.as_deref(),
+            Some("platforms/macos/Release.entitlements")
+        );
+        assert_eq!(
+            release.provisioning_profile.as_deref(),
+            Some("profiles/Distribution.provisionprofile")
+        );
+        assert_eq!(
+            release.signing_identity.as_deref(),
+            Some("Developer ID Application: Example Ltd")
+        );
+        assert_eq!(
+            release.installer_identity.as_deref(),
+            Some("Developer ID Installer: Example Ltd")
+        );
+        assert_eq!(release.notarize, Some(true));
+
+        let release_run = run_config(&manifest, true);
+        assert_eq!(
+            release_run.signing_identity.as_deref(),
+            Some("Developer ID Application: Example Ltd")
+        );
     }
 
     #[test]
@@ -271,7 +396,7 @@ signing_identity = "-"
 "#,
         )
         .unwrap();
-        let config = run_config(manifest);
+        let config = run_config(&manifest, false);
 
         assert_eq!(config.bundle_id.as_deref(), Some("com.example.app"));
         assert_eq!(config.minimum_os.as_deref(), Some("14.0"));

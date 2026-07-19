@@ -104,6 +104,7 @@ pub(super) fn package_signing_context(
     project_dir: &Path,
     target: Target,
     format: PackageFormat,
+    release: bool,
     checks: &[ReadinessCheck],
 ) -> Result<Option<ArtifactSigning>> {
     if !package_format_requires_signing(format) {
@@ -130,7 +131,7 @@ pub(super) fn package_signing_context(
     };
     Ok(Some(ArtifactSigning {
         state: state.to_string(),
-        identity: package_signing_identity(project_dir, target, format)?,
+        identity: package_signing_identity(project_dir, target, format, release)?,
         certificate_sha256: None,
     }))
 }
@@ -138,18 +139,16 @@ pub(super) fn package_signing_context(
 pub(super) fn package_notarization_context(
     project_dir: &Path,
     target: Target,
+    release: bool,
 ) -> Result<Option<Value>> {
     if target != Target::Macos {
         return Ok(None);
     }
-    let Some(value) = read_fission_toml_json(project_dir)? else {
+    if !project_dir.join("fission.toml").exists() {
         return Ok(None);
-    };
-    let notarize = value
-        .pointer("/package/macos/notarize")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    if notarize {
+    }
+    let macos = fission_command_core::read_macos_package_config_for_profile(project_dir, release)?;
+    if macos.notarize.unwrap_or(false) {
         Ok(Some(json!({
             "state": "configured",
             "tool": "notarytool"
@@ -177,7 +176,20 @@ pub(super) fn package_signing_identity(
     project_dir: &Path,
     target: Target,
     format: PackageFormat,
+    release: bool,
 ) -> Result<Option<String>> {
+    if target == Target::Macos {
+        if !project_dir.join("fission.toml").exists() {
+            return Ok(None);
+        }
+        let macos =
+            fission_command_core::read_macos_package_config_for_profile(project_dir, release)?;
+        return Ok(match format {
+            PackageFormat::Pkg => macos.installer_identity.or(macos.signing_identity),
+            PackageFormat::App => macos.signing_identity,
+            _ => None,
+        });
+    }
     let Some(value) = read_fission_toml_json(project_dir)? else {
         return Ok(None);
     };
@@ -193,9 +205,6 @@ pub(super) fn package_signing_identity(
             pointer("/package/android/keystore_alias")
                 .or_else(|| env::var("ANDROID_KEYSTORE_ALIAS").ok())
         }
-        (Target::Macos, PackageFormat::Pkg) => pointer("/package/macos/installer_identity")
-            .or_else(|| pointer("/package/macos/signing_identity")),
-        (Target::Macos, PackageFormat::App) => pointer("/package/macos/signing_identity"),
         (Target::Ios, PackageFormat::Ipa) => pointer("/package/ios/signing_identity")
             .or_else(|| pointer("/package/ios/team_id"))
             .or_else(|| env::var("APPLE_TEAM_ID").ok()),

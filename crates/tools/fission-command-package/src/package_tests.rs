@@ -42,62 +42,6 @@ fn macos_info_plist_includes_capability_usage_descriptions() {
 }
 
 #[test]
-fn notarization_base64_key_materializes_temp_file_and_cleans_up() {
-    let saved_path = std::env::var_os("APP_STORE_CONNECT_API_KEY_PATH");
-    let saved_raw = std::env::var_os("APP_STORE_CONNECT_API_KEY");
-    let saved_base64 = std::env::var_os("APP_STORE_CONNECT_API_KEY_BASE64");
-    let saved_key_id = std::env::var_os("APP_STORE_CONNECT_KEY_ID");
-
-    std::env::remove_var("APP_STORE_CONNECT_API_KEY_PATH");
-    std::env::remove_var("APP_STORE_CONNECT_API_KEY");
-    std::env::set_var(
-        "APP_STORE_CONNECT_API_KEY_BASE64",
-        BASE64_STANDARD.encode("notary secret"),
-    );
-    std::env::set_var("APP_STORE_CONNECT_KEY_ID", "ABC123");
-
-    let path;
-    let temp_dir;
-    {
-        let secret = app_store_connect_key_file_for_notarization().unwrap();
-        path = secret.path.clone();
-        temp_dir = path.parent().unwrap().to_path_buf();
-        assert_eq!(
-            path.file_name().and_then(OsStr::to_str),
-            Some("AuthKey_ABC123.p8")
-        );
-        assert_eq!(fs::read_to_string(&path).unwrap(), "notary secret");
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            assert_eq!(
-                fs::metadata(&temp_dir).unwrap().permissions().mode() & 0o777,
-                0o700
-            );
-            assert_eq!(
-                fs::metadata(&path).unwrap().permissions().mode() & 0o777,
-                0o600
-            );
-        }
-    }
-    assert!(!path.exists());
-    assert!(!temp_dir.exists());
-
-    restore_env("APP_STORE_CONNECT_API_KEY_PATH", saved_path);
-    restore_env("APP_STORE_CONNECT_API_KEY", saved_raw);
-    restore_env("APP_STORE_CONNECT_API_KEY_BASE64", saved_base64);
-    restore_env("APP_STORE_CONNECT_KEY_ID", saved_key_id);
-}
-
-fn restore_env(name: &str, value: Option<std::ffi::OsString>) {
-    if let Some(value) = value {
-        std::env::set_var(name, value);
-    } else {
-        std::env::remove_var(name);
-    }
-}
-
-#[test]
 fn server_dockerfile_builds_workspace_package_and_artifacts() {
     let dockerfile = render_server_dockerfile(
         "debian:bookworm-slim",

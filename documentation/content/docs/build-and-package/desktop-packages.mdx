@@ -49,6 +49,27 @@ selected. Variant artifacts are written below
 `target/fission/<profile>/<target>/<format>/variants/<name>/`, and custom
 packager scripts receive the same name as `FISSION_VARIANT`.
 
+Keep production macOS signing in the release overlay:
+
+```toml
+[package.macos]
+bundle_id = "com.example.app"
+team_id = "ABCDE12345"
+
+[package.macos.release]
+entitlements = "platforms/macos/Distribution.entitlements"
+signing_identity = "Developer ID Application: Example Ltd"
+installer_identity = "Developer ID Installer: Example Ltd"
+notarize = true
+```
+
+The nested values are ignored for debug packages. With release notarization
+enabled, Fission signs the `.app`, creates a private temporary `ditto` ZIP for
+`notarytool`, and staples and validates the original app. A `.pkg` build embeds
+that stapled app, signs the installer, then notarizes, staples, and validates the
+`.pkg` as before. Temporary submission archives and environment-provided key
+material are removed when each operation finishes.
+
 For macOS apps with native extensions, declare the Xcode project and products
 under `[[native.modules]]` in `fission.toml`. Fission builds the native schemes,
 embeds app extensions and system extensions in their platform-defined bundle

@@ -4,7 +4,7 @@ use anyhow::{bail, Context, Result};
 use fission_command_core::{
     build_linux_native_modules, build_macos_native_modules, build_windows_native_modules,
     embed_and_sign_macos_native_modules, ensure_native_variant_target, ios_executable_name,
-    normalized_extension, read_macos_run_config, read_project_config, resolve_app_icon,
+    normalized_extension, read_macos_run_config_for_profile, read_project_config, resolve_app_icon,
     sign_macos_app_if_configured, stage_linux_native_products, stage_project_assets,
     stage_windows_runtime_products, sync_platform_config, test_linux_native_modules,
     test_macos_native_modules, test_windows_native_modules, variant_output_path, FissionProject,
@@ -1303,7 +1303,7 @@ fn package_macos_run_app(
             project_dir.display()
         )
     })?;
-    let macos = read_macos_run_config(&project_dir)?;
+    let macos = read_macos_run_config_for_profile(&project_dir, release)?;
     let binary = build_desktop_binary(&project_dir, release)?;
     let profile = if release { "release" } else { "debug" };
     let app_name = macos_display_name(&project.app.name);

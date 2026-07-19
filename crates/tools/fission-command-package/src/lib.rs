@@ -21,6 +21,7 @@ mod distribution;
 mod docker_registry;
 mod files;
 mod github_releases;
+mod macos_notarization;
 mod package;
 mod publish_shell;
 mod readiness;

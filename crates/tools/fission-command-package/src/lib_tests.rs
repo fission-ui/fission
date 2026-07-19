@@ -281,6 +281,7 @@ keystore_alias = "upload"
         &dir,
         Target::Android,
         PackageFormat::Aab,
+        false,
         &[ReadinessCheck {
             id: "release.package.signature.android_aab".to_string(),
             severity: CheckSeverity::Warning,
@@ -296,6 +297,45 @@ keystore_alias = "upload"
     assert_eq!(signing.state, "signed");
     assert_eq!(signing.identity.as_deref(), Some("upload"));
     assert_eq!(signing.certificate_sha256, None);
+}
+
+#[test]
+fn macos_artifact_context_uses_release_signing_overlay_only_for_release() {
+    let dir = unique_dir("macos-release-signing-context");
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(
+        dir.join("fission.toml"),
+        r#"
+[package.macos]
+bundle_id = "com.example.demo"
+
+[package.macos.release]
+signing_identity = "Developer ID Application: Example Ltd"
+installer_identity = "Developer ID Installer: Example Ltd"
+notarize = true
+"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        package_signing_identity(&dir, Target::Macos, PackageFormat::App, false).unwrap(),
+        None
+    );
+    assert_eq!(
+        package_signing_identity(&dir, Target::Macos, PackageFormat::App, true).unwrap(),
+        Some("Developer ID Application: Example Ltd".to_string())
+    );
+    assert_eq!(
+        package_signing_identity(&dir, Target::Macos, PackageFormat::Pkg, true).unwrap(),
+        Some("Developer ID Installer: Example Ltd".to_string())
+    );
+    assert!(package_notarization_context(&dir, Target::Macos, false)
+        .unwrap()
+        .is_none());
+    assert!(package_notarization_context(&dir, Target::Macos, true)
+        .unwrap()
+        .is_some());
+    fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
