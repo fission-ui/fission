@@ -1,0 +1,137 @@
+---
+title: Accessibility reference
+sidebar_label: Accessibility
+slug: /platform/accessibility
+description: Reference for Fission semantics, native accessibility bridge support, platform matrix, screen-reader compatibility targets, and known limitations.
+---
+
+# Accessibility reference
+
+This page is the technical contract for Fission accessibility support.
+
+Fission's shared runtime lowers accessibility information into `Op::Semantics` nodes in Core IR. Shells and renderers consume those semantics differently depending on the target.
+
+## Current support matrix
+
+| Target | Runtime path | Native accessibility API exposure | Screen-reader expectation | Status |
+| --- | --- | --- | --- | --- |
+| macOS | winit native shell | Yes, through AccessKit and the macOS accessibility stack | VoiceOver, Switch Control, Accessibility Inspector | Supported; product apps still need manual QA. |
+| Windows | winit native shell | Yes, through AccessKit and the Windows accessibility stack | Narrator, NVDA, JAWS, Inspect | Supported; validate on target Windows versions. |
+| Linux | winit native shell | Yes, through AccessKit and AT-SPI where available | Orca and AT-SPI tooling | Supported with desktop/session dependency; validate on the distribution and desktop environment you ship for. |
+| iOS | winit mobile/native shell | Yes, through AccessKit's iOS adapter | VoiceOver, Switch Control, Full Keyboard Access | Supported by the native bridge; validate on simulator and device. |
+| Android | winit mobile shell using NativeActivity | No native TalkBack bridge today | TalkBack, Switch Access, Voice Access | Semantics exist for runtime/tests, but native TalkBack control is not complete because the current AccessKit Android adapter expects winit GameActivity. |
+| Web canvas | winit/Web canvas shell | No DOM accessibility tree for the canvas-rendered app today | Browser screen readers only see surrounding host DOM | Not complete for screen-reader control of the canvas app. Prefer Static site or SSR for accessible document-like pages today. |
+| Static site | static HTML renderer | Yes, through semantic HTML and browser accessibility tree | Browser screen readers and browser accessibility inspectors | Supported for rendered HTML semantics, native form controls, links, headings, labels, and ARIA/data attributes produced by the static renderer. |
+| SSR | server HTML renderer | Yes, through semantic HTML and browser accessibility tree | Browser screen readers and browser accessibility inspectors | Supported for server-rendered HTML semantics and forms, with progressive enhancement preserving semantic targets. |
+| Terminal | terminal shell | No OS accessibility tree owned by Fission | Terminal emulator plus screen reader, for example VoiceOver terminal navigation or Orca terminal use | Partial; Fission semantics inform rendering and tests, but full selector command semantics are not exposed by the terminal backend yet. |
+
+## Native bridge implementation
+
+The winit shell owns the native accessibility bridge. It uses AccessKit on non-Web, non-Android targets.
+
+The bridge builds an AccessKit `TreeUpdate` from:
+
+- `CoreIR`, especially `Op::Semantics` and text paint operations;
+- the latest `LayoutSnapshot` for bounds and viewport size;
+- `RuntimeState` for focus, text editing state, scroll offsets, and current values.
+
+The root AccessKit node is a window node. Fission semantics nodes become child nodes when they carry meaningful metadata: a non-generic role, label, identifier, value, focusability, checked state, numeric value, scrollability, or actions.
+
+Text paint nodes become read-only labels when they are not already represented by a higher-level semantics node.
+
+## Role mapping
+
+| Fission role | AccessKit/native role |
+| --- | --- |
+| `Role::Button` | Button |
+| `Role::Text` | Label |
+| `Role::TextInput` | Text input, password input, multiline text input, email input, number input, phone input, or URL input depending on text-input metadata |
+| `Role::Image` | Image |
+| `Role::Checkbox` | Checkbox |
+| `Role::Radio` | Radio button |
+| `Role::Switch` | Switch |
+| `Role::Dialog` | Dialog |
+| `Role::Slider` | Slider |
+| `Role::Input` | Text input |
+| `Role::List` | List |
+| `Role::ListItem` | List item |
+| `Role::Generic` | Generic container, only emitted when other metadata makes the node meaningful |
+
+Static site and SSR targets map some roles to native HTML elements instead: `button`, `input`, `textarea`, `input type="checkbox"`, `input type="radio"`, `input type="range"`, `a`, `ul`, `li`, `figure`, headings, tables, forms, and labelled wrappers where appropriate.
+
+## Exported node data
+
+| Fission field or derived data | Native bridge behavior |
+| --- | --- |
+| `Semantics::identifier` | Exposed as AccessKit author id and as `data-fission-semantics` in HTML renderers. Used by LiveTest selectors. |
+| `Semantics::label` | Exposed as accessible label. If absent, some controls derive a label from descendant text. |
+| `Semantics::value` | Exposed as node value. Text inputs can fall back to retained runtime text-edit state when lowered semantics do not carry a value. |
+| `Semantics::focusable` | Adds focus and blur actions when the node is enabled. |
+| Runtime focused node | Mirrored into the AccessKit tree focus field. |
+| `Semantics::disabled` | Exposed as disabled; native action dispatch rejects disabled targets. |
+| `Semantics::read_only` | Exposed for text inputs and native HTML inputs. |
+| `Semantics::checked` | Exposed as toggled/checked state for checkbox, radio, and switch controls. |
+| `Semantics::masked` | Maps text input to password input. The platform accessibility stack decides how to present the value; app code should not place raw secrets in custom semantic values. |
+| `Semantics::multiline` and `text_input_type` | Selects multiline, email, number, phone, URL, password, or generic text input role/type. |
+| `Semantics::text_selection` | Exposed as AccessKit text selection using character indices derived from byte offsets. |
+| `Semantics::min_value`, `max_value`, `current_value` | Exposed as numeric range metadata and supports increment, decrement, and set value. |
+| `Semantics::scrollable_x`, `scrollable_y` | Exposes scroll actions and current scroll offsets where layout has scroll geometry. |
+| Action entries | Default, focus, blur, change, cursor change, and related action triggers connect platform actions back to Fission reducers. |
+
+## Supported native actions
+
+| Platform accessibility action | Fission behavior |
+| --- | --- |
+| Click | Dispatches the semantic node's default action if present and enabled. |
+| Focus | Sets Fission runtime focus and dispatches the focus trigger. |
+| Blur | Clears or moves Fission runtime focus and dispatches the blur trigger. |
+| Replace selected text | Focuses the text input and commits replacement text through the IME/text-edit pipeline. |
+| Set value | Updates text input text or numeric range value, then dispatches the relevant change action. |
+| Set text selection | Converts character indices to byte offsets, updates Fission text selection, and dispatches cursor change. |
+| Scroll up/down/left/right | Finds the relevant scroll node, updates runtime scroll offset, and schedules a new frame. |
+| Increment/decrement | Adjusts numeric range values for sliders and similar controls. |
+
+Unsupported AccessKit actions are ignored by the bridge today. Add a Fission issue when a product needs a specific missing platform action.
+
+## Compatible assistive technology targets
+
+The compatibility target is the operating-system accessibility API, not one named screen reader. Still, product release testing should include common tools.
+
+| Platform | Tools worth testing |
+| --- | --- |
+| macOS | VoiceOver, Switch Control, Accessibility Inspector, Keyboard navigation. |
+| Windows | Narrator, NVDA, JAWS, Windows Magnifier, Inspect. |
+| Linux | Orca, AT-SPI inspection tools, high-contrast desktop themes, keyboard-only navigation. |
+| iOS | VoiceOver, Switch Control, Dynamic Type, Full Keyboard Access. |
+| Android | TalkBack, Switch Access, Voice Access, large font scale. Native TalkBack control is not complete yet. |
+| Browser for Static site/SSR | VoiceOver with Safari, VoiceOver with Chrome, NVDA with Firefox/Chrome, JAWS with Chrome/Edge, browser accessibility tree inspectors. |
+
+Compatibility still depends on app quality. A supported bridge cannot invent a useful label for an unlabeled icon button, cannot make a color-only error understandable, and cannot choose the right focus order for an ambiguous layout.
+
+## Known gaps
+
+| Gap | Impact | Current workaround |
+| --- | --- | --- |
+| Android native TalkBack bridge | Android users cannot rely on a complete native screen-reader tree from Fission apps yet. | Keep semantics correct, test with LiveTest, and track Android accessibility bridge work separately. |
+| Web canvas accessibility tree | Browser screen readers cannot inspect the canvas-rendered app as native DOM controls. | Use Static site or SSR for document-like accessible experiences where possible. |
+| Advanced native announcements | Apps may need explicit status announcements for async completion, validation errors, or live regions. | Render visible and semantic status text; add a platform announcement API when needed. |
+| Rich text navigation | Basic text labels and editable selection are exposed, but advanced rich text navigation is not complete. | Keep important prose in normal `Text`/`RichText` nodes and validate with target screen readers. |
+| Custom rotors/landmarks | Platform-specific navigation affordances beyond current roles are not fully modeled. | Use clear region labels and roles today; propose additional semantic roles when product needs prove them. |
+| Terminal semantic command tree | Terminal backend does not expose the same selector command semantics as winit LiveTest today. | Use terminal-focused tests and manual terminal/screen-reader QA. |
+
+## Developer obligations
+
+Framework support is necessary but not sufficient. App code should:
+
+- prefer built-in widgets for built-in semantics;
+- provide explicit labels for icon-only and custom controls;
+- add stable semantic identifiers for test and automation targets;
+- avoid color-only status;
+- expose disabled, read-only, checked, masked, selected, and loading states truthfully;
+- keep focus order close to visual order;
+- use focus scopes for dialogs and modal surfaces;
+- test with selector APIs and at least one real assistive technology per target.
+
+## Related pages
+
+Read [Accessibility in Fission](/docs/learn/accessibility/) for the learning path, [Add accessible semantics](/docs/cookbook/add-accessible-semantics/) for a concrete recipe, [LiveTest command API](/reference/core/live-test-command-api/) for semantic selectors, and [Accessibility and internationalization](/reference/platform/accessibility-and-i18n/) for the combined platform presentation contract.

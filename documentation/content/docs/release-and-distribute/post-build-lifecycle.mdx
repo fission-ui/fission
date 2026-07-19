@@ -30,6 +30,21 @@ fission distribute --project-dir . --provider microsoft-store --artifact target/
 
 The same pattern works for other providers. The target, package format, provider, and track change; the workflow remains recognizable.
 
+## Choose the right entry point
+
+The release engine is shared, but developers enter it in different ways:
+
+| Entry point | Use it when | Behavior |
+| --- | --- | --- |
+| `fission publish --provider <provider>` | Local interactive publishing | Opens the guided terminal flow and builds/packages the provider default target when no artifact is supplied. |
+| `fission publish --provider <provider> --app` | Local visual publishing | Opens the windowed Fission flow. It is interactive and should not be combined with CI flags. |
+| `fission publish --provider <provider> --artifact <manifest> --yes --json` | CI or scripted release | Uses the manifest exactly as produced by `fission package`, does not prompt, and writes JSON diagnostics. |
+| `fission distribute ...` | Lower-level provider operation | Runs setup, status, promote, rollback, or publish against a provider profile. |
+| `fission release-workflow run <name>` | Project-owned repeatable release recipe | Runs named Fission commands declared in `fission.toml`; arbitrary shell commands are rejected. |
+
+Use guided flows for discovery. Use direct manifest-backed commands for CI and
+repeatable automation.
+
 ## Keep release metadata reviewable
 
 ## Lifecycle fit and verification
@@ -90,6 +105,32 @@ A readiness check should answer three questions:
 | What should I do next? | Stable error IDs, human-readable explanation, and concrete remediation steps. |
 
 Use `--json` in CI so a workflow can fail with structured diagnostics instead of parsing console text. The JSON report is printed before exit, and a blocked report still exits non-zero so CI cannot accidentally treat provider-required failures as successful readiness.
+
+## Version and build preflight
+
+Store providers reject avoidable version mistakes. Fission treats version/build
+state as part of release readiness, not as an afterthought.
+
+```bash
+fission release-config version-state \
+  --project-dir . \
+  --provider play-store \
+  --target android \
+  --track internal \
+  --json
+```
+
+If the provider reports that the selected build is unusable, update the release
+configuration before packaging:
+
+```bash
+fission release-config bump-build --project-dir . --target android --yes
+fission package --project-dir . --target android --format aab --release
+```
+
+The same principle applies to App Store and Microsoft Store releases even though
+the provider rules differ. Resolve version/build, sync target-native
+configuration, package, then publish the resulting manifest.
 
 ## Package commands produce artifact manifests
 

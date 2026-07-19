@@ -56,6 +56,16 @@ href = "/docs/learn/rendering-pipeline/"
 level = 2
 
 [[items]]
+title = "Accessibility"
+href = "/docs/learn/accessibility/"
+level = 2
+
+[[items]]
+title = "Testing"
+href = "/docs/learn/testing/"
+level = 2
+
+[[items]]
 title = "Layout and widgets"
 href = "/docs/guides/layout-and-widgets/"
 level = 2
@@ -97,18 +107,63 @@ level = 2
 
 [[items]]
 title = "Fission for..."
-href = "/docs/from/overview/"
+href = "/docs/fission/for/overview/"
 level = 1
 group = true
 
 [[items]]
 title = "Overview"
-href = "/docs/from/overview/"
+href = "/docs/fission/for/overview/"
 level = 2
 
 [[items]]
 title = "React developers"
-href = "/docs/from/react/"
+href = "/docs/fission/for/react-developers/"
+level = 2
+
+[[items]]
+title = "Flutter developers"
+href = "/docs/fission/for/flutter-developers/"
+level = 2
+
+[[items]]
+title = "SwiftUI developers"
+href = "/docs/fission/for/swiftui-developers/"
+level = 2
+
+[[items]]
+title = "Compose developers"
+href = "/docs/fission/for/compose-developers/"
+level = 2
+
+[[items]]
+title = "Electron developers"
+href = "/docs/fission/for/electron-developers/"
+level = 2
+
+[[items]]
+title = "Tauri developers"
+href = "/docs/fission/for/tauri-developers/"
+level = 2
+
+[[items]]
+title = "Leptos developers"
+href = "/docs/fission/for/leptos-developers/"
+level = 2
+
+[[items]]
+title = "Yew developers"
+href = "/docs/fission/for/yew-developers/"
+level = 2
+
+[[items]]
+title = "Dioxus developers"
+href = "/docs/fission/for/dioxus-developers/"
+level = 2
+
+[[items]]
+title = "Terminal UI developers"
+href = "/docs/fission/for/terminal-ui-developers/"
 level = 2
 
 [[items]]
@@ -337,8 +392,43 @@ href = "/docs/build-and-package/desktop-packages/"
 level = 2
 
 [[items]]
+title = "macOS packages"
+href = "/docs/build-and-package/macos-packages/"
+level = 2
+
+[[items]]
+title = "macOS native XcodeGen"
+href = "/docs/build-and-package/macos-native-xcodegen/"
+level = 2
+
+[[items]]
+title = "Windows packages"
+href = "/docs/build-and-package/windows-packages/"
+level = 2
+
+[[items]]
+title = "Linux packages"
+href = "/docs/build-and-package/linux-packages/"
+level = 2
+
+[[items]]
 title = "Mobile packages"
 href = "/docs/build-and-package/mobile-packages/"
+level = 2
+
+[[items]]
+title = "Android packages"
+href = "/docs/build-and-package/android-packages/"
+level = 2
+
+[[items]]
+title = "iOS packages"
+href = "/docs/build-and-package/ios-packages/"
+level = 2
+
+[[items]]
+title = "Native modules"
+href = "/docs/build-and-package/native-modules/"
 level = 2
 
 [[items]]
@@ -434,6 +524,11 @@ href = "/docs/cookbook/theme-and-locale-toggle/"
 level = 2
 
 [[items]]
+title = "Add accessible semantics"
+href = "/docs/cookbook/add-accessible-semantics/"
+level = 2
+
+[[items]]
 title = "Modal text flow"
 href = "/docs/cookbook/modal-text-flow/"
 level = 2
@@ -467,6 +562,26 @@ level = 2
 [[items]]
 title = "CLI reference"
 href = "/reference/cli/overview/"
+level = 2
+
+[[items]]
+title = "Testing and diagnostics"
+href = "/reference/core/testing-and-diagnostics/"
+level = 2
+
+[[items]]
+title = "LiveTest command API"
+href = "/reference/core/live-test-command-api/"
+level = 2
+
+[[items]]
+title = "Accessibility reference"
+href = "/reference/platform/accessibility/"
+level = 2
+
+[[items]]
+title = "Fission release checklist"
+href = "/reference/project/fission-release-checklist/"
 level = 2
 
 [[items]]

@@ -18,6 +18,22 @@ Release begins after packaging. At this stage you already have an artifact manif
 
 Release commands should fail with diagnosable errors. Missing credentials, expired auth, invalid tracks, absent screenshots, and provider rejections should be safe to fix and retry.
 
+## Choose a local or CI release path
+
+Use the same release model in every shell, but choose the interface that matches
+the job.
+
+| Path | Command | Best fit |
+| --- | --- | --- |
+| Guided local flow | `fission publish --provider play-store` | A developer is setting up a provider, signing, release notes, screenshots, or tracks for the first time. |
+| Windowed local flow | `fission publish --provider play-store --app` | A developer wants the visual release wizard and native file dialogs. |
+| Direct CI flow | `fission readiness ... --json`, `fission package ... --json`, `fission publish ... --artifact ... --yes --json` | Automation should build one artifact, publish that exact manifest, and fail without prompting. |
+| Provider lifecycle operation | `fission distribute status|promote|rollback ...` | A release has already been uploaded and needs provider-specific follow-up. |
+
+The guided shells can help discover missing setup, but they are not a different
+release system. They render the same plan, requirements, jobs, and receipts as
+direct commands.
+
 ## Pick the provider page
 
 | Destination | Start here | Common artifacts |

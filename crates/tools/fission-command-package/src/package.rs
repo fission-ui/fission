@@ -1973,15 +1973,12 @@ fn windows_packaging_environment(
     project_dir: &Path,
     binary: &Path,
     manifest: &Path,
-) -> Result<Vec<(OsString, OsString)>> {
+) -> Result<Vec<(OsString, PathBuf)>> {
     let mut environment = vec![
-        (
-            OsString::from("WINDOWS_BINARY"),
-            binary.as_os_str().to_os_string(),
-        ),
+        (OsString::from("WINDOWS_BINARY"), binary.to_path_buf()),
         (
             OsString::from("FISSION_WINDOWS_NATIVE_PRODUCTS_MANIFEST"),
-            manifest.as_os_str().to_os_string(),
+            manifest.to_path_buf(),
         ),
     ];
     let assets = project_dir.join("assets");
@@ -1992,10 +1989,7 @@ fn windows_packaging_environment(
         );
     }
     if assets.exists() {
-        environment.push((
-            OsString::from("FISSION_WINDOWS_ASSETS_DIR"),
-            assets.into_os_string(),
-        ));
+        environment.push((OsString::from("FISSION_WINDOWS_ASSETS_DIR"), assets));
     }
     Ok(environment)
 }
@@ -2004,19 +1998,16 @@ fn linux_packaging_environment(
     payload_dir: &Path,
     binary: &Path,
     manifest: &Path,
-) -> Vec<(OsString, OsString)> {
+) -> Vec<(OsString, PathBuf)> {
     vec![
         (
             OsString::from("FISSION_LINUX_PAYLOAD_DIR"),
-            payload_dir.as_os_str().to_os_string(),
+            payload_dir.to_path_buf(),
         ),
-        (
-            OsString::from("LINUX_BINARY"),
-            binary.as_os_str().to_os_string(),
-        ),
+        (OsString::from("LINUX_BINARY"), binary.to_path_buf()),
         (
             OsString::from("FISSION_LINUX_NATIVE_PRODUCTS_MANIFEST"),
-            manifest.as_os_str().to_os_string(),
+            manifest.to_path_buf(),
         ),
     ]
 }
@@ -2035,11 +2026,13 @@ fn run_packaging_script_with_env(
     script: &Path,
     release: bool,
     variant: Option<&fission_command_core::NativeVariant>,
-    environment: &[(OsString, OsString)],
+    environment: &[(OsString, PathBuf)],
 ) -> Result<Option<PathBuf>> {
     if !script.exists() {
         bail!("packaging script is missing at {}", script.display());
     }
+    let working_dir = absolute_path(project_dir)?;
+    let script = absolute_path(script)?;
     let extension = script.extension().and_then(OsStr::to_str);
     let mut command = if extension == Some("ps1") {
         let program = if cfg!(windows) {
@@ -2058,16 +2051,16 @@ fn run_packaging_script_with_env(
         } else {
             command.arg("-File");
         }
-        command.arg(script);
+        command.arg(&script);
         command
     } else if cfg!(windows) || extension == Some("sh") {
         let mut command = Command::new("bash");
-        command.arg(script);
+        command.arg(&script);
         command
     } else {
-        Command::new(script)
+        Command::new(&script)
     };
-    command.current_dir(project_dir);
+    command.current_dir(&working_dir);
     command.env_remove("FISSION_VARIANT");
     if let Some(variant) = variant {
         command.env("FISSION_VARIANT", variant.as_str());
@@ -2078,8 +2071,8 @@ fn run_packaging_script_with_env(
         command.env("LINUX_PROFILE", "release");
         command.env("WINDOWS_PROFILE", "release");
     }
-    for (key, value) in environment {
-        command.env(key, value);
+    for (key, path) in environment {
+        command.env(key, absolute_path(path)?);
     }
     let output = command
         .output()
@@ -2099,10 +2092,19 @@ fn run_packaging_script_with_env(
             if path.is_absolute() {
                 path
             } else {
-                project_dir.join(path)
+                working_dir.join(path)
             }
         })
         .find(|path| path.exists()))
+}
+
+fn absolute_path(path: &Path) -> Result<PathBuf> {
+    if path.is_absolute() {
+        return Ok(path.to_path_buf());
+    }
+    Ok(env::current_dir()
+        .context("failed to resolve the current directory")?
+        .join(path))
 }
 
 fn sanitize_file_stem(value: &str) -> String {

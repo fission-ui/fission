@@ -10,6 +10,8 @@ Accessibility and internationalization are not finishing touches. They affect ho
 
 In Fission, both concerns start in the shared app model. Widgets produce semantic information as part of the normal tree. Text can come from translation keys. Locale and translation bundles live in `Env`. Shells then bridge the resolved result to the host platform.
 
+For the dedicated accessibility support matrix, native bridge contract, role mapping, and screen-reader compatibility targets, use [Accessibility reference](/reference/platform/accessibility/). This page keeps accessibility and locale together because platform shells often need to validate both at the same time.
+
 ## Accessibility contract
 
 Fission widgets can carry semantic metadata. That metadata is used by tests, diagnostics, and platform shells.

@@ -52,7 +52,16 @@ Fission exposes these public command-line interface entry points:
 | `fission server serve` | Runs the server-rendered app locally | When reviewing dynamic pages, jobs, workers, and islands |
 | `fission server artifacts` | Generates per-worker and per-island browser artifacts | Before packaging server pages with browser enhancements |
 | `fission package` | Packages an app, static site, or server into a release artifact manifest | Before publishing or archiving release output |
-| `fission publish` | Publishes a packaged artifact to a configured provider | When uploading to static hosts, GitHub Releases, object storage, stores, or Docker registries |
+| `fission readiness` | Runs focused package, distribution, or full release preflight | Before an expensive package or provider mutation |
+| `fission release-config` | Edits, validates, imports, diffs, locks, and pushes release metadata | When managing versions, build numbers, store metadata, and release records |
+| `fission release-content` | Captures, renders, validates, and pushes release assets | When preparing notes, screenshots, previews, privacy files, and review material |
+| `fission distribute` | Runs lower-level provider setup, publish, status, promote, or rollback operations | When a provider action is not just the common publish path |
+| `fission publish` | Runs the shared package/publish workflow or opens an interactive publish flow | When uploading to static hosts, GitHub Releases, object storage, stores, or Docker registries |
+| `fission beta` | Manages beta groups, testers, and beta distribution | When a store release needs TestFlight, Play tracks, or provider tester state |
+| `fission signing` | Inspects or imports signing references without storing secrets in the project | When preparing Android, iOS, macOS, or Windows release signing |
+| `fission reviews` | Lists and replies to store reviews where provider support exists | When release operations need provider feedback loops |
+| `fission release-workflow` | Runs named project-defined release recipes | When CI needs a repeatable sequence of Fission commands |
+| `fission auth` | Shows provider authentication setup, status, import, rotation, and audit guidance | When credentials or provider auth state are missing |
 
 Repository developers may see the package name `cargo-fission` in workspace commands. That is the package that builds and installs the developer-facing `fission` command; product documentation and generated project files should use `fission ...`.
 
@@ -406,6 +415,141 @@ fission publish --provider <provider> --artifact <artifact-manifest.json> [--sit
 Without `--artifact`, `fission publish` opens the guided local publish flow. It shows preflight checks, creates/uses `~/.fission/<app-name>/release.env`, helps select or generate signing/provider files, builds the artifact, runs a dry-run, and then asks for explicit confirmation before publishing. Add `--app` to open the same workflow as a native windowed Fission app with native file dialogs. `--app` is interactive, so do not combine it with `--guided`, `--dry-run`, `--yes`, `--json`, or `--overwrite-remote`.
 
 With `--artifact`, `fission publish` keeps the direct non-interactive behavior for scripts and CI. `fission distribute publish ...` is still available, but `publish` is the direct command developers should reach for in normal release workflows.
+
+### `fission distribute`
+
+```sh
+fission distribute [setup|publish|status|promote|rollback] \
+  --provider <provider> \
+  [--artifact <artifact-manifest.json>] \
+  [--site <profile>] \
+  [--deploy <id>] \
+  [--track <track>] \
+  [--locale <locale>] \
+  [--dry-run] \
+  [--yes] \
+  [--project-dir <dir>] \
+  [--json]
+```
+
+Runs a provider lifecycle operation. `publish` is the default action when no
+action is supplied. Use `distribute` when you need setup, status, promote, or
+rollback operations, or when provider-specific release automation is clearer as
+a lower-level command than `publish`.
+
+Supported providers are `app-store`, `github-pages`, `github-releases`,
+`cloudflare-pages`, `docker-registry`, `dropbox`, `google-drive`,
+`microsoft-store`, `netlify`, `onedrive`, `play-store`, and `s3`.
+
+### `fission release-config`
+
+```sh
+fission release-config validate [--provider <provider>] [--project-dir <dir>] [--json]
+fission release-config set <field> <value> [--project-dir <dir>] [--dry-run] [--yes] [--json]
+fission release-config add-release --version <version> --build <n> [--from <release-id>] [--project-dir <dir>] [--dry-run] [--yes] [--json]
+fission release-config bump-build [--target <target>] [--by <n>] [--project-dir <dir>] [--dry-run] [--yes] [--json]
+fission release-config version-state --provider <provider> [--target <target>] [--format <format>] [--track <track>] [--artifact <manifest>] [--project-dir <dir>] [--json]
+fission release-config import --provider <provider> [--locales <list>] [--project-dir <dir>] [--dry-run] [--yes] [--json]
+fission release-config diff --provider <provider> [--project-dir <dir>] [--json]
+fission release-config lock --provider <provider> [--locales <list>] [--project-dir <dir>] [--dry-run] [--yes] [--json]
+fission release-config push --provider <provider> [--locales <list>] [--overwrite-remote] [--project-dir <dir>] [--dry-run] [--yes] [--json]
+fission release-config skip-requirement --id <requirement-id> [--project-dir <dir>] [--dry-run] [--yes] [--json]
+fission release-config edit [--provider <provider>] [--tui] [--project-dir <dir>]
+fission release-config edit-file --release <release-id> --kind <kind> [--locale <locale>] [--project-dir <dir>]
+fission release-config write-file --release <release-id> --kind <kind> [--locale <locale>] [--value <text>|--from-file <path>] [--project-dir <dir>] [--dry-run] [--yes] [--json]
+```
+
+Release config commands manage reviewable release state in
+[`fission.toml`](/reference/config/fission-toml/) and referenced sidecar files.
+Use them to create releases, set scalar fields with the right TOML type, bump
+build numbers, compare local state with provider state, and prevent stale store
+metadata overwrites.
+
+`version-state` is the preflight command to run before store uploads. It checks
+local version/build state against provider state where the provider API exposes
+enough information. For example, Google Play reused `versionCode` values should
+be caught before artifact upload.
+
+### `fission release-content`
+
+```sh
+fission release-content capture --target <target> --set <set> [--project-dir <dir>] [--json]
+fission release-content render --provider <provider> [--project-dir <dir>] [--json]
+fission release-content validate [--provider <provider>] [--project-dir <dir>] [--json]
+fission release-content push --provider <provider> [--locales <list>] [--project-dir <dir>] [--dry-run] [--yes] [--json]
+```
+
+Release content commands prepare the human-facing material around a binary:
+notes, screenshots, store listing text, previews, privacy answers, review files,
+and provider assets. Capture uses configured scenarios and LiveTest-style
+commands. Render turns raw captures into provider-ready assets. Validate checks
+required and recommended content before publish.
+
+### `fission beta`
+
+```sh
+fission beta groups list --provider <provider> [--project-dir <dir>] [--json]
+fission beta groups sync --provider <provider> [--from <path>] [--project-dir <dir>] [--dry-run] [--yes] [--json]
+fission beta testers import --provider <provider> [--group <group>|--track <track>] --csv <path> [--project-dir <dir>] [--dry-run] [--yes] [--json]
+fission beta testers export --provider <provider> [--group <group>|--track <track>] --output <path> [--project-dir <dir>] [--json]
+fission beta distribute --provider <provider> --artifact <manifest> [--group <group>|--track <track>] [--project-dir <dir>] [--dry-run] [--yes] [--json]
+```
+
+Beta commands manage provider beta surfaces such as App Store groups and Google
+Play tracks/tester configuration where support is implemented.
+
+### `fission signing`
+
+```sh
+fission signing status --target <target> [--project-dir <dir>] [--json]
+fission signing sync --target <target> [--readonly] [--project-dir <dir>] [--json]
+fission signing import --target <target> [--keystore <path>] [--alias <alias>] [--project-dir <dir>] [--dry-run] [--yes] [--json]
+```
+
+Signing commands inspect or import signing references. They do not store
+passwords, private keys, service-account JSON, or machine-local secret paths in
+the project manifest. Secret material should come from environment variables,
+base64 CI secrets, platform key stores, provider tools, or local private
+workspace files under `~/.fission/<app-name>/`.
+
+### `fission reviews`
+
+```sh
+fission reviews list --provider <provider> [--since <duration>] [--project-dir <dir>] [--json]
+fission reviews reply --provider <provider> --review <id> --message-file <path> [--project-dir <dir>] [--dry-run] [--yes] [--json]
+```
+
+Review commands are provider lifecycle helpers. Replies are explicit mutating
+operations and should use `--dry-run` while drafting and `--yes` only after the
+message file has been reviewed.
+
+### `fission release-workflow`
+
+```sh
+fission release-workflow list [--project-dir <dir>] [--json]
+fission release-workflow run <name> [--project-dir <dir>] [--dry-run] [--yes] [--json]
+```
+
+Runs named release workflows from [`fission.toml`](/reference/config/fission-toml/).
+Workflow commands must be Fission commands; arbitrary shell commands are
+rejected before execution. Use workflows for CI recipes that should stay
+reviewable in the project manifest.
+
+### `fission auth`
+
+```sh
+fission auth login [provider] [--json]
+fission auth setup [provider] [--json]
+fission auth status [provider] [--json]
+fission auth logout [provider] [--json]
+fission auth import <provider> [--from <file-or-env>] [--json]
+fission auth rotate [provider] [--json]
+fission auth audit [--json]
+```
+
+Auth commands explain and inspect provider credential setup. They do not create a
+hidden project vault. The project manifest may name environment variables, but
+secret values and secret file paths stay outside source control.
 
 ## Static site workflow
 

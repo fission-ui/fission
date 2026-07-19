@@ -9,6 +9,26 @@ Release content is the human-facing and provider-facing material that travels wi
 
 Keep [`fission.toml`](/reference/config/fission-toml/) as the root reference, but keep long content in files.
 
+## What belongs in release content
+
+Release content is broader than release notes. A store release may need many
+separate files and decisions:
+
+| Content | Typical location | Required? |
+| --- | --- | --- |
+| Release notes | `release-content/metadata/<release>/notes/<locale>.md` | Often provider-required for store tracks. |
+| Store listing text | `release-content/metadata/<release>/release.toml` plus short fields in `fission.toml` | Provider-specific. |
+| Screenshots | `release-content/screenshots/rendered/<provider>/...` | Provider-specific; recommended even when not required. |
+| Preview video or trailer | `release-content/assets/...` | Optional or provider-specific. |
+| Privacy/data-safety answers | `release-content/metadata/<release>/privacy.toml` | Required for many stores before public release. |
+| Review instructions | `release-content/metadata/<release>/review.toml` | Required when reviewers need credentials or special setup. |
+| Tester groups | `fission.toml` beta tables or provider state | Track/provider-specific. |
+
+Fission classifies missing items as provider required, Fission recommended,
+optional, or not applicable. Provider-required items block the selected
+operation. Recommended items should be reviewed and either fixed or explicitly
+skipped.
+
 ## 1. Use a versioned content folder
 
 ```text
@@ -29,10 +49,23 @@ release-content/
 The manifest can point to those files through a release block.
 
 ```toml
+[release]
+active_release = "1.2.3+42"
+metadata_root = "release-content/metadata"
+content_output_dir = "release-content"
+default_locales = ["en-US"]
+
 [[releases]]
-version = "1.2.3+42"
+id = "1.2.3+42"
+version = "1.2.3"
+build = 42
+status = "candidate"
+tracks = ["play-store:internal"]
+locales = ["en-US"]
 metadata = "release-content/metadata/1.2.3+42/release.toml"
-notes = "release-content/metadata/1.2.3+42/notes/en-US.md"
+release_notes = "release-content/metadata/1.2.3+42/notes"
+review = "release-content/metadata/1.2.3+42/review.toml"
+privacy = "release-content/metadata/1.2.3+42/privacy.toml"
 ```
 
 ## 2. Validate before upload
@@ -43,10 +76,79 @@ fission release-content validate --project-dir . --provider app-store
 
 Validation should fail early when screenshots are missing, notes are empty, privacy answers are incomplete, review credentials are absent, or localized content does not match the provider's requirements.
 
+Use JSON in CI and in tools that render the release plan:
+
+```bash
+fission release-content validate --project-dir . --provider play-store --json
+```
+
+When an item is recommended rather than provider-required, the team can record a
+deliberate skip by id:
+
+```bash
+fission release-config skip-requirement \
+  --project-dir . \
+  --id release_content.play_store.feature_graphic \
+  --yes
+```
+
+Do not skip provider-required items. Fission reports those skip attempts as
+warnings and keeps the requirement blocking.
+
 ## 3. Capture screenshots intentionally
 
 Screenshots are release assets, not random test leftovers. Capture them from the target shell and viewport the provider expects. Store them under the release-content version so the release remains reproducible.
 
-## 4. Connect release content to distribution
+Release screenshot capture uses the same LiveTest command channel as normal UI
+testing. Define stable scenarios in [`fission.toml`](/reference/config/fission-toml/)
+so they can be replayed locally and in CI:
+
+```toml
+[release.screenshots]
+raw_dir = "release-content/screenshots/raw"
+rendered_dir = "release-content/screenshots/rendered"
+
+[[release.screenshots.scenarios]]
+id = "android-onboarding"
+name = "Android onboarding"
+targets = ["android"]
+script = "platforms/android/test-emulator.sh"
+timeout_ms = 60000
+
+[[release.screenshots.scenarios.steps]]
+cmd = "tap_text"
+text = "Get started"
+
+[[release.screenshots.scenarios.steps]]
+cmd = "screenshot"
+name = "01-onboarding"
+```
+
+Capture and render:
+
+```bash
+fission release-content capture --project-dir . --target android --set play-store --json
+fission release-content render --project-dir . --provider play-store --json
+```
+
+Screenshots should be reviewed visually before publishing. Automated capture is
+there to make the release reproducible, not to replace product judgment.
+
+## 4. Keep provider metadata reviewable
+
+Use `release-config import`, `diff`, `lock`, and `push` for provider metadata:
+
+```bash
+fission release-config import --project-dir . --provider play-store --locales en-US --yes
+fission release-config diff --project-dir . --provider play-store
+fission release-config lock --project-dir . --provider play-store --locales en-US --yes
+fission release-config push --project-dir . --provider play-store --locales en-US --yes
+```
+
+The lock records the remote baseline that you reviewed. A later push checks that
+the provider metadata has not changed underneath you. If it has, run `diff`,
+refresh the lock, or pass `--overwrite-remote` only after an explicit review.
+
+## 5. Connect release content to distribution
 
 Distribution commands should read validated content, upload the package, upload or reference release assets, and write a receipt. If metadata validation fails, fix content before retrying the upload.

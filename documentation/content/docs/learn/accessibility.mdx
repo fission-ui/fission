@@ -1,0 +1,146 @@
+---
+title: Accessibility in Fission
+sidebar_label: Accessibility
+slug: /learn/accessibility
+summary: Learn how Fission turns widget semantics into screen-reader structure, keyboard focus, native accessibility actions, and testable UI metadata.
+description: Learn how Fission models accessibility semantics, which shells expose them to native accessibility APIs, and how to design screens that screen readers and automation can control.
+---
+
+# Accessibility in Fission
+
+Fission accessibility starts in the shared widget tree, not in a separate platform-specific layer.
+
+Widgets lower into Core IR. Meaningful widgets also lower semantic metadata: role, label, value, focusability, disabled state, checked state, text selection, scrollability, and actions. Native shells can then translate that semantic tree into the host accessibility API. Tests use the same semantic information through LiveTest selector commands and `GetTree`.
+
+That gives Fission one accessibility model for three jobs:
+
+- screen readers and other assistive technology need to know what the UI means;
+- keyboard and accessibility actions need to activate the same reducers as pointer input;
+- tests need stable selectors that do not depend on pixels or generated node order.
+
+## Can screen readers control Fission apps?
+
+On supported native shells, yes. The winit-based native shell builds an AccessKit tree from Fission Core IR and layout. AccessKit then bridges that tree to the operating-system accessibility stack.
+
+Current native support is:
+
+| Target | Native accessibility bridge | Practical status |
+| --- | --- | --- |
+| macOS | AccessKit through the AppKit accessibility stack | Supported for roles, labels, values, focus, text editing actions, control actions, scrolling, and range adjustment. |
+| Windows | AccessKit through the Windows accessibility stack | Supported for the same Fission semantics exposed by the winit bridge. Validate with Narrator, NVDA, or JAWS for product releases. |
+| Linux | AccessKit through the AT-SPI accessibility stack | Supported where the desktop session and assistive technology expose the expected AT-SPI path. Validate with Orca on your target desktop. |
+| iOS | AccessKit through the iOS accessibility adapter | Supported by the shared native bridge where the iOS shell uses the winit path. Validate with VoiceOver on simulator and device. |
+| Android | No native TalkBack bridge yet | Fission still produces semantics for tests and runtime behavior, but the current winit AccessKit bridge is disabled on Android because the AccessKit Android adapter expects winit GameActivity while Fission's Android shell uses NativeActivity. |
+
+Static site and SSR targets are different: they render semantic HTML, native inputs, buttons, links, headings, labels, and ARIA/data attributes where the static/server renderer has enough information. Browser screen readers then see the browser accessibility tree rather than AccessKit. The canvas Web target does not currently expose a DOM accessibility tree for the canvas-rendered app.
+
+Terminal targets are also different. The terminal shell renders through the terminal emulator. Accessibility depends on the terminal and screen-reader combination. Fission semantics can inform terminal rendering and tests, but the terminal backend does not currently expose the full selector command tree that the winit LiveTest backend exposes.
+
+## What Fission exports today
+
+The native bridge exports the semantic data that widgets lower into Core IR.
+
+| Fission data | Accessibility output |
+| --- | --- |
+| Role | Button, label, text input, password input, multiline input, email input, number input, phone input, URL input, image, checkbox, radio, switch, dialog, slider, list, list item, or generic container. |
+| Label | Explicit semantic label, or inferred text from descendants where appropriate. |
+| Value | Text input contents, range value, or explicit semantic value. |
+| Bounds | Layout bounds converted into platform accessibility coordinates. |
+| Focus | Runtime focus mirrored into the accessibility tree; accessibility focus and blur requests update runtime focus. |
+| Disabled and read-only state | Exposed as disabled or read-only metadata. |
+| Checked state | Exposed for checkbox, radio, and switch roles. |
+| Text selection | Editable text selection is exposed and can be set through accessibility actions. |
+| Scroll state | Scrollable nodes expose scroll actions and current scroll offsets. |
+| Actions | Click/default, focus, blur, replace selected text, set value, set selection, scroll, increment, and decrement map back into the Fission runtime. |
+
+This is not a promise that every possible platform accessibility feature is complete. It is the current public contract. Advanced features such as rich native announcements, custom rotor behavior, platform-specific landmarks beyond current roles, and complete Android TalkBack support need additional implementation.
+
+## Design accessible widgets from the start
+
+A screen-reader user should get the same product meaning that a sighted pointer user gets. That requires explicit semantics where visuals alone are not enough.
+
+Use built-in widgets when possible. `Button`, `TextInput`, `Checkbox`, `Radio`, `Switch`, `Slider`, `Image`, `Text`, `RichText`, `Scroll`, `Modal`, and other widgets lower useful semantics automatically or expose fields/builders for semantic labels and identifiers.
+
+Add stable semantic identifiers to interactive controls that tests, automation, or host integrations need to target.
+
+```rust
+Button {
+    child: Some(Text::new(TextContent::Key("checkout.pay".into())).into()),
+    on_press: Some(pay_action),
+    ..Default::default()
+}
+.semantics_identifier("checkout.pay")
+.into()
+```
+
+Do not use semantic identifiers as user-facing labels. Identifiers are stable machine-readable names. Labels are what the user hears or reads.
+
+For icon-only controls, add an explicit label through custom semantics or wrap the region in `SemanticsRegion`.
+
+```rust
+use fission::prelude::*;
+
+Button {
+    child: Some(Icon::new("trash").into()),
+    on_press: Some(delete_action),
+    semantics: Some(Semantics {
+        role: Role::Button,
+        label: Some("Delete item".into()),
+        identifier: Some("todo.delete".into()),
+        focusable: true,
+        ..Semantics::default()
+    }),
+    ..Default::default()
+}
+.into()
+```
+
+Prefer translated labels for real apps. Visible text can use `TextContent::Key`; semantic labels that are plain strings should be resolved from `view.i18n()` using the current locale before they are placed into `Semantics`.
+
+## Keep focus and actions meaningful
+
+Accessible interaction should dispatch the same product action as pointer interaction. Do not create a separate accessibility-only behavior path unless the product genuinely needs one.
+
+Fission maps semantic actions back into reducers through the same action entries used by widgets. A screen reader activating a button should run the same `on_press` action that a tap or click would run.
+
+Focus should follow visible structure. Use focus scopes for dialogs and panels, and use `FocusPolicy::PreserveCurrentOnPointer` only for controls such as editor toolbars that intentionally should not steal focus from the editable region when clicked.
+
+## Test accessibility as behavior
+
+Do not test accessibility only by looking at screenshots. Use semantic tests as part of the normal test ladder.
+
+- Reducer tests prove the action changes state correctly.
+- Headless Fission tests inspect semantics without launching a real window.
+- Live tests use `/cmd` selector actions such as `TapSelector`, `FocusSelector`, `FillText`, `WaitForVisible`, and `GetTree` against a real shell.
+- Manual QA should include at least one platform screen reader on every target you ship.
+
+Example LiveTest-style checks:
+
+```rust
+client.tap_semantic_identifier("checkout.pay")?;
+client.fill_text_semantic_identifier("profile.email", "user@example.com")?;
+
+let tree = client.get_tree()?;
+assert!(tree.nodes.iter().any(|node| {
+    node.identifier.as_deref() == Some("checkout.pay")
+        && node.role == fission_test_driver::Role::Button
+        && !node.disabled
+}));
+```
+
+## Screen readers and tools to validate with
+
+Fission apps should be tested with the assistive technology that real users use on each target. These are compatibility targets, not substitute test suites.
+
+| Platform | Common tools to include in QA |
+| --- | --- |
+| macOS | VoiceOver, Switch Control, Keyboard navigation, Accessibility Inspector. |
+| Windows | Narrator, NVDA, JAWS, Windows Magnifier, Inspect. |
+| Linux | Orca, AT-SPI inspection tools, desktop keyboard navigation. |
+| iOS | VoiceOver, Switch Control, Dynamic Type, Full Keyboard Access. |
+| Android | TalkBack, Switch Access, Voice Access, system font scale. Native TalkBack control of Fission apps is not complete yet. |
+| Browser-hosted Static site or SSR | VoiceOver with Safari, VoiceOver with Chrome, NVDA with Firefox/Chrome, JAWS with Chrome/Edge, browser accessibility inspectors. |
+
+## Read next
+
+Use [Add accessible semantics](/docs/cookbook/add-accessible-semantics/) for a concrete recipe. Use [Accessibility reference](/reference/platform/accessibility/) for the platform support matrix and exact shell contract. Use [LiveTest command API](/reference/core/live-test-command-api/) when writing selector-driven tests against semantic identifiers.
