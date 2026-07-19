@@ -71,7 +71,7 @@ is part of the same release:
 Useful search before and after the bump:
 
 ```sh
-OLD_VERSION=0.8.0
+OLD_VERSION="0.8.0" # replace with previous release version
 rg -n "${OLD_VERSION}|fission = \\{ version|fission-design-system-codegen" \
   README.md CHANGELOG.md crates documentation examples
 ```

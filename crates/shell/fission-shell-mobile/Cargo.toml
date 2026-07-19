@@ -1,6 +1,6 @@
 [package]
 name = "fission-shell-mobile"
-version = "0.8.0"
+version = "0.9.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/fission-ui/fission"
@@ -15,10 +15,10 @@ three-d = ["fission-shell-winit/three-d"]
 video = ["fission-shell-winit/video"]
 
 [dependencies]
-fission-shell = { path = "../fission-shell", version = "0.8.0" }
-fission-shell-winit = { path = "../fission-shell-winit", version = "0.8.0", default-features = false }
-fission-core = { path = "../../core/fission-core", version = "0.8.0" }
-fission-theme = { path = "../../core/fission-theme", version = "0.8.0" }
+fission-shell = { path = "../fission-shell", version = "0.9.0" }
+fission-shell-winit = { path = "../fission-shell-winit", version = "0.9.0", default-features = false }
+fission-core = { path = "../../core/fission-core", version = "0.9.0" }
+fission-theme = { path = "../../core/fission-theme", version = "0.9.0" }
 anyhow = "1.0"
 
 [target.'cfg(target_os = "android")'.dependencies]

@@ -1,0 +1,102 @@
+---
+title: Fission 0.9.0: native packaging, accessibility, and desktop polish
+authors:
+  - fission
+tags:
+  - release
+  - packaging
+  - accessibility
+  - desktop
+  - testing
+categories:
+  - Releases
+---
+
+Fission 0.9.0 is a platform hardening release. It focuses on the parts of a real cross-platform app that fail late if the framework treats them as afterthoughts: native packaging, release signing, desktop interaction details, accessibility documentation, and deterministic test automation.
+
+The main theme is reducing hidden shell-specific behavior. Package builds now expose more of their native inputs through the project manifest, desktop interactions preserve the user's context more consistently, and the documentation now explains how to ship and test these features instead of leaving the behavior implicit.
+
+## Native packaging is more explicit
+
+The CLI can now describe package variants, native module Cargo products, desktop assets, platform scripts, and release-signing overlays from `fission.toml`. That gives app projects one manifest-backed place to define the native pieces that sit around a shared Fission core.
+
+This release improves the package path for:
+
+- Android and iOS generated targets with native modules;
+- macOS app bundles, signing inputs, provisioning profiles, entitlements, and notarization;
+- Windows native module builds and package resources;
+- Linux native Cargo products and custom run installers;
+- desktop project assets included in package artifacts.
+
+The important change is not only that more targets are supported. The package tool now resolves native Cargo products from Cargo metadata targets and normalizes project-relative paths before invoking scripts. That removes a class of failures where generated package scripts accidentally depended on a developer's local absolute paths.
+
+## macOS release signing is a first-class path
+
+macOS packaging now has an explicit release-signing overlay. Applications can configure the app identity, provisioning profile, entitlements, notarization credentials, package identity, and whether a native product should produce package artifacts.
+
+This is intentionally still app-owned: Fission does not invent credentials or store private signing material in `fission.toml`. The manifest describes what the package needs; secrets should come from local environment, CI secret stores, keychains, or provider-owned credential sources.
+
+## Desktop interactions are tighter
+
+Several desktop behaviors were made more production-grade:
+
+- tray applications can choose whether they appear in the Dock, taskbar, or app switcher;
+- tray-style apps are hidden from app switchers by default where the platform supports that behavior;
+- modal and barrier lifecycles capture and restore focus;
+- native notification response callbacks are delivered back into the app;
+- tooltip and flyout surfaces preserve intrinsic sizing instead of filling the window;
+- reducer-bound effect callbacks are retained long enough for delayed shell callbacks.
+
+The tray switcher default is the one behavior change to call out. If an app should stay visible in the Dock or task switcher after minimizing or closing to the tray, set the tray app switcher policy explicitly.
+
+## Drag, drop, selectable text, and context menus
+
+Fission now has a more complete drag-and-drop model. The runtime tracks drag sessions, external file drops, dropzone state, drag previews, accepted effects, copy/move behavior, and cancellation. The widget gallery includes demonstrations so developers can see what the interaction should feel like rather than reverse-engineering it from low-level pointer events.
+
+Text rendering also gained opt-in selection for `Text` and `RichText`, plus widget-backed context menus. That keeps the simple default cheap while letting apps expose familiar actions such as copy and select all. Context menus accept child widgets, so applications can localize menu labels through their normal i18n path and build richer menus where needed.
+
+## More reliable state and input behavior
+
+This release fixes several issues that only show up once an app has multiple routed screens, controlled inputs, and long-running effects:
+
+- stale scroll state is pruned when widgets unmount;
+- route and tab content state is isolated so slider and scroll positions do not leak between pages;
+- slider thumbs align with their tracks and click positions map to the expected values;
+- controlled text inputs reconcile pending edits against transformed model values;
+- oversized `ScrollIntoView` targets stay anchored at the leading edge for nearest alignment.
+
+These are small fixes individually, but they matter because they remove surprising state carry-over in real applications.
+
+## Accessibility docs are now part of the public contract
+
+Fission already exposes semantics through the runtime and native shell integrations, but the documentation was not explicit enough about what developers can rely on.
+
+0.9.0 adds:
+
+- a Learn page for accessible Fission app structure;
+- a Cookbook page for adding semantic metadata to widgets and regions;
+- a Reference page with platform support levels, expected assistive technology compatibility, and known gaps.
+
+The guidance is direct: give interactive widgets stable semantic identifiers, set labels and roles from the meaning of the action, mark disabled/read-only/checked states accurately, and test with the LiveTest semantic tree as well as platform assistive tools.
+
+## Documentation catches up with the CLI
+
+The build and package docs were expanded to match the current CLI surface. Platform pages now explain generated target files, package resources, native modules, signing inputs, and realistic manifest values instead of only showing isolated `fission.toml` fragments.
+
+The testing docs now cover unit, integration, and LiveTest workflows, including selector-driven `/cmd` commands. The reference includes a command API section so tests can target semantic identifiers, widget IDs, roles, labels, and scoped selectors without hard-coded coordinates.
+
+There is also a new Fission release checklist for maintainers. It documents the actual release process: scope confirmation, version bumping, changelog and blog updates, pre-release checks, crates.io publish order, GitHub tagging, website verification, and post-release smoke testing.
+
+## Migration notes
+
+Update Fission dependencies to 0.9.0:
+
+```toml
+fission = { version = "0.9.0", default-features = false, features = ["desktop"] }
+```
+
+If your app uses tray behavior and should remain visible in the Dock, taskbar, or app switcher, configure the tray app switcher policy explicitly. The default now follows tray-app conventions and hides the app from switchers where the platform supports it.
+
+If your app has custom package scripts or native package resources, move those declarations into `fission.toml` where possible. The CLI can now resolve native package variants and products from the manifest and Cargo metadata, which is more portable across local machines and CI.
+
+If you rely on generated app-agent guidance, regenerate or copy the updated `AGENTS.md` content so agents get the current rules for responsive UI, design tokens, i18n, semantics, shared multi-platform cores, and LiveTest screenshot QA.

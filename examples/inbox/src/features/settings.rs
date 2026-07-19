@@ -595,6 +595,7 @@ impl From<SettingsModal> for Widget {
                                         ))
                                         .unwrap(),
                                     }),
+                                    ..Default::default()
                                 }
                                 .into(),
                             }

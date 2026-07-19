@@ -5,6 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-07-19
+
+### Added
+
+- **Native packaging variants** - Android, iOS, macOS, Windows, and Linux packaging can now describe package variants, native module Cargo products, target-specific assets, and release-signing overlays from the project manifest.
+- **macOS release signing and notarization flow** - macOS package builds can resolve app-owned signing identities, provisioning profiles, entitlements, notarization credentials, and package-artifact decisions without hard-coding shell-specific scripts.
+- **Desktop drag and drop** - Fission now tracks drag sessions, external file drops, dropzone state, drag previews, copy/move effects, cancellation, and gallery demonstrations for app-internal and OS-originated drag flows.
+- **Selectable text and context menus** - `Text` and `RichText` can opt into selection, expose standard text actions, and use widget-backed context menus so applications can localize and customize menu contents.
+- **Tray app switcher policy** - Desktop tray applications can control Dock/taskbar/app-switcher visibility, with tray-style apps hidden from switchers by default where the platform supports it.
+- **Accessibility documentation set** - Added Learn, Cookbook, and Reference pages that explain semantics, assistive technology support, platform coverage, and screen-reader-compatible authoring practices.
+- **Release maintainer checklist** - Added a framework release checklist covering scope, version bumps, validation, crates.io publishing, tags, GitHub releases, website verification, and post-release smoke testing.
+
+### Changed
+
+- **Native package resolution is metadata-driven** - Package scripts resolve native Cargo products from Cargo metadata targets and use project-relative paths consistently, avoiding stale absolute path assumptions in generated scripts.
+- **Desktop package assets are included consistently** - Desktop packages now carry project assets and artifact manifests across the supported package formats instead of relying on shell-specific incidental behavior.
+- **Flyouts size to their content** - Tooltip and other flyout surfaces preserve intrinsic sizing instead of expanding to fill the host window.
+- **Scroll and widget state are isolated more aggressively** - Route/tab changes prune stale scroll state and avoid carrying slider/scroll positions into unrelated pages.
+- **Generated app guidance is identifiable** - Generated `AGENTS.md` content carries Fission-specific guidance markers so future CLI runs can recognize files produced by Fission instead of blindly creating duplicates.
+- **Build and platform documentation is broader** - Platform pages, package lifecycle docs, testing docs, selector command references, and framework-transition guides now describe the current CLI and shell behavior in more detail.
+
+### Fixed
+
+- **Reducer-bound effect callback lifetime** - Reducer-bound callbacks stay retained long enough for delayed effects and shell callbacks instead of being dropped while still referenced.
+- **Text input pending edits** - Controlled text inputs reconcile pending edits against transformed model values so rendered text, semantics, and reducer state remain aligned.
+- **Modal and barrier focus lifecycle** - Focus is captured and restored around modal/barrier lifecycles so closing a flyout or dialog does not lose the previous interaction target unnecessarily.
+- **Oversized `ScrollIntoView` targets** - Nearest-alignment scrolling keeps oversized targets anchored at the leading edge instead of choosing unstable offsets.
+- **Colour picker and slider QA issues** - Slider thumbs align with their tracks, click positions dispatch the expected values, colour picker swatches are labeled, and route/tab state no longer leaks into unrelated picker pages.
+- **Native packaging edge cases** - macOS native output paths, Windows native handles/tool paths/NuGet preflight, Linux native products, nested desktop package selection, and static-site scaffold path detection were hardened.
+- **Native notification responses** - macOS notification response callbacks now reach the Fission application layer.
+
+### Migration notes
+
+- Tray-style applications are hidden from the Dock/taskbar/app switcher by default where supported. Set the tray app switcher policy explicitly if an application should remain visible while minimized or closed to the tray.
+- Native package configurations should prefer the manifest-driven package variant, asset, signing, and native module fields over ad hoc script paths.
+- Update Fission dependencies to `0.9.0`:
+
+```toml
+fission = { version = "0.9.0", default-features = false, features = ["desktop"] }
+```
+
 ## [0.8.0] - 2026-07-14
 
 ### Added
