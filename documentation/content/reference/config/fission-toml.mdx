@@ -58,6 +58,36 @@ The optional `path` records its project-relative source root; platform paths
 below remain project-relative so they are unambiguous when a module is shared
 by more than one app.
 
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `name` | string | Yes | none | Stable module identity used in diagnostics and native output paths. |
+| `path` | string | No | project root | Project-relative source root used by platform module defaults. |
+| `variants` | array of strings | No | `[]` | Desktop variants that include this module. An empty array makes the module universal. Variant names use lowercase ASCII letters and digits separated by single hyphens. |
+
+`fission build`, `fission test`, `fission run`, and `fission package` accept
+`--variant <name>` for Linux, macOS, and Windows. With no selector, only
+universal modules are built. With a selector, Fission builds universal modules
+plus modules whose `variants` array contains that exact name. Selection happens
+before Cargo, MSBuild, NuGet, XcodeGen, or Xcode is invoked for a native module.
+
+```toml
+[[native.modules]]
+name = "shared-runtime"
+
+[[native.modules]]
+name = "scanner-runtime"
+variants = ["scanner"]
+
+[[native.modules]]
+name = "protection-runtime"
+variants = ["full"]
+```
+
+Selected package and development-run outputs are written below a deterministic
+`variants/<name>/` directory so variants do not replace one another. Custom
+package scripts receive the selected name in `FISSION_VARIANT`; Fission removes
+any inherited value when the command did not select a variant.
+
 Android modules declare repositories, Gradle dependencies, source directories,
 permissions, and application manifest entries under
 `[native.modules.android]`. iOS modules declare source directories, linked

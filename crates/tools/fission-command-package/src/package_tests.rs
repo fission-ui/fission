@@ -245,6 +245,7 @@ fn package_structure_checks_validate_common_store_artifacts() {
             target: Target::Macos,
             format: PackageFormat::App,
             release: true,
+            variant: None,
             json: false,
         },
         &root,
@@ -283,6 +284,7 @@ fn structure_checks(
             target,
             format,
             release: true,
+            variant: None,
             json: false,
         },
         root,
@@ -303,6 +305,7 @@ fn manifest_for(format: PackageFormat, artifact: &Path) -> ArtifactManifest {
         target: "test".to_string(),
         format: format.as_str().to_string(),
         profile: "release".to_string(),
+        variant: None,
         root_dir: artifact
             .parent()
             .unwrap_or_else(|| Path::new("."))
@@ -434,6 +437,7 @@ fn terminal_run_package_validation_writes_passing_install_smoke_receipt() {
         target: Target::Terminal,
         format: PackageFormat::Run,
         release: true,
+        variant: None,
         json: false,
     };
     prepare_package_validation_inputs(&options, &staging).unwrap();
@@ -473,12 +477,41 @@ fn msix_native_manifest_excludes_driver_packages() {
     ];
 
     let manifest =
-        write_windows_native_products_manifest(&root, &products, false, "release", "msix").unwrap();
+        write_windows_native_products_manifest(&root, &products, false, "release", "msix", None)
+            .unwrap();
     let value: serde_json::Value = serde_json::from_slice(&fs::read(manifest).unwrap()).unwrap();
     let products = value["products"].as_array().unwrap();
 
     assert_eq!(products.len(), 1);
     assert_eq!(products[0]["kind"], "runtime");
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn custom_packager_receives_selected_variant() {
+    let root = std::env::temp_dir().join(format!(
+        "fission-package-variant-env-{}",
+        std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    let script = root.join("package.sh");
+    fs::write(
+        &script,
+        "#!/bin/sh\nprintf '%s' \"$FISSION_VARIANT\" > selected-variant.txt\ntouch output.pkg\nprintf '%s\\n' output.pkg\n",
+    )
+    .unwrap();
+    let variant: fission_command_core::NativeVariant = "scanner".parse().unwrap();
+
+    let output = run_packaging_script_with_env(&root, &script, true, Some(&variant), &[])
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(output, root.join("output.pkg"));
+    assert_eq!(
+        fs::read_to_string(root.join("selected-variant.txt")).unwrap(),
+        "scanner"
+    );
     let _ = fs::remove_dir_all(root);
 }
 

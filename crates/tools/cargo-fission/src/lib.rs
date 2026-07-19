@@ -55,6 +55,7 @@ where
             project_dir,
             detach,
             release,
+            variant,
             host,
             port,
             no_open,
@@ -65,6 +66,7 @@ where
             device,
             detach,
             release,
+            variant,
             host,
             port,
             no_open,
@@ -74,19 +76,23 @@ where
             target,
             project_dir,
             release,
+            variant,
         } => fission_command_run::build_app(fission_command_run::BuildOptions {
             project_dir,
             target,
             release,
+            variant,
         }),
         Command::Test {
             target,
             project_dir,
             headless,
+            variant,
         } => fission_command_run::test_app(fission_command_run::TestOptions {
             project_dir,
             target,
             headless,
+            variant,
         }),
         Command::Site { command } => match command {
             SiteCommand::Build {
@@ -133,12 +139,14 @@ where
             format,
             project_dir,
             release,
+            variant,
             json,
         } => fission_command_package::package(fission_command_package::PackageOptions {
             project_dir,
             target,
             format,
             release,
+            variant,
             json,
         }),
         Command::Distribute {

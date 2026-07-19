@@ -1,4 +1,4 @@
-use crate::{FissionProject, MacosPackageConfig};
+use crate::{FissionProject, MacosPackageConfig, NativeVariant};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::ffi::OsString;
@@ -99,15 +99,20 @@ struct EffectiveSigning<'a> {
 pub fn build_macos_native_modules(
     project_dir: &Path,
     project: &FissionProject,
+    variant: Option<&NativeVariant>,
     release: bool,
 ) -> Result<()> {
-    let _ = build_products(project_dir, project, None, release)?;
+    let _ = build_products(project_dir, project, variant, None, release)?;
     Ok(())
 }
 
-pub fn test_macos_native_modules(project_dir: &Path, project: &FissionProject) -> Result<()> {
+pub fn test_macos_native_modules(
+    project_dir: &Path,
+    project: &FissionProject,
+    variant: Option<&NativeVariant>,
+) -> Result<()> {
     let project_dir = canonical_project_dir(project_dir)?;
-    for module in &project.native.modules {
+    for module in project.native_modules_for_variant(variant) {
         if module.macos.is_empty() || module.macos.test_schemes.is_empty() {
             continue;
         }
@@ -142,6 +147,7 @@ pub fn embed_and_sign_macos_native_modules(
     project_dir: &Path,
     app_bundle: &Path,
     project: &FissionProject,
+    variant: Option<&NativeVariant>,
     host_signing: &MacosPackageConfig,
     mode: MacosNativeBundleMode,
     release: bool,
@@ -153,7 +159,7 @@ pub fn embed_and_sign_macos_native_modules(
             app_bundle.display()
         )
     })?;
-    for built in build_products(&project_dir, project, Some(mode), release)? {
+    for built in build_products(&project_dir, project, variant, Some(mode), release)? {
         let destination = native_product_destination(&app_bundle, &built.config)?;
         if destination.exists() {
             fs::remove_dir_all(&destination).with_context(|| {
@@ -182,6 +188,7 @@ pub fn embed_and_sign_macos_native_modules(
 fn build_products(
     project_dir: &Path,
     project: &FissionProject,
+    variant: Option<&NativeVariant>,
     mode: Option<MacosNativeBundleMode>,
     release: bool,
 ) -> Result<Vec<BuiltProduct>> {
@@ -189,7 +196,7 @@ fn build_products(
     let profile = if release { "Release" } else { "Debug" };
     let profile_dir = profile.to_ascii_lowercase();
     let mut built = Vec::new();
-    for module in &project.native.modules {
+    for module in project.native_modules_for_variant(variant) {
         if module.macos.is_empty() || module.macos.products.is_empty() {
             continue;
         }

@@ -26,6 +26,7 @@ pub(super) fn build_artifact_manifest(
         target: options.target.as_str().to_string(),
         format: options.format.as_str().to_string(),
         profile: profile.to_string(),
+        variant: options.variant.as_ref().map(ToString::to_string),
         root_dir: root.display().to_string(),
         source_config,
         artifacts: files,

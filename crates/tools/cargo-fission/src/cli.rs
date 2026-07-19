@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use fission_command_core::{DistributionProvider, PlatformCapability, Target};
+use fission_command_core::{DistributionProvider, NativeVariant, PlatformCapability, Target};
 use fission_command_package as package;
 use fission_command_release as release;
 use std::path::PathBuf;
@@ -85,6 +85,9 @@ pub(crate) enum Command {
         /// Build in release mode.
         #[arg(long)]
         release: bool,
+        /// Select native modules belonging to this desktop variant.
+        #[arg(long)]
+        variant: Option<NativeVariant>,
         /// Host for the local web server.
         #[arg(long, default_value = "127.0.0.1")]
         host: String,
@@ -109,6 +112,9 @@ pub(crate) enum Command {
         /// Build in release mode.
         #[arg(long)]
         release: bool,
+        /// Select native modules belonging to this desktop variant.
+        #[arg(long)]
+        variant: Option<NativeVariant>,
     },
     /// Run the generated smoke test for a configured target.
     Test {
@@ -121,6 +127,9 @@ pub(crate) enum Command {
         /// Prefer headless simulator/emulator execution where supported.
         #[arg(long)]
         headless: bool,
+        /// Select native modules belonging to this desktop variant.
+        #[arg(long)]
+        variant: Option<NativeVariant>,
     },
     /// Build, check, serve, or list routes for a static Fission site.
     Site {
@@ -146,6 +155,9 @@ pub(crate) enum Command {
         /// Build/package in release mode.
         #[arg(long)]
         release: bool,
+        /// Select native modules belonging to this desktop variant.
+        #[arg(long)]
+        variant: Option<NativeVariant>,
         /// Emit machine-readable JSON.
         #[arg(long)]
         json: bool,
@@ -466,4 +478,82 @@ pub(crate) enum ServerCommand {
         #[arg(long)]
         no_compile: bool,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn selected_variant(command: Command) -> Option<NativeVariant> {
+        match command {
+            Command::Run { variant, .. }
+            | Command::Build { variant, .. }
+            | Command::Test { variant, .. }
+            | Command::Package { variant, .. } => variant,
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn desktop_lifecycle_commands_parse_native_variant() {
+        for arguments in [
+            vec![
+                "fission",
+                "run",
+                "--target",
+                "macos",
+                "--variant",
+                "scanner",
+            ],
+            vec![
+                "fission",
+                "build",
+                "--target",
+                "windows",
+                "--variant",
+                "scanner",
+            ],
+            vec![
+                "fission",
+                "test",
+                "--target",
+                "linux",
+                "--variant",
+                "scanner",
+            ],
+            vec![
+                "fission",
+                "package",
+                "--target",
+                "macos",
+                "--format",
+                "pkg",
+                "--variant",
+                "scanner",
+            ],
+        ] {
+            let cli = Cli::try_parse_from(arguments).unwrap();
+            assert_eq!(
+                selected_variant(cli.command)
+                    .as_ref()
+                    .map(NativeVariant::as_str),
+                Some("scanner")
+            );
+        }
+    }
+
+    #[test]
+    fn cli_rejects_non_stable_variant_names() {
+        let result = Cli::try_parse_from([
+            "fission",
+            "package",
+            "--target",
+            "macos",
+            "--format",
+            "app",
+            "--variant",
+            "Scanner Debug",
+        ]);
+        assert!(result.is_err());
+    }
 }

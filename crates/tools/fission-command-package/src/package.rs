@@ -3,12 +3,12 @@ use anyhow::{bail, Context, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use fission_command_core::{
     build_linux_native_modules, build_windows_native_modules, cargo_package_name,
-    embed_and_sign_macos_native_modules, normalized_extension, read_macos_package_config,
-    read_project_config, resolve_app_icon, sign_macos_app_if_configured,
+    embed_and_sign_macos_native_modules, ensure_native_variant_target, normalized_extension,
+    read_macos_package_config, read_project_config, resolve_app_icon, sign_macos_app_if_configured,
     stage_linux_native_products, stage_project_assets, stage_windows_runtime_products,
-    sync_platform_config, BuiltLinuxNativeProduct, BuiltWindowsNativeProduct, FissionProject,
-    MacosNativeBundleMode, MacosPackageConfig, NativeLinuxProductKind, NativeWindowsProductKind,
-    PlatformCapability, Target,
+    sync_platform_config, variant_output_path, BuiltLinuxNativeProduct, BuiltWindowsNativeProduct,
+    FissionProject, MacosNativeBundleMode, MacosPackageConfig, NativeLinuxProductKind,
+    NativeWindowsProductKind, PlatformCapability, Target,
 };
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -114,6 +114,7 @@ use package_validation::{
 };
 
 pub(super) fn package_artifact(options: &PackageOptions) -> Result<ArtifactManifest> {
+    ensure_native_variant_target(options.target, options.variant.as_ref())?;
     match options.format {
         PackageFormat::Static => package_static(options),
         PackageFormat::Run => {
@@ -176,6 +177,7 @@ pub(super) fn package_static(options: &PackageOptions) -> Result<ArtifactManifes
                 project_dir: options.project_dir.clone(),
                 target: Some(Target::Web),
                 release: options.release,
+                variant: None,
             })?;
             options.project_dir.join("platforms/web")
         }
@@ -260,8 +262,12 @@ fn package_linux_run(options: &PackageOptions) -> Result<ArtifactManifest> {
             payload_dir.display()
         )
     })?;
-    let native_products =
-        build_linux_native_modules(&options.project_dir, &project, options.release)?;
+    let native_products = build_linux_native_modules(
+        &options.project_dir,
+        &project,
+        options.variant.as_ref(),
+        options.release,
+    )?;
     stage_linux_native_products(&payload_dir, &native_products)?;
     let native_products_manifest =
         write_linux_native_products_manifest(&payload_dir, &native_products, profile, "run")?;
@@ -291,6 +297,7 @@ fn package_linux_run(options: &PackageOptions) -> Result<ArtifactManifest> {
             &options.project_dir,
             &script,
             options.release,
+            options.variant.as_ref(),
             &environment,
         )?
         .with_context(|| format!("{} did not print a .run installer path", script.display()))?;
@@ -361,6 +368,7 @@ fn package_macos_app(options: &PackageOptions) -> Result<ArtifactManifest> {
         &options.project_dir,
         &app_bundle,
         &project,
+        options.variant.as_ref(),
         &macos,
         MacosNativeBundleMode::Package,
         options.release,
@@ -383,6 +391,7 @@ fn package_macos_pkg(options: &PackageOptions) -> Result<ArtifactManifest> {
         &options.project_dir,
         &app_bundle,
         &project,
+        options.variant.as_ref(),
         &macos,
         MacosNativeBundleMode::Package,
         options.release,
@@ -421,8 +430,12 @@ fn package_windows_exe(options: &PackageOptions) -> Result<ArtifactManifest> {
     let profile = profile_name(options.release);
     let staging_dir = clean_package_dir(options)?;
     let binary = build_desktop_binary(&options.project_dir, options.release)?;
-    let native_products =
-        build_windows_native_modules(&options.project_dir, &project, options.release)?;
+    let native_products = build_windows_native_modules(
+        &options.project_dir,
+        &project,
+        options.variant.as_ref(),
+        options.release,
+    )?;
     let windows = windows_package_config(&options.project_dir)?;
     if let Some(script) = windows
         .exe_installer_script
@@ -437,12 +450,14 @@ fn package_windows_exe(options: &PackageOptions) -> Result<ArtifactManifest> {
             true,
             profile,
             "exe",
+            options.variant.as_ref(),
         )?;
         let environment = windows_packaging_environment(&options.project_dir, &binary, &manifest)?;
         let output_path = run_packaging_script_with_env(
             &options.project_dir,
             &script,
             options.release,
+            options.variant.as_ref(),
             &environment,
         )?
         .with_context(|| format!("{} did not print an .exe path", script.display()))?;
@@ -483,8 +498,13 @@ fn package_android_apk(options: &PackageOptions) -> Result<ArtifactManifest> {
     let profile = profile_name(options.release);
     let staging_dir = clean_package_dir(options)?;
     let script = options.project_dir.join("platforms/android/package-apk.sh");
-    let output_path = run_packaging_script(&options.project_dir, &script, options.release)?
-        .with_context(|| format!("{} did not print an .apk path", script.display()))?;
+    let output_path = run_packaging_script(
+        &options.project_dir,
+        &script,
+        options.release,
+        options.variant.as_ref(),
+    )?
+    .with_context(|| format!("{} did not print an .apk path", script.display()))?;
     if output_path.extension().and_then(OsStr::to_str) != Some("apk") {
         bail!(
             "{} printed {}, expected an .apk artifact",
@@ -531,8 +551,12 @@ fn package_with_project_script(
     let mut environment = Vec::new();
     if target == Target::Windows {
         let binary = build_desktop_binary(&options.project_dir, options.release)?;
-        let native_products =
-            build_windows_native_modules(&options.project_dir, &project, options.release)?;
+        let native_products = build_windows_native_modules(
+            &options.project_dir,
+            &project,
+            options.variant.as_ref(),
+            options.release,
+        )?;
         let include_driver_packages = options.format != PackageFormat::Msix;
         let manifest = write_windows_native_products_manifest(
             &options.project_dir,
@@ -540,6 +564,7 @@ fn package_with_project_script(
             include_driver_packages,
             profile,
             options.format.as_str(),
+            options.variant.as_ref(),
         )?;
         environment = windows_packaging_environment(&options.project_dir, &binary, &manifest)?;
     }
@@ -547,6 +572,7 @@ fn package_with_project_script(
         &options.project_dir,
         &script,
         options.release,
+        options.variant.as_ref(),
         &environment,
     )?
     .with_context(|| format!("{} did not print a package path", script.display()))?;
@@ -1435,12 +1461,15 @@ fn profile_name(release: bool) -> &'static str {
 }
 
 fn clean_package_dir(options: &PackageOptions) -> Result<PathBuf> {
-    let staging_dir = options
-        .project_dir
-        .join("target/fission")
-        .join(profile_name(options.release))
-        .join(options.target.as_str())
-        .join(options.format.as_str());
+    let staging_dir = variant_output_path(
+        options
+            .project_dir
+            .join("target/fission")
+            .join(profile_name(options.release))
+            .join(options.target.as_str())
+            .join(options.format.as_str()),
+        options.variant.as_ref(),
+    );
     if staging_dir.exists() {
         fs::remove_dir_all(&staging_dir)
             .with_context(|| format!("failed to clean {}", staging_dir.display()))?;
@@ -2039,6 +2068,7 @@ fn write_windows_native_products_manifest(
     include_driver_packages: bool,
     profile: &str,
     package_format: &str,
+    variant: Option<&fission_command_core::NativeVariant>,
 ) -> Result<PathBuf> {
     let products = products
         .iter()
@@ -2046,7 +2076,10 @@ fn write_windows_native_products_manifest(
             include_driver_packages || product.kind != NativeWindowsProductKind::DriverPackage
         })
         .collect::<Vec<_>>();
-    let directory = project_dir.join(".fission/native/windows/manifests");
+    let directory = variant_output_path(
+        project_dir.join(".fission/native/windows/manifests"),
+        variant,
+    );
     fs::create_dir_all(&directory)?;
     let path = directory.join(format!("{profile}-{package_format}.json"));
     let manifest = WindowsNativeProductsManifest {
@@ -2120,14 +2153,16 @@ fn run_packaging_script(
     project_dir: &Path,
     script: &Path,
     release: bool,
+    variant: Option<&fission_command_core::NativeVariant>,
 ) -> Result<Option<PathBuf>> {
-    run_packaging_script_with_env(project_dir, script, release, &[])
+    run_packaging_script_with_env(project_dir, script, release, variant, &[])
 }
 
 fn run_packaging_script_with_env(
     project_dir: &Path,
     script: &Path,
     release: bool,
+    variant: Option<&fission_command_core::NativeVariant>,
     environment: &[(OsString, OsString)],
 ) -> Result<Option<PathBuf>> {
     if !script.exists() {
@@ -2161,6 +2196,10 @@ fn run_packaging_script_with_env(
         Command::new(script)
     };
     command.current_dir(project_dir);
+    command.env_remove("FISSION_VARIANT");
+    if let Some(variant) = variant {
+        command.env("FISSION_VARIANT", variant.as_str());
+    }
     if release {
         command.env("ANDROID_PROFILE", "release");
         command.env("IOS_PROFILE", "release");

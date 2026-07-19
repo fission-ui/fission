@@ -69,6 +69,7 @@ fn static_package_builds_artifact_manifest() {
         target: Target::Site,
         format: PackageFormat::Static,
         release: true,
+        variant: None,
         json: false,
     })
     .unwrap();
@@ -141,6 +142,7 @@ build_number = "42"
             target: Target::Ios,
             format: PackageFormat::Ipa,
             release: true,
+            variant: None,
             json: false,
         },
         &dir.join("out"),
@@ -190,6 +192,7 @@ build_number = "108"
             target: Target::Macos,
             format: PackageFormat::App,
             release: true,
+            variant: None,
             json: false,
         },
         &dir.join("out"),
@@ -238,6 +241,7 @@ app_id = "com.example.demo"
             target: Target::Macos,
             format: PackageFormat::App,
             release: true,
+            variant: None,
             json: false,
         },
         &dir.join("out"),
@@ -341,6 +345,7 @@ fn distribute_publish_outcome_records_structured_events() {
         target: Target::Site,
         format: PackageFormat::Static,
         release: true,
+        variant: None,
         json: false,
     })
     .unwrap();
@@ -543,6 +548,7 @@ fn package_readiness_passes_when_existing_manifest_is_current() {
         target: Target::Site,
         format: PackageFormat::Static,
         release: true,
+        variant: None,
         json: false,
     })
     .unwrap();
@@ -573,6 +579,7 @@ fn package_readiness_warns_when_existing_manifest_is_stale() {
         target: Target::Site,
         format: PackageFormat::Static,
         release: true,
+        variant: None,
         json: false,
     })
     .unwrap();
@@ -723,6 +730,7 @@ fn distribution_readiness_blocks_failed_artifact_validation() {
         target: Target::Site,
         format: PackageFormat::Static,
         release: true,
+        variant: None,
         json: false,
     })
     .unwrap();
@@ -767,6 +775,7 @@ fn distribution_readiness_blocks_artifact_hash_mismatch() {
         target: Target::Site,
         format: PackageFormat::Static,
         release: true,
+        variant: None,
         json: false,
     })
     .unwrap();
@@ -809,6 +818,7 @@ fn distribution_readiness_blocks_stale_source_config() {
         target: Target::Site,
         format: PackageFormat::Static,
         release: true,
+        variant: None,
         json: false,
     })
     .unwrap();
@@ -849,6 +859,7 @@ fn distribution_readiness_checks_receipt_path_writable() {
         target: Target::Site,
         format: PackageFormat::Static,
         release: true,
+        variant: None,
         json: false,
     })
     .unwrap();
@@ -897,6 +908,7 @@ upload_provider = "crash-service"
         target: Target::Site,
         format: PackageFormat::Static,
         release: true,
+        variant: None,
         json: false,
     })
     .unwrap();
@@ -931,6 +943,7 @@ upload_provider = "crash-service"
         target: Target::Site,
         format: PackageFormat::Static,
         release: true,
+        variant: None,
         json: false,
     })
     .unwrap();
@@ -979,6 +992,7 @@ upload_provider = "github-releases"
         target: Target::Site,
         format: PackageFormat::Static,
         release: true,
+        variant: None,
         json: false,
     })
     .unwrap();
@@ -1055,6 +1069,7 @@ fn distribution_receipt_value_includes_release_context() {
         target: "static-site".to_string(),
         format: "static".to_string(),
         profile: "release".to_string(),
+        variant: None,
         root_dir: "target/fission/release/static-site/static".to_string(),
         source_config: Vec::new(),
         artifacts: vec![ArtifactFile {
@@ -1386,6 +1401,7 @@ fn static_host_readiness_rejects_non_static_artifact_format() {
             target: "linux".to_string(),
             format: "run".to_string(),
             profile: "release".to_string(),
+            variant: None,
             root_dir: artifact_root.display().to_string(),
             source_config: Vec::new(),
             artifacts: vec![ArtifactFile {
@@ -1452,6 +1468,7 @@ fn github_releases_readiness_is_not_static_site_specific() {
             target: "linux".to_string(),
             format: "run".to_string(),
             profile: "release".to_string(),
+            variant: None,
             root_dir: artifact_root.display().to_string(),
             source_config: Vec::new(),
             artifacts: vec![ArtifactFile {
@@ -1558,6 +1575,7 @@ package_type = "msix"
             target: "windows".to_string(),
             format: "msix".to_string(),
             profile: "release".to_string(),
+            variant: None,
             root_dir: artifact_root.display().to_string(),
             source_config: Vec::new(),
             artifacts: vec![ArtifactFile {

@@ -1248,6 +1248,7 @@ fn package_artifact(
         target: cx.target,
         format: cx.format,
         release: true,
+        variant: None,
         json: false,
     })?;
     println!("Artifact manifest: {}", artifact.display());

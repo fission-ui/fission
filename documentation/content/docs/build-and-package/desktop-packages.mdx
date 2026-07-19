@@ -36,9 +36,18 @@ Use the smallest format that proves the next step. For example, use `.app` while
 
 ```bash
 fission package --project-dir . --target macos --format app --release
+fission package --project-dir . --target macos --format pkg --release --variant scanner
 ```
 
 The package command writes the platform artifact and an `artifact-manifest.json` under `target/fission/release/<target>/<format>/`. Use that manifest for release commands instead of passing a raw file path.
+
+Apps with several native product shapes can declare module membership with
+`variants = ["scanner"]` or another stable lowercase name on each
+`[[native.modules]]` entry. A selected variant includes matching modules and
+modules with no restriction. Restricted modules are excluded when no variant is
+selected. Variant artifacts are written below
+`target/fission/<profile>/<target>/<format>/variants/<name>/`, and custom
+packager scripts receive the same name as `FISSION_VARIANT`.
 
 For macOS apps with native extensions, declare the Xcode project and products
 under `[[native.modules]]` in `fission.toml`. Fission builds the native schemes,

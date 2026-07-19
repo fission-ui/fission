@@ -2,7 +2,8 @@ use anyhow::{bail, Context, Result};
 use clap::ValueEnum;
 use fission_command_core::{
     normalize_windows_package_version, resolve_release_version_config,
-    sync_resolved_release_platform_config, DistributionProvider, FissionProject, Target,
+    sync_resolved_release_platform_config, DistributionProvider, FissionProject, NativeVariant,
+    Target,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -103,6 +104,7 @@ pub struct PackageOptions {
     pub target: Target,
     pub format: PackageFormat,
     pub release: bool,
+    pub variant: Option<NativeVariant>,
     pub json: bool,
 }
 
@@ -167,6 +169,8 @@ struct ArtifactManifest {
     target: String,
     format: String,
     profile: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    variant: Option<String>,
     root_dir: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     source_config: Vec<ArtifactSourceConfig>,

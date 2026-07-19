@@ -401,6 +401,7 @@ pub fn publish_workflow(mut options: PublishWorkflowOptions) -> Result<()> {
             target,
             format,
             release: true,
+            variant: None,
             json: options.json,
         }) {
             Ok(path) => path,

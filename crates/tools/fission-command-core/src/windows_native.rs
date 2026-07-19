@@ -1,6 +1,6 @@
 use crate::{
-    FissionProject,
     native_cargo::{cargo_target_directory, expand_cargo_target_directory},
+    FissionProject, NativeVariant,
 };
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -83,13 +83,14 @@ pub struct BuiltWindowsNativeProduct {
 pub fn build_windows_native_modules(
     project_dir: &Path,
     project: &FissionProject,
+    variant: Option<&NativeVariant>,
     release: bool,
 ) -> Result<Vec<BuiltWindowsNativeProduct>> {
     let project_dir = canonical_project_dir(project_dir)?;
     let configuration = if release { "Release" } else { "Debug" };
     let mut products = Vec::new();
 
-    for module in &project.native.modules {
+    for module in project.native_modules_for_variant(variant) {
         if module.windows.is_empty() {
             continue;
         }
@@ -250,12 +251,16 @@ fn prepend_windows_native_tool_paths(command: &mut Command, paths: &[PathBuf]) -
     Ok(())
 }
 
-pub fn test_windows_native_modules(project_dir: &Path, project: &FissionProject) -> Result<()> {
-    let products = build_windows_native_modules(project_dir, project, false)?;
+pub fn test_windows_native_modules(
+    project_dir: &Path,
+    project: &FissionProject,
+    variant: Option<&NativeVariant>,
+) -> Result<()> {
+    let products = build_windows_native_modules(project_dir, project, variant, false)?;
     drop(products);
     let project_dir = canonical_project_dir(project_dir)?;
 
-    for module in &project.native.modules {
+    for module in project.native_modules_for_variant(variant) {
         if module.windows.is_empty() {
             continue;
         }
