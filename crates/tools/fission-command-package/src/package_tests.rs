@@ -536,7 +536,7 @@ fn windows_packaging_environment_exposes_validated_project_assets() {
 
     assert_eq!(
         environment.get(&OsString::from("FISSION_WINDOWS_ASSETS_DIR")),
-        Some(&root.join("assets").as_os_str().to_os_string())
+        Some(&root.join("assets"))
     );
 
     fs::remove_dir_all(root.join("assets")).unwrap();
@@ -591,19 +591,43 @@ fn linux_packaging_environment_exposes_payload_binary_and_manifest() {
 
     assert_eq!(
         environment.get(&OsString::from("FISSION_LINUX_PAYLOAD_DIR")),
-        Some(&root.as_os_str().to_os_string())
+        Some(&root)
     );
     assert_eq!(
         environment.get(&OsString::from("LINUX_BINARY")),
-        Some(&root.join("demo").as_os_str().to_os_string())
+        Some(&root.join("demo"))
     );
     assert_eq!(
         environment.get(&OsString::from("FISSION_LINUX_NATIVE_PRODUCTS_MANIFEST")),
-        Some(
-            &root
-                .join(".fission/native/linux-products.json")
-                .as_os_str()
-                .to_os_string()
-        )
+        Some(&root.join(".fission/native/linux-products.json"))
     );
+}
+
+#[test]
+fn packaging_script_resolves_relative_project_script_and_payload_paths() {
+    let current_dir = std::env::current_dir().unwrap();
+    let root = current_dir.join(format!("fission-relative-packager-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    let project_dir = root.strip_prefix(&current_dir).unwrap();
+    let script = project_dir.join("package.sh");
+    let payload = project_dir.join("payload.bin");
+    fs::write(
+        root.join("package.sh"),
+        "#!/bin/sh\nset -eu\ntest -f \"$TEST_PAYLOAD\"\nprintf artifact.run > artifact.run\nprintf '%s\\n' artifact.run\n",
+    )
+    .unwrap();
+    fs::write(root.join("payload.bin"), b"payload").unwrap();
+
+    let output = run_packaging_script_with_env(
+        project_dir,
+        &script,
+        false,
+        None,
+        &[(OsString::from("TEST_PAYLOAD"), payload)],
+    )
+    .unwrap();
+
+    assert_eq!(output.as_deref(), Some(root.join("artifact.run").as_path()));
+    let _ = fs::remove_dir_all(root);
 }
