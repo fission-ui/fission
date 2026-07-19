@@ -1,4 +1,7 @@
-use crate::FissionProject;
+use crate::{
+    FissionProject,
+    native_cargo::{cargo_target_directory, expand_cargo_target_directory},
+};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -72,7 +75,7 @@ pub fn build_linux_native_modules(
         if module.linux.is_empty() {
             continue;
         }
-        run_cargo_module_command(
+        let target_directory = run_cargo_module_command(
             &project_dir,
             module.path.as_deref(),
             &module.name,
@@ -88,6 +91,7 @@ pub fn build_linux_native_modules(
                 product,
                 profile,
                 env::consts::ARCH,
+                &target_directory,
             )?);
         }
     }
@@ -138,7 +142,7 @@ fn run_cargo_module_command(
     config: &NativeLinuxModuleConfig,
     cargo_command: &str,
     release: bool,
-) -> Result<()> {
+) -> Result<PathBuf> {
     let package = required_optional_value(
         config.cargo_package.as_deref(),
         &format!("Linux native module `{module_name}` requires `cargo_package`"),
@@ -175,7 +179,8 @@ fn run_cargo_module_command(
     run_status(
         &mut command,
         &format!("Linux native module `{module_name}` Cargo {cargo_command}"),
-    )
+    )?;
+    cargo_target_directory(project_dir, &manifest, module_name, "Linux")
 }
 
 fn resolve_manifest_path(
@@ -211,10 +216,18 @@ fn resolve_product(
     product: &NativeLinuxProductConfig,
     profile: &str,
     architecture: &str,
+    cargo_target_directory: &Path,
 ) -> Result<BuiltLinuxNativeProduct> {
     let name = required_value(&product.name, "Linux native product name")?;
     let path = required_value(&product.path, "Linux native product path")?;
-    let source = resolve_project_path(project_dir, &expand_path(path, profile, architecture));
+    let expanded = expand_path(
+        path,
+        profile,
+        architecture,
+        cargo_target_directory,
+        module_name,
+    )?;
+    let source = resolve_project_path(project_dir, &expanded);
     if !source.exists() {
         bail!(
             "Linux native product `{name}` from module `{module_name}` does not exist: {}",
@@ -264,16 +277,28 @@ fn validate_relative_destination(destination: &Path) -> Result<()> {
     Ok(())
 }
 
-fn expand_path(value: &str, profile: &str, architecture: &str) -> String {
+fn expand_path(
+    value: &str,
+    profile: &str,
+    architecture: &str,
+    cargo_target_directory: &Path,
+    module_name: &str,
+) -> Result<String> {
     let configuration = if profile == "release" {
         "Release"
     } else {
         "Debug"
     };
-    value
+    let value = value
         .replace("{profile}", profile)
         .replace("{configuration}", configuration)
-        .replace("{architecture}", architecture)
+        .replace("{architecture}", architecture);
+    expand_cargo_target_directory(
+        &value,
+        Some(cargo_target_directory),
+        module_name,
+        "Linux",
+    )
 }
 
 fn copy_product(source: &Path, destination: &Path) -> Result<()> {
@@ -389,11 +414,14 @@ destination = "libexec/demo-mount-helper"
     fn expands_profile_configuration_and_architecture_tokens() {
         assert_eq!(
             expand_path(
-                "target/{architecture}/{configuration}/{profile}",
+                "{cargo_target_dir}/{architecture}/{configuration}/{profile}",
                 "release",
-                "x86_64"
-            ),
-            "target/x86_64/Release/release"
+                "x86_64",
+                Path::new("/shared/cargo"),
+                "demo-native",
+            )
+            .unwrap(),
+            "/shared/cargo/x86_64/Release/release"
         );
     }
 

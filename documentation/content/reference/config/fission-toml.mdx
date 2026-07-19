@@ -134,7 +134,7 @@ Each `[[native.modules.linux.products]]` entry accepts:
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
 | `name` | string | Yes | Stable product identity recorded in the native-products manifest. |
-| `path` | string | Yes | Built file or directory. Supports `{configuration}`, `{profile}`, and `{architecture}`. |
+| `path` | string | Yes | Built file or directory. Supports `{cargo_target_dir}`, `{configuration}`, `{profile}`, and `{architecture}`. `{cargo_target_dir}` resolves from `cargo metadata`, so it follows workspace and user Cargo configuration. |
 | `kind` | string | Yes | `runtime` or `privileged-helper`. Both are staged, but privileged helpers remain explicitly classified for installer policy and review. |
 | `destination` | string | No | Safe relative path under the run/package root. Defaults to the source file or directory name. |
 
@@ -155,23 +155,27 @@ features = ["kernel-fuse"]
 
 [[native.modules.linux.products]]
 name = "mount-helper"
-path = "../../target/{profile}/linux-mount-helper"
+path = "{cargo_target_dir}/{profile}/linux-mount-helper"
 kind = "privileged-helper"
 destination = "libexec/linux-mount-helper"
 ```
 
 ### `[native.modules.windows]`
 
-Windows native modules attach an MSBuild/WDK project to the desktop lifecycle.
-`fission build`, `fission run`, and Windows package commands build the declared
-project. `fission test --target windows` also runs each declared test binary
-through `vstest.console.exe`.
+Windows native modules attach either a Cargo package or an MSBuild/WDK project
+to the desktop lifecycle. `fission build`, `fission run`, and Windows package
+commands build the declared module. `fission test --target windows` runs Cargo
+tests or each declared MSBuild test binary through `vstest.console.exe`.
 
 | Field | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
+| `cargo_manifest_path` | string | No | `<native.modules.path>/Cargo.toml`, then the app `Cargo.toml` | Project-relative Cargo manifest used for a Cargo native module. |
+| `cargo_package` | string | Yes for Cargo modules | none | Exact Cargo package passed with `--package`. Mutually exclusive with `msbuild_project`. |
+| `features` | array of strings | No | `[]` | Cargo features enabled for build and test. |
+| `no_default_features` | boolean | No | `false` | Passes `--no-default-features` to Cargo. |
 | `nuget_packages_config` | string | No | none | Project-relative `packages.config` restored before MSBuild. Restored WDK host-tool directories are added to the MSBuild environment. |
 | `nuget_packages_directory` | string | No | sibling `packages` directory | Project-relative restore destination. Requires `nuget_packages_config`. |
-| `msbuild_project` | string | Yes when products or tests are declared | none | Project-relative `.sln`, `.slnx`, or MSBuild project passed to `msbuild`. |
+| `msbuild_project` | string | Yes for MSBuild modules | none | Project-relative `.sln`, `.slnx`, or MSBuild project passed to `msbuild`. Mutually exclusive with `cargo_package`. |
 | `platform` | string | No | `x64` | MSBuild platform, such as `x64` or `ARM64`. |
 | `build_target` | string | No | `Build` | MSBuild target invoked for the module. |
 | `test_binaries` | array of strings | No | `[]` | VSTest executables. Paths may contain `{configuration}`, `{profile}`, and `{platform}`. |
@@ -181,7 +185,7 @@ Each `[[native.modules.windows.products]]` entry accepts:
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
 | `name` | string | Yes | Stable product identity used in package manifests. |
-| `path` | string | Yes | Built file or directory. Supports `{configuration}`, `{profile}`, and `{platform}`. |
+| `path` | string | Yes | Built file or directory. Supports `{configuration}`, `{profile}`, and `{platform}`. Cargo products also support `{cargo_target_dir}`, resolved from `cargo metadata`. |
 | `kind` | string | Yes | `runtime` or `driver-package`. Runtime products are staged beside the app; driver packages are installer inputs and are excluded from MSIX manifests. |
 | `destination` | string | No | Safe relative path under the run/package root. Defaults to the source file or directory name. |
 
@@ -205,6 +209,24 @@ destination = "native/Provider.dll"
 name = "filesystem-minifilter"
 path = "platforms/windows/native/{platform}/{configuration}/DriverPackage"
 kind = "driver-package"
+```
+
+Cargo-native Windows products use the same product table without an MSBuild
+project:
+
+```toml
+[[native.modules]]
+name = "windows-helper"
+path = "../windows-helper"
+
+[native.modules.windows]
+cargo_package = "windows-helper"
+
+[[native.modules.windows.products]]
+name = "windows-helper"
+path = "{cargo_target_dir}/{profile}/windows-helper.exe"
+kind = "runtime"
+destination = "tools/windows-helper.exe"
 ```
 
 ## `[app]`

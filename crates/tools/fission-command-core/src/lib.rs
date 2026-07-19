@@ -16,6 +16,7 @@ mod icons;
 mod linux_native;
 mod macos_native;
 mod macos_signing;
+mod native_cargo;
 mod splash;
 mod windows_native;
 pub use icons::{copy_icon_for_bundle, normalized_extension, resolve_app_icon, ResolvedIcon};
