@@ -501,7 +501,7 @@ fn package_signature_checks(
             &["--verify", "--deep", "--strict"],
             primary_child_with_extension(staging_dir, "app"),
             "macOS .app signature verifies",
-            "Sign the .app bundle with package.macos.signing_identity or disable signed distribution for this package.",
+            "Configure package.macos.release.signing_identity for release packaging, or package.macos.signing_identity when signing every profile.",
         )],
         PackageFormat::Pkg => vec![verify_with_tool(
             "release.package.signature.macos_pkg",
@@ -509,7 +509,7 @@ fn package_signature_checks(
             &["--check-signature"],
             primary_file_with_extension(manifest, "pkg"),
             "macOS .pkg signature verifies",
-            "Sign the package with package.macos.installer_identity before distribution.",
+            "Configure package.macos.release.installer_identity for release packaging, or package.macos.installer_identity when signing every profile.",
         )],
         PackageFormat::Apk => vec![verify_with_tool(
             "release.package.signature.android_apk",

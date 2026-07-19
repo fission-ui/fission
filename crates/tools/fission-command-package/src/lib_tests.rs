@@ -69,6 +69,7 @@ fn static_package_builds_artifact_manifest() {
         target: Target::Site,
         format: PackageFormat::Static,
         release: true,
+        variant: None,
         json: false,
     })
     .unwrap();
@@ -141,6 +142,7 @@ build_number = "42"
             target: Target::Ios,
             format: PackageFormat::Ipa,
             release: true,
+            variant: None,
             json: false,
         },
         &dir.join("out"),
@@ -190,6 +192,7 @@ build_number = "108"
             target: Target::Macos,
             format: PackageFormat::App,
             release: true,
+            variant: None,
             json: false,
         },
         &dir.join("out"),
@@ -238,6 +241,7 @@ app_id = "com.example.demo"
             target: Target::Macos,
             format: PackageFormat::App,
             release: true,
+            variant: None,
             json: false,
         },
         &dir.join("out"),
@@ -277,6 +281,7 @@ keystore_alias = "upload"
         &dir,
         Target::Android,
         PackageFormat::Aab,
+        false,
         &[ReadinessCheck {
             id: "release.package.signature.android_aab".to_string(),
             severity: CheckSeverity::Warning,
@@ -292,6 +297,45 @@ keystore_alias = "upload"
     assert_eq!(signing.state, "signed");
     assert_eq!(signing.identity.as_deref(), Some("upload"));
     assert_eq!(signing.certificate_sha256, None);
+}
+
+#[test]
+fn macos_artifact_context_uses_release_signing_overlay_only_for_release() {
+    let dir = unique_dir("macos-release-signing-context");
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(
+        dir.join("fission.toml"),
+        r#"
+[package.macos]
+bundle_id = "com.example.demo"
+
+[package.macos.release]
+signing_identity = "Developer ID Application: Example Ltd"
+installer_identity = "Developer ID Installer: Example Ltd"
+notarize = true
+"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        package_signing_identity(&dir, Target::Macos, PackageFormat::App, false).unwrap(),
+        None
+    );
+    assert_eq!(
+        package_signing_identity(&dir, Target::Macos, PackageFormat::App, true).unwrap(),
+        Some("Developer ID Application: Example Ltd".to_string())
+    );
+    assert_eq!(
+        package_signing_identity(&dir, Target::Macos, PackageFormat::Pkg, true).unwrap(),
+        Some("Developer ID Installer: Example Ltd".to_string())
+    );
+    assert!(package_notarization_context(&dir, Target::Macos, false)
+        .unwrap()
+        .is_none());
+    assert!(package_notarization_context(&dir, Target::Macos, true)
+        .unwrap()
+        .is_some());
+    fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
@@ -341,6 +385,7 @@ fn distribute_publish_outcome_records_structured_events() {
         target: Target::Site,
         format: PackageFormat::Static,
         release: true,
+        variant: None,
         json: false,
     })
     .unwrap();
@@ -543,6 +588,7 @@ fn package_readiness_passes_when_existing_manifest_is_current() {
         target: Target::Site,
         format: PackageFormat::Static,
         release: true,
+        variant: None,
         json: false,
     })
     .unwrap();
@@ -573,6 +619,7 @@ fn package_readiness_warns_when_existing_manifest_is_stale() {
         target: Target::Site,
         format: PackageFormat::Static,
         release: true,
+        variant: None,
         json: false,
     })
     .unwrap();
@@ -723,6 +770,7 @@ fn distribution_readiness_blocks_failed_artifact_validation() {
         target: Target::Site,
         format: PackageFormat::Static,
         release: true,
+        variant: None,
         json: false,
     })
     .unwrap();
@@ -767,6 +815,7 @@ fn distribution_readiness_blocks_artifact_hash_mismatch() {
         target: Target::Site,
         format: PackageFormat::Static,
         release: true,
+        variant: None,
         json: false,
     })
     .unwrap();
@@ -809,6 +858,7 @@ fn distribution_readiness_blocks_stale_source_config() {
         target: Target::Site,
         format: PackageFormat::Static,
         release: true,
+        variant: None,
         json: false,
     })
     .unwrap();
@@ -849,6 +899,7 @@ fn distribution_readiness_checks_receipt_path_writable() {
         target: Target::Site,
         format: PackageFormat::Static,
         release: true,
+        variant: None,
         json: false,
     })
     .unwrap();
@@ -897,6 +948,7 @@ upload_provider = "crash-service"
         target: Target::Site,
         format: PackageFormat::Static,
         release: true,
+        variant: None,
         json: false,
     })
     .unwrap();
@@ -931,6 +983,7 @@ upload_provider = "crash-service"
         target: Target::Site,
         format: PackageFormat::Static,
         release: true,
+        variant: None,
         json: false,
     })
     .unwrap();
@@ -979,6 +1032,7 @@ upload_provider = "github-releases"
         target: Target::Site,
         format: PackageFormat::Static,
         release: true,
+        variant: None,
         json: false,
     })
     .unwrap();
@@ -1055,6 +1109,7 @@ fn distribution_receipt_value_includes_release_context() {
         target: "static-site".to_string(),
         format: "static".to_string(),
         profile: "release".to_string(),
+        variant: None,
         root_dir: "target/fission/release/static-site/static".to_string(),
         source_config: Vec::new(),
         artifacts: vec![ArtifactFile {
@@ -1386,6 +1441,7 @@ fn static_host_readiness_rejects_non_static_artifact_format() {
             target: "linux".to_string(),
             format: "run".to_string(),
             profile: "release".to_string(),
+            variant: None,
             root_dir: artifact_root.display().to_string(),
             source_config: Vec::new(),
             artifacts: vec![ArtifactFile {
@@ -1452,6 +1508,7 @@ fn github_releases_readiness_is_not_static_site_specific() {
             target: "linux".to_string(),
             format: "run".to_string(),
             profile: "release".to_string(),
+            variant: None,
             root_dir: artifact_root.display().to_string(),
             source_config: Vec::new(),
             artifacts: vec![ArtifactFile {
@@ -1558,6 +1615,7 @@ package_type = "msix"
             target: "windows".to_string(),
             format: "msix".to_string(),
             profile: "release".to_string(),
+            variant: None,
             root_dir: artifact_root.display().to_string(),
             source_config: Vec::new(),
             artifacts: vec![ArtifactFile {

@@ -1543,6 +1543,7 @@ mod tests {
             target: "static-site".to_string(),
             format: "static".to_string(),
             profile: "release".to_string(),
+            variant: None,
             root_dir: path.parent().unwrap().display().to_string(),
             source_config: Vec::new(),
             artifacts: vec![ArtifactFile {

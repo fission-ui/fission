@@ -605,6 +605,7 @@ mod tests {
             target: "linux".to_string(),
             format: "run".to_string(),
             profile: "release".to_string(),
+            variant: None,
             root_dir: "/tmp".to_string(),
             source_config: Vec::new(),
             artifacts: files,

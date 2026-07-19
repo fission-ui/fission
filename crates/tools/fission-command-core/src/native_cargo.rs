@@ -43,9 +43,7 @@ pub(crate) fn cargo_target_directory(
         );
     }
     let metadata: CargoMetadata = serde_json::from_slice(&output.stdout).with_context(|| {
-        format!(
-            "Cargo returned invalid metadata for {platform} native module `{module_name}`"
-        )
+        format!("Cargo returned invalid metadata for {platform} native module `{module_name}`")
     })?;
     if !metadata.target_directory.is_absolute() {
         bail!(

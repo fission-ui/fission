@@ -17,6 +17,7 @@ mod linux_native;
 mod macos_native;
 mod macos_signing;
 mod native_cargo;
+mod native_variant;
 mod splash;
 mod windows_native;
 pub use icons::{copy_icon_for_bundle, normalized_extension, resolve_app_icon, ResolvedIcon};
@@ -31,9 +32,10 @@ pub use macos_native::{
     NativeMacosProductKind, NativeMacosProductSigningConfig,
 };
 pub use macos_signing::{
-    read_macos_package_config, read_macos_run_config, sign_macos_app_if_configured,
-    MacosPackageConfig,
+    read_macos_package_config, read_macos_package_config_for_profile, read_macos_run_config,
+    read_macos_run_config_for_profile, sign_macos_app_if_configured, MacosPackageConfig,
 };
+pub use native_variant::{ensure_native_variant_target, variant_output_path, NativeVariant};
 pub use splash::{SplashConfig, SplashResizeMode};
 pub use windows_native::{
     build_windows_native_modules, stage_windows_runtime_products, test_windows_native_modules,
@@ -271,6 +273,8 @@ pub struct NativeModuleConfig {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub variants: BTreeSet<NativeVariant>,
     #[serde(default, skip_serializing_if = "NativeAndroidModuleConfig::is_empty")]
     pub android: NativeAndroidModuleConfig,
     #[serde(default, skip_serializing_if = "NativeIosModuleConfig::is_empty")]

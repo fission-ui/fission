@@ -3,12 +3,12 @@ pub mod doctor;
 use anyhow::{bail, Context, Result};
 use fission_command_core::{
     build_linux_native_modules, build_macos_native_modules, build_windows_native_modules,
-    embed_and_sign_macos_native_modules, ios_executable_name, normalized_extension,
-    read_macos_run_config, read_project_config, resolve_app_icon, sign_macos_app_if_configured,
-    stage_linux_native_products, stage_project_assets, stage_windows_runtime_products,
-    sync_platform_config, test_linux_native_modules, test_macos_native_modules,
-    test_windows_native_modules, FissionProject, MacosNativeBundleMode, MacosPackageConfig,
-    PlatformCapability, Target,
+    embed_and_sign_macos_native_modules, ensure_native_variant_target, ios_executable_name,
+    normalized_extension, read_macos_run_config_for_profile, read_project_config, resolve_app_icon,
+    sign_macos_app_if_configured, stage_linux_native_products, stage_project_assets,
+    stage_windows_runtime_products, sync_platform_config, test_linux_native_modules,
+    test_macos_native_modules, test_windows_native_modules, variant_output_path, FissionProject,
+    MacosNativeBundleMode, MacosPackageConfig, NativeVariant, PlatformCapability, Target,
 };
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -37,6 +37,7 @@ pub struct RunOptions {
     pub device: Option<String>,
     pub detach: bool,
     pub release: bool,
+    pub variant: Option<NativeVariant>,
     pub host: String,
     pub port: u16,
     pub no_open: bool,
@@ -48,6 +49,7 @@ pub struct BuildOptions {
     pub project_dir: PathBuf,
     pub target: Option<Target>,
     pub release: bool,
+    pub variant: Option<NativeVariant>,
 }
 
 #[derive(Clone, Debug)]
@@ -55,6 +57,7 @@ pub struct TestOptions {
     pub project_dir: PathBuf,
     pub target: Option<Target>,
     pub headless: bool,
+    pub variant: Option<NativeVariant>,
 }
 
 #[derive(Clone, Debug)]
@@ -138,6 +141,7 @@ pub fn run_app(options: RunOptions) -> Result<()> {
         options.target,
         options.device.as_deref(),
     )?;
+    ensure_native_variant_target(device.target, options.variant.as_ref())?;
     ensure_target_configured(&project, &options.project_dir, device.target)?;
     sync_target_platform_config(&options.project_dir, &project, device.target)?;
 
@@ -167,6 +171,7 @@ pub fn run_app(options: RunOptions) -> Result<()> {
 pub fn build_app(options: BuildOptions) -> Result<()> {
     let project = read_project_config(&options.project_dir)?;
     let target = options.target.unwrap_or_else(host_desktop_target);
+    ensure_native_variant_target(target, options.variant.as_ref())?;
     ensure_target_configured(&project, &options.project_dir, target)?;
     sync_target_platform_config(&options.project_dir, &project, target)?;
 
@@ -174,19 +179,34 @@ pub fn build_app(options: BuildOptions) -> Result<()> {
         Target::Linux => {
             require_desktop_host(target)?;
             build_desktop(&options.project_dir, options.release)?;
-            build_linux_native_modules(&options.project_dir, &project, options.release)?;
+            build_linux_native_modules(
+                &options.project_dir,
+                &project,
+                options.variant.as_ref(),
+                options.release,
+            )?;
             Ok(())
         }
         Target::Windows => {
             require_desktop_host(target)?;
             build_desktop(&options.project_dir, options.release)?;
-            build_windows_native_modules(&options.project_dir, &project, options.release)?;
+            build_windows_native_modules(
+                &options.project_dir,
+                &project,
+                options.variant.as_ref(),
+                options.release,
+            )?;
             Ok(())
         }
         Target::Macos => {
             require_desktop_host(target)?;
             build_desktop(&options.project_dir, options.release)?;
-            build_macos_native_modules(&options.project_dir, &project, options.release)
+            build_macos_native_modules(
+                &options.project_dir,
+                &project,
+                options.variant.as_ref(),
+                options.release,
+            )
         }
         Target::Terminal => build_desktop(&options.project_dir, options.release),
         Target::Web => build_web(&options.project_dir, options.release),
@@ -213,6 +233,7 @@ pub fn build_app(options: BuildOptions) -> Result<()> {
 pub fn test_app(options: TestOptions) -> Result<()> {
     let project = read_project_config(&options.project_dir)?;
     let target = options.target.unwrap_or_else(host_desktop_target);
+    ensure_native_variant_target(target, options.variant.as_ref())?;
     ensure_target_configured(&project, &options.project_dir, target)?;
     sync_target_platform_config(&options.project_dir, &project, target)?;
 
@@ -222,21 +243,21 @@ pub fn test_app(options: TestOptions) -> Result<()> {
             let mut command = Command::new("cargo");
             command.arg("test").current_dir(&options.project_dir);
             run_status(&mut command, "desktop tests")?;
-            test_linux_native_modules(&options.project_dir, &project)
+            test_linux_native_modules(&options.project_dir, &project, options.variant.as_ref())
         }
         Target::Windows => {
             require_desktop_host(target)?;
             let mut command = Command::new("cargo");
             command.arg("test").current_dir(&options.project_dir);
             run_status(&mut command, "desktop tests")?;
-            test_windows_native_modules(&options.project_dir, &project)
+            test_windows_native_modules(&options.project_dir, &project, options.variant.as_ref())
         }
         Target::Macos => {
             require_desktop_host(target)?;
             let mut command = Command::new("cargo");
             command.arg("test").current_dir(&options.project_dir);
             run_status(&mut command, "desktop tests")?;
-            test_macos_native_modules(&options.project_dir, &project)
+            test_macos_native_modules(&options.project_dir, &project, options.variant.as_ref())
         }
         Target::Terminal => {
             let mut command = Command::new("cargo");
@@ -779,11 +800,21 @@ fn ensure_target_configured(
 
 fn run_desktop(project: &FissionProject, options: &RunOptions, device: &Device) -> Result<()> {
     if matches!(device.target, Target::Macos) && cfg!(target_os = "macos") {
-        let app = package_macos_run_app(project, &options.project_dir, options.release)?;
+        let app = package_macos_run_app(
+            project,
+            &options.project_dir,
+            options.variant.as_ref(),
+            options.release,
+        )?;
         return run_macos_app_bundle(&app, options);
     }
     if matches!(device.target, Target::Linux) && cfg!(target_os = "linux") {
-        let app = package_linux_run_app(project, &options.project_dir, options.release)?;
+        let app = package_linux_run_app(
+            project,
+            &options.project_dir,
+            options.variant.as_ref(),
+            options.release,
+        )?;
         let mut command = Command::new(&app.executable);
         command.current_dir(&options.project_dir);
         return run_child(
@@ -793,7 +824,12 @@ fn run_desktop(project: &FissionProject, options: &RunOptions, device: &Device) 
         );
     }
     if matches!(device.target, Target::Windows) && cfg!(target_os = "windows") {
-        let app = package_windows_run_app(project, &options.project_dir, options.release)?;
+        let app = package_windows_run_app(
+            project,
+            &options.project_dir,
+            options.variant.as_ref(),
+            options.release,
+        )?;
         let mut command = Command::new(&app.executable);
         command.current_dir(&options.project_dir);
         return run_child(
@@ -1258,6 +1294,7 @@ fn cargo_metadata(project_dir: &Path) -> Result<CargoMetadata> {
 fn package_macos_run_app(
     project: &FissionProject,
     project_dir: &Path,
+    variant: Option<&NativeVariant>,
     release: bool,
 ) -> Result<MacosRunApp> {
     let project_dir = fs::canonicalize(project_dir).with_context(|| {
@@ -1266,14 +1303,15 @@ fn package_macos_run_app(
             project_dir.display()
         )
     })?;
-    let macos = read_macos_run_config(&project_dir)?;
+    let macos = read_macos_run_config_for_profile(&project_dir, release)?;
     let binary = build_desktop_binary(&project_dir, release)?;
     let profile = if release { "release" } else { "debug" };
     let app_name = macos_display_name(&project.app.name);
-    let app_bundle = project_dir
-        .join(".fission/run/macos")
-        .join(profile)
-        .join(format!("{app_name}.app"));
+    let app_bundle = variant_output_path(
+        project_dir.join(".fission/run/macos").join(profile),
+        variant,
+    )
+    .join(format!("{app_name}.app"));
     let contents = app_bundle.join("Contents");
     let macos_dir = contents.join("MacOS");
     let resources_dir = contents.join("Resources");
@@ -1317,6 +1355,7 @@ fn package_macos_run_app(
         &project_dir,
         &app_bundle,
         project,
+        variant,
         &macos,
         MacosNativeBundleMode::Run,
         release,
@@ -1329,6 +1368,7 @@ fn package_macos_run_app(
 fn package_linux_run_app(
     project: &FissionProject,
     project_dir: &Path,
+    variant: Option<&NativeVariant>,
     release: bool,
 ) -> Result<DesktopRunApp> {
     let project_dir = fs::canonicalize(project_dir).with_context(|| {
@@ -1339,10 +1379,11 @@ fn package_linux_run_app(
     })?;
     let binary = build_desktop_binary(&project_dir, release)?;
     let profile = if release { "release" } else { "debug" };
-    let app_root = project_dir
-        .join(".fission/run/linux")
-        .join(profile)
-        .join(sanitize_file_stem(&project.app.name));
+    let app_root = variant_output_path(
+        project_dir.join(".fission/run/linux").join(profile),
+        variant,
+    )
+    .join(sanitize_file_stem(&project.app.name));
     if app_root.exists() {
         fs::remove_dir_all(&app_root).with_context(|| {
             format!(
@@ -1385,7 +1426,7 @@ fn package_linux_run_app(
         applications_dir.join(format!("{}.desktop", project.app.app_id)),
         render_linux_desktop_entry(project, &executable),
     )?;
-    let native_products = build_linux_native_modules(&project_dir, project, release)?;
+    let native_products = build_linux_native_modules(&project_dir, project, variant, release)?;
     stage_linux_native_products(&app_root, &native_products)?;
     stage_project_assets(&project_dir, &app_root)?;
     Ok(DesktopRunApp { executable })
@@ -1394,6 +1435,7 @@ fn package_linux_run_app(
 fn package_windows_run_app(
     project: &FissionProject,
     project_dir: &Path,
+    variant: Option<&NativeVariant>,
     release: bool,
 ) -> Result<DesktopRunApp> {
     let project_dir = fs::canonicalize(project_dir).with_context(|| {
@@ -1404,10 +1446,11 @@ fn package_windows_run_app(
     })?;
     let binary = build_desktop_binary(&project_dir, release)?;
     let profile = if release { "release" } else { "debug" };
-    let app_root = project_dir
-        .join(".fission/run/windows")
-        .join(profile)
-        .join(sanitize_file_stem(&project.app.name));
+    let app_root = variant_output_path(
+        project_dir.join(".fission/run/windows").join(profile),
+        variant,
+    )
+    .join(sanitize_file_stem(&project.app.name));
     if app_root.exists() {
         fs::remove_dir_all(&app_root).with_context(|| {
             format!(
@@ -1442,7 +1485,7 @@ fn package_windows_run_app(
         )),
         render_windows_development_manifest(project),
     )?;
-    let native_products = build_windows_native_modules(&project_dir, project, release)?;
+    let native_products = build_windows_native_modules(&project_dir, project, variant, release)?;
     stage_windows_runtime_products(&app_root, &native_products)?;
     stage_project_assets(&project_dir, &app_root)?;
     Ok(DesktopRunApp { executable })

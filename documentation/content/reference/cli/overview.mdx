@@ -282,26 +282,26 @@ Lists launchable macOS, Windows, Linux, Web, Android, and iOS devices known to t
 ### `fission run`
 
 ```sh
-fission run [--target <target>] [--device <id>] [--project-dir <dir>] [--release] [--detach]
+fission run [--target <target>] [--device <id>] [--project-dir <dir>] [--release] [--variant <name>] [--detach]
 ```
 
-Builds, launches, and attaches to the selected target. Web also accepts `--host`, `--port`, and `--no-open`. Mobile targets also accept `--headless`.
+Builds, launches, and attaches to the selected target. `--variant` selects matching and universal native modules for Linux, macOS, or Windows. Web also accepts `--host`, `--port`, and `--no-open`. Mobile targets also accept `--headless`.
 
 ### `fission build`
 
 ```sh
-fission build [--target <target>] [--project-dir <dir>] [--release]
+fission build [--target <target>] [--project-dir <dir>] [--release] [--variant <name>]
 ```
 
-Builds the selected target without launching it.
+Builds the selected target without launching it. `--variant` is available for Linux, macOS, and Windows native modules.
 
 ### `fission test`
 
 ```sh
-fission test [--target <target>] [--project-dir <dir>] [--headless]
+fission test [--target <target>] [--project-dir <dir>] [--variant <name>] [--headless]
 ```
 
-Runs the generated platform smoke test for the selected target.
+Runs the generated platform smoke test for the selected target. On Linux, macOS, and Windows, `--variant` also limits native-module tests to universal and matching modules.
 
 ### `fission logs`
 
@@ -378,10 +378,10 @@ Generates per-worker and per-island browser shim crates, then compiles them unle
 ### `fission package`
 
 ```sh
-fission package --target <target> --format <format> [--project-dir <dir>] [--release] [--json]
+fission package --target <target> --format <format> [--project-dir <dir>] [--release] [--variant <name>] [--json]
 ```
 
-Packages an app or site into a release artifact manifest. Current relevant pairs include `static-site/static`, `static-site/docker-image`, `ssr/docker-image`, `linux/run`, `macos/app`, `macos/pkg`, `windows/exe`, `windows/msi`, `windows/msix`, `android/apk`, `android/aab`, and `ios/ipa`.
+Packages an app or site into a release artifact manifest. Current relevant pairs include `static-site/static`, `static-site/docker-image`, `ssr/docker-image`, `linux/run`, `macos/app`, `macos/pkg`, `windows/exe`, `windows/msi`, `windows/msix`, `android/apk`, `android/aab`, and `ios/ipa`. For Linux, macOS, and Windows, `--variant` filters native modules before their platform build tools run, records the variant in the artifact manifest, and exposes it to custom package scripts as `FISSION_VARIANT`.
 
 ### `fission readiness`
 

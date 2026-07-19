@@ -1,6 +1,6 @@
 use crate::{
-    FissionProject,
     native_cargo::{cargo_target_directory, expand_cargo_target_directory},
+    FissionProject, NativeVariant,
 };
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -65,13 +65,14 @@ pub struct BuiltLinuxNativeProduct {
 pub fn build_linux_native_modules(
     project_dir: &Path,
     project: &FissionProject,
+    variant: Option<&NativeVariant>,
     release: bool,
 ) -> Result<Vec<BuiltLinuxNativeProduct>> {
     let project_dir = canonical_project_dir(project_dir)?;
     let profile = if release { "release" } else { "debug" };
     let mut products = Vec::new();
 
-    for module in &project.native.modules {
+    for module in project.native_modules_for_variant(variant) {
         if module.linux.is_empty() {
             continue;
         }
@@ -99,9 +100,13 @@ pub fn build_linux_native_modules(
     Ok(products)
 }
 
-pub fn test_linux_native_modules(project_dir: &Path, project: &FissionProject) -> Result<()> {
+pub fn test_linux_native_modules(
+    project_dir: &Path,
+    project: &FissionProject,
+    variant: Option<&NativeVariant>,
+) -> Result<()> {
     let project_dir = canonical_project_dir(project_dir)?;
-    for module in &project.native.modules {
+    for module in project.native_modules_for_variant(variant) {
         if module.linux.is_empty() {
             continue;
         }
@@ -293,12 +298,7 @@ fn expand_path(
         .replace("{profile}", profile)
         .replace("{configuration}", configuration)
         .replace("{architecture}", architecture);
-    expand_cargo_target_directory(
-        &value,
-        Some(cargo_target_directory),
-        module_name,
-        "Linux",
-    )
+    expand_cargo_target_directory(&value, Some(cargo_target_directory), module_name, "Linux")
 }
 
 fn copy_product(source: &Path, destination: &Path) -> Result<()> {

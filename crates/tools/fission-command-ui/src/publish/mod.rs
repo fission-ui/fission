@@ -1549,6 +1549,7 @@ impl PublishTaskRequest {
                     target: self.target,
                     format: self.format,
                     release: true,
+                    variant: None,
                     json: false,
                 })?;
                 Ok(format!("artifact manifest: {}", path.display()))

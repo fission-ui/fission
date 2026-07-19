@@ -42,10 +42,6 @@ struct ApplePackageToml {
 struct MacosPackageToml {
     bundle_id: Option<String>,
     team_id: Option<String>,
-    entitlements: Option<String>,
-    signing_identity: Option<String>,
-    installer_identity: Option<String>,
-    notarize: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -209,11 +205,24 @@ fn build_status_report(area: &str, project_dir: &Path, target: Target) -> Lifecy
         Target::Ios => {
             apple_ios_checks(project_dir, config.package.and_then(|p| p.ios), &mut report)
         }
-        Target::Macos => macos_checks(
-            project_dir,
-            config.package.and_then(|p| p.macos),
-            &mut report,
-        ),
+        Target::Macos => {
+            let cfg = config.package.and_then(|p| p.macos);
+            match fission_command_core::read_macos_package_config_for_profile(project_dir, true) {
+                Ok(signing) => macos_checks(project_dir, cfg, &signing, &mut report),
+                Err(error) => {
+                    report.checks.push(failed_check(
+                        "signing.macos.config",
+                        format!("failed to resolve macOS release signing configuration: {error}"),
+                    ));
+                    macos_checks(
+                        project_dir,
+                        cfg,
+                        &fission_command_core::MacosPackageConfig::default(),
+                        &mut report,
+                    );
+                }
+            }
+        }
         Target::Windows => windows_checks(
             project_dir,
             config.package.and_then(|p| p.windows),
@@ -335,7 +344,12 @@ fn apple_ios_checks(
     ));
 }
 
-fn macos_checks(project_dir: &Path, cfg: Option<MacosPackageToml>, report: &mut LifecycleReport) {
+fn macos_checks(
+    project_dir: &Path,
+    cfg: Option<MacosPackageToml>,
+    signing: &fission_command_core::MacosPackageConfig,
+    report: &mut LifecycleReport,
+) {
     report.checks.push(host_os_check_local(
         "signing.apple.host_is_macos",
         "macOS signing and notarization checks require macOS.",
@@ -356,49 +370,57 @@ fn macos_checks(project_dir: &Path, cfg: Option<MacosPackageToml>, report: &mut 
         project_dir,
         &mut report.checks,
         "signing.macos.entitlements",
-        cfg.as_ref().and_then(|cfg| cfg.entitlements.as_deref()),
+        signing.entitlements.as_deref(),
         "macOS entitlements file exists",
     );
     report.checks.push(required_text(
         "signing.macos.identity",
-        cfg.as_ref().and_then(|cfg| cfg.signing_identity.as_deref()),
+        signing.signing_identity.as_deref(),
         "Developer ID Application signing identity is configured",
-        "Set package.macos.signing_identity.",
+        "Set package.macos.release.signing_identity for release-only signing.",
     ));
     report.checks.push(tool_check(
         "signing.apple.codesign_available",
         "codesign",
         "Run on macOS with Xcode command line tools installed.",
     ));
-    report.checks.push(apple_identity_check(
-        cfg.as_ref().and_then(|cfg| cfg.signing_identity.as_deref()),
-    ));
-    if cfg.as_ref().and_then(|cfg| cfg.notarize).unwrap_or(false) {
+    report
+        .checks
+        .push(apple_identity_check(signing.signing_identity.as_deref()));
+    if signing.notarize.unwrap_or(false) {
         report.checks.push(required_text(
             "signing.macos.installer_identity",
-            cfg.as_ref()
-                .and_then(|cfg| cfg.installer_identity.as_deref()),
+            signing.installer_identity.as_deref(),
             "Developer ID Installer identity is configured for pkg signing",
-            "Set package.macos.installer_identity when package.macos.notarize = true.",
+            "Set package.macos.release.installer_identity when release notarization is enabled.",
         ));
-        for (id, name) in [
-            (
-                "signing.apple.notary_key_path",
+        report.checks.push(env_or_missing(
+            "signing.apple.notary_key",
+            &[
                 "APP_STORE_CONNECT_API_KEY_PATH",
-            ),
-            ("signing.apple.notary_key_id", "APP_STORE_CONNECT_KEY_ID"),
-            (
-                "signing.apple.notary_issuer_id",
-                "APP_STORE_CONNECT_ISSUER_ID",
-            ),
-        ] {
-            report.checks.push(env_or_missing(
-                id,
-                &[name],
-                &format!("{name} is configured for notarization"),
-                &format!("Set {name} in the release environment."),
-            ));
-        }
+                "APP_STORE_CONNECT_API_KEY",
+                "APP_STORE_CONNECT_API_KEY_BASE64",
+            ],
+            "App Store Connect API key material is configured for notarization",
+            "Set APP_STORE_CONNECT_API_KEY_PATH, APP_STORE_CONNECT_API_KEY, or APP_STORE_CONNECT_API_KEY_BASE64 in the release environment.",
+        ));
+        report.checks.push(env_or_missing(
+            "signing.apple.notary_key_id",
+            &["APP_STORE_CONNECT_KEY_ID"],
+            "APP_STORE_CONNECT_KEY_ID is configured for notarization",
+            "Set APP_STORE_CONNECT_KEY_ID in the release environment.",
+        ));
+        report.checks.push(env_or_missing(
+            "signing.apple.notary_issuer_id",
+            &["APP_STORE_CONNECT_ISSUER_ID"],
+            "APP_STORE_CONNECT_ISSUER_ID is configured for notarization",
+            "Set APP_STORE_CONNECT_ISSUER_ID in the release environment.",
+        ));
+        report.checks.push(tool_check(
+            "signing.apple.xcrun_available",
+            "xcrun",
+            "Install Xcode command line tools for notarytool and stapler.",
+        ));
     }
 }
 
@@ -768,5 +790,49 @@ mod tests {
         );
 
         env::remove_var(env_name);
+    }
+
+    #[test]
+    fn macos_signing_status_resolves_release_overlay() {
+        let dir = std::env::temp_dir().join(format!(
+            "fission-macos-release-signing-status-{}-{}",
+            std::process::id(),
+            now_unix_seconds()
+        ));
+        fs::remove_dir_all(&dir).ok();
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("fission.toml"),
+            r#"
+[package.macos]
+bundle_id = "com.example.app"
+team_id = "ABCDE12345"
+signing_identity = "-"
+
+[package.macos.release]
+entitlements = "platforms/macos/Release.entitlements"
+signing_identity = "Developer ID Application: Example Ltd"
+installer_identity = "Developer ID Installer: Example Ltd"
+notarize = true
+"#,
+        )
+        .unwrap();
+        let report = build_status_report("test", &dir, Target::Macos);
+        let check = |id: &str| report.checks.iter().find(|check| check.id == id).unwrap();
+
+        assert_eq!(check("signing.macos.identity").status, "passed");
+        assert_eq!(
+            check("signing.macos.identity").details.as_deref(),
+            Some("Developer ID Application: Example Ltd")
+        );
+        assert_eq!(
+            check("signing.macos.installer_identity").details.as_deref(),
+            Some("Developer ID Installer: Example Ltd")
+        );
+        assert!(report
+            .checks
+            .iter()
+            .all(|check| check.id != "signing.macos.config"));
+        fs::remove_dir_all(dir).unwrap();
     }
 }
