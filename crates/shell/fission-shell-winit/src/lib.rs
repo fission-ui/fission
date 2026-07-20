@@ -56,7 +56,7 @@ use fission_render_vello::{
 use fission_shell::async_host::{
     AsyncMessage, AsyncRegistry, RunningServiceHandle, ServiceControlMessage,
 };
-use fission_shell::{VideoEvent, VideoPlayer};
+use fission_shell::{MapController, VideoEvent, VideoPlayer};
 use fission_theme::fonts;
 use fontique::{Blob, Collection, CollectionOptions, FontInfoOverride, SourceCache};
 
@@ -331,6 +331,14 @@ struct ActivePlayer {
     last_rate: Option<f32>,
     last_volume: Option<f32>,
     last_muted: Option<bool>,
+}
+
+struct ActiveMap {
+    controller: Box<dyn MapController>,
+    center: (f64, f64),
+    zoom: f32,
+    show_user_location: bool,
+    interactive: bool,
 }
 
 struct RenderState<'w> {
@@ -4473,6 +4481,7 @@ where
         #[cfg(target_os = "android")]
         let map_backend = create_map_backend(platform_window.as_deref());
         let mut players: HashMap<WidgetId, ActivePlayer> = HashMap::new();
+        let mut maps: HashMap<WidgetId, ActiveMap> = HashMap::new();
 
         let mut last_cursor_position: Option<PhysicalPosition<f64>> = None;
         let mut active_primary_touch: Option<u64> = None;
@@ -5712,6 +5721,58 @@ where
                     let web_surfaces = pipeline.web_surfaces.clone();
                     web_backend.present_surfaces(&web_surfaces);
                     let map_surfaces = pipeline.map_surfaces.clone();
+                    let mut active_maps = std::collections::HashSet::new();
+                    for surface in &map_surfaces {
+                        active_maps.insert(surface.widget_id);
+                        let Some(state) = runtime.runtime_state.map.states.get(&surface.widget_id)
+                        else {
+                            continue;
+                        };
+
+                        if !maps.contains_key(&surface.widget_id) {
+                            let mut controller = map_backend.create_controller(
+                                surface.widget_id,
+                                state.center,
+                                state.zoom,
+                            );
+                            controller.set_show_user_location(state.show_user_location);
+                            controller.set_interactive(state.interactive);
+                            maps.insert(
+                                surface.widget_id,
+                                ActiveMap {
+                                    controller,
+                                    center: state.center,
+                                    zoom: state.zoom,
+                                    show_user_location: state.show_user_location,
+                                    interactive: state.interactive,
+                                },
+                            );
+                            continue;
+                        }
+
+                        let active = maps
+                            .get_mut(&surface.widget_id)
+                            .expect("map controller was inserted above");
+                        if active.center != state.center {
+                            active.controller.set_center(state.center.0, state.center.1);
+                            active.center = state.center;
+                        }
+                        if active.zoom != state.zoom {
+                            active.controller.set_zoom(state.zoom);
+                            active.zoom = state.zoom;
+                        }
+                        if active.show_user_location != state.show_user_location {
+                            active
+                                .controller
+                                .set_show_user_location(state.show_user_location);
+                            active.show_user_location = state.show_user_location;
+                        }
+                        if active.interactive != state.interactive {
+                            active.controller.set_interactive(state.interactive);
+                            active.interactive = state.interactive;
+                        }
+                    }
+                    maps.retain(|widget_id, _| active_maps.contains(widget_id));
                     map_backend.present_surfaces(&map_surfaces);
 
                     // Video Logic - Process Player Events and Sync State
