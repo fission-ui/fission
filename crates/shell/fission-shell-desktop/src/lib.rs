@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use fission_core::{Action, ActionId, Env, GlobalState, Widget};
-use fission_shell::async_host::AsyncRegistry;
+use fission_shell::{async_host::AsyncRegistry, NativeSurfaceHandler};
 use fission_shell_winit::WinitApp;
 
 pub use fission_shell_winit::{
@@ -111,6 +111,16 @@ where
         F: Fn(&mut S) -> bool + Send + Sync + 'static,
     {
         self.inner = self.inner.with_frame_hook(f);
+        self
+    }
+
+    /// Registers an extension that presents opaque custom surfaces in the
+    /// desktop host.
+    pub fn with_native_surface_handler<H>(mut self, handler: H) -> Self
+    where
+        H: NativeSurfaceHandler + 'static,
+    {
+        self.inner = self.inner.with_native_surface_handler(handler);
         self
     }
 

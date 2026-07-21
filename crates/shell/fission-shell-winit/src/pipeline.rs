@@ -15,7 +15,7 @@ use fission_render::{
     embed_surface_id, BoxShadow, Color as RenderColor, DisplayList, DisplayOp, Fill, LayerClip,
     RenderLayer, RenderNode, RenderScene, Renderer, Stroke,
 };
-use fission_shell::VideoSurfaceFrame;
+use fission_shell::{NativeSurfaceFrame, VideoSurfaceFrame};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
@@ -174,7 +174,8 @@ pub struct Pipeline {
     pub last_scroll_offsets: HashMap<WidgetId, u32>,
     pub video_surfaces: Vec<VideoSurfaceFrame>,
     pub web_surfaces: Vec<WebSurfaceFrame>,
-    pub scene_3d_surfaces: Vec<(WidgetId, LayoutRect, Vec<u8>)>,
+    /// Opaque custom embeds available to registered native-surface handlers.
+    pub native_surfaces: Vec<NativeSurfaceFrame>,
     pub last_viewport: Option<LayoutRect>,
     pub layout_invariant_violation_count: u32,
     pub layout_full_rebuild_count: u32,
@@ -210,7 +211,7 @@ impl Pipeline {
             last_scroll_offsets: HashMap::new(),
             video_surfaces: Vec::new(),
             web_surfaces: Vec::new(),
-            scene_3d_surfaces: Vec::new(),
+            native_surfaces: Vec::new(),
             last_viewport: None,
             layout_invariant_violation_count: 0,
             layout_full_rebuild_count: 0,
@@ -418,7 +419,7 @@ impl Pipeline {
 
         self.video_surfaces.clear();
         self.web_surfaces.clear();
-        self.scene_3d_surfaces.clear();
+        self.native_surfaces.clear();
         if let Some(root) = ir.root {
             collect_video_surfaces(
                 root,
@@ -430,7 +431,7 @@ impl Pipeline {
                 LayoutPoint::ZERO,
                 &mut self.video_surfaces,
                 &mut self.web_surfaces,
-                &mut self.scene_3d_surfaces,
+                &mut self.native_surfaces,
             );
         }
         stats.video_surfaces = self.video_surfaces.len();
@@ -1838,7 +1839,7 @@ fn collect_video_surfaces(
     accumulated_offset: LayoutPoint,
     video_surfaces: &mut Vec<VideoSurfaceFrame>,
     web_surfaces: &mut Vec<WebSurfaceFrame>,
-    scene_3d_surfaces: &mut Vec<(WidgetId, LayoutRect, Vec<u8>)>,
+    native_surfaces: &mut Vec<NativeSurfaceFrame>,
 ) {
     let mut visited = HashSet::new();
     collect_video_surfaces_with_visited(
@@ -1851,7 +1852,7 @@ fn collect_video_surfaces(
         accumulated_offset,
         video_surfaces,
         web_surfaces,
-        scene_3d_surfaces,
+        native_surfaces,
         &mut visited,
     );
 }
@@ -1866,7 +1867,7 @@ fn collect_video_surfaces_with_visited(
     accumulated_offset: LayoutPoint,
     video_surfaces: &mut Vec<VideoSurfaceFrame>,
     web_surfaces: &mut Vec<WebSurfaceFrame>,
-    scene_3d_surfaces: &mut Vec<(WidgetId, LayoutRect, Vec<u8>)>,
+    native_surfaces: &mut Vec<NativeSurfaceFrame>,
     visited: &mut HashSet<WidgetId>,
 ) {
     if !visited.insert(node_id) {
@@ -1909,7 +1910,11 @@ fn collect_video_surfaces_with_visited(
         }) = &node.op
         {
             let translated_rect = translate_rect(geom.rect, accumulated_offset);
-            scene_3d_surfaces.push((*widget_id, translated_rect, payload.clone()));
+            native_surfaces.push(NativeSurfaceFrame {
+                widget_id: *widget_id,
+                rect: translated_rect,
+                payload: payload.clone(),
+            });
         }
 
         for child in &node.children {
@@ -1923,7 +1928,7 @@ fn collect_video_surfaces_with_visited(
                 child_offset,
                 video_surfaces,
                 web_surfaces,
-                scene_3d_surfaces,
+                native_surfaces,
                 visited,
             );
         }
@@ -2786,6 +2791,57 @@ mod tests {
             }
             other => panic!("expected surface display op, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn custom_embeds_flow_into_native_surfaces() {
+        let node_id = WidgetId::derived(15, &[0]);
+        let widget_id = WidgetId::explicit("custom.surface");
+        let payload = vec![0x4d, 0x41, 0x50, 0x01];
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            node_id,
+            Op::Layout(LayoutOp::Embed {
+                kind: EmbedKind::Custom(payload.clone()),
+                widget_id,
+                width: Some(320.0),
+                height: Some(180.0),
+            }),
+            vec![],
+        );
+        ir.set_root(node_id);
+
+        let mut pipeline = Pipeline::new();
+        let mut layout_engine = LayoutEngine::new();
+        let scroll = ScrollStateMap::default();
+        pipeline.replace_ir(ir, &Env::default());
+        pipeline
+            .ensure_layout(
+                LayoutRect::new(0.0, 0.0, 320.0, 240.0),
+                &mut layout_engine,
+                &scroll,
+            )
+            .unwrap();
+        pipeline
+            .prepare_current(
+                LayoutSize::new(320.0, 240.0),
+                LayoutSize::new(320.0, 240.0),
+                false,
+                &scroll,
+                &Default::default(),
+                &Default::default(),
+                &Default::default(),
+            )
+            .unwrap();
+
+        assert_eq!(
+            pipeline.native_surfaces,
+            vec![fission_shell::NativeSurfaceFrame {
+                widget_id,
+                rect: LayoutRect::new(0.0, 0.0, 320.0, 180.0),
+                payload,
+            }]
+        );
     }
 
     #[test]

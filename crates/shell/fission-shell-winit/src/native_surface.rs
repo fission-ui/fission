@@ -1,0 +1,99 @@
+use fission_shell::{NativeSurfaceFrame, NativeSurfaceHandler, NativeSurfaceHost};
+
+/// Delivers generic custom embed frames to registered extensions.
+#[derive(Default)]
+pub(crate) struct NativeSurfaceRegistry {
+    handlers: Vec<Box<dyn NativeSurfaceHandler>>,
+}
+
+impl NativeSurfaceRegistry {
+    pub(crate) fn register<H>(&mut self, handler: H)
+    where
+        H: NativeSurfaceHandler + 'static,
+    {
+        self.handlers.push(Box::new(handler));
+    }
+
+    pub(crate) fn attach_host(&mut self, host: NativeSurfaceHost) {
+        for handler in &mut self.handlers {
+            handler.attach_host(host);
+        }
+    }
+
+    pub(crate) fn present_surfaces(&mut self, frames: &[NativeSurfaceFrame]) {
+        for handler in &mut self.handlers {
+            let claimed = frames
+                .iter()
+                .filter(|frame| handler.handles_payload(&frame.payload))
+                .cloned()
+                .collect::<Vec<_>>();
+            handler.present_surfaces(&claimed);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::NativeSurfaceRegistry;
+    use fission_ir::WidgetId;
+    use fission_render::LayoutRect;
+    use fission_shell::{NativeSurfaceFrame, NativeSurfaceHandler, NativeSurfaceHost};
+    use raw_window_handle::RawWindowHandle;
+    use std::sync::{Arc, Mutex};
+
+    struct RecordingHandler {
+        prefix: &'static [u8],
+        frames: Arc<Mutex<Vec<NativeSurfaceFrame>>>,
+    }
+
+    impl NativeSurfaceHandler for RecordingHandler {
+        fn handles_payload(&self, payload: &[u8]) -> bool {
+            payload.starts_with(self.prefix)
+        }
+
+        fn attach_host(&mut self, _host: NativeSurfaceHost) {}
+
+        fn present_surfaces(&mut self, frames: &[NativeSurfaceFrame]) {
+            *self.frames.lock().unwrap() = frames.to_vec();
+        }
+    }
+
+    #[test]
+    fn routes_only_claimed_surfaces_to_each_handler() {
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let mut registry = NativeSurfaceRegistry::default();
+        registry.register(RecordingHandler {
+            prefix: b"maps:",
+            frames: received.clone(),
+        });
+
+        registry.present_surfaces(&[
+            NativeSurfaceFrame {
+                widget_id: WidgetId::from_u128(1),
+                rect: LayoutRect::new(0.0, 0.0, 1.0, 1.0),
+                payload: b"maps:payload".to_vec(),
+            },
+            NativeSurfaceFrame {
+                widget_id: WidgetId::from_u128(2),
+                rect: LayoutRect::new(0.0, 0.0, 1.0, 1.0),
+                payload: b"other:payload".to_vec(),
+            },
+        ]);
+
+        let received = received.lock().unwrap();
+        assert_eq!(received.len(), 1);
+        assert_eq!(received[0].widget_id, WidgetId::from_u128(1));
+    }
+
+    #[test]
+    fn accepts_a_host_handle_without_retaining_it() {
+        let mut registry = NativeSurfaceRegistry::default();
+        registry.register(RecordingHandler {
+            prefix: b"maps:",
+            frames: Arc::new(Mutex::new(Vec::new())),
+        });
+        registry.attach_host(NativeSurfaceHost::from_raw_window_handle(
+            RawWindowHandle::Web(raw_window_handle::WebWindowHandle::new(0)),
+        ));
+    }
+}

@@ -16,6 +16,7 @@ fission-render = { path = "../../rendering/fission-render", version = "0.9.1" } 
 serde = { version = "1.0", features = ["derive"] }
 anyhow = "1.0"
 serde_json = "1.0"
+raw-window-handle = "0.6"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "time", "sync"] }
