@@ -223,6 +223,8 @@ impl From<Toast> for Widget {
                     .elevations
                     .level3
                     .unwrap_or(fission_core::op::BoxShadow {
+                        spread_radius: 0.0,
+                        inset: false,
                         color: Color {
                             r: 0,
                             g: 0,

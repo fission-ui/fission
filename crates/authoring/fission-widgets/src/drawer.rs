@@ -273,6 +273,8 @@ impl From<Drawer> for Widget {
             .width(width)
             // Height fills parent (Positioned top/bottom 0)
             .shadow(tokens.elevations.level3.unwrap_or(BoxShadow {
+                spread_radius: 0.0,
+                inset: false,
                 color: Color {
                     r: 0,
                     g: 0,

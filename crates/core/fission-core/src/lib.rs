@@ -347,7 +347,8 @@ pub mod public {
     pub use crate::ui::{
         provider, ActionScope, BadgeTone, Button, ButtonHierarchy, ButtonMotion, CardPattern,
         Column, ComponentSize, ComponentState, CustomWidget, IosAudioSessionCategory,
-        IosAudioSessionCategoryOption, IosAudioSessionMode, IosVideoAudioOptions, Provider, Row,
+        IosAudioSessionCategoryOption, IosAudioSessionMode, IosVideoAudioOptions, Pressable,
+        PressableRole, PressableStyle, Provider, Responsive, ResponsiveCase, ResponsiveQuery, Row,
         Text, Video, VideoAudioActivation, VideoAudioOptions, VideoAudioPolicy, VideoSource,
         Widget, WidgetIdExt,
     };
@@ -356,10 +357,14 @@ pub mod public {
         reduce, reduce_with, video_asset, video_file, video_network, widgets, with_reducer,
     };
     pub use fission_ir::op;
+    pub use fission_ir::op::{
+        BoxAlignment, BoxGridPlacement, BoxPosition, BoxStyle, GridPlacement, GridTrack, Length,
+        Overflow,
+    };
     pub use fission_ir::{EmbedKind, FocusPolicy, Op, Role, Semantics, WidgetId};
     pub use fission_layout::{
-        BoxConstraints, FlexDirection, LayoutEngine, LayoutOp, LayoutPoint, LayoutRect, LayoutSize,
-        LayoutSnapshot, LayoutUnit, TextMeasurer,
+        BoxConstraints, FlexDirection, LayoutEngine, LayoutInspection, LayoutNodeGeometry,
+        LayoutOp, LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot, LayoutUnit, TextMeasurer,
     };
 }
 
@@ -404,10 +409,14 @@ pub use event::{
     ExternalDragEvent, InputEvent, KeyCode, KeyEvent, LifecycleEvent, PointerButton, PointerEvent,
 };
 pub use fission_ir::op;
+pub use fission_ir::op::{
+    BoxAlignment, BoxGridPlacement, BoxPosition, BoxStyle, GridPlacement, GridTrack, Length,
+    Overflow,
+};
 pub use fission_ir::{EmbedKind, FocusPolicy, Op, Role, Semantics, WidgetId};
 pub use fission_layout::{
-    BoxConstraints, FlexDirection, LayoutEngine, LayoutOp, LayoutPoint, LayoutRect, LayoutSize,
-    LayoutSnapshot, LayoutUnit, TextMeasurer,
+    BoxConstraints, FlexDirection, LayoutEngine, LayoutInspection, LayoutNodeGeometry, LayoutOp,
+    LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot, LayoutUnit, TextMeasurer,
 };
 pub use platform::{
     CancelAllNotificationsCapability, CancelNotificationCapability, CancelNotificationRequest,
@@ -520,8 +529,9 @@ pub use time::{Clock, CurrentTime};
 pub use ui::{
     provider, ActionScope, BadgeTone, Button, ButtonHierarchy, ButtonMotion, CardPattern, Column,
     ComponentSize, ComponentState, CustomWidget, IosAudioSessionCategory,
-    IosAudioSessionCategoryOption, IosAudioSessionMode, IosVideoAudioOptions, Provider, Row, Text,
-    Video, VideoAudioActivation, VideoAudioOptions, VideoAudioPolicy, VideoSource, Widget,
+    IosAudioSessionCategoryOption, IosAudioSessionMode, IosVideoAudioOptions, Pressable,
+    PressableRole, PressableStyle, Provider, Responsive, ResponsiveCase, ResponsiveQuery, Row,
+    Text, Video, VideoAudioActivation, VideoAudioOptions, VideoAudioPolicy, VideoSource, Widget,
     WidgetIdExt,
 };
 pub use view::{ComputedView, FissionViewField, Selector, ValueView, View};

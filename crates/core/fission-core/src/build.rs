@@ -25,6 +25,7 @@ struct BuildScope {
     local_state_ordinals: HashMap<(&'static str, &'static str), usize>,
     local_state_seen: HashSet<crate::state::LocalStateKey>,
     widget_id_stack: Vec<crate::WidgetId>,
+    implicit_widget_seq: u32,
     providers: HashMap<TypeId, Vec<Box<dyn Any + Send + Sync>>>,
 }
 
@@ -84,6 +85,7 @@ where
             local_state_ordinals: HashMap::new(),
             local_state_seen: HashSet::new(),
             widget_id_stack: Vec::new(),
+            implicit_widget_seq: 0,
             providers: HashMap::new(),
         });
     });
@@ -208,6 +210,21 @@ pub fn current_widget_id() -> Option<crate::WidgetId> {
             .borrow()
             .last()
             .and_then(|scope| scope.widget_id_stack.last().copied())
+    })
+}
+
+pub(crate) fn next_implicit_widget_id(salt: u32) -> Option<crate::WidgetId> {
+    BUILD_SCOPES.with(|scopes| {
+        let mut scopes = scopes.borrow_mut();
+        let scope = scopes.last_mut()?;
+        let parent = scope
+            .widget_id_stack
+            .last()
+            .map(|id| id.as_u128())
+            .unwrap_or(0x1337_C0DE_0000_0000);
+        let sequence = scope.implicit_widget_seq;
+        scope.implicit_widget_seq = scope.implicit_widget_seq.wrapping_add(1);
+        Some(crate::WidgetId::derived(parent, &[salt, sequence]))
     })
 }
 

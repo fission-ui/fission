@@ -34,12 +34,15 @@ pub fn verify_terminal_ir(ir: &CoreIR) -> Result<(), TerminalSupportError> {
 fn verify_layout(node_id: WidgetId, layout: &LayoutOp) -> Result<(), TerminalSupportError> {
     match layout {
         LayoutOp::Box { .. }
+        | LayoutOp::StyledBox { .. }
         | LayoutOp::Flex { .. }
         | LayoutOp::Grid { .. }
         | LayoutOp::GridItem { .. }
+        | LayoutOp::Responsive { .. }
         | LayoutOp::Scroll { .. }
         | LayoutOp::AbsoluteFill
         | LayoutOp::Positioned { .. }
+        | LayoutOp::PositionedLengths { .. }
         | LayoutOp::ZStack
         | LayoutOp::Align => Ok(()),
         LayoutOp::Clip { path: None } => Ok(()),
@@ -64,6 +67,10 @@ fn verify_layout(node_id: WidgetId, layout: &LayoutOp) -> Result<(), TerminalSup
 
 fn verify_paint(node_id: WidgetId, paint: &PaintOp) -> Result<(), TerminalSupportError> {
     match paint {
+        PaintOp::BackdropFilter { .. } => Err(unsupported(
+            node_id,
+            "backdrop filters are not representable in a terminal",
+        )),
         PaintOp::DrawRect { fill, stroke, .. } => {
             if fill.as_ref().is_some_and(is_non_solid_fill) {
                 return Err(unsupported(

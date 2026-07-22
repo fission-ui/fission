@@ -53,6 +53,8 @@ impl Default for ContextMenu {
             border_color: None,
             border_width: 1.0,
             shadow: Some(BoxShadow {
+                spread_radius: 0.0,
+                inset: false,
                 offset: (0.0, 12.0),
                 blur_radius: 28.0,
                 color: Color {
@@ -117,6 +119,8 @@ impl ContextMenu {
                 .border(border, self.border_width)
                 .border_radius(self.border_radius)
                 .shadow(self.shadow.unwrap_or(BoxShadow {
+                    spread_radius: 0.0,
+                    inset: false,
                     offset: (0.0, 8.0),
                     blur_radius: 24.0,
                     color: Color {
@@ -304,6 +308,8 @@ pub(crate) fn text_context_menu_overlay_widget(
             .border(border, menu.border_width)
             .border_radius(menu.border_radius)
             .shadow(menu.shadow.unwrap_or(BoxShadow {
+                spread_radius: 0.0,
+                inset: false,
                 offset: (0.0, 8.0),
                 blur_radius: 24.0,
                 color: Color {

@@ -121,11 +121,13 @@ impl From<SplitView> for Widget {
         let first_pane = Container::new(this.first.clone())
             .flex_grow(first_grow)
             .flex_shrink(1.0)
+            .align_child(fission_ir::op::BoxAlignment::Stretch)
             .into();
 
         let second_pane = Container::new(this.second.clone())
             .flex_grow(second_grow)
             .flex_shrink(1.0)
+            .align_child(fission_ir::op::BoxAlignment::Stretch)
             .into();
 
         match this.direction {

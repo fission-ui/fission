@@ -51,6 +51,17 @@ fn generated_design_system_exposes_components_patterns_and_assets() {
 }
 
 #[test]
+fn generated_design_system_embeds_declared_font_weights() {
+    let fonts = FissionDefaultDesignSystem::font_faces();
+    let weights = fonts.iter().map(|font| font.weight).collect::<Vec<_>>();
+
+    assert_eq!(weights, vec![400, 500, 600, 700]);
+    assert!(fonts
+        .iter()
+        .all(|font| font.family == "Inter" && !font.data.is_empty()));
+}
+
+#[test]
 fn generated_theme_resolves_dsp_component_model() {
     let theme = Theme::default();
 

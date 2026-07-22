@@ -30,13 +30,17 @@
 
 use anyhow::Result;
 use fission_diagnostics::prelude as diag;
-use fission_ir::op::{RichTextAnnotation, TextParagraphStyle, TextRun};
+use fission_ir::op::{BoxStyle, Length, RichTextAnnotation, TextParagraphStyle, TextRun};
 use fission_ir::{FlexDirection as IrFlexDirection, FlexWrap as IrFlexWrap, WidgetId};
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
+
+mod grid_tracks;
+
+use grid_tracks::{distribute_deficit, distribute_flex, expand_tracks, IntrinsicAxis, TrackSizing};
 
 pub use fission_ir::{FlexDirection, GridPlacement, GridTrack, LayoutOp};
 
@@ -81,6 +85,177 @@ fn finite_or(value: LayoutUnit, fallback: LayoutUnit) -> LayoutUnit {
         value
     } else {
         fallback
+    }
+}
+
+fn resolve_length(
+    length: &Length,
+    reference: LayoutUnit,
+    viewport: LayoutSize,
+) -> Option<LayoutUnit> {
+    length
+        .resolve(reference, viewport.width, viewport.height)
+        .map(|value| value.max(0.0))
+}
+
+fn length_requires_measurement(length: &Length) -> bool {
+    match length {
+        Length::FitContent(_) | Length::MinContent | Length::MaxContent => true,
+        Length::Add(left, right) | Length::Subtract(left, right) => {
+            length_requires_measurement(left) || length_requires_measurement(right)
+        }
+        Length::Min(values) | Length::Max(values) => values.iter().any(length_requires_measurement),
+        Length::Clamp {
+            min,
+            preferred,
+            max,
+        } => {
+            length_requires_measurement(min)
+                || length_requires_measurement(preferred)
+                || length_requires_measurement(max)
+        }
+        Length::Points(_)
+        | Length::Percent(_)
+        | Length::ViewportWidth(_)
+        | Length::ViewportHeight(_)
+        | Length::Auto => false,
+    }
+}
+
+fn resolve_measured_length(
+    length: &Length,
+    reference: LayoutUnit,
+    viewport: LayoutSize,
+    min_content: LayoutUnit,
+    max_content: LayoutUnit,
+) -> Option<LayoutUnit> {
+    let resolved = match length {
+        Length::MinContent => min_content,
+        Length::MaxContent => max_content,
+        Length::FitContent(limit) => {
+            let limit = limit
+                .as_deref()
+                .and_then(|limit| {
+                    resolve_measured_length(limit, reference, viewport, min_content, max_content)
+                })
+                .unwrap_or(reference);
+            max_content.min(min_content.max(limit))
+        }
+        Length::Add(left, right) => {
+            resolve_measured_length(left, reference, viewport, min_content, max_content)?
+                + resolve_measured_length(right, reference, viewport, min_content, max_content)?
+        }
+        Length::Subtract(left, right) => {
+            resolve_measured_length(left, reference, viewport, min_content, max_content)?
+                - resolve_measured_length(right, reference, viewport, min_content, max_content)?
+        }
+        Length::Min(values) => values
+            .iter()
+            .map(|value| {
+                resolve_measured_length(value, reference, viewport, min_content, max_content)
+            })
+            .collect::<Option<Vec<_>>>()?
+            .into_iter()
+            .reduce(LayoutUnit::min)?,
+        Length::Max(values) => values
+            .iter()
+            .map(|value| {
+                resolve_measured_length(value, reference, viewport, min_content, max_content)
+            })
+            .collect::<Option<Vec<_>>>()?
+            .into_iter()
+            .reduce(LayoutUnit::max)?,
+        Length::Clamp {
+            min,
+            preferred,
+            max,
+        } => {
+            let minimum =
+                resolve_measured_length(min, reference, viewport, min_content, max_content)?;
+            let maximum =
+                resolve_measured_length(max, reference, viewport, min_content, max_content)?;
+            resolve_measured_length(preferred, reference, viewport, min_content, max_content)?
+                .clamp(minimum.min(maximum), minimum.max(maximum))
+        }
+        Length::Auto => return None,
+        Length::Points(_)
+        | Length::Percent(_)
+        | Length::ViewportWidth(_)
+        | Length::ViewportHeight(_) => {
+            length.resolve(reference, viewport.width, viewport.height)?
+        }
+    };
+    resolved.is_finite().then_some(resolved.max(0.0))
+}
+
+fn resolve_box_style(
+    style: &BoxStyle,
+    constraints: BoxConstraints,
+    viewport: LayoutSize,
+) -> LayoutOp {
+    let horizontal_reference = constraints.max_w;
+    let vertical_reference = constraints.max_h;
+    let padding = style
+        .padding
+        .as_ref()
+        .map(|padding| {
+            [
+                resolve_length(&padding[0], horizontal_reference, viewport).unwrap_or(0.0),
+                resolve_length(&padding[1], horizontal_reference, viewport).unwrap_or(0.0),
+                resolve_length(&padding[2], vertical_reference, viewport).unwrap_or(0.0),
+                resolve_length(&padding[3], vertical_reference, viewport).unwrap_or(0.0),
+            ]
+        })
+        .unwrap_or([0.0; 4]);
+    let fit_content_limit = |length: &Option<Length>, reference| match length {
+        Some(Length::FitContent(Some(limit))) => resolve_length(limit, reference, viewport),
+        _ => None,
+    };
+    let resolved_max_width = style
+        .max_width
+        .as_ref()
+        .and_then(|value| resolve_length(value, horizontal_reference, viewport));
+    let resolved_max_height = style
+        .max_height
+        .as_ref()
+        .and_then(|value| resolve_length(value, vertical_reference, viewport));
+    LayoutOp::Box {
+        width: style.width.as_ref().and_then(|value| {
+            (!matches!(value, Length::FitContent(_)))
+                .then(|| resolve_length(value, horizontal_reference, viewport))
+                .flatten()
+        }),
+        height: style.height.as_ref().and_then(|value| {
+            (!matches!(value, Length::FitContent(_)))
+                .then(|| resolve_length(value, vertical_reference, viewport))
+                .flatten()
+        }),
+        min_width: style
+            .min_width
+            .as_ref()
+            .and_then(|value| resolve_length(value, horizontal_reference, viewport)),
+        max_width: match (
+            resolved_max_width,
+            fit_content_limit(&style.width, horizontal_reference),
+        ) {
+            (Some(maximum), Some(fit)) => Some(maximum.min(fit)),
+            (maximum, fit) => maximum.or(fit),
+        },
+        min_height: style
+            .min_height
+            .as_ref()
+            .and_then(|value| resolve_length(value, vertical_reference, viewport)),
+        max_height: match (
+            resolved_max_height,
+            fit_content_limit(&style.height, vertical_reference),
+        ) {
+            (Some(maximum), Some(fit)) => Some(maximum.min(fit)),
+            (maximum, fit) => maximum.or(fit),
+        },
+        padding,
+        flex_grow: style.flex_grow.map(|value| value.0).unwrap_or(0.0),
+        flex_shrink: style.flex_shrink.map(|value| value.0).unwrap_or(1.0),
+        aspect_ratio: style.aspect_ratio.map(|value| value.0),
     }
 }
 
@@ -156,7 +331,7 @@ impl LayoutSize {
 /// let actual = constraints.constrain(child_wants);
 /// assert_eq!(actual, child_wants); // fits within the constraints
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct BoxConstraints {
     /// Minimum width the child must occupy.
     pub min_w: LayoutUnit,
@@ -595,12 +770,16 @@ impl LayoutGraphState {
 #[cfg(test)]
 mod tests {
     use super::{
-        LayoutEngine, LayoutGraphState, LayoutInputNode, TextMeasurer,
+        resolve_length, LayoutEngine, LayoutGraphState, LayoutInputNode, LayoutSize, TextMeasurer,
         DEFAULT_RICH_TEXT_HIT_TEST_FONT_SIZE,
     };
-    use fission_ir::op::{Color, FontStyle, TextRun, TextStyle};
-    use fission_ir::{LayoutOp, WidgetId};
+    use fission_ir::op::{
+        BoxStyle, Color, FontStyle, GridTrack, Length, ResponsiveCondition, ResponsiveQuery,
+        TextRun, TextStyle,
+    };
+    use fission_ir::{GridPlacement, LayoutOp, WidgetId};
     use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::Arc;
 
     fn box_node(
         id: WidgetId,
@@ -634,6 +813,71 @@ mod tests {
 
     struct RecordingMeasurer {
         last_font_size_bits: AtomicU32,
+    }
+
+    struct WrappingMeasurer;
+
+    impl TextMeasurer for WrappingMeasurer {
+        fn measure(&self, text: &str, _font_size: f32, available_width: Option<f32>) -> (f32, f32) {
+            let natural_width = text.chars().count() as f32 * 10.0;
+            match available_width.filter(|width| *width > 0.0 && natural_width > *width) {
+                Some(width) => (width, (natural_width / width).ceil() * 20.0),
+                None => (natural_width, 20.0),
+            }
+        }
+    }
+
+    fn node(
+        id: WidgetId,
+        parent_id: Option<WidgetId>,
+        children_ids: Vec<WidgetId>,
+        op: LayoutOp,
+    ) -> LayoutInputNode {
+        let (width, height, flex_grow, flex_shrink) = match &op {
+            LayoutOp::Box {
+                width,
+                height,
+                flex_grow,
+                flex_shrink,
+                ..
+            } => (*width, *height, *flex_grow, *flex_shrink),
+            LayoutOp::StyledBox {
+                flex_grow,
+                flex_shrink,
+                ..
+            } => (None, None, *flex_grow, *flex_shrink),
+            _ => (None, None, 0.0, 1.0),
+        };
+        LayoutInputNode {
+            id,
+            parent_id,
+            op,
+            children_ids,
+            debug_name: format!("node-{}", id.as_u128()),
+            width,
+            height,
+            flex_grow,
+            flex_shrink,
+            rich_text: None,
+        }
+    }
+
+    fn text_run(text: &str) -> TextRun {
+        TextRun {
+            text: text.to_owned(),
+            style: TextStyle {
+                font_size: 16.0,
+                color: Color::BLACK,
+                underline: false,
+                font_family: None,
+                locale: None,
+                font_weight: 400,
+                font_style: FontStyle::Normal,
+                line_height: None,
+                letter_spacing: 0.0,
+                background_color: None,
+            },
+        }
     }
 
     impl RecordingMeasurer {
@@ -755,12 +999,434 @@ mod tests {
 
         assert_eq!(measurer.last_font_size(), 18.0);
     }
+
+    #[test]
+    fn typed_lengths_resolve_calc_clamp_and_viewport_units() {
+        let viewport = LayoutSize::new(1200.0, 800.0);
+        let calculated = Length::percent(50.0) - Length::points(24.0);
+        let clamped = Length::clamp(Length::points(100.0), calculated, Length::vw(40.0));
+
+        assert_eq!(resolve_length(&clamped, 600.0, viewport), Some(276.0));
+        assert_eq!(
+            resolve_length(&Length::vh(25.0), 0.0, viewport),
+            Some(200.0)
+        );
+        assert_eq!(
+            Length::points(10.0).resolve(0.0, viewport.width, viewport.height),
+            Some(10.0)
+        );
+        assert_eq!(
+            (Length::points(10.0) - Length::points(24.0)).resolve(
+                0.0,
+                viewport.width,
+                viewport.height
+            ),
+            Some(-14.0),
+            "signed expressions remain available to typed positioning"
+        );
+        assert_eq!(
+            Length::min(vec![Length::points(10.0), Length::MaxContent]).resolve(
+                100.0,
+                viewport.width,
+                viewport.height
+            ),
+            None,
+            "intrinsic expressions must be measured rather than partially resolved"
+        );
+    }
+
+    #[test]
+    fn responsive_container_query_selects_from_parent_constraints() {
+        let root = WidgetId::from_u128(100);
+        let responsive = WidgetId::from_u128(101);
+        let compact = WidgetId::from_u128(102);
+        let wide = WidgetId::from_u128(103);
+        let nodes = vec![
+            node(
+                root,
+                None,
+                vec![responsive],
+                LayoutOp::Box {
+                    width: Some(240.0),
+                    height: Some(100.0),
+                    min_width: None,
+                    max_width: None,
+                    min_height: None,
+                    max_height: None,
+                    padding: [0.0; 4],
+                    flex_grow: 0.0,
+                    flex_shrink: 1.0,
+                    aspect_ratio: None,
+                },
+            ),
+            node(
+                responsive,
+                Some(root),
+                vec![compact, wide],
+                LayoutOp::Responsive {
+                    query: ResponsiveQuery::Container,
+                    cases: vec![ResponsiveCondition {
+                        min_width: None,
+                        max_width: Some(300.0),
+                    }],
+                },
+            ),
+            box_node(compact, Some(responsive), vec![]),
+            box_node(wide, Some(responsive), vec![]),
+        ];
+        let mut engine = LayoutEngine::new();
+        let snapshot = engine
+            .compute_layout(&nodes, root, LayoutSize::new(800.0, 600.0), &|_| 0.0)
+            .expect("responsive layout");
+
+        assert!(snapshot.nodes.contains_key(&compact));
+        assert!(!snapshot.nodes.contains_key(&wide));
+    }
+
+    #[test]
+    fn grid_repeat_and_spans_are_applied_by_the_layout_engine() {
+        let root = WidgetId::from_u128(200);
+        let first = WidgetId::from_u128(201);
+        let second = WidgetId::from_u128(202);
+        let nodes = vec![
+            node(
+                root,
+                None,
+                vec![first, second],
+                LayoutOp::Grid {
+                    columns: vec![GridTrack::repeat(2, vec![GridTrack::Points(50.0)])],
+                    rows: vec![GridTrack::Points(20.0)],
+                    column_gap: Some(10.0),
+                    row_gap: None,
+                    padding: [0.0; 4],
+                },
+            ),
+            box_node(first, Some(root), vec![]),
+            box_node(second, Some(root), vec![]),
+        ];
+        let mut engine = LayoutEngine::new();
+        let snapshot = engine
+            .compute_layout(&nodes, root, LayoutSize::new(110.0, 20.0), &|_| 0.0)
+            .expect("grid layout");
+
+        assert_eq!(snapshot.nodes[&first].rect.x(), 0.0);
+        assert_eq!(snapshot.nodes[&second].rect.x(), 60.0);
+    }
+
+    #[test]
+    fn auto_grid_items_advance_past_occupied_spans() {
+        let root = WidgetId::from_u128(250);
+        let first = WidgetId::from_u128(251);
+        let first_child = WidgetId::from_u128(252);
+        let second = WidgetId::from_u128(253);
+        let second_child = WidgetId::from_u128(254);
+        let nodes = vec![
+            node(
+                root,
+                None,
+                vec![first, second],
+                LayoutOp::Grid {
+                    columns: vec![GridTrack::Points(50.0), GridTrack::Points(50.0)],
+                    rows: vec![],
+                    column_gap: None,
+                    row_gap: None,
+                    padding: [0.0; 4],
+                },
+            ),
+            node(
+                first,
+                Some(root),
+                vec![first_child],
+                LayoutOp::GridItem {
+                    row_start: GridPlacement::Auto,
+                    row_end: GridPlacement::Auto,
+                    col_start: GridPlacement::Auto,
+                    col_end: GridPlacement::Span(2),
+                },
+            ),
+            box_node(first_child, Some(first), vec![]),
+            node(
+                second,
+                Some(root),
+                vec![second_child],
+                LayoutOp::GridItem {
+                    row_start: GridPlacement::Auto,
+                    row_end: GridPlacement::Auto,
+                    col_start: GridPlacement::Auto,
+                    col_end: GridPlacement::Auto,
+                },
+            ),
+            box_node(second_child, Some(second), vec![]),
+        ];
+        let mut engine = LayoutEngine::new();
+        let snapshot = engine
+            .compute_layout(&nodes, root, LayoutSize::new(100.0, 100.0), &|_| 0.0)
+            .expect("auto grid layout");
+
+        assert_eq!(snapshot.nodes[&first].rect.x(), 0.0);
+        assert_eq!(snapshot.nodes[&first].rect.width(), 100.0);
+        assert_eq!(snapshot.nodes[&second].rect.x(), 0.0);
+        assert_eq!(snapshot.nodes[&second].rect.y(), 20.0);
+    }
+
+    #[test]
+    fn fixed_text_box_retains_natural_size_for_overflow_inspection() {
+        let root = WidgetId::from_u128(300);
+        let mut text = node(
+            root,
+            None,
+            vec![],
+            LayoutOp::StyledBox {
+                style: BoxStyle {
+                    width: Some(Length::Points(40.0)),
+                    height: Some(Length::Points(10.0)),
+                    ..Default::default()
+                },
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+            },
+        );
+        text.rich_text = Some(vec![text_run("overflowing text")]);
+        let nodes = vec![text];
+        let mut engine = LayoutEngine::new().with_measurer(Arc::new(WrappingMeasurer));
+        let snapshot = engine
+            .compute_layout(&nodes, root, LayoutSize::new(100.0, 100.0), &|_| 0.0)
+            .expect("text layout");
+        let inspection = engine
+            .inspect_node(&snapshot, root)
+            .expect("layout inspection");
+
+        assert_eq!(inspection.laid_out.width(), 40.0);
+        assert_eq!(inspection.laid_out.height(), 10.0);
+        assert!(inspection.measured.height() > inspection.laid_out.height());
+        assert!(inspection.overflow_y);
+        assert_eq!(
+            inspection.constrained, inspection.laid_out,
+            "fixed constraints should match final bounds"
+        );
+    }
+
+    #[test]
+    fn max_content_box_propagates_unwrapped_text_width() {
+        let root = WidgetId::from_u128(400);
+        let text_id = WidgetId::from_u128(401);
+        let mut text = node(
+            text_id,
+            Some(root),
+            vec![],
+            LayoutOp::Box {
+                width: None,
+                height: None,
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+                aspect_ratio: None,
+            },
+        );
+        text.rich_text = Some(vec![text_run("hello world")]);
+        let nodes = vec![
+            node(
+                root,
+                None,
+                vec![text_id],
+                LayoutOp::StyledBox {
+                    style: BoxStyle {
+                        width: Some(Length::MaxContent),
+                        ..Default::default()
+                    },
+                    flex_grow: 0.0,
+                    flex_shrink: 1.0,
+                },
+            ),
+            text,
+        ];
+        let mut engine = LayoutEngine::new().with_measurer(Arc::new(WrappingMeasurer));
+        let snapshot = engine
+            .compute_layout(&nodes, root, LayoutSize::new(300.0, 100.0), &|_| 0.0)
+            .expect("max-content layout");
+
+        assert_eq!(snapshot.nodes[&root].rect.width(), 110.0);
+        assert_eq!(snapshot.nodes[&text_id].rect.width(), 110.0);
+    }
+
+    #[test]
+    fn intrinsic_lengths_participate_in_clamp_expressions() {
+        let root = WidgetId::from_u128(450);
+        let mut text = node(
+            root,
+            None,
+            vec![],
+            LayoutOp::StyledBox {
+                style: BoxStyle {
+                    width: Some(Length::clamp(
+                        Length::points(50.0),
+                        Length::MaxContent,
+                        Length::points(80.0),
+                    )),
+                    ..Default::default()
+                },
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+            },
+        );
+        text.rich_text = Some(vec![text_run("hello world")]);
+        let mut engine = LayoutEngine::new().with_measurer(Arc::new(WrappingMeasurer));
+        let snapshot = engine
+            .compute_layout(&[text], root, LayoutSize::new(300.0, 100.0), &|_| 0.0)
+            .expect("intrinsic clamp layout");
+
+        assert_eq!(snapshot.nodes[&root].rect.width(), 80.0);
+        assert_eq!(snapshot.nodes[&root].rect.height(), 40.0);
+    }
+
+    #[test]
+    fn margin_wrapper_keeps_percentage_width_relative_to_the_containing_box() {
+        let outer = WidgetId::from_u128(455);
+        let inner = WidgetId::from_u128(456);
+        let nodes = vec![
+            node(
+                outer,
+                None,
+                vec![inner],
+                LayoutOp::StyledBox {
+                    style: BoxStyle {
+                        width: Some(
+                            Length::percent(50.0) + Length::points(12.0) + Length::points(12.0),
+                        ),
+                        padding: Some(Length::all(Length::points(12.0))),
+                        alignment: fission_ir::op::BoxAlignment::Stretch,
+                        ..Default::default()
+                    },
+                    flex_grow: 0.0,
+                    flex_shrink: 1.0,
+                },
+            ),
+            node(
+                inner,
+                Some(outer),
+                vec![],
+                LayoutOp::StyledBox {
+                    style: BoxStyle {
+                        width: Some(Length::percent(100.0)),
+                        height: Some(Length::points(20.0)),
+                        ..Default::default()
+                    },
+                    flex_grow: 0.0,
+                    flex_shrink: 1.0,
+                },
+            ),
+        ];
+        let mut engine = LayoutEngine::new();
+        let snapshot = engine
+            .compute_layout(&nodes, outer, LayoutSize::new(200.0, 100.0), &|_| 0.0)
+            .expect("margin layout");
+
+        assert_eq!(snapshot.nodes[&outer].rect.width(), 124.0);
+        assert_eq!(snapshot.nodes[&inner].rect.width(), 100.0);
+        assert_eq!(snapshot.nodes[&inner].rect.x(), 12.0);
+    }
+
+    #[test]
+    fn fit_content_height_preserves_wrapped_text_height() {
+        let root = WidgetId::from_u128(460);
+        let mut text = node(
+            root,
+            None,
+            vec![],
+            LayoutOp::StyledBox {
+                style: BoxStyle {
+                    width: Some(Length::points(40.0)),
+                    height: Some(Length::fit_content(None)),
+                    ..Default::default()
+                },
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+            },
+        );
+        text.rich_text = Some(vec![text_run("abcdefgh")]);
+        let mut engine = LayoutEngine::new().with_measurer(Arc::new(WrappingMeasurer));
+        let snapshot = engine
+            .compute_layout(&[text], root, LayoutSize::new(300.0, 100.0), &|_| 0.0)
+            .expect("fit-content height layout");
+
+        assert_eq!(snapshot.nodes[&root].rect.width(), 40.0);
+        assert_eq!(snapshot.nodes[&root].rect.height(), 40.0);
+    }
+
+    #[test]
+    fn typed_position_offsets_resolve_against_the_parent_box() {
+        let root = WidgetId::from_u128(500);
+        let positioned = WidgetId::from_u128(501);
+        let child = WidgetId::from_u128(502);
+        let nodes = vec![
+            node(root, None, vec![positioned], LayoutOp::ZStack),
+            node(
+                positioned,
+                Some(root),
+                vec![child],
+                LayoutOp::PositionedLengths {
+                    left: Some(Length::Percent(25.0)),
+                    top: Some(Length::Percent(10.0)),
+                    right: None,
+                    bottom: None,
+                    width: Some(Length::Points(50.0)),
+                    height: Some(Length::Points(20.0)),
+                },
+            ),
+            node(
+                child,
+                Some(positioned),
+                vec![],
+                LayoutOp::Box {
+                    width: None,
+                    height: None,
+                    min_width: None,
+                    max_width: None,
+                    min_height: None,
+                    max_height: None,
+                    padding: [0.0; 4],
+                    flex_grow: 0.0,
+                    flex_shrink: 1.0,
+                    aspect_ratio: None,
+                },
+            ),
+        ];
+        let mut engine = LayoutEngine::new();
+        let snapshot = engine
+            .compute_layout(&nodes, root, LayoutSize::new(200.0, 100.0), &|_| 0.0)
+            .expect("typed positioned layout");
+
+        assert_eq!(snapshot.nodes[&child].rect.x(), 50.0);
+        assert_eq!(snapshot.nodes[&child].rect.y(), 10.0);
+        assert_eq!(snapshot.nodes[&child].rect.width(), 50.0);
+        assert_eq!(snapshot.nodes[&child].rect.height(), 20.0);
+    }
 }
 
 fn layout_input_fingerprint(node: &LayoutInputNode) -> u64 {
     let mut hasher = DefaultHasher::new();
     format!("{node:?}").hash(&mut hasher);
     hasher.finish()
+}
+
+fn intersect_rect(left: LayoutRect, right: LayoutRect) -> LayoutRect {
+    let x = left.x().max(right.x());
+    let y = left.y().max(right.y());
+    let right_edge = left.right().min(right.right());
+    let bottom_edge = left.bottom().min(right.bottom());
+    LayoutRect::new(x, y, (right_edge - x).max(0.0), (bottom_edge - y).max(0.0))
+}
+
+fn union_rect(left: LayoutRect, right: LayoutRect) -> LayoutRect {
+    let x = left.x().min(right.x());
+    let y = left.y().min(right.y());
+    let right_edge = left.right().max(right.right());
+    let bottom_edge = left.bottom().max(right.bottom());
+    LayoutRect::new(x, y, right_edge - x, bottom_edge - y)
 }
 
 /// An axis-aligned rectangle: an origin point plus a size.
@@ -839,6 +1505,29 @@ pub struct LayoutNodeGeometry {
     /// The natural size of the node's content before clipping. For scroll containers,
     /// this may be larger than `rect.size`, indicating scrollable overflow.
     pub content_size: LayoutSize,
+}
+
+/// A node's geometry at each important stage of the layout pipeline.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct LayoutInspection {
+    /// Node identity being inspected.
+    pub node: WidgetId,
+    /// Natural content bounds before constraints are applied.
+    pub measured: LayoutRect,
+    /// Constraints supplied by the parent.
+    pub constraints: BoxConstraints,
+    /// Natural content bounds after applying parent and node-local constraints.
+    pub constrained: LayoutRect,
+    /// Final bounds assigned by layout.
+    pub laid_out: LayoutRect,
+    /// Visible bounds after ancestor clipping.
+    pub clipped: LayoutRect,
+    /// Estimated visual bounds including laid-out descendants.
+    pub painted: LayoutRect,
+    /// Whether natural content exceeds the assigned width.
+    pub overflow_x: bool,
+    /// Whether natural content exceeds the assigned height.
+    pub overflow_y: bool,
 }
 
 /// The complete output of a layout pass.
@@ -1127,6 +1816,7 @@ pub struct LayoutEngine {
     graph_state: LayoutGraphState,
     next_graph_version: u64,
     incremental_reuse: Option<IncrementalLayoutReuseState>,
+    active_viewport: LayoutSize,
 }
 
 impl LayoutEngine {
@@ -1142,6 +1832,7 @@ impl LayoutEngine {
             graph_state: LayoutGraphState::default(),
             next_graph_version: 1,
             incremental_reuse: None,
+            active_viewport: LayoutSize::ZERO,
         }
     }
 
@@ -1316,6 +2007,7 @@ impl LayoutEngine {
             scroll_source,
         )?;
         self.emit_scroll_diagnostics(&snapshot);
+        self.emit_overflow_diagnostics(&snapshot);
         Ok(snapshot)
     }
 
@@ -1330,6 +2022,7 @@ impl LayoutEngine {
         viewport_size: LayoutSize,
         scroll_source: &impl ScrollDataSource,
     ) -> Result<LayoutSnapshot> {
+        self.active_viewport = viewport_size;
         self.ensure_graph_state(input_nodes);
         self.validate_graph_state(root_node_id)?;
 
@@ -1337,7 +2030,12 @@ impl LayoutEngine {
         let mut constraints = BoxConstraints::tight(viewport_size);
         if let Some(root) = self.graph_state.node(root_node_id) {
             // Only loosen if explicit dimensions are provided for the root node
-            if root.width.is_some() || root.height.is_some() {
+            let styled_dimension = matches!(
+                &root.op,
+                LayoutOp::StyledBox { style, .. }
+                    if style.width.is_some() || style.height.is_some()
+            );
+            if root.width.is_some() || root.height.is_some() || styled_dimension {
                 constraints = BoxConstraints::loose(viewport_size.width, viewport_size.height)
                     .tighten(root.width, root.height);
             }
@@ -1532,6 +2230,156 @@ impl LayoutEngine {
         }
     }
 
+    fn emit_overflow_diagnostics(&self, snapshot: &LayoutSnapshot) {
+        for node in self.graph_state.ordered_nodes() {
+            let Some(geometry) = snapshot.nodes.get(&node.id) else {
+                continue;
+            };
+            let overflow_x = geometry.content_size.width > geometry.rect.width() + 0.5;
+            let overflow_y = geometry.content_size.height > geometry.rect.height() + 0.5;
+            if !overflow_x && !overflow_y {
+                continue;
+            }
+            let text = node.rich_text.is_some();
+            diag::emit(
+                diag::DiagCategory::Layout,
+                if text {
+                    diag::DiagLevel::Warn
+                } else {
+                    diag::DiagLevel::Debug
+                },
+                diag::DiagEventKind::LayoutOverflow {
+                    node: node.id.as_u128(),
+                    debug_name: node.debug_name.clone(),
+                    parent: node.parent_id.map(|parent| parent.as_u128()),
+                    parent_debug_name: node
+                        .parent_id
+                        .and_then(|parent| self.graph_state.node(parent))
+                        .map(|parent| parent.debug_name.clone()),
+                    parent_layout: node
+                        .parent_id
+                        .and_then(|parent| self.graph_state.node(parent))
+                        .map(|parent| format!("{:?}", parent.op)),
+                    text,
+                    min_w: snapshot
+                        .constraints
+                        .get(&node.id)
+                        .map_or(0.0, |constraints| constraints.min_w),
+                    max_w: snapshot
+                        .constraints
+                        .get(&node.id)
+                        .map(|constraints| constraints.max_w)
+                        .filter(|value| value.is_finite()),
+                    min_h: snapshot
+                        .constraints
+                        .get(&node.id)
+                        .map_or(0.0, |constraints| constraints.min_h),
+                    max_h: snapshot
+                        .constraints
+                        .get(&node.id)
+                        .map(|constraints| constraints.max_h)
+                        .filter(|value| value.is_finite()),
+                    laid_out_w: geometry.rect.width(),
+                    laid_out_h: geometry.rect.height(),
+                    content_w: geometry.content_size.width,
+                    content_h: geometry.content_size.height,
+                },
+            );
+        }
+    }
+
+    /// Returns measured, constrained, laid-out, clipped, and estimated paint bounds.
+    pub fn inspect_node(
+        &self,
+        snapshot: &LayoutSnapshot,
+        node_id: WidgetId,
+    ) -> Option<LayoutInspection> {
+        let geometry = snapshot.nodes.get(&node_id)?;
+        let constraints = snapshot.constraints.get(&node_id).copied()?;
+        let measured = LayoutRect::new(
+            geometry.rect.x(),
+            geometry.rect.y(),
+            geometry.content_size.width,
+            geometry.content_size.height,
+        );
+        let effective_constraints = self
+            .graph_state
+            .node(node_id)
+            .map(|node| {
+                let resolved_style;
+                let op = match &node.op {
+                    LayoutOp::StyledBox { style, .. } => {
+                        resolved_style =
+                            resolve_box_style(style, constraints, self.active_viewport);
+                        &resolved_style
+                    }
+                    op => op,
+                };
+                match op {
+                    LayoutOp::Box {
+                        width,
+                        height,
+                        min_width,
+                        max_width,
+                        min_height,
+                        max_height,
+                        ..
+                    } => constraints
+                        .apply_min_max(*min_width, *max_width, *min_height, *max_height)
+                        .tighten(*width, *height),
+                    _ => constraints,
+                }
+            })
+            .unwrap_or(constraints);
+        let constrained_size = effective_constraints.constrain(geometry.content_size);
+        let constrained = LayoutRect::new(
+            geometry.rect.x(),
+            geometry.rect.y(),
+            constrained_size.width,
+            constrained_size.height,
+        );
+        let mut clipped = geometry.rect;
+        let mut ancestor = self.graph_state.parent_of(node_id);
+        while let Some(ancestor_id) = ancestor {
+            let clips = self
+                .graph_state
+                .node(ancestor_id)
+                .is_some_and(|node| match &node.op {
+                    LayoutOp::Scroll { .. } | LayoutOp::Clip { .. } => true,
+                    LayoutOp::StyledBox { style, .. } => {
+                        style.overflow == fission_ir::op::Overflow::Clip
+                    }
+                    _ => false,
+                });
+            if clips {
+                if let Some(ancestor_geometry) = snapshot.nodes.get(&ancestor_id) {
+                    clipped = intersect_rect(clipped, ancestor_geometry.rect);
+                }
+            }
+            ancestor = self.graph_state.parent_of(ancestor_id);
+        }
+
+        let mut painted = geometry.rect;
+        let mut descendants = self.graph_state.children_of(node_id).to_vec();
+        while let Some(descendant) = descendants.pop() {
+            if let Some(descendant_geometry) = snapshot.nodes.get(&descendant) {
+                painted = union_rect(painted, descendant_geometry.rect);
+            }
+            descendants.extend_from_slice(self.graph_state.children_of(descendant));
+        }
+        Some(LayoutInspection {
+            node: node_id,
+            measured,
+            constraints,
+            constrained,
+            laid_out: geometry.rect,
+            clipped,
+            painted,
+            overflow_x: geometry.content_size.width > geometry.rect.width() + 0.5,
+            overflow_y: geometry.content_size.height > geometry.rect.height() + 0.5,
+        })
+    }
+
     fn layout_depth_overflow(&self, node_id: WidgetId, depth: usize) -> anyhow::Error {
         let details = format!(
             "layout recursion depth {} exceeded max {} at node {}",
@@ -1612,6 +2460,77 @@ impl LayoutEngine {
         Ok(Some(previous_geometry.content_size))
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn measure_grid_intrinsic_width(
+        &self,
+        node_id: WidgetId,
+        intrinsic: IntrinsicAxis,
+        max_height: f32,
+        out: &mut HashMap<WidgetId, LayoutNodeGeometry>,
+        constraints_out: &mut HashMap<WidgetId, BoxConstraints>,
+        measure_cache: &mut HashMap<MeasureCacheKey, LayoutSize>,
+        scroll_source: &impl ScrollDataSource,
+        depth: usize,
+    ) -> Result<f32> {
+        let Some(node) = self.graph_state.node(node_id) else {
+            return Ok(0.0);
+        };
+        if let (Some(runs), Some(measurer)) = (&node.rich_text, &self.measurer) {
+            return Ok(match intrinsic {
+                IntrinsicAxis::Max => measurer.layout_rich_text(runs, None).width,
+                IntrinsicAxis::Min => runs
+                    .iter()
+                    .flat_map(|run| {
+                        run.text.split_whitespace().map(move |word| {
+                            measurer.measure(word, run.style.font_size, None).0
+                                + run.style.letter_spacing
+                                    * word.chars().count().saturating_sub(1) as f32
+                        })
+                    })
+                    .fold(0.0, f32::max),
+            });
+        }
+
+        if matches!(node.op, LayoutOp::GridItem { .. } | LayoutOp::Align)
+            && node.children_ids.len() == 1
+        {
+            return self.measure_grid_intrinsic_width(
+                node.children_ids[0],
+                intrinsic,
+                max_height,
+                out,
+                constraints_out,
+                measure_cache,
+                scroll_source,
+                depth + 1,
+            );
+        }
+
+        let constraints = BoxConstraints {
+            min_w: 0.0,
+            max_w: f32::INFINITY,
+            min_h: 0.0,
+            max_h: if max_height.is_finite() {
+                max_height
+            } else {
+                f32::INFINITY
+            },
+        };
+        Ok(self
+            .layout_node_constraints(
+                node_id,
+                constraints,
+                LayoutPoint::ZERO,
+                out,
+                constraints_out,
+                measure_cache,
+                scroll_source,
+                false,
+                depth + 1,
+            )?
+            .width)
+    }
+
     fn layout_node_constraints(
         &self,
         node_id: WidgetId,
@@ -1655,7 +2574,9 @@ impl LayoutEngine {
         for child_id in self.graph_state.children_of(node_id) {
             let is_absolute = matches!(
                 self.graph_state.node(*child_id).map(|n| &n.op),
-                Some(LayoutOp::AbsoluteFill) | Some(LayoutOp::Positioned { .. })
+                Some(LayoutOp::AbsoluteFill)
+                    | Some(LayoutOp::Positioned { .. })
+                    | Some(LayoutOp::PositionedLengths { .. })
             );
             if is_absolute {
                 abs_children.push(*child_id);
@@ -1665,8 +2586,136 @@ impl LayoutEngine {
         }
         let rich_text_inline_children = node.rich_text.is_some() && !flow_children.is_empty();
 
+        let mut resolved_style_op = match &node.op {
+            LayoutOp::StyledBox {
+                style,
+                flex_grow,
+                flex_shrink,
+            } => {
+                let mut op = resolve_box_style(style, constraints, self.active_viewport);
+                if let LayoutOp::Box {
+                    flex_grow: resolved_grow,
+                    flex_shrink: resolved_shrink,
+                    ..
+                } = &mut op
+                {
+                    *resolved_grow = *flex_grow;
+                    *resolved_shrink = *flex_shrink;
+                }
+                Some(op)
+            }
+            _ => None,
+        };
+        if let (
+            LayoutOp::StyledBox { style, .. },
+            Some(LayoutOp::Box {
+                width,
+                min_width,
+                max_width,
+                padding,
+                ..
+            }),
+        ) = (&node.op, &mut resolved_style_op)
+        {
+            let needs_intrinsic_width = [
+                style.width.as_ref(),
+                style.min_width.as_ref(),
+                style.max_width.as_ref(),
+            ]
+            .into_iter()
+            .flatten()
+            .any(length_requires_measurement);
+            if needs_intrinsic_width {
+                let mut min_content = 0.0f32;
+                let mut max_content = 0.0f32;
+                if let (Some(runs), Some(measurer)) = (&node.rich_text, &self.measurer) {
+                    min_content = runs
+                        .iter()
+                        .flat_map(|run| {
+                            run.text.split_whitespace().map(move |word| {
+                                measurer.measure(word, run.style.font_size, None).0
+                                    + run.style.letter_spacing
+                                        * word.chars().count().saturating_sub(1) as f32
+                            })
+                        })
+                        .fold(0.0, f32::max);
+                    max_content = measurer.layout_rich_text(runs, None).width;
+                }
+                for child_id in &flow_children {
+                    min_content = min_content.max(self.measure_grid_intrinsic_width(
+                        *child_id,
+                        IntrinsicAxis::Min,
+                        constraints.max_h,
+                        out,
+                        constraints_out,
+                        measure_cache,
+                        scroll_source,
+                        depth + 1,
+                    )?);
+                    max_content = max_content.max(self.measure_grid_intrinsic_width(
+                        *child_id,
+                        IntrinsicAxis::Max,
+                        constraints.max_h,
+                        out,
+                        constraints_out,
+                        measure_cache,
+                        scroll_source,
+                        depth + 1,
+                    )?);
+                }
+                let horizontal_padding = padding[0] + padding[1];
+                min_content += horizontal_padding;
+                max_content =
+                    max_content.max(min_content - horizontal_padding) + horizontal_padding;
+                let available = if constraints.max_w.is_finite() {
+                    constraints.max_w
+                } else {
+                    max_content
+                };
+                let resolve = |length: &Option<Length>| {
+                    length.as_ref().and_then(|length| {
+                        resolve_measured_length(
+                            length,
+                            available,
+                            self.active_viewport,
+                            min_content,
+                            max_content,
+                        )
+                    })
+                };
+                *width = resolve(&style.width);
+                *min_width = resolve(&style.min_width);
+                *max_width = resolve(&style.max_width);
+            }
+        }
+        let layout_op = resolved_style_op.as_ref().unwrap_or(&node.op);
+        let box_alignment = match &node.op {
+            LayoutOp::StyledBox { style, .. } => style.alignment,
+            // Legacy low-level Box nodes have always stretched an auto-sized
+            // child across the parent's cross axis. StyledBox carries an
+            // explicit alignment and may opt into start/center/end instead.
+            LayoutOp::Box { .. }
+                if node.rich_text.is_some()
+                    || node.parent_id.is_some_and(|parent_id| {
+                        matches!(
+                            self.graph_state.node(parent_id).map(|parent| &parent.op),
+                            Some(LayoutOp::Flex { .. })
+                                | Some(LayoutOp::StyledBox { flex_grow: 0.0, .. })
+                        )
+                    }) =>
+            {
+                fission_ir::op::BoxAlignment::Start
+            }
+            LayoutOp::Box { .. } => fission_ir::op::BoxAlignment::Stretch,
+            _ => fission_ir::op::BoxAlignment::Start,
+        };
+        let intrinsic_box_width = match &node.op {
+            LayoutOp::StyledBox { style, .. } => style.width.as_ref(),
+            _ => None,
+        };
+
         let mut content_size;
-        let size = match &node.op {
+        let size = match layout_op {
             LayoutOp::Box {
                 width,
                 height,
@@ -1681,6 +2730,14 @@ impl LayoutEngine {
                 let mut local =
                     constraints.apply_min_max(*min_width, *max_width, *min_height, *max_height);
                 local = local.tighten(*width, *height);
+                // A measured text node must retain its intrinsic height when
+                // its parent supplies a loose cross-axis constraint. Applying
+                // that constraint as a tight height makes tooltips and row
+                // labels fill the viewport instead of sizing to their lines.
+                if node.rich_text.is_some() && height.is_none() {
+                    local.min_h = 0.0;
+                    local.max_h = f32::INFINITY;
+                }
                 if let Some(ratio) = aspect_ratio.filter(|r| *r > 0.0) {
                     let mut target_w = *width;
                     let mut target_h = *height;
@@ -1716,7 +2773,15 @@ impl LayoutEngine {
                         local = local.tighten(target_w, target_h);
                     }
                 }
-                let base_child_constraints = local.deflate(*padding);
+                let mut base_child_constraints = local.deflate(*padding);
+                if matches!(intrinsic_box_width, Some(Length::MaxContent)) {
+                    base_child_constraints.min_w = 0.0;
+                    base_child_constraints.max_w = f32::INFINITY;
+                }
+                if box_alignment != fission_ir::op::BoxAlignment::Stretch {
+                    base_child_constraints.min_w = 0.0;
+                    base_child_constraints.min_h = 0.0;
+                }
                 let mut max_child = LayoutSize::ZERO;
                 let mut measured_children: Vec<(WidgetId, BoxConstraints, LayoutSize)> = Vec::new();
                 if !rich_text_inline_children {
@@ -1742,14 +2807,51 @@ impl LayoutEngine {
                                 LayoutOp::Embed { width, height, .. } => {
                                     (*width, *height, None, None)
                                 }
+                                LayoutOp::StyledBox { style, .. } => {
+                                    let resolved = resolve_box_style(
+                                        style,
+                                        base_child_constraints,
+                                        self.active_viewport,
+                                    );
+                                    match resolved {
+                                        LayoutOp::Box {
+                                            width,
+                                            height,
+                                            max_width,
+                                            max_height,
+                                            ..
+                                        } => (width, height, max_width, max_height),
+                                        _ => unreachable!(),
+                                    }
+                                }
                                 _ => (None, None, None, None),
                             })
                             .unwrap_or((None, None, None, None));
                         let mut child_constraints = base_child_constraints;
+                        if matches!(intrinsic_box_width, Some(Length::MinContent)) {
+                            let intrinsic_width = self.measure_grid_intrinsic_width(
+                                *child_id,
+                                IntrinsicAxis::Min,
+                                base_child_constraints.max_h,
+                                out,
+                                constraints_out,
+                                measure_cache,
+                                scroll_source,
+                                depth + 1,
+                            )?;
+                            child_constraints.min_w = intrinsic_width;
+                            child_constraints.max_w = intrinsic_width;
+                        }
                         let tight_width = child_constraints.min_w == child_constraints.max_w;
                         let stretch_width =
                             tight_width && child_width.is_none() && child_max_width.is_none();
-                        if stretch_width {
+                        if matches!(box_alignment, fission_ir::op::BoxAlignment::Stretch)
+                            && child_width.is_none()
+                            && child_max_width.is_none()
+                            && child_constraints.max_w.is_finite()
+                        {
+                            child_constraints.min_w = child_constraints.max_w;
+                        } else if stretch_width {
                             child_constraints.min_w = child_constraints.max_w;
                         } else if tight_width
                             && (child_width.is_some() || child_max_width.is_some())
@@ -1759,7 +2861,13 @@ impl LayoutEngine {
                         let tight_height = child_constraints.min_h == child_constraints.max_h;
                         let stretch_height =
                             tight_height && child_height.is_none() && child_max_height.is_none();
-                        if stretch_height {
+                        if matches!(box_alignment, fission_ir::op::BoxAlignment::Stretch)
+                            && child_height.is_none()
+                            && child_max_height.is_none()
+                            && child_constraints.max_h.is_finite()
+                        {
+                            child_constraints.min_h = child_constraints.max_h;
+                        } else if stretch_height {
                             child_constraints.min_h = child_constraints.max_h;
                         } else if tight_height
                             && (child_height.is_some() || child_max_height.is_some())
@@ -1786,13 +2894,54 @@ impl LayoutEngine {
                     max_child.width + padding[0] + padding[1],
                     max_child.height + padding[2] + padding[3],
                 );
+                if let LayoutOp::StyledBox { style, .. } = &node.op {
+                    let available = if constraints.max_h.is_finite() {
+                        constraints.max_h
+                    } else {
+                        padded.height
+                    };
+                    let resolve_intrinsic_height = |length: &Option<Length>| {
+                        length
+                            .as_ref()
+                            .filter(|length| length_requires_measurement(length))
+                            .and_then(|length| {
+                                resolve_measured_length(
+                                    length,
+                                    available,
+                                    self.active_viewport,
+                                    padded.height,
+                                    padded.height,
+                                )
+                            })
+                    };
+                    local = local.apply_min_max(
+                        None,
+                        None,
+                        resolve_intrinsic_height(&style.min_height),
+                        resolve_intrinsic_height(&style.max_height),
+                    );
+                    local = local.tighten(None, resolve_intrinsic_height(&style.height));
+                }
                 let size = local.constrain(padded);
                 if record {
-                    for (child_id, child_constraints, _child_size) in measured_children {
+                    for (child_id, child_constraints, child_size) in measured_children {
+                        let inner_width = (size.width - padding[0] - padding[1]).max(0.0);
+                        let inner_height = (size.height - padding[2] - padding[3]).max(0.0);
+                        let offset = |available: f32, child: f32| match box_alignment {
+                            fission_ir::op::BoxAlignment::Start
+                            | fission_ir::op::BoxAlignment::Stretch => 0.0,
+                            fission_ir::op::BoxAlignment::Center => {
+                                ((available - child) / 2.0).max(0.0)
+                            }
+                            fission_ir::op::BoxAlignment::End => (available - child).max(0.0),
+                        };
                         self.layout_node_constraints(
                             child_id,
                             child_constraints,
-                            LayoutPoint::new(origin.x + padding[0], origin.y + padding[2]),
+                            LayoutPoint::new(
+                                origin.x + padding[0] + offset(inner_width, child_size.width),
+                                origin.y + padding[2] + offset(inner_height, child_size.height),
+                            ),
                             out,
                             constraints_out,
                             measure_cache,
@@ -2111,6 +3260,15 @@ impl LayoutEngine {
                             let cross =
                                 if matches!(align_items, fission_ir::op::AlignItems::Stretch)
                                     && cross_bounded
+                                    && child.rich_text.is_none()
+                                    && !matches!(
+                                        child.op,
+                                        LayoutOp::Box {
+                                            width: None,
+                                            height: None,
+                                            ..
+                                        }
+                                    )
                                 {
                                     BoxConstraints {
                                         min_w: 0.0,
@@ -2131,6 +3289,15 @@ impl LayoutEngine {
                             let cross =
                                 if matches!(align_items, fission_ir::op::AlignItems::Stretch)
                                     && cross_bounded
+                                    && child.rich_text.is_none()
+                                    && !matches!(
+                                        child.op,
+                                        LayoutOp::Box {
+                                            width: None,
+                                            height: None,
+                                            ..
+                                        }
+                                    )
                                 {
                                     BoxConstraints {
                                         min_w: max_cross,
@@ -2467,7 +3634,21 @@ impl LayoutEngine {
                                     _ => false,
                                 })
                                 .unwrap_or(false);
-                            if !has_explicit_cross {
+                            // Text owns its measured height/width; stretching the
+                            // text layout node would turn a line into the full
+                            // row height and distort vertical centering.
+                            let is_measured_text = child_node.is_some_and(|node| {
+                                node.rich_text.is_some()
+                                    || matches!(
+                                        node.op,
+                                        LayoutOp::Box {
+                                            width: None,
+                                            height: None,
+                                            ..
+                                        }
+                                    )
+                            });
+                            if !has_explicit_cross && !is_measured_text {
                                 if is_row {
                                     child_constraints.min_h = inner_cross;
                                     child_constraints.max_h = inner_cross;
@@ -2524,145 +3705,218 @@ impl LayoutEngine {
                 let inner = constraints.deflate(*padding);
                 let bounded_w = inner.is_width_bounded();
                 let bounded_h = inner.is_height_bounded();
-                let available_w = if bounded_w { inner.max_w } else { 0.0 };
-                let available_h = if bounded_h { inner.max_h } else { 0.0 };
-
-                let col_count = columns.len().max(1);
-                let mut col_widths = vec![0.0f32; col_count];
-                let mut fr_total = 0.0f32;
-                let mut fixed_total = 0.0f32;
-                for (i, track) in columns.iter().enumerate() {
-                    match track {
-                        GridTrack::Points(p) => {
-                            col_widths[i] = *p;
-                            fixed_total += *p;
-                        }
-                        GridTrack::Percent(p) => {
-                            let w = if bounded_w {
-                                available_w * (*p / 100.0)
-                            } else {
-                                0.0
-                            };
-                            col_widths[i] = w;
-                            fixed_total += w;
-                        }
-                        GridTrack::Fr(f) => fr_total += *f,
-                        _ => {}
-                    }
-                }
-                if fr_total > 0.0 && bounded_w {
-                    let remaining =
-                        (available_w - fixed_total - gap_x * (col_count.saturating_sub(1) as f32))
-                            .max(0.0);
-                    for (i, track) in columns.iter().enumerate() {
-                        if let GridTrack::Fr(f) = track {
-                            col_widths[i] = remaining * (*f / fr_total);
-                        }
-                    }
-                }
-
                 let child_count = flow_children.len();
-                let row_count = if rows.is_empty() {
-                    (child_count + col_count - 1) / col_count
-                } else {
-                    rows.len()
-                };
-                let mut row_heights = vec![0.0f32; row_count.max(1)];
+                let available_w = bounded_w.then_some(inner.max_w);
+                let available_h = bounded_h.then_some(inner.max_h);
+                let mut expanded_columns = expand_tracks(columns, available_w, gap_x, child_count);
+                if expanded_columns.is_empty() {
+                    expanded_columns.push(GridTrack::Auto);
+                }
+                let mut col_count = expanded_columns.len();
 
-                if !rows.is_empty() {
-                    let mut row_fr_total = 0.0f32;
-                    let mut row_fixed_total = 0.0f32;
-                    for (i, track) in rows.iter().enumerate() {
-                        if i >= row_heights.len() {
-                            break;
-                        }
-                        match track {
-                            GridTrack::Points(p) => {
-                                row_heights[i] = *p;
-                                row_fixed_total += *p;
-                            }
-                            GridTrack::Percent(p) => {
-                                let h = if bounded_h {
-                                    available_h * (*p / 100.0)
-                                } else {
-                                    0.0
-                                };
-                                row_heights[i] = h;
-                                row_fixed_total += h;
-                            }
-                            GridTrack::Fr(f) => row_fr_total += *f,
-                            _ => {}
-                        }
-                    }
-                    if row_fr_total > 0.0 && bounded_h {
-                        let remaining = (available_h
-                            - row_fixed_total
-                            - gap_y * (row_heights.len().saturating_sub(1) as f32))
-                            .max(0.0);
-                        for (i, track) in rows.iter().enumerate() {
-                            if let GridTrack::Fr(f) = track {
-                                row_heights[i] = remaining * (*f / row_fr_total);
-                            }
-                        }
-                    }
+                #[derive(Clone, Copy)]
+                struct GridCell {
+                    id: WidgetId,
+                    row: usize,
+                    col: usize,
+                    row_span: usize,
+                    col_span: usize,
                 }
 
-                let mut cell_assignments = Vec::new();
+                let mut cell_assignments: Vec<GridCell> = Vec::new();
                 let mut auto_row = 0;
                 let mut auto_col = 0;
+                let mut occupied = HashSet::<(usize, usize)>::new();
 
                 for child_id in &flow_children {
                     let Some(child) = self.graph_state.node(*child_id) else {
                         continue;
                     };
-                    let (row, col) = if let LayoutOp::GridItem {
+                    let (row_start, row_end, col_start, col_end) = if let LayoutOp::GridItem {
                         row_start,
+                        row_end,
                         col_start,
+                        col_end,
                         ..
                     } = &child.op
                     {
-                        let r = match row_start {
-                            fission_ir::op::GridPlacement::Line(l) => {
-                                (*l as usize).saturating_sub(1)
-                            }
-                            _ => auto_row,
-                        };
-                        let c = match col_start {
-                            fission_ir::op::GridPlacement::Line(l) => {
-                                (*l as usize).saturating_sub(1)
-                            }
-                            _ => auto_col,
-                        };
-                        (r, c)
+                        (*row_start, *row_end, *col_start, *col_end)
                     } else {
-                        let res = (auto_row, auto_col);
-                        auto_col += 1;
-                        if auto_col >= col_count {
-                            auto_col = 0;
-                            auto_row += 1;
-                        }
-                        res
+                        (
+                            GridPlacement::Auto,
+                            GridPlacement::Auto,
+                            GridPlacement::Auto,
+                            GridPlacement::Auto,
+                        )
                     };
-                    cell_assignments.push((*child_id, row, col));
+                    let explicit_row = match row_start {
+                        GridPlacement::Line(line) => Some(line.max(1) as usize - 1),
+                        _ => None,
+                    };
+                    let explicit_col = match col_start {
+                        GridPlacement::Line(line) => Some(line.max(1) as usize - 1),
+                        _ => None,
+                    };
+                    let row_span = match row_end {
+                        GridPlacement::Span(span) => usize::from(span).max(1),
+                        GridPlacement::Line(line) => {
+                            let end = line.max(1) as usize - 1;
+                            end.saturating_sub(explicit_row.unwrap_or_default()).max(1)
+                        }
+                        GridPlacement::Auto => 1,
+                    };
+                    let col_span = match col_end {
+                        GridPlacement::Span(span) => usize::from(span).max(1),
+                        GridPlacement::Line(line) => {
+                            let end = line.max(1) as usize - 1;
+                            end.saturating_sub(explicit_col.unwrap_or_default()).max(1)
+                        }
+                        GridPlacement::Auto => 1,
+                    };
+                    let fits = |row: usize, col: usize, occupied: &HashSet<(usize, usize)>| {
+                        (row..row + row_span).all(|row| {
+                            (col..col + col_span).all(|col| !occupied.contains(&(row, col)))
+                        })
+                    };
+                    let (row, col) = match (explicit_row, explicit_col) {
+                        (Some(row), Some(col)) => (row, col),
+                        (Some(row), None) => {
+                            let mut col = 0;
+                            while !fits(row, col, &occupied) {
+                                col += 1;
+                            }
+                            (row, col)
+                        }
+                        (None, Some(col)) => {
+                            let mut row = 0;
+                            while !fits(row, col, &occupied) {
+                                row += 1;
+                            }
+                            (row, col)
+                        }
+                        (None, None) => {
+                            while (col_span <= col_count && auto_col + col_span > col_count)
+                                || !fits(auto_row, auto_col, &occupied)
+                            {
+                                auto_col += 1;
+                                if auto_col >= col_count {
+                                    auto_col = 0;
+                                    auto_row += 1;
+                                }
+                            }
+                            let placement = (auto_row, auto_col);
+                            if col_span >= col_count {
+                                auto_col = 0;
+                                auto_row += 1;
+                            } else {
+                                auto_col += col_span;
+                                if auto_col >= col_count {
+                                    auto_col = 0;
+                                    auto_row += 1;
+                                }
+                            }
+                            placement
+                        }
+                    };
+                    for occupied_row in row..row + row_span {
+                        for occupied_col in col..col + col_span {
+                            occupied.insert((occupied_row, occupied_col));
+                        }
+                    }
+                    cell_assignments.push(GridCell {
+                        id: *child_id,
+                        row,
+                        col,
+                        row_span,
+                        col_span,
+                    });
                 }
 
-                for (child_id, row, col) in &cell_assignments {
-                    if *row >= row_heights.len() || *col >= col_widths.len() {
+                let required_columns = cell_assignments
+                    .iter()
+                    .map(|cell| cell.col + cell.col_span)
+                    .max()
+                    .unwrap_or(1);
+                if required_columns > col_count {
+                    expanded_columns.resize(required_columns, GridTrack::Auto);
+                    col_count = expanded_columns.len();
+                }
+
+                let mut column_sizing = expanded_columns
+                    .iter()
+                    .map(|track| TrackSizing::from_track(track, available_w))
+                    .collect::<Vec<_>>();
+
+                for cell in &cell_assignments {
+                    let intrinsic = column_sizing[cell.col..cell.col + cell.col_span]
+                        .iter()
+                        .filter_map(|track| track.intrinsic)
+                        .fold(None, |current, axis| match (current, axis) {
+                            (Some(IntrinsicAxis::Max), _) | (_, IntrinsicAxis::Max) => {
+                                Some(IntrinsicAxis::Max)
+                            }
+                            _ => Some(IntrinsicAxis::Min),
+                        });
+                    let Some(intrinsic) = intrinsic else {
+                        continue;
+                    };
+                    let width = self.measure_grid_intrinsic_width(
+                        cell.id,
+                        intrinsic,
+                        inner.max_h,
+                        out,
+                        constraints_out,
+                        measure_cache,
+                        scroll_source,
+                        depth + 1,
+                    )?;
+                    distribute_deficit(
+                        &mut column_sizing,
+                        cell.col,
+                        cell.col_span,
+                        (width - gap_x * cell.col_span.saturating_sub(1) as f32).max(0.0),
+                    );
+                }
+                if let Some(available_w) = available_w {
+                    distribute_flex(&mut column_sizing, available_w, gap_x);
+                }
+                let col_widths = column_sizing
+                    .iter()
+                    .map(|track| track.base)
+                    .collect::<Vec<_>>();
+
+                let minimum_rows = cell_assignments
+                    .iter()
+                    .map(|cell| cell.row + cell.row_span)
+                    .max()
+                    .unwrap_or_else(|| (child_count + col_count - 1) / col_count)
+                    .max(1);
+                let mut expanded_rows = expand_tracks(rows, available_h, gap_y, minimum_rows);
+                if expanded_rows.is_empty() {
+                    expanded_rows.resize(minimum_rows, GridTrack::Auto);
+                } else if expanded_rows.len() < minimum_rows {
+                    expanded_rows.resize(minimum_rows, GridTrack::Auto);
+                }
+                let mut row_sizing = expanded_rows
+                    .iter()
+                    .map(|track| TrackSizing::from_track(track, available_h))
+                    .collect::<Vec<_>>();
+
+                for cell in &cell_assignments {
+                    if cell.row >= row_sizing.len() || cell.col >= col_widths.len() {
                         continue;
                     }
-                    let cell_w = col_widths[*col];
+                    let col_end = (cell.col + cell.col_span).min(col_widths.len());
+                    let cell_w = col_widths[cell.col..col_end].iter().sum::<f32>()
+                        + gap_x * col_end.saturating_sub(cell.col + 1) as f32;
                     let cell_constraints = BoxConstraints {
-                        min_w: cell_w,
+                        min_w: 0.0,
                         max_w: cell_w,
                         min_h: 0.0,
-                        max_h: if row_heights[*row] > 0.0 {
-                            row_heights[*row]
-                        } else {
-                            f32::INFINITY
-                        },
+                        max_h: f32::INFINITY,
                     };
                     let child_size = self.layout_node_constraints(
-                        *child_id,
+                        cell.id,
                         cell_constraints,
                         LayoutPoint::ZERO,
                         out,
@@ -2672,12 +3926,21 @@ impl LayoutEngine {
                         false,
                         depth + 1,
                     )?;
-                    if row_heights[*row] == 0.0 {
-                        row_heights[*row] = child_size.height;
-                    } else {
-                        row_heights[*row] = row_heights[*row].max(child_size.height);
-                    }
+                    distribute_deficit(
+                        &mut row_sizing,
+                        cell.row,
+                        cell.row_span,
+                        (child_size.height - gap_y * cell.row_span.saturating_sub(1) as f32)
+                            .max(0.0),
+                    );
                 }
+                if let Some(available_h) = available_h {
+                    distribute_flex(&mut row_sizing, available_h, gap_y);
+                }
+                let row_heights = row_sizing
+                    .iter()
+                    .map(|track| track.base)
+                    .collect::<Vec<_>>();
 
                 let grid_w: f32 =
                     col_widths.iter().sum::<f32>() + gap_x * (col_count.saturating_sub(1) as f32);
@@ -2691,20 +3954,22 @@ impl LayoutEngine {
                 if record {
                     let padding_origin_x = origin.x + padding[0];
                     let padding_origin_y = origin.y + padding[2];
-                    for (child_id, row, col) in &cell_assignments {
-                        if *row >= row_heights.len() || *col >= col_widths.len() {
+                    for cell in &cell_assignments {
+                        if cell.row >= row_heights.len() || cell.col >= col_widths.len() {
                             continue;
                         }
-                        let mut cell_x = padding_origin_x;
-                        for i in 0..*col {
-                            cell_x += col_widths[i] + gap_x;
-                        }
-                        let mut cell_y = padding_origin_y;
-                        for i in 0..*row {
-                            cell_y += row_heights[i] + gap_y;
-                        }
-                        let cell_w = col_widths[*col];
-                        let cell_h = row_heights[*row];
+                        let cell_x = padding_origin_x
+                            + col_widths[..cell.col].iter().sum::<f32>()
+                            + gap_x * cell.col as f32;
+                        let cell_y = padding_origin_y
+                            + row_heights[..cell.row].iter().sum::<f32>()
+                            + gap_y * cell.row as f32;
+                        let col_end = (cell.col + cell.col_span).min(col_widths.len());
+                        let row_end = (cell.row + cell.row_span).min(row_heights.len());
+                        let cell_w = col_widths[cell.col..col_end].iter().sum::<f32>()
+                            + gap_x * col_end.saturating_sub(cell.col + 1) as f32;
+                        let cell_h = row_heights[cell.row..row_end].iter().sum::<f32>()
+                            + gap_y * row_end.saturating_sub(cell.row + 1) as f32;
                         let child_constraints = BoxConstraints {
                             min_w: cell_w,
                             max_w: cell_w,
@@ -2712,7 +3977,7 @@ impl LayoutEngine {
                             max_h: cell_h,
                         };
                         self.layout_node_constraints(
-                            *child_id,
+                            cell.id,
                             child_constraints,
                             LayoutPoint::new(cell_x, cell_y),
                             out,
@@ -2759,6 +4024,44 @@ impl LayoutEngine {
                         depth + 1,
                     )?;
                 }
+                content_size = child_size;
+                constraints.constrain(child_size)
+            }
+            LayoutOp::Responsive { query, cases } => {
+                let query_width = match query {
+                    fission_ir::op::ResponsiveQuery::Viewport => self.active_viewport.width,
+                    fission_ir::op::ResponsiveQuery::Container => {
+                        if constraints.is_width_bounded() {
+                            constraints.max_w
+                        } else {
+                            self.active_viewport.width
+                        }
+                    }
+                };
+                let selected_index = cases
+                    .iter()
+                    .enumerate()
+                    .rev()
+                    .find_map(|(index, condition)| condition.matches(query_width).then_some(index))
+                    .unwrap_or(cases.len());
+                let child_size = node
+                    .children_ids
+                    .get(selected_index)
+                    .map(|child_id| {
+                        self.layout_node_constraints(
+                            *child_id,
+                            constraints,
+                            origin,
+                            out,
+                            constraints_out,
+                            measure_cache,
+                            scroll_source,
+                            record,
+                            depth + 1,
+                        )
+                    })
+                    .transpose()?
+                    .unwrap_or(LayoutSize::ZERO);
                 content_size = child_size;
                 constraints.constrain(child_size)
             }
@@ -3028,6 +4331,80 @@ impl LayoutEngine {
                 content_size = size;
                 size
             }
+            LayoutOp::PositionedLengths {
+                top,
+                left,
+                bottom,
+                right,
+                width,
+                height,
+            } => {
+                let target_w = finite_or(constraints.max_w, finite_or(constraints.min_w, 0.0));
+                let target_h = finite_or(constraints.max_h, finite_or(constraints.min_h, 0.0));
+                let size = constraints.constrain(LayoutSize::new(target_w, target_h));
+                let resolve_horizontal = |length: &Option<Length>| {
+                    length
+                        .as_ref()
+                        .and_then(|length| resolve_length(length, size.width, self.active_viewport))
+                };
+                let resolve_vertical = |length: &Option<Length>| {
+                    length.as_ref().and_then(|length| {
+                        resolve_length(length, size.height, self.active_viewport)
+                    })
+                };
+                let left = resolve_horizontal(left);
+                let top = resolve_vertical(top);
+                let right = resolve_horizontal(right);
+                let bottom = resolve_vertical(bottom);
+                let width = resolve_horizontal(width);
+                let height = resolve_vertical(height);
+                let mut child_constraints = BoxConstraints::loose(size.width, size.height);
+                if let (Some(left), Some(right)) = (left, right) {
+                    child_constraints =
+                        child_constraints.tighten(Some((size.width - left - right).max(0.0)), None);
+                }
+                if let (Some(top), Some(bottom)) = (top, bottom) {
+                    child_constraints = child_constraints
+                        .tighten(None, Some((size.height - top - bottom).max(0.0)));
+                }
+                child_constraints = child_constraints.tighten(width, height);
+                if let Some(child_id) = node.children_ids.first() {
+                    let child_size = self.layout_node_constraints(
+                        *child_id,
+                        child_constraints,
+                        LayoutPoint::ZERO,
+                        out,
+                        constraints_out,
+                        measure_cache,
+                        scroll_source,
+                        false,
+                        depth + 1,
+                    )?;
+                    let x = left.unwrap_or_else(|| {
+                        right
+                            .map(|right| (size.width - right - child_size.width).max(0.0))
+                            .unwrap_or(0.0)
+                    });
+                    let y = top.unwrap_or_else(|| {
+                        bottom
+                            .map(|bottom| (size.height - bottom - child_size.height).max(0.0))
+                            .unwrap_or(0.0)
+                    });
+                    self.layout_node_constraints(
+                        *child_id,
+                        child_constraints,
+                        LayoutPoint::new(origin.x + x, origin.y + y),
+                        out,
+                        constraints_out,
+                        measure_cache,
+                        scroll_source,
+                        record,
+                        depth + 1,
+                    )?;
+                }
+                content_size = size;
+                size
+            }
             LayoutOp::Embed { width, height, .. } => {
                 let local = constraints.tighten(*width, *height);
                 let w = if local.is_width_bounded() {
@@ -3130,30 +4507,86 @@ impl LayoutEngine {
                 content_size = child_size;
                 child_size
             }
+            LayoutOp::StyledBox { .. } => unreachable!("styled boxes are resolved before layout"),
         };
 
         if let Some(runs) = &node.rich_text {
             if let Some(measurer) = &self.measurer {
-                let node_max_w = match &node.op {
-                    LayoutOp::Box { max_width, .. } => *max_width,
+                let (mut text_constraints, text_padding) = match layout_op {
+                    LayoutOp::Box {
+                        width,
+                        height,
+                        min_width,
+                        max_width,
+                        min_height,
+                        max_height,
+                        padding,
+                        ..
+                    } => (
+                        constraints
+                            .apply_min_max(*min_width, *max_width, *min_height, *max_height)
+                            .tighten(*width, *height),
+                        *padding,
+                    ),
+                    _ => (constraints, [0.0; 4]),
+                };
+                let text_inner_constraints = text_constraints.deflate(text_padding);
+                let intrinsic_width = match &node.op {
+                    LayoutOp::StyledBox { style, .. } => style.width.as_ref(),
                     _ => None,
                 };
-                let avail_w = {
-                    let from_constraints = if constraints.is_width_bounded() {
-                        Some(constraints.max_w)
-                    } else {
-                        None
-                    };
-                    match (from_constraints, node_max_w) {
-                        (Some(c), Some(m)) => Some(c.min(m)),
-                        (Some(c), None) => Some(c),
-                        (None, Some(m)) => Some(m),
-                        (None, None) => None,
-                    }
+                let avail_w = match intrinsic_width {
+                    Some(Length::MaxContent) => None,
+                    Some(Length::MinContent) => Some(
+                        runs.iter()
+                            .flat_map(|run| {
+                                run.text.split_whitespace().map(move |word| {
+                                    measurer.measure(word, run.style.font_size, None).0
+                                        + run.style.letter_spacing
+                                            * word.chars().count().saturating_sub(1) as f32
+                                })
+                            })
+                            .fold(0.0, f32::max),
+                    ),
+                    _ => text_inner_constraints
+                        .is_width_bounded()
+                        .then_some(text_inner_constraints.max_w),
                 };
                 let rich_layout = measurer.layout_rich_text(runs, avail_w);
-                let text_content = LayoutSize::new(rich_layout.width, rich_layout.height);
-                let measured = constraints.constrain(text_content);
+                let text_content = LayoutSize::new(
+                    rich_layout.width + text_padding[0] + text_padding[1],
+                    rich_layout.height + text_padding[2] + text_padding[3],
+                );
+                if let LayoutOp::StyledBox { style, .. } = &node.op {
+                    let available = if constraints.max_h.is_finite() {
+                        constraints.max_h
+                    } else {
+                        text_content.height
+                    };
+                    let resolve_intrinsic_height = |length: &Option<Length>| {
+                        length
+                            .as_ref()
+                            .filter(|length| length_requires_measurement(length))
+                            .and_then(|length| {
+                                resolve_measured_length(
+                                    length,
+                                    available,
+                                    self.active_viewport,
+                                    text_content.height,
+                                    text_content.height,
+                                )
+                            })
+                    };
+                    text_constraints = text_constraints.apply_min_max(
+                        None,
+                        None,
+                        resolve_intrinsic_height(&style.min_height),
+                        resolve_intrinsic_height(&style.max_height),
+                    );
+                    text_constraints =
+                        text_constraints.tighten(None, resolve_intrinsic_height(&style.height));
+                }
+                let measured = text_constraints.constrain(text_content);
                 if rich_text_inline_children
                     && rich_layout.inline_boxes.len() == flow_children.len()
                 {
@@ -3170,7 +4603,10 @@ impl LayoutEngine {
                                     inline_box.width,
                                     inline_box.height,
                                 )),
-                                LayoutPoint::new(origin.x + inline_box.x, origin.y + inline_box.y),
+                                LayoutPoint::new(
+                                    origin.x + text_padding[0] + inline_box.x,
+                                    origin.y + text_padding[2] + inline_box.y,
+                                ),
                                 out,
                                 constraints_out,
                                 measure_cache,

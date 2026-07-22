@@ -18,6 +18,10 @@ use serde::{Deserialize, Serialize};
 pub enum Role {
     /// A clickable button that triggers an action.
     Button,
+    /// A navigational link.
+    Link,
+    /// An actionable item inside a menu.
+    MenuItem,
     /// A read-only text label.
     Text,
     /// An editable text field (single or multi-line).

@@ -16,6 +16,9 @@ use anyhow::{anyhow, Result};
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 
+pub mod golden;
+pub use golden::{compare_png_to_golden, GoldenOptions, GoldenReport};
+
 #[cfg(not(target_arch = "wasm32"))]
 pub mod browser;
 #[cfg(not(target_arch = "wasm32"))]
@@ -146,6 +149,18 @@ pub enum TestCommand {
         path: String,
     },
     CaptureScreenshot {},
+    PauseAnimations {},
+    ResumeAnimations {},
+    AdvanceClock {
+        ms: u64,
+    },
+    CaptureAt {
+        ms: u64,
+    },
+    WaitForIdle {
+        timeout_ms: u64,
+        ignore_repeating_motion: bool,
+    },
     GetText {},
     GetTree {},
     Wait {
@@ -241,6 +256,23 @@ pub enum TestEvent {
         response_tx: TestResponseSender,
     },
     CaptureScreenshot {
+        response_tx: TestResponseSender,
+    },
+    PauseAnimations {
+        response_tx: TestResponseSender,
+    },
+    ResumeAnimations {
+        response_tx: TestResponseSender,
+    },
+    AdvanceClock {
+        ms: u64,
+        response_tx: TestResponseSender,
+    },
+    CaptureAt {
+        ms: u64,
+        response_tx: TestResponseSender,
+    },
+    MotionStatus {
         response_tx: TestResponseSender,
     },
     GetText {
@@ -536,6 +568,11 @@ pub enum TestResponse {
         width: u32,
         /// PNG height in logical test-space pixels.
         height: u32,
+    },
+    MotionStatus {
+        finite: usize,
+        repeating: usize,
+        ripples: usize,
     },
     SelectorResolved {
         node: SemanticNode,
@@ -868,23 +905,74 @@ impl LiveTestClient {
     }
 
     pub fn screenshot(&self, path: &str) -> Result<()> {
-        match self.send(TestCommand::CaptureScreenshot {})? {
-            TestResponse::Screenshot {
-                png_base64,
-                width: _,
-                height: _,
-            } => {
-                let bytes = base64::engine::general_purpose::STANDARD
-                    .decode(png_base64)
-                    .map_err(|e| anyhow!("invalid screenshot payload: {}", e))?;
-                std::fs::write(path, bytes)?;
-                Ok(())
-            }
-            other => Err(anyhow!(
-                "unexpected response to CaptureScreenshot: {:?}",
-                other
-            )),
+        std::fs::write(path, self.capture_screenshot_png()?)?;
+        Ok(())
+    }
+
+    /// Captures the current frame as encoded PNG bytes.
+    pub fn capture_screenshot_png(&self) -> Result<Vec<u8>> {
+        screenshot_bytes(self.send(TestCommand::CaptureScreenshot {})?)
+    }
+
+    /// Compares the current frame to a golden image and writes an optional heatmap.
+    pub fn compare_golden(
+        &self,
+        golden_path: impl AsRef<std::path::Path>,
+        diff_path: Option<impl AsRef<std::path::Path>>,
+        options: GoldenOptions,
+    ) -> Result<GoldenReport> {
+        let report = compare_png_to_golden(
+            &self.capture_screenshot_png()?,
+            golden_path,
+            diff_path,
+            options,
+        )?;
+        if !report.passed(options) {
+            return Err(anyhow!(
+                "golden comparison changed {:.4}% of pixels (allowed {:.4}%)",
+                report.changed_percent,
+                options.max_changed_percent
+            ));
         }
+        Ok(report)
+    }
+
+    /// Freezes the animation clock while leaving production motion declarations active.
+    pub fn pause_animations(&self) -> Result<()> {
+        self.send(TestCommand::PauseAnimations {})?;
+        Ok(())
+    }
+
+    /// Resumes advancing animations from the currently frozen clock value.
+    pub fn resume_animations(&self) -> Result<()> {
+        self.send(TestCommand::ResumeAnimations {})?;
+        Ok(())
+    }
+
+    /// Deterministically advances the application and motion clock.
+    pub fn advance_clock(&self, ms: u64) -> Result<()> {
+        self.send(TestCommand::AdvanceClock { ms })?;
+        self.pump()
+    }
+
+    /// Advances the clock and captures the resulting frame to `path`.
+    pub fn capture_at(&self, ms: u64, path: &str) -> Result<()> {
+        std::fs::write(path, self.capture_at_png(ms)?)?;
+        Ok(())
+    }
+
+    /// Advances the clock and returns the resulting frame as encoded PNG bytes.
+    pub fn capture_at_png(&self, ms: u64) -> Result<Vec<u8>> {
+        screenshot_bytes(self.send(TestCommand::CaptureAt { ms })?)
+    }
+
+    /// Waits for finite motion to settle, optionally ignoring repeating motion.
+    pub fn wait_for_idle(&self, timeout_ms: u64, ignore_repeating_motion: bool) -> Result<()> {
+        self.send(TestCommand::WaitForIdle {
+            timeout_ms,
+            ignore_repeating_motion,
+        })?;
+        Ok(())
     }
 
     pub fn get_text(&self) -> Result<Vec<TextItem>> {
@@ -965,5 +1053,49 @@ impl LiveTestClient {
             return Err(anyhow!("expected '{}' to NOT be visible", needle));
         }
         Ok(())
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn screenshot_bytes(response: TestResponse) -> Result<Vec<u8>> {
+    match response {
+        TestResponse::Screenshot {
+            png_base64,
+            width: _,
+            height: _,
+        } => base64::engine::general_purpose::STANDARD
+            .decode(png_base64)
+            .map_err(|error| anyhow!("invalid screenshot payload: {error}")),
+        other => Err(anyhow!("expected screenshot response, received {other:?}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TestCommand;
+
+    #[test]
+    fn deterministic_motion_commands_have_stable_wire_shapes() {
+        assert_eq!(
+            serde_json::to_value(TestCommand::PauseAnimations {}).expect("serialize pause"),
+            serde_json::json!({ "cmd": "PauseAnimations" })
+        );
+        assert_eq!(
+            serde_json::to_value(TestCommand::AdvanceClock { ms: 160 })
+                .expect("serialize clock advance"),
+            serde_json::json!({ "cmd": "AdvanceClock", "ms": 160 })
+        );
+        assert_eq!(
+            serde_json::to_value(TestCommand::WaitForIdle {
+                timeout_ms: 2_000,
+                ignore_repeating_motion: true,
+            })
+            .expect("serialize idle wait"),
+            serde_json::json!({
+                "cmd": "WaitForIdle",
+                "timeout_ms": 2_000,
+                "ignore_repeating_motion": true
+            })
+        );
     }
 }

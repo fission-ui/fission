@@ -1954,12 +1954,30 @@ fn build_local_paint_list(
 ) -> Option<DisplayList> {
     let mut list = DisplayList::new(rect);
     match &node.op {
+        Op::Paint(fission_ir::PaintOp::BackdropFilter {
+            filter,
+            corner_radius,
+        }) => {
+            list.push(DisplayOp::BackdropFilter {
+                rect,
+                filter: *filter,
+                corner_radius: *corner_radius,
+                bounds: rect,
+                node_id: Some(node_id),
+            });
+        }
         Op::Paint(fission_ir::PaintOp::DrawRect {
             fill,
             stroke,
             corner_radius,
             shadow,
         }) => {
+            let bounds = shadow
+                .as_ref()
+                .filter(|shadow| !shadow.inset)
+                .map(|shadow| box_shadow_bounds(rect, shadow))
+                .unwrap_or(rect);
+            list.bounds = bounds;
             list.push(DisplayOp::DrawRect {
                 rect,
                 fill: fill.as_ref().map(map_fill),
@@ -1973,9 +1991,11 @@ fn build_local_paint_list(
                         a: s.color.a,
                     },
                     blur_radius: s.blur_radius,
+                    spread_radius: s.spread_radius,
                     offset: s.offset,
+                    inset: s.inset,
                 }),
-                bounds: rect,
+                bounds,
                 node_id: Some(node_id),
             });
         }
@@ -2145,6 +2165,19 @@ fn build_local_paint_list(
     } else {
         Some(list)
     }
+}
+
+fn box_shadow_bounds(rect: LayoutRect, shadow: &fission_ir::op::BoxShadow) -> LayoutRect {
+    let extent = (shadow.blur_radius.max(0.0) + shadow.spread_radius).max(0.0);
+    let shadow_left = rect.x() + shadow.offset.0 - extent;
+    let shadow_top = rect.y() + shadow.offset.1 - extent;
+    let shadow_right = rect.right() + shadow.offset.0 + extent;
+    let shadow_bottom = rect.bottom() + shadow.offset.1 + extent;
+    let left = rect.x().min(shadow_left);
+    let top = rect.y().min(shadow_top);
+    let right = rect.right().max(shadow_right);
+    let bottom = rect.bottom().max(shadow_bottom);
+    LayoutRect::new(left, top, right - left, bottom - top)
 }
 
 fn build_scrollbar_paint(

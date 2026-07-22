@@ -2,17 +2,17 @@ use anyhow::{anyhow, bail, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use fission_core::{
     registry::{VideoRegistration, WebRegistration},
-    MotionDeclaration, MotionDeclarationKind, MotionEasing, MotionExpr, MotionPropertyId,
-    MotionStartValue, MotionTrack, MotionTransition, MotionValue,
+    MotionDeclaration, MotionDeclarationKind, MotionEasing, MotionExpr, MotionPredicate,
+    MotionPropertyId, MotionStartValue, MotionTrack, MotionTransition, MotionValue,
 };
 use fission_ir::op::{
     decode_inline_widget_marker, AlignItems, BoxShadow, Color, CompositeScalar, EmbedKind, Fill,
     FlexDirection, FlexWrap, FontStyle, GridPlacement, GridTrack, ImageAlignment, ImageFit,
-    ImageSource, JustifyContent, LayoutOp, LineCap, LineJoin, Op, PaintOp, Stroke, TextAlign,
-    TextOverflow, TextRun,
+    ImageSource, JustifyContent, LayoutOp, Length, LineCap, LineJoin, Op, Overflow, PaintOp,
+    Stroke, TextAlign, TextOverflow, TextRun,
 };
 use fission_ir::{semantics::ActionTrigger, CoreIR, CoreNode, Role, Semantics, WidgetId};
-use fission_theme::{DesignMode, Theme};
+use fission_theme::{DesignMode, PackagedFont, PackagedFontStyle, Theme};
 use std::collections::{BTreeMap, HashSet};
 
 #[derive(Clone, Debug)]
@@ -42,6 +42,8 @@ pub struct HtmlRenderOptions {
     pub motion_declarations: Vec<MotionDeclaration>,
     pub video_registrations: BTreeMap<WidgetId, VideoRegistration>,
     pub web_registrations: BTreeMap<WidgetId, WebRegistration>,
+    /// Font faces embedded by the selected design system.
+    pub font_faces: &'static [PackagedFont],
 }
 
 impl Default for HtmlRenderOptions {
@@ -72,6 +74,7 @@ impl Default for HtmlRenderOptions {
             motion_declarations: Vec::new(),
             video_registrations: BTreeMap::new(),
             web_registrations: BTreeMap::new(),
+            font_faces: &[],
         }
     }
 }
@@ -174,12 +177,22 @@ pub fn render_ir_to_html_with_styles(
     let root = ir
         .root
         .ok_or_else(|| anyhow!("site render failed: Core IR has no root node"))?;
+    for font in options.font_faces {
+        styles.raw_rule(
+            format!(
+                "fission-font-{}-{}-{:?}",
+                font.family, font.weight, font.style
+            ),
+            packaged_font_css(font),
+        );
+    }
     let mut renderer = HtmlRenderer {
         ir,
         options,
         styles,
         has_code_blocks: false,
     };
+    renderer.register_interaction_motion_styles();
     let body = renderer.render_node(root)?;
     let has_code_blocks = renderer.has_code_blocks;
     let body_html = format!(
@@ -192,6 +205,46 @@ pub fn render_ir_to_html_with_styles(
         body_html,
         css: renderer.styles.to_css(),
     })
+}
+
+fn packaged_font_css(font: &PackagedFont) -> String {
+    let style = match font.style {
+        PackagedFontStyle::Normal => "normal",
+        PackagedFontStyle::Italic => "italic",
+        PackagedFontStyle::Oblique => "oblique",
+    };
+    let axes = if font.axes.is_empty() {
+        String::new()
+    } else {
+        let settings = font
+            .axes
+            .iter()
+            .map(|axis| {
+                let tag = String::from_utf8_lossy(&axis.tag);
+                format!("'{}' {}", escape_attr(&tag), axis.value)
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        format!("font-variation-settings:{settings};")
+    };
+    format!(
+        "@font-face{{font-family:'{}';font-style:{style};font-weight:{};font-display:swap;{axes}src:url(data:font/{};base64,{}) format('{}')}}",
+        escape_attr(font.family),
+        font.weight,
+        font_mime(font.format),
+        BASE64_STANDARD.encode(font.data),
+        escape_attr(font.format),
+    )
+}
+
+fn font_mime(format: &str) -> &'static str {
+    match format.to_ascii_lowercase().as_str() {
+        "woff2" => "woff2",
+        "woff" => "woff",
+        "opentype" | "otf" => "otf",
+        "truetype" | "ttf" => "ttf",
+        _ => "octet-stream",
+    }
 }
 
 fn render_document(body_html: &str, options: &HtmlRenderOptions, has_code_blocks: bool) -> String {
@@ -627,7 +680,176 @@ struct HtmlRenderer<'a> {
     has_code_blocks: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum InteractionPseudo {
+    Hover,
+    Focused,
+    Pressed,
+}
+
+impl InteractionPseudo {
+    fn selector(self) -> &'static str {
+        match self {
+            Self::Hover => ":hover",
+            Self::Focused => ":focus",
+            Self::Pressed => ":active",
+        }
+    }
+
+    fn matches(self, predicate: &MotionPredicate) -> bool {
+        matches!(
+            (self, predicate),
+            (Self::Hover, MotionPredicate::Hovered(_))
+                | (Self::Focused, MotionPredicate::Focused(_))
+                | (Self::Pressed, MotionPredicate::Pressed(_))
+        )
+    }
+}
+
 impl HtmlRenderer<'_> {
+    fn register_interaction_motion_styles(&mut self) {
+        let declarations = self.options.motion_declarations.clone();
+        let mut state_rules: BTreeMap<
+            (WidgetId, WidgetId, InteractionPseudo, WidgetId),
+            Vec<String>,
+        > = BTreeMap::new();
+        let mut transitions: BTreeMap<WidgetId, Vec<String>> = BTreeMap::new();
+
+        for declaration in declarations {
+            let MotionDeclarationKind::Tracks { tracks } = declaration.kind else {
+                continue;
+            };
+            for track in tracks {
+                let Some(interaction_id) = interaction_predicate_id(&track.to) else {
+                    continue;
+                };
+                let paint_target = self
+                    .first_styled_box_descendant(interaction_id)
+                    .unwrap_or(declaration.id);
+                let target = match track.property {
+                    MotionPropertyId::Opacity | MotionPropertyId::Scale => declaration.id,
+                    _ => paint_target,
+                };
+                let Some(property) = interaction_css_property(&track.property) else {
+                    continue;
+                };
+                let transition = interaction_transition_css(property, &track.transition);
+                let target_transitions = transitions.entry(target).or_default();
+                if !target_transitions.contains(&transition) {
+                    target_transitions.push(transition);
+                }
+                for pseudo in [
+                    InteractionPseudo::Hover,
+                    InteractionPseudo::Focused,
+                    InteractionPseudo::Pressed,
+                ] {
+                    let selected = select_interaction_expr(&track.to, pseudo);
+                    let Some(value) = self.interaction_css_value(&track.property, selected) else {
+                        continue;
+                    };
+                    state_rules
+                        .entry((declaration.id, interaction_id, pseudo, target))
+                        .or_default()
+                        .push(format!("{property}:{value}"));
+                    if matches!(
+                        track.property,
+                        MotionPropertyId::BorderColor | MotionPropertyId::BorderWidth
+                    ) {
+                        let declarations = state_rules
+                            .entry((declaration.id, interaction_id, pseudo, target))
+                            .or_default();
+                        if !declarations
+                            .iter()
+                            .any(|value| value == "border-style:solid")
+                        {
+                            declarations.push("border-style:solid".into());
+                        }
+                    }
+                }
+            }
+        }
+
+        for (target, declarations) in transitions {
+            self.styles.raw_rule(
+                format!("fission-interaction-transition-{target}"),
+                format!(
+                    "[data-fission-node=\"{target}\"]{{transition:{}}}",
+                    declarations.join(",")
+                ),
+            );
+        }
+        for ((motion_id, interaction_id, pseudo, target), declarations) in state_rules {
+            let selector = format!(
+                "[data-fission-node=\"{motion_id}\"]:has([data-fission-node=\"{interaction_id}\"]{})",
+                pseudo.selector()
+            );
+            let target_selector = if target == motion_id {
+                selector
+            } else {
+                format!("{selector} [data-fission-node=\"{target}\"]")
+            };
+            let css = format!("{target_selector}{{{}}}", declarations.join(";"));
+            self.styles.raw_rule(
+                format!("fission-interaction-{motion_id}-{pseudo:?}-{target}"),
+                css,
+            );
+        }
+        self.styles.raw_rule(
+            "fission-site-reduced-motion-transitions",
+            "@media (prefers-reduced-motion:reduce){[data-fission-node]{transition:none!important;}}",
+        );
+    }
+
+    fn first_styled_box_descendant(&self, root: WidgetId) -> Option<WidgetId> {
+        let mut pending = self.ir.nodes.get(&root)?.children.clone();
+        while let Some(id) = pending.pop() {
+            let node = self.ir.nodes.get(&id)?;
+            if matches!(node.op, Op::Layout(LayoutOp::StyledBox { .. })) {
+                return Some(id);
+            }
+            pending.extend(node.children.iter().rev().copied());
+        }
+        None
+    }
+
+    fn interaction_css_value(
+        &self,
+        property: &MotionPropertyId,
+        expression: &MotionExpr,
+    ) -> Option<String> {
+        match property {
+            MotionPropertyId::BackgroundColor | MotionPropertyId::BorderColor => {
+                motion_expr_color_value(expression).map(|color| self.color_css(color))
+            }
+            MotionPropertyId::BackgroundFill => match expression {
+                MotionExpr::Value(MotionValue::Fill(fill)) => Some(self.fill_css(fill)),
+                _ => None,
+            },
+            MotionPropertyId::BoxShadows => match expression {
+                MotionExpr::Value(MotionValue::Shadows(shadows)) => Some(
+                    shadows
+                        .iter()
+                        .map(|shadow| self.box_shadow_css(shadow))
+                        .collect::<Vec<_>>()
+                        .join(","),
+                ),
+                _ => None,
+            },
+            MotionPropertyId::Opacity | MotionPropertyId::Scale => {
+                motion_expr_scalar_value(expression).map(|value| px(value).to_string())
+            }
+            MotionPropertyId::BorderWidth
+            | MotionPropertyId::CornerRadius
+            | MotionPropertyId::PaddingLeft
+            | MotionPropertyId::PaddingRight
+            | MotionPropertyId::PaddingTop
+            | MotionPropertyId::PaddingBottom => {
+                motion_expr_scalar_value(expression).map(|value| format!("{}px", px(value)))
+            }
+            _ => None,
+        }
+    }
+
     fn render_node(&mut self, node_id: WidgetId) -> Result<String> {
         let node = self
             .ir
@@ -1048,6 +1270,76 @@ impl HtmlRenderer<'_> {
                 }
                 self.render_element("div", node, "fission-site-node fission-site-box", style)
             }
+            LayoutOp::StyledBox {
+                style: box_style,
+                flex_grow,
+                flex_shrink,
+            } => {
+                let mut style = vec![
+                    "display:block".to_string(),
+                    "position:relative".to_string(),
+                    "box-sizing:border-box".to_string(),
+                ];
+                push_length_property(&mut style, "width", box_style.width.as_ref());
+                push_length_property(&mut style, "height", box_style.height.as_ref());
+                push_length_property(&mut style, "min-width", box_style.min_width.as_ref());
+                push_length_property(&mut style, "max-width", box_style.max_width.as_ref());
+                push_length_property(&mut style, "min-height", box_style.min_height.as_ref());
+                push_length_property(&mut style, "max-height", box_style.max_height.as_ref());
+                if let Some(padding) = box_style.padding.as_ref() {
+                    style.push(format!(
+                        "padding:{} {} {} {}",
+                        length_css(&padding[2]),
+                        length_css(&padding[1]),
+                        length_css(&padding[3]),
+                        length_css(&padding[0])
+                    ));
+                }
+                if let Some(margin) = box_style.margin.as_ref() {
+                    style.push(format!(
+                        "margin:{} {} {} {}",
+                        length_css(&margin[2]),
+                        length_css(&margin[1]),
+                        length_css(&margin[3]),
+                        length_css(&margin[0])
+                    ));
+                }
+                if let Some(aspect_ratio) = box_style.aspect_ratio {
+                    style.push(format!("aspect-ratio:{}", aspect_ratio.0));
+                }
+                if box_style.overflow == Overflow::Clip {
+                    style.push("overflow:hidden".into());
+                }
+                match box_style.alignment {
+                    fission_ir::op::BoxAlignment::Start => {}
+                    alignment => {
+                        style.push("display:flex".into());
+                        let alignment = match alignment {
+                            fission_ir::op::BoxAlignment::Start => "flex-start",
+                            fission_ir::op::BoxAlignment::Center => "center",
+                            fission_ir::op::BoxAlignment::End => "flex-end",
+                            fission_ir::op::BoxAlignment::Stretch => "stretch",
+                        };
+                        style.push(format!("align-items:{alignment}"));
+                        style.push(format!("justify-content:{alignment}"));
+                    }
+                }
+                if let Some(position) = box_style.position.as_ref() {
+                    style.push("position:absolute".into());
+                    push_length_property(&mut style, "left", position.left.as_ref());
+                    push_length_property(&mut style, "top", position.top.as_ref());
+                    push_length_property(&mut style, "right", position.right.as_ref());
+                    push_length_property(&mut style, "bottom", position.bottom.as_ref());
+                }
+                if let Some(grid) = box_style.grid {
+                    push_grid_placement(&mut style, "grid-row-start", grid.row_start);
+                    push_grid_placement(&mut style, "grid-row-end", grid.row_end);
+                    push_grid_placement(&mut style, "grid-column-start", grid.col_start);
+                    push_grid_placement(&mut style, "grid-column-end", grid.col_end);
+                }
+                push_flex_item(&mut style, *flex_grow, *flex_shrink);
+                self.render_element("div", node, "fission-site-node fission-site-box", style)
+            }
             LayoutOp::Flex {
                 direction,
                 wrap,
@@ -1117,6 +1409,69 @@ impl HtmlRenderer<'_> {
                     style,
                 )
             }
+            LayoutOp::Responsive { query, cases } => {
+                let root_class = format!("fission-responsive-{:x}", node.id.as_u128());
+                let child_class = format!("{root_class}-branch");
+                let fallback_index = cases.len();
+                let children = node
+                    .children
+                    .iter()
+                    .enumerate()
+                    .map(|(index, child)| {
+                        self.render_node(*child).map(|html| {
+                            format!(
+                                "<div class=\"{} {}-{}\">{html}</div>",
+                                escape_attr(&child_class),
+                                escape_attr(&root_class),
+                                index
+                            )
+                        })
+                    })
+                    .collect::<Result<Vec<_>>>()?
+                    .join("");
+                let mut css = format!(
+                    ".{child_class}{{display:none}}.{root_class}-{fallback_index}{{display:block}}"
+                );
+                for (index, condition) in cases.iter().enumerate() {
+                    let mut terms = Vec::new();
+                    if let Some(minimum) = condition.min_width {
+                        terms.push(format!("(min-width:{}px)", px(minimum)));
+                    }
+                    if let Some(maximum) = condition.max_width {
+                        terms.push(format!("(max-width:{}px)", px(maximum - 0.01)));
+                    }
+                    let expression = if terms.is_empty() {
+                        "(min-width:0px)".to_string()
+                    } else {
+                        terms.join(" and ")
+                    };
+                    let selector = (0..=fallback_index)
+                        .map(|branch| format!(".{root_class}-{branch}"))
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    let body =
+                        format!("{selector}{{display:none}}.{root_class}-{index}{{display:block}}");
+                    match query {
+                        fission_ir::op::ResponsiveQuery::Viewport => {
+                            css.push_str(&format!("@media {expression}{{{body}}}"));
+                        }
+                        fission_ir::op::ResponsiveQuery::Container => {
+                            css.push_str(&format!("@container {expression}{{{body}}}"));
+                        }
+                    }
+                }
+                self.styles.raw_rule(root_class.clone(), css);
+                let container_style = match query {
+                    fission_ir::op::ResponsiveQuery::Viewport => "",
+                    fission_ir::op::ResponsiveQuery::Container => {
+                        " style=\"container-type:inline-size\""
+                    }
+                };
+                Ok(format!(
+                    "<div class=\"fission-site-node {root_class}\"{container_style} data-fission-node=\"{}\">{children}</div>",
+                    node.id
+                ))
+            }
             LayoutOp::Scroll {
                 direction,
                 show_scrollbar: _,
@@ -1175,6 +1530,28 @@ impl HtmlRenderer<'_> {
                 push_optional_px(&mut style, "bottom", *bottom);
                 push_optional_px(&mut style, "width", *width);
                 push_optional_px(&mut style, "height", *height);
+                self.render_element(
+                    "div",
+                    node,
+                    "fission-site-node fission-site-positioned",
+                    style,
+                )
+            }
+            LayoutOp::PositionedLengths {
+                left,
+                top,
+                right,
+                bottom,
+                width,
+                height,
+            } => {
+                let mut style = vec!["position:absolute".to_string()];
+                push_length_property(&mut style, "left", left.as_ref());
+                push_length_property(&mut style, "top", top.as_ref());
+                push_length_property(&mut style, "right", right.as_ref());
+                push_length_property(&mut style, "bottom", bottom.as_ref());
+                push_length_property(&mut style, "width", width.as_ref());
+                push_length_property(&mut style, "height", height.as_ref());
                 self.render_element(
                     "div",
                     node,
@@ -1324,6 +1701,28 @@ impl HtmlRenderer<'_> {
 
     fn render_paint(&mut self, node: &CoreNode, paint: &PaintOp) -> Result<String> {
         match paint {
+            PaintOp::BackdropFilter {
+                filter,
+                corner_radius,
+            } => {
+                let mut style = match filter {
+                    fission_ir::op::BackdropFilter::Blur(sigma) => vec![
+                        format!("backdrop-filter:blur({}px)", px(*sigma)),
+                        format!("-webkit-backdrop-filter:blur({}px)", px(*sigma)),
+                    ],
+                };
+                if *corner_radius > 0.0 {
+                    style.push(format!("border-radius:{}px", px(*corner_radius)));
+                    style.push("overflow:hidden".into());
+                }
+                style.push("min-height:1px".into());
+                self.render_element(
+                    "div",
+                    node,
+                    "fission-site-node fission-site-backdrop-filter",
+                    style,
+                )
+            }
             PaintOp::DrawRect {
                 fill,
                 stroke,
@@ -1535,6 +1934,8 @@ impl HtmlRenderer<'_> {
         }
         let tag = match semantics.role {
             Role::Button => "button",
+            Role::Link => "a",
+            Role::MenuItem => "button",
             Role::Image => "figure",
             Role::List => "ul",
             Role::ListItem => "li",
@@ -2018,6 +2419,7 @@ impl HtmlRenderer<'_> {
         skip: &mut HashSet<WidgetId>,
     ) -> Result<Vec<String>> {
         let mut style = Vec::new();
+        let mut shadows = Vec::new();
         for child_id in &node.children {
             let Some(child) = self.ir.nodes.get(child_id) else {
                 continue;
@@ -2029,14 +2431,20 @@ impl HtmlRenderer<'_> {
                 shadow,
             }) = &child.op
             {
+                if let Some(shadow) = shadow {
+                    shadows.push(self.box_shadow_css(shadow));
+                }
                 style.extend(self.draw_rect_style(
                     fill.as_ref(),
                     stroke.as_ref(),
                     *corner_radius,
-                    shadow.as_ref(),
+                    None,
                 ));
                 skip.insert(*child_id);
             }
+        }
+        if !shadows.is_empty() {
+            style.push(format!("box-shadow:{}", shadows.join(",")));
         }
         Ok(style)
     }
@@ -2063,15 +2471,21 @@ impl HtmlRenderer<'_> {
             style.push(format!("border-radius:{}px", px(corner_radius)));
         }
         if let Some(shadow) = shadow {
-            style.push(format!(
-                "box-shadow:{}px {}px {}px {}",
-                px(shadow.offset.0),
-                px(shadow.offset.1),
-                px(shadow.blur_radius),
-                self.color_css(shadow.color)
-            ));
+            style.push(format!("box-shadow:{}", self.box_shadow_css(shadow)));
         }
         style
+    }
+
+    fn box_shadow_css(&self, shadow: &BoxShadow) -> String {
+        format!(
+            "{}{}px {}px {}px {}px {}",
+            if shadow.inset { "inset " } else { "" },
+            px(shadow.offset.0),
+            px(shadow.offset.1),
+            px(shadow.blur_radius),
+            px(shadow.spread_radius),
+            self.color_css(shadow.color)
+        )
     }
 
     fn text_style(&self, size: f32, color: Color, underline: bool, wrap: bool) -> Vec<String> {
@@ -2410,6 +2824,48 @@ fn push_box_constraints(
     push_optional_px(style, "max-height", max_height);
 }
 
+fn push_length_property(style: &mut Vec<String>, property: &str, value: Option<&Length>) {
+    if let Some(value) = value {
+        style.push(format!("{property}:{}", length_css(value)));
+    }
+}
+
+fn length_css(length: &Length) -> String {
+    match length {
+        Length::Points(value) => format!("{}px", px(*value)),
+        Length::Percent(value) => format!("{}%", px(*value)),
+        Length::ViewportWidth(value) => format!("{}vw", px(*value)),
+        Length::ViewportHeight(value) => format!("{}vh", px(*value)),
+        Length::Add(left, right) => format!("calc({} + {})", length_css(left), length_css(right)),
+        Length::Subtract(left, right) => {
+            format!("calc({} - {})", length_css(left), length_css(right))
+        }
+        Length::Min(values) => format!(
+            "min({})",
+            values.iter().map(length_css).collect::<Vec<_>>().join(", ")
+        ),
+        Length::Max(values) => format!(
+            "max({})",
+            values.iter().map(length_css).collect::<Vec<_>>().join(", ")
+        ),
+        Length::Clamp {
+            min,
+            preferred,
+            max,
+        } => format!(
+            "clamp({}, {}, {})",
+            length_css(min),
+            length_css(preferred),
+            length_css(max)
+        ),
+        Length::FitContent(Some(limit)) => format!("fit-content({})", length_css(limit)),
+        Length::FitContent(None) => "fit-content".into(),
+        Length::MinContent => "min-content".into(),
+        Length::MaxContent => "max-content".into(),
+        Length::Auto => "auto".into(),
+    }
+}
+
 fn push_padding(style: &mut Vec<String>, padding: [f32; 4]) {
     if padding.iter().any(|value| *value != 0.0) {
         style.push(format!(
@@ -2614,6 +3070,76 @@ fn motion_expr_color_value(expr: &MotionExpr) -> Option<Color> {
     }
 }
 
+fn interaction_predicate_id(expression: &MotionExpr) -> Option<WidgetId> {
+    fn visit(expression: &MotionExpr, found: &mut Option<WidgetId>) -> bool {
+        let MotionExpr::If {
+            predicate,
+            then_expr,
+            else_expr,
+        } = expression
+        else {
+            return true;
+        };
+        let id = match predicate {
+            MotionPredicate::Hovered(id)
+            | MotionPredicate::Pressed(id)
+            | MotionPredicate::Focused(id)
+            | MotionPredicate::Disabled(id) => *id,
+        };
+        if found.is_some_and(|found| found != id) {
+            return false;
+        }
+        *found = Some(id);
+        visit(then_expr, found) && visit(else_expr, found)
+    }
+
+    let mut found = None;
+    visit(expression, &mut found).then_some(found).flatten()
+}
+
+fn select_interaction_expr(expression: &MotionExpr, pseudo: InteractionPseudo) -> &MotionExpr {
+    match expression {
+        MotionExpr::If {
+            predicate,
+            then_expr,
+            else_expr,
+        } => {
+            if pseudo.matches(predicate) {
+                select_interaction_expr(then_expr, pseudo)
+            } else {
+                select_interaction_expr(else_expr, pseudo)
+            }
+        }
+        expression => expression,
+    }
+}
+
+fn interaction_css_property(property: &MotionPropertyId) -> Option<&'static str> {
+    match property {
+        MotionPropertyId::Opacity => Some("opacity"),
+        MotionPropertyId::Scale => Some("scale"),
+        MotionPropertyId::BackgroundColor => Some("background-color"),
+        MotionPropertyId::BackgroundFill => Some("background"),
+        MotionPropertyId::BorderColor => Some("border-color"),
+        MotionPropertyId::BorderWidth => Some("border-width"),
+        MotionPropertyId::CornerRadius => Some("border-radius"),
+        MotionPropertyId::PaddingLeft => Some("padding-left"),
+        MotionPropertyId::PaddingRight => Some("padding-right"),
+        MotionPropertyId::PaddingTop => Some("padding-top"),
+        MotionPropertyId::PaddingBottom => Some("padding-bottom"),
+        MotionPropertyId::BoxShadows => Some("box-shadow"),
+        _ => None,
+    }
+}
+
+fn interaction_transition_css(property: &str, transition: &MotionTransition) -> String {
+    let (duration_ms, delay_ms, easing, _) = transition_css_parts(transition);
+    format!(
+        "{property} {duration_ms}ms {} {delay_ms}ms",
+        easing_css(&easing)
+    )
+}
+
 fn transition_css_parts(transition: &MotionTransition) -> (u64, u64, MotionEasing, bool) {
     match transition {
         MotionTransition::Instant => (0, 0, MotionEasing::Linear, false),
@@ -2661,18 +3187,24 @@ fn raw_color_css(color: Color) -> String {
 }
 
 fn grid_tracks(tracks: &[GridTrack]) -> String {
-    tracks
-        .iter()
-        .map(|track| match track {
-            GridTrack::Points(value) => format!("{}px", px(*value)),
-            GridTrack::Percent(value) => format!("{}%", px(*value)),
-            GridTrack::Fr(value) => format!("{}fr", px(*value)),
-            GridTrack::Auto => "auto".to_string(),
-            GridTrack::MinContent => "min-content".to_string(),
-            GridTrack::MaxContent => "max-content".to_string(),
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
+    tracks.iter().map(grid_track).collect::<Vec<_>>().join(" ")
+}
+
+fn grid_track(track: &GridTrack) -> String {
+    match track {
+        GridTrack::Points(value) => format!("{}px", px(*value)),
+        GridTrack::Percent(value) => format!("{}%", px(*value)),
+        GridTrack::Fr(value) => format!("{}fr", px(*value)),
+        GridTrack::Auto => "auto".to_string(),
+        GridTrack::MinContent => "min-content".to_string(),
+        GridTrack::MaxContent => "max-content".to_string(),
+        GridTrack::MinMax(min, max) => format!("minmax({}, {})", grid_track(min), grid_track(max)),
+        GridTrack::Repeat { count, tracks } => {
+            format!("repeat({count}, {})", grid_tracks(tracks))
+        }
+        GridTrack::AutoFit(track) => format!("repeat(auto-fit, {})", grid_track(track)),
+        GridTrack::AutoFill(track) => format!("repeat(auto-fill, {})", grid_track(track)),
+    }
 }
 
 fn flex_direction(direction: FlexDirection) -> &'static str {
@@ -2836,6 +3368,221 @@ mod tests {
         ActionEntry, ActionSet, CompositeScalar, CompositeStyle, CoreIR, CoreNode, Op, Semantics,
         WidgetId,
     };
+
+    static TEST_FONT: [PackagedFont; 1] = [PackagedFont {
+        family: "Test Sans",
+        weight: 600,
+        style: PackagedFontStyle::Italic,
+        format: "truetype",
+        data: b"font-bytes",
+        axes: &[fission_theme::FontVariationAxis {
+            tag: *b"wght",
+            value: 612.0,
+        }],
+    }];
+
+    #[test]
+    fn embeds_packaged_font_faces_in_site_css() {
+        let root = WidgetId::explicit("root");
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            root,
+            Op::Structural(fission_ir::StructuralOp::Group { stable_hash: 1 }),
+            Vec::new(),
+        );
+        ir.set_root(root);
+        let rendered = render_ir_to_html(
+            &ir,
+            &HtmlRenderOptions {
+                font_faces: &TEST_FONT,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert!(rendered.css.contains("@font-face"));
+        assert!(rendered.css.contains("font-family:'Test Sans'"));
+        assert!(rendered.css.contains("font-weight:600"));
+        assert!(rendered.css.contains("font-style:italic"));
+        assert!(rendered.css.contains("font-variation-settings:'wght' 612"));
+        assert!(rendered.css.contains("base64,Zm9udC1ieXRlcw=="));
+    }
+
+    #[test]
+    fn lowers_interaction_motion_to_css_pseudo_states() {
+        let motion = WidgetId::explicit("motion");
+        let pressable = WidgetId::explicit("pressable");
+        let styled_box = WidgetId::explicit("pressable-style");
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            styled_box,
+            Op::Layout(LayoutOp::StyledBox {
+                style: fission_ir::op::BoxStyle::default(),
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+            }),
+            Vec::new(),
+        );
+        ir.add_node(
+            pressable,
+            Op::Semantics(Semantics {
+                role: Role::Button,
+                focusable: true,
+                ..Default::default()
+            }),
+            vec![styled_box],
+        );
+        ir.add_node(
+            motion,
+            Op::Structural(fission_ir::StructuralOp::Group { stable_hash: 1 }),
+            vec![pressable],
+        );
+        ir.set_root(motion);
+        let rendered = render_ir_to_html(
+            &ir,
+            &HtmlRenderOptions {
+                motion_declarations: vec![MotionDeclaration {
+                    id: motion,
+                    kind: MotionDeclarationKind::Tracks {
+                        tracks: vec![
+                            MotionTrack::paint(
+                                MotionPropertyId::BackgroundColor,
+                                MotionStartValue::Explicit(MotionExpr::Value(MotionValue::Color(
+                                    Color::BLACK,
+                                ))),
+                                MotionExpr::If {
+                                    predicate: MotionPredicate::Hovered(pressable),
+                                    then_expr: Box::new(MotionExpr::Value(MotionValue::Color(
+                                        Color::WHITE,
+                                    ))),
+                                    else_expr: Box::new(MotionExpr::Value(MotionValue::Color(
+                                        Color::BLACK,
+                                    ))),
+                                },
+                            )
+                            .transition(MotionTransition::ease_out(160)),
+                            MotionTrack::paint(
+                                MotionPropertyId::BackgroundFill,
+                                MotionStartValue::Explicit(MotionExpr::Value(MotionValue::Fill(
+                                    Fill::Solid(Color::BLACK),
+                                ))),
+                                MotionExpr::If {
+                                    predicate: MotionPredicate::Hovered(pressable),
+                                    then_expr: Box::new(MotionExpr::Value(MotionValue::Fill(
+                                        Fill::LinearGradient {
+                                            start: (0.0, 0.0),
+                                            end: (1.0, 0.0),
+                                            stops: vec![(0.0, Color::BLACK), (1.0, Color::WHITE)],
+                                        },
+                                    ))),
+                                    else_expr: Box::new(MotionExpr::Value(MotionValue::Fill(
+                                        Fill::Solid(Color::BLACK),
+                                    ))),
+                                },
+                            )
+                            .transition(MotionTransition::Instant),
+                            MotionTrack::paint(
+                                MotionPropertyId::BoxShadows,
+                                MotionStartValue::Explicit(MotionExpr::Value(
+                                    MotionValue::Shadows(Vec::new()),
+                                )),
+                                MotionExpr::If {
+                                    predicate: MotionPredicate::Hovered(pressable),
+                                    then_expr: Box::new(MotionExpr::Value(MotionValue::Shadows(
+                                        vec![BoxShadow {
+                                            color: Color::BLACK,
+                                            offset: (0.0, 4.0),
+                                            blur_radius: 12.0,
+                                            spread_radius: 2.0,
+                                            inset: false,
+                                        }],
+                                    ))),
+                                    else_expr: Box::new(MotionExpr::Value(MotionValue::Shadows(
+                                        Vec::new(),
+                                    ))),
+                                },
+                            )
+                            .transition(MotionTransition::Instant),
+                        ],
+                    },
+                }],
+                ..Default::default()
+            },
+        )
+        .expect("render interaction motion");
+
+        assert!(rendered.css.contains(":has("));
+        assert!(rendered.css.contains(":hover"));
+        assert!(rendered.css.contains("background-color:#ffffff"));
+        assert!(rendered
+            .css
+            .contains("transition:background-color 160ms ease-out 0ms"));
+        assert!(rendered.css.contains("background:linear-gradient("));
+        assert!(rendered.css.contains("box-shadow:0px 4px 12px 2px #000000"));
+    }
+
+    #[test]
+    fn coalesces_ordered_shadows_into_one_css_shadow_list() {
+        let root = WidgetId::explicit("shadow-root");
+        let outer = WidgetId::explicit("outer-shadow");
+        let inset = WidgetId::explicit("inset-shadow");
+        let mut ir = CoreIR::new();
+        for (id, shadow) in [
+            (
+                outer,
+                BoxShadow {
+                    color: Color::BLACK,
+                    offset: (0.0, 4.0),
+                    blur_radius: 12.0,
+                    spread_radius: 2.0,
+                    inset: false,
+                },
+            ),
+            (
+                inset,
+                BoxShadow {
+                    color: Color::WHITE,
+                    offset: (0.0, 1.0),
+                    blur_radius: 2.0,
+                    spread_radius: 0.0,
+                    inset: true,
+                },
+            ),
+        ] {
+            ir.add_node(
+                id,
+                Op::Paint(PaintOp::DrawRect {
+                    fill: None,
+                    stroke: None,
+                    corner_radius: 8.0,
+                    shadow: Some(shadow),
+                }),
+                Vec::new(),
+            );
+        }
+        ir.add_node(
+            root,
+            Op::Layout(LayoutOp::Box {
+                width: Some(100.0),
+                height: Some(40.0),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+                aspect_ratio: None,
+            }),
+            vec![outer, inset],
+        );
+        ir.set_root(root);
+
+        let rendered = render_ir_to_html(&ir, &HtmlRenderOptions::default()).unwrap();
+        assert!(rendered
+            .css
+            .contains("box-shadow:0px 4px 12px 2px #000000,inset 0px 1px 2px 0px #ffffff"));
+    }
 
     #[test]
     fn renders_text_from_core_ir() {

@@ -301,6 +301,22 @@ fn dispatch_command(cmd: TestCommand, injector: &EventInjector) -> TestResponse 
         TestCommand::CaptureScreenshot {} => query_event(injector, |response_tx| {
             TestEvent::CaptureScreenshot { response_tx }
         }),
+        TestCommand::PauseAnimations {} => query_event(injector, |response_tx| {
+            TestEvent::PauseAnimations { response_tx }
+        }),
+        TestCommand::ResumeAnimations {} => query_event(injector, |response_tx| {
+            TestEvent::ResumeAnimations { response_tx }
+        }),
+        TestCommand::AdvanceClock { ms } => query_event(injector, |response_tx| {
+            TestEvent::AdvanceClock { ms, response_tx }
+        }),
+        TestCommand::CaptureAt { ms } => query_event(injector, |response_tx| {
+            TestEvent::CaptureAt { ms, response_tx }
+        }),
+        TestCommand::WaitForIdle {
+            timeout_ms,
+            ignore_repeating_motion,
+        } => wait_for_motion_idle(injector, timeout_ms, ignore_repeating_motion),
         TestCommand::GetText {} => {
             query_event(injector, |response_tx| TestEvent::GetText { response_tx })
         }
@@ -357,6 +373,39 @@ fn dispatch_command(cmd: TestCommand, injector: &EventInjector) -> TestResponse 
         TestCommand::SimulateResize { width, height } => {
             inject_event(injector, TestEvent::Resize { width, height });
             TestResponse::Ok {}
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn wait_for_motion_idle(
+    injector: &EventInjector,
+    timeout_ms: u64,
+    ignore_repeating_motion: bool,
+) -> TestResponse {
+    let started = std::time::Instant::now();
+    let timeout = std::time::Duration::from_millis(timeout_ms);
+    loop {
+        let status = query_event(injector, |response_tx| TestEvent::MotionStatus {
+            response_tx,
+        });
+        match status {
+            TestResponse::MotionStatus {
+                finite,
+                repeating,
+                ripples,
+            } if finite == 0 && ripples == 0 && (ignore_repeating_motion || repeating == 0) => {
+                return TestResponse::Ok {};
+            }
+            TestResponse::Error { .. } => return status,
+            _ if started.elapsed() >= timeout => {
+                return TestResponse::Error {
+                    message: format!(
+                        "timed out after {timeout_ms}ms waiting for motion to become idle"
+                    ),
+                };
+            }
+            _ => std::thread::sleep(std::time::Duration::from_millis(8)),
         }
     }
 }

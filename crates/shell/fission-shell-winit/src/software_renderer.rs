@@ -54,6 +54,7 @@ enum SvgShape {
 }
 
 static DEFAULT_FONT: OnceLock<Font> = OnceLock::new();
+static PACKAGED_FONTS: OnceLock<Mutex<Vec<SoftwareFontFace>>> = OnceLock::new();
 static IMAGE_CACHE: OnceLock<Cache<String, ImageCacheEntry>> = OnceLock::new();
 static SVG_CACHE: OnceLock<Mutex<HashMap<u64, Arc<SvgCacheEntry>>>> = OnceLock::new();
 static IMAGE_CACHE_GENERATION: AtomicU64 = AtomicU64::new(0);
@@ -63,6 +64,13 @@ static IMAGE_LOADS_STARTED: AtomicU64 = AtomicU64::new(0);
 static IMAGE_LOADS_COMPLETED: AtomicU64 = AtomicU64::new(0);
 static IMAGE_LOADS_FAILED: AtomicU64 = AtomicU64::new(0);
 static IMAGE_CACHE_EVICTIONS: AtomicU64 = AtomicU64::new(0);
+
+struct SoftwareFontFace {
+    family: String,
+    weight: u16,
+    style: fission_theme::PackagedFontStyle,
+    font: Arc<Font>,
+}
 
 #[derive(Clone)]
 enum ImageCacheEntry {
@@ -102,6 +110,53 @@ fn default_font() -> &'static Font {
         )
         .expect("failed to load bundled UI font")
     })
+}
+
+pub(crate) fn register_packaged_fonts(fonts: &'static [fission_theme::PackagedFont]) {
+    let registry = PACKAGED_FONTS.get_or_init(|| Mutex::new(Vec::new()));
+    let mut registry = registry.lock().unwrap();
+    for face in fonts {
+        let Ok(font) = Font::from_bytes(face.data, FontSettings::default()) else {
+            continue;
+        };
+        if let Some(existing) = registry.iter_mut().find(|existing| {
+            existing.family.eq_ignore_ascii_case(face.family)
+                && existing.weight == face.weight
+                && existing.style == face.style
+        }) {
+            existing.font = Arc::new(font);
+        } else {
+            registry.push(SoftwareFontFace {
+                family: face.family.to_owned(),
+                weight: face.weight,
+                style: face.style,
+                font: Arc::new(font),
+            });
+        }
+    }
+}
+
+fn packaged_font(
+    family: Option<&str>,
+    weight: u16,
+    style: fission_ir::op::FontStyle,
+) -> Option<Arc<Font>> {
+    let family = family?;
+    let desired_style = match style {
+        fission_ir::op::FontStyle::Normal => fission_theme::PackagedFontStyle::Normal,
+        fission_ir::op::FontStyle::Italic => fission_theme::PackagedFontStyle::Italic,
+    };
+    PACKAGED_FONTS
+        .get()?
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|face| face.family.eq_ignore_ascii_case(family))
+        .min_by_key(|face| {
+            let style_penalty = u32::from(face.style != desired_style) * 10_000;
+            style_penalty + u32::from(face.weight.abs_diff(weight))
+        })
+        .map(|face| face.font.clone())
 }
 
 fn image_cache() -> &'static Cache<String, ImageCacheEntry> {
@@ -705,6 +760,30 @@ mod image_tests {
     }
 
     #[test]
+    fn packaged_fonts_are_available_to_software_rich_text() {
+        let fonts = Box::leak(
+            vec![fission_theme::PackagedFont {
+                family: "Software Test Sans",
+                weight: 700,
+                style: fission_theme::PackagedFontStyle::Normal,
+                format: "truetype",
+                data: fission_theme::fonts::default_font_bytes(),
+                axes: &[],
+            }]
+            .into_boxed_slice(),
+        );
+
+        register_packaged_fonts(fonts);
+
+        assert!(packaged_font(
+            Some("Software Test Sans"),
+            700,
+            fission_ir::op::FontStyle::Normal
+        )
+        .is_some());
+    }
+
+    #[test]
     fn memory_image_load_populates_cache_off_thread() {
         let request = ImageRequest {
             source: ImageSource::Memory {
@@ -951,6 +1030,97 @@ mod image_tests {
             "expected scaled image center to remain visible, found {bright_pixels} bright pixels"
         );
     }
+
+    #[test]
+    fn box_shadow_blurs_beyond_the_source_bounds() {
+        let rect = fission_render::LayoutRect::new(8.0, 8.0, 4.0, 4.0);
+        let mut display_list =
+            DisplayList::new(fission_render::LayoutRect::new(0.0, 0.0, 20.0, 20.0));
+        display_list.push(DisplayOp::DrawRect {
+            rect,
+            fill: None,
+            stroke: None,
+            corner_radius: 2.0,
+            shadow: Some(fission_render::BoxShadow {
+                color: RenderColor {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 220,
+                },
+                blur_radius: 6.0,
+                spread_radius: 1.0,
+                offset: (0.0, 0.0),
+                inset: false,
+            }),
+            bounds: rect,
+            node_id: None,
+        });
+        let pixels = SoftwareRenderer::render(
+            &RenderScene::from_display_list(display_list),
+            20,
+            20,
+            RenderColor {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 0,
+            },
+            1.0,
+        )
+        .expect("render blurred shadow");
+        let alpha_at = |x: usize, y: usize| pixels[(y * 20 + x) * 4 + 3];
+
+        assert!(alpha_at(10, 10) > alpha_at(3, 3));
+        assert!(alpha_at(6, 10) > 0, "blur should extend beyond the source");
+    }
+
+    #[test]
+    fn inset_box_shadow_stays_inside_and_darkens_the_edge() {
+        let rect = fission_render::LayoutRect::new(4.0, 4.0, 12.0, 12.0);
+        let mut display_list =
+            DisplayList::new(fission_render::LayoutRect::new(0.0, 0.0, 20.0, 20.0));
+        display_list.push(DisplayOp::DrawRect {
+            rect,
+            fill: None,
+            stroke: None,
+            corner_radius: 2.0,
+            shadow: Some(fission_render::BoxShadow {
+                color: RenderColor {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 240,
+                },
+                blur_radius: 4.0,
+                spread_radius: 1.0,
+                offset: (0.0, 0.0),
+                inset: true,
+            }),
+            bounds: rect,
+            node_id: None,
+        });
+        let pixels = SoftwareRenderer::render(
+            &RenderScene::from_display_list(display_list),
+            20,
+            20,
+            RenderColor {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 0,
+            },
+            1.0,
+        )
+        .expect("render inset shadow");
+        let alpha_at = |x: usize, y: usize| pixels[(y * 20 + x) * 4 + 3];
+
+        assert_eq!(alpha_at(2, 10), 0, "inset shadow must not escape the box");
+        assert!(
+            alpha_at(5, 10) > alpha_at(10, 10),
+            "inset shadow should be strongest near the edge"
+        );
+    }
 }
 
 pub struct SoftwareRenderer {
@@ -1134,6 +1304,12 @@ impl SoftwareRenderer {
                 DisplayOp::OpacityLayer { alpha, .. } => {
                     self.start_opacity_layer(*alpha)?;
                 }
+                DisplayOp::BackdropFilter {
+                    rect,
+                    filter,
+                    corner_radius,
+                    ..
+                } => self.draw_backdrop_filter(*rect, *filter, *corner_radius)?,
                 DisplayOp::Translate(point) => {
                     let state = self.current_state_mut();
                     state.transform = state.transform.post_translate(point.x, point.y);
@@ -1224,6 +1400,63 @@ impl SoftwareRenderer {
         Ok(())
     }
 
+    fn draw_backdrop_filter(
+        &mut self,
+        rect: fission_render::LayoutRect,
+        filter: fission_ir::op::BackdropFilter,
+        corner_radius: f32,
+    ) -> Result<()> {
+        let sigma = match filter {
+            fission_ir::op::BackdropFilter::Blur(sigma) => sigma,
+        };
+        if sigma <= 0.0 {
+            return Ok(());
+        }
+
+        let transform = self.current_device_transform();
+        let scale_factor = self.scale_factor;
+        let clip = self.current_clip().cloned();
+        let path = if corner_radius > 0.0 {
+            rounded_rect_path(rect, corner_radius)
+        } else {
+            rect_path(rect)
+        }
+        .ok_or_else(|| anyhow!("failed to build backdrop-filter path"))?;
+
+        let surface = self.current_surface_mut();
+        let width = surface.width();
+        let height = surface.height();
+        let original = surface.data().to_vec();
+        let image = image::RgbaImage::from_raw(width, height, original.clone())
+            .ok_or_else(|| anyhow!("invalid software-renderer backing surface"))?;
+        let blurred = image::imageops::blur(&image, sigma * scale_factor);
+
+        let mut filter_mask = Mask::new(width, height)
+            .ok_or_else(|| anyhow!("failed to allocate backdrop-filter mask"))?;
+        filter_mask.fill_path(&path, TinyFillRule::Winding, true, transform);
+        let filter_mask = filter_mask.data();
+        let clip_mask = clip.as_ref().map(Mask::data);
+        let output = surface.data_mut();
+        let blurred = blurred.as_raw();
+        for pixel in 0..(width as usize * height as usize) {
+            let mut coverage = u16::from(filter_mask[pixel]);
+            if let Some(clip_mask) = clip_mask {
+                coverage = coverage * u16::from(clip_mask[pixel]) / 255;
+            }
+            if coverage == 0 {
+                continue;
+            }
+            let inverse = 255 - coverage;
+            let byte = pixel * 4;
+            for channel in 0..4 {
+                output[byte + channel] = ((u16::from(original[byte + channel]) * inverse
+                    + u16::from(blurred[byte + channel]) * coverage)
+                    / 255) as u8;
+            }
+        }
+        Ok(())
+    }
+
     fn draw_rect(
         &mut self,
         rect: fission_render::LayoutRect,
@@ -1241,34 +1474,19 @@ impl SoftwareRenderer {
 
         let transform = self.current_device_transform();
         let clip = self.current_clip().cloned();
+        let scale_factor = self.scale_factor;
         let surface = self.current_surface_mut();
 
         if let Some(shadow) = shadow {
-            let shadow_rect = fission_render::LayoutRect::new(
-                rect.origin.x + shadow.offset.0,
-                rect.origin.y + shadow.offset.1,
-                rect.size.width,
-                rect.size.height,
-            );
-            if let Some(shadow_path) = if corner_radius > 0.0 {
-                rounded_rect_path(shadow_rect, corner_radius)
-            } else {
-                rect_path(shadow_rect)
-            } {
-                let mut paint = Paint::default();
-                let mut color = shadow.color;
-                if shadow.blur_radius > 0.0 {
-                    color.a = ((f32::from(color.a) * 0.65).round() as i32).clamp(0, 255) as u8;
-                }
-                paint.set_color(tiny_color(color));
-                surface.fill_path(
-                    &shadow_path,
-                    &paint,
-                    TinyFillRule::Winding,
-                    transform,
-                    clip.as_ref(),
-                );
-            }
+            draw_software_box_shadow(
+                surface,
+                rect,
+                corner_radius,
+                shadow,
+                transform,
+                clip.as_ref(),
+                scale_factor,
+            )?;
         }
 
         if let Some(fill) = fill {
@@ -1323,8 +1541,23 @@ impl SoftwareRenderer {
         bounds: fission_render::LayoutRect,
         wrap: bool,
     ) -> Result<()> {
-        let font = default_font();
-        let fonts = [font];
+        let resolved_fonts = runs
+            .iter()
+            .map(|run| {
+                packaged_font(
+                    run.style.font_family.as_deref(),
+                    run.style.font_weight,
+                    run.style.font_style,
+                )
+            })
+            .collect::<Vec<_>>();
+        let fonts = resolved_fonts
+            .iter()
+            .map(|font| match font {
+                Some(font) => font.as_ref(),
+                None => default_font(),
+            })
+            .collect::<Vec<_>>();
         let mut layout = Layout::new(CoordinateSystem::PositiveYDown);
         layout.reset(&LayoutSettings {
             x: position.x,
@@ -1336,13 +1569,13 @@ impl SoftwareRenderer {
             ),
             ..LayoutSettings::default()
         });
-        for run in runs {
+        for (font_index, run) in runs.iter().enumerate() {
             layout.append(
                 &fonts,
                 &fontdue::layout::TextStyle::with_user_data(
                     &run.text,
                     run.style.font_size,
-                    0,
+                    font_index,
                     (
                         run.style.color,
                         run.style.underline,
@@ -1669,5 +1902,117 @@ impl SoftwareRenderer {
         }
 
         Ok(())
+    }
+}
+
+fn draw_software_box_shadow(
+    surface: &mut Pixmap,
+    rect: fission_render::LayoutRect,
+    corner_radius: f32,
+    shadow: &fission_render::BoxShadow,
+    transform: Transform,
+    clip: Option<&Mask>,
+    scale_factor: f32,
+) -> Result<()> {
+    let width = surface.width();
+    let height = surface.height();
+    let sigma = shadow.blur_radius.max(0.0) * 0.5 * scale_factor;
+    let coverage = if shadow.inset {
+        let Some(original_path) = (if corner_radius > 0.0 {
+            rounded_rect_path(rect, corner_radius)
+        } else {
+            rect_path(rect)
+        }) else {
+            return Ok(());
+        };
+        let mut original_mask = Mask::new(width, height)
+            .ok_or_else(|| anyhow!("failed to allocate inset-shadow clip mask"))?;
+        original_mask.fill_path(&original_path, TinyFillRule::Winding, true, transform);
+
+        let spread = shadow.spread_radius;
+        let hole = fission_render::LayoutRect::new(
+            rect.origin.x + spread + shadow.offset.0,
+            rect.origin.y + spread + shadow.offset.1,
+            (rect.size.width - spread * 2.0).max(0.0),
+            (rect.size.height - spread * 2.0).max(0.0),
+        );
+        let mut hole_mask = Mask::new(width, height)
+            .ok_or_else(|| anyhow!("failed to allocate inset-shadow hole mask"))?;
+        if let Some(hole_path) = if corner_radius > 0.0 {
+            rounded_rect_path(hole, (corner_radius - spread).max(0.0))
+        } else {
+            rect_path(hole)
+        } {
+            hole_mask.fill_path(&hole_path, TinyFillRule::Winding, true, transform);
+        }
+        let outside = hole_mask
+            .data()
+            .iter()
+            .map(|coverage| 255_u8.saturating_sub(*coverage))
+            .collect::<Vec<_>>();
+        let mut blurred = blur_coverage(outside, width, height, sigma)?;
+        for (coverage, shape) in blurred.iter_mut().zip(original_mask.data()) {
+            *coverage = (u16::from(*coverage) * u16::from(*shape) / 255) as u8;
+        }
+        blurred
+    } else {
+        let spread = shadow.spread_radius;
+        let shadow_rect = fission_render::LayoutRect::new(
+            rect.origin.x + shadow.offset.0 - spread,
+            rect.origin.y + shadow.offset.1 - spread,
+            (rect.size.width + spread * 2.0).max(0.0),
+            (rect.size.height + spread * 2.0).max(0.0),
+        );
+        let Some(shadow_path) = (if corner_radius > 0.0 {
+            rounded_rect_path(shadow_rect, (corner_radius + spread).max(0.0))
+        } else {
+            rect_path(shadow_rect)
+        }) else {
+            return Ok(());
+        };
+        let mut mask = Mask::new(width, height)
+            .ok_or_else(|| anyhow!("failed to allocate drop-shadow mask"))?;
+        mask.fill_path(&shadow_path, TinyFillRule::Winding, true, transform);
+        blur_coverage(mask.data().to_vec(), width, height, sigma)?
+    };
+
+    blend_shadow_coverage(surface.data_mut(), &coverage, clip, shadow.color);
+    Ok(())
+}
+
+fn blur_coverage(coverage: Vec<u8>, width: u32, height: u32, sigma: f32) -> Result<Vec<u8>> {
+    if sigma <= f32::EPSILON {
+        return Ok(coverage);
+    }
+    let image = image::GrayImage::from_raw(width, height, coverage)
+        .ok_or_else(|| anyhow!("invalid shadow mask dimensions"))?;
+    Ok(image::imageops::blur(&image, sigma).into_raw())
+}
+
+fn blend_shadow_coverage(
+    destination: &mut [u8],
+    coverage: &[u8],
+    clip: Option<&Mask>,
+    color: fission_render::Color,
+) {
+    let clip = clip.map(Mask::data);
+    for (index, coverage) in coverage.iter().copied().enumerate() {
+        let coverage = clip
+            .map(|clip| u16::from(coverage) * u16::from(clip[index]) / 255)
+            .unwrap_or_else(|| u16::from(coverage));
+        let source_alpha = u16::from(color.a) * coverage / 255;
+        if source_alpha == 0 {
+            continue;
+        }
+        let inverse_alpha = 255 - source_alpha;
+        let offset = index * 4;
+        for (channel, source) in [color.r, color.g, color.b].into_iter().enumerate() {
+            let source = u16::from(source) * source_alpha / 255;
+            destination[offset + channel] =
+                (source + u16::from(destination[offset + channel]) * inverse_alpha / 255) as u8;
+        }
+        destination[offset + 3] = (source_alpha
+            + u16::from(destination[offset + 3]) * inverse_alpha / 255)
+            .min(255) as u8;
     }
 }

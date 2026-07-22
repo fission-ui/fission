@@ -80,6 +80,382 @@ pub struct CompositeStyle {
 
 pub type LayoutUnit = f32;
 
+/// A declarative layout length resolved by the constraint engine.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum Length {
+    Points(LayoutUnit),
+    Percent(f32),
+    ViewportWidth(f32),
+    ViewportHeight(f32),
+    Add(Box<Length>, Box<Length>),
+    Subtract(Box<Length>, Box<Length>),
+    Min(Vec<Length>),
+    Max(Vec<Length>),
+    Clamp {
+        min: Box<Length>,
+        preferred: Box<Length>,
+        max: Box<Length>,
+    },
+    FitContent(Option<Box<Length>>),
+    MinContent,
+    MaxContent,
+    Auto,
+}
+
+impl Length {
+    /// Creates a fixed logical-point length.
+    pub fn points(value: LayoutUnit) -> Self {
+        Self::Points(value)
+    }
+
+    /// Creates a percentage of the containing axis.
+    pub fn percent(value: f32) -> Self {
+        Self::Percent(value)
+    }
+
+    /// Creates a percentage of the viewport width.
+    pub fn vw(value: f32) -> Self {
+        Self::ViewportWidth(value)
+    }
+
+    /// Creates a percentage of the viewport height.
+    pub fn vh(value: f32) -> Self {
+        Self::ViewportHeight(value)
+    }
+
+    /// Clamps a preferred length between lower and upper bounds.
+    pub fn clamp(min: Length, preferred: Length, max: Length) -> Self {
+        Self::Clamp {
+            min: Box::new(min),
+            preferred: Box::new(preferred),
+            max: Box::new(max),
+        }
+    }
+
+    /// Selects the smallest fully resolved length.
+    pub fn min(values: impl Into<Vec<Length>>) -> Self {
+        Self::Min(values.into())
+    }
+
+    /// Selects the largest fully resolved length.
+    pub fn max(values: impl Into<Vec<Length>>) -> Self {
+        Self::Max(values.into())
+    }
+
+    /// Sizes to content, optionally capped by a resolved limit.
+    pub fn fit_content(limit: impl Into<Option<Length>>) -> Self {
+        Self::FitContent(limit.into().map(Box::new))
+    }
+
+    /// Creates `[left, right, top, bottom]` edges with one shared value.
+    pub fn all(value: Length) -> [Length; 4] {
+        std::array::from_fn(|_| value.clone())
+    }
+
+    /// Creates `[left, right, top, bottom]` edges from axis values.
+    pub fn symmetric(horizontal: Length, vertical: Length) -> [Length; 4] {
+        [horizontal.clone(), horizontal, vertical.clone(), vertical]
+    }
+
+    /// Resolves a numeric length against one axis and the active viewport.
+    ///
+    /// Intrinsic and automatic lengths return `None` because they require a
+    /// layout measurement rather than arithmetic resolution.
+    pub fn resolve(
+        &self,
+        reference: LayoutUnit,
+        viewport_width: LayoutUnit,
+        viewport_height: LayoutUnit,
+    ) -> Option<LayoutUnit> {
+        let resolved = match self {
+            Self::Points(value) => *value,
+            Self::Percent(value) => reference.is_finite().then_some(reference * value / 100.0)?,
+            Self::ViewportWidth(value) => viewport_width * value / 100.0,
+            Self::ViewportHeight(value) => viewport_height * value / 100.0,
+            Self::Add(left, right) => {
+                left.resolve(reference, viewport_width, viewport_height)?
+                    + right.resolve(reference, viewport_width, viewport_height)?
+            }
+            Self::Subtract(left, right) => {
+                left.resolve(reference, viewport_width, viewport_height)?
+                    - right.resolve(reference, viewport_width, viewport_height)?
+            }
+            Self::Min(values) => resolve_length_list(
+                values,
+                reference,
+                viewport_width,
+                viewport_height,
+                LayoutUnit::min,
+            )?,
+            Self::Max(values) => resolve_length_list(
+                values,
+                reference,
+                viewport_width,
+                viewport_height,
+                LayoutUnit::max,
+            )?,
+            Self::Clamp {
+                min,
+                preferred,
+                max,
+            } => {
+                let minimum = min.resolve(reference, viewport_width, viewport_height)?;
+                let maximum = max.resolve(reference, viewport_width, viewport_height)?;
+                preferred
+                    .resolve(reference, viewport_width, viewport_height)?
+                    .clamp(minimum.min(maximum), minimum.max(maximum))
+            }
+            Self::FitContent(_) | Self::MinContent | Self::MaxContent | Self::Auto => return None,
+        };
+        resolved.is_finite().then_some(resolved)
+    }
+}
+
+fn resolve_length_list(
+    values: &[Length],
+    reference: LayoutUnit,
+    viewport_width: LayoutUnit,
+    viewport_height: LayoutUnit,
+    combine: impl Fn(LayoutUnit, LayoutUnit) -> LayoutUnit,
+) -> Option<LayoutUnit> {
+    let mut values = values.iter();
+    let mut resolved = values
+        .next()?
+        .resolve(reference, viewport_width, viewport_height)?;
+    for value in values {
+        resolved = combine(
+            resolved,
+            value.resolve(reference, viewport_width, viewport_height)?,
+        );
+    }
+    Some(resolved)
+}
+
+impl From<LayoutUnit> for Length {
+    fn from(value: LayoutUnit) -> Self {
+        Self::Points(value)
+    }
+}
+
+impl std::ops::Add for Length {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self::Add(Box::new(self), Box::new(rhs))
+    }
+}
+
+impl std::ops::Sub for Length {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self::Subtract(Box::new(self), Box::new(rhs))
+    }
+}
+
+impl std::hash::Hash for Length {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        match self {
+            Self::Points(value)
+            | Self::Percent(value)
+            | Self::ViewportWidth(value)
+            | Self::ViewportHeight(value) => value.to_bits().hash(state),
+            Self::Add(left, right) | Self::Subtract(left, right) => {
+                left.hash(state);
+                right.hash(state);
+            }
+            Self::Min(values) | Self::Max(values) => values.hash(state),
+            Self::Clamp {
+                min,
+                preferred,
+                max,
+            } => {
+                min.hash(state);
+                preferred.hash(state);
+                max.hash(state);
+            }
+            Self::FitContent(limit) => limit.hash(state),
+            Self::MinContent | Self::MaxContent | Self::Auto => {}
+        }
+    }
+}
+
+/// Overflow behavior for a common box.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Hash)]
+pub enum Overflow {
+    #[default]
+    Visible,
+    Clip,
+}
+
+/// Alignment of a box's child within its content rectangle.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Hash)]
+pub enum BoxAlignment {
+    #[default]
+    Start,
+    Center,
+    End,
+    Stretch,
+}
+
+/// Absolute positioning values for a common box.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Hash)]
+pub struct BoxPosition {
+    pub left: Option<Length>,
+    pub top: Option<Length>,
+    pub right: Option<Length>,
+    pub bottom: Option<Length>,
+}
+
+/// Grid placement values for a common box.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Hash)]
+pub struct BoxGridPlacement {
+    pub row_start: GridPlacement,
+    pub row_end: GridPlacement,
+    pub col_start: GridPlacement,
+    pub col_end: GridPlacement,
+}
+
+/// Typed sizing and overflow shared by common box-like widgets.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Hash)]
+pub struct BoxStyle {
+    pub width: Option<Length>,
+    pub height: Option<Length>,
+    pub min_width: Option<Length>,
+    pub max_width: Option<Length>,
+    pub min_height: Option<Length>,
+    pub max_height: Option<Length>,
+    pub padding: Option<[Length; 4]>,
+    pub margin: Option<[Length; 4]>,
+    pub aspect_ratio: Option<OrderedLayoutUnit>,
+    pub overflow: Overflow,
+    pub alignment: BoxAlignment,
+    pub position: Option<BoxPosition>,
+    pub grid: Option<BoxGridPlacement>,
+    /// Flex grow participation for box-like widgets.
+    pub flex_grow: Option<OrderedLayoutUnit>,
+    /// Flex shrink participation for box-like widgets.
+    pub flex_shrink: Option<OrderedLayoutUnit>,
+}
+
+impl BoxStyle {
+    /// Sets the preferred width.
+    pub fn width(mut self, value: Length) -> Self {
+        self.width = Some(value);
+        self
+    }
+
+    /// Sets the preferred height.
+    pub fn height(mut self, value: Length) -> Self {
+        self.height = Some(value);
+        self
+    }
+
+    /// Sets the minimum width.
+    pub fn min_width(mut self, value: Length) -> Self {
+        self.min_width = Some(value);
+        self
+    }
+
+    /// Sets the maximum width.
+    pub fn max_width(mut self, value: Length) -> Self {
+        self.max_width = Some(value);
+        self
+    }
+
+    /// Sets the minimum height.
+    pub fn min_height(mut self, value: Length) -> Self {
+        self.min_height = Some(value);
+        self
+    }
+
+    /// Sets the maximum height.
+    pub fn max_height(mut self, value: Length) -> Self {
+        self.max_height = Some(value);
+        self
+    }
+
+    /// Sets `[left, right, top, bottom]` inner spacing.
+    pub fn padding(mut self, edges: [Length; 4]) -> Self {
+        self.padding = Some(edges);
+        self
+    }
+
+    /// Sets equal inner spacing on every edge.
+    pub fn padding_all(self, value: Length) -> Self {
+        self.padding(Length::all(value))
+    }
+
+    /// Sets horizontal and vertical inner spacing.
+    pub fn padding_symmetric(self, horizontal: Length, vertical: Length) -> Self {
+        self.padding(Length::symmetric(horizontal, vertical))
+    }
+
+    /// Sets `[left, right, top, bottom]` outer spacing.
+    pub fn margin(mut self, edges: [Length; 4]) -> Self {
+        self.margin = Some(edges);
+        self
+    }
+
+    /// Sets equal outer spacing on every edge.
+    pub fn margin_all(self, value: Length) -> Self {
+        self.margin(Length::all(value))
+    }
+
+    /// Sets horizontal and vertical outer spacing.
+    pub fn margin_symmetric(self, horizontal: Length, vertical: Length) -> Self {
+        self.margin(Length::symmetric(horizontal, vertical))
+    }
+
+    /// Sets overflow visibility or clipping.
+    pub fn overflow(mut self, overflow: Overflow) -> Self {
+        self.overflow = overflow;
+        self
+    }
+
+    /// Aligns the child within the box's content rectangle.
+    pub fn align(mut self, alignment: BoxAlignment) -> Self {
+        self.alignment = alignment;
+        self
+    }
+
+    /// Sets a non-negative width-to-height ratio.
+    pub fn aspect_ratio(mut self, ratio: LayoutUnit) -> Self {
+        self.aspect_ratio = Some(OrderedLayoutUnit(ratio.max(0.0)));
+        self
+    }
+
+    /// Absolutely positions the box within its positioned parent.
+    pub fn positioned(mut self, position: BoxPosition) -> Self {
+        self.position = Some(position);
+        self
+    }
+
+    /// Places the box in a parent grid.
+    pub fn grid(mut self, placement: BoxGridPlacement) -> Self {
+        self.grid = Some(placement);
+        self
+    }
+
+    /// Sets flex grow and shrink participation.
+    pub fn flex(mut self, grow: LayoutUnit, shrink: LayoutUnit) -> Self {
+        self.flex_grow = Some(OrderedLayoutUnit(grow));
+        self.flex_shrink = Some(OrderedLayoutUnit(shrink));
+        self
+    }
+}
+
+/// Hashable/serializable wrapper for floating-point layout values.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct OrderedLayoutUnit(pub LayoutUnit);
+
+impl std::hash::Hash for OrderedLayoutUnit {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.to_bits().hash(state);
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, Default)]
 pub enum TextAlign {
     Left,
@@ -300,7 +676,7 @@ pub enum EmbedKind {
     Custom(Vec<u8>),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum GridTrack {
     Points(LayoutUnit),
     Percent(f32),
@@ -308,6 +684,62 @@ pub enum GridTrack {
     Auto,
     MinContent,
     MaxContent,
+    MinMax(Box<GridTrack>, Box<GridTrack>),
+    Repeat { count: u16, tracks: Vec<GridTrack> },
+    AutoFit(Box<GridTrack>),
+    AutoFill(Box<GridTrack>),
+}
+
+/// The width source used to evaluate a responsive layout branch.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Hash)]
+pub enum ResponsiveQuery {
+    /// Compare breakpoints against the application viewport.
+    #[default]
+    Viewport,
+    /// Compare breakpoints against the constraints supplied by the parent.
+    Container,
+}
+
+/// An inclusive lower and exclusive upper width bound for a responsive branch.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+pub struct ResponsiveCondition {
+    pub min_width: Option<LayoutUnit>,
+    pub max_width: Option<LayoutUnit>,
+}
+
+impl ResponsiveCondition {
+    pub fn matches(self, width: LayoutUnit) -> bool {
+        self.min_width.is_none_or(|minimum| width >= minimum)
+            && self.max_width.is_none_or(|maximum| width < maximum)
+    }
+}
+
+impl std::hash::Hash for ResponsiveCondition {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.min_width.map(f32::to_bits).hash(state);
+        self.max_width.map(f32::to_bits).hash(state);
+    }
+}
+
+impl GridTrack {
+    pub fn minmax(min: GridTrack, max: GridTrack) -> Self {
+        Self::MinMax(Box::new(min), Box::new(max))
+    }
+
+    pub fn repeat(count: u16, tracks: impl Into<Vec<GridTrack>>) -> Self {
+        Self::Repeat {
+            count,
+            tracks: tracks.into(),
+        }
+    }
+
+    pub fn auto_fit(track: GridTrack) -> Self {
+        Self::AutoFit(Box::new(track))
+    }
+
+    pub fn auto_fill(track: GridTrack) -> Self {
+        Self::AutoFill(Box::new(track))
+    }
 }
 
 impl std::hash::Hash for GridTrack {
@@ -334,11 +766,29 @@ impl std::hash::Hash for GridTrack {
             Self::MaxContent => {
                 5.hash(state);
             }
+            Self::MinMax(min, max) => {
+                6.hash(state);
+                min.hash(state);
+                max.hash(state);
+            }
+            Self::Repeat { count, tracks } => {
+                7.hash(state);
+                count.hash(state);
+                tracks.hash(state);
+            }
+            Self::AutoFit(track) => {
+                8.hash(state);
+                track.hash(state);
+            }
+            Self::AutoFill(track) => {
+                9.hash(state);
+                track.hash(state);
+            }
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum GridPlacement {
     Auto,
     Line(i16),
@@ -409,6 +859,12 @@ pub enum LayoutOp {
         flex_shrink: LayoutUnit,
         aspect_ratio: Option<f32>,
     },
+    /// A common box using declarative length expressions.
+    StyledBox {
+        style: BoxStyle,
+        flex_grow: LayoutUnit,
+        flex_shrink: LayoutUnit,
+    },
     Flex {
         direction: FlexDirection,
         wrap: FlexWrap,
@@ -431,6 +887,11 @@ pub enum LayoutOp {
         row_end: GridPlacement,
         col_start: GridPlacement,
         col_end: GridPlacement,
+    },
+    /// Selects one case child or the final fallback child from local constraints.
+    Responsive {
+        query: ResponsiveQuery,
+        cases: Vec<ResponsiveCondition>,
     },
     Scroll {
         direction: FlexDirection,
@@ -459,6 +920,15 @@ pub enum LayoutOp {
         bottom: Option<LayoutUnit>,
         width: Option<LayoutUnit>,
         height: Option<LayoutUnit>,
+    },
+    /// Absolutely positions a child using typed lengths resolved by layout.
+    PositionedLengths {
+        left: Option<Length>,
+        top: Option<Length>,
+        right: Option<Length>,
+        bottom: Option<Length>,
+        width: Option<Length>,
+        height: Option<Length>,
     },
     ZStack,
     Align,
@@ -509,6 +979,16 @@ impl std::hash::Hash for LayoutOp {
                 hash_unit(*flex_shrink, state);
                 aspect_ratio.map(|f| f.to_bits()).hash(state);
             }
+            Self::StyledBox {
+                style,
+                flex_grow,
+                flex_shrink,
+            } => {
+                13.hash(state);
+                style.hash(state);
+                hash_unit(*flex_grow, state);
+                hash_unit(*flex_shrink, state);
+            }
             Self::Flex {
                 direction,
                 wrap,
@@ -554,6 +1034,11 @@ impl std::hash::Hash for LayoutOp {
                 row_end.hash(state);
                 col_start.hash(state);
                 col_end.hash(state);
+            }
+            Self::Responsive { query, cases } => {
+                14.hash(state);
+                query.hash(state);
+                cases.hash(state);
             }
             Self::Scroll {
                 direction,
@@ -612,6 +1097,22 @@ impl std::hash::Hash for LayoutOp {
                 hash_opt_unit(*width, state);
                 hash_opt_unit(*height, state);
             }
+            Self::PositionedLengths {
+                left,
+                top,
+                right,
+                bottom,
+                width,
+                height,
+            } => {
+                15.hash(state);
+                left.hash(state);
+                top.hash(state);
+                right.hash(state);
+                bottom.hash(state);
+                width.hash(state);
+                height.hash(state);
+            }
             Self::ZStack => {
                 8.hash(state);
             }
@@ -646,6 +1147,12 @@ pub struct Color {
 }
 
 impl Color {
+    pub const TRANSPARENT: Self = Self {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 0,
+    };
     pub const BLACK: Self = Self {
         r: 0,
         g: 0,
@@ -778,15 +1285,21 @@ impl std::hash::Hash for Stroke {
 pub struct BoxShadow {
     pub color: Color,
     pub blur_radius: LayoutUnit,
+    /// Positive values expand the shadow shape; negative values contract it.
+    pub spread_radius: LayoutUnit,
     pub offset: (LayoutUnit, LayoutUnit),
+    /// Draws the shadow inside the shape instead of behind it.
+    pub inset: bool,
 }
 
 impl std::hash::Hash for BoxShadow {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.color.hash(state);
         self.blur_radius.to_bits().hash(state);
+        self.spread_radius.to_bits().hash(state);
         self.offset.0.to_bits().hash(state);
         self.offset.1.to_bits().hash(state);
+        self.inset.hash(state);
     }
 }
 
@@ -1045,8 +1558,30 @@ const fn text_wrap_default() -> bool {
     true
 }
 
+/// A filter applied to content already painted behind a widget.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum BackdropFilter {
+    /// Applies a Gaussian blur using the supplied standard deviation.
+    Blur(LayoutUnit),
+}
+
+impl std::hash::Hash for BackdropFilter {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            Self::Blur(sigma) => {
+                0_u8.hash(state);
+                sigma.to_bits().hash(state);
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PaintOp {
+    BackdropFilter {
+        filter: BackdropFilter,
+        corner_radius: LayoutUnit,
+    },
     DrawRect {
         fill: Option<Fill>,
         stroke: Option<Stroke>,
@@ -1108,13 +1643,21 @@ pub enum PaintOp {
 impl std::hash::Hash for PaintOp {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match self {
+            Self::BackdropFilter {
+                filter,
+                corner_radius,
+            } => {
+                0_u8.hash(state);
+                filter.hash(state);
+                corner_radius.to_bits().hash(state);
+            }
             Self::DrawRect {
                 fill,
                 stroke,
                 corner_radius,
                 shadow,
             } => {
-                0.hash(state);
+                1_u8.hash(state);
                 fill.hash(state);
                 stroke.hash(state);
                 corner_radius.to_bits().hash(state);
@@ -1133,7 +1676,7 @@ impl std::hash::Hash for PaintOp {
                 caret_radius,
                 paragraph_style,
             } => {
-                1.hash(state);
+                2_u8.hash(state);
                 text.hash(state);
                 size.to_bits().hash(state);
                 color.hash(state);
@@ -1156,7 +1699,7 @@ impl std::hash::Hash for PaintOp {
                 caret_radius,
                 paragraph_style,
             } => {
-                2.hash(state);
+                3_u8.hash(state);
                 runs.hash(state);
                 wrap.hash(state);
                 caret_index.hash(state);
@@ -1171,13 +1714,13 @@ impl std::hash::Hash for PaintOp {
                 fit,
                 alignment,
             } => {
-                3.hash(state);
+                4_u8.hash(state);
                 request.hash(state);
                 fit.hash(state);
                 alignment.hash(state);
             }
             Self::DrawPath { path, fill, stroke } => {
-                4.hash(state);
+                5_u8.hash(state);
                 path.hash(state);
                 fill.hash(state);
                 stroke.hash(state);
@@ -1187,7 +1730,7 @@ impl std::hash::Hash for PaintOp {
                 fill,
                 stroke,
             } => {
-                5.hash(state);
+                6_u8.hash(state);
                 content.hash(state);
                 fill.hash(state);
                 stroke.hash(state);

@@ -11,7 +11,7 @@ use fission_render::{
     surface_placeholder_color, Color as RenderColor, DisplayList, DisplayOp, LayerClip,
     RenderLayer, RenderNode, RenderScene, Renderer, TextStyle as RenderTextStyle,
 };
-use vello::kurbo::{Affine, BezPath, Point, Rect, RoundedRect};
+use vello::kurbo::{Affine, BezPath, Point, Rect, RoundedRect, Shape, Vec2};
 // Minimal imports from peniko
 use vello::peniko::{
     Blob, Brush, Color, Fill, ImageAlphaType, ImageBrush, ImageData, ImageFormat, ImageSampler, Mix,
@@ -250,6 +250,11 @@ impl WorkloadProfileBuilder {
                 DisplayOp::CachedScene { list, bounds, .. } => {
                     self.add_coverage(*bounds, false);
                     self.visit_display_list(list);
+                }
+                DisplayOp::BackdropFilter { bounds, .. } => {
+                    self.scene.draw_ops = self.scene.draw_ops.saturating_add(1);
+                    self.scene.blend_ops = self.scene.blend_ops.saturating_add(1);
+                    self.add_coverage(*bounds, false);
                 }
                 DisplayOp::DrawRect {
                     bounds,
@@ -3255,6 +3260,18 @@ impl<'a> VelloRenderer<'a> {
                     self.push_clip_bounds(r);
                     self.current_layer_count += 1;
                 }
+                DisplayOp::BackdropFilter {
+                    rect,
+                    filter,
+                    corner_radius,
+                    ..
+                } => {
+                    // Vello does not yet expose a framebuffer backdrop filter.
+                    // Preserve the clipped filter primitive in the display list;
+                    // GPU hosts can promote it to a compositor pass, while the
+                    // software and site renderers execute the blur directly.
+                    let _ = (rect, filter, corner_radius);
+                }
                 DisplayOp::DrawRect {
                     rect,
                     fill,
@@ -3272,7 +3289,7 @@ impl<'a> VelloRenderer<'a> {
 
                     let shape = RoundedRect::from_rect(rect, *corner_radius as f64);
 
-                    if let Some(shadow) = shadow {
+                    if let Some(shadow) = shadow.filter(|shadow| !shadow.inset) {
                         let shadow_origin_x = rect.x0 + shadow.offset.0 as f64;
                         let shadow_origin_y = rect.y0 + shadow.offset.1 as f64;
                         let shadow_rect = Rect::new(
@@ -3280,9 +3297,8 @@ impl<'a> VelloRenderer<'a> {
                             shadow_origin_y,
                             shadow_origin_x + rect.width(),
                             shadow_origin_y + rect.height(),
-                        );
-                        let shadow_shape =
-                            RoundedRect::from_rect(shadow_rect, *corner_radius as f64);
+                        )
+                        .inflate(shadow.spread_radius as f64, shadow.spread_radius as f64);
                         let shadow_color = Color::from_rgba8(
                             shadow.color.r,
                             shadow.color.g,
@@ -3290,12 +3306,12 @@ impl<'a> VelloRenderer<'a> {
                             shadow.color.a,
                         );
 
-                        self.scene.fill(
-                            Fill::NonZero,
+                        self.scene.draw_blurred_rounded_rect(
                             self.current_transform,
+                            shadow_rect,
                             shadow_color,
-                            None,
-                            &shadow_shape,
+                            (*corner_radius + shadow.spread_radius).max(0.0) as f64,
+                            (shadow.blur_radius.max(0.0) * 0.5) as f64,
                         );
                     }
 
@@ -3317,6 +3333,35 @@ impl<'a> VelloRenderer<'a> {
                             &brush,
                             None,
                             &shape,
+                        );
+                    }
+
+                    if let Some(shadow) = shadow.filter(|shadow| shadow.inset) {
+                        let std_dev = (shadow.blur_radius.max(0.0) * 0.5) as f64;
+                        let band = (shadow.spread_radius.max(0.0) as f64 + 2.5 * std_dev).max(1.0);
+                        let inner = rect.inset(-band)
+                            + Vec2::new(shadow.offset.0 as f64, shadow.offset.1 as f64);
+                        let clip_shape = RoundedRect::from_rect(rect, *corner_radius as f64);
+                        let inner_shape =
+                            RoundedRect::from_rect(inner, (*corner_radius as f64 - band).max(0.0));
+                        let ring = BezPath::from_iter(
+                            clip_shape
+                                .path_elements(0.1)
+                                .chain(inner_shape.to_path(0.1).reverse_subpaths()),
+                        );
+                        let shadow_color = Color::from_rgba8(
+                            shadow.color.r,
+                            shadow.color.g,
+                            shadow.color.b,
+                            shadow.color.a,
+                        );
+                        self.scene.draw_blurred_rounded_rect_in(
+                            &ring,
+                            self.current_transform,
+                            rect,
+                            shadow_color,
+                            *corner_radius as f64,
+                            std_dev,
                         );
                     }
                 }

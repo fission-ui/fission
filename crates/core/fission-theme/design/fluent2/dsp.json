@@ -704,28 +704,28 @@
         "family": "Inter",
         "weight": 400,
         "style": "normal",
-        "path": "fonts/Inter-Regular.ttf",
+        "path": "../../fonts/Inter/static/Inter_24pt-Regular.ttf",
         "format": "truetype"
       },
       {
         "family": "Inter",
         "weight": 500,
         "style": "normal",
-        "path": "fonts/Inter-Medium.ttf",
+        "path": "../../fonts/Inter/static/Inter_24pt-Medium.ttf",
         "format": "truetype"
       },
       {
         "family": "Inter",
         "weight": 600,
         "style": "normal",
-        "path": "fonts/Inter-SemiBold.ttf",
+        "path": "../../fonts/Inter/static/Inter_24pt-SemiBold.ttf",
         "format": "truetype"
       },
       {
         "family": "Inter",
         "weight": 700,
         "style": "normal",
-        "path": "fonts/Inter-Bold.ttf",
+        "path": "../../fonts/Inter/static/Inter_24pt-Bold.ttf",
         "format": "truetype"
       }
     ],

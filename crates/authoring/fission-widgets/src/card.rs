@@ -33,6 +33,8 @@ impl From<Card> for Widget {
         let style = theme.resolve(this.pattern, this.interactive);
         let tokens = &view.env().theme.tokens;
         let default_shadow = fission_core::op::BoxShadow {
+            spread_radius: 0.0,
+            inset: false,
             color: fission_core::op::Color {
                 r: 0,
                 g: 0,

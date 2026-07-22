@@ -580,6 +580,8 @@ mod imp {
     fn access_role_for(semantics: &Semantics) -> AccessRole {
         match semantics.role {
             Role::Button => AccessRole::Button,
+            Role::Link => AccessRole::Link,
+            Role::MenuItem => AccessRole::MenuItem,
             Role::Text => AccessRole::Label,
             Role::TextInput if semantics.masked => AccessRole::PasswordInput,
             Role::TextInput if semantics.multiline => AccessRole::MultilineTextInput,

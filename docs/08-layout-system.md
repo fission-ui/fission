@@ -92,6 +92,17 @@ Supported constraint types include:
 - grid placement,
 - intrinsic measurement.
 
+Authoring code can express sizing with `Length` rather than precomputing raw
+`f32` values. `Length` supports points, percentages, viewport units,
+addition/subtraction, `min`, `max`, `clamp`, `fit-content`, `min-content`, and
+`max-content`. Numeric expressions resolve inside layout against the relevant
+axis and active viewport; intrinsic values remain measurements.
+
+`BoxStyle` is the shared box model used by `Container` and neutral interactive
+surfaces. It carries typed width/min/max values, padding, margin, alignment,
+overflow, aspect ratio, typed positioning, and flex/grid participation. Legacy
+point-based `Container` methods remain concise shorthands for typed point values.
+
 Constraint resolution order is explicit and documented.
 
 ---
@@ -104,6 +115,10 @@ Rules:
 - intrinsic measurement is pure,
 - font metrics are fixed and pinned,
 - measurement results are cached deterministically.
+
+`fit-content`, `min-content`, and `max-content` propagate through styled boxes.
+Text retains its natural measured extent even when fixed constraints make its
+final rectangle smaller, allowing overflow to be diagnosed rather than hidden.
 
 No platform font APIs are consulted during layout.
 
@@ -157,6 +172,12 @@ Layout validation checks:
 
 Failures are deterministic and reported structurally.
 
+`LayoutEngine::inspect_node` returns the measured, constrained, laid-out,
+clipped, and estimated painted rectangles for a node plus per-axis overflow.
+The layout diagnostics stream emits `LayoutOverflow`; text overflow is a warning
+because it commonly indicates clipping or overlapping rows, while intentional
+non-text visual overflow remains debug-level evidence.
+
 ---
 
 ## 8.12 Testing Layout
@@ -176,6 +197,29 @@ find(role("button")).rect().assert_eq(Rect::new(10, 20, 80, 32));
 ```
 
 No rendering is required.
+
+Responsive branches are also layout-native. `Responsive` selects ordered
+viewport or container-query cases without requiring component code to read the
+viewport and build unrelated trees. `GridTrack` supports `minmax`, `repeat`,
+`auto-fit`, and `auto-fill` in both native layout and static-site CSS lowering.
+
+```rust,ignore
+use fission::{GridTrack, Length, Responsive, ResponsiveCase};
+
+let width = Length::clamp(
+    Length::points(280.0),
+    Length::percent(50.0) - Length::points(24.0),
+    Length::vw(60.0),
+);
+
+let content = Responsive::new(compact)
+    .case(ResponsiveCase::min_width(960.0, wide));
+
+let columns = vec![GridTrack::auto_fit(GridTrack::minmax(
+    GridTrack::Points(240.0),
+    GridTrack::Fr(1.0),
+))];
+```
 
 ---
 

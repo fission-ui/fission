@@ -3,7 +3,7 @@ use anyhow::{bail, Context, Result};
 use fission_core::internal::BuildCtx;
 use fission_core::registry::VideoRegistration;
 use fission_core::{Env, GlobalState, MotionDeclaration, RuntimeState, View, Widget};
-use fission_theme::{DesignMode, Theme};
+use fission_theme::{DesignMode, DesignSystem, PackagedFont, Theme};
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::net::{TcpListener, TcpStream};
@@ -207,6 +207,7 @@ pub struct FissionSite {
     pub(crate) user_css: Vec<String>,
     pub(crate) footer: Option<Arc<RouteRenderer>>,
     pub(crate) page_elements: Vec<SitePageElement>,
+    pub(crate) font_faces: &'static [PackagedFont],
 }
 
 impl Default for FissionSite {
@@ -223,6 +224,7 @@ impl Default for FissionSite {
             user_css: Vec::new(),
             footer: None,
             page_elements: Vec::new(),
+            font_faces: &[],
         }
     }
 }
@@ -235,6 +237,20 @@ impl FissionSite {
     pub fn theme(mut self, theme: Theme) -> Self {
         self.env.theme = theme.clone();
         self.theme = theme;
+        self
+    }
+
+    /// Uses a generated design system's theme and packaged font faces.
+    pub fn with_design_system<D: DesignSystem>(mut self, mode: DesignMode) -> Self {
+        self.theme = D::theme(mode);
+        self.env.theme = self.theme.clone();
+        self.font_faces = D::font_faces();
+        self
+    }
+
+    /// Registers packaged font faces for every generated route.
+    pub fn with_fonts(mut self, fonts: &'static [PackagedFont]) -> Self {
+        self.font_faces = fonts;
         self
     }
 

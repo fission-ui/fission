@@ -183,7 +183,10 @@ impl TerminalRenderer {
                     ctx.clip,
                 );
             }
-            PaintOp::DrawImage { .. } | PaintOp::DrawPath { .. } | PaintOp::DrawSvg { .. } => {
+            PaintOp::BackdropFilter { .. }
+            | PaintOp::DrawImage { .. }
+            | PaintOp::DrawPath { .. }
+            | PaintOp::DrawSvg { .. } => {
                 // Unsupported paint operations are rejected by verify_terminal_ir before render.
             }
         }

@@ -37,6 +37,14 @@ pub trait DesignSystem {
     fn components() -> &'static [DesignComponentSpec];
     fn patterns() -> &'static [DesignPatternSpec];
     fn assets() -> &'static DesignAssetManifest;
+    /// Font faces packaged with this design system.
+    ///
+    /// Hosts register these faces with their text measurer and renderer before
+    /// the first frame so declared weight, style, and variation axes are used
+    /// consistently instead of synthesized fallbacks.
+    fn font_faces() -> &'static [PackagedFont] {
+        &[]
+    }
     fn theme_ref(mode: DesignMode) -> &'static Theme;
 
     fn theme(mode: DesignMode) -> Theme {
@@ -102,6 +110,8 @@ impl ShadowLayer {
             color: self.color,
             offset: self.offset,
             blur_radius: self.blur_radius,
+            spread_radius: self.spread_radius,
+            inset: self.inset,
         }
     }
 }
@@ -111,8 +121,8 @@ fn shadow_layer_from_box(shadow: BoxShadow) -> ShadowLayer {
         color: shadow.color,
         offset: shadow.offset,
         blur_radius: shadow.blur_radius,
-        spread_radius: 0.0,
-        inset: false,
+        spread_radius: shadow.spread_radius,
+        inset: shadow.inset,
     }
 }
 
@@ -142,7 +152,7 @@ pub struct DesignPatternSpec {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DesignAssetManifest {
     pub logos: Vec<DesignAsset>,
-    pub fonts: Vec<DesignAsset>,
+    pub fonts: Vec<DesignFontAsset>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -150,6 +160,44 @@ pub struct DesignAsset {
     pub id: String,
     pub path: String,
     pub format: String,
+}
+
+/// Metadata for a font face declared by a Design System Package.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DesignFontAsset {
+    pub family: String,
+    pub weight: u16,
+    pub style: PackagedFontStyle,
+    pub path: String,
+    pub format: String,
+    pub axes: Vec<FontVariationAxis>,
+}
+
+/// A variation-axis default applied when a packaged font is registered.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct FontVariationAxis {
+    pub tag: [u8; 4],
+    pub value: f32,
+}
+
+/// Font slope metadata used by packaged design-system fonts.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PackagedFontStyle {
+    #[default]
+    Normal,
+    Italic,
+    Oblique,
+}
+
+/// A font face embedded in an application binary by design-system codegen.
+#[derive(Clone, Copy, Debug)]
+pub struct PackagedFont {
+    pub family: &'static str,
+    pub weight: u16,
+    pub style: PackagedFontStyle,
+    pub format: &'static str,
+    pub data: &'static [u8],
+    pub axes: &'static [FontVariationAxis],
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -848,16 +896,22 @@ impl Default for ElevationTokens {
         Self {
             level0: None,
             level1: Some(BoxShadow {
+                spread_radius: 0.0,
+                inset: false,
                 color: black_alpha(40),
                 offset: (0.0, 1.0),
                 blur_radius: 2.0,
             }),
             level2: Some(BoxShadow {
+                spread_radius: 0.0,
+                inset: false,
                 color: black_alpha(60),
                 offset: (0.0, 2.0),
                 blur_radius: 4.0,
             }),
             level3: Some(BoxShadow {
+                spread_radius: 0.0,
+                inset: false,
                 color: black_alpha(60),
                 offset: (0.0, 4.0),
                 blur_radius: 8.0,
@@ -865,6 +919,8 @@ impl Default for ElevationTokens {
             level4: None,
             level5: None,
             focus: Some(BoxShadow {
+                spread_radius: 0.0,
+                inset: false,
                 color: Color {
                     r: 20,
                     g: 184,
