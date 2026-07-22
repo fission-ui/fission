@@ -326,6 +326,7 @@ pub use fission_shell_desktop::{
 pub use fission_shell_desktop::{
     TrayActivateBehavior, TrayAppSwitcherPolicy, TrayConfig, TrayHostAction, TrayIconSource,
     TrayMenu, TrayMenuAction, TrayMenuBuilder, TrayMenuEntry, TrayMenuItem, WindowCloseBehavior,
+    WindowMinimizeBehavior,
 };
 #[cfg(all(
     any(
@@ -520,7 +521,7 @@ pub mod prelude {
     pub use fission_shell_desktop::{
         TrayActivateBehavior, TrayAppSwitcherPolicy, TrayConfig, TrayHostAction, TrayIconSource,
         TrayMenu, TrayMenuAction, TrayMenuBuilder, TrayMenuEntry, TrayMenuItem,
-        WindowCloseBehavior,
+        WindowCloseBehavior, WindowMinimizeBehavior,
     };
 
     // Layout

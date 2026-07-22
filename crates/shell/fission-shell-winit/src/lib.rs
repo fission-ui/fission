@@ -131,6 +131,7 @@ pub mod tray;
 pub use tray::{
     TrayActivateBehavior, TrayAppSwitcherPolicy, TrayConfig, TrayHostAction, TrayIconSource,
     TrayMenu, TrayMenuAction, TrayMenuBuilder, TrayMenuEntry, TrayMenuItem, WindowCloseBehavior,
+    WindowMinimizeBehavior,
 };
 pub mod test_control;
 mod wifi;
@@ -5827,6 +5828,15 @@ where
                         elwt.set_control_flow(ControlFlow::Wait);
                         return;
                     };
+                    #[cfg(feature = "tray")]
+                    if let Some(tray) = active_tray.as_ref() {
+                        if tray.minimize_behavior() == tray::WindowMinimizeBehavior::HideToTray
+                            && window.is_visible().unwrap_or(true)
+                            && window.is_minimized() == Some(true)
+                        {
+                            tray::hide_window_to_tray(window, tray.app_switcher_policy());
+                        }
+                    }
                     #[cfg(target_os = "android")]
                     drain_pending_test_events();
                     #[cfg(feature = "tray")]

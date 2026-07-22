@@ -6,7 +6,7 @@
 use fission::prelude::*;
 use fission::{
     DesktopApp, TrayActivateBehavior, TrayConfig, TrayHostAction, TrayIconSource, TrayMenu,
-    TrayMenuAction, TrayMenuBuilder, WindowCloseBehavior,
+    TrayMenuAction, TrayMenuBuilder, WindowCloseBehavior, WindowMinimizeBehavior,
 };
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
@@ -55,6 +55,7 @@ fn facade_exports_desktop_tray_api() {
     let tray = TrayConfig::<FacadeTrayState>::new(TrayIconSource::rgba(vec![0, 0, 0, 255], 1, 1))
         .tooltip("Facade tray")
         .close_behavior(WindowCloseBehavior::HideToTray)
+        .minimize_behavior(WindowMinimizeBehavior::HideToTray)
         .activate_behavior(TrayActivateBehavior::ShowMainWindow)
         .menu(FacadeTrayMenu);
 
