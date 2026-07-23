@@ -282,6 +282,7 @@ keystore_alias = "upload"
         Target::Android,
         PackageFormat::Aab,
         false,
+        None,
         &[ReadinessCheck {
             id: "release.package.signature.android_aab".to_string(),
             severity: CheckSeverity::Warning,
@@ -318,23 +319,27 @@ notarize = true
     .unwrap();
 
     assert_eq!(
-        package_signing_identity(&dir, Target::Macos, PackageFormat::App, false).unwrap(),
+        package_signing_identity(&dir, Target::Macos, PackageFormat::App, false, None).unwrap(),
         None
     );
     assert_eq!(
-        package_signing_identity(&dir, Target::Macos, PackageFormat::App, true).unwrap(),
+        package_signing_identity(&dir, Target::Macos, PackageFormat::App, true, None).unwrap(),
         Some("Developer ID Application: Example Ltd".to_string())
     );
     assert_eq!(
-        package_signing_identity(&dir, Target::Macos, PackageFormat::Pkg, true).unwrap(),
+        package_signing_identity(&dir, Target::Macos, PackageFormat::Pkg, true, None).unwrap(),
         Some("Developer ID Installer: Example Ltd".to_string())
     );
-    assert!(package_notarization_context(&dir, Target::Macos, false)
-        .unwrap()
-        .is_none());
-    assert!(package_notarization_context(&dir, Target::Macos, true)
-        .unwrap()
-        .is_some());
+    assert!(
+        package_notarization_context(&dir, Target::Macos, false, None)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        package_notarization_context(&dir, Target::Macos, true, None)
+            .unwrap()
+            .is_some()
+    );
     fs::remove_dir_all(dir).unwrap();
 }
 

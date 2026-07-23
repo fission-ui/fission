@@ -271,7 +271,8 @@ pub(super) fn publish_app_store(
     let key_id = env_value("APP_STORE_CONNECT_KEY_ID")
         .or(cfg.key_id.clone())
         .context("distribution.app_store.key_id or APP_STORE_CONNECT_KEY_ID is required")?;
-    let ipa = primary_artifact_with_extensions(manifest, &["ipa"])?;
+    let platform = app_store_platform_for_manifest(&cfg, manifest)?;
+    let upload = primary_artifact_with_extensions(manifest, &[platform.artifact_extension()])?;
     let track = options
         .track
         .as_deref()
@@ -287,7 +288,7 @@ pub(super) fn publish_app_store(
             Some("https://appstoreconnect.apple.com/apps".to_string()),
             vec![format!(
                 "Would upload {} to App Store Connect with API key {key_id} for track {track}.",
-                ipa.display()
+                upload.display()
             )],
         ));
     }
@@ -306,9 +307,9 @@ pub(super) fn publish_app_store(
             "altool",
             "--upload-app",
             "-f",
-            ipa.to_string_lossy().as_ref(),
+            upload.to_string_lossy().as_ref(),
             "-t",
-            "ios",
+            platform.altool_type(),
             "--apiKey",
             &key_id,
             "--apiIssuer",

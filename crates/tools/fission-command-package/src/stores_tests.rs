@@ -71,6 +71,59 @@ fn store_credentials_honor_configured_env_names() {
 }
 
 #[test]
+fn app_store_platform_matches_ios_and_macos_artifacts() {
+    let config = AppStoreConfig::default();
+    let ios = store_artifact_manifest("ios", "ipa");
+    let macos = store_artifact_manifest("macos", "pkg");
+
+    assert_eq!(
+        app_store_platform_for_manifest(&config, &ios).unwrap(),
+        AppStorePlatform::Ios
+    );
+    assert_eq!(
+        app_store_platform_for_manifest(&config, &macos).unwrap(),
+        AppStorePlatform::Macos
+    );
+
+    let configured = AppStoreConfig {
+        platform: Some("macos".to_string()),
+        ..Default::default()
+    };
+    assert!(app_store_platform_for_manifest(&configured, &ios).is_err());
+    assert_eq!(
+        app_store_platform_for_manifest(&configured, &macos).unwrap(),
+        AppStorePlatform::Macos
+    );
+}
+
+fn store_artifact_manifest(target: &str, format: &str) -> ArtifactManifest {
+    ArtifactManifest {
+        schema_version: 1,
+        created_at_unix_seconds: 0,
+        project: ArtifactProject {
+            app_id: "com.example.demo".to_string(),
+            name: "Demo".to_string(),
+            build: Some(1),
+            version: Some("1.0.0".to_string()),
+        },
+        target: target.to_string(),
+        format: format.to_string(),
+        profile: "release".to_string(),
+        variant: None,
+        root_dir: "/tmp/fission-store-artifact".to_string(),
+        source_config: Vec::new(),
+        artifacts: Vec::new(),
+        icon_manifest: None,
+        signing: None,
+        notarization: None,
+        validation: ArtifactValidation {
+            state: "passed".to_string(),
+            checks: Vec::new(),
+        },
+    }
+}
+
+#[test]
 fn play_internal_sharing_upload_urls_use_media_endpoints() {
     assert_eq!(
         play_internal_sharing_upload_url("com.example.app", "apk").unwrap(),

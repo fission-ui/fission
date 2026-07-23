@@ -770,6 +770,28 @@ and any API key material decoded from environment values are removed after the
 operation. `.pkg` notarization continues to submit, staple, and validate the
 signed installer itself.
 
+### `[package.macos.variants.<name>]`
+
+A selected desktop `--variant` may override the effective macOS package signing
+configuration. Fission applies `[package.macos]`, then
+`[package.macos.release]` for release packaging, then the selected variant.
+This keeps Developer ID and Mac App Store identities in one project without
+editing configuration between packages.
+
+```toml
+[package.macos.variants.app-store]
+entitlements = "platforms/macos/AppStore.entitlements"
+provisioning_profile = ".fission/signing/macos/AppStore.provisionprofile"
+signing_identity = "Apple Distribution: Example Ltd"
+installer_identity = "3rd Party Mac Developer Installer: Example Ltd"
+notarize = false
+```
+
+The variant accepts the same `entitlements`, `provisioning_profile`,
+`signing_identity`, `installer_identity`, and `notarize` fields as the release
+overlay. Package it with `fission package --target macos --format pkg --release
+--variant app-store`.
+
 ### `[run.macos]`
 
 `fission run --target macos` builds a development `.app` and signs it before
@@ -982,6 +1004,7 @@ Credentials come from the configured environment-variable names. Do not put serv
 | --- | --- | --- | --- | --- |
 | `app_id` | string | Required unless `bundle_id` can resolve the app through the provider API | none | App Store Connect app id. |
 | `bundle_id` | string | Required when `app_id` is omitted | none | Bundle id used to look up the app. |
+| `platform` | string | No | inferred from the upload artifact, otherwise `ios` | App Store platform. Accepted values are `ios` and `macos`. |
 | `issuer_id` | string | Required unless the configured issuer env var is set | none | App Store Connect issuer id. |
 | `key_id` | string | Required unless the configured key-id env var is set | none | App Store Connect API key id. |
 | `default_track` | string | No | command/provider default | Default release/beta track label for commands that accept tracks. |
@@ -993,6 +1016,10 @@ Credentials come from the configured environment-variable names. Do not put serv
 | `api_key_path_env` | string | No | `APP_STORE_CONNECT_API_KEY_PATH` | Environment variable containing a local private-key path outside the repo. |
 
 API key material comes from the configured environment-variable names. Use the path variable only for local files outside the repo; use base64 CI secrets for automation.
+
+App Store distribution accepts an iOS `.ipa` or a macOS `.pkg`. Fission
+validates the artifact target against `platform`, passes the matching type to
+Apple's upload tool, and uses `IOS` or `MAC_OS` for App Review operations.
 
 ### `[distribution.microsoft_store]`
 
@@ -1351,6 +1378,7 @@ service_account_json_base64_env = "PLAY_STORE_SERVICE_ACCOUNT_JSON_BASE64"
 
 [distribution.app_store]
 bundle_id = "com.example.app"
+platform = "ios"
 issuer_id = "00000000-0000-0000-0000-000000000000"
 key_id = "ABC123DEFG"
 api_key_env = "APP_STORE_CONNECT_API_KEY"

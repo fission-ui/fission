@@ -161,6 +161,7 @@ struct PlayStoreConfig {
 struct AppStoreConfig {
     app_id: Option<String>,
     bundle_id: Option<String>,
+    platform: Option<String>,
     issuer_id: Option<String>,
     key_id: Option<String>,
     access_token_env: Option<String>,
@@ -169,6 +170,22 @@ struct AppStoreConfig {
     api_key_env: Option<String>,
     api_key_base64_env: Option<String>,
     api_key_path_env: Option<String>,
+}
+
+fn app_store_platform_api_value(cfg: &AppStoreConfig) -> Result<&'static str> {
+    match cfg
+        .platform
+        .as_deref()
+        .unwrap_or("ios")
+        .trim()
+        .to_ascii_lowercase()
+        .replace('_', "-")
+        .as_str()
+    {
+        "ios" => Ok("IOS"),
+        "macos" | "mac-os" => Ok("MAC_OS"),
+        other => bail!("distribution.app_store.platform must be `ios` or `macos`, got `{other}`"),
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -1650,6 +1667,27 @@ fn set_private_file_permissions(_path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn app_store_platform_supports_ios_and_macos() {
+        assert_eq!(
+            app_store_platform_api_value(&AppStoreConfig::default()).unwrap(),
+            "IOS"
+        );
+        assert_eq!(
+            app_store_platform_api_value(&AppStoreConfig {
+                platform: Some("macos".to_string()),
+                ..Default::default()
+            })
+            .unwrap(),
+            "MAC_OS"
+        );
+        assert!(app_store_platform_api_value(&AppStoreConfig {
+            platform: Some("windows".to_string()),
+            ..Default::default()
+        })
+        .is_err());
+    }
 
     #[test]
     fn latest_user_comment_uses_newest_user_comment() {

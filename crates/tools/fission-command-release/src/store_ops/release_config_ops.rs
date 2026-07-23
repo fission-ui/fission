@@ -550,9 +550,16 @@ pub(super) fn app_store_version_id(
                 .and_then(|id| id.split('+').next())
         })
         .context("active [[releases]].version is required for App Store metadata sync")?;
+    let cfg = root
+        .distribution
+        .as_ref()
+        .and_then(|distribution| distribution.app_store.as_ref())
+        .cloned()
+        .unwrap_or_default();
+    let platform = app_store_platform_api_value(&cfg)?;
     let response = client
         .get(format!(
-            "{APP_STORE_API}/v1/apps/{app_id}/appStoreVersions?filter[versionString]={version}&limit=1"
+            "{APP_STORE_API}/v1/apps/{app_id}/appStoreVersions?filter[versionString]={version}&filter[platform]={platform}&limit=1"
         ))
         .bearer_auth(token)
         .send()
