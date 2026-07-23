@@ -1,4 +1,4 @@
-use fission::core::ui::{Container, Row, Widget};
+use fission::core::ui::{Container, Responsive, ResponsiveCase, Row, Spacer, Widget};
 use fission::core::{reduce_with, Env, Length, WidgetId};
 use fission::i18n::{Locale, TranslationBundle};
 use fission::prelude::{DesignMode, DesignSystem, DesktopApp, FissionFluent2DesignSystem};
@@ -20,6 +20,12 @@ use model::*;
 
 // --- APP ---
 
+const NAVIGATION_SPLIT_RATIO: f32 = 0.24;
+const MOBILE_DRAWER_WIDTH: f32 = 280.0;
+const RIGHT_SIDEBAR_BREAKPOINT: f32 = 1_100.0;
+const RIGHT_SIDEBAR_MIN_WIDTH: f32 = 232.0;
+const RIGHT_SIDEBAR_MAX_WIDTH: f32 = 320.0;
+
 #[derive(Clone)]
 struct InboxApp;
 
@@ -27,16 +33,6 @@ impl From<InboxApp> for Widget {
     fn from(_component: InboxApp) -> Self {
         let (ctx, view) = fission::build::current::<InboxState>();
         let tokens = &view.env().theme.tokens;
-        let viewport = view.viewport_size();
-        let viewport_width = viewport.width.max(0.0);
-        let show_right_sidebar = viewport_width >= 1100.0;
-        let split_ratio = if viewport_width >= 1440.0 {
-            0.22
-        } else if viewport_width >= 1100.0 {
-            0.20
-        } else {
-            0.26
-        };
         // Register Modals
         if view.state().show_settings {
             let node = SettingsModal.into();
@@ -56,7 +52,6 @@ impl From<InboxApp> for Widget {
         }
 
         if view.state().show_mobile_menu {
-            let mobile_drawer_width = (view.viewport_size().width * 0.72).clamp(220.0, 320.0);
             let drawer_node = Drawer {
                 id: WidgetId::explicit("mobile_drawer"),
                 side: DrawerSide::Left,
@@ -68,7 +63,7 @@ impl From<InboxApp> for Widget {
                     ),
                 )),
                 content: Sidebar.into(),
-                width: Some(mobile_drawer_width),
+                width: Some(MOBILE_DRAWER_WIDTH),
                 motion: None,
             }
             .into();
@@ -111,14 +106,14 @@ impl From<InboxApp> for Widget {
             child: SplitView {
                 id: WidgetId::explicit("main_split"),
                 direction: SplitDirection::Horizontal,
-                split_ratio,
+                split_ratio: NAVIGATION_SPLIT_RATIO,
                 on_resize: None,
                 first: Sidebar.into(),
                 second: Row {
                     gap: None,
                     align_items: fission::op::AlignItems::Stretch,
-                    children: {
-                        let mut children = vec![Container::new(Router::<InboxState> {
+                    children: vec![
+                        Container::new(Router::<InboxState> {
                             current_path: view.state().current_path.clone(),
                             routes: vec![
                                 Route {
@@ -155,21 +150,21 @@ impl From<InboxApp> for Widget {
                             })),
                         })
                         .flex_grow(1.0)
-                        .into()];
-                        if show_right_sidebar {
-                            children.push(
+                        .into(),
+                        Responsive::new(Spacer::default())
+                            .id(WidgetId::explicit("inbox.right-sidebar.responsive"))
+                            .case(ResponsiveCase::min_width(
+                                RIGHT_SIDEBAR_BREAKPOINT,
                                 Container::new(RightSidebar)
                                     .width_length(Length::clamp(
-                                        Length::points(232.0),
+                                        Length::points(RIGHT_SIDEBAR_MIN_WIDTH),
                                         Length::percent(24.0),
-                                        Length::points(320.0),
+                                        Length::points(RIGHT_SIDEBAR_MAX_WIDTH),
                                     ))
-                                    .flex_shrink(0.0)
-                                    .into(),
-                            );
-                        }
-                        children
-                    },
+                                    .flex_shrink(0.0),
+                            ))
+                            .into(),
+                    ],
                     ..Default::default()
                 }
                 .into(),

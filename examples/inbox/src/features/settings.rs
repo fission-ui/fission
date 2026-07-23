@@ -1,3 +1,4 @@
+use super::settings_theme_preview::SettingsThemePreview;
 use crate::model::{
     InboxState, LabelDropped, SetAutoAdvanceEnabled, SetDensity, SetDensitySelectOpen,
     SetDragInProgress, SetInboxType, SetInboxTypeSelectOpen, SetLocale, SetOfflineEnabled,
@@ -5,14 +6,11 @@ use crate::model::{
     SetTheme, SetThemeSelectOpen, SetZoomLevel,
 };
 use fission::core::op::{Color, GridTrack};
-use fission::core::ui::widgets::{Clip, GestureDetector, Transform};
+use fission::core::ui::widgets::GestureDetector;
 use fission::core::ui::{
-    Button, ButtonVariant, Container, Grid, GridItem, Positioned, Scroll, Text, TextContent,
-    Widget, ZStack,
+    Button, ButtonVariant, Container, Grid, GridItem, Scroll, Text, TextContent, Widget,
 };
-use fission::core::{
-    reduce_with, ActionEnvelope, ActionId, BuildCtxHandle, FlexDirection, ViewHandle, WidgetId,
-};
+use fission::core::{reduce_with, ActionEnvelope, FlexDirection, WidgetId};
 use fission::i18n::Locale;
 use fission::icons::material;
 use fission::widgets::{
@@ -24,88 +22,6 @@ use serde_json;
 use std::sync::Arc;
 
 pub struct SettingsModal;
-
-fn theme_preview(
-    _ctx: BuildCtxHandle<InboxState>,
-    view: ViewHandle<InboxState>,
-    theme_id: ActionId,
-    label: &str,
-    bg: Color,
-    accent: Color,
-    is_active: bool,
-) -> Widget {
-    let t = |key: &str| {
-        view.env()
-            .i18n
-            .get(&view.env().locale, key)
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| key.to_string())
-    };
-    let angle = 0.18_f32;
-    let (sin, cos) = angle.sin_cos();
-    let rotate = [
-        cos, -sin, 0.0, 0.0, sin, cos, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
-    ];
-
-    let badge = if is_active {
-        Some(
-            Badge {
-                text: t("settings.theme.active"),
-                ..Default::default()
-            }
-            .into(),
-        )
-    } else {
-        None
-    };
-
-    GestureDetector {
-        on_tap: Some(ActionEnvelope {
-            id: theme_id,
-            payload: serde_json::to_vec(&SetTheme(label.to_string())).unwrap(),
-        }),
-        child: Clip {
-            id: None,
-            path: Some("inset(0px round 12px)".into()),
-            child: Container::new(ZStack {
-                children: vec![
-                    Container::new(fission::core::ui::widgets::Spacer::default())
-                        .size(160.0, 96.0)
-                        .bg(bg)
-                        .into(),
-                    Positioned {
-                        top: Some(8.0),
-                        right: Some(8.0),
-                        child: badge,
-                        ..Default::default()
-                    }
-                    .into(),
-                    Positioned {
-                        left: Some(10.0),
-                        bottom: Some(10.0),
-                        child: Some(
-                            Transform::new(
-                                Icon::svg(material::action::check_circle::regular())
-                                    .size(18.0)
-                                    .color(accent),
-                                rotate,
-                            )
-                            .into(),
-                        ),
-                        ..Default::default()
-                    }
-                    .into(),
-                ],
-                ..Default::default()
-            })
-            .size(160.0, 96.0)
-            .into(),
-        }
-        .into(),
-        ..Default::default()
-    }
-    .into()
-}
 
 impl From<SettingsModal> for Widget {
     fn from(_component: SettingsModal) -> Self {
@@ -617,25 +533,24 @@ impl From<SettingsModal> for Widget {
                                                 ))
                                                 .size(12.0)
                                                 .into(),
-                                                theme_preview(
-                                                    ctx,
-                                                    view,
-                                                    theme_id,
-                                                    "Light",
-                                                    Color {
+                                                SettingsThemePreview {
+                                                    action_id: theme_id,
+                                                    theme_name: "Light",
+                                                    background: Color {
                                                         r: 245,
                                                         g: 245,
                                                         b: 248,
                                                         a: 255,
                                                     },
-                                                    Color {
+                                                    accent: Color {
                                                         r: 30,
                                                         g: 144,
                                                         b: 255,
                                                         a: 255,
                                                     },
-                                                    view.state().theme_mode == "Light",
-                                                ),
+                                                    is_active: view.state().theme_mode == "Light",
+                                                }
+                                                .into(),
                                             ],
                                         }
                                         .into(),
@@ -651,25 +566,24 @@ impl From<SettingsModal> for Widget {
                                                 ))
                                                 .size(12.0)
                                                 .into(),
-                                                theme_preview(
-                                                    ctx,
-                                                    view,
-                                                    theme_id,
-                                                    "Dark",
-                                                    Color {
+                                                SettingsThemePreview {
+                                                    action_id: theme_id,
+                                                    theme_name: "Dark",
+                                                    background: Color {
                                                         r: 28,
                                                         g: 30,
                                                         b: 34,
                                                         a: 255,
                                                     },
-                                                    Color {
+                                                    accent: Color {
                                                         r: 255,
                                                         g: 214,
                                                         b: 10,
                                                         a: 255,
                                                     },
-                                                    view.state().theme_mode == "Dark",
-                                                ),
+                                                    is_active: view.state().theme_mode == "Dark",
+                                                }
+                                                .into(),
                                             ],
                                         }
                                         .into(),
