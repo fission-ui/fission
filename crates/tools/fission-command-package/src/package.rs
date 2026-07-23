@@ -413,20 +413,18 @@ fn package_macos_pkg(options: &PackageOptions) -> Result<ArtifactManifest> {
         sanitize_file_stem(&project.app.name),
         version
     ));
-    if find_in_path("pkgbuild").is_none() {
-        bail!("pkgbuild was not found; install Xcode command line tools to create macOS .pkg packages");
+    let (pkg_builder, pkg_arguments) = macos_pkg_builder_command(&app_bundle, &pkg_path, &macos)?;
+    if find_in_path(pkg_builder).is_none() {
+        bail!(
+            "{pkg_builder} was not found; install Xcode command line tools to create macOS .pkg packages"
+        );
     }
-    let status = Command::new("pkgbuild")
-        .arg("--component")
-        .arg(&app_bundle)
-        .arg("--install-location")
-        .arg("/Applications")
-        .args(pkgbuild_signing_args(&macos))
-        .arg(&pkg_path)
+    let status = Command::new(pkg_builder)
+        .args(pkg_arguments)
         .status()
-        .context("failed to run pkgbuild")?;
+        .with_context(|| format!("failed to run {pkg_builder}"))?;
     if !status.success() {
-        bail!("pkgbuild failed with {status}");
+        bail!("{pkg_builder} failed with {status}");
     }
     notarize_macos_artifact_if_configured(&pkg_path, &macos)?;
     fs::remove_dir_all(&app_staging).ok();
@@ -1777,6 +1775,43 @@ fn pkgbuild_signing_args(macos: &MacosPackageConfig) -> Vec<String> {
         .filter(|value| !value.trim().is_empty())
         .map(|identity| vec!["--sign".to_string(), identity.to_string()])
         .unwrap_or_default()
+}
+
+pub(super) fn macos_pkg_builder_command(
+    app_bundle: &Path,
+    pkg_path: &Path,
+    macos: &MacosPackageConfig,
+) -> Result<(&'static str, Vec<OsString>)> {
+    match macos.pkg_builder.as_deref().unwrap_or("pkgbuild") {
+        "pkgbuild" => {
+            let mut args = vec![
+                OsString::from("--component"),
+                app_bundle.as_os_str().to_owned(),
+                OsString::from("--install-location"),
+                OsString::from("/Applications"),
+            ];
+            args.extend(pkgbuild_signing_args(macos).into_iter().map(OsString::from));
+            args.push(pkg_path.as_os_str().to_owned());
+            Ok(("pkgbuild", args))
+        }
+        "productbuild" => {
+            let mut args = Vec::new();
+            if let Some(identity) = macos.installer_identity.as_deref() {
+                args.push(OsString::from("--sign"));
+                args.push(OsString::from(identity));
+            }
+            args.extend([
+                OsString::from("--component"),
+                app_bundle.as_os_str().to_owned(),
+                OsString::from("/Applications"),
+                pkg_path.as_os_str().to_owned(),
+            ]);
+            Ok(("productbuild", args))
+        }
+        other => {
+            bail!("package.macos pkg_builder must be `pkgbuild` or `productbuild`, got `{other}`")
+        }
+    }
 }
 
 fn write_linux_run(

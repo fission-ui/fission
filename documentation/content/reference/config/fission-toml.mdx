@@ -745,6 +745,7 @@ installer_script = "platforms/linux/package-run.sh"
 | `signing_identity` | string | No | Base application signing identity. Flat signing fields apply to debug and release packaging for backward compatibility. |
 | `installer_identity` | string | No | Base installer identity passed to `pkgbuild` for `.pkg` output. |
 | `notarize` | boolean | No | Base notarization setting. Prefer the release overlay below for production notarization. |
+| `pkg_builder` | string | No | `.pkg` construction tool: `pkgbuild` (default) or `productbuild`. Mac App Store submissions use `productbuild`. |
 | `cargo_features` | array of strings | No | Cargo features enabled while building the packaged desktop binary. |
 | `cargo_no_default_features` | boolean | No | Passes `--no-default-features` while building the packaged desktop binary. |
 
@@ -765,6 +766,7 @@ production credentials.
 | `signing_identity` | string | No | Developer ID Application identity used to sign release `.app` bundles. |
 | `installer_identity` | string | No | Developer ID Installer identity passed to `pkgbuild` for release `.pkg` output. |
 | `notarize` | boolean | No | When `true`, notarizes the signed `.app` and, for `.pkg` output, the signed installer. Requires `APP_STORE_CONNECT_KEY_ID`, `APP_STORE_CONNECT_ISSUER_ID`, and key material from `APP_STORE_CONNECT_API_KEY_PATH`, `APP_STORE_CONNECT_API_KEY`, or `APP_STORE_CONNECT_API_KEY_BASE64`. |
+| `pkg_builder` | string | No | Overrides the base `.pkg` construction tool for release packaging. |
 | `cargo_features` | array of strings | No | Replaces the base Cargo feature list for release packaging. |
 | `cargo_no_default_features` | boolean | No | Overrides the base `--no-default-features` setting for release packaging. |
 
@@ -789,13 +791,15 @@ provisioning_profile = ".fission/signing/macos/AppStore.provisionprofile"
 signing_identity = "Apple Distribution: Example Ltd"
 installer_identity = "3rd Party Mac Developer Installer: Example Ltd"
 notarize = false
+pkg_builder = "productbuild"
 cargo_features = ["macos-app-store"]
 ```
 
 The variant accepts the same `entitlements`, `provisioning_profile`,
-`signing_identity`, `installer_identity`, `notarize`, `cargo_features`, and
-`cargo_no_default_features` fields as the release overlay. Package it with
-`fission package --target macos --format pkg --release --variant app-store`.
+`signing_identity`, `installer_identity`, `notarize`, `pkg_builder`,
+`cargo_features`, and `cargo_no_default_features` fields as the release overlay.
+Package it with `fission package --target macos --format pkg --release --variant
+app-store`.
 
 ### `[run.macos]`
 

@@ -16,6 +16,7 @@ pub struct MacosPackageConfig {
     pub signing_identity: Option<String>,
     pub installer_identity: Option<String>,
     pub notarize: Option<bool>,
+    pub pkg_builder: Option<String>,
     #[serde(default)]
     pub cargo_features: Vec<String>,
     #[serde(default)]
@@ -61,6 +62,7 @@ struct MacosPackageOverlay {
     signing_identity: Option<String>,
     installer_identity: Option<String>,
     notarize: Option<bool>,
+    pkg_builder: Option<String>,
     cargo_features: Option<Vec<String>>,
     cargo_no_default_features: Option<bool>,
 }
@@ -100,6 +102,9 @@ impl MacosPackageOverlay {
         }
         if self.notarize.is_some() {
             config.notarize = self.notarize;
+        }
+        if self.pkg_builder.is_some() {
+            config.pkg_builder.clone_from(&self.pkg_builder);
         }
         if let Some(features) = &self.cargo_features {
             config.cargo_features.clone_from(features);
@@ -409,6 +414,7 @@ provisioning_profile = "profiles/AppStore.provisionprofile"
 signing_identity = "Apple Distribution: Example Ltd"
 installer_identity = "3rd Party Mac Developer Installer: Example Ltd"
 notarize = false
+pkg_builder = "productbuild"
 cargo_features = ["macos-app-store"]
 cargo_no_default_features = true
 "#,
@@ -435,6 +441,7 @@ cargo_no_default_features = true
             Some("3rd Party Mac Developer Installer: Example Ltd")
         );
         assert_eq!(config.notarize, Some(false));
+        assert_eq!(config.pkg_builder.as_deref(), Some("productbuild"));
         assert_eq!(config.cargo_features, ["macos-app-store"]);
         assert!(config.cargo_no_default_features);
     }

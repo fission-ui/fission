@@ -96,6 +96,25 @@ fn app_store_platform_matches_ios_and_macos_artifacts() {
     );
 }
 
+#[test]
+fn app_store_upload_detects_altool_errors_even_with_a_success_exit() {
+    let stderr = "Running altool...\n2026-07-24 00:05:54 ERROR: package is invalid (-43)";
+    assert_eq!(
+        app_store_upload_reported_error("", stderr).as_deref(),
+        Some("2026-07-24 00:05:54 ERROR: package is invalid (-43)")
+    );
+    assert!(app_store_upload_reported_error(
+        r#"{"product-errors":[{"message":"invalid package"}]}"#,
+        ""
+    )
+    .is_some());
+    assert!(app_store_upload_reported_error(
+        r#"{"product-errors":[],"success-message":"No errors uploading"}"#,
+        "Running altool..."
+    )
+    .is_none());
+}
+
 fn store_artifact_manifest(target: &str, format: &str) -> ArtifactManifest {
     ArtifactManifest {
         schema_version: 1,

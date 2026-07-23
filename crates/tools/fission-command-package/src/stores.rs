@@ -327,11 +327,13 @@ pub(super) fn publish_app_store(
         .context("failed to run xcrun altool; install Xcode and App Store Connect upload tools")?;
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    if !output.status.success() {
+    if !output.status.success() || app_store_upload_reported_error(&stdout, &stderr).is_some() {
+        let reported_error = app_store_upload_reported_error(&stdout, &stderr)
+            .unwrap_or_else(|| stderr.trim().to_string());
         bail!(
             "App Store Connect upload failed with {}: {}",
             output.status,
-            stderr.trim()
+            reported_error
         );
     }
 
@@ -351,6 +353,35 @@ pub(super) fn publish_app_store(
         stderr: (!stderr.trim().is_empty()).then_some(stderr),
         manual_follow_up: vec![app_store_upload_follow_up(track, artifact_path)],
     })
+}
+
+pub(super) fn app_store_upload_reported_error(stdout: &str, stderr: &str) -> Option<String> {
+    if let Ok(value) = serde_json::from_str::<Value>(stdout) {
+        if app_store_json_has_errors(&value) {
+            return Some(stdout.trim().to_string());
+        }
+    }
+    stderr.lines().find_map(|line| {
+        let trimmed = line.trim();
+        let uppercase = trimmed.to_ascii_uppercase();
+        (uppercase.starts_with("ERROR:") || uppercase.contains(" ERROR:"))
+            .then(|| trimmed.to_string())
+    })
+}
+
+fn app_store_json_has_errors(value: &Value) -> bool {
+    match value {
+        Value::Object(fields) => fields.iter().any(|(key, value)| {
+            let error_field = key.to_ascii_lowercase().ends_with("errors");
+            error_field
+                && !matches!(value, Value::Null)
+                && !matches!(value, Value::Array(items) if items.is_empty())
+                && !matches!(value, Value::Object(fields) if fields.is_empty())
+                || app_store_json_has_errors(value)
+        }),
+        Value::Array(values) => values.iter().any(app_store_json_has_errors),
+        _ => false,
+    }
 }
 
 pub(super) fn app_store_upload_follow_up(track: &str, artifact_path: &Path) -> String {

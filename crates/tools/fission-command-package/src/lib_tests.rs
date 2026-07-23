@@ -344,6 +344,33 @@ notarize = true
 }
 
 #[test]
+fn macos_app_store_package_uses_productbuild_component_archive() {
+    let app = Path::new("/tmp/Developer Defence.app");
+    let pkg = Path::new("/tmp/Developer-Defence.pkg");
+    let config = fission_command_core::MacosPackageConfig {
+        installer_identity: Some("3rd Party Mac Developer Installer: Example Ltd".to_string()),
+        pkg_builder: Some("productbuild".to_string()),
+        ..Default::default()
+    };
+
+    let (builder, arguments) = package::macos_pkg_builder_command(app, pkg, &config).unwrap();
+
+    assert_eq!(builder, "productbuild");
+    assert_eq!(
+        arguments,
+        [
+            "--sign",
+            "3rd Party Mac Developer Installer: Example Ltd",
+            "--component",
+            "/tmp/Developer Defence.app",
+            "/Applications",
+            "/tmp/Developer-Defence.pkg",
+        ]
+        .map(std::ffi::OsString::from)
+    );
+}
+
+#[test]
 fn app_store_status_prefers_review_submission_state_over_build_processing() {
     let status = stores::app_store_observed_status(
         &json!({
