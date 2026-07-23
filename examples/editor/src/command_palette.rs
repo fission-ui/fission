@@ -1,14 +1,16 @@
+use crate::command_palette_item::CommandPaletteItem;
+use crate::layout::{
+    COMMAND_PALETTE_MAX_WIDTH, COMMAND_PALETTE_MIN_WIDTH, COMMAND_PALETTE_VERTICAL_RESERVE,
+    COMMAND_RESULTS_MAX_HEIGHT, COMMAND_RESULTS_MIN_HEIGHT, OVERLAY_HORIZONTAL_RESERVE,
+};
 use crate::model::{
     EditorState, RefreshGitStatus, SaveAllFiles, SaveFile, SetSidebarSection, SidebarSection,
     ToggleCommandPalette, ToggleSidebar, ToggleTerminal, UpdateCommandQuery,
 };
-use fission::core::op::Color;
-use fission::core::ui::{
-    Button, ButtonContentAlign, ButtonVariant, Container, GestureDetector, Positioned, Text,
-    TextInput, Widget, ZStack,
-};
+use crate::palette::{FLYOUT_BG, FLYOUT_BORDER, MODAL_BACKDROP};
+use fission::core::ui::{Container, GestureDetector, Positioned, TextInput, Widget, ZStack};
 use fission::core::{reduce_with, WidgetId};
-use fission::widgets::{HStack, Spacer, VStack};
+use fission::widgets::{Spacer, VStack};
 
 pub struct CommandPalette;
 
@@ -20,6 +22,7 @@ struct Command {
 impl From<CommandPalette> for Widget {
     fn from(_component: CommandPalette) -> Self {
         let (ctx, view) = fission::build::current::<EditorState>();
+        let tokens = &view.env().theme.tokens;
         if !view.state().show_command_palette {
             return Spacer {
                 height: Some(0.0),
@@ -183,80 +186,25 @@ impl From<CommandPalette> for Widget {
 
         let mut result_items = Vec::new();
         for cmd in &filtered {
-            let dim = Color {
-                r: 140,
-                g: 140,
-                b: 140,
-                a: 255,
-            };
             result_items.push(
-                Button {
-                    variant: ButtonVariant::Ghost,
-                    content_align: ButtonContentAlign::Start,
-                    child: Some(
-                        HStack {
-                            spacing: Some(12.0),
-                            children: vec![
-                                Text::new(cmd.label)
-                                    .size(13.0)
-                                    .color(Color {
-                                        r: 220,
-                                        g: 220,
-                                        b: 220,
-                                        a: 255,
-                                    })
-                                    .into(),
-                                Spacer {
-                                    flex_grow: 1.0,
-                                    ..Default::default()
-                                }
-                                .into(),
-                                Text::new(cmd.description).size(11.0).color(dim).into(),
-                            ],
-                        }
-                        .into(),
-                    ),
-                    on_press: Some(action_for(cmd.label)),
-                    height: Some(28.0),
-                    padding: Some([6.0, 6.0, 0.0, 0.0]),
-                    ..Default::default()
+                CommandPaletteItem {
+                    label: cmd.label,
+                    description: cmd.description,
+                    action: action_for(cmd.label),
                 }
                 .into(),
             );
         }
 
-        let card_bg = Color {
-            r: 37,
-            g: 37,
-            b: 38,
-            a: 255,
-        };
-        let border = Color {
-            r: 60,
-            g: 60,
-            b: 60,
-            a: 255,
-        };
-
-        let shadow = fission::core::op::BoxShadow {
-            spread_radius: 0.0,
-            inset: false,
-            color: Color {
-                r: 0,
-                g: 0,
-                b: 0,
-                a: 120,
-            },
-            blur_radius: 12.0,
-            offset: (0.0, 4.0),
-        };
         let viewport = view.viewport_size();
-        let palette_width = (viewport.width - 80.0).clamp(280.0, 560.0);
-        let results_height = (viewport.height - 140.0).clamp(160.0, 320.0);
+        let palette_width = (viewport.width - OVERLAY_HORIZONTAL_RESERVE)
+            .clamp(COMMAND_PALETTE_MIN_WIDTH, COMMAND_PALETTE_MAX_WIDTH);
+        let results_height = (viewport.height - COMMAND_PALETTE_VERTICAL_RESERVE)
+            .clamp(COMMAND_RESULTS_MIN_HEIGHT, COMMAND_RESULTS_MAX_HEIGHT);
 
         // VS Code-style dropdown from top center
-        let dropdown: Widget = Container::new(VStack {
-            spacing: Some(0.0),
+        let dropdown = Container::new(VStack {
+            spacing: Some(tokens.spacing.none),
             children: vec![
                 Container::new(TextInput {
                     id: Some(fission::WidgetId::explicit("editor_command_palette_input")),
@@ -265,13 +213,13 @@ impl From<CommandPalette> for Widget {
                     on_change: Some(update_query),
                     ..Default::default()
                 })
-                .padding_all(6.0)
+                .padding_all(tokens.spacing.s)
                 .into(),
                 Container::new(fission::core::ui::widgets::scroll::Scroll {
                     direction: fission::core::op::FlexDirection::Column,
                     child: Some(
                         VStack {
-                            spacing: Some(0.0),
+                            spacing: Some(tokens.spacing.none),
                             children: result_items,
                         }
                         .into(),
@@ -280,28 +228,25 @@ impl From<CommandPalette> for Widget {
                     show_scrollbar: true,
                     ..Default::default()
                 })
-                .padding_all(4.0)
+                .padding_all(tokens.spacing.xs)
                 .into(),
             ],
         })
         .width(palette_width)
-        .bg(card_bg)
-        .border(border, 1.0)
-        .border_radius(4.0)
-        .shadow(shadow)
-        .flex_shrink(1.0)
-        .into();
+        .bg(FLYOUT_BG)
+        .border(FLYOUT_BORDER, 1.0)
+        .border_radius(tokens.radii.small);
+        let dropdown: Widget = if let Some(shadow) = tokens.elevations.level3 {
+            dropdown.shadow(shadow).flex_shrink(1.0).into()
+        } else {
+            dropdown.flex_shrink(1.0).into()
+        };
 
         // Backdrop + dropdown positioned at top center
         let backdrop = GestureDetector {
             on_tap: Some(dismiss.clone()),
             child: Container::new(Spacer::default())
-                .bg(Color {
-                    r: 0,
-                    g: 0,
-                    b: 0,
-                    a: 80,
-                })
+                .bg(MODAL_BACKDROP)
                 .flex_grow(1.0)
                 .into(),
             ..Default::default()
@@ -322,9 +267,9 @@ impl From<CommandPalette> for Widget {
                 .into(),
                 // Dropdown at top center
                 Positioned {
-                    top: Some(40.0),
-                    left: Some(0.0),
-                    right: Some(0.0),
+                    top: Some(tokens.spacing.xl + tokens.spacing.s),
+                    left: Some(tokens.spacing.none),
+                    right: Some(tokens.spacing.none),
                     child: Some(fission::core::ui::Align::new(dropdown).into()),
                     ..Default::default()
                 }

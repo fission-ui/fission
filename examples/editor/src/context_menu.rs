@@ -1,236 +1,282 @@
+use crate::editor_menu_item::EditorMenuItem;
+use crate::layout::{
+    CONTEXT_MENU_MAX_HEIGHT, CONTEXT_MENU_MAX_WIDTH, CONTEXT_MENU_MIN_WIDTH, OVERLAY_EDGE_GUTTER,
+    OVERLAY_HORIZONTAL_RESERVE, OVERLAY_MIN_INSET,
+};
 use crate::model::*;
-use fission::core::op::Color;
-use fission::core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, GestureDetector, Widget, Positioned, Text, ZStack};
-use fission::core::{ActionEnvelope, BuildCtxHandle, reduce_with, PortalLayer, ViewHandle, WidgetId};
-use fission::widgets::{VStack, Spacer};
+use crate::palette::{FLYOUT_BG, FLYOUT_BORDER, INTERACTION_BACKDROP};
+use fission::core::ui::{Container, GestureDetector, Positioned, Widget, ZStack};
+use fission::core::{reduce_with, PortalLayer, WidgetId};
+use fission::widgets::{Spacer, VStack};
 
-pub struct ContextMenu;
+pub(crate) struct ContextMenu;
 
 impl From<ContextMenu> for Widget {
-    fn from(component: ContextMenu) -> Self {
+    fn from(_component: ContextMenu) -> Self {
         let (ctx, view) = fission::build::current::<EditorState>();
+        let tokens = &view.env().theme.tokens;
         if !view.state().context_menu_visible {
-            return Spacer { height: Some(0.0), ..Default::default() }.into();
+            return Spacer {
+                height: Some(tokens.spacing.none),
+                ..Default::default()
+            }
+            .into();
         }
-
-        let bg = Color { r: 45, g: 45, b: 46, a: 255 };
-        let border = Color { r: 69, g: 69, b: 69, a: 255 };
-        let text_color = Color { r: 204, g: 204, b: 204, a: 255 };
-        let dim = Color { r: 140, g: 140, b: 140, a: 255 };
 
         let dismiss = ctx.bind(
             DismissContextMenu,
-            reduce_with!((|s: &mut EditorState, _, _| {
-                s.context_menu_visible = false;
-                s.context_menu_target = None;
-            })),
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.context_menu_visible = false;
+                })
+            ),
         );
 
-        let menu_item = |label: &str, shortcut: &str, action: ActionEnvelope| -> Widget {
-            Button {
-                variant: ButtonVariant::Ghost,
-                content_align: ButtonContentAlign::Start,
-                child: Some(
-                    Container::new(
-                        fission::widgets::HStack {
-                            spacing: Some(0.0),
-                            children: vec![
-                                Text::new(label).size(12.0).color(text_color).flex_grow(1.0).into(),
-                                Text::new(shortcut).size(11.0).color(dim).into(),
-                            ],
-                        },
-                    ).width(200.0).into(),
-                ),
-                on_press: Some(action),
-                height: Some(26.0),
-                padding: Some([4.0, 8.0, 0.0, 0.0]),
-                ..Default::default()
-            }.into()
-        };
-
-        let separator = || -> Widget {
-            Container::new(Spacer::default())
-                .height(1.0)
-                .bg(border)
-                .into()
-        };
-
-        let mut items = Vec::new();
-
-        if let Some(target) = &view.state().context_menu_target {
-            // File tree context menu
-            let target_clone = target.clone();
-
-            let new_file = ctx.bind(
-                CreateFile(String::new()),
-                reduce_with!((|s: &mut EditorState, _, _| {
-                    if let Some(target) = &s.context_menu_target {
-                        let dir = if std::path::Path::new(target).is_dir() {
-                            target.clone()
-                        } else {
-                            std::path::Path::new(target).parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default()
-                        };
-                        let path = format!("{}/untitled.rs", dir);
-                        s.create_file(path);
-                    }
-                    s.context_menu_visible = false;
-                    s.context_menu_target = None;
-                })),
-            );
-
-            let new_folder = ctx.bind(
-                CreateFolder(String::new()),
-                reduce_with!((|s: &mut EditorState, _, _| {
-                    if let Some(target) = &s.context_menu_target {
-                        let dir = if std::path::Path::new(target).is_dir() {
-                            target.clone()
-                        } else {
-                            std::path::Path::new(target).parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default()
-                        };
-                        let path = format!("{}/new_folder", dir);
-                        s.create_folder(path);
-                    }
-                    s.context_menu_visible = false;
-                    s.context_menu_target = None;
-                })),
-            );
-
-            let delete = ctx.bind(
-                DeleteFile(String::new()),
-                reduce_with!((|s: &mut EditorState, _, _| {
-                    if let Some(target) = s.context_menu_target.take() {
-                        s.delete_file(target);
-                    }
-                    s.context_menu_visible = false;
-                })),
-            );
-
-            items.push(menu_item("New File", "", new_file));
-            items.push(menu_item("New Folder", "", new_folder));
-            items.push(separator());
-            items.push(menu_item("Delete", "Del", delete));
-        } else {
-            // Editor context menu
-            let undo_ctx = ctx.bind(
-                Undo,
-                reduce_with!((|s: &mut EditorState, _, _| {
-                    s.undo_active();
-                    s.context_menu_visible = false;
-                })),
-            );
-
-            let redo_ctx = ctx.bind(
-                Redo,
-                reduce_with!((|s: &mut EditorState, _, _| {
-                    s.redo_active();
-                    s.context_menu_visible = false;
-                })),
-            );
-
-            let copy_ctx = ctx.bind(
-                CopySelection,
-                reduce_with!((|s: &mut EditorState, _, _| {
-                    s.copy_line();
-                    s.context_menu_visible = false;
-                })),
-            );
-
-            let cut_ctx = ctx.bind(
-                CutSelection,
-                reduce_with!((|s: &mut EditorState, _, _| {
-                    s.cut_line();
-                    s.context_menu_visible = false;
-                })),
-            );
-
-            let paste_ctx = ctx.bind(
-                PasteClipboard,
-                reduce_with!((|s: &mut EditorState, _, _| {
-                    s.paste();
-                    s.context_menu_visible = false;
-                })),
-            );
-
-            let find = ctx.bind(
-                ToggleFindReplace,
-                reduce_with!((|s: &mut EditorState, _, _| {
+        let toggle_find = ctx.bind(
+            ToggleFindReplace,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
                     s.show_find_replace = true;
                     s.context_menu_visible = false;
-                })),
-            );
+                })
+            ),
+        );
 
-            let go_to_def = ctx.bind(
-                GoToDefinition,
-                reduce_with!((|s: &mut EditorState, _, _| {
-                    s.status_message = Some("Go to Definition: not yet connected to LSP".into());
+        let new_file_ctx = ctx.bind(
+            CreateFile(String::new()),
+            reduce_with!(
+                (|s: &mut EditorState, _: CreateFile, _| {
                     s.context_menu_visible = false;
-                })),
-            );
+                    if let Some(target) = s.context_menu_target.clone() {
+                        let dir = if std::path::Path::new(&target).is_dir() {
+                            target
+                        } else {
+                            std::path::Path::new(&target)
+                                .parent()
+                                .map(|p| p.to_string_lossy().to_string())
+                                .unwrap_or_else(|| s.root_path.to_string_lossy().to_string())
+                        };
+                        s.create_file(format!("{}/untitled.rs", dir));
+                    }
+                    s.context_menu_target = None;
+                })
+            ),
+        );
 
-            items.push(menu_item("Undo", "Ctrl+Z", undo_ctx));
-            items.push(menu_item("Redo", "Ctrl+Shift+Z", redo_ctx));
-            items.push(separator());
-            items.push(menu_item("Cut", "Ctrl+X", cut_ctx));
-            items.push(menu_item("Copy", "Ctrl+C", copy_ctx));
-            items.push(menu_item("Paste", "Ctrl+V", paste_ctx));
-            items.push(separator());
-            items.push(menu_item("Find / Replace", "Ctrl+F", find));
-            items.push(separator());
-            items.push(menu_item("Go to Definition", "F12", go_to_def));
-        }
+        let new_folder_ctx = ctx.bind(
+            CreateFolder(String::new()),
+            reduce_with!(
+                (|s: &mut EditorState, _: CreateFolder, _| {
+                    s.context_menu_visible = false;
+                    if let Some(target) = s.context_menu_target.clone() {
+                        let dir = if std::path::Path::new(&target).is_dir() {
+                            target
+                        } else {
+                            std::path::Path::new(&target)
+                                .parent()
+                                .map(|p| p.to_string_lossy().to_string())
+                                .unwrap_or_else(|| s.root_path.to_string_lossy().to_string())
+                        };
+                        s.create_folder(format!("{}/new_folder", dir));
+                    }
+                    s.context_menu_target = None;
+                })
+            ),
+        );
 
-        let menu_card = Container::new(
-            VStack { spacing: Some(0.0), children: items },
-        )
-        .bg(bg)
-        .border(border, 1.0)
-        .border_radius(4.0)
-        .padding_all(4.0)
+        let rename_action = ctx.bind(
+            RenameContextTarget,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.context_menu_visible = false;
+                    if let Some(target) = s.context_menu_target.clone() {
+                        s.start_rename(target);
+                    } else {
+                        s.status_message = Some("Nothing selected to rename".into());
+                    }
+                })
+            ),
+        );
+
+        let delete_action = ctx.bind(
+            DeleteContextTarget,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.context_menu_visible = false;
+                    if let Some(target) = s.context_menu_target.clone() {
+                        let path = std::path::Path::new(&target);
+                        let result = if path.is_dir() {
+                            std::fs::remove_dir_all(&target)
+                        } else {
+                            std::fs::remove_file(&target)
+                        };
+                        match result {
+                            Ok(()) => {
+                                s.request_tree_refresh();
+                                s.status_message = Some(format!("Deleted '{}'", target));
+                            }
+                            Err(e) => {
+                                s.status_message = Some(format!("Delete failed: {}", e));
+                            }
+                        }
+                    }
+                })
+            ),
+        );
+
+        let go_to_def = ctx.bind(
+            GoToDefinition,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.context_menu_visible = false;
+                    s.status_message = Some("Go to Definition (placeholder)".into());
+                })
+            ),
+        );
+
+        let ctx_undo = ctx.bind(
+            Undo,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.undo_active();
+                    s.context_menu_visible = false;
+                })
+            ),
+        );
+
+        let ctx_redo = ctx.bind(
+            Redo,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.redo_active();
+                    s.context_menu_visible = false;
+                })
+            ),
+        );
+
+        let ctx_copy = ctx.bind(
+            CopySelection,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.copy_line();
+                    s.context_menu_visible = false;
+                })
+            ),
+        );
+
+        let ctx_cut = ctx.bind(
+            CutSelection,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.cut_line();
+                    s.context_menu_visible = false;
+                })
+            ),
+        );
+
+        let ctx_paste = ctx.bind(
+            PasteClipboard,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.paste();
+                    s.context_menu_visible = false;
+                })
+            ),
+        );
+
+        let items: Vec<Widget> = if view.state().context_menu_target.is_some() {
+            // File tree context menu
+            vec![
+                EditorMenuItem::new("New File", new_file_ctx.clone()).into(),
+                EditorMenuItem::new("New Folder", new_folder_ctx.clone()).into(),
+                EditorMenuItem::new("Rename", rename_action.clone()).into(),
+                EditorMenuItem::new("Delete", delete_action.clone()).into(),
+            ]
+        } else {
+            // Editor context menu
+            vec![
+                EditorMenuItem::new("Undo", ctx_undo.clone()).into(),
+                EditorMenuItem::new("Redo", ctx_redo.clone()).into(),
+                EditorMenuItem::new("Copy", ctx_copy.clone()).into(),
+                EditorMenuItem::new("Cut", ctx_cut.clone()).into(),
+                EditorMenuItem::new("Paste", ctx_paste.clone()).into(),
+                EditorMenuItem::new("Find/Replace", toggle_find.clone()).into(),
+                EditorMenuItem::new("Go to Definition", go_to_def.clone()).into(),
+            ]
+        };
+
+        let (cx, cy) = view.state().context_menu_position;
+        let viewport = view.viewport_size();
+        let card_width = (viewport.width - OVERLAY_HORIZONTAL_RESERVE)
+            .clamp(CONTEXT_MENU_MIN_WIDTH, CONTEXT_MENU_MAX_WIDTH);
+        let clamped_left =
+            cx.min((viewport.width - card_width - OVERLAY_EDGE_GUTTER).max(OVERLAY_MIN_INSET));
+        let clamped_top =
+            cy.min((viewport.height - CONTEXT_MENU_MAX_HEIGHT).max(OVERLAY_MIN_INSET));
+
+        let card = Container::new(VStack {
+            spacing: Some(tokens.spacing.none),
+            children: items,
+        })
+        .width(card_width)
+        .bg(FLYOUT_BG)
+        .border(FLYOUT_BORDER, 1.0)
+        .border_radius(view.env().theme.tokens.radii.small)
         .into();
 
-        let (x, y) = view.state().context_menu_position;
-
-        // Backdrop to dismiss
         let backdrop = GestureDetector {
             on_tap: Some(dismiss.clone()),
-            child:
-                Container::new(Spacer::default())
-                    .bg(Color { r: 0, g: 0, b: 0, a: 1 }) // Nearly transparent
-                    .flex_grow(1.0)
-                    .into(),
+            child: Container::new(Spacer::default())
+                .bg(INTERACTION_BACKDROP)
+                .flex_grow(1.0)
+                .into(),
             ..Default::default()
-        }.into();
+        }
+        .into();
 
-        let overlay = Container::new(
-            ZStack {
-                children: vec![
-                    Positioned {
-                        left: Some(0.0), right: Some(0.0), top: Some(0.0), bottom: Some(0.0),
-                        child: Some(backdrop),
-                        ..Default::default()
-                    }.into(),
-                    Positioned {
-                        left: Some(x),
-                        top: Some(y),
-                        child: Some(menu_card),
-                        ..Default::default()
-                    }.into(),
-                ],
-                ..Default::default()
-            },
-        )
-        .flex_grow(1.0)
+        let overlay = ZStack {
+            children: vec![
+                Positioned {
+                    left: Some(tokens.spacing.none),
+                    right: Some(tokens.spacing.none),
+                    top: Some(tokens.spacing.none),
+                    bottom: Some(tokens.spacing.none),
+                    child: Some(backdrop),
+                    ..Default::default()
+                }
+                .into(),
+                Positioned {
+                    left: Some(clamped_left),
+                    top: Some(clamped_top),
+                    child: Some(card),
+                    ..Default::default()
+                }
+                .into(),
+            ],
+            ..Default::default()
+        }
         .into();
 
         let positioned_root = Positioned {
-            left: Some(0.0), right: Some(0.0), top: Some(0.0), bottom: Some(0.0),
+            left: Some(0.0),
+            right: Some(0.0),
+            top: Some(0.0),
+            bottom: Some(0.0),
             child: Some(overlay),
             ..Default::default()
-        }.into();
+        }
+        .into();
 
-        ctx.register_portal_with_layer(PortalLayer::Flyout, Some(WidgetId::explicit("context_menu")), positioned_root);
+        ctx.register_portal_with_layer(
+            PortalLayer::Flyout,
+            Some(WidgetId::explicit("context_menu")),
+            positioned_root,
+        );
 
-        Spacer { height: Some(0.0), ..Default::default() }.into()
-
+        Spacer {
+            height: Some(0.0),
+            ..Default::default()
+        }
+        .into()
     }
 }

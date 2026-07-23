@@ -1,273 +1,368 @@
+use crate::editor_menu_button::EditorMenuButton;
+use crate::editor_menu_item::EditorMenuItem;
+use crate::layout::{
+    MENU_BAR_HEIGHT, MENU_BUTTON_WIDTH, MENU_FLYOUT_MAX_WIDTH, MENU_FLYOUT_MIN_WIDTH,
+    OVERLAY_EDGE_GUTTER, OVERLAY_HORIZONTAL_RESERVE, OVERLAY_MIN_INSET,
+};
 use crate::model::*;
-use fission::core::op::Color;
-use fission::core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, GestureDetector, Widget, Positioned, Text, ZStack};
-use fission::core::{ActionEnvelope, BuildCtxHandle, reduce_with, PortalLayer, ViewHandle, WidgetId};
-use fission::widgets::{HStack, VStack, Spacer};
+use crate::palette::{FLYOUT_BG, FLYOUT_BORDER, INTERACTION_BACKDROP, MENU_BAR_BG};
+use fission::core::ui::{Column, Container, GestureDetector, Positioned, Row, Widget, ZStack};
+use fission::core::{reduce_with, WidgetId};
+use fission::widgets::Spacer;
 
-pub struct MenuBar;
+pub(crate) struct MenuBar;
 
 impl From<MenuBar> for Widget {
-    fn from(component: MenuBar) -> Self {
+    fn from(_component: MenuBar) -> Self {
         let (ctx, view) = fission::build::current::<EditorState>();
-        let bg = Color { r: 51, g: 51, b: 51, a: 255 };
-        let text_color = Color { r: 204, g: 204, b: 204, a: 255 };
-        let active_bg = Color { r: 70, g: 70, b: 70, a: 255 };
+        let tokens = &view.env().theme.tokens;
+        let viewport = view.viewport_size();
+        let flyout_width = (viewport.width - OVERLAY_HORIZONTAL_RESERVE)
+            .clamp(MENU_FLYOUT_MIN_WIDTH, MENU_FLYOUT_MAX_WIDTH);
 
-        let menus = vec!["File", "Edit", "View", "Go", "Help"];
-
-        let set_menu_id = ctx.bind(
+        // reduce_with: set active_menu (toggle logic)
+        let set_menu = ctx.bind(
             SetActiveMenu(None),
-            reduce_with!((|s: &mut EditorState, a: SetActiveMenu, _| {
-                if s.active_menu.as_deref() == a.0.as_deref() {
+            reduce_with!(
+                (|s: &mut EditorState, a: SetActiveMenu, _| {
+                    if s.active_menu == a.0 {
+                        s.active_menu = None;
+                    } else {
+                        s.active_menu = a.0;
+                    }
+                })
+            ),
+        );
+        let set_menu_id = set_menu.id;
+
+        // ── Shared action handlers for flyout commands ──
+
+        let dismiss_menu = ctx.bind(
+            DismissMenu,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
                     s.active_menu = None;
-                } else {
-                    s.active_menu = a.0;
+                })
+            ),
+        );
+
+        let save_file = ctx.bind(
+            SaveFile,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.save_active_file();
+                    s.active_menu = None;
+                })
+            ),
+        );
+
+        let save_all = ctx.bind(
+            SaveAllFiles,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.save_all_files();
+                    s.active_menu = None;
+                })
+            ),
+        );
+
+        let close_tab_action = ctx.bind(
+            CloseTab(0),
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    let idx = s.active_tab;
+                    s.close_tab(idx);
+                    s.active_menu = None;
+                })
+            ),
+        );
+
+        let toggle_find = ctx.bind(
+            ToggleFindReplace,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.show_find_replace = !s.show_find_replace;
+                    s.active_menu = None;
+                })
+            ),
+        );
+
+        let toggle_sidebar = ctx.bind(
+            ToggleSidebar,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.sidebar_visible = !s.sidebar_visible;
+                    s.active_menu = None;
+                })
+            ),
+        );
+
+        let toggle_terminal = ctx.bind(
+            ToggleTerminal,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.terminal_visible = !s.terminal_visible;
+                    if s.terminal_visible {
+                        s.bottom_panel_tab = crate::model::BottomPanelTab::Terminal;
+                        s.ensure_terminal_session();
+                    }
+                    s.active_menu = None;
+                })
+            ),
+        );
+
+        let cmd_palette = ctx.bind(
+            ToggleCommandPalette,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.show_command_palette = !s.show_command_palette;
+                    s.active_menu = None;
+                })
+            ),
+        );
+
+        let about_action = ctx.bind(
+            ShowMenuStatus("Fission Editor v0.1.0".into()),
+            reduce_with!(
+                (|s: &mut EditorState, a: ShowMenuStatus, _| {
+                    s.status_message = Some(a.0);
+                    s.active_menu = None;
+                })
+            ),
+        );
+
+        let new_file_action = ctx.bind(
+            ShowMenuStatus("New File (use file tree context menu)".into()),
+            reduce_with!(
+                (|s: &mut EditorState, a: ShowMenuStatus, _| {
+                    s.status_message = Some(a.0);
+                    s.active_menu = None;
+                })
+            ),
+        );
+
+        let new_folder_action = ctx.bind(
+            ShowMenuStatus("New Folder (use file tree context menu)".into()),
+            reduce_with!(
+                (|s: &mut EditorState, a: ShowMenuStatus, _| {
+                    s.status_message = Some(a.0);
+                    s.active_menu = None;
+                })
+            ),
+        );
+
+        let go_to_def_action = ctx.bind(
+            GoToDefinition,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.status_message = Some("Go to Definition: LSP not connected".into());
+                    s.active_menu = None;
+                })
+            ),
+        );
+
+        let go_to_line_action = ctx.bind(
+            ToggleCommandPalette,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.show_command_palette = true;
+                    s.command_query = "Go to Line:".into();
+                    s.active_menu = None;
+                })
+            ),
+        );
+
+        let undo_action = ctx.bind(
+            Undo,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.undo_active();
+                    s.active_menu = None;
+                })
+            ),
+        );
+
+        let redo_action = ctx.bind(
+            Redo,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.redo_active();
+                    s.active_menu = None;
+                })
+            ),
+        );
+
+        let copy_action = ctx.bind(
+            CopySelection,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.copy_line();
+                    s.active_menu = None;
+                })
+            ),
+        );
+
+        let cut_action = ctx.bind(
+            CutSelection,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.cut_line();
+                    s.active_menu = None;
+                })
+            ),
+        );
+
+        let paste_action = ctx.bind(
+            PasteClipboard,
+            reduce_with!(
+                (|s: &mut EditorState, _, _| {
+                    s.paste();
+                    s.active_menu = None;
+                })
+            ),
+        );
+
+        // ── Top-level buttons ──
+
+        let labels = ["File", "Edit", "View", "Go", "Help"];
+        let mut buttons: Vec<Widget> = labels
+            .iter()
+            .map(|label| {
+                EditorMenuButton {
+                    label: label.to_string(),
+                    set_menu_id,
                 }
-            })),
-        ).id;
+                .into()
+            })
+            .collect();
+        buttons.push(
+            Spacer {
+                flex_grow: 1.0,
+                ..Default::default()
+            }
+            .into(),
+        );
 
-        let mut menu_buttons = Vec::new();
-        for menu_name in &menus {
-            let is_active = view.state().active_menu.as_deref() == Some(menu_name);
-            let item_bg = if is_active { active_bg } else { bg };
-
-            menu_buttons.push(
-                Button {
-                    variant: ButtonVariant::Ghost,
-                    child: Some(
-                        Container::new(
-                            Text::new(*menu_name).size(12.0).color(text_color),
-                        ).bg(item_bg).padding_all(6.0).into(),
-                    ),
-                    on_press: Some(ActionEnvelope {
-                        id: set_menu_id,
-                        payload: serde_json::to_vec(&SetActiveMenu(Some(menu_name.to_string()))).unwrap(),
-                    }),
-                    height: Some(28.0),
-                    padding: Some([0.0; 4]),
-                    ..Default::default()
-                }.into(),
-            );
-        }
-
-        menu_buttons.push(Spacer { flex_grow: 1.0, ..Default::default() }.into());
-
-        let bar = Container::new(
-            HStack {
-                spacing: Some(0.0),
-                children: menu_buttons,
-            },
-        )
-        .bg(bg)
-        .height(28.0)
+        let bar = Container::new(Row {
+            children: buttons,
+            align_items: fission::op::AlignItems::Center,
+            ..Default::default()
+        })
+        .height(MENU_BAR_HEIGHT)
+        .bg(MENU_BAR_BG)
         .flex_shrink(0.0)
         .into();
 
-        // If a menu is active, render the dropdown as a portal
-        if let Some(active) = &view.state().active_menu {
-            component.render_dropdown(ctx, view, active);
+        // ── Flyout dropdown (portal) ──
+
+        if let Some(ref active) = view.state().active_menu {
+            let items: Vec<Widget> = match active.as_str() {
+                "File" => vec![
+                    EditorMenuItem::new("New File", new_file_action.clone()).into(),
+                    EditorMenuItem::new("New Folder", new_folder_action.clone()).into(),
+                    EditorMenuItem::new("Save", save_file.clone()).into(),
+                    EditorMenuItem::new("Save All", save_all.clone()).into(),
+                    EditorMenuItem::new("Close Tab", close_tab_action.clone()).into(),
+                ],
+                "Edit" => vec![
+                    EditorMenuItem::new("Undo", undo_action.clone()).into(),
+                    EditorMenuItem::new("Redo", redo_action.clone()).into(),
+                    EditorMenuItem::new("Cut", cut_action.clone()).into(),
+                    EditorMenuItem::new("Copy", copy_action.clone()).into(),
+                    EditorMenuItem::new("Paste", paste_action.clone()).into(),
+                    EditorMenuItem::new("Find/Replace", toggle_find.clone()).into(),
+                ],
+                "View" => vec![
+                    EditorMenuItem::new("Toggle Sidebar", toggle_sidebar.clone()).into(),
+                    EditorMenuItem::new("Toggle Terminal", toggle_terminal.clone()).into(),
+                    EditorMenuItem::new("Command Palette", cmd_palette.clone()).into(),
+                ],
+                "Go" => vec![
+                    EditorMenuItem::new("Go to Line", go_to_line_action.clone()).into(),
+                    EditorMenuItem::new("Go to Definition", go_to_def_action.clone()).into(),
+                ],
+                "Help" => vec![EditorMenuItem::new("About", about_action.clone()).into()],
+                _ => vec![],
+            };
+
+            // Compute left offset based on which menu is active
+            let menu_index = match active.as_str() {
+                "File" => 0,
+                "Edit" => 1,
+                "View" => 2,
+                "Go" => 3,
+                "Help" => 4,
+                _ => 0,
+            };
+            let flyout_left = (menu_index as f32 * MENU_BUTTON_WIDTH)
+                .min((viewport.width - flyout_width - OVERLAY_EDGE_GUTTER).max(OVERLAY_MIN_INSET));
+
+            let flyout = Container::new(Column {
+                children: items,
+                gap: Some(tokens.spacing.none),
+                flex_grow: 0.0,
+                justify_content: fission::core::op::JustifyContent::Start,
+                ..Default::default()
+            })
+            .width(flyout_width)
+            .bg(FLYOUT_BG)
+            .border(FLYOUT_BORDER, 1.0)
+            .border_radius(tokens.radii.small)
+            .into();
+
+            // Dismiss backdrop
+            let backdrop = GestureDetector {
+                on_tap: Some(dismiss_menu.clone()),
+                child: Container::new(Spacer::default())
+                    .bg(INTERACTION_BACKDROP)
+                    .flex_grow(1.0)
+                    .into(),
+                ..Default::default()
+            }
+            .into();
+
+            let overlay = ZStack {
+                children: vec![
+                    // Full-screen dismiss target
+                    Positioned {
+                        left: Some(0.0),
+                        right: Some(0.0),
+                        top: Some(0.0),
+                        bottom: Some(0.0),
+                        child: Some(backdrop),
+                        ..Default::default()
+                    }
+                    .into(),
+                    // The flyout itself, positioned under the menu bar
+                    Positioned {
+                        left: Some(flyout_left), // offset by activity bar width
+                        top: Some(28.0),
+                        child: Some(flyout),
+                        ..Default::default()
+                    }
+                    .into(),
+                ],
+                ..Default::default()
+            }
+            .into();
+
+            let positioned_root = Positioned {
+                left: Some(0.0),
+                right: Some(0.0),
+                top: Some(0.0),
+                bottom: Some(0.0),
+                child: Some(overlay),
+                ..Default::default()
+            }
+            .into();
+
+            ctx.register_portal_with_layer(
+                fission::core::registry::PortalLayer::Modal,
+                Some(WidgetId::explicit("menu_bar_flyout")),
+                positioned_root,
+            );
         }
 
         bar
-
-    }
-}
-impl MenuBar {
-    fn render_dropdown(&self, ctx: BuildCtxHandle<EditorState>, view: ViewHandle<EditorState>, menu: &str) {
-        let bg = Color { r: 45, g: 45, b: 46, a: 255 };
-        let border = Color { r: 69, g: 69, b: 69, a: 255 };
-        let text_color = Color { r: 204, g: 204, b: 204, a: 255 };
-        let dim = Color { r: 140, g: 140, b: 140, a: 255 };
-
-        let dismiss = ctx.bind(
-            SetActiveMenu(None),
-            reduce_with!((|s: &mut EditorState, _, _| s.active_menu = None)),
-        );
-
-        let menu_item = |label: &str, shortcut: &str, action: ActionEnvelope| -> Widget {
-            Button {
-                variant: ButtonVariant::Ghost,
-                content_align: ButtonContentAlign::Start,
-                child: Some(
-                    Container::new(
-                        HStack {
-                            spacing: Some(0.0),
-                            children: vec![
-                                Text::new(label).size(12.0).color(text_color).flex_grow(1.0).into(),
-                                Text::new(shortcut).size(11.0).color(dim).into(),
-                            ],
-                        },
-                    ).width(220.0).into(),
-                ),
-                on_press: Some(action),
-                height: Some(26.0),
-                padding: Some([4.0, 8.0, 0.0, 0.0]),
-                ..Default::default()
-            }.into()
-        };
-
-        let separator = || -> Widget {
-            Container::new(Spacer::default())
-                .height(1.0)
-                .bg(border)
-                .into()
-        };
-
-        // Build actions
-        let save = ctx.bind(SaveFile, reduce_with!((|s: &mut EditorState, _, _| { s.save_active_file(); s.active_menu = None; })));
-        let save_all = ctx.bind(SaveAllFiles, reduce_with!((|s: &mut EditorState, _, _| { s.save_all_files(); s.active_menu = None; })));
-        let toggle_find = ctx.bind(ToggleFindReplace, reduce_with!((|s: &mut EditorState, _, _| { s.show_find_replace = !s.show_find_replace; s.active_menu = None; })));
-        let toggle_sidebar = ctx.bind(ToggleSidebar, reduce_with!((|s: &mut EditorState, _, _| { s.sidebar_visible = !s.sidebar_visible; s.active_menu = None; })));
-        let toggle_terminal = ctx.bind(ToggleTerminal, reduce_with!((|s: &mut EditorState, _, _| { s.terminal_visible = !s.terminal_visible; s.active_menu = None; })));
-        let cmd_palette = ctx.bind(ToggleCommandPalette, reduce_with!((|s: &mut EditorState, _, _| { s.show_command_palette = true; s.active_menu = None; })));
-        let close_tab_action = ctx.bind(CloseTab(0), reduce_with!((|s: &mut EditorState, _, _| { let idx = s.active_tab; s.close_tab(idx); s.active_menu = None; })));
-
-        let new_file = ctx.bind(CreateFile(String::new()), reduce_with!((|s: &mut EditorState, _, _| {
-            let path = format!("{}/untitled.rs", s.root_path.to_string_lossy());
-            s.create_file(path);
-            s.active_menu = None;
-        })));
-
-        let new_folder = ctx.bind(CreateFolder(String::new()), reduce_with!((|s: &mut EditorState, _, _| {
-            let path = format!("{}/new_folder", s.root_path.to_string_lossy());
-            s.create_folder(path);
-            s.active_menu = None;
-        })));
-
-        let go_to_line = ctx.bind(GoToLine(0), reduce_with!((|s: &mut EditorState, _, _| {
-            s.show_command_palette = true;
-            s.command_query = "Go to Line: ".to_string();
-            s.active_menu = None;
-        })));
-
-        let go_to_def = ctx.bind(GoToDefinition, reduce_with!((|s: &mut EditorState, _, _| {
-            s.status_message = Some("Go to Definition: LSP not connected".into());
-            s.active_menu = None;
-        })));
-
-        let about = ctx.bind(ShowMenuStatus("Fission Editor v0.1.0 — Built with Fission UI Framework".into()), reduce_with!((|s: &mut EditorState, a: ShowMenuStatus, _| {
-            s.status_message = Some(a.0);
-            s.active_menu = None;
-        })));
-
-        let undo_action = ctx.bind(Undo, reduce_with!((|s: &mut EditorState, _, _| {
-            s.undo_active();
-            s.active_menu = None;
-        })));
-
-        let redo_action = ctx.bind(Redo, reduce_with!((|s: &mut EditorState, _, _| {
-            s.redo_active();
-            s.active_menu = None;
-        })));
-
-        let copy_action = ctx.bind(CopySelection, reduce_with!((|s: &mut EditorState, _, _| {
-            s.copy_line();
-            s.active_menu = None;
-        })));
-
-        let cut_action = ctx.bind(CutSelection, reduce_with!((|s: &mut EditorState, _, _| {
-            s.cut_line();
-            s.active_menu = None;
-        })));
-
-        let paste_action = ctx.bind(PasteClipboard, reduce_with!((|s: &mut EditorState, _, _| {
-            s.paste();
-            s.active_menu = None;
-        })));
-
-        let items: Vec<Widget> = match menu {
-            "File" => vec![
-                menu_item("New File", "Ctrl+N", new_file),
-                menu_item("New Folder", "", new_folder),
-                separator(),
-                menu_item("Save", "Ctrl+S", save),
-                menu_item("Save All", "Ctrl+Shift+S", save_all),
-                separator(),
-                menu_item("Close Tab", "Ctrl+W", close_tab_action),
-            ],
-            "Edit" => vec![
-                menu_item("Undo", "Ctrl+Z", undo_action),
-                menu_item("Redo", "Ctrl+Shift+Z", redo_action),
-                separator(),
-                menu_item("Cut", "Ctrl+X", cut_action),
-                menu_item("Copy", "Ctrl+C", copy_action),
-                menu_item("Paste", "Ctrl+V", paste_action),
-                separator(),
-                menu_item("Find / Replace", "Ctrl+F", toggle_find),
-            ],
-            "View" => vec![
-                menu_item("Command Palette", "Ctrl+Shift+P", cmd_palette),
-                separator(),
-                menu_item("Toggle Sidebar", "Ctrl+B", toggle_sidebar),
-                menu_item("Toggle Terminal", "Ctrl+`", toggle_terminal),
-            ],
-            "Go" => vec![
-                menu_item("Go to Line...", "Ctrl+G", go_to_line),
-                menu_item("Go to Definition", "F12", go_to_def),
-            ],
-            "Help" => vec![
-                menu_item("About Fission Editor", "", about),
-            ],
-            _ => vec![],
-        };
-
-        // Position: offset from left based on menu name
-        let x_offset = match menu {
-            "File" => 0.0,
-            "Edit" => 40.0,
-            "View" => 80.0,
-            "Go" => 120.0,
-            "Help" => 150.0,
-            _ => 0.0,
-        };
-
-        let dropdown = Container::new(
-            VStack { spacing: Some(0.0), children: items },
-        )
-        .bg(bg)
-        .border(border, 1.0)
-        .border_radius(4.0)
-        .padding_all(4.0)
-        .into();
-
-        // Backdrop to dismiss
-        let backdrop = GestureDetector {
-            on_tap: Some(dismiss.clone()),
-            child:
-                Container::new(Spacer::default())
-                    .bg(Color { r: 0, g: 0, b: 0, a: 1 })
-                    .flex_grow(1.0)
-                    .into(),
-            ..Default::default()
-        }.into();
-
-        let overlay = Container::new(
-            ZStack {
-                children: vec![
-                    Positioned {
-                        left: Some(0.0), right: Some(0.0), top: Some(0.0), bottom: Some(0.0),
-                        child: Some(backdrop),
-                        ..Default::default()
-                    }.into(),
-                    Positioned {
-                        left: Some(x_offset),
-                        top: Some(28.0), // Below menu bar
-                        child: Some(dropdown),
-                        ..Default::default()
-                    }.into(),
-                ],
-                ..Default::default()
-            },
-        )
-        .flex_grow(1.0)
-        .into();
-
-        let positioned_root = Positioned {
-            left: Some(0.0), right: Some(0.0), top: Some(0.0), bottom: Some(0.0),
-            child: Some(overlay),
-            ..Default::default()
-        }.into();
-
-        ctx.register_portal_with_layer(PortalLayer::Flyout, Some(WidgetId::explicit("menu_dropdown")), positioned_root);
     }
 }

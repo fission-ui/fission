@@ -1,79 +1,23 @@
 //! Auto-complete popup widget that displays LSP completion suggestions.
 
-use crate::model::*;
-use fission::core::op::Color;
-use fission::core::ui::{
-    Button, ButtonContentAlign, ButtonVariant, Container, GestureDetector, Positioned, Scroll,
-    Text, Widget, ZStack,
+use crate::completion_popup_item::CompletionPopupItem;
+use crate::layout::{
+    COMPLETION_POPUP_HEIGHT_FRACTION, COMPLETION_POPUP_MAX_HEIGHT, COMPLETION_POPUP_MAX_WIDTH,
+    COMPLETION_POPUP_MIN_HEIGHT, COMPLETION_POPUP_MIN_WIDTH, OVERLAY_EDGE_GUTTER,
+    OVERLAY_HORIZONTAL_RESERVE, OVERLAY_MIN_INSET,
 };
-use fission::core::{reduce_with, ActionEnvelope, FlexDirection, PortalLayer, WidgetId};
-use fission::widgets::{HStack, Spacer, VStack};
+use crate::model::*;
+use crate::palette::{FLYOUT_BG, FLYOUT_BORDER, TRANSPARENT};
+use fission::core::ui::{Container, GestureDetector, Positioned, Scroll, Widget, ZStack};
+use fission::core::{reduce_with, FlexDirection, PortalLayer, WidgetId};
+use fission::widgets::{Spacer, VStack};
 
 pub struct CompletionPopup;
-
-/// Map a completion kind string to a short icon/label for the list.
-fn kind_icon(kind: &str) -> &'static str {
-    match kind {
-        "function" | "method" => "fn",
-        "variable" | "field" => "ab",
-        "keyword" => "kw",
-        "struct" | "class" => "St",
-        "enum" => "En",
-        "module" => "Md",
-        "property" => "Pr",
-        "constant" => "Co",
-        "interface" | "trait" => "Tr",
-        "type" => "Ty",
-        "snippet" => "Sn",
-        _ => "  ",
-    }
-}
-
-/// Pick a color for the kind badge.
-fn kind_color(kind: &str) -> Color {
-    match kind {
-        "function" | "method" => Color {
-            r: 220,
-            g: 170,
-            b: 80,
-            a: 255,
-        }, // orange
-        "variable" | "field" => Color {
-            r: 100,
-            g: 180,
-            b: 255,
-            a: 255,
-        }, // blue
-        "keyword" => Color {
-            r: 200,
-            g: 120,
-            b: 220,
-            a: 255,
-        }, // purple
-        "struct" | "class" | "enum" => Color {
-            r: 80,
-            g: 200,
-            b: 170,
-            a: 255,
-        }, // teal
-        "module" => Color {
-            r: 220,
-            g: 220,
-            b: 100,
-            a: 255,
-        }, // yellow
-        _ => Color {
-            r: 180,
-            g: 180,
-            b: 180,
-            a: 255,
-        }, // grey
-    }
-}
 
 impl From<CompletionPopup> for Widget {
     fn from(_component: CompletionPopup) -> Self {
         let (ctx, view) = fission::build::current::<EditorState>();
+        let tokens = &view.env().theme.tokens;
         if !view.state().show_completions || view.state().completions.is_empty() {
             return Spacer {
                 height: Some(0.0),
@@ -122,115 +66,43 @@ impl From<CompletionPopup> for Widget {
             )
             .id;
 
-        let bg = Color {
-            r: 37,
-            g: 37,
-            b: 38,
-            a: 255,
-        };
-        let border_color = Color {
-            r: 69,
-            g: 69,
-            b: 69,
-            a: 255,
-        };
-        let text_color = Color {
-            r: 220,
-            g: 220,
-            b: 220,
-            a: 255,
-        };
-        let detail_color = Color {
-            r: 140,
-            g: 140,
-            b: 140,
-            a: 255,
-        };
-        let selected_bg = Color {
-            r: 4,
-            g: 57,
-            b: 94,
-            a: 255,
-        };
         let viewport = view.viewport_size();
-        let popup_width = (viewport.width - 80.0).clamp(220.0, 360.0);
-        let popup_height = (viewport.height * 0.28).clamp(120.0, 220.0);
+        let popup_width = (viewport.width - OVERLAY_HORIZONTAL_RESERVE)
+            .clamp(COMPLETION_POPUP_MIN_WIDTH, COMPLETION_POPUP_MAX_WIDTH);
+        let popup_height = (viewport.height * COMPLETION_POPUP_HEIGHT_FRACTION)
+            .clamp(COMPLETION_POPUP_MIN_HEIGHT, COMPLETION_POPUP_MAX_HEIGHT);
 
         let selected_idx = view.state().selected_completion;
 
         let mut items = Vec::new();
         for (i, completion) in view.state().completions.iter().enumerate() {
-            let icon_text = kind_icon(&completion.kind);
-            let icon_color = kind_color(&completion.kind);
-            let is_selected = i == selected_idx;
-
-            let row = HStack {
-                spacing: Some(6.0),
-                children: vec![
-                    // Kind badge
-                    Container::new(Text::new(icon_text).size(10.0).color(icon_color))
-                        .width(20.0)
-                        .into(),
-                    // Label
-                    Text::new(completion.label.as_str())
-                        .size(12.0)
-                        .color(text_color)
-                        .into(),
-                    // Spacer between label and detail
-                    Spacer {
-                        flex_grow: 1.0,
-                        ..Default::default()
-                    }
-                    .into(),
-                    // Detail (if present), truncated
-                    if let Some(detail) = &completion.detail {
-                        let truncated: String = detail.chars().take(30).collect();
-                        Text::new(truncated).size(11.0).color(detail_color).into()
-                    } else {
-                        Spacer {
-                            width: Some(0.0),
-                            ..Default::default()
-                        }
-                        .into()
-                    },
-                ],
-            }
-            .into();
-
-            let mut btn_container = Button {
-                variant: ButtonVariant::Ghost,
-                content_align: ButtonContentAlign::Start,
-                child: Some(row),
-                on_press: Some(ActionEnvelope {
-                    id: select_id,
-                    payload: serde_json::to_vec(&SelectCompletion(i)).unwrap(),
-                }),
-                height: Some(24.0),
-                padding: Some([2.0, 4.0, 2.0, 4.0]),
-                ..Default::default()
-            }
-            .into();
-
-            // Highlight the selected item
-            if is_selected {
-                btn_container = Container::new(btn_container).bg(selected_bg).into();
-            }
-
-            items.push(btn_container);
+            items.push(
+                CompletionPopupItem {
+                    index: i,
+                    label: completion.label.clone(),
+                    detail: completion.detail.clone(),
+                    kind: completion.kind.clone(),
+                    selected: i == selected_idx,
+                    select_id,
+                }
+                .into(),
+            );
         }
 
         // Compute position near cursor. Use the hover_position as a rough proxy
         // for cursor screen location; the editor surface can set this more precisely.
         let (popup_x, popup_y) = view.state().hover_position;
         // Offset slightly below the cursor line
-        let popup_y = (popup_y + 18.0).min((viewport.height - popup_height - 16.0).max(8.0));
-        let popup_x = popup_x.min((viewport.width - popup_width - 16.0).max(8.0));
+        let popup_y = (popup_y + tokens.spacing.l)
+            .min((viewport.height - popup_height - OVERLAY_EDGE_GUTTER).max(OVERLAY_MIN_INSET));
+        let popup_x = popup_x
+            .min((viewport.width - popup_width - OVERLAY_EDGE_GUTTER).max(OVERLAY_MIN_INSET));
 
         let list = Container::new(Scroll {
             direction: FlexDirection::Column,
             child: Some(
                 VStack {
-                    spacing: Some(0.0),
+                    spacing: Some(tokens.spacing.none),
                     children: items,
                 }
                 .into(),
@@ -240,9 +112,9 @@ impl From<CompletionPopup> for Widget {
             flex_shrink: 1.0,
             ..Default::default()
         })
-        .bg(bg)
-        .border(border_color, 1.0)
-        .border_radius(4.0)
+        .bg(FLYOUT_BG)
+        .border(FLYOUT_BORDER, 1.0)
+        .border_radius(tokens.radii.small)
         .max_height(popup_height)
         .width(popup_width)
         .into();
@@ -259,12 +131,7 @@ impl From<CompletionPopup> for Widget {
         let backdrop = GestureDetector {
             on_tap: Some(dismiss.clone()),
             child: Container::new(Spacer::default())
-                .bg(Color {
-                    r: 0,
-                    g: 0,
-                    b: 0,
-                    a: 0,
-                })
+                .bg(TRANSPARENT)
                 .flex_grow(1.0)
                 .into(),
             ..Default::default()

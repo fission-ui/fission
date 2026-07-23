@@ -1,12 +1,11 @@
+use crate::file_tree_entry::FileTreeEntry;
+use crate::layout::TOOLBAR_CONTROL_SIZE;
 use crate::model::{
-    CancelRename, CreateFile, CreateFolder, EditorState, FileEntry, OpenFile, RefreshTree,
-    SelectTreeNode, ShowContextMenu, ToggleTreeNode, UpdateRenameInput,
+    CancelRename, CreateFile, CreateFolder, EditorState, OpenFile, RefreshTree, ShowContextMenu,
+    ToggleTreeNode, UpdateRenameInput,
 };
-use fission::core::op::Color;
-use fission::core::ui::{
-    Button, ButtonContentAlign, ButtonVariant, Container, GestureDetector, Text, TextInput, Widget,
-};
-use fission::core::{reduce_with, ActionEnvelope, ViewHandle};
+use fission::core::ui::{Button, ButtonVariant, Container, Widget};
+use fission::core::{reduce_with, ActionEnvelope};
 use fission::widgets::{HStack, Icon, Spacer, VStack};
 use serde_json;
 
@@ -39,17 +38,6 @@ impl From<FileTree> for Widget {
                 reduce_with!(
                     (|s: &mut EditorState, a: OpenFile, _| {
                         s.open_file(a.0);
-                    })
-                ),
-            )
-            .id;
-
-        let select_id = ctx
-            .bind(
-                SelectTreeNode(String::new()),
-                reduce_with!(
-                    (|s: &mut EditorState, a: SelectTreeNode, _| {
-                        s.tree_selected = Some(a.0);
                     })
                 ),
             )
@@ -182,7 +170,7 @@ impl From<FileTree> for Widget {
         let icon_color = tokens.colors.text_secondary;
 
         let toolbar = Container::new(HStack {
-            spacing: Some(2.0),
+            spacing: Some(tokens.spacing.xs),
             children: vec![
                 Spacer {
                     flex_grow: 1.0,
@@ -194,13 +182,13 @@ impl From<FileTree> for Widget {
                     on_press: Some(new_file_action),
                     child: Some(
                         Icon::svg(fission::icons::material::content::add::round())
-                            .size(18.0)
+                            .size(tokens.typography.font_size_lg)
                             .color(icon_color)
                             .into(),
                     ),
-                    width: Some(24.0),
-                    height: Some(24.0),
-                    padding: Some([0.0; 4]),
+                    width: Some(TOOLBAR_CONTROL_SIZE),
+                    height: Some(TOOLBAR_CONTROL_SIZE),
+                    padding: Some([tokens.spacing.none; 4]),
                     ..Default::default()
                 }
                 .into(),
@@ -209,13 +197,13 @@ impl From<FileTree> for Widget {
                     on_press: Some(new_folder_action),
                     child: Some(
                         Icon::svg(fission::icons::material::file::create_new_folder::round())
-                            .size(18.0)
+                            .size(tokens.typography.font_size_lg)
                             .color(icon_color)
                             .into(),
                     ),
-                    width: Some(24.0),
-                    height: Some(24.0),
-                    padding: Some([0.0; 4]),
+                    width: Some(TOOLBAR_CONTROL_SIZE),
+                    height: Some(TOOLBAR_CONTROL_SIZE),
+                    padding: Some([tokens.spacing.none; 4]),
                     ..Default::default()
                 }
                 .into(),
@@ -224,37 +212,38 @@ impl From<FileTree> for Widget {
                     on_press: Some(refresh_action),
                     child: Some(
                         Icon::svg(fission::icons::material::navigation::refresh::round())
-                            .size(18.0)
+                            .size(tokens.typography.font_size_lg)
                             .color(icon_color)
                             .into(),
                     ),
-                    width: Some(24.0),
-                    height: Some(24.0),
-                    padding: Some([0.0; 4]),
+                    width: Some(TOOLBAR_CONTROL_SIZE),
+                    height: Some(TOOLBAR_CONTROL_SIZE),
+                    padding: Some([tokens.spacing.none; 4]),
                     ..Default::default()
                 }
                 .into(),
             ],
         })
-        .padding_all(4.0)
+        .padding_all(tokens.spacing.xs)
         .into();
 
         // --- Tree rows ---
 
-        let mut rows = Vec::new();
-        for entry in entries {
-            build_tree_rows(
-                entry,
-                0,
-                &mut rows,
-                view,
-                toggle_id,
-                open_id,
-                select_id,
-                context_menu_id,
-                &rename_input_id,
-            );
-        }
+        let rows = entries
+            .iter()
+            .cloned()
+            .map(|entry| {
+                FileTreeEntry {
+                    entry,
+                    depth: 0,
+                    toggle_id,
+                    open_id,
+                    context_menu_id,
+                    rename_input_action: rename_input_id.clone(),
+                }
+                .into()
+            })
+            .collect();
 
         let tree_scroll = fission::core::ui::Scroll {
             id: Some(fission::WidgetId::explicit("file_tree_scroll")),
@@ -264,7 +253,7 @@ impl From<FileTree> for Widget {
             flex_shrink: 1.0,
             child: Some(
                 VStack {
-                    spacing: Some(0.0),
+                    spacing: Some(tokens.spacing.none),
                     children: rows,
                 }
                 .into(),
@@ -276,283 +265,11 @@ impl From<FileTree> for Widget {
         // --- Compose toolbar + tree ---
 
         Container::new(VStack {
-            spacing: Some(0.0),
+            spacing: Some(tokens.spacing.none),
             children: vec![toolbar, tree_scroll],
         })
         .bg(tokens.colors.surface)
         .flex_grow(1.0)
         .into()
-    }
-}
-fn build_tree_rows(
-    entry: &FileEntry,
-    depth: usize,
-    rows: &mut Vec<Widget>,
-    view: ViewHandle<EditorState>,
-    toggle_id: fission::core::ActionId,
-    open_id: fission::core::ActionId,
-    select_id: fission::core::ActionId,
-    context_menu_id: fission::core::ActionId,
-    rename_input_action: &ActionEnvelope,
-) {
-    let tokens = &view.env().theme.tokens;
-    let is_expanded = view.state().tree_expanded.contains(&entry.path);
-    let is_selected = view.state().tree_selected.as_deref() == Some(&entry.path);
-
-    // IntelliJ-style: colored icons, compact rows
-    let icon_color = if entry.is_dir {
-        Color {
-            r: 204,
-            g: 166,
-            b: 75,
-            a: 255,
-        } // Warm yellow for folders
-    } else {
-        file_icon_color(&entry.name)
-    };
-
-    let indent = depth as f32 * 16.0;
-
-    // Fixed-width chevron container for alignment: ">" collapsed, "v" expanded, " " for files
-    let chevron = if entry.is_dir {
-        if is_expanded {
-            "v"
-        } else {
-            ">"
-        }
-    } else {
-        " "
-    };
-
-    let file_icon = if entry.is_dir {
-        if is_expanded {
-            fission::icons::material::file::folder_open::regular()
-        } else {
-            fission::icons::material::file::folder::regular()
-        }
-    } else {
-        fission::icons::material::action::description::regular()
-    };
-
-    let bg = if is_selected {
-        tokens.colors.primary.with_alpha(30)
-    } else {
-        Color {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 0,
-        }
-    };
-
-    // Primary tap action: toggle for dirs, open for files
-    let tap_action = if entry.is_dir {
-        ActionEnvelope {
-            id: toggle_id,
-            payload: serde_json::to_vec(&ToggleTreeNode(entry.path.clone())).unwrap(),
-        }
-    } else {
-        ActionEnvelope {
-            id: open_id,
-            payload: serde_json::to_vec(&OpenFile(entry.path.clone())).unwrap(),
-        }
-    };
-
-    // Right-click action: show context menu targeting this entry
-    let long_press_action = ActionEnvelope {
-        id: context_menu_id,
-        payload: serde_json::to_vec(&ShowContextMenu {
-            x: 0.0,
-            y: 0.0,
-            target: Some(entry.path.clone()),
-        })
-        .unwrap(),
-    };
-
-    // Check if this entry is being renamed
-    let is_renaming = view.state().renaming_path.as_deref() == Some(&entry.path);
-
-    // Build the name column: either a TextInput (renaming) or a Text label
-    let name_node = if is_renaming {
-        TextInput {
-            id: Some(fission::WidgetId::explicit("rename_input")),
-            value: view.state().rename_input.clone(),
-            placeholder: Some("New name".into()),
-            on_change: Some(rename_input_action.clone()),
-            ..Default::default()
-        }
-        .into()
-    } else {
-        Text::new(entry.name.clone())
-            .size(13.0)
-            .color(tokens.colors.text_primary)
-            .flex_grow(1.0)
-            .into()
-    };
-
-    // Build the row content
-    let row_content = Container::new(HStack {
-        spacing: Some(4.0),
-        children: vec![
-            // Indentation spacer
-            Spacer {
-                width: Some(indent),
-                ..Default::default()
-            }
-            .into(),
-            // Fixed-width chevron container (12px) for consistent alignment
-            Container::new(
-                Text::new(chevron)
-                    .size(11.0)
-                    .color(tokens.colors.text_secondary),
-            )
-            .width(12.0)
-            .into(),
-            // File/folder icon
-            Icon::svg(file_icon).size(16.0).color(icon_color).into(),
-            // File/folder name (or rename TextInput)
-            name_node,
-        ],
-    })
-    .bg(bg)
-    .padding_all(2.0)
-    .into();
-
-    let row = if is_renaming {
-        Container::new(row_content).height(24.0).into()
-    } else {
-        // Wrap in a Button for tap handling, then wrap that in GestureDetector for long-press
-        let button_row = Button {
-            variant: ButtonVariant::Ghost,
-            content_align: ButtonContentAlign::Start,
-            on_press: Some(tap_action),
-            child: Some(row_content),
-            height: Some(24.0),
-            padding: Some([0.0; 4]),
-            ..Default::default()
-        }
-        .into();
-
-        // GestureDetector wraps the entire row to capture right-click for context menu
-        GestureDetector {
-            on_secondary_click: Some(long_press_action),
-            child: button_row,
-            ..Default::default()
-        }
-        .into()
-    };
-
-    rows.push(row);
-
-    if entry.is_dir && is_expanded {
-        for child in &entry.children {
-            build_tree_rows(
-                child,
-                depth + 1,
-                rows,
-                view,
-                toggle_id,
-                open_id,
-                select_id,
-                context_menu_id,
-                rename_input_action,
-            );
-        }
-    }
-}
-
-fn file_icon_color(name: &str) -> Color {
-    let ext = name.rsplit('.').next().unwrap_or("");
-    match ext {
-        "rs" => Color {
-            r: 222,
-            g: 120,
-            b: 50,
-            a: 255,
-        }, // Rust orange
-        "toml" => Color {
-            r: 140,
-            g: 180,
-            b: 100,
-            a: 255,
-        }, // Green
-        "md" => Color {
-            r: 66,
-            g: 133,
-            b: 244,
-            a: 255,
-        }, // Blue
-        "json" => Color {
-            r: 255,
-            g: 193,
-            b: 7,
-            a: 255,
-        }, // Amber
-        "lock" => Color {
-            r: 130,
-            g: 130,
-            b: 130,
-            a: 255,
-        }, // Gray
-        "html" | "htm" => Color {
-            r: 227,
-            g: 134,
-            b: 43,
-            a: 255,
-        }, // Orange
-        "css" | "scss" | "sass" | "less" => Color {
-            r: 66,
-            g: 133,
-            b: 244,
-            a: 255,
-        }, // Blue
-        "js" | "jsx" | "ts" | "tsx" | "mjs" => Color {
-            r: 241,
-            g: 196,
-            b: 15,
-            a: 255,
-        }, // Yellow
-        "py" | "pyi" => Color {
-            r: 80,
-            g: 175,
-            b: 76,
-            a: 255,
-        }, // Green
-        "sh" | "bash" | "zsh" | "fish" => Color {
-            r: 150,
-            g: 150,
-            b: 150,
-            a: 255,
-        }, // Gray
-        "yaml" | "yml" => Color {
-            r: 200,
-            g: 100,
-            b: 100,
-            a: 255,
-        }, // Reddish
-        "xml" | "svg" => Color {
-            r: 200,
-            g: 120,
-            b: 50,
-            a: 255,
-        }, // Burnt orange
-        "go" => Color {
-            r: 0,
-            g: 173,
-            b: 216,
-            a: 255,
-        }, // Cyan
-        "rb" => Color {
-            r: 204,
-            g: 52,
-            b: 45,
-            a: 255,
-        }, // Ruby red
-        _ => Color {
-            r: 160,
-            g: 160,
-            b: 160,
-            a: 255,
-        }, // Default gray
     }
 }
