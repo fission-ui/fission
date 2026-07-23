@@ -239,6 +239,8 @@ impl From<CommandPalette> for Widget {
         };
 
         let shadow = fission::core::op::BoxShadow {
+            spread_radius: 0.0,
+            inset: false,
             color: Color {
                 r: 0,
                 g: 0,

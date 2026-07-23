@@ -37,6 +37,14 @@ pub trait DesignSystem {
     fn components() -> &'static [DesignComponentSpec];
     fn patterns() -> &'static [DesignPatternSpec];
     fn assets() -> &'static DesignAssetManifest;
+    /// Font faces packaged with this design system.
+    ///
+    /// Hosts register these faces with their text measurer and renderer before
+    /// the first frame so declared weight, style, and variation axes are used
+    /// consistently instead of synthesized fallbacks.
+    fn font_faces() -> &'static [PackagedFont] {
+        &[]
+    }
     fn theme_ref(mode: DesignMode) -> &'static Theme;
 
     fn theme(mode: DesignMode) -> Theme {
@@ -102,6 +110,8 @@ impl ShadowLayer {
             color: self.color,
             offset: self.offset,
             blur_radius: self.blur_radius,
+            spread_radius: self.spread_radius,
+            inset: self.inset,
         }
     }
 }
@@ -111,8 +121,8 @@ fn shadow_layer_from_box(shadow: BoxShadow) -> ShadowLayer {
         color: shadow.color,
         offset: shadow.offset,
         blur_radius: shadow.blur_radius,
-        spread_radius: 0.0,
-        inset: false,
+        spread_radius: shadow.spread_radius,
+        inset: shadow.inset,
     }
 }
 
@@ -141,15 +151,75 @@ pub struct DesignPatternSpec {
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DesignAssetManifest {
+    /// Logo and image assets declared by the design system.
     pub logos: Vec<DesignAsset>,
-    pub fonts: Vec<DesignAsset>,
+    /// Font assets declared by the design system.
+    pub fonts: Vec<DesignFontAsset>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DesignAsset {
+    /// Stable asset identifier from the DSP package.
     pub id: String,
+    /// Path to the asset relative to the DSP file.
     pub path: String,
+    /// File format such as `svg`, `png`, or `webp`.
     pub format: String,
+}
+
+/// Metadata for a font face declared by a Design System Package.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DesignFontAsset {
+    /// CSS/font family name exposed to app code.
+    pub family: String,
+    /// OpenType font weight, normally in the `100..=900` range.
+    pub weight: u16,
+    /// Font slope style.
+    pub style: PackagedFontStyle,
+    /// Path to the font file relative to the DSP file.
+    pub path: String,
+    /// Font format such as `truetype`, `opentype`, `woff`, or `woff2`.
+    pub format: String,
+    /// Optional variation-axis defaults.
+    pub axes: Vec<FontVariationAxis>,
+}
+
+/// A variation-axis default applied when a packaged font is registered.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct FontVariationAxis {
+    /// Four-byte OpenType variation tag, for example `wght`.
+    pub tag: [u8; 4],
+    /// Axis value used when the font face is registered.
+    pub value: f32,
+}
+
+/// Font slope metadata used by packaged design-system fonts.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PackagedFontStyle {
+    /// Upright roman glyphs.
+    #[default]
+    Normal,
+    /// Italic glyphs.
+    Italic,
+    /// Oblique glyphs.
+    Oblique,
+}
+
+/// A font face embedded in an application binary by design-system codegen.
+#[derive(Clone, Copy, Debug)]
+pub struct PackagedFont {
+    /// CSS/font family name exposed to app code.
+    pub family: &'static str,
+    /// OpenType font weight.
+    pub weight: u16,
+    /// Font slope style.
+    pub style: PackagedFontStyle,
+    /// Font format such as `truetype`, `opentype`, `woff`, or `woff2`.
+    pub format: &'static str,
+    /// Embedded font bytes.
+    pub data: &'static [u8],
+    /// Optional variation-axis defaults.
+    pub axes: &'static [FontVariationAxis],
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -848,16 +918,22 @@ impl Default for ElevationTokens {
         Self {
             level0: None,
             level1: Some(BoxShadow {
+                spread_radius: 0.0,
+                inset: false,
                 color: black_alpha(40),
                 offset: (0.0, 1.0),
                 blur_radius: 2.0,
             }),
             level2: Some(BoxShadow {
+                spread_radius: 0.0,
+                inset: false,
                 color: black_alpha(60),
                 offset: (0.0, 2.0),
                 blur_radius: 4.0,
             }),
             level3: Some(BoxShadow {
+                spread_radius: 0.0,
+                inset: false,
                 color: black_alpha(60),
                 offset: (0.0, 4.0),
                 blur_radius: 8.0,
@@ -865,6 +941,8 @@ impl Default for ElevationTokens {
             level4: None,
             level5: None,
             focus: Some(BoxShadow {
+                spread_radius: 0.0,
+                inset: false,
                 color: Color {
                     r: 20,
                     g: 184,

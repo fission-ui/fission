@@ -120,7 +120,7 @@ Smaller scopes reduce brittleness.
 Golden images are used for parity testing.
 
 Examples:
-- Skia vs software renderer,
+- Vello vs software renderer,
 - CPU vs GPU paths,
 - platform-specific renderers.
 
@@ -137,7 +137,28 @@ Rules:
 - time advancement is explicit,
 - intermediate frames are tested intentionally.
 
-No real-time animation capture exists.
+LiveTest provides deterministic animation capture:
+
+```rust,ignore
+use fission::test_driver::{GoldenOptions, LiveTestClient};
+
+let client = LiveTestClient::connect(8787);
+client.pause_animations()?;
+client.capture_at(160, "actual.png")?;
+client.compare_golden(
+    "tests/goldens/attention-160ms.png",
+    Some("target/attention-160ms.diff.png"),
+    GoldenOptions {
+        channel_tolerance: 2,
+        max_changed_percent: 0.1,
+    },
+)?;
+```
+
+`PauseAnimations`, `ResumeAnimations`, `AdvanceClock`, `CaptureAt`, and
+`WaitForIdle` are also available as JSON commands on the LiveTest `/cmd`
+endpoint. Repeating motion may be ignored when waiting for idle without being
+removed from production code.
 
 ---
 
@@ -152,6 +173,10 @@ On failure, pixel tests provide:
 - linked structural snapshot.
 
 Failures are debuggable, not opaque.
+
+`compare_png_to_golden` reports dimensions, changed and total pixel counts,
+changed percentage, and maximum channel delta. When a diff path is supplied it
+writes a PNG heatmap with changed pixels highlighted in red.
 
 ---
 

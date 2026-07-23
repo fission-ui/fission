@@ -1,5 +1,5 @@
 use fission_ir::{CoreIR, LayoutOp, Op, WidgetId};
-use fission_layout::{LayoutRect, LayoutSnapshot};
+use fission_layout::{LayoutRect, LayoutSize, LayoutSnapshot};
 
 #[derive(Debug)]
 pub enum LayoutViolation {
@@ -14,7 +14,12 @@ pub enum LayoutViolation {
         rect: LayoutRect,
         role: String,
     },
-    // Add more violations as needed
+    ContentOverflow {
+        node: WidgetId,
+        rect: LayoutRect,
+        content_size: LayoutSize,
+        text: bool,
+    },
 }
 
 pub struct LayoutLinter<'a> {
@@ -40,6 +45,22 @@ impl<'a> LayoutLinter<'a> {
         let geom = self.snapshot.get_node_geometry(node_id);
 
         if let Some(geom) = geom {
+            if geom.content_size.width > geom.rect.width() + 0.5
+                || geom.content_size.height > geom.rect.height() + 0.5
+            {
+                violations.push(LayoutViolation::ContentOverflow {
+                    node: node_id,
+                    rect: geom.rect,
+                    content_size: geom.content_size,
+                    text: matches!(
+                        node.op,
+                        Op::Paint(
+                            fission_ir::PaintOp::DrawText { .. }
+                                | fission_ir::PaintOp::DrawRichText { .. }
+                        )
+                    ),
+                });
+            }
             // Check Interactive Visibility
             if let Op::Semantics(s) = &node.op {
                 if s.focusable || !s.actions.entries.is_empty() {

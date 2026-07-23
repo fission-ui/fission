@@ -14,7 +14,11 @@ use fission_render::{
 use fission_render_vello::parley::FontContext;
 use fission_render_vello::VelloTextMeasurer;
 use fission_theme::fonts;
-use fontique::{Blob, Collection, CollectionOptions, FontInfoOverride, SourceCache};
+use fontique::{
+    Blob, Collection, CollectionOptions, FontInfoOverride, FontStyle as FontiqueStyle, FontWeight,
+    SourceCache,
+};
+use read_fonts::types::Tag;
 use std::sync::{Arc, Mutex};
 
 pub fn layout_input_nodes(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
@@ -136,6 +140,12 @@ fn should_use_mock_measurer() -> bool {
 }
 
 fn build_vello_measurer() -> Arc<dyn TextMeasurer> {
+    build_vello_measurer_with_fonts(&[])
+}
+
+fn build_vello_measurer_with_fonts(
+    fonts: &'static [fission_theme::PackagedFont],
+) -> Arc<dyn TextMeasurer> {
     let font_cx = Arc::new(Mutex::new(build_font_context()));
     {
         let mut font_cx = font_cx.lock().unwrap();
@@ -148,10 +158,40 @@ fn build_vello_measurer() -> Arc<dyn TextMeasurer> {
             .collection
             .register_fonts(Blob::from(font_data), Some(info_override));
     }
+    register_packaged_fonts(&font_cx, fonts);
     Arc::new(VelloTextMeasurer::new_with_default_family(
         font_cx,
         DEFAULT_TEST_FONT_FAMILY,
     ))
+}
+
+fn register_packaged_fonts(
+    font_cx: &Arc<Mutex<FontContext>>,
+    fonts: &'static [fission_theme::PackagedFont],
+) {
+    let mut font_cx = font_cx.lock().unwrap();
+    for font in fonts {
+        let axes = font
+            .axes
+            .iter()
+            .map(|axis| (Tag::new(&axis.tag), axis.value))
+            .collect::<Vec<_>>();
+        let style = match font.style {
+            fission_theme::PackagedFontStyle::Normal => FontiqueStyle::Normal,
+            fission_theme::PackagedFontStyle::Italic => FontiqueStyle::Italic,
+            fission_theme::PackagedFontStyle::Oblique => FontiqueStyle::Oblique(None),
+        };
+        font_cx.collection.register_fonts(
+            Blob::from(font.data.to_vec()),
+            Some(FontInfoOverride {
+                family_name: Some(font.family),
+                style: Some(style),
+                weight: Some(FontWeight::new(f32::from(font.weight))),
+                axes: (!axes.is_empty()).then_some(axes.as_slice()),
+                ..Default::default()
+            }),
+        );
+    }
 }
 
 fn build_font_context() -> FontContext {
@@ -211,6 +251,21 @@ impl<S: GlobalState> TestHarness<S> {
             return Self::new_with_measurer(initial_state, Arc::new(MockTextMeasurer));
         }
         Self::new_with_measurer(initial_state, build_vello_measurer())
+    }
+
+    /// Creates a test harness using the same packaged fonts and theme as the
+    /// application host, keeping text measurement deterministic across tests
+    /// and production rendering.
+    pub fn new_with_design_system<D: fission_theme::DesignSystem>(
+        initial_state: S,
+        mode: fission_theme::DesignMode,
+    ) -> Self {
+        let mut harness = Self::new_with_measurer(
+            initial_state,
+            build_vello_measurer_with_fonts(D::font_faces()),
+        );
+        harness.env.theme = D::theme(mode);
+        harness
     }
 
     pub fn new_with_mock_measurer(initial_state: S) -> Self {
@@ -703,6 +758,18 @@ fn generate_display_list_with_visited(
             }
 
             match &node.op {
+                fission_ir::Op::Paint(fission_ir::PaintOp::BackdropFilter {
+                    filter,
+                    corner_radius,
+                }) => {
+                    list.push(DisplayOp::BackdropFilter {
+                        rect: geom.rect,
+                        filter: *filter,
+                        corner_radius: *corner_radius,
+                        bounds: geom.rect,
+                        node_id: Some(node_id),
+                    });
+                }
                 fission_ir::Op::Paint(fission_ir::PaintOp::DrawRect {
                     fill,
                     stroke,
@@ -722,7 +789,9 @@ fn generate_display_list_with_visited(
                                 a: s.color.a,
                             },
                             blur_radius: s.blur_radius,
+                            spread_radius: s.spread_radius,
                             offset: s.offset,
+                            inset: s.inset,
                         }),
                         bounds: geom.rect,
                         node_id: Some(node_id),

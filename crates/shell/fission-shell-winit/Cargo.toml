@@ -38,6 +38,7 @@ serde_json = "1"
 vello = { package = "fission-vello", path = "../../../third_party/vello/vello", version = "0.6.0-fission.2" }
 pollster = "0.3"
 fontique = "0.7"
+read-fonts = "0.35"
 serde = { version = "1.0", features = ["derive"] }
 bincode = "1.3"
 base64 = "0.22"

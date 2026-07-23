@@ -96,6 +96,8 @@ pub fn panel_card<S: GlobalState>(view: ViewHandle<S>, child: Widget) -> Widget 
         .border_radius(if compact { 16.0 } else { 22.0 })
         .padding_all(if compact { 12.0 } else { 18.0 })
         .shadow(ir_op::BoxShadow {
+            spread_radius: 0.0,
+            inset: false,
             color: Color {
                 r: 15,
                 g: 23,

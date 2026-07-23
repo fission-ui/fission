@@ -154,6 +154,8 @@ impl InternalLower for Slider {
                     stroke: None,
                     corner_radius: thumb_size / 2.0,
                     shadow: Some(fission_ir::op::BoxShadow {
+                        spread_radius: 0.0,
+                        inset: false,
                         color: Color {
                             r: 0,
                             g: 0,

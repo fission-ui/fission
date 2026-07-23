@@ -6,7 +6,7 @@
 
 use crate::ui::{Composite, Spacer, Widget};
 use crate::CurrentTime;
-use fission_ir::op::Color;
+use fission_ir::op::{BoxShadow, Color, Fill};
 use fission_ir::{CompositeScalar, WidgetId};
 use fission_layout::{LayoutPoint, LayoutSnapshot};
 use serde::{Deserialize, Serialize};
@@ -110,10 +110,24 @@ pub enum MotionPropertyId {
     CornerRadius,
     /// Paint background color.
     BackgroundColor,
+    /// Discrete paint background fill, including gradients.
+    BackgroundFill,
     /// Paint border color.
     BorderColor,
+    /// Paint border width in logical pixels.
+    BorderWidth,
     /// Paint text color.
     TextColor,
+    /// Discrete ordered box-shadow layers.
+    BoxShadows,
+    /// Left padding in logical pixels.
+    PaddingLeft,
+    /// Right padding in logical pixels.
+    PaddingRight,
+    /// Top padding in logical pixels.
+    PaddingTop,
+    /// Bottom padding in logical pixels.
+    PaddingBottom,
     /// Widget-defined property consumed by custom renderers or widget code.
     Custom(Arc<str>),
 }
@@ -164,6 +178,8 @@ impl MotionPropertyId {
                     a: 0,
                 })
             }
+            Self::BackgroundFill => MotionValue::Fill(Fill::Solid(Color::TRANSPARENT)),
+            Self::BoxShadows => MotionValue::Shadows(Vec::new()),
             Self::TranslateX
             | Self::TranslateY
             | Self::Width
@@ -174,7 +190,12 @@ impl MotionPropertyId {
             | Self::LayoutHeight
             | Self::IntrinsicWidth
             | Self::IntrinsicHeight
-            | Self::CornerRadius => MotionValue::Px(0.0),
+            | Self::CornerRadius
+            | Self::BorderWidth
+            | Self::PaddingLeft
+            | Self::PaddingRight
+            | Self::PaddingTop
+            | Self::PaddingBottom => MotionValue::Px(0.0),
             Self::Rotation => MotionValue::Deg(0.0),
             Self::Custom(_) => MotionValue::Scalar(0.0),
         }
@@ -205,6 +226,10 @@ pub enum MotionValue {
     Deg(f32),
     /// RGBA color value.
     Color(Color),
+    /// A discrete solid or gradient fill.
+    Fill(Fill),
+    /// Discrete ordered box-shadow layers.
+    Shadows(Vec<BoxShadow>),
 }
 
 impl MotionValue {
@@ -212,7 +237,7 @@ impl MotionValue {
     pub fn as_scalar_like(&self) -> Option<f32> {
         match self {
             Self::Scalar(v) | Self::Px(v) | Self::Deg(v) => Some(*v),
-            Self::Bool(_) | Self::Color(_) => None,
+            Self::Bool(_) | Self::Color(_) | Self::Fill(_) | Self::Shadows(_) => None,
         }
     }
 
@@ -581,6 +606,9 @@ pub enum MotionTransition {
     },
 }
 
+/// Concise alias for state-style transitions used by interactive widgets.
+pub type Transition = MotionTransition;
+
 impl Default for MotionTransition {
     fn default() -> Self {
         Self::Tween {
@@ -594,6 +622,10 @@ impl Default for MotionTransition {
 }
 
 impl MotionTransition {
+    /// Creates a tween with the common ease-out curve.
+    pub fn ease_out(duration_ms: u64) -> Self {
+        Self::tween(duration_ms, MotionEasing::EaseOut)
+    }
     /// Creates a fixed-duration tween transition.
     pub fn tween(duration_ms: u64, easing: MotionEasing) -> Self {
         Self::Tween {
@@ -729,6 +761,28 @@ impl MotionTrack {
         Self {
             property,
             phase: MotionPhase::Composite,
+            from,
+            to,
+            transition: MotionTransition::default(),
+        }
+    }
+
+    /// Creates a layout-phase track for dimensions or spacing.
+    pub fn layout(property: MotionPropertyId, from: MotionStartValue, to: MotionExpr) -> Self {
+        Self {
+            property,
+            phase: MotionPhase::Layout,
+            from,
+            to,
+            transition: MotionTransition::default(),
+        }
+    }
+
+    /// Creates a paint-phase track for colors, strokes, or corner radii.
+    pub fn paint(property: MotionPropertyId, from: MotionStartValue, to: MotionExpr) -> Self {
+        Self {
+            property,
+            phase: MotionPhase::Paint,
             from,
             to,
             transition: MotionTransition::default(),
@@ -1385,6 +1439,16 @@ fn sync_tracks(
             MotionStartValue::Current => current_value,
         };
 
+        if !track.transition.repeat_enabled() && start_value == target_value {
+            let changed = state.values.get(&key) != Some(&target_value);
+            state.values.insert(key.clone(), target_value);
+            state.active.remove(&key);
+            if changed {
+                result.changed.push(key);
+            }
+            continue;
+        }
+
         state.values.insert(key.clone(), start_value.clone());
         state.active.insert(
             key.clone(),
@@ -1422,6 +1486,16 @@ pub fn deg(value: f32) -> MotionExpr {
 /// Creates a color expression.
 pub fn color(value: Color) -> MotionExpr {
     MotionExpr::Value(MotionValue::Color(value))
+}
+
+/// Creates a discrete solid or gradient fill expression.
+pub fn fill(value: Fill) -> MotionExpr {
+    MotionExpr::Value(MotionValue::Fill(value))
+}
+
+/// Creates an ordered discrete box-shadow expression.
+pub fn shadows(value: Vec<BoxShadow>) -> MotionExpr {
+    MotionExpr::Value(MotionValue::Shadows(value))
 }
 
 /// Creates an opacity fade-in track.
@@ -1755,7 +1829,10 @@ fn map_numeric(value: MotionValue, f: impl FnOnce(f32) -> f32) -> MotionValue {
         MotionValue::Scalar(v) => MotionValue::Scalar(f(v)),
         MotionValue::Px(v) => MotionValue::Px(f(v)),
         MotionValue::Deg(v) => MotionValue::Deg(f(v)),
-        MotionValue::Bool(_) | MotionValue::Color(_) => value,
+        MotionValue::Bool(_)
+        | MotionValue::Color(_)
+        | MotionValue::Fill(_)
+        | MotionValue::Shadows(_) => value,
     }
 }
 

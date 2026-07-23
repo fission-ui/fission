@@ -1084,6 +1084,7 @@ fn render_node_to_html(
             .into_iter()
             .map(|registration| (registration.node_id, registration))
             .collect(),
+        font_faces: site.font_faces,
         ..Default::default()
     };
     Ok(render_ir_to_html_with_styles(&lowering.ir, &render_options, styles)?.html)

@@ -12,6 +12,9 @@ include = [
     "README.md",
     "Cargo.toml",
     "fonts/Inter/static/Inter_24pt-Regular.ttf",
+    "fonts/Inter/static/Inter_24pt-Medium.ttf",
+    "fonts/Inter/static/Inter_24pt-SemiBold.ttf",
+    "fonts/Inter/static/Inter_24pt-Bold.ttf",
     "fonts/Noto_Sans/static/NotoSans-Regular.ttf",
 ]
 

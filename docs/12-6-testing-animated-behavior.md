@@ -23,14 +23,15 @@ Animation tests must never depend on frame rate or real time.
 
 ## 12.6.2 Test Harness Model
 
-Animation tests use the standard runtime harness:
+Animation tests use either the headless runtime harness or LiveTest:
 
 - initial state is constructed explicitly,
 - animations are started via actions,
-- time advances via explicit ticks,
+- time advances via explicit ticks or test-control clock commands,
 - snapshots are captured and inspected.
 
-There is no special animation test mode.
+LiveTest clock control freezes only time progression. It does not replace,
+remove, or conditionally compile the production motion declarations.
 
 ---
 
@@ -56,7 +57,8 @@ Tests verify that animations are registered correctly.
 
 ## 12.6.4 Advancing Time Deterministically
 
-Time advancement is explicit.
+Time advancement is explicit. Runtime tests call `tick`; a running desktop app
+can be controlled through `LiveTestClient`:
 
 Example:
 
@@ -64,6 +66,16 @@ Example:
 dispatch(Tick { dt: 100 });
 dispatch(Tick { dt: 100 });
 ```
+
+```rust,ignore
+client.pause_animations()?;
+client.advance_clock(100)?;
+client.capture_at(100, "frame-200.png")?;
+client.resume_animations()?;
+```
+
+`CaptureAt` advances and captures the resulting redraw as one test-control
+operation, avoiding races between an explicit clock step and a screenshot.
 
 Tests may advance time in any pattern without affecting correctness.
 
@@ -163,6 +175,11 @@ Tests may compare:
 - resolved state fields.
 
 Snapshots explain failures clearly.
+
+For integration tests, `wait_for_idle(timeout_ms, true)` waits for finite motion
+and ripples while ignoring intentionally repeating attention animations. Passing
+`false` also requires repeating motion to stop. This prevents a production pulse
+from making screenshot tests wait forever.
 
 ---
 

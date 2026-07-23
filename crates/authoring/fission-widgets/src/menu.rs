@@ -115,6 +115,8 @@ impl From<Menu> for Widget {
             .border(tokens.colors.border, 1.0)
             .border_radius(tokens.radii.medium)
             .shadow(tokens.elevations.level2.unwrap_or(BoxShadow {
+                spread_radius: 0.0,
+                inset: false,
                 color: Color {
                     r: 0,
                     g: 0,

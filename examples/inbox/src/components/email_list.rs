@@ -345,6 +345,8 @@ impl From<EmailList> for Widget {
                                 .elevations
                                 .level2
                                 .unwrap_or(fission::core::op::BoxShadow {
+                                    spread_radius: 0.0,
+                                    inset: false,
                                     color: fission::core::op::Color {
                                         r: 0,
                                         g: 0,

@@ -92,6 +92,38 @@ fn test_sync_motion_declarations_skips_noop_terminal_transition() {
 }
 
 #[test]
+fn test_sync_motion_declarations_does_not_animate_equal_explicit_endpoints() {
+    let mut runtime = Runtime::default();
+    let widget_id = WidgetId::explicit("initial_motion");
+    let property = MotionPropertyId::opacity();
+
+    runtime.sync_motion_declarations(
+        &[MotionDeclaration {
+            id: widget_id,
+            kind: MotionDeclarationKind::Tracks {
+                tracks: vec![MotionTrack {
+                    property: property.clone(),
+                    phase: MotionPhase::Composite,
+                    from: MotionStartValue::Explicit(scalar(1.0)),
+                    to: scalar(1.0),
+                    transition: MotionTransition::tween(300, MotionEasing::Linear),
+                }],
+            },
+        }],
+        None,
+    );
+
+    assert!(runtime.runtime_state.motion.active.is_empty());
+    assert_eq!(
+        runtime
+            .runtime_state
+            .motion
+            .scalar_value(widget_id, property),
+        1.0
+    );
+}
+
+#[test]
 fn test_sync_motion_declarations_removes_stale_repeating_motion() {
     let mut runtime = Runtime::default();
     let stale_widget = WidgetId::explicit("stale_motion");

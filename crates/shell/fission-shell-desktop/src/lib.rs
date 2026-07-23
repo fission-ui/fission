@@ -92,6 +92,12 @@ where
         self
     }
 
+    /// Registers packaged application font faces before the first frame.
+    pub fn with_fonts(mut self, fonts: &'static [fission_theme::PackagedFont]) -> Self {
+        self.inner = self.inner.with_fonts(fonts);
+        self
+    }
+
     pub fn with_sync_env<F>(mut self, f: F) -> Self
     where
         F: Fn(&S, &mut Env) + Send + Sync + 'static,

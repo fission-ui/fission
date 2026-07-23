@@ -3,8 +3,8 @@ use super::traits::{InternalLower, InternalLowerer};
 use super::widgets::{
     ActionScope, Align, Button, Checkbox, Clip, Column, Composite, Container, ContextMenuRegion,
     FocusScope, GestureDetector, Grid, GridItem, Icon, Image, LazyColumn, Overlay, Positioned,
-    Radio, RichText, Row, SafeArea, Scroll, SemanticsRegion, Slider, Spacer, Switch, Text,
-    TextInput, Transform, Video, ZStack,
+    Pressable, Radio, Responsive, RichText, Row, SafeArea, Scroll, SemanticsRegion, Slider, Spacer,
+    Switch, Text, TextInput, Transform, Video, ZStack,
 };
 use crate::lowering::InternalLoweringCx;
 use fission_ir::{Op, StructuralOp, WidgetId};
@@ -29,6 +29,7 @@ enum WidgetKind {
     RichText(RichText),
     Transform(Transform),
     Button(Button),
+    Pressable(Pressable),
     TextInput(TextInput),
     Scroll(Scroll),
     SemanticsRegion(SemanticsRegion),
@@ -41,6 +42,7 @@ enum WidgetKind {
     GestureDetector(GestureDetector),
     Grid(Grid),
     GridItem(GridItem),
+    Responsive(Responsive),
     Checkbox(Checkbox),
     Switch(Switch),
     Radio(Radio),
@@ -106,6 +108,10 @@ impl Widget {
                 w.id = Some(id);
                 WidgetKind::Button(w)
             }
+            WidgetKind::Pressable(mut w) => {
+                w.id = Some(id);
+                WidgetKind::Pressable(w)
+            }
             WidgetKind::TextInput(mut w) => {
                 w.id = Some(id);
                 WidgetKind::TextInput(w)
@@ -153,6 +159,10 @@ impl Widget {
             WidgetKind::GridItem(mut w) => {
                 w.id = Some(id);
                 WidgetKind::GridItem(w)
+            }
+            WidgetKind::Responsive(mut w) => {
+                w.id = Some(id);
+                WidgetKind::Responsive(w)
             }
             WidgetKind::Checkbox(mut w) => {
                 w.id = Some(id);
@@ -213,6 +223,12 @@ impl Widget {
         }
     }
 
+    pub(crate) fn from_pressable_raw(pressable: Pressable) -> Self {
+        Self {
+            kind: Box::new(WidgetKind::Pressable(pressable)),
+        }
+    }
+
     pub(crate) fn into_text(self) -> Result<Text, Self> {
         match *self.kind {
             WidgetKind::Text(text) => Ok(text),
@@ -235,6 +251,7 @@ impl Widget {
             WidgetKind::RichText(_) => "RichText",
             WidgetKind::Transform(_) => "Transform",
             WidgetKind::Button(_) => "Button",
+            WidgetKind::Pressable(_) => "Pressable",
             WidgetKind::TextInput(_) => "TextInput",
             WidgetKind::Scroll(_) => "Scroll",
             WidgetKind::SemanticsRegion(_) => "SemanticsRegion",
@@ -247,6 +264,7 @@ impl Widget {
             WidgetKind::GestureDetector(_) => "GestureDetector",
             WidgetKind::Grid(_) => "Grid",
             WidgetKind::GridItem(_) => "GridItem",
+            WidgetKind::Responsive(_) => "Responsive",
             WidgetKind::Checkbox(_) => "Checkbox",
             WidgetKind::Switch(_) => "Switch",
             WidgetKind::Radio(_) => "Radio",
@@ -381,6 +399,7 @@ impl Widget {
             WidgetKind::RichText(w) => w.lower(cx),
             WidgetKind::Transform(w) => w.lower(cx),
             WidgetKind::Button(w) => w.lower(cx),
+            WidgetKind::Pressable(w) => w.lower(cx),
             WidgetKind::TextInput(w) => w.lower(cx),
             WidgetKind::Scroll(w) => w.lower(cx),
             WidgetKind::SemanticsRegion(w) => w.lower(cx),
@@ -393,6 +412,7 @@ impl Widget {
             WidgetKind::GestureDetector(w) => w.lower(cx),
             WidgetKind::Grid(w) => w.lower(cx),
             WidgetKind::GridItem(w) => w.lower(cx),
+            WidgetKind::Responsive(w) => w.lower(cx),
             WidgetKind::Checkbox(w) => w.lower(cx),
             WidgetKind::Switch(w) => w.lower(cx),
             WidgetKind::Radio(w) => w.lower(cx),
@@ -647,6 +667,13 @@ impl From<GridItem> for Widget {
     fn from(w: GridItem) -> Self {
         Self {
             kind: Box::new(WidgetKind::GridItem(w)),
+        }
+    }
+}
+impl From<Responsive> for Widget {
+    fn from(w: Responsive) -> Self {
+        Self {
+            kind: Box::new(WidgetKind::Responsive(w)),
         }
     }
 }

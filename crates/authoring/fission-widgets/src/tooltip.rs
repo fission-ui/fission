@@ -179,6 +179,7 @@ impl From<Tooltip> for Widget {
                     .unwrap_or(fission_core::op::Fill::Solid(theme.bg_color)),
             )
             .padding(style.padding_box(theme.padding_x, theme.padding_y))
+            .align_child(fission_ir::op::BoxAlignment::Start)
             .border_radius(style.radius.unwrap_or(theme.radius))
             .shadows(style.outer_shadows())
             .into();

@@ -163,7 +163,8 @@ pub use fission_core::ui::{
     Icon, Image, ImageAlignment, ImageCachePolicy, ImageErrorBehavior, ImageLoadingBehavior,
     ImageRequest, ImageSource, IosAudioSessionCategory, IosAudioSessionCategoryOption,
     IosAudioSessionMode, IosVideoAudioOptions, LayoutBuilder, LazyColumn, Overlay, Positioned,
-    Provider, Radio, RichText, RichTextRun, Row, SafeArea, Scroll, SemanticsRegion, Slider, Spacer,
+    Pressable, PressableRole, PressableStyle, Provider, Radio, Responsive, ResponsiveCase,
+    ResponsiveQuery, RichText, RichTextRun, Row, SafeArea, Scroll, SemanticsRegion, Slider, Spacer,
     Switch, Text, TextContent, TextFontStyle, TextInput, TextRunStyle, Video, VideoAudioActivation,
     VideoAudioOptions, VideoAudioPolicy, VideoSource, Widget, WidgetIdExt, ZStack,
 };
@@ -296,9 +297,15 @@ pub use fission_core::env::Env;
 
 // IR op types (Color, LayoutOp, PaintOp, etc.)
 pub use fission_ir::op;
+pub use fission_ir::op::{
+    BoxAlignment, BoxGridPlacement, BoxPosition, BoxStyle, GridPlacement, GridTrack, Length,
+    Overflow,
+};
 
 // Layout types
-pub use fission_layout::{LayoutPoint, LayoutRect, LayoutSize, LayoutUnit};
+pub use fission_layout::{
+    LayoutInspection, LayoutNodeGeometry, LayoutPoint, LayoutRect, LayoutSize, LayoutUnit,
+};
 
 // Authoring widgets (HStack, VStack, etc.)
 pub use fission_widgets::{HStack, VStack};
@@ -525,7 +532,9 @@ pub mod prelude {
     };
 
     // Layout
-    pub use fission_layout::{LayoutPoint, LayoutRect, LayoutSize};
+    pub use fission_layout::{
+        LayoutInspection, LayoutNodeGeometry, LayoutPoint, LayoutRect, LayoutSize,
+    };
 
     // Design systems and generated themes.
     pub use fission_theme::*;

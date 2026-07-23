@@ -211,6 +211,13 @@ where
             | TestCommand::ExternalFileCancel {} => Ok(TestResponse::Error {
                 message: "external file drag-and-drop is not supported by the terminal backend".into(),
             }),
+            TestCommand::PauseAnimations {}
+            | TestCommand::ResumeAnimations {}
+            | TestCommand::AdvanceClock { .. }
+            | TestCommand::CaptureAt { .. }
+            | TestCommand::WaitForIdle { .. } => Ok(TestResponse::Error {
+                message: "deterministic motion control is not yet supported by the terminal backend".into(),
+            }),
             TestCommand::ResolveSelector { .. }
             | TestCommand::TapSelector { .. }
             | TestCommand::ActivateSelector { .. }

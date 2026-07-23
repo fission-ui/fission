@@ -3067,6 +3067,7 @@ dependencies = [
  "objc",
  "pollster",
  "raw-window-handle",
+ "read-fonts 0.35.0",
  "rfd",
  "rxing",
  "serde",
@@ -3100,6 +3101,7 @@ dependencies = [
  "fission-widgets",
  "fontique",
  "lazy_static",
+ "read-fonts 0.35.0",
  "serde",
  "serde_json",
 ]
@@ -3110,8 +3112,10 @@ version = "0.9.0"
 dependencies = [
  "anyhow",
  "base64",
+ "image 0.25.8",
  "serde",
  "serde_json",
+ "tempfile",
  "tungstenite",
  "ureq",
 ]

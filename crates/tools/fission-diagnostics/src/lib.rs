@@ -128,6 +128,22 @@ pub enum DiagEventKind {
         full_rebuild: bool,
         duration_ns: u64,
     },
+    LayoutOverflow {
+        node: u128,
+        debug_name: String,
+        parent: Option<u128>,
+        parent_debug_name: Option<String>,
+        parent_layout: Option<String>,
+        text: bool,
+        min_w: f32,
+        max_w: Option<f32>,
+        min_h: f32,
+        max_h: Option<f32>,
+        laid_out_w: f32,
+        laid_out_h: f32,
+        content_w: f32,
+        content_h: f32,
+    },
 
     PaintSummary {
         segments_reused: u32,

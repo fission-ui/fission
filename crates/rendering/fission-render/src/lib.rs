@@ -53,9 +53,16 @@ pub struct Stroke {
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct BoxShadow {
+    /// Shadow color.
     pub color: Color,
+    /// Blur radius in logical points.
     pub blur_radius: LayoutUnit,
+    /// Positive or negative spread radius in logical points.
+    pub spread_radius: LayoutUnit,
+    /// Shadow offset in logical points.
     pub offset: (LayoutUnit, LayoutUnit),
+    /// Whether this is an inset shadow.
+    pub inset: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -106,6 +113,13 @@ pub enum DisplayOp {
         cache_key: u64,
         bounds: LayoutRect,
         list: Box<DisplayList>,
+    },
+    BackdropFilter {
+        rect: LayoutRect,
+        filter: fission_ir::op::BackdropFilter,
+        corner_radius: LayoutUnit,
+        bounds: LayoutRect,
+        node_id: Option<WidgetId>,
     },
     DrawRect {
         rect: LayoutRect,

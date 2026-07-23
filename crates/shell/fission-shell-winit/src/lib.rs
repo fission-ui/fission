@@ -60,7 +60,11 @@ use fission_shell::async_host::{
 };
 use fission_shell::{VideoEvent, VideoPlayer};
 use fission_theme::fonts;
-use fontique::{Blob, Collection, CollectionOptions, FontInfoOverride, SourceCache};
+use fontique::{
+    Blob, Collection, CollectionOptions, FontInfoOverride, FontStyle as FontiqueStyle, FontWeight,
+    SourceCache,
+};
+use read_fonts::types::Tag;
 
 use fission_test_driver::TestEvent;
 
@@ -4086,7 +4090,15 @@ where
         mut self,
         mode: fission_theme::DesignMode,
     ) -> Self {
+        register_packaged_fonts(&self.measurer.font_cx(), D::font_faces());
         self.env.theme = D::theme(mode);
+        self
+    }
+
+    /// Registers packaged application font faces with both text measurement
+    /// and rendering before the first frame.
+    pub fn with_fonts(self, fonts: &'static [fission_theme::PackagedFont]) -> Self {
+        register_packaged_fonts(&self.measurer.font_cx(), fonts);
         self
     }
 
@@ -4608,6 +4620,8 @@ where
             .unwrap_or_else(Instant::now);
         let mut redraw_pending = false;
         let mut last_frame_time = Instant::now();
+        let mut test_animations_paused = false;
+        let mut pending_test_clock_advance_ms: Option<u64> = None;
         let blink_enabled = std::env::var("FISSION_TEXTINPUT_BLINK")
             .map(|v| !matches!(v.to_ascii_lowercase().as_str(), "0" | "false" | "no"))
             .unwrap_or(true);
@@ -5538,6 +5552,82 @@ where
                         );
                         window.request_redraw();
                     }
+                    TestEvent::PauseAnimations { response_tx } => {
+                        test_animations_paused = true;
+                        let _ = response_tx.send(fission_test_driver::TestResponse::Ok {});
+                    }
+                    TestEvent::ResumeAnimations { response_tx } => {
+                        test_animations_paused = false;
+                        last_frame_time = Instant::now();
+                        if let Some(window) = platform_window.active_window() {
+                            window.request_redraw();
+                        }
+                        let _ = response_tx.send(fission_test_driver::TestResponse::Ok {});
+                    }
+                    TestEvent::AdvanceClock { ms, response_tx } => {
+                        let Some(window) = platform_window.active_window() else {
+                            let _ = response_tx.send(fission_test_driver::TestResponse::Error {
+                                message: "window not ready".into(),
+                            });
+                            return;
+                        };
+                        pending_test_clock_advance_ms = Some(
+                            pending_test_clock_advance_ms
+                                .unwrap_or_default()
+                                .saturating_add(ms),
+                        );
+                        let _ = response_tx.send(fission_test_driver::TestResponse::Ok {});
+                        window.request_redraw();
+                    }
+                    TestEvent::CaptureAt { ms, response_tx } => {
+                        let Some(window) = platform_window.active_window() else {
+                            let _ = response_tx.send(fission_test_driver::TestResponse::Error {
+                                message: "window not ready".into(),
+                            });
+                            return;
+                        };
+                        pending_test_clock_advance_ms = Some(
+                            pending_test_clock_advance_ms
+                                .unwrap_or_default()
+                                .saturating_add(ms),
+                        );
+                        pending_screenshot_path = Some("__capture__".into());
+                        pending_screenshot_response_tx = Some(response_tx);
+                        pending_capture_settle = resize_is_unsettled(
+                            pending_resize.is_some(),
+                            resize_needs_settled_frame,
+                            live_resize.is_live(Instant::now()),
+                        );
+                        window.request_redraw();
+                    }
+                    TestEvent::MotionStatus { response_tx } => {
+                        let finite = runtime
+                            .runtime_state
+                            .motion
+                            .active
+                            .values()
+                            .filter(|motion| !motion.repeat)
+                            .count();
+                        let repeating = runtime
+                            .runtime_state
+                            .motion
+                            .active
+                            .values()
+                            .filter(|motion| motion.repeat)
+                            .count();
+                        let ripples = runtime
+                            .runtime_state
+                            .motion
+                            .ripples
+                            .values()
+                            .map(Vec::len)
+                            .sum();
+                        let _ = response_tx.send(fission_test_driver::TestResponse::MotionStatus {
+                            finite,
+                            repeating,
+                            ripples,
+                        });
+                    }
                     TestEvent::GetText { response_tx } => {
                         let resp =
                             build_get_text_response(&pipeline, &runtime.runtime_state.scroll);
@@ -6026,25 +6116,27 @@ where
                         }
                     }
 
-                    let has_finite_animation = runtime
-                        .runtime_state
-                        .motion
-                        .active
-                        .values()
-                        .any(|anim| !anim.repeat);
+                    let has_finite_animation = !test_animations_paused
+                        && runtime
+                            .runtime_state
+                            .motion
+                            .active
+                            .values()
+                            .any(|anim| !anim.repeat);
                     let resize_unsettled = resize_is_unsettled(
                         pending_resize.is_some(),
                         resize_needs_settled_frame,
                         live_resize.is_live(now),
                     );
-                    let repeat_animation_interval = if resize_unsettled || pending_capture_settle {
-                        None
-                    } else {
-                        repeating_animation_redraw_interval(
-                            &runtime.runtime_state.motion,
-                            repeat_animation_frame,
-                        )
-                    };
+                    let repeat_animation_interval =
+                        if test_animations_paused || resize_unsettled || pending_capture_settle {
+                            None
+                        } else {
+                            repeating_animation_redraw_interval(
+                                &runtime.runtime_state.motion,
+                                repeat_animation_frame,
+                            )
+                        };
                     let has_playing_video = players.iter().any(|(widget_id, _)| {
                         runtime
                             .runtime_state
@@ -6520,7 +6612,13 @@ where
                             let now = Instant::now();
                             let dt = now.duration_since(last_frame_time);
                             last_frame_time = now;
-                            let dt_ms = dt.as_millis() as u64;
+                            let dt_ms = pending_test_clock_advance_ms.take().unwrap_or_else(|| {
+                                if test_animations_paused {
+                                    0
+                                } else {
+                                    dt.as_millis() as u64
+                                }
+                            });
                             let pre_tick_active = active_animation_keys(&runtime);
                             match runtime.tick(dt_ms) {
                                 Ok(tick_result) => {
@@ -8205,6 +8303,36 @@ fn build_font_context() -> FontContext {
     FontContext {
         collection: Collection::new(options),
         source_cache: SourceCache::default(),
+    }
+}
+
+fn register_packaged_fonts(
+    font_cx: &Arc<Mutex<FontContext>>,
+    fonts: &'static [fission_theme::PackagedFont],
+) {
+    software_renderer::register_packaged_fonts(fonts);
+    let mut font_cx = font_cx.lock().unwrap();
+    for font in fonts {
+        let axes = font
+            .axes
+            .iter()
+            .map(|axis| (Tag::new(&axis.tag), axis.value))
+            .collect::<Vec<_>>();
+        let style = match font.style {
+            fission_theme::PackagedFontStyle::Normal => FontiqueStyle::Normal,
+            fission_theme::PackagedFontStyle::Italic => FontiqueStyle::Italic,
+            fission_theme::PackagedFontStyle::Oblique => FontiqueStyle::Oblique(None),
+        };
+        let info_override = FontInfoOverride {
+            family_name: Some(font.family),
+            style: Some(style),
+            weight: Some(FontWeight::new(f32::from(font.weight))),
+            axes: (!axes.is_empty()).then_some(axes.as_slice()),
+            ..Default::default()
+        };
+        font_cx
+            .collection
+            .register_fonts(Blob::from(font.data.to_vec()), Some(info_override));
     }
 }
 
