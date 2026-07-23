@@ -2310,7 +2310,7 @@ impl LayoutEngine {
                 let op = match &node.op {
                     LayoutOp::StyledBox { style, .. } => {
                         resolved_style =
-                            resolve_box_style(style, constraints, self.active_viewport);
+                            resolve_box_style(style, constraints, snapshot.viewport_size);
                         &resolved_style
                     }
                     op => op,
