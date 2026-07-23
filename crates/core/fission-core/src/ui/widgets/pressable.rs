@@ -86,6 +86,22 @@ impl PressableStyle {
 /// supplied through [`PressableStyle`] or [`BoxStyle`]. It still provides
 /// semantic activation, focus handling, keyboard activation, pointer state,
 /// optional transitions, and optional ripple feedback.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// Pressable::new(Text::new("Open report"))
+///     .id(WidgetId::explicit("report.open"))
+///     .semantics_identifier("report.open")
+///     .label("Open report")
+///     .role(PressableRole::Button)
+///     .on_press(open_report)
+///     .layout(BoxStyle::default().padding_symmetric(
+///         Length::points(16.0),
+///         Length::points(10.0),
+///     ))
+///     .into()
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Pressable {
     /// Optional stable identity used for interaction state, focus, and motion.
