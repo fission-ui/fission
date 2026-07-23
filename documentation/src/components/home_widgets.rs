@@ -11,40 +11,86 @@ pub(super) fn site_semantics(identifier: impl Into<String>) -> Semantics {
     }
 }
 
-pub(super) fn semantic_column(
-    identifier: impl Into<String>,
+#[derive(Debug)]
+pub(super) struct SemanticColumn {
+    identifier: String,
     children: Vec<Widget>,
     gap: Option<f32>,
     align_items: AlignItems,
-) -> Widget {
-    Column {
-        children,
-        gap,
-        align_items,
-        semantics: Some(site_semantics(identifier)),
-        ..Default::default()
-    }
-    .into()
 }
 
-pub(super) fn semantic_row(
-    identifier: impl Into<String>,
+impl SemanticColumn {
+    pub(super) fn new(
+        identifier: impl Into<String>,
+        children: Vec<Widget>,
+        gap: Option<f32>,
+        align_items: AlignItems,
+    ) -> Self {
+        Self {
+            identifier: identifier.into(),
+            children,
+            gap,
+            align_items,
+        }
+    }
+}
+
+impl From<SemanticColumn> for Widget {
+    fn from(column: SemanticColumn) -> Self {
+        Column {
+            children: column.children,
+            gap: column.gap,
+            align_items: column.align_items,
+            semantics: Some(site_semantics(column.identifier)),
+            ..Default::default()
+        }
+        .into()
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct SemanticRow {
+    identifier: String,
     children: Vec<Widget>,
     gap: Option<f32>,
     wrap: FlexWrap,
     align_items: AlignItems,
     justify_content: JustifyContent,
-) -> Widget {
-    Row {
-        children,
-        gap,
-        wrap,
-        align_items,
-        justify_content,
-        semantics: Some(site_semantics(identifier)),
-        ..Default::default()
+}
+
+impl SemanticRow {
+    pub(super) fn new(
+        identifier: impl Into<String>,
+        children: Vec<Widget>,
+        gap: Option<f32>,
+        wrap: FlexWrap,
+        align_items: AlignItems,
+        justify_content: JustifyContent,
+    ) -> Self {
+        Self {
+            identifier: identifier.into(),
+            children,
+            gap,
+            wrap,
+            align_items,
+            justify_content,
+        }
     }
-    .into()
+}
+
+impl From<SemanticRow> for Widget {
+    fn from(row: SemanticRow) -> Self {
+        Row {
+            children: row.children,
+            gap: row.gap,
+            wrap: row.wrap,
+            align_items: row.align_items,
+            justify_content: row.justify_content,
+            semantics: Some(site_semantics(row.identifier)),
+            ..Default::default()
+        }
+        .into()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -141,7 +187,7 @@ impl From<SectionHeader> for Widget {
     fn from(component: SectionHeader) -> Self {
         let (_ctx, view) = fission::build::current::<DocsState>();
         let tokens = &view.env().theme.tokens;
-        semantic_column(
+        SemanticColumn::new(
             "site-home-section-header",
             vec![
                 Text::new(component.kicker)
@@ -175,6 +221,7 @@ impl From<SectionHeader> for Widget {
             Some(tokens.spacing.m),
             AlignItems::Center,
         )
+        .into()
     }
 }
 #[derive(Clone, Debug)]
@@ -270,7 +317,7 @@ impl From<SearchPill> for Widget {
     fn from(_component: SearchPill) -> Self {
         let (_ctx, view) = fission::build::current::<DocsState>();
         let tokens = &view.env().theme.tokens;
-        semantic_row(
+        SemanticRow::new(
             "site-search-trigger",
             vec![
                 Text::new("Search")
@@ -293,6 +340,7 @@ impl From<SearchPill> for Widget {
             AlignItems::Center,
             JustifyContent::Start,
         )
+        .into()
     }
 }
 #[derive(Clone, Debug)]
