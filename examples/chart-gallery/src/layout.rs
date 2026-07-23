@@ -1,0 +1,11 @@
+pub(crate) const EXPANDED_BREAKPOINT: f32 = 900.0;
+pub(crate) const SIDEBAR_MIN_WIDTH: f32 = 180.0;
+pub(crate) const SIDEBAR_MAX_WIDTH: f32 = 260.0;
+pub(crate) const SIDEBAR_WIDTH_PERCENT: f32 = 22.0;
+pub(crate) const COMPACT_SIDEBAR_HEIGHT: f32 = 280.0;
+pub(crate) const SHOWCASE_CHART_MIN_WIDTH: f32 = 320.0;
+pub(crate) const SHOWCASE_METRIC_MIN_WIDTH: f32 = 220.0;
+pub(crate) const SHOWCASE_CHART_HEIGHT: f32 = 292.0;
+pub(crate) const SHOWCASE_ACCENT_WIDTH: f32 = 8.0;
+pub(crate) const SHOWCASE_ACCENT_HEIGHT: f32 = 32.0;
+pub(crate) const DEEP_CATALOG_CHART_HEIGHT: f32 = 520.0;
