@@ -189,7 +189,7 @@ fn resolve_app_store_review_build(
     build_number: &str,
 ) -> Result<AppStoreReviewBuild> {
     let url = format!(
-        "{APP_STORE_API}/v1/apps/{app_id}/builds?filter[version]={}&limit=1&fields[builds]=version,processingState,uploadedDate,expired",
+        "{APP_STORE_API}/v1/builds?filter[app]={app_id}&filter[version]={}&limit=1&fields[builds]=version,processingState,uploadedDate,expired",
         encode_query_component(build_number)
     );
     let response = client

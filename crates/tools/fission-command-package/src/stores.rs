@@ -1258,11 +1258,31 @@ pub(super) fn readiness_app_store(
     ));
     if let Some(path) = artifact.filter(|path| path.exists()) {
         let manifest = read_artifact_manifest(path)?;
-        checks.push(artifact_format_check(
+        let platform = app_store_platform_for_manifest(&cfg, &manifest);
+        checks.push(check(
             "release.app_store.artifact_format",
-            &manifest,
-            &["ipa"],
-            "App Store Connect binary upload requires an IPA artifact.",
+            CheckSeverity::Error,
+            if platform.is_ok() {
+                CheckStatus::Passed
+            } else {
+                CheckStatus::Failed
+            },
+            "artifact is an iOS .ipa or macOS .pkg",
+            Some(
+                platform
+                    .map(|platform| {
+                        format!(
+                            "target={} format={} platform={}",
+                            manifest.target,
+                            manifest.format,
+                            platform.target()
+                        )
+                    })
+                    .unwrap_or_else(|error| error.to_string()),
+            ),
+            vec![
+                "Build an iOS .ipa or macOS .pkg and configure distribution.app_store.platform to match.",
+            ],
         ));
         checks.push(app_store_build_number_state_check(
             project_dir,

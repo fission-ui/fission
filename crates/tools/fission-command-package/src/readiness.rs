@@ -1290,10 +1290,10 @@ fn artifact_manifest_hashes_check(manifest: &ArtifactManifest) -> ReadinessCheck
 
 fn artifact_file_path(manifest: &ArtifactManifest, artifact: &ArtifactFile) -> PathBuf {
     let path = PathBuf::from(&artifact.path);
-    if path.is_absolute() {
+    if path.is_absolute() || path.is_file() {
         path
     } else {
-        Path::new(&manifest.root_dir).join(path)
+        Path::new(&manifest.root_dir).join(&artifact.relative_path)
     }
 }
 

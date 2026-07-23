@@ -767,7 +767,7 @@ pub(super) fn ensure_app_store_build_number_unused(
     build_number: &str,
 ) -> Result<()> {
     let url = format!(
-        "{APP_STORE_API}/v1/apps/{app_id}/builds?filter[version]={build_number}&limit=1&fields[builds]=version,processingState,uploadedDate"
+        "{APP_STORE_API}/v1/builds?filter[app]={app_id}&filter[version]={build_number}&limit=1&fields[builds]=version,processingState,uploadedDate"
     );
     let response = client
         .get(url)
