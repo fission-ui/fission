@@ -183,3 +183,11 @@ Run it with:
 ```bash
 cargo run -p todo-design-system
 ```
+
+## Packaged fonts and design fidelity
+
+Design-system packages can declare font files in `assets.fonts`. Codegen validates those files at build time and emits packaged font faces through `DesignSystem::font_faces()`. The runtime shell registers those fonts before rendering, so app widgets can use generated typography tokens without depending on system-installed fonts.
+
+Pair design tokens with typed layout and paint primitives. Use `Length` for responsive dimensions, `Fill` for gradients, `BoxShadow` for elevation, and `BackdropFilter` for glass or blur effects. That keeps visual fidelity inspectable and testable instead of being hidden in target-specific code.
+
+Read [Design systems and fonts](/docs/develop/design-systems-and-fonts/) for the full flow and [Visual fidelity](/docs/learn/visual-fidelity/) for testing guidance.

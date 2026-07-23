@@ -1,0 +1,25 @@
+---
+title: Fonts
+description: Packaged fonts, generated design-system font metadata, and shell registration.
+---
+
+# Fonts
+
+Fission design-system codegen can embed font files into the generated Rust design-system type.
+
+| Type | Meaning |
+| --- | --- |
+| `DesignAssetManifest` | Generated manifest with logos and fonts. |
+| `DesignFontAsset` | Metadata for a font declared in the DSP. |
+| `PackagedFont` | Embedded font bytes plus family, weight, style, format, and axes. |
+| `FontVariationAxis` | Variation axis default for variable fonts. |
+| `PackagedFontStyle` | Normal or italic style metadata. |
+| `DesignSystem::font_faces()` | Runtime entry point shells use to register packaged fonts. |
+
+```rust
+DesktopApp::<AppState, _>::new(App)
+    .with_design_system::<AppDesignSystem>(DesignMode::Light)
+    .run()
+```
+
+The shell registers `AppDesignSystem::font_faces()` before rendering so text can resolve the declared family without relying on installed system fonts.

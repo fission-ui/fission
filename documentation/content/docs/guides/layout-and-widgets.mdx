@@ -27,11 +27,17 @@ Ask these questions before you choose containers:
 
 That is the foundation of responsive design in Fission. You are not only placing boxes. You are deciding how one state-driven screen should adapt across several hosts.
 
-## `ViewHandle` is where layout decisions read their inputs
+## Responsive decisions can be declarative or imperative
 
-When a widget decides between phone, tablet, or desktop structure, it reads those inputs through `ViewHandle`.
+Fission supports two shapes for responsive layout decisions.
 
-The most common inputs are:
+Use declarative responsive layout when the rule is mostly about available width or height: switch this region below a breakpoint, clamp this pane between sensible bounds, or let a child size itself relative to its parent. That keeps the sizing rule in Fission's layout description instead of making every screen manually calculate pixels.
+
+Use imperative layout when the rule needs ordinary Rust control flow: combine viewport size with app state, environment values, previous layout geometry, permissions, feature flags, or product-specific state that cannot be expressed as a simple responsive case.
+
+Both forms still follow the same lifecycle rule: widget conversion is pure. Read the current inputs, choose the structure, and return a widget tree. Do not fetch data, write files, mutate global state, or start host work because a layout branch reconverted.
+
+When you need imperative inputs, read them through `ViewHandle`:
 
 - `view.viewport_size()` for current viewport width and height,
 - `view.env.window_insets` for safe-area style insets,
@@ -44,7 +50,102 @@ The most common inputs are:
 
 Imagine a mail screen. On a phone, you usually want one column: either the thread list or the selected thread, because both side by side would be cramped. On a larger desktop or web viewport, you usually want a list on the left and a detail panel on the right.
 
-That decision belongs in `component conversion` because it is just a pure description choice based on the current viewport and app state.
+The product rule is the same regardless of syntax:
+
+- the selected thread is still app state,
+- the phone layout still shows one primary surface,
+- the desktop layout still shows list and detail side by side,
+- `SafeArea` still protects the screen boundary,
+- `Scroll` still belongs around the region that may exceed the viewport.
+
+<Tabs>
+<TabItem value="declarative" label="Declarative syntax">
+
+Use this form when the responsive rule is a straightforward layout concern. The breakpoint and width constraint stay in Fission's layout model, while app state still decides which content appears.
+
+```rust
+use fission::core::Length;
+use fission::prelude::*;
+
+pub struct MailScreen;
+
+impl From<MailScreen> for Widget {
+    fn from(_screen: MailScreen) -> Widget {
+        SafeArea {
+            id: Some(WidgetId::explicit("mail.screen.safe_area")),
+            child: Responsive::new(MailDesktopLayout)
+                .id(WidgetId::explicit("mail.screen.responsive"))
+                .case(ResponsiveCase::max_width(900.0, MailPhoneLayout))
+                .into(),
+        }
+        .into()
+    }
+}
+
+pub struct MailPhoneLayout;
+
+impl From<MailPhoneLayout> for Widget {
+    fn from(_layout: MailPhoneLayout) -> Widget {
+        let (_ctx, view) = fission::build::current::<MailState>();
+
+        let content: Widget = if let Some(thread_id) = view.state().selected_thread {
+            ThreadDetail { thread_id }.into()
+        } else {
+            ThreadList.into()
+        };
+
+        Scroll {
+            id: Some(WidgetId::explicit("mail.phone.scroll")),
+            child: Some(content),
+            ..Default::default()
+        }
+        .into()
+    }
+}
+
+pub struct MailDesktopLayout;
+
+impl From<MailDesktopLayout> for Widget {
+    fn from(_layout: MailDesktopLayout) -> Widget {
+        let (_ctx, view) = fission::build::current::<MailState>();
+
+        let detail: Widget = if let Some(thread_id) = view.state().selected_thread {
+            ThreadDetail { thread_id }.into()
+        } else {
+            EmptyThreadState.into()
+        };
+
+        Row {
+            id: Some(WidgetId::explicit("mail.desktop.split")),
+            gap: Some(16.0),
+            children: widgets![
+                Container::new(ThreadList)
+                    .width_length(Length::clamp(
+                        Length::points(280.0),
+                        Length::percent(32.0),
+                        Length::points(360.0),
+                    ))
+                    .flex_shrink(0.0)
+                    .into(),
+                Container::new(detail).flex_grow(1.0).into(),
+            ],
+            ..Default::default()
+        }
+        .into()
+    }
+}
+```
+
+`Responsive::new(MailDesktopLayout)` makes the desktop layout the fallback. The `max_width(900.0, MailPhoneLayout)` case overrides that fallback on narrow viewports. Cases are explicit and ordered, so the layout rule is visible at the screen boundary instead of being hidden in ad hoc arithmetic.
+
+`Length::clamp(...)` replaces manual width math. The list pane wants to be 32% of its parent row, but never smaller than 280 points or larger than 360 points. Use `Length::percent(32.0)` for parent-relative sizing. Use `Length::vw(32.0)` only when the rule truly means 32% of the viewport.
+
+The phone and desktop branches are named widgets. That keeps retained widget identity clearer, makes the examples easier to test, and avoids turning screen composition into a collection of helper functions that return anonymous widget trees.
+
+</TabItem>
+<TabItem value="imperative" label="Imperative syntax">
+
+Use this form when the responsive rule needs raw viewport information or must combine layout facts with product logic that is clearer in Rust. The calculation is manual, but the conversion is still pure.
 
 ```rust
 use fission::prelude::*;
@@ -52,19 +153,19 @@ use fission::prelude::*;
 pub struct MailScreen;
 
 impl From<MailScreen> for Widget {
-    fn from(component: MailScreen) -> Self {
-        let (ctx, view) = fission::build::current::<MailState>();
+    fn from(_screen: MailScreen) -> Widget {
+        let (_ctx, view) = fission::build::current::<MailState>();
         let viewport = view.viewport_size();
         let is_phone = viewport.width < 900.0;
 
-        let list = ThreadList.into();
-        let detail = if let Some(thread_id) = view.state().selected_thread {
+        let list: Widget = ThreadList.into();
+        let detail: Widget = if let Some(thread_id) = view.state().selected_thread {
             ThreadDetail { thread_id }.into()
         } else {
             EmptyThreadState.into()
         };
 
-        let body = if is_phone {
+        let body: Widget = if is_phone {
             let content = if view.state().selected_thread.is_some() {
                 detail
             } else {
@@ -72,14 +173,16 @@ impl From<MailScreen> for Widget {
             };
 
             Scroll {
-                child: content,
+                id: Some(WidgetId::explicit("mail.phone.scroll")),
+                child: Some(content),
                 ..Default::default()
             }
             .into()
         } else {
             Row {
+                id: Some(WidgetId::explicit("mail.desktop.split")),
                 gap: Some(16.0),
-                children: vec![
+                children: widgets![
                     Container::new(list)
                         .width((viewport.width * 0.32).clamp(280.0, 360.0))
                         .flex_shrink(0.0)
@@ -92,7 +195,7 @@ impl From<MailScreen> for Widget {
         };
 
         SafeArea {
-            id: None,
+            id: Some(WidgetId::explicit("mail.screen.safe_area")),
             child: body,
         }
         .into()
@@ -100,11 +203,18 @@ impl From<MailScreen> for Widget {
 }
 ```
 
+`view.viewport_size()` gives this conversion the current viewport. The screen then decides whether side-by-side work is realistic. App state decides whether the detail panel has a selected thread or should show an empty state.
+
+This style is useful when you need the exact viewport value for a calculation that is not covered by `Length`, when you need to branch on several inputs at once, or when the layout rule is temporary and easier to inspect as ordinary Rust before you promote it into named responsive widgets.
+
+</TabItem>
+</Tabs>
+
 The important part is not the exact breakpoint number. The important part is why the layout changes.
 
-The viewport width decides whether side-by-side work is realistic. App state decides whether there is a selected thread at all. `SafeArea` protects the content from notches, system bars, and other platform insets. `Scroll` is only used for the part that may exceed the viewport.
+The viewport decides how much context can fit comfortably. App state decides what content exists. `SafeArea` protects the content from notches, system bars, and other platform insets. `Scroll` is only used for the part that may exceed the viewport.
 
-This is the usual Fission pattern for responsive user interface: read from `ViewHandle`, choose a structure, and return that structure with no side effects.
+For new code, prefer the declarative form when a `ResponsiveCase` and `Length` can express the rule directly. Keep the imperative form for cases where raw geometry or combined product logic genuinely makes the screen easier to understand.
 
 ## What changes between phone, tablet, desktop, and web layouts
 
@@ -148,7 +258,9 @@ Responsive layout is not only about breakpoints. It is also about restraint.
 
 Very wide containers can make forms awkward, body text tiring to read, and side panels visually weak. Very narrow fixed widths can cause text clipping and cramped controls. In Fission, it is common to combine flexible containers with clamps or explicit widths for the parts that should not grow forever.
 
-You saw that in the mail example when the list pane width was clamped. The pane was allowed to respond to viewport size, but only inside a reasonable range.
+You saw that in the mail example when the list pane width was clamped. In the declarative version, `Length::clamp(Length::points(280.0), Length::percent(32.0), Length::points(360.0))` keeps the sizing rule in the layout tree. In the imperative version, the same idea is expressed with `(viewport.width * 0.32).clamp(280.0, 360.0)`.
+
+Prefer `Length` when the rule is a layout constraint. Reach for manual arithmetic when the rule genuinely depends on raw viewport geometry or other product logic. Either way, the pane is allowed to respond to available space, but only inside a reasonable range.
 
 That pattern scales well across targets. Let the overall shell breathe, but cap the pieces that need stable readability.
 

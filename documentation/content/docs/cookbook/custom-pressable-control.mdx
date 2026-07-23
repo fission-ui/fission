@@ -1,0 +1,30 @@
+---
+title: Custom pressable control
+description: Build a custom accessible control with Pressable, semantic identifiers, and interaction styles.
+---
+
+# Custom pressable control
+
+Use `Pressable` when you need a custom interaction surface but still want button/link/menu-item semantics, focus behavior, pointer state, and test automation support.
+
+```rust
+Pressable::new(Row {
+    gap: Some(10.0),
+    children: widgets![Icon::new("check").into(), Text::new("Approve").into()],
+    ..Default::default()
+})
+.id(WidgetId::explicit("approval.approve"))
+.semantics_identifier("approval.approve")
+.label("Approve request")
+.role(PressableRole::Button)
+.on_press(approve)
+.layout(BoxStyle::default().padding_symmetric(Length::points(16.0), Length::points(10.0)))
+.style(PressableStyle {
+    background: Some(Fill::Solid(tokens.colors.primary)),
+    corner_radius: Some(tokens.radii.medium),
+    ..Default::default()
+})
+.into()
+```
+
+Do not use a plain `Container` plus gesture handlers when the result is conceptually a button or link.

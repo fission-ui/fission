@@ -1,0 +1,27 @@
+---
+title: Responsive product grid
+description: Use GridTrack auto-fit and minmax to build a responsive card grid.
+---
+
+# Responsive product grid
+
+Use `GridTrack::auto_fit` plus `GridTrack::minmax` when cards should create as many columns as fit.
+
+```rust
+Grid {
+    columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+        GridTrack::Points(220.0),
+        GridTrack::Fr(1.0),
+    ))],
+    column_gap: Some(18.0),
+    row_gap: Some(18.0),
+    children: products
+        .iter()
+        .map(|product| ProductCard { product }.into())
+        .collect(),
+    ..Default::default()
+}
+.into()
+```
+
+This is usually better than manually calculating column counts from `viewport_size()`.

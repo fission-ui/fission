@@ -18,19 +18,17 @@ use fission::prelude::*;
 use fission::op::GridTrack;
 
 let widget: Widget = Grid {
-    columns: vec![GridTrack::Fr(2.0), GridTrack::Fr(1.0)],
-    rows: vec![GridTrack::Points(48.0), GridTrack::Auto],
-    column_gap: Some(12.0),
-    row_gap: Some(12.0),
-    children: vec![
-        GridItem::new(Text::new("Primary panel").into())
-            .cell(1, 1)
-            .span(2, 1)
-            .into(),
-        GridItem::new(Text::new("Inspector").into())
-            .cell(1, 2)
-            .into(),
-    ],
+    columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+        GridTrack::Points(220.0),
+        GridTrack::Fr(1.0),
+    ))],
+    rows: vec![GridTrack::Auto],
+    column_gap: Some(18.0),
+    row_gap: Some(18.0),
+    children: cards
+        .iter()
+        .map(|card| GridItem::new(ProductCard { card }).into())
+        .collect(),
     ..Default::default()
 }
 .into();
@@ -57,6 +55,10 @@ let widget: Widget = Grid {
 | `GridTrack::Fr(x)` | Fractional remaining space. | Use for most flexible dashboard-style layouts. |
 | `GridTrack::Auto` | Size from content and constraints. | Good for content-driven tracks. |
 | `GridTrack::MinContent` / `MaxContent` | Content-based intrinsic sizing. | Use only when you intentionally want intrinsic track behavior. |
+| `GridTrack::minmax(min, max)` | Track constrained between two track definitions. | Use for responsive cards that should never shrink below a readable size. |
+| `GridTrack::repeat(count, tracks)` | Fixed repeated track list. | Use for regular grids with a known number of columns or rows. |
+| `GridTrack::auto_fit(track)` | Repeat a track up to the available space and collapse empty tracks. | Use for responsive product or card grids. |
+| `GridTrack::auto_fill(track)` | Repeat a track up to the available space and keep empty tracks. | Use when empty slots should still reserve grid space. |
 
 ## Specific advice
 

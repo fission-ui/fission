@@ -1,0 +1,45 @@
+---
+title: Golden image testing
+description: Compare real Fission screenshots with approved images using fission-test-driver.
+---
+
+# Golden image testing
+
+Golden tests catch visual regressions that semantic tests cannot see: spacing drift, wrong colors, clipped text, broken gradients, font fallback, and target-specific rendering changes.
+
+Use them after unit, reducer, and semantic tests. They are not a substitute for behavior tests.
+
+## Capture then compare
+
+```rust
+use fission_test_driver::{GoldenOptions, LiveTestClient};
+
+let client = LiveTestClient::connect(control_port);
+client.wait_for_ready(15_000)?;
+client.simulate_resize(390, 844)?;
+client.wait_for_idle(2_000, false)?;
+
+let report = client.compare_golden(
+    "tests/goldens/settings-phone.png",
+    Some(".artifacts/diffs/settings-phone.png"),
+    GoldenOptions {
+        channel_tolerance: 8,
+        max_changed_percent: 0.2,
+    },
+)?;
+
+assert!(report.changed_percent <= 0.2);
+```
+
+Keep golden images in the app repository. Review diffs manually when a design change is intentional.
+
+## Good golden scenarios
+
+| Scenario | Why it matters |
+| --- | --- |
+| Phone and desktop shell | Proves responsive layout branches. |
+| Light and dark theme | Proves token usage. |
+| Long translated strings | Proves text wrapping and i18n. |
+| Modal/menu/popover | Proves portal geometry. |
+| Charts and media surfaces | Proves renderer-specific output. |
+| Release screenshots | Proves store assets before publishing. |

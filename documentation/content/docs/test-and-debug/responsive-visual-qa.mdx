@@ -1,0 +1,31 @@
+---
+title: Responsive visual QA
+description: Use LiveTest resizing, selectors, and screenshots to verify mobile and desktop layouts.
+---
+
+# Responsive visual QA
+
+A responsive Fission screen should be tested at the sizes users will actually see.
+
+The minimum useful matrix is phone portrait, phone landscape, tablet, desktop, and narrow embedded panel if the widget can be mounted inside another app.
+
+```rust
+for (name, width, height) in [
+    ("phone", 390, 844),
+    ("tablet", 820, 1180),
+    ("desktop", 1440, 960),
+] {
+    client.simulate_resize(width, height)?;
+    client.wait_for_idle(2_000, false)?;
+    client.screenshot(format!(".artifacts/screens/{name}.png"))?;
+}
+```
+
+After each resize, assert product meaning before comparing pixels.
+
+```rust
+client.wait_for_visible(SelectorQuery::semantic_identifier("mail.thread_list"), 5_000)?;
+client.compare_golden("tests/goldens/mail-desktop.png", Some(".artifacts/diffs/mail-desktop.png"), GoldenOptions::default())?;
+```
+
+Use semantic identifiers for regions and controls so tests do not depend on fragile text or coordinates.

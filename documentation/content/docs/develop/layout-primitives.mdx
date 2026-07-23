@@ -1,0 +1,69 @@
+---
+title: Layout primitives
+description: Develop with Length, BoxStyle, GridTrack, overflow, alignment, and positioning primitives.
+---
+
+# Layout primitives
+
+The modern Fission layout surface is built around typed primitives. These are not CSS strings and they are not renderer-specific options. They are platform-neutral layout facts the runtime can lower, inspect, and test.
+
+| Primitive | Job |
+| --- | --- |
+| `Length` | Express fixed, percentage, viewport, intrinsic, and clamped sizes. |
+| `BoxStyle` | Group box sizing, margin, padding, alignment, overflow, aspect ratio, positioning, and grid placement. |
+| `GridTrack` | Define grid tracks with points, percentages, fractions, intrinsic sizes, repeat, auto-fit, and auto-fill. |
+| `Responsive` | Select one child branch from ordered viewport or container breakpoints. |
+
+## Length
+
+```rust
+Container::new(ProfileSummary)
+    .width_length(Length::clamp(
+        Length::points(280.0),
+        Length::percent(40.0),
+        Length::points(520.0),
+    ))
+    .max_height_length(Length::vh(80.0))
+    .into()
+```
+
+Percentages are expressed as whole percentages: `Length::percent(50.0)` means half of the containing axis.
+
+## BoxStyle
+
+```rust
+let panel = BoxStyle::default()
+    .width(Length::percent(100.0))
+    .max_width(Length::points(960.0))
+    .padding_symmetric(Length::points(24.0), Length::points(18.0))
+    .margin_symmetric(Length::Auto, Length::points(0.0))
+    .align(BoxAlignment::Center)
+    .overflow(Overflow::Clip);
+
+Container {
+    child: Some(SettingsForm.into()),
+    box_style: panel,
+    ..Default::default()
+}
+.into()
+```
+
+Use the builder methods on `Container` for common cases, and use `BoxStyle` when a reusable component wants to pass a whole box contract around.
+
+## Grid tracks
+
+```rust
+Grid {
+    columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+        GridTrack::Points(220.0),
+        GridTrack::Fr(1.0),
+    ))],
+    row_gap: Some(18.0),
+    column_gap: Some(18.0),
+    children: cards,
+    ..Default::default()
+}
+.into()
+```
+
+Use `auto_fit` for responsive card grids that should collapse empty tracks. Use `auto_fill` when empty tracks should reserve space.

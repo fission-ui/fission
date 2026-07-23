@@ -144,3 +144,7 @@ Do not commit signing passwords, private keys, tokens, or certificates into [`fi
 ## Next steps
 
 After packaging, move to [Release and distribute](/docs/release-and-distribute/overview/). If the release needs notes, screenshots, or store metadata, start with [Release content](/docs/release-and-distribute/release-content/).
+
+## Screenshots and release metadata are build inputs
+
+Packaging does not end at producing a binary. App stores and distribution providers need release metadata, screenshots, icons, version fields, signing references, and provider-specific identifiers. Use [Build metadata](/docs/build-and-package/build-metadata/) to keep those fields explicit, and use [Store screenshots](/docs/build-and-package/store-screenshots/) to generate reviewable screenshots from real Fission targets.

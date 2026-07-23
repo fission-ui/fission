@@ -1,0 +1,84 @@
+---
+title: Visual fidelity
+description: Use design-system tokens, packaged fonts, typed paint, shadows, filters, and golden tests to keep Fission UI visually reliable.
+---
+
+# Visual fidelity
+
+Fission's visual model is intentionally explicit. A widget tree can describe layout, colors, fills, text metrics, shadows, filters, and packaged fonts in a way that the runtime and tests can inspect.
+
+The goal is not to hard-code more detail. The goal is to make design decisions durable by routing them through a generated design system and typed primitives.
+
+## Use tokens before literals
+
+```rust
+impl From<HeroCard> for Widget {
+    fn from(_: HeroCard) -> Widget {
+        let (_ctx, view) = fission::build::current::<AppState>();
+        let tokens = &view.env().theme.tokens;
+
+        Container::new(Text::new(TextContent::Key("home.hero.title".into())))
+            .padding_lengths(Length::symmetric(
+                Length::clamp(Length::points(20.0), Length::vw(5.0), Length::points(64.0)),
+                Length::points(24.0),
+            ))
+            .bg(tokens.colors.surface)
+            .border(tokens.colors.border, 1.0)
+            .border_radius(tokens.radii.large)
+            .into()
+    }
+}
+```
+
+Raw colors and font sizes are still available, but app code should treat them as exceptions. Product UI should normally read colors, spacing, typography, radius, elevation, motion, and component styling from the active theme.
+
+## Typed paint and effects
+
+Fission supports solid colors, fills, gradients, strokes, shadows, and backdrop filters as typed data rather than shell-specific CSS strings.
+
+```rust
+Container::new(Text::new("Glass panel"))
+    .bg_fill(Fill::LinearGradient {
+        start: (0.0, 0.0),
+        end: (1.0, 1.0),
+        stops: vec![
+            (0.0, Color { r: 255, g: 255, b: 255, a: 160 }),
+            (1.0, Color { r: 255, g: 255, b: 255, a: 72 }),
+        ],
+    })
+    .backdrop_blur(18.0)
+    .shadows(vec![BoxShadow {
+        offset: (0.0, 18.0),
+        blur_radius: 42.0,
+        spread_radius: -12.0,
+        color: Color { r: 15, g: 23, b: 42, a: 70 },
+        inset: false,
+    }])
+    .into()
+```
+
+Use these APIs for reusable components and design-system-backed examples. Target shells lower the typed primitives to the best available host representation.
+
+## Fonts are assets
+
+Design-system codegen embeds declared font files into the generated Rust type. Shells register those packaged fonts during startup through `DesignSystem::font_faces()`.
+
+This means a component can rely on the generated typography tokens instead of assuming that a user's machine has the same fonts installed.
+
+## Verify with golden tests
+
+Visual fidelity is not complete until it is testable. Use LiveTest screenshots for real shell output, then compare against golden images with thresholds appropriate to the target.
+
+```rust
+client.simulate_resize(390, 844)?;
+client.wait_for_idle(2_000, false)?;
+let report = client.compare_golden(
+    "goldens/home-phone.png",
+    Some(".artifacts/diffs/home-phone.png"),
+    GoldenOptions {
+        channel_tolerance: 2,
+        max_changed_percent: 0.2,
+    },
+)?;
+assert!(report.changed_percent <= 0.2);
+```

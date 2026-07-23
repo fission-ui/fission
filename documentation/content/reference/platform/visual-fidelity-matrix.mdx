@@ -1,0 +1,20 @@
+---
+title: Visual fidelity matrix
+description: Target support for responsive layout, typed paint, fonts, screenshots, and golden tests.
+---
+
+# Visual fidelity matrix
+
+| Feature | macOS | Windows | Linux | Web | Android | iOS | Terminal | Static site | SSR |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `Responsive` viewport cases | yes | yes | yes | yes | yes | yes | degraded | yes | yes |
+| Container queries | yes | yes | yes | yes | yes | yes | degraded | partial | partial |
+| `Length` points/percent/clamp | yes | yes | yes | yes | yes | yes | partial | yes | yes |
+| Grid `minmax`/`auto-fit` | yes | yes | yes | yes | yes | yes | degraded | yes | yes |
+| Gradients and shadows | yes | yes | yes | yes | yes | yes | degraded | yes | yes |
+| Backdrop blur | yes | yes | yes | browser-dependent | yes | yes | no | browser-dependent | browser-dependent |
+| Packaged fonts | yes | yes | yes | yes | yes | yes | terminal-dependent | yes | yes |
+| LiveTest screenshots | yes | yes | yes | yes | yes | yes | text capture | yes | yes |
+| Golden image comparison | yes | yes | yes | yes | yes | yes | text/glyph-limited | yes | yes |
+
+`partial` means the authored API is accepted but the target can only represent a subset of the native behavior.

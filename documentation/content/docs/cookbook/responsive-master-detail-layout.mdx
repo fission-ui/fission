@@ -1,0 +1,47 @@
+---
+title: Responsive master-detail layout
+description: Build a mail-style screen that uses Responsive for phone and desktop layouts.
+---
+
+# Responsive master-detail layout
+
+A master-detail screen should show one pane on phones and two or three useful panes on desktop.
+
+```rust
+use fission::core::Length;
+use fission::prelude::*;
+
+pub struct MailRoot;
+
+impl From<MailRoot> for Widget {
+    fn from(_: MailRoot) -> Widget {
+        Responsive::new(MailDesktop)
+            .case(ResponsiveCase::max_width(900.0, MailPhone))
+            .into()
+    }
+}
+
+pub struct MailDesktop;
+
+impl From<MailDesktop> for Widget {
+    fn from(_: MailDesktop) -> Widget {
+        Row {
+            children: widgets![
+                Container::new(ThreadList)
+                    .width_length(Length::clamp(
+                        Length::points(280.0),
+                        Length::percent(32.0),
+                        Length::points(380.0),
+                    ))
+                    .flex_shrink(0.0)
+                    .into(),
+                Container::new(ThreadDetail).flex_grow(1.0).into(),
+            ],
+            ..Default::default()
+        }
+        .into()
+    }
+}
+```
+
+Keep the phone and desktop branches as named widgets so retained state and tests have stable boundaries.

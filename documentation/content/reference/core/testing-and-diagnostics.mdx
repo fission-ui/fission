@@ -111,3 +111,9 @@ For shell-specific test boundaries, continue to [Platform testing](/reference/pl
 For the teaching guide that explains unit, headless integration, LiveTest, and
 `/cmd` workflow order, see [Testing Fission apps](/docs/learn/testing/). For
 the exact HTTP protocol, see [LiveTest command API](/reference/core/live-test-command-api/).
+
+## Golden image contract
+
+`fission-test-driver` exposes `LiveTestClient::compare_golden(...)` and `GoldenOptions` for image comparisons. Use this after the live shell has reached the desired state through selectors, keyboard input, scrolling, or routed navigation.
+
+The comparison should report pass/fail, changed-pixel counts, thresholds, and diff artifacts where supported. See [GoldenOptions](/reference/testing/golden-options/) and [LiveTest commands](/reference/testing/live-test-commands/).

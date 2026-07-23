@@ -495,3 +495,71 @@ Read [Testing Fission apps](/docs/learn/testing/) for unit, headless integration
 Read [State, handles, and providers](/docs/guides/state-handles-and-providers/) for the durable-state, local-state, provider, and environment decision model.
 
 Read [Resources and async](/docs/guides/resources-and-async/) for jobs, services, resources, capabilities, and reducer effects.
+
+## Modern responsive Fission layout
+
+Use the same responsive primitives regardless of the framework you are coming from. The source framework may call this `LayoutBuilder`, media queries, constraints, signals, or window-size classes; in Fission the preferred shape is `Responsive` plus `Length`.
+
+<Tabs>
+<TabItem value="declarative" label="Declarative Fission">
+
+```rust
+use fission::core::Length;
+use fission::prelude::*;
+
+pub struct TodoShell;
+
+impl From<TodoShell> for Widget {
+    fn from(_: TodoShell) -> Widget {
+        Responsive::new(TodoDesktop)
+            .case(ResponsiveCase::max_width(760.0, TodoPhone))
+            .into()
+    }
+}
+
+pub struct TodoDesktop;
+
+impl From<TodoDesktop> for Widget {
+    fn from(_: TodoDesktop) -> Widget {
+        Row {
+            children: widgets![
+                Container::new(TodoList)
+                    .width_length(Length::clamp(
+                        Length::points(280.0),
+                        Length::percent(34.0),
+                        Length::points(420.0),
+                    ))
+                    .into(),
+                Container::new(TodoDetail).flex_grow(1.0).into(),
+            ],
+            ..Default::default()
+        }
+        .into()
+    }
+}
+```
+
+</TabItem>
+<TabItem value="imperative" label="Imperative Fission">
+
+```rust
+impl From<TodoShell> for Widget {
+    fn from(_: TodoShell) -> Widget {
+        let (_ctx, view) = fission::build::current::<TodoState>();
+        let is_phone = view.viewport_size().width < 760.0;
+
+        if is_phone {
+            TodoPhone.into()
+        } else {
+            TodoDesktop.into()
+        }
+    }
+}
+```
+
+Use imperative viewport reads only when the branch needs app state, environment values, previous layout geometry, or another runtime input.
+
+</TabItem>
+</Tabs>
+
+Keep styling token-backed in both forms: read `view.env().theme.tokens`, render translated text with `TextContent::Key`, and give important interactive controls semantic identifiers so LiveTest and accessibility tooling can target them.

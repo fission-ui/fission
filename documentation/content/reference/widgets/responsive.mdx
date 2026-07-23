@@ -1,0 +1,36 @@
+---
+title: Responsive
+description: Select a child branch from ordered viewport or container breakpoints.
+slug: /widgets/responsive
+---
+
+# Responsive
+
+`Responsive` selects one child from ordered breakpoint cases plus a required fallback.
+
+```rust
+Responsive::new(DesktopLayout)
+    .id(WidgetId::explicit("settings.responsive"))
+    .case(ResponsiveCase::max_width(720.0, PhoneLayout))
+    .case(ResponsiveCase::between(720.0, 1120.0, TabletLayout))
+    .into()
+```
+
+## Fields
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `id` | `Option<WidgetId>` | Stable identity for diagnostics and retained branch structure. |
+| `query` | `ResponsiveQuery` | Width source: viewport or parent container. |
+| `cases` | `Vec<ResponsiveCase>` | Ordered breakpoint cases. First match wins. |
+| `fallback` | `Widget` | Rendered when no case matches. |
+
+## Cases
+
+| Constructor | Meaning |
+| --- | --- |
+| `ResponsiveCase::min_width(width, child)` | Matches widths greater than or equal to `width`. |
+| `ResponsiveCase::max_width(width, child)` | Matches widths below `width`. |
+| `ResponsiveCase::between(min, max, child)` | Matches `min <= width < max`. |
+
+Use `.container_query()` when a reusable component should respond to parent constraints instead of the full viewport.

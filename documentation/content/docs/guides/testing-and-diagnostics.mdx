@@ -199,3 +199,9 @@ After this guide, you should be able to explain where `Testing and diagnostics` 
 | A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
 | The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
 | Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |
+
+## Golden images and visual fidelity
+
+For visual regressions, use LiveTest screenshots and `fission-test-driver` golden comparisons. Resize the real host, wait for a stable frame, drive the UI through semantic selectors, then compare the screenshot with `GoldenOptions`.
+
+This is the recommended path for responsive QA, app-store screenshots, chart galleries, marketing pages, and any screen where design-system tokens, packaged fonts, gradients, shadows, or text wrapping are part of the contract. See [Golden image testing](/docs/test-and-debug/golden-image-testing/) and [Responsive visual QA](/docs/test-and-debug/responsive-visual-qa/).

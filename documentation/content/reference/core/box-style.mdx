@@ -1,0 +1,37 @@
+---
+title: BoxStyle
+description: Shared typed box model for sizing, spacing, alignment, overflow, positioning, grid placement, and flex participation.
+---
+
+# BoxStyle
+
+`BoxStyle` groups common layout behavior for box-like widgets.
+
+```rust
+let style = BoxStyle::default()
+    .width(Length::percent(100.0))
+    .max_width(Length::points(960.0))
+    .padding_symmetric(Length::points(24.0), Length::points(16.0))
+    .align(BoxAlignment::Center)
+    .overflow(Overflow::Clip)
+    .aspect_ratio(16.0 / 9.0);
+
+Container {
+    child: Some(MediaPreview.into()),
+    box_style: style,
+    ..Default::default()
+}
+.into()
+```
+
+| Field group | Methods |
+| --- | --- |
+| Preferred size | `width`, `height` |
+| Min/max size | `min_width`, `max_width`, `min_height`, `max_height` |
+| Spacing | `padding`, `padding_all`, `padding_symmetric`, `margin`, `margin_all`, `margin_symmetric` |
+| Overflow | `overflow` |
+| Alignment | `align` |
+| Ratio | `aspect_ratio` |
+| Positioning | `positioned` |
+| Grid placement | `grid` |
+| Flex | `flex` |

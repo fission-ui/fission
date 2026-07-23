@@ -1,0 +1,33 @@
+---
+title: GridTrack
+description: Grid track definitions for explicit and responsive grid layouts.
+---
+
+# GridTrack
+
+`GridTrack` defines a row or column track for `Grid`.
+
+| Track | Meaning |
+| --- | --- |
+| `GridTrack::Points(x)` | Fixed logical points. |
+| `GridTrack::Percent(x)` | Percentage of the grid axis. |
+| `GridTrack::Fr(x)` | Fraction of remaining space. |
+| `GridTrack::Auto` | Content-driven automatic track. |
+| `GridTrack::MinContent` | Minimum intrinsic content size. |
+| `GridTrack::MaxContent` | Maximum intrinsic content size. |
+| `GridTrack::minmax(min, max)` | Track constrained between two track definitions. |
+| `GridTrack::repeat(count, tracks)` | Repeat a set of tracks a fixed number of times. |
+| `GridTrack::auto_fit(track)` | Repeat to fit available space and collapse empty tracks. |
+| `GridTrack::auto_fill(track)` | Repeat to fill available space and retain empty tracks. |
+
+```rust
+Grid {
+    columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+        GridTrack::Points(220.0),
+        GridTrack::Fr(1.0),
+    ))],
+    children: cards,
+    ..Default::default()
+}
+.into()
+```

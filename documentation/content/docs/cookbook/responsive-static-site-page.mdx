@@ -1,0 +1,36 @@
+---
+title: Responsive static site page
+description: Build a static page that lowers responsive layout and grid tracks to HTML and CSS.
+---
+
+# Responsive static site page
+
+Static pages should still use normal Fission layout primitives.
+
+```rust
+pub struct PricingPage;
+
+impl From<PricingPage> for Widget {
+    fn from(_: PricingPage) -> Widget {
+        Responsive::new(PricingDesktop)
+            .case(ResponsiveCase::max_width(720.0, PricingPhone))
+            .into()
+    }
+}
+```
+
+For repeated cards, use responsive grid tracks instead of manual column counts.
+
+```rust
+Grid {
+    columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+        GridTrack::Points(240.0),
+        GridTrack::Fr(1.0),
+    ))],
+    children: plan_cards,
+    ..Default::default()
+}
+.into()
+```
+
+The static-site shell lowers supported layout, paint, font, and responsive primitives to HTML and CSS.
