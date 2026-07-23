@@ -371,6 +371,19 @@ fn macos_app_store_package_uses_productbuild_component_archive() {
 }
 
 #[test]
+fn macos_info_plist_includes_configured_application_category() {
+    let config = fission_command_core::MacosPackageConfig {
+        application_category: Some("public.app-category.developer-tools".to_string()),
+        ..Default::default()
+    };
+
+    assert_eq!(
+        package::render_macos_application_category_entry(&config),
+        "  <key>LSApplicationCategoryType</key>\n  <string>public.app-category.developer-tools</string>"
+    );
+}
+
+#[test]
 fn app_store_status_prefers_review_submission_state_over_build_processing() {
     let status = stores::app_store_observed_status(
         &json!({

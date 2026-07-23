@@ -11,6 +11,7 @@ use std::process::Command;
 pub struct MacosPackageConfig {
     pub bundle_id: Option<String>,
     pub minimum_os: Option<String>,
+    pub application_category: Option<String>,
     pub entitlements: Option<String>,
     pub provisioning_profile: Option<String>,
     pub signing_identity: Option<String>,
@@ -57,6 +58,7 @@ struct MacosPackageManifest {
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 struct MacosPackageOverlay {
+    application_category: Option<String>,
     entitlements: Option<String>,
     provisioning_profile: Option<String>,
     signing_identity: Option<String>,
@@ -84,6 +86,11 @@ impl MacosPackageManifest {
 
 impl MacosPackageOverlay {
     fn apply_to(&self, config: &mut MacosPackageConfig) {
+        if self.application_category.is_some() {
+            config
+                .application_category
+                .clone_from(&self.application_category);
+        }
         if self.entitlements.is_some() {
             config.entitlements.clone_from(&self.entitlements);
         }
@@ -205,6 +212,7 @@ pub fn sign_macos_app_if_configured(
     if let Some(profile) = profile {
         embed_macos_provisioning_profile(project_dir, app_bundle, profile)?;
     }
+    make_macos_bundle_world_readable(app_bundle)?;
 
     let Some(identity) = identity else {
         return Ok(());
@@ -254,6 +262,45 @@ fn embed_macos_provisioning_profile(
     Ok(())
 }
 
+fn make_macos_bundle_world_readable(app_bundle: &Path) -> Result<()> {
+    let mut pending = vec![app_bundle.to_path_buf()];
+    while let Some(path) = pending.pop() {
+        let metadata = fs::symlink_metadata(&path)
+            .with_context(|| format!("failed to inspect macOS bundle path {}", path.display()))?;
+        if metadata.file_type().is_symlink() {
+            continue;
+        }
+        if metadata.is_dir() {
+            for entry in fs::read_dir(&path)
+                .with_context(|| format!("failed to read macOS bundle path {}", path.display()))?
+            {
+                pending.push(entry?.path());
+            }
+        }
+        make_world_readable(&path, metadata.permissions())?;
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn make_world_readable(path: &Path, mut permissions: fs::Permissions) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let readable = if path.is_dir() { 0o0555 } else { 0o0444 };
+    permissions.set_mode(permissions.mode() | readable);
+    fs::set_permissions(path, permissions).with_context(|| {
+        format!(
+            "failed to make macOS bundle path readable: {}",
+            path.display()
+        )
+    })
+}
+
+#[cfg(not(unix))]
+fn make_world_readable(_path: &Path, _permissions: fs::Permissions) -> Result<()> {
+    Ok(())
+}
+
 fn codesign_arguments(
     project_dir: &Path,
     identity: &str,
@@ -298,6 +345,7 @@ mod tests {
 [package.macos]
 bundle_id = "com.example.app"
 minimum_os = "14.0"
+application_category = "public.app-category.developer-tools"
 entitlements = "platforms/macos/App.entitlements"
 provisioning_profile = "profiles/Developer.provisionprofile"
 signing_identity = "Apple Development"
@@ -317,6 +365,7 @@ signing_identity = "-"
             MacosPackageConfig {
                 bundle_id: Some("com.example.app".into()),
                 minimum_os: Some("14.0".into()),
+                application_category: Some("public.app-category.developer-tools".into()),
                 entitlements: Some("platforms/macos/App.entitlements".into()),
                 provisioning_profile: Some("profiles/Developer.provisionprofile".into()),
                 signing_identity: Some("Apple Development".into()),
@@ -348,6 +397,7 @@ entitlements = "platforms/macos/Development.entitlements"
 signing_identity = "-"
 
 [package.macos.release]
+application_category = "public.app-category.utilities"
 entitlements = "platforms/macos/Release.entitlements"
 provisioning_profile = "profiles/Distribution.provisionprofile"
 signing_identity = "Developer ID Application: Example Ltd"
@@ -371,6 +421,10 @@ notarize = true
         assert_eq!(
             release.entitlements.as_deref(),
             Some("platforms/macos/Release.entitlements")
+        );
+        assert_eq!(
+            release.application_category.as_deref(),
+            Some("public.app-category.utilities")
         );
         assert_eq!(
             release.provisioning_profile.as_deref(),
@@ -540,6 +594,39 @@ signing_identity = "-"
         assert_eq!(
             fs::read(app.join("Contents/embedded.provisionprofile")).unwrap(),
             b"profile-data"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn macos_bundle_resources_are_readable_by_non_root_users() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = std::env::temp_dir().join(format!(
+            "fission-macos-readable-bundle-{}",
+            std::process::id()
+        ));
+        let app = root.join("Demo.app");
+        let resource = app.join("Contents/Resources/private.dat");
+        fs::remove_dir_all(&root).ok();
+        fs::create_dir_all(resource.parent().unwrap()).unwrap();
+        fs::write(&resource, b"resource").unwrap();
+        fs::set_permissions(&resource, fs::Permissions::from_mode(0o600)).unwrap();
+
+        make_macos_bundle_world_readable(&app).unwrap();
+
+        assert_eq!(
+            fs::metadata(&resource).unwrap().permissions().mode() & 0o004,
+            0o004
+        );
+        assert_eq!(
+            fs::metadata(resource.parent().unwrap())
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o001,
+            0o001
         );
         fs::remove_dir_all(root).unwrap();
     }

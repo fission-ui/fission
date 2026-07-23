@@ -1715,6 +1715,7 @@ fn render_info_plist(
   <key>LSMinimumSystemVersion</key>
   <string>{}</string>
 {}
+{}
 </dict>
 </plist>
 "#,
@@ -1725,8 +1726,23 @@ fn render_info_plist(
         escape_xml(version),
         escape_xml(build),
         escape_xml(minimum_os),
+        render_macos_application_category_entry(macos),
         render_macos_info_plist_capability_entries(project)
     )
+}
+
+pub(super) fn render_macos_application_category_entry(macos: &MacosPackageConfig) -> String {
+    macos
+        .application_category
+        .as_deref()
+        .filter(|category| !category.trim().is_empty())
+        .map(|category| {
+            format!(
+                "  <key>LSApplicationCategoryType</key>\n  <string>{}</string>",
+                escape_xml(category)
+            )
+        })
+        .unwrap_or_default()
 }
 
 fn render_macos_info_plist_capability_entries(project: &FissionProject) -> String {

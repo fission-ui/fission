@@ -740,6 +740,7 @@ installer_script = "platforms/linux/package-run.sh"
 | `build_number` | string | No | macOS `CFBundleVersion`. If omitted, Fission falls back to the resolved release/app build number. |
 | `team_id` | string | No | Apple Developer Team ID used by signing/notarization readiness checks. |
 | `minimum_os` | string | No | Records the intended minimum macOS version for package metadata. |
+| `application_category` | string | No | Writes the `LSApplicationCategoryType` UTI required for Mac App Store submission, such as `public.app-category.developer-tools`. |
 | `entitlements` | string | No | Base project-relative entitlements plist passed to `codesign` when signing. |
 | `provisioning_profile` | string | No | Base project-relative provisioning profile embedded at `Contents/embedded.provisionprofile` before signing. |
 | `signing_identity` | string | No | Base application signing identity. Flat signing fields apply to debug and release packaging for backward compatibility. |
@@ -761,6 +762,7 @@ production credentials.
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
+| `application_category` | string | No | Overrides the base `LSApplicationCategoryType` UTI for release packaging. |
 | `entitlements` | string | No | Project-relative release entitlements plist. |
 | `provisioning_profile` | string | No | Project-relative release provisioning profile embedded before signing. |
 | `signing_identity` | string | No | Developer ID Application identity used to sign release `.app` bundles. |
@@ -786,6 +788,7 @@ editing configuration between packages.
 
 ```toml
 [package.macos.variants.app-store]
+application_category = "public.app-category.developer-tools"
 entitlements = "platforms/macos/AppStore.entitlements"
 provisioning_profile = ".fission/signing/macos/AppStore.provisionprofile"
 signing_identity = "Apple Distribution: Example Ltd"
@@ -795,9 +798,10 @@ pkg_builder = "productbuild"
 cargo_features = ["macos-app-store"]
 ```
 
-The variant accepts the same `entitlements`, `provisioning_profile`,
-`signing_identity`, `installer_identity`, `notarize`, `pkg_builder`,
-`cargo_features`, and `cargo_no_default_features` fields as the release overlay.
+The variant accepts the same `application_category`, `entitlements`,
+`provisioning_profile`, `signing_identity`, `installer_identity`, `notarize`,
+`pkg_builder`, `cargo_features`, and `cargo_no_default_features` fields as the
+release overlay.
 Package it with `fission package --target macos --format pkg --release --variant
 app-store`.
 
