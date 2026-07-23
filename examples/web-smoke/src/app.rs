@@ -1,5 +1,7 @@
-use fission::core::Length;
 use fission::prelude::*;
+
+const CONTENT_MIN_WIDTH: f32 = 240.0;
+const CONTENT_MAX_WIDTH: f32 = 420.0;
 
 #[derive(Default, Debug, Clone, PartialEq)]
 pub struct CounterState {
@@ -23,7 +25,7 @@ impl From<CounterApp> for Widget {
         let increment = with_reducer!(ctx, Increment, on_increment);
 
         let content = Container::new(Column {
-            gap: Some(16.0),
+            gap: Some(tokens.spacing.m),
             children: vec![
                 Text::new("Fission web smoke")
                     .size(tokens.typography.heading_size)
@@ -42,19 +44,20 @@ impl From<CounterApp> for Widget {
                     child: Some(Text::new("Increment").into()),
                     ..Default::default()
                 }
+                .semantics_identifier("web-smoke.increment")
                 .into(),
             ],
             ..Default::default()
         })
         .width_length(Length::clamp(
-            Length::points(240.0),
+            Length::points(CONTENT_MIN_WIDTH),
             Length::percent(100.0),
-            Length::points(420.0),
+            Length::points(CONTENT_MAX_WIDTH),
         ))
         .into();
 
         Container::new(Column {
-            gap: Some(0.0),
+            gap: Some(tokens.spacing.none),
             children: vec![
                 content,
                 Spacer {

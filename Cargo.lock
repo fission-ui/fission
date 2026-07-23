@@ -4370,7 +4370,6 @@ dependencies = [
  "fission",
  "fission-test-driver",
  "image 0.25.8",
- "lazy_static",
  "serde",
 ]
 

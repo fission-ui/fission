@@ -1,7 +1,10 @@
-use fission::core::Length;
 use fission::prelude::*;
 
 const FISSION_LOGO_PNG: &[u8] = include_bytes!("../../../docs/fission_logo.png");
+const CONTENT_MIN_WIDTH: f32 = 240.0;
+const CONTENT_MAX_WIDTH: f32 = 420.0;
+const IMAGE_SIZE: f32 = 144.0;
+const IMAGE_PROBE_HEIGHT: f32 = 176.0;
 
 #[cfg(target_os = "android")]
 const ANDROID_TEST_CONTROL_PORT: u16 = 48761;
@@ -28,7 +31,7 @@ impl From<MobileSmokeApp> for Widget {
         let increment = with_reducer!(ctx, Increment, on_increment);
 
         let content = Container::new(Column {
-            gap: Some(16.0),
+            gap: Some(tokens.spacing.m),
             children: vec![
                 Text::new("Mobile smoke")
                     .size(tokens.typography.font_size_xl)
@@ -44,12 +47,12 @@ impl From<MobileSmokeApp> for Widget {
                     .into(),
                 Container::new(
                     Image::memory(FISSION_LOGO_PNG.to_vec())
-                        .size(144.0, 144.0)
+                        .size(IMAGE_SIZE, IMAGE_SIZE)
                         .fit(fission::core::op::ImageFit::Contain)
                         .semantic_label("Fission logo image probe"),
                 )
                 .width_length(Length::percent(100.0))
-                .height_length(Length::points(176.0))
+                .height_length(Length::points(IMAGE_PROBE_HEIGHT))
                 .padding_lengths(Length::all(Length::points(tokens.spacing.m)))
                 .bg(tokens.colors.surface)
                 .border(tokens.colors.primary, 1.0)
@@ -64,19 +67,20 @@ impl From<MobileSmokeApp> for Widget {
                     child: Some(Text::new("Tap").into()),
                     ..Default::default()
                 }
+                .semantics_identifier("mobile-smoke.increment")
                 .into(),
             ],
             ..Default::default()
         })
         .width_length(Length::clamp(
-            Length::points(240.0),
+            Length::points(CONTENT_MIN_WIDTH),
             Length::percent(100.0),
-            Length::points(420.0),
+            Length::points(CONTENT_MAX_WIDTH),
         ))
         .into();
 
         Container::new(Column {
-            gap: Some(0.0),
+            gap: Some(tokens.spacing.none),
             children: vec![
                 content,
                 Spacer {
