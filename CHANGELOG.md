@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2026-07-23
+
+### Added
+
+- **Design fidelity primitives** - Added typed style and layout values for design-system-driven boxes, responsive variants, grid tracks, packaged fonts, shadows, backdrop filters, and interaction-aware pressable styling.
+- **Golden image verification** - Added deterministic golden comparison helpers and documentation so rendered output can be checked against image baselines as part of LiveTest and CI workflows.
+- **Runtime inspection API coverage** - Documented the public design-fidelity and golden-testing API surface, including examples for the new style, responsive, and snapshot comparison types.
+
+### Changed
+
+- **Tray app switcher behavior is configurable** - Desktop shells now expose app switcher and Dock/taskbar visibility policy consistently so tray-style apps can opt into or out of switcher presence explicitly.
+- **Release checklist smoke command** - The maintainer release checklist now uses the current `fission add-target` smoke-test command.
+- **Rust GUI article and author metadata** - Published the Rust GUI lifecycle essay and normalized the public blog author profile URL.
+
+### Fixed
+
+- **Windows ARM64 CLI stack reservation** - The CLI command dispatcher now reserves a larger stack before running nested command flows, avoiding stack exhaustion in deep packaging and release paths.
+- **Layout inspection viewport resolution** - `LayoutEngine::inspect_node` resolves styled lengths against the snapshot viewport instead of stale engine state, so inspection results match the captured frame.
+- **Design-fidelity docs and tests** - Added regression coverage for snapshot-based inspection and tightened public Rustdoc on newly exposed design-fidelity types.
+
+### Migration notes
+
+- Update Fission dependencies to `0.9.1`:
+
+```toml
+fission = { version = "0.9.1", default-features = false, features = ["desktop"] }
+```
+
+- Tray apps that need Dock, taskbar, or app-switcher visibility should set the tray switcher policy explicitly. The defaults remain tray-oriented where the shell can hide the app from those switchers.
+
 ## [0.9.0] - 2026-07-19
 
 ### Added

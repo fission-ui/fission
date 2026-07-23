@@ -4,7 +4,7 @@ use fission_core::internal::BuildCtx;
 use fission_core::internal::{build_layout_tree, InternalLoweringCx};
 use fission_core::{View, Widget};
 use fission_ir::op::Color;
-use fission_ir::{CoreIR, LayoutOp, Op, PaintOp, WidgetId};
+use fission_ir::{CoreIR, Op, PaintOp, WidgetId};
 use fission_layout::{LayoutEngine, LayoutSize, TextMeasurer};
 use fission_theme::{Theme, Tokens};
 use fission_widgets::{Badge, Stepper};
@@ -162,23 +162,23 @@ fn stepper_circle_text_centered() {
     );
     let parents = parent_map(&ir);
 
+    let active_color = env.theme.tokens.colors.primary;
     let circle_id = ir
         .nodes
         .iter()
         .find_map(|(id, node)| {
-            if let Op::Layout(LayoutOp::Box {
-                width: Some(w),
-                height: Some(h),
+            if let Op::Paint(PaintOp::DrawRect {
+                fill: Some(fission_ir::op::Fill::Solid(color)),
                 ..
             }) = &node.op
             {
-                if approx_eq(*w, 24.0) && approx_eq(*h, 24.0) {
+                if *color == active_color {
                     return Some(*id);
                 }
             }
             None
         })
-        .expect("stepper circle container");
+        .expect("stepper active circle paint");
 
     let text_paint_id = ir
         .nodes

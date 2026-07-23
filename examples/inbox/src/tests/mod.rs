@@ -4,7 +4,7 @@ use fission::core::env::RuntimeState;
 use fission::core::event::{InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent};
 use fission::core::{Action, Env, LayoutSize, MotionPropertyId, WidgetId};
 use fission::layout::LayoutEngine;
-use fission::op::{FlexDirection, FlexWrap, GridTrack};
+use fission::op::{FlexDirection, FlexWrap, GridTrack, Length};
 use fission::render::{DisplayOp, LayoutRect};
 use fission::shell::Pipeline;
 use fission_ir::semantics::{ActionTrigger, Role};
@@ -1003,7 +1003,8 @@ fn number_input_value_present() -> Result<()> {
 layout_test!(
     divider_present,
     state_default(),
-    |op| matches!(op, LayoutOp::Box { height: Some(h), .. } if approx_eq(*h, 1.0)),
+    |op| matches!(op, LayoutOp::Box { height: Some(h), .. } if approx_eq(*h, 1.0))
+        || matches!(op, LayoutOp::StyledBox { style, .. } if matches!(&style.height, Some(Length::Points(h)) if approx_eq(*h, 1.0))),
     "expected a divider height of 1.0"
 );
 
@@ -1081,7 +1082,8 @@ layout_test!(
 layout_test!(
     split_view_flex_grow_present,
     state_default(),
-    |op| matches!(op, LayoutOp::Box { flex_grow, .. } if approx_eq(*flex_grow, 0.20) || approx_eq(*flex_grow, 0.22) || approx_eq(*flex_grow, 0.26) || approx_eq(*flex_grow, 0.74) || approx_eq(*flex_grow, 0.78) || approx_eq(*flex_grow, 0.80)),
+    |op| matches!(op, LayoutOp::Box { flex_grow, .. } if approx_eq(*flex_grow, 0.20) || approx_eq(*flex_grow, 0.22) || approx_eq(*flex_grow, 0.26) || approx_eq(*flex_grow, 0.74) || approx_eq(*flex_grow, 0.78) || approx_eq(*flex_grow, 0.80))
+        || matches!(op, LayoutOp::StyledBox { flex_grow, .. } if approx_eq(*flex_grow, 0.20) || approx_eq(*flex_grow, 0.22) || approx_eq(*flex_grow, 0.26) || approx_eq(*flex_grow, 0.74) || approx_eq(*flex_grow, 0.78) || approx_eq(*flex_grow, 0.80)),
     "expected responsive split view flex grow values"
 );
 
