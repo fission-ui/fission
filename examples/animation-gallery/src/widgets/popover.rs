@@ -1,12 +1,9 @@
 use super::common::*;
-use crate::state::{
-    current_composition_atoms, reset_timeline, AnimationGalleryState, MotionAtom, MotionChoice,
-    MotionPolicy, ResetTimeline,
-};
-use crate::style::{MUTED, SOFT_TEAL, SURFACE};
+use super::popover_preview::PopoverPreview;
+use crate::state::AnimationGalleryState;
+use crate::style::SOFT_TEAL;
 use fission::build::BuildCtxHandle;
-use fission::widgets::{Popover, PopoverMotion};
-use fission::{Button, ButtonVariant, Column, Container, Text, Widget, WidgetId};
+use fission::Widget;
 
 pub const PATH: &str = "/widgets/popover";
 
@@ -37,114 +34,6 @@ impl From<PopoverPage<'_>> for Widget {
         }
         .into()
     }
-}
-
-struct PopoverPreview<'a> {
-    ctx: &'a BuildCtxHandle<AnimationGalleryState>,
-    state: &'a AnimationGalleryState,
-}
-
-impl From<PopoverPreview<'_>> for Widget {
-    fn from(preview: PopoverPreview<'_>) -> Self {
-        let state = preview.state;
-        let close = preview
-            .ctx
-            .bind(ResetTimeline, fission::reduce_with!(reset_timeline));
-        PreviewShell {
-            child: Column {
-                gap: Some(12.0),
-                children: vec![
-                    Text::new("Real Popover widget anchored to the trigger below.")
-                        .size(12.0)
-                        .color(MUTED)
-                        .into(),
-                    Popover {
-                        id: WidgetId::explicit("gallery.real.popover"),
-                        is_open: preview_active(state),
-                        on_toggle: None,
-                        on_close: Some(close.clone()),
-                        trigger: Button {
-                            variant: ButtonVariant::Outline,
-                            child: Some(Text::new("Profile actions").into()),
-                            ..Default::default()
-                        }
-                        .into(),
-                        content: Container::new(Column {
-                            gap: Some(6.0),
-                            children: vec![
-                                Text::new("Invite teammate").size(13.0).into(),
-                                Text::new("Manage permissions").size(13.0).into(),
-                                Text::new("Archive workspace").size(13.0).into(),
-                                Button {
-                                    width: Some(220.0),
-                                    variant: ButtonVariant::Outline,
-                                    child: Some(Text::new("Close popover").into()),
-                                    on_press: Some(close.clone()),
-                                    ..Default::default()
-                                }
-                                .into(),
-                            ],
-                            ..Default::default()
-                        })
-                        .padding_all(14.0)
-                        .width(260.0)
-                        .border_radius(12.0)
-                        .bg(SURFACE)
-                        .into(),
-                        motion: preview_active(state)
-                            .then(|| popover_motion(state))
-                            .flatten(),
-                    }
-                    .into(),
-                    if preview_active(state) {
-                        Button {
-                            variant: ButtonVariant::Outline,
-                            child: Some(Text::new("Close popover preview").into()),
-                            on_press: Some(close),
-                            ..Default::default()
-                        }
-                        .into()
-                    } else {
-                        Text::new("Use the playback control to open it; backdrop and close button dismiss it.")
-                            .size(11.0)
-                            .color(MUTED)
-                            .into()
-                    },
-                ],
-                ..Default::default()
-            }
-            .into(),
-        }
-        .into()
-    }
-}
-
-fn popover_motion(state: &AnimationGalleryState) -> Option<PopoverMotion> {
-    if !policy_allows_motion(state) {
-        return None;
-    }
-    if state.policy == MotionPolicy::Reduced {
-        return Some(PopoverMotion::Fade);
-    }
-    match state.motion {
-        MotionChoice::None => None,
-        MotionChoice::Default => Some(PopoverMotion::Default),
-        MotionChoice::Fade => Some(PopoverMotion::Fade),
-        MotionChoice::Scale => Some(PopoverMotion::Scale),
-        MotionChoice::Composition => compose_popover_motion(current_composition_atoms(state)),
-        MotionChoice::Directional => Some(PopoverMotion::OriginAwareScale),
-    }
-}
-
-fn compose_popover_motion(atoms: &[MotionAtom]) -> Option<PopoverMotion> {
-    let mut motions = atoms.iter().copied().filter_map(|atom| match atom {
-        MotionAtom::Fade => Some(PopoverMotion::Fade),
-        MotionAtom::Scale => Some(PopoverMotion::Scale),
-        MotionAtom::OriginScale => Some(PopoverMotion::OriginAwareScale),
-        _ => None,
-    });
-    let first = motions.next()?;
-    Some(motions.fold(first, |acc, motion| acc + motion))
 }
 
 fn case() -> GalleryCase {

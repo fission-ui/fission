@@ -1,0 +1,14 @@
+pub const APP_COMPACT_BREAKPOINT: f32 = 980.0;
+pub const DASHBOARD_COMPACT_BREAKPOINT: f32 = 880.0;
+pub const BRAND_RAIL_WIDTH: f32 = 300.0;
+pub const NAV_PANEL_WIDTH: f32 = 236.0;
+pub const MIN_ROUTED_CONTENT_WIDTH: f32 = 480.0;
+pub const NAV_CHIP_WIDTH: f32 = 116.0;
+pub const HERO_BADGE_WIDTH: f32 = 238.0;
+pub const BRAND_MARK_SIZE: f32 = 64.0;
+pub const COMPACT_BRAND_MARK_SIZE: f32 = 54.0;
+pub const PRINCIPLE_MARK_SIZE: f32 = 54.0;
+pub const STORY_STEP_SIZE: f32 = 26.0;
+pub const LABEL_COLUMN_WIDTH: f32 = 104.0;
+pub const COLOR_DOT_SIZE: f32 = 9.0;
+pub const LABEL_DOT_SIZE: f32 = 8.0;

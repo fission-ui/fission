@@ -1,15 +1,9 @@
-use crate::state::{reset_timeline, toggle_play, AnimationGalleryState, ResetTimeline, TogglePlay};
-use crate::style::*;
-use crate::ui;
-use crate::widgets::common::{
-    policy_allows_motion, preview_active, CurrentValues, TimelineControl,
-};
-use fission::build::BuildCtxHandle;
+use crate::style::{color, BLUE, PINK, TEAL, VIOLET};
 use fission::motion::{
-    self, deg, px, scalar, Motion, MotionEasing, MotionExpr, MotionPhase, MotionPropertyId,
+    self, deg, px, scalar, MotionEasing, MotionExpr, MotionPhase, MotionPropertyId,
     MotionStartValue, MotionTrack, MotionTransition,
 };
-use fission::{Column, Container, Row, Text, Widget, WidgetId};
+use fission::op::Color;
 
 #[derive(Clone)]
 pub struct PropertyCase {
@@ -24,204 +18,12 @@ pub struct PropertyCase {
     pub reduced: &'static str,
     pub notes: &'static str,
     pub demo_label: &'static str,
-    pub color: fission::op::Color,
+    pub color: Color,
     pub track: MotionTrack,
     pub track_source: &'static str,
 }
 
-pub struct PropertiesPage<'a> {
-    pub ctx: BuildCtxHandle<AnimationGalleryState>,
-    pub state: &'a AnimationGalleryState,
-    pub path: String,
-}
-
-impl From<PropertiesPage<'_>> for Widget {
-    fn from(page: PropertiesPage<'_>) -> Self {
-        let property = property_case(&page.path);
-        Column {
-            gap: Some(14.0),
-            children: vec![
-                ui::PageHeader {
-                    title: property.title,
-                    subtitle: property.description,
-                }
-                .into(),
-                Row {
-                    gap: Some(14.0),
-                    children: vec![
-                        Container::new(Column {
-                            gap: Some(14.0),
-                            children: vec![
-                                Row {
-                                    gap: Some(8.0),
-                                    children: vec![
-                                        ui::SmallButton {
-                                            ctx: &page.ctx,
-                                            label: if page.state.playing {
-                                                "Pause"
-                                            } else {
-                                                "Play"
-                                            },
-                                            action: TogglePlay,
-                                            reducer: toggle_play,
-                                        }
-                                        .into(),
-                                        ui::SmallButton {
-                                            ctx: &page.ctx,
-                                            label: "Reset",
-                                            action: ResetTimeline,
-                                            reducer: reset_timeline,
-                                        }
-                                        .into(),
-                                        TimelineControl {
-                                            ctx: &page.ctx,
-                                            state: page.state,
-                                        }
-                                        .into(),
-                                    ],
-                                    ..Default::default()
-                                }
-                                .into(),
-                                PropertyPreview {
-                                    property: &property,
-                                    state: page.state,
-                                }
-                                .into(),
-                                ui::CodeBlock {
-                                    source: property.track_source,
-                                }
-                                .into(),
-                            ],
-                            ..Default::default()
-                        })
-                        .padding_all(16.0)
-                        .border(BORDER, 1.0)
-                        .border_radius(16.0)
-                        .bg(SURFACE)
-                        .width(610.0)
-                        .into(),
-                        PropertyInfoPanel {
-                            property: &property,
-                            state: page.state,
-                        }
-                        .into(),
-                    ],
-                    ..Default::default()
-                }
-                .into(),
-            ],
-            ..Default::default()
-        }
-        .into()
-    }
-}
-
-struct PropertyPreview<'a> {
-    property: &'a PropertyCase,
-    state: &'a AnimationGalleryState,
-}
-
-impl From<PropertyPreview<'_>> for Widget {
-    fn from(preview: PropertyPreview<'_>) -> Self {
-        let child: Widget = Container::new(
-            Text::new(preview.property.demo_label)
-                .size(16.0)
-                .color(fission::op::Color::WHITE),
-        )
-        .width(180.0)
-        .height(110.0)
-        .padding_all(28.0)
-        .border_radius(18.0)
-        .bg(preview.property.color)
-        .into();
-
-        let preview_child = if preview_active(preview.state) && policy_allows_motion(preview.state)
-        {
-            Motion {
-                id: WidgetId::explicit(preview.property.id),
-                tracks: vec![preview.property.track.clone()],
-                child,
-                clip_to_bounds: preview.property.title == "Clip / Reveal",
-                ..Default::default()
-            }
-            .into()
-        } else {
-            child
-        };
-
-        Container::new(preview_child)
-            .height(220.0)
-            .padding_all(40.0)
-            .border(BORDER, 1.0)
-            .border_radius(18.0)
-            .bg(color(242, 248, 252, 255))
-            .into()
-    }
-}
-
-struct PropertyInfoPanel<'a> {
-    property: &'a PropertyCase,
-    state: &'a AnimationGalleryState,
-}
-
-impl From<PropertyInfoPanel<'_>> for Widget {
-    fn from(panel: PropertyInfoPanel<'_>) -> Self {
-        Container::new(Column {
-            gap: Some(9.0),
-            children: vec![
-                ui::SectionTitle {
-                    title: "Property Info",
-                }
-                .into(),
-                ui::LabelValue {
-                    label: "Name",
-                    value: panel.property.property_name,
-                }
-                .into(),
-                ui::LabelValue {
-                    label: "Type",
-                    value: panel.property.value_type,
-                }
-                .into(),
-                ui::LabelValue {
-                    label: "Phase",
-                    value: panel.property.phase,
-                }
-                .into(),
-                ui::LabelValue {
-                    label: "Layout",
-                    value: panel.property.layout,
-                }
-                .into(),
-                ui::LabelValue {
-                    label: "Paint",
-                    value: panel.property.paint,
-                }
-                .into(),
-                ui::LabelValue {
-                    label: "Reduced",
-                    value: panel.property.reduced,
-                }
-                .into(),
-                CurrentValues { state: panel.state }.into(),
-                ui::PageNote {
-                    title: "Notes",
-                    body: panel.property.notes,
-                }
-                .into(),
-            ],
-            ..Default::default()
-        })
-        .width(250.0)
-        .padding_all(14.0)
-        .border(BORDER, 1.0)
-        .border_radius(16.0)
-        .bg(SURFACE)
-        .into()
-    }
-}
-
-fn property_case(path: &str) -> PropertyCase {
+pub(super) fn property_case(path: &str) -> PropertyCase {
     match path {
         "/properties/translate" => case(
             "property.translate",
@@ -382,6 +184,7 @@ fn property_case(path: &str) -> PropertyCase {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn case(
     id: &'static str,
     title: &'static str,
@@ -394,7 +197,7 @@ fn case(
     reduced: &'static str,
     notes: &'static str,
     demo_label: &'static str,
-    color: fission::op::Color,
+    color: Color,
     track: MotionTrack,
     track_source: &'static str,
 ) -> PropertyCase {

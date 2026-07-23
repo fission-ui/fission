@@ -1,12 +1,9 @@
+use super::accordion_preview::AccordionPreview;
 use super::common::*;
-use crate::state::{
-    current_composition_atoms, toggle_play, AnimationGalleryState, MotionAtom, MotionChoice,
-    TogglePlay,
-};
+use crate::state::AnimationGalleryState;
 use crate::style::SOFT_TEAL;
 use fission::build::BuildCtxHandle;
-use fission::widgets::{Accordion, AccordionItem, AccordionMotion};
-use fission::{Text, Widget};
+use fission::Widget;
 
 pub const PATH: &str = "/widgets/accordion";
 
@@ -37,60 +34,6 @@ impl From<AccordionPage<'_>> for Widget {
         }
         .into()
     }
-}
-
-struct AccordionPreview<'a> {
-    ctx: &'a BuildCtxHandle<AnimationGalleryState>,
-    state: &'a AnimationGalleryState,
-}
-
-impl From<AccordionPreview<'_>> for Widget {
-    fn from(preview: AccordionPreview<'_>) -> Self {
-        let state = preview.state;
-        let progress = if state.playing {
-            1.0
-        } else {
-            state.scrub_ms as f32 / 300.0
-        };
-        PreviewShell {
-            child: Accordion {
-                items: vec![AccordionItem {
-                    title: "Motion details".into(),
-                    content: Text::new(
-                        "Panel height, opacity, and indicator rotation are inspectable.",
-                    )
-                    .into(),
-                    is_expanded: progress > 0.2,
-                    on_toggle: Some(
-                        preview
-                            .ctx
-                            .bind(TogglePlay, fission::reduce_with!(toggle_play)),
-                    ),
-                }],
-                motion: match state.motion {
-                    MotionChoice::None => None,
-                    MotionChoice::Composition => Some(
-                        compose_accordion_motion(current_composition_atoms(state))
-                            .unwrap_or(AccordionMotion::Default),
-                    ),
-                    _ => Some(AccordionMotion::Default),
-                },
-            }
-            .into(),
-        }
-        .into()
-    }
-}
-
-fn compose_accordion_motion(atoms: &[MotionAtom]) -> Option<AccordionMotion> {
-    let mut motions = atoms.iter().copied().filter_map(|atom| match atom {
-        MotionAtom::Collapse => Some(AccordionMotion::Collapse),
-        MotionAtom::Fade => Some(AccordionMotion::Fade),
-        MotionAtom::Chevron => Some(AccordionMotion::Chevron),
-        _ => None,
-    });
-    let first = motions.next()?;
-    Some(motions.fold(first, |acc, motion| acc + motion))
 }
 
 fn case() -> GalleryCase {

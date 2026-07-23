@@ -1,95 +1,19 @@
-use crate::state::AnimationGalleryState;
-use crate::style::*;
-use crate::ui;
-use crate::widgets::common::{ControlsPanel, InspectorPanel};
-use fission::build::BuildCtxHandle;
-use fission::{Column, Container, Row, Widget};
-
-pub struct DiagnosticsPage<'a> {
-    pub ctx: BuildCtxHandle<AnimationGalleryState>,
-    pub state: &'a AnimationGalleryState,
-    pub path: String,
-}
-
-impl From<DiagnosticsPage<'_>> for Widget {
-    fn from(page: DiagnosticsPage<'_>) -> Self {
-        let panel = diagnostics_panel(&page.path);
-        let demo = demo_case(panel);
-        Column {
-            gap: Some(14.0),
-            children: vec![
-                ui::PageHeader {
-                    title: panel.title,
-                    subtitle: panel.subtitle,
-                }
-                .into(),
-                ControlsPanel {
-                    ctx: &page.ctx,
-                    state: page.state,
-                    motions: demo.motions,
-                }
-                .into(),
-                Row {
-                    gap: Some(14.0),
-                    children: vec![
-                        Container::new(Column {
-                            gap: Some(12.0),
-                            children: vec![
-                                ui::SectionTitle {
-                                    title: panel.primary_title,
-                                }
-                                .into(),
-                                ui::CodeBlock {
-                                    source: panel.primary_source,
-                                }
-                                .into(),
-                                ui::SectionTitle {
-                                    title: panel.secondary_title,
-                                }
-                                .into(),
-                                ui::CodeBlock {
-                                    source: panel.secondary_source,
-                                }
-                                .into(),
-                            ],
-                            ..Default::default()
-                        })
-                        .padding_all(16.0)
-                        .border(BORDER, 1.0)
-                        .border_radius(16.0)
-                        .bg(SURFACE)
-                        .width(620.0)
-                        .into(),
-                        InspectorPanel {
-                            case: &demo,
-                            state: page.state,
-                        }
-                        .into(),
-                    ],
-                    ..Default::default()
-                }
-                .into(),
-            ],
-            ..Default::default()
-        }
-        .into()
-    }
-}
+use crate::widgets::common::GalleryCase;
 
 #[derive(Clone, Copy)]
-struct DiagnosticsPanel {
-    title: &'static str,
-    subtitle: &'static str,
-    primary_title: &'static str,
-    primary_source: &'static str,
-    secondary_title: &'static str,
-    secondary_source: &'static str,
-    diagnostic: &'static str,
+pub(super) struct DiagnosticsCase {
+    pub title: &'static str,
+    pub subtitle: &'static str,
+    pub primary_title: &'static str,
+    pub primary_source: &'static str,
+    pub secondary_title: &'static str,
+    pub secondary_source: &'static str,
+    pub diagnostic: &'static str,
 }
 
-fn diagnostics_panel(path: &str) -> DiagnosticsPanel {
+pub(super) fn diagnostics_case(path: &str) -> DiagnosticsCase {
     match path {
-        "/diagnostics/expressions" => DiagnosticsPanel {
+        "/diagnostics/expressions" => DiagnosticsCase {
             title: "Lowered MotionExpr",
             subtitle: "Inspect the expression graph that ergonomic widget motion lowers into.",
             primary_title: "MotionExpr graph",
@@ -98,7 +22,7 @@ fn diagnostics_panel(path: &str) -> DiagnosticsPanel {
             secondary_source: TIMELINE_SOURCE,
             diagnostic: "Expression diagnostics prove widget presets lower to deterministic native motion data.",
         },
-        "/diagnostics/timeline" => DiagnosticsPanel {
+        "/diagnostics/timeline" => DiagnosticsCase {
             title: "Timeline Values",
             subtitle: "Scrub frame time and inspect current resolved values for each track.",
             primary_title: "Timeline samples",
@@ -107,7 +31,7 @@ fn diagnostics_panel(path: &str) -> DiagnosticsPanel {
             secondary_source: REST_SOURCE,
             diagnostic: "Timeline diagnostics make motion review mechanical instead of eyeballed.",
         },
-        "/diagnostics/tests" => DiagnosticsPanel {
+        "/diagnostics/tests" => DiagnosticsCase {
             title: "Test Harness Examples",
             subtitle: "Use Fission LiveTests to drive real apps, capture screenshots, and assert behavior.",
             primary_title: "LiveTest pattern",
@@ -116,7 +40,7 @@ fn diagnostics_panel(path: &str) -> DiagnosticsPanel {
             secondary_source: crate::widgets::common::TEST_SOURCE,
             diagnostic: "Tests should interact with the real widget and then assert visible text, screenshots, or motion values.",
         },
-        _ => DiagnosticsPanel {
+        _ => DiagnosticsCase {
             title: "Lowered MotionDeclaration",
             subtitle: "Inspect the native declaration emitted by a widget-owned motion enum.",
             primary_title: "Lowered MotionDeclaration",
@@ -128,10 +52,10 @@ fn diagnostics_panel(path: &str) -> DiagnosticsPanel {
     }
 }
 
-fn demo_case(panel: DiagnosticsPanel) -> crate::widgets::common::GalleryCase {
-    crate::widgets::common::GalleryCase {
-        title: panel.title,
-        description: panel.subtitle,
+pub(super) fn gallery_case(diagnostics: DiagnosticsCase) -> GalleryCase {
+    GalleryCase {
+        title: diagnostics.title,
+        description: diagnostics.subtitle,
         motions: crate::widgets::common::MODAL_MOTIONS,
         slots: &["backdrop", "surface"],
         tracks: &[
@@ -147,9 +71,9 @@ fn demo_case(panel: DiagnosticsPanel) -> crate::widgets::common::GalleryCase {
         ],
         ergonomic_source: "ModalMotion::FromTop + ModalMotion::Fade + ModalMotion::Scale",
         native_source: crate::widgets::common::GENERIC_NATIVE_SOURCE,
-        declaration_source: panel.primary_source,
-        test_source: panel.secondary_source,
-        diagnostic: panel.diagnostic,
+        declaration_source: diagnostics.primary_source,
+        test_source: diagnostics.secondary_source,
+        diagnostic: diagnostics.diagnostic,
     }
 }
 
