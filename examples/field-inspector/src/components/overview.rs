@@ -1,227 +1,85 @@
 use crate::api::WEATHER_JOB;
-use crate::components::status::CapabilityOverview;
-use crate::components::ui::{
-    action_button, body_text, is_compact, metric, muted_text, panel_card, responsive_grid,
-    soft_panel, status_pill, title_text, usable_width,
-};
+use crate::components::capability_overview::CapabilityOverview;
+use crate::components::overview_asset_compact::OverviewAssetCompact;
+use crate::components::overview_asset_expanded::OverviewAssetExpanded;
+use crate::components::overview_heading_compact::OverviewHeadingCompact;
+use crate::components::overview_heading_expanded::OverviewHeadingExpanded;
+use crate::components::ui::{Metric, PanelCard, ResponsiveGrid, SoftPanel};
+use crate::components::weather_card::WeatherCard;
 use crate::model::{
-    on_start_inspection, on_weather_failed, on_weather_loaded, CapabilityState,
-    FieldInspectorState, StartInspection, WeatherFailed, WeatherLoaded,
+    on_weather_failed, on_weather_loaded, FieldInspectorState, WeatherFailed, WeatherLoaded,
 };
-use fission::core::ResourceKey;
+use fission::core::{JobResource, ResourceKey};
 use fission::prelude::*;
+
+const OVERVIEW_EXPANDED_BREAKPOINT: f32 = 760.0;
+const METRIC_MIN_WIDTH: f32 = 160.0;
 
 pub struct OverviewPanel;
 
 impl From<OverviewPanel> for Widget {
-    fn from(_component: OverviewPanel) -> Self {
+    fn from(_panel: OverviewPanel) -> Self {
         let (ctx, view) = fission::build::current::<FieldInspectorState>();
         let order = view.state().selected_order();
-        let start = with_reducer!(ctx, StartInspection, on_start_inspection);
         let weather_ok = with_reducer!(ctx, WeatherLoaded, on_weather_loaded);
         let weather_err = with_reducer!(ctx, WeatherFailed, on_weather_failed);
         let request = view.state().weather_request();
-        let snapshot = view.state().weather.clone();
-        let weather = FutureBuilder::<FieldInspectorState, _>::new(
-            ResourceKey::new("field-inspector.weather"),
-            WEATHER_JOB,
-            request.clone(),
-            snapshot.clone(),
-            |ctx, view, snapshot| weather_card(ctx, view, snapshot),
-        )
-        .deps(request)
-        .on_ok(weather_ok)
-        .on_err(weather_err)
-        .into();
+        let weather_snapshot = view.state().weather.clone();
+        let spacing = &view.env().theme.tokens.spacing;
+
+        ctx.with_resources(|resources| {
+            resources.job(
+                JobResource::new(
+                    ResourceKey::new("field-inspector.weather"),
+                    WEATHER_JOB,
+                    request.clone(),
+                )
+                .deps(request)
+                .on_ok(weather_ok)
+                .on_err(weather_err),
+            );
+        });
 
         let (complete, total) = view.state().checklist_progress();
-        let heading = Column {
-            gap: Some(7.0),
-            flex_grow: 1.0,
-            align_items: ir_op::AlignItems::Start,
-            children: vec![
-                status_pill(view, order.priority, CapabilityState::Warning),
-                title_text(
-                    view,
-                    order.title,
-                    if is_compact(view) { 24.0 } else { 30.0 },
-                ),
-                body_text(view, order.summary),
-            ],
-            ..Default::default()
-        }
-        .into();
-        let start_button = action_button(
-            if view.state().started {
-                "Refresh checks"
-            } else {
-                "Start inspection"
-            },
-            start,
-            ButtonVariant::Primary,
-        );
-        let heading_block = if is_compact(view) {
-            Column {
-                gap: Some(12.0),
-                children: vec![heading],
-                ..Default::default()
-            }
-            .into()
-        } else {
-            Row {
-                gap: Some(12.0),
-                children: vec![heading, start_button],
-                align_items: ir_op::AlignItems::Start,
-                ..Default::default()
-            }
-            .into()
-        };
-
-        let asset_image_width = usable_width(view, if is_compact(view) { 96.0 } else { 0.0 })
-            .min(if is_compact(view) { 420.0 } else { 210.0 });
-        let asset_image_height = if is_compact(view) {
-            asset_image_width * 0.68
-        } else {
-            142.0
-        };
-        let asset_media = Image::network(order.asset.photo_url)
-            .size(asset_image_width, asset_image_height)
-            .fit(ir_op::ImageFit::Cover)
-            .semantic_label(order.asset.name)
-            .into();
-        let asset_details = Column {
-            gap: Some(6.0),
-            flex_grow: 1.0,
-            children: vec![
-                Text::new(order.asset.name).size(18.0).weight(900).into(),
-                muted_text(view, order.asset.kind),
-                body_text(
-                    view,
-                    format!(
-                        "Expected barcode {} and NFC {}",
-                        order.asset.expected_barcode, order.asset.expected_nfc_uri
-                    ),
+        let hero: Widget = PanelCard::new(Column {
+            gap: Some(spacing.l),
+            children: widgets![
+                Responsive::new(OverviewHeadingCompact)
+                    .id(WidgetId::explicit("field-inspector.overview.heading"))
+                    .case(ResponsiveCase::min_width(
+                        OVERVIEW_EXPANDED_BREAKPOINT,
+                        OverviewHeadingExpanded,
+                    )),
+                ResponsiveGrid::new(widgets![
+                    Metric::new("Site", order.site),
+                    Metric::new("Asset", order.asset.id),
+                    Metric::new("Checklist", format!("{complete}/{total}")),
+                ])
+                .item_min_width(METRIC_MIN_WIDTH),
+                SoftPanel::new(
+                    Responsive::new(OverviewAssetCompact)
+                        .id(WidgetId::explicit("field-inspector.overview.asset"))
+                        .case(ResponsiveCase::min_width(
+                            OVERVIEW_EXPANDED_BREAKPOINT,
+                            OverviewAssetExpanded,
+                        )),
                 ),
             ],
             ..Default::default()
-        }
+        })
         .into();
-        let asset_block = if is_compact(view) {
-            Column {
-                gap: Some(12.0),
-                children: vec![asset_media, asset_details],
-                align_items: ir_op::AlignItems::Start,
-                ..Default::default()
-            }
-            .into()
-        } else {
-            Row {
-                gap: Some(14.0),
-                children: vec![asset_media, asset_details],
-                align_items: ir_op::AlignItems::Start,
-                ..Default::default()
-            }
-            .into()
-        };
-
-        let hero = panel_card(
-            view,
-            Column {
-                gap: Some(18.0),
-                children: vec![
-                    heading_block,
-                    responsive_grid(
-                        view,
-                        vec![
-                            metric(view, "Site", order.site),
-                            metric(view, "Asset", order.asset.id),
-                            metric(view, "Checklist", format!("{complete}/{total}")),
-                        ],
-                        3,
-                    ),
-                    soft_panel(view, asset_block),
-                ],
-                ..Default::default()
-            }
-            .into(),
-        );
 
         Column {
-            gap: Some(18.0),
-            children: vec![hero, weather, CapabilityOverview.into()],
+            gap: Some(spacing.l),
+            children: widgets![
+                hero,
+                WeatherCard {
+                    snapshot: weather_snapshot,
+                },
+                CapabilityOverview,
+            ],
             ..Default::default()
         }
         .into()
     }
-}
-fn weather_card(
-    _ctx: BuildCtxHandle<FieldInspectorState>,
-    view: ViewHandle<FieldInspectorState>,
-    snapshot: &AsyncSnapshot<crate::api::WeatherSummary, crate::api::ApiError>,
-) -> Widget {
-    let content = if let Some(weather) = snapshot.data() {
-        responsive_grid(
-            view,
-            vec![
-                metric(view, "Weather", weather.label.clone()),
-                metric(
-                    view,
-                    "Temperature",
-                    format!("{:.1} C", weather.temperature_c),
-                ),
-                metric(view, "Wind", format!("{:.0} kph", weather.wind_speed_kph)),
-            ],
-            3,
-        )
-    } else if snapshot.has_error() {
-        body_text(view, "Live weather is unavailable; the inspection can continue with local capability providers.")
-    } else {
-        Row {
-            gap: Some(12.0),
-            children: vec![
-                CircularProgress::default().into(),
-                body_text(view, "Loading live site weather from Open-Meteo..."),
-            ],
-            ..Default::default()
-        }
-        .into()
-    };
-
-    panel_card(
-        view,
-        Column {
-            gap: Some(12.0),
-            children: vec![
-                Row {
-                    gap: Some(10.0),
-                    children: vec![
-                        title_text(view, "Site context", 20.0),
-                        Spacer {
-                            flex_grow: 1.0,
-                            ..Default::default()
-                        }
-                        .into(),
-                        status_pill(
-                            view,
-                            if snapshot.has_data() {
-                                "Live data"
-                            } else {
-                                "Pending"
-                            },
-                            if snapshot.has_data() {
-                                CapabilityState::Ready
-                            } else {
-                                CapabilityState::Pending
-                            },
-                        ),
-                    ],
-                    ..Default::default()
-                }
-                .into(),
-                content,
-            ],
-            ..Default::default()
-        }
-        .into(),
-    )
 }
