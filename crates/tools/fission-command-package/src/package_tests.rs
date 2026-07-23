@@ -4,6 +4,7 @@ use super::package_validation::{
 use super::*;
 use fission_command_core::AppConfig;
 use std::collections::BTreeSet;
+use std::ffi::OsStr;
 use std::process::Command;
 
 #[test]
@@ -39,6 +40,25 @@ fn macos_info_plist_includes_capability_usage_descriptions() {
     assert!(plist.contains("NSMicrophoneUsageDescription"));
     assert!(plist.contains("<key>CFBundleShortVersionString</key>\n  <string>1.2.3</string>"));
     assert!(plist.contains("<key>CFBundleVersion</key>\n  <string>42</string>"));
+}
+
+#[test]
+fn desktop_binary_output_path_honours_cargo_build_target() {
+    let target_directory = Path::new("/workspace/target");
+
+    assert_eq!(
+        desktop_binary_output_path(target_directory, "release", "demo", None),
+        target_directory.join("release/demo")
+    );
+    assert_eq!(
+        desktop_binary_output_path(
+            target_directory,
+            "release",
+            "demo",
+            Some(OsStr::new("x86_64-apple-darwin")),
+        ),
+        target_directory.join("x86_64-apple-darwin/release/demo")
+    );
 }
 
 #[test]
