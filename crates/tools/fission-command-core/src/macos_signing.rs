@@ -16,6 +16,10 @@ pub struct MacosPackageConfig {
     pub signing_identity: Option<String>,
     pub installer_identity: Option<String>,
     pub notarize: Option<bool>,
+    #[serde(default)]
+    pub cargo_features: Vec<String>,
+    #[serde(default)]
+    pub cargo_no_default_features: bool,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -57,6 +61,8 @@ struct MacosPackageOverlay {
     signing_identity: Option<String>,
     installer_identity: Option<String>,
     notarize: Option<bool>,
+    cargo_features: Option<Vec<String>>,
+    cargo_no_default_features: Option<bool>,
 }
 
 impl MacosPackageManifest {
@@ -94,6 +100,12 @@ impl MacosPackageOverlay {
         }
         if self.notarize.is_some() {
             config.notarize = self.notarize;
+        }
+        if let Some(features) = &self.cargo_features {
+            config.cargo_features.clone_from(features);
+        }
+        if let Some(no_default_features) = self.cargo_no_default_features {
+            config.cargo_no_default_features = no_default_features;
         }
     }
 }
@@ -305,6 +317,7 @@ signing_identity = "-"
                 signing_identity: Some("Apple Development".into()),
                 installer_identity: Some("Developer ID Installer".into()),
                 notarize: Some(true),
+                ..Default::default()
             }
         );
         let run = manifest.run.as_ref().unwrap().macos.as_ref().unwrap();
@@ -396,6 +409,8 @@ provisioning_profile = "profiles/AppStore.provisionprofile"
 signing_identity = "Apple Distribution: Example Ltd"
 installer_identity = "3rd Party Mac Developer Installer: Example Ltd"
 notarize = false
+cargo_features = ["macos-app-store"]
+cargo_no_default_features = true
 "#,
         )
         .unwrap();
@@ -420,6 +435,8 @@ notarize = false
             Some("3rd Party Mac Developer Installer: Example Ltd")
         );
         assert_eq!(config.notarize, Some(false));
+        assert_eq!(config.cargo_features, ["macos-app-store"]);
+        assert!(config.cargo_no_default_features);
     }
 
     #[test]

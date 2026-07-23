@@ -249,7 +249,7 @@ fn package_linux_run(options: &PackageOptions) -> Result<ArtifactManifest> {
     let staging_dir = clean_package_dir(options)?;
     let payload_dir = staging_dir.join("payload");
     fs::create_dir_all(&payload_dir)?;
-    let binary = build_desktop_binary(&options.project_dir, options.release)?;
+    let binary = build_desktop_binary(&options.project_dir, options.release, &[], false)?;
     let executable_name = binary
         .file_name()
         .and_then(OsStr::to_str)
@@ -330,7 +330,7 @@ fn package_terminal_run(options: &PackageOptions) -> Result<ArtifactManifest> {
     let staging_dir = clean_package_dir(options)?;
     let payload_dir = staging_dir.join("payload");
     fs::create_dir_all(&payload_dir)?;
-    let binary = build_desktop_binary(&options.project_dir, options.release)?;
+    let binary = build_desktop_binary(&options.project_dir, options.release, &[], false)?;
     let executable_name = binary
         .file_name()
         .and_then(OsStr::to_str)
@@ -439,7 +439,7 @@ fn package_windows_exe(options: &PackageOptions) -> Result<ArtifactManifest> {
     let project = read_project_config(&options.project_dir)?;
     let profile = profile_name(options.release);
     let staging_dir = clean_package_dir(options)?;
-    let binary = build_desktop_binary(&options.project_dir, options.release)?;
+    let binary = build_desktop_binary(&options.project_dir, options.release, &[], false)?;
     let native_products = build_windows_native_modules(
         &options.project_dir,
         &project,
@@ -560,7 +560,7 @@ fn package_with_project_script(
     }
     let mut environment = Vec::new();
     if target == Target::Windows {
-        let binary = build_desktop_binary(&options.project_dir, options.release)?;
+        let binary = build_desktop_binary(&options.project_dir, options.release, &[], false)?;
         let native_products = build_windows_native_modules(
             &options.project_dir,
             &project,
@@ -1514,7 +1514,12 @@ fn require_host_os(target: Target) -> Result<()> {
     }
 }
 
-fn build_desktop_binary(project_dir: &Path, release: bool) -> Result<PathBuf> {
+fn build_desktop_binary(
+    project_dir: &Path,
+    release: bool,
+    cargo_features: &[String],
+    cargo_no_default_features: bool,
+) -> Result<PathBuf> {
     let project_dir = fs::canonicalize(project_dir).with_context(|| {
         format!(
             "failed to resolve project directory {}",
@@ -1533,6 +1538,12 @@ fn build_desktop_binary(project_dir: &Path, release: bool) -> Result<PathBuf> {
         .current_dir(&project_dir);
     if release {
         command.arg("--release");
+    }
+    if cargo_no_default_features {
+        command.arg("--no-default-features");
+    }
+    if !cargo_features.is_empty() {
+        command.arg("--features").arg(cargo_features.join(","));
     }
     let status = command.status().context("failed to run cargo build")?;
     if !status.success() {
@@ -1604,7 +1615,12 @@ fn create_macos_app_bundle(
     staging_dir: &Path,
     macos: &MacosPackageConfig,
 ) -> Result<PathBuf> {
-    let binary = build_desktop_binary(&options.project_dir, options.release)?;
+    let binary = build_desktop_binary(
+        &options.project_dir,
+        options.release,
+        &macos.cargo_features,
+        macos.cargo_no_default_features,
+    )?;
     let executable = binary
         .file_name()
         .and_then(OsStr::to_str)
