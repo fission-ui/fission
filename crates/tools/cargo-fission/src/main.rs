@@ -1,3 +1,3 @@
 fn main() -> anyhow::Result<()> {
-    fission_cli::run(std::env::args())
+    fission_cli::run_from_env()
 }

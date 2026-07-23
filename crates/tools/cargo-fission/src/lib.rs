@@ -1,6 +1,6 @@
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use clap::Parser;
-use std::path::Path;
+use std::{ffi::OsString, path::Path, thread};
 
 mod cli;
 
@@ -9,16 +9,36 @@ use fission_command_core::{read_project_config, Target};
 
 use cli::{Cli, Command, ServerCommand, SiteCommand};
 
+const CLI_THREAD_STACK_BYTES: usize = 16 * 1024 * 1024;
+
+/// Runs the CLI dispatcher on a thread with a consistent cross-platform stack.
+///
+/// Some platform ABIs, notably Windows on ARM64, provide a smaller main-thread
+/// stack than the command graph needs while parsing and dispatching packaging
+/// operations. The reserve is virtual address space and is committed on demand.
+pub fn run_from_env() -> Result<()> {
+    let args = std::env::args_os().collect::<Vec<_>>();
+    let worker = thread::Builder::new()
+        .name("fission-cli".into())
+        .stack_size(CLI_THREAD_STACK_BYTES)
+        .spawn(move || run(args))
+        .context("failed to start the Fission CLI worker")?;
+
+    worker
+        .join()
+        .map_err(|_| anyhow::anyhow!("the Fission CLI worker terminated unexpectedly"))?
+}
+
 pub fn run<I, S>(args: I) -> Result<()>
 where
     I: IntoIterator<Item = S>,
-    S: Into<std::ffi::OsString> + Clone,
+    S: Into<OsString> + Clone,
 {
-    let mut argv: Vec<std::ffi::OsString> = args.into_iter().map(Into::into).collect();
+    let mut argv: Vec<OsString> = args.into_iter().map(Into::into).collect();
     if let Some(bin) = argv.first() {
         if let Some(name) = Path::new(bin).file_name().and_then(|value| value.to_str()) {
             if name == "cargo-fission" {
-                argv[0] = std::ffi::OsString::from("fission");
+                argv[0] = OsString::from("fission");
                 if argv.get(1).and_then(|value| value.to_str()) == Some("fission") {
                     argv.remove(1);
                 }
