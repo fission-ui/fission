@@ -1531,13 +1531,30 @@ fn build_desktop_binary(project_dir: &Path, release: bool) -> Result<PathBuf> {
     } else {
         name
     };
-    let path = target_directory
-        .join(profile_name(release))
-        .join(executable);
+    let cargo_build_target = env::var_os("CARGO_BUILD_TARGET").filter(|value| !value.is_empty());
+    let path = desktop_binary_output_path(
+        &target_directory,
+        profile_name(release),
+        &executable,
+        cargo_build_target.as_deref(),
+    );
     if !path.exists() {
         bail!("expected built binary at {}", path.display());
     }
     Ok(path)
+}
+
+fn desktop_binary_output_path(
+    target_directory: &Path,
+    profile: &str,
+    executable: &str,
+    cargo_build_target: Option<&OsStr>,
+) -> PathBuf {
+    let mut path = target_directory.to_path_buf();
+    if let Some(target) = cargo_build_target {
+        path.push(target);
+    }
+    path.join(profile).join(executable)
 }
 
 #[derive(Deserialize)]
