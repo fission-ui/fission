@@ -11,6 +11,7 @@ use crate::model::{
     on_select_panel, on_start_inspection, CapabilityState, FieldInspectorState, InspectorPanel,
     SelectPanel, StartInspection,
 };
+use fission::core::Length;
 use fission::prelude::*;
 use std::sync::Arc;
 
@@ -20,15 +21,20 @@ pub struct FieldInspectorApp;
 impl From<FieldInspectorApp> for Widget {
     fn from(_component: FieldInspectorApp) -> Self {
         let (ctx, view) = fission::build::current::<FieldInspectorState>();
-        let viewport = view.viewport_size();
-        let wide = viewport.width >= 1100.0;
+        let wide = view.viewport_size().width >= 1100.0;
         let padding = page_padding(view);
         let content = if wide {
             Row {
                 gap: Some(18.0),
                 align_items: ir_op::AlignItems::Stretch,
                 children: vec![
-                    Container::new(WorkOrderRail).width(330.0).into(),
+                    Container::new(WorkOrderRail)
+                        .width_length(Length::clamp(
+                            Length::points(280.0),
+                            Length::percent(30.0),
+                            Length::points(330.0),
+                        ))
+                        .into(),
                     Container::new(main_column(ctx, view)).flex_grow(1.0).into(),
                 ],
                 ..Default::default()
@@ -56,8 +62,8 @@ impl From<FieldInspectorApp> for Widget {
             child: scroll,
             ..Default::default()
         })
-        .height(viewport.height.max(1.0))
-        .padding_all(padding)
+        .height_length(Length::vh(100.0))
+        .padding_lengths(Length::all(Length::points(padding)))
         .bg_fill(Fill::LinearGradient {
             start: (0.0, 0.0),
             end: (1.0, 1.0),

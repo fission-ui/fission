@@ -8,6 +8,7 @@ use crate::model::{
     CategoriesFailed, CategoriesLoaded, ProductBrowserState, ProductsFailed, ProductsLoaded,
     PullCanceled, PullStarted, PullUpdated, RefreshProducts, SearchChanged,
 };
+use fission::core::Length;
 use fission::core::ResourceKey;
 use fission::prelude::*;
 
@@ -144,8 +145,8 @@ impl From<ProductBrowserApp> for Widget {
             ],
             ..Default::default()
         })
-        .height(viewport.height.max(1.0))
-        .padding_all(24.0)
+        .height_length(Length::vh(100.0))
+        .padding_lengths(Length::all(Length::points(tokens.spacing.l)))
         .bg(tokens.colors.background)
         .into()
     }

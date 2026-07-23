@@ -1,5 +1,5 @@
 use anyhow::Result;
-use fission::core::{with_reducer, ActionEnvelope, GlobalState, WidgetId};
+use fission::core::{with_reducer, ActionEnvelope, GlobalState, Length, WidgetId};
 use fission::prelude::fission_reducer;
 use fission::prelude::DesktopApp;
 use fission::widgets::{
@@ -418,7 +418,12 @@ impl From<TextLabApp> for Widget {
                         spacing: Some(0.0),
                         children: vec![content, modal],
                     })
-                    .padding_all(16.0)
+                    .width_length(Length::clamp(
+                        Length::points(280.0),
+                        Length::percent(100.0),
+                        Length::points(672.0),
+                    ))
+                    .padding_lengths(Length::all(Length::points(16.0)))
                     .into(),
                 ),
                 show_scrollbar: true,

@@ -74,25 +74,15 @@ impl From<ProductResults> for Widget {
         }
 
         if component.use_grid {
-            let columns: usize = if view.viewport_size().width >= 1280.0 {
-                3
-            } else {
-                2
-            };
-            let rows = (page.products.len() + columns - 1) / columns;
             let items = page
                 .products
                 .iter()
-                .enumerate()
-                .map(|(index, product)| {
-                    let row = (index / columns) as i16 + 1;
-                    let col = (index % columns) as i16 + 1;
-                    GridItem::new(ProductCard {
+                .map(|product| {
+                    ProductCard {
                         product: product.clone(),
                         selected: Some(product.id) == view.state().selected_product_id,
                         compact: false,
-                    })
-                    .cell(row, col)
+                    }
                     .into()
                 })
                 .collect();
@@ -100,8 +90,11 @@ impl From<ProductResults> for Widget {
             Scroll {
                 child: Some(
                     Grid {
-                        columns: vec![ir_op::GridTrack::Fr(1.0); columns],
-                        rows: vec![ir_op::GridTrack::Auto; rows],
+                        columns: vec![ir_op::GridTrack::auto_fit(ir_op::GridTrack::minmax(
+                            ir_op::GridTrack::Points(220.0),
+                            ir_op::GridTrack::Fr(1.0),
+                        ))],
+                        rows: vec![ir_op::GridTrack::Auto],
                         column_gap: Some(16.0),
                         row_gap: Some(16.0),
                         padding: [4.0, 16.0, 4.0, 24.0],

@@ -1,6 +1,6 @@
 use fission::core::op::Color as IrColor;
 use fission::core::ui::{Button, ButtonVariant, Container, Text, Widget};
-use fission::core::{reduce_with, ReducerContext, WidgetId};
+use fission::core::{reduce_with, Length, ReducerContext, WidgetId};
 use fission::prelude::fission_action;
 use fission::widgets::{DragPreviewOptions, DragTarget, Draggable, Dropzone, HStack, Tag, VStack};
 
@@ -228,7 +228,7 @@ impl From<TaskCard> for Widget {
                     Text::new(card.label.clone()).into(),
                 ],
             })
-            .padding_all(10.0)
+            .padding_lengths(Length::all(Length::points(tokens.spacing.s)))
             .border(tokens.colors.border, 1.0)
             .border_radius(10.0)
             .bg(tokens.colors.surface)
@@ -244,7 +244,7 @@ impl From<TaskCard> for Widget {
                         Text::new(card.label.clone()).into(),
                     ],
                 })
-                .padding_all(10.0)
+                .padding_lengths(Length::all(Length::points(tokens.spacing.s)))
                 .border(tokens.colors.primary, 1.0)
                 .border_radius(12.0)
                 .bg(tokens.colors.surface.with_alpha(235))
@@ -303,9 +303,13 @@ impl From<LaneDropzone> for Widget {
             spacing: Some(8.0),
             children: children.clone(),
         })
-        .width(210.0)
-        .min_height(190.0)
-        .padding_all(12.0)
+        .width_length(Length::clamp(
+            Length::points(190.0),
+            Length::percent(100.0),
+            Length::points(230.0),
+        ))
+        .min_height_length(Length::points(190.0))
+        .padding_lengths(Length::all(Length::points(tokens.spacing.s)))
         .border(tokens.colors.border, 1.0)
         .border_radius(14.0)
         .bg(tokens.colors.background.with_alpha(35))
@@ -315,9 +319,13 @@ impl From<LaneDropzone> for Widget {
             spacing: Some(8.0),
             children: children.clone(),
         })
-        .width(210.0)
-        .min_height(190.0)
-        .padding_all(12.0)
+        .width_length(Length::clamp(
+            Length::points(190.0),
+            Length::percent(100.0),
+            Length::points(230.0),
+        ))
+        .min_height_length(Length::points(190.0))
+        .padding_lengths(Length::all(Length::points(tokens.spacing.s)))
         .border(tokens.colors.primary.with_alpha(150), 1.0)
         .border_radius(14.0)
         .bg(tokens.colors.primary.with_alpha(18))
@@ -327,9 +335,13 @@ impl From<LaneDropzone> for Widget {
             spacing: Some(8.0),
             children,
         })
-        .width(210.0)
-        .min_height(190.0)
-        .padding_all(12.0)
+        .width_length(Length::clamp(
+            Length::points(190.0),
+            Length::percent(100.0),
+            Length::points(230.0),
+        ))
+        .min_height_length(Length::points(190.0))
+        .padding_lengths(Length::all(Length::points(tokens.spacing.s)))
         .border(tokens.colors.primary, 2.0)
         .border_radius(14.0)
         .bg(tokens.colors.primary.with_alpha(36))
@@ -379,9 +391,13 @@ impl From<ExternalFileDropTarget> for Widget {
                 spacing: Some(6.0),
                 children: file_widgets.clone(),
             })
-            .width(230.0)
-            .min_height(86.0)
-            .padding_all(12.0)
+            .width_length(Length::clamp(
+                Length::points(210.0),
+                Length::percent(100.0),
+                Length::points(260.0),
+            ))
+            .min_height_length(Length::points(86.0))
+            .padding_lengths(Length::all(Length::points(tokens.spacing.s)))
             .border(tokens.colors.border, 1.0)
             .border_radius(14.0)
             .bg(tokens.colors.background.with_alpha(28))
@@ -391,9 +407,13 @@ impl From<ExternalFileDropTarget> for Widget {
                     spacing: Some(6.0),
                     children: file_widgets,
                 })
-                .width(230.0)
-                .min_height(86.0)
-                .padding_all(12.0)
+                .width_length(Length::clamp(
+                    Length::points(210.0),
+                    Length::percent(100.0),
+                    Length::points(260.0),
+                ))
+                .min_height_length(Length::points(86.0))
+                .padding_lengths(Length::all(Length::points(tokens.spacing.s)))
                 .border(tokens.colors.primary, 2.0)
                 .border_radius(14.0)
                 .bg(tokens.colors.primary.with_alpha(32))
@@ -433,9 +453,13 @@ impl From<DragLog> for Widget {
                 .into(),
             ],
         })
-        .width(230.0)
-        .min_height(116.0)
-        .padding_all(12.0)
+        .width_length(Length::clamp(
+            Length::points(210.0),
+            Length::percent(100.0),
+            Length::points(260.0),
+        ))
+        .min_height_length(Length::points(116.0))
+        .padding_lengths(Length::all(Length::points(tokens.spacing.s)))
         .border(
             IrColor {
                 r: 190,

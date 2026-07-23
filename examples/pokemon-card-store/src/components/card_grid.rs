@@ -14,25 +14,22 @@ impl From<CardGrid> for Widget {
             return loading_or_error(&component.snapshot);
         };
         let mut children = Vec::new();
-        for (index, summary) in catalog.cards.iter().enumerate() {
+        for summary in catalog.cards.iter() {
             let Some(card) = crate::data::card_by_slug(&summary.slug) else {
                 continue;
             };
-            let row = (index / 3 + 1) as i16;
-            let col = (index % 3 + 1) as i16;
-            children.push(GridItem::new(card_tile(ctx, card)).cell(row, col).into());
+            children.push(card_tile(ctx, card));
         }
         Column {
             gap: Some(18.0),
             children: vec![
                 section_title(),
                 Grid {
-                    columns: vec![
+                    columns: vec![ir_op::GridTrack::auto_fit(ir_op::GridTrack::minmax(
+                        ir_op::GridTrack::Points(240.0),
                         ir_op::GridTrack::Fr(1.0),
-                        ir_op::GridTrack::Fr(1.0),
-                        ir_op::GridTrack::Fr(1.0),
-                    ],
-                    rows: vec![ir_op::GridTrack::Auto, ir_op::GridTrack::Auto],
+                    ))],
+                    rows: vec![ir_op::GridTrack::Auto],
                     column_gap: Some(18.0),
                     row_gap: Some(18.0),
                     children,

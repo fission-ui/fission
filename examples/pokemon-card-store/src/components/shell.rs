@@ -1,4 +1,5 @@
 use crate::app::StoreState;
+use fission::core::Length;
 use fission::prelude::*;
 
 #[derive(Clone)]
@@ -9,14 +10,21 @@ pub struct StoreShell {
 impl From<StoreShell> for Widget {
     fn from(component: StoreShell) -> Self {
         let (_ctx, view) = fission::build::current::<StoreState>();
-        let viewport = view.viewport_size();
+        let tokens = &view.env().theme.tokens;
+        let spacing_xl = tokens.spacing.xl;
+        let spacing_l = tokens.spacing.l;
         Container::new(Column {
             gap: Some(26.0),
             children: vec![nav(view), component.child.clone(), footer(view)],
             ..Default::default()
         })
-        .min_height(viewport.height.max(900.0))
-        .padding([36.0, 36.0, 24.0, 36.0])
+        .min_height_length(Length::max(vec![Length::vh(100.0), Length::points(900.0)]))
+        .padding_lengths([
+            Length::points(spacing_xl),
+            Length::points(spacing_xl),
+            Length::points(spacing_l),
+            Length::points(spacing_xl),
+        ])
         .bg(color(12, 18, 32))
         .into()
     }

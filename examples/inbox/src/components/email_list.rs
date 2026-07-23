@@ -6,7 +6,7 @@ use fission::core::ui::{
     Button, ButtonContentAlign, ButtonVariant, Checkbox, Container, Row, Text, TextContent, Widget,
 };
 use fission::core::ActionEnvelope;
-use fission::core::{reduce_with, WidgetId};
+use fission::core::{reduce_with, Length, WidgetId};
 use fission::icons::material;
 use fission::theme::ComponentSize;
 use fission::widgets::{
@@ -49,7 +49,11 @@ impl From<EmailList> for Widget {
         let compact_rows =
             view.viewport_size().height < 680.0 || view.viewport_size().width < 980.0;
         let short_viewport = view.viewport_size().height < 640.0;
-        let filters_width = (view.viewport_size().width * 0.34).clamp(240.0, 320.0);
+        let filters_width = Length::clamp(
+            Length::points(240.0),
+            Length::percent(34.0),
+            Length::points(320.0),
+        );
         let folder_label = match &folder {
             Folder::Inbox => view
                 .env()
@@ -335,7 +339,7 @@ impl From<EmailList> for Widget {
                                 .into(),
                             ],
                         })
-                        .width(filters_width)
+                        .width_length(filters_width)
                         .padding_all(14.0)
                         .bg(tokens.colors.surface)
                         .border(tokens.colors.border, 1.0)

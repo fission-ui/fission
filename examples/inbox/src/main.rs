@@ -1,5 +1,5 @@
 use fission::core::ui::{Container, Row, Widget};
-use fission::core::{reduce_with, Env, WidgetId};
+use fission::core::{reduce_with, Env, Length, WidgetId};
 use fission::i18n::{Locale, TranslationBundle};
 use fission::prelude::{DesignMode, DesignSystem, DesktopApp, FissionFluent2DesignSystem};
 use fission::widgets::{
@@ -37,7 +37,6 @@ impl From<InboxApp> for Widget {
         } else {
             0.26
         };
-        let right_sidebar_width = (viewport_width * 0.24).clamp(232.0, 320.0);
         // Register Modals
         if view.state().show_settings {
             let node = SettingsModal.into();
@@ -160,7 +159,11 @@ impl From<InboxApp> for Widget {
                         if show_right_sidebar {
                             children.push(
                                 Container::new(RightSidebar)
-                                    .width(right_sidebar_width)
+                                    .width_length(Length::clamp(
+                                        Length::points(232.0),
+                                        Length::percent(24.0),
+                                        Length::points(320.0),
+                                    ))
                                     .flex_shrink(0.0)
                                     .into(),
                             );

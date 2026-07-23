@@ -7,7 +7,7 @@ use fission::core::ui::{
     ContextMenuRegion, RichText, RichTextRun, Scroll, Slider, Switch, Text, TextContent, TextInput,
     Widget,
 };
-use fission::core::{reduce_with, ActionEnvelope, FlexDirection, GlobalState, WidgetId};
+use fission::core::{reduce_with, ActionEnvelope, FlexDirection, GlobalState, Length, WidgetId};
 use fission::prelude::fission_action;
 use fission::prelude::DesktopApp;
 use fission::widgets::{
@@ -1258,7 +1258,11 @@ impl From<GalleryApp> for Widget {
 
         Scroll {
             direction: FlexDirection::Column,
-            child: Some(Container::new(all_sections).padding_all(24.0).into()),
+            child: Some(
+                Container::new(all_sections)
+                    .padding_lengths(Length::all(Length::points(tokens.spacing.l)))
+                    .into(),
+            ),
             show_scrollbar: true,
             flex_grow: 1.0,
             flex_shrink: 1.0,
