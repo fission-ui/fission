@@ -1,5 +1,11 @@
 pub mod browser;
+mod browser_compact;
+mod browser_expanded;
 pub mod categories;
+mod category_entry;
+mod header;
+mod layout;
 pub mod product_card;
 pub mod product_detail;
+mod product_refresh;
 pub mod product_results;

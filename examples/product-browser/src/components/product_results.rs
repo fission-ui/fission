@@ -1,25 +1,29 @@
 use crate::api::{ApiError, ProductPage};
-use crate::components::product_card::ProductCard;
+use crate::components::layout::{
+    GRID_BREAKPOINT, PRODUCT_GRID_MIN_TRACK, PRODUCT_LIST_ITEM_HEIGHT,
+};
+use crate::components::product_card::{ProductCard, ProductCardDensity};
 use crate::model::ProductBrowserState;
 use fission::prelude::*;
 
 #[derive(Clone, Debug)]
 pub struct ProductResults {
     pub snapshot: AsyncSnapshot<ProductPage, ApiError>,
-    pub use_grid: bool,
+    pub instance: &'static str,
 }
 
 impl From<ProductResults> for Widget {
     fn from(component: ProductResults) -> Self {
         let (_ctx, view) = fission::build::current::<ProductBrowserState>();
         let tokens = &view.env().theme.tokens;
+        let instance = component.instance;
         if component.snapshot.connection_state == AsyncConnectionState::Waiting {
             return Center {
                 child: Column {
-                    gap: Some(12.0),
+                    gap: Some(tokens.spacing.s),
                     children: vec![
                         CircularProgress {
-                            id: WidgetId::explicit("product-browser.loading"),
+                            id: WidgetId::explicit(&format!("product-browser.loading.{instance}")),
                             ..Default::default()
                         }
                         .into(),
@@ -37,16 +41,16 @@ impl From<ProductResults> for Widget {
         if let Some(error) = component.snapshot.error() {
             return Center {
                 child: Column {
-                    gap: Some(12.0),
+                    gap: Some(tokens.spacing.m),
                     children: vec![
                         Text::new("Products could not be loaded")
-                            .size(22.0)
-                            .weight(700)
+                            .size(tokens.typography.font_size_xl)
+                            .weight(tokens.typography.font_weight_bold)
                             .color(tokens.colors.text_primary)
                             .into(),
                         Text::new(error.message.clone())
                             .color(tokens.colors.text_secondary)
-                            .max_width(520.0)
+                            .size(tokens.typography.body_medium_size)
                             .into(),
                     ],
                     ..Default::default()
@@ -73,60 +77,74 @@ impl From<ProductResults> for Widget {
             .into();
         }
 
-        if component.use_grid {
-            let items = page
+        let selected_product = view.state().selected_product_id;
+        let list_view: Widget = LazyColumn {
+            id: Some(WidgetId::explicit(&format!(
+                "product-browser.results.{instance}.list"
+            ))),
+            item_height: PRODUCT_LIST_ITEM_HEIGHT,
+            children: page
                 .products
                 .iter()
                 .map(|product| {
                     ProductCard {
                         product: product.clone(),
-                        selected: Some(product.id) == view.state().selected_product_id,
-                        compact: false,
+                        selected: Some(product.id) == selected_product,
+                        density: ProductCardDensity::Compact,
+                        instance: format!("{instance}.list"),
                     }
                     .into()
                 })
-                .collect();
-
-            Scroll {
-                child: Some(
-                    Grid {
-                        columns: vec![ir_op::GridTrack::auto_fit(ir_op::GridTrack::minmax(
-                            ir_op::GridTrack::Points(220.0),
-                            ir_op::GridTrack::Fr(1.0),
-                        ))],
-                        rows: vec![ir_op::GridTrack::Auto],
-                        column_gap: Some(16.0),
-                        row_gap: Some(16.0),
-                        padding: [4.0, 16.0, 4.0, 24.0],
-                        children: items,
-                        ..Default::default()
-                    }
-                    .into(),
-                ),
-                flex_grow: 1.0,
-                ..Default::default()
-            }
-            .into()
-        } else {
-            let items = page
-                .products
-                .iter()
-                .map(|product| {
-                    ProductCard {
-                        product: product.clone(),
-                        selected: Some(product.id) == view.state().selected_product_id,
-                        compact: true,
-                    }
-                    .into()
-                })
-                .collect();
-
-            LazyColumn {
-                id: None,
-                children: items,
-                item_height: 138.0,
-            }
-            .into()
+                .collect(),
         }
+        .into();
+
+        let grid_view: Widget = Scroll {
+            id: Some(WidgetId::explicit(&format!(
+                "product-browser.results.{instance}.grid"
+            ))),
+            child: Some(
+                Grid {
+                    columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+                        GridTrack::Points(PRODUCT_GRID_MIN_TRACK),
+                        GridTrack::Fr(1.0),
+                    ))],
+                    rows: vec![GridTrack::Auto],
+                    column_gap: Some(tokens.spacing.m),
+                    row_gap: Some(tokens.spacing.m),
+                    padding: [
+                        tokens.spacing.s,
+                        tokens.spacing.m,
+                        tokens.spacing.s,
+                        tokens.spacing.m,
+                    ],
+                    children: page
+                        .products
+                        .iter()
+                        .map(|product| {
+                            ProductCard {
+                                product: product.clone(),
+                                selected: Some(product.id) == selected_product,
+                                density: ProductCardDensity::Comfortable,
+                                instance: format!("{instance}.grid"),
+                            }
+                            .into()
+                        })
+                        .collect(),
+                    ..Default::default()
+                }
+                .into(),
+            ),
+            flex_grow: 1.0,
+            ..Default::default()
+        }
+        .into();
+
+        Responsive::new(list_view)
+            .id(WidgetId::explicit(&format!(
+                "product-browser.results.{instance}.responsive"
+            )))
+            .case(ResponsiveCase::min_width(GRID_BREAKPOINT, grid_view))
+            .into()
     }
 }

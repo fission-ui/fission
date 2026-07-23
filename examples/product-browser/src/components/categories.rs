@@ -1,47 +1,71 @@
 use crate::api::{ApiError, ProductCategory};
+use crate::components::category_entry::CategoryEntry;
+use crate::components::layout::{
+    CATEGORY_RAIL_MAX_WIDTH, CATEGORY_RAIL_MIN_WIDTH, CATEGORY_RAIL_PERCENT,
+};
 use crate::model::{on_category_selected, CategorySelected, ProductBrowserState};
 use fission::prelude::*;
 
 #[derive(Clone, Debug)]
 pub struct CategoryRail {
     pub snapshot: AsyncSnapshot<Vec<ProductCategory>, ApiError>,
+    pub instance: &'static str,
 }
 
 impl From<CategoryRail> for Widget {
     fn from(component: CategoryRail) -> Self {
         let (ctx, view) = fission::build::current::<ProductBrowserState>();
         let tokens = &view.env().theme.tokens;
+
         let mut children = vec![
             Text::new("Categories")
-                .size(16.0)
-                .weight(700)
+                .size(tokens.typography.body_medium_size)
+                .weight(tokens.typography.font_weight_bold)
                 .color(tokens.colors.text_primary)
                 .into(),
-            category_button(ctx, view, "All products".to_string(), None),
+            CategoryEntry {
+                label: "All products".to_string(),
+                action: with_reducer!(ctx, CategorySelected(None), on_category_selected),
+                selected: view.state().selected_category.is_none(),
+                identifier: format!("product-browser.category.{}.all", component.instance),
+            }
+            .into(),
         ];
 
         match component.snapshot.connection_state {
-            AsyncConnectionState::Waiting => children.push(
-                Text::new("Loading categories...")
-                    .size(13.0)
-                    .color(tokens.colors.text_secondary)
-                    .into(),
-            ),
-            _ if component.snapshot.has_error() => children.push(
-                Text::new("Categories unavailable")
-                    .size(13.0)
-                    .color(tokens.colors.text_secondary)
-                    .into(),
-            ),
+            AsyncConnectionState::Waiting => {
+                children.push(
+                    Text::new("Loading categories...")
+                        .size(tokens.typography.body_medium_size)
+                        .color(tokens.colors.text_secondary)
+                        .into(),
+                );
+            }
+            _ if component.snapshot.has_error() => {
+                children.push(
+                    Text::new("Categories unavailable")
+                        .size(tokens.typography.body_medium_size)
+                        .color(tokens.colors.text_secondary)
+                        .into(),
+                );
+            }
             _ => {
                 if let Some(categories) = component.snapshot.data() {
                     children.extend(categories.iter().map(|category| {
-                        category_button(
-                            ctx,
-                            view,
-                            category.name.clone(),
-                            Some(category.slug.clone()),
-                        )
+                        CategoryEntry {
+                            label: category.name.clone(),
+                            action: with_reducer!(
+                                ctx,
+                                CategorySelected(Some(category.slug.clone())),
+                                on_category_selected
+                            ),
+                            selected: view.state().selected_category == Some(category.slug.clone()),
+                            identifier: format!(
+                                "product-browser.category.{}.{}",
+                                component.instance, category.slug
+                            ),
+                        }
+                        .into()
                     }));
                 }
             }
@@ -50,7 +74,7 @@ impl From<CategoryRail> for Widget {
         Container::new(Scroll {
             child: Some(
                 Column {
-                    gap: Some(8.0),
+                    gap: Some(tokens.spacing.s),
                     children,
                     ..Default::default()
                 }
@@ -59,33 +83,15 @@ impl From<CategoryRail> for Widget {
             flex_grow: 1.0,
             ..Default::default()
         })
-        .width(220.0)
-        .padding_all(16.0)
+        .width_length(Length::clamp(
+            Length::points(CATEGORY_RAIL_MIN_WIDTH),
+            Length::percent(CATEGORY_RAIL_PERCENT),
+            Length::points(CATEGORY_RAIL_MAX_WIDTH),
+        ))
+        .padding_lengths(Length::all(Length::points(tokens.spacing.m)))
         .bg(tokens.colors.surface)
         .border(tokens.colors.border, 1.0)
-        .border_radius(22.0)
+        .border_radius(tokens.radii.large)
         .into()
     }
-}
-fn category_button(
-    ctx: BuildCtxHandle<ProductBrowserState>,
-    view: ViewHandle<ProductBrowserState>,
-    label: String,
-    category: Option<String>,
-) -> Widget {
-    let selected = view.state().selected_category == category;
-    let action = with_reducer!(ctx, CategorySelected(category), on_category_selected);
-    Button {
-        on_press: Some(action),
-        variant: if selected {
-            ButtonVariant::Filled
-        } else {
-            ButtonVariant::Ghost
-        },
-        content_align: ButtonContentAlign::Start,
-        width: Some(188.0),
-        child: Some(Text::new(label).max_lines(1).into()),
-        ..Default::default()
-    }
-    .into()
 }
