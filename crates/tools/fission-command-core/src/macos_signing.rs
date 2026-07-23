@@ -212,6 +212,7 @@ pub fn sign_macos_app_if_configured(
     if let Some(profile) = profile {
         embed_macos_provisioning_profile(project_dir, app_bundle, profile)?;
     }
+    remove_macos_bundle_extended_attributes(app_bundle)?;
     make_macos_bundle_world_readable(app_bundle)?;
 
     let Some(identity) = identity else {
@@ -259,6 +260,21 @@ fn embed_macos_provisioning_profile(
             destination.display()
         )
     })?;
+    Ok(())
+}
+
+fn remove_macos_bundle_extended_attributes(_app_bundle: &Path) -> Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        let status = Command::new("xattr")
+            .args(["-c", "-r"])
+            .arg(_app_bundle)
+            .status()
+            .context("failed to remove extended attributes from macOS app bundle")?;
+        if !status.success() {
+            bail!("xattr failed with {status}");
+        }
+    }
     Ok(())
 }
 
@@ -628,6 +644,34 @@ signing_identity = "-"
                 & 0o001,
             0o001
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_bundle_extended_attributes_are_removed_before_signing() {
+        let root =
+            std::env::temp_dir().join(format!("fission-macos-clean-bundle-{}", std::process::id()));
+        let app = root.join("Demo.app");
+        let resource = app.join("Contents/Resources/downloaded.dat");
+        fs::remove_dir_all(&root).ok();
+        fs::create_dir_all(resource.parent().unwrap()).unwrap();
+        fs::write(&resource, b"resource").unwrap();
+        let status = Command::new("xattr")
+            .args(["-w", "com.apple.quarantine", "0081;test;Fission;"])
+            .arg(&resource)
+            .status()
+            .unwrap();
+        assert!(status.success());
+
+        remove_macos_bundle_extended_attributes(&app).unwrap();
+
+        let status = Command::new("xattr")
+            .args(["-p", "com.apple.quarantine"])
+            .arg(&resource)
+            .status()
+            .unwrap();
+        assert!(!status.success());
         fs::remove_dir_all(root).unwrap();
     }
 
