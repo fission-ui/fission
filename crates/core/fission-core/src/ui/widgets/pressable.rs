@@ -19,9 +19,12 @@ use super::split_box_margin;
 /// Accessibility behavior exposed by a [`Pressable`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PressableRole {
+    /// Standard button semantics.
     #[default]
     Button,
+    /// Link semantics for navigation-like activation.
     Link,
+    /// Menu-item semantics for commands inside menus and popovers.
     MenuItem,
 }
 
@@ -41,12 +44,19 @@ impl PressableRole {
 /// shadow, opacity, scale, or geometry.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct PressableStyle {
+    /// Background fill for the pressable's content box.
     pub background: Option<Fill>,
+    /// Border stroke.
     pub border: Option<Stroke>,
+    /// Corner radius in logical points.
     pub corner_radius: Option<f32>,
+    /// Ordered outer or inset shadows.
     pub shadows: Option<Vec<BoxShadow>>,
+    /// Inner spacing in `[left, right, top, bottom]` order.
     pub padding: Option<[Length; 4]>,
+    /// Compositor opacity; `0.0` is transparent and `1.0` is opaque.
     pub opacity: Option<f32>,
+    /// Uniform compositor scale; `1.0` is unchanged size.
     pub scale: Option<f32>,
 }
 
@@ -78,23 +88,41 @@ impl PressableStyle {
 /// optional transitions, and optional ripple feedback.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Pressable {
+    /// Optional stable identity used for interaction state, focus, and motion.
     pub id: Option<WidgetId>,
+    /// Child content rendered inside the interaction surface.
     pub child: Widget,
+    /// Action dispatched when the pressable is activated.
     pub on_press: Option<ActionEnvelope>,
+    /// Accessible label exposed to assistive technologies.
     pub label: Option<String>,
+    /// Stable semantic identifier used by tests and accessibility tooling.
     pub semantics_identifier: Option<String>,
+    /// Accessibility role exposed by the semantic node.
     pub role: PressableRole,
+    /// How pointer activation should affect keyboard focus.
     pub focus_policy: FocusPolicy,
+    /// Whether the pressable can receive focus or activation.
     pub disabled: bool,
+    /// Typed layout box model for size, margin, padding, and placement.
     pub layout: BoxStyle,
+    /// Legacy point-based flex grow factor.
     pub flex_grow: f32,
+    /// Legacy point-based flex shrink factor.
     pub flex_shrink: f32,
+    /// Base visual state.
     pub style: PressableStyle,
+    /// Style overlay while hovered.
     pub hover_style: Option<PressableStyle>,
+    /// Style overlay while actively pressed.
     pub pressed_style: Option<PressableStyle>,
+    /// Style overlay while focused.
     pub focused_style: Option<PressableStyle>,
+    /// Style overlay while disabled.
     pub disabled_style: Option<PressableStyle>,
+    /// Optional transition for state-style changes.
     pub transition: Option<MotionTransition>,
+    /// Optional ripple feedback.
     pub ripple: Option<RippleFx>,
 }
 

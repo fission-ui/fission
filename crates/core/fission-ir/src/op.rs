@@ -83,22 +83,38 @@ pub type LayoutUnit = f32;
 /// A declarative layout length resolved by the constraint engine.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Length {
+    /// Fixed logical points.
     Points(LayoutUnit),
+    /// Percentage of the containing axis. `50.0` means 50%, not `0.5`.
     Percent(f32),
+    /// Percentage of the active viewport width. `100.0` means full viewport width.
     ViewportWidth(f32),
+    /// Percentage of the active viewport height. `100.0` means full viewport height.
     ViewportHeight(f32),
+    /// Sum of two length expressions.
     Add(Box<Length>, Box<Length>),
+    /// Difference between two length expressions.
     Subtract(Box<Length>, Box<Length>),
+    /// Smallest value from a list of fully resolvable length expressions.
     Min(Vec<Length>),
+    /// Largest value from a list of fully resolvable length expressions.
     Max(Vec<Length>),
+    /// Preferred value clamped between lower and upper bounds.
     Clamp {
+        /// Lower bound.
         min: Box<Length>,
+        /// Preferred value before clamping.
         preferred: Box<Length>,
+        /// Upper bound.
         max: Box<Length>,
     },
+    /// Size to intrinsic content, optionally capped by a limit.
     FitContent(Option<Box<Length>>),
+    /// Minimum intrinsic size required by the content.
     MinContent,
+    /// Preferred intrinsic size of the content without wrapping.
     MaxContent,
+    /// Let the active layout algorithm choose the size.
     Auto,
 }
 
@@ -284,54 +300,100 @@ impl std::hash::Hash for Length {
 /// Overflow behavior for a common box.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum Overflow {
+    /// Let content paint outside the box's assigned rectangle.
     #[default]
     Visible,
+    /// Clip content to the box's assigned rectangle.
     Clip,
 }
 
 /// Alignment of a box's child within its content rectangle.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum BoxAlignment {
+    /// Place the child at the start of both axes.
     #[default]
     Start,
+    /// Center the child on both axes.
     Center,
+    /// Place the child at the end of both axes.
     End,
+    /// Stretch the child to the content rectangle where the child has no explicit size.
     Stretch,
 }
 
 /// Absolute positioning values for a common box.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Hash)]
 pub struct BoxPosition {
+    /// Distance from the parent's left edge.
     pub left: Option<Length>,
+    /// Distance from the parent's top edge.
     pub top: Option<Length>,
+    /// Distance from the parent's right edge.
     pub right: Option<Length>,
+    /// Distance from the parent's bottom edge.
     pub bottom: Option<Length>,
 }
 
 /// Grid placement values for a common box.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct BoxGridPlacement {
+    /// Starting row line or automatic placement.
     pub row_start: GridPlacement,
+    /// Ending row line, span, or automatic placement.
     pub row_end: GridPlacement,
+    /// Starting column line or automatic placement.
     pub col_start: GridPlacement,
+    /// Ending column line, span, or automatic placement.
     pub col_end: GridPlacement,
 }
 
 /// Typed sizing and overflow shared by common box-like widgets.
+///
+/// `BoxStyle` lets widgets expose CSS-like layout capabilities without
+/// embedding CSS or shell-specific behavior in application code.
+///
+/// # Example
+///
+/// ```rust
+/// use fission_ir::op::{BoxAlignment, BoxStyle, Length, Overflow};
+///
+/// let style = BoxStyle::default()
+///     .width(Length::clamp(
+///         Length::points(280.0),
+///         Length::percent(50.0),
+///         Length::points(720.0),
+///     ))
+///     .padding_symmetric(Length::points(24.0), Length::points(16.0))
+///     .align(BoxAlignment::Center)
+///     .overflow(Overflow::Clip);
+/// ```
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Hash)]
 pub struct BoxStyle {
+    /// Preferred width.
     pub width: Option<Length>,
+    /// Preferred height.
     pub height: Option<Length>,
+    /// Minimum width constraint.
     pub min_width: Option<Length>,
+    /// Maximum width constraint.
     pub max_width: Option<Length>,
+    /// Minimum height constraint.
     pub min_height: Option<Length>,
+    /// Maximum height constraint.
     pub max_height: Option<Length>,
+    /// Inner spacing in `[left, right, top, bottom]` order.
     pub padding: Option<[Length; 4]>,
+    /// Outer spacing in `[left, right, top, bottom]` order.
     pub margin: Option<[Length; 4]>,
+    /// Width-to-height ratio.
     pub aspect_ratio: Option<OrderedLayoutUnit>,
+    /// Whether content can paint outside this box.
     pub overflow: Overflow,
+    /// Child alignment inside the content rectangle.
     pub alignment: BoxAlignment,
+    /// Optional absolute positioning offsets.
     pub position: Option<BoxPosition>,
+    /// Optional parent-grid placement.
     pub grid: Option<BoxGridPlacement>,
     /// Flex grow participation for box-like widgets.
     pub flex_grow: Option<OrderedLayoutUnit>,
@@ -448,7 +510,10 @@ impl BoxStyle {
 
 /// Hashable/serializable wrapper for floating-point layout values.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct OrderedLayoutUnit(pub LayoutUnit);
+pub struct OrderedLayoutUnit(
+    /// Wrapped finite layout value.
+    pub LayoutUnit,
+);
 
 impl std::hash::Hash for OrderedLayoutUnit {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -678,15 +743,25 @@ pub enum EmbedKind {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum GridTrack {
+    /// Fixed track size in logical points.
     Points(LayoutUnit),
+    /// Percentage of the available grid axis. `50.0` means 50%.
     Percent(f32),
+    /// Fraction of remaining free space after fixed and intrinsic tracks.
     Fr(f32),
+    /// Track sized by the largest participating item's intrinsic size.
     Auto,
+    /// Track sized by the participating items' minimum intrinsic size.
     MinContent,
+    /// Track sized by the participating items' preferred intrinsic size.
     MaxContent,
+    /// Track with independent minimum and maximum sizing functions.
     MinMax(Box<GridTrack>, Box<GridTrack>),
+    /// Repeats an ordered track list a fixed number of times.
     Repeat { count: u16, tracks: Vec<GridTrack> },
+    /// Repeats a track to fit available space, dropping empty trailing tracks.
     AutoFit(Box<GridTrack>),
+    /// Repeats a track to fill available space, retaining empty tracks.
     AutoFill(Box<GridTrack>),
 }
 
@@ -703,7 +778,9 @@ pub enum ResponsiveQuery {
 /// An inclusive lower and exclusive upper width bound for a responsive branch.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub struct ResponsiveCondition {
+    /// Inclusive lower width bound.
     pub min_width: Option<LayoutUnit>,
+    /// Exclusive upper width bound.
     pub max_width: Option<LayoutUnit>,
 }
 
@@ -722,10 +799,20 @@ impl std::hash::Hash for ResponsiveCondition {
 }
 
 impl GridTrack {
+    /// Creates a `minmax(min, max)` grid track.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use fission_ir::op::GridTrack;
+    ///
+    /// let track = GridTrack::minmax(GridTrack::Points(180.0), GridTrack::Fr(1.0));
+    /// ```
     pub fn minmax(min: GridTrack, max: GridTrack) -> Self {
         Self::MinMax(Box::new(min), Box::new(max))
     }
 
+    /// Repeats `tracks` `count` times.
     pub fn repeat(count: u16, tracks: impl Into<Vec<GridTrack>>) -> Self {
         Self::Repeat {
             count,
@@ -733,10 +820,12 @@ impl GridTrack {
         }
     }
 
+    /// Repeats `track` up to the available space and collapses empty tracks.
     pub fn auto_fit(track: GridTrack) -> Self {
         Self::AutoFit(Box::new(track))
     }
 
+    /// Repeats `track` up to the available space and keeps empty tracks.
     pub fn auto_fill(track: GridTrack) -> Self {
         Self::AutoFill(Box::new(track))
     }
@@ -790,8 +879,11 @@ impl std::hash::Hash for GridTrack {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum GridPlacement {
+    /// Let the grid auto-placement algorithm choose the line.
     Auto,
+    /// A one-based grid line number. Negative values count back from the end.
     Line(i16),
+    /// Span this many tracks from the resolved start line.
     Span(u16),
 }
 

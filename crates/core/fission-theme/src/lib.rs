@@ -151,52 +151,74 @@ pub struct DesignPatternSpec {
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct DesignAssetManifest {
+    /// Logo and image assets declared by the design system.
     pub logos: Vec<DesignAsset>,
+    /// Font assets declared by the design system.
     pub fonts: Vec<DesignFontAsset>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DesignAsset {
+    /// Stable asset identifier from the DSP package.
     pub id: String,
+    /// Path to the asset relative to the DSP file.
     pub path: String,
+    /// File format such as `svg`, `png`, or `webp`.
     pub format: String,
 }
 
 /// Metadata for a font face declared by a Design System Package.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DesignFontAsset {
+    /// CSS/font family name exposed to app code.
     pub family: String,
+    /// OpenType font weight, normally in the `100..=900` range.
     pub weight: u16,
+    /// Font slope style.
     pub style: PackagedFontStyle,
+    /// Path to the font file relative to the DSP file.
     pub path: String,
+    /// Font format such as `truetype`, `opentype`, `woff`, or `woff2`.
     pub format: String,
+    /// Optional variation-axis defaults.
     pub axes: Vec<FontVariationAxis>,
 }
 
 /// A variation-axis default applied when a packaged font is registered.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct FontVariationAxis {
+    /// Four-byte OpenType variation tag, for example `wght`.
     pub tag: [u8; 4],
+    /// Axis value used when the font face is registered.
     pub value: f32,
 }
 
 /// Font slope metadata used by packaged design-system fonts.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PackagedFontStyle {
+    /// Upright roman glyphs.
     #[default]
     Normal,
+    /// Italic glyphs.
     Italic,
+    /// Oblique glyphs.
     Oblique,
 }
 
 /// A font face embedded in an application binary by design-system codegen.
 #[derive(Clone, Copy, Debug)]
 pub struct PackagedFont {
+    /// CSS/font family name exposed to app code.
     pub family: &'static str,
+    /// OpenType font weight.
     pub weight: u16,
+    /// Font slope style.
     pub style: PackagedFontStyle,
+    /// Font format such as `truetype`, `opentype`, `woff`, or `woff2`.
     pub format: &'static str,
+    /// Embedded font bytes.
     pub data: &'static [u8],
+    /// Optional variation-axis defaults.
     pub axes: &'static [FontVariationAxis],
 }
 

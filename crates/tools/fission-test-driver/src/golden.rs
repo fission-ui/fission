@@ -23,15 +23,22 @@ impl Default for GoldenOptions {
 /// Measurements produced by a golden-image comparison.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GoldenReport {
+    /// Compared image width in pixels.
     pub width: u32,
+    /// Compared image height in pixels.
     pub height: u32,
+    /// Number of pixels with at least one channel above the configured tolerance.
     pub changed_pixels: u64,
+    /// Total number of compared pixels.
     pub total_pixels: u64,
+    /// Percentage of changed pixels in the full image.
     pub changed_percent: f32,
+    /// Largest absolute channel delta found across all pixels.
     pub maximum_channel_delta: u8,
 }
 
 impl GoldenReport {
+    /// Returns whether this report is inside the configured changed-pixel budget.
     pub fn passed(self, options: GoldenOptions) -> bool {
         self.changed_percent <= options.max_changed_percent
     }

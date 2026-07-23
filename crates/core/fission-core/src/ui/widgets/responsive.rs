@@ -10,8 +10,11 @@ use serde::{Deserialize, Serialize};
 /// A declarative responsive branch selected for a width range.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResponsiveCase {
+    /// Inclusive minimum width for this branch.
     pub min_width: Option<f32>,
+    /// Exclusive maximum width for this branch.
     pub max_width: Option<f32>,
+    /// Child rendered when the width falls inside this branch.
     pub child: Widget,
 }
 
@@ -54,9 +57,13 @@ impl ResponsiveCase {
 /// Selects a widget branch using declarative viewport or container breakpoints.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Responsive {
+    /// Optional stable identity for diagnostics and retained child identity.
     pub id: Option<WidgetId>,
+    /// Width source used to evaluate the responsive cases.
     pub query: ResponsiveQuery,
+    /// Ordered cases; the first matching case wins.
     pub cases: Vec<ResponsiveCase>,
+    /// Child rendered when no case matches.
     pub fallback: Widget,
 }
 
