@@ -4,7 +4,7 @@ use fission_core::ui::{Button, Column, Text, Widget};
 use fission_core::{reduce_with, BuildCtxHandle, GlobalState, ViewHandle};
 use fission_shell_desktop::{
     DesktopApp, TrayActivateBehavior, TrayConfig, TrayHostAction, TrayIconSource, TrayMenu,
-    TrayMenuAction, TrayMenuBuilder, WindowCloseBehavior,
+    TrayMenuAction, TrayMenuBuilder, WindowCloseBehavior, WindowMinimizeBehavior,
 };
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
@@ -62,6 +62,7 @@ fn desktop_app_accepts_tray_config_with_menu_widget() {
         TrayConfig::<TrayApiState>::new(TrayIconSource::rgba(vec![255, 255, 255, 255], 1, 1))
             .tooltip("Tray API smoke")
             .close_behavior(WindowCloseBehavior::HideToTray)
+            .minimize_behavior(WindowMinimizeBehavior::HideToTray)
             .activate_behavior(TrayActivateBehavior::ToggleMainWindow)
             .menu(TrayMenuModel);
 

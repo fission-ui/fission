@@ -21,6 +21,7 @@ pub use fission_shell_winit::{
 pub use fission_shell_winit::{
     TrayActivateBehavior, TrayAppSwitcherPolicy, TrayConfig, TrayHostAction, TrayIconSource,
     TrayMenu, TrayMenuAction, TrayMenuBuilder, TrayMenuEntry, TrayMenuItem, WindowCloseBehavior,
+    WindowMinimizeBehavior,
 };
 
 pub struct DesktopApp<S: GlobalState, W>

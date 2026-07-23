@@ -30,6 +30,21 @@ impl Default for WindowCloseBehavior {
     }
 }
 
+/// What the desktop shell should do when the main window is minimised.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WindowMinimizeBehavior {
+    /// Keep the window minimised using the platform's normal window behavior.
+    Minimize,
+    /// Hide the main window while keeping the app and tray icon alive.
+    HideToTray,
+}
+
+impl Default for WindowMinimizeBehavior {
+    fn default() -> Self {
+        Self::Minimize
+    }
+}
+
 /// What the desktop shell should do when the tray icon itself is activated.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TrayActivateBehavior {
@@ -230,6 +245,7 @@ pub struct TrayConfig<S: GlobalState> {
     pub title: Option<String>,
     pub icon_is_template: bool,
     pub close_behavior: WindowCloseBehavior,
+    pub minimize_behavior: WindowMinimizeBehavior,
     pub activate_behavior: TrayActivateBehavior,
     pub app_switcher_policy: TrayAppSwitcherPolicy,
     pub menu_on_left_click: bool,
@@ -246,6 +262,7 @@ impl<S: GlobalState> Clone for TrayConfig<S> {
             title: self.title.clone(),
             icon_is_template: self.icon_is_template,
             close_behavior: self.close_behavior,
+            minimize_behavior: self.minimize_behavior,
             activate_behavior: self.activate_behavior,
             app_switcher_policy: self.app_switcher_policy,
             menu_on_left_click: self.menu_on_left_click,
@@ -264,6 +281,7 @@ impl<S: GlobalState> TrayConfig<S> {
             title: None,
             icon_is_template: false,
             close_behavior: WindowCloseBehavior::Exit,
+            minimize_behavior: WindowMinimizeBehavior::Minimize,
             activate_behavior: TrayActivateBehavior::ToggleMainWindow,
             app_switcher_policy: TrayAppSwitcherPolicy::Hidden,
             menu_on_left_click: false,
@@ -290,6 +308,11 @@ impl<S: GlobalState> TrayConfig<S> {
 
     pub fn close_behavior(mut self, behavior: WindowCloseBehavior) -> Self {
         self.close_behavior = behavior;
+        self
+    }
+
+    pub fn minimize_behavior(mut self, behavior: WindowMinimizeBehavior) -> Self {
+        self.minimize_behavior = behavior;
         self
     }
 
@@ -348,6 +371,10 @@ pub(crate) struct ActiveTray<S: GlobalState> {
 impl<S: GlobalState> ActiveTray<S> {
     pub(crate) fn close_behavior(&self) -> WindowCloseBehavior {
         self.config.close_behavior
+    }
+
+    pub(crate) fn minimize_behavior(&self) -> WindowMinimizeBehavior {
+        self.config.minimize_behavior
     }
 
     pub(crate) fn app_switcher_policy(&self) -> TrayAppSwitcherPolicy {
@@ -756,6 +783,7 @@ mod tests {
             TrayConfig::<TrayTestState>::new(TrayIconSource::rgba(vec![255, 255, 255, 255], 1, 1));
 
         assert_eq!(config.app_switcher_policy, TrayAppSwitcherPolicy::Hidden);
+        assert_eq!(config.minimize_behavior, WindowMinimizeBehavior::Minimize);
     }
 
     #[test]
@@ -766,6 +794,7 @@ mod tests {
                 .title("Running")
                 .icon_template(true)
                 .close_behavior(WindowCloseBehavior::HideToTray)
+                .minimize_behavior(WindowMinimizeBehavior::HideToTray)
                 .activate_behavior(TrayActivateBehavior::ShowMainWindow)
                 .app_switcher_policy(TrayAppSwitcherPolicy::Visible)
                 .menu_on_left_click(true)
@@ -776,6 +805,7 @@ mod tests {
         assert_eq!(config.title.as_deref(), Some("Running"));
         assert!(config.icon_is_template);
         assert_eq!(config.close_behavior, WindowCloseBehavior::HideToTray);
+        assert_eq!(config.minimize_behavior, WindowMinimizeBehavior::HideToTray);
         assert_eq!(
             config.activate_behavior,
             TrayActivateBehavior::ShowMainWindow
