@@ -17,7 +17,8 @@ for (name, width, height) in [
 ] {
     client.simulate_resize(width, height)?;
     client.wait_for_idle(2_000, false)?;
-    client.screenshot(format!(".artifacts/screens/{name}.png"))?;
+    let screenshot = format!(".artifacts/screens/{name}.png");
+    client.screenshot(&screenshot)?;
 }
 ```
 

@@ -8,13 +8,22 @@ description: Shared typed box model for sizing, spacing, alignment, overflow, po
 `BoxStyle` groups common layout behavior for box-like widgets.
 
 ```rust
+const MEDIA_MAX_WIDTH: f32 = 960.0;
+const MEDIA_ASPECT_RATIO: f32 = 16.0 / 9.0;
+
+let (_ctx, view) = fission::build::current::<MediaState>();
+let spacing = &view.env().theme.tokens.spacing;
+
 let style = BoxStyle::default()
     .width(Length::percent(100.0))
-    .max_width(Length::points(960.0))
-    .padding_symmetric(Length::points(24.0), Length::points(16.0))
+    .max_width(Length::points(MEDIA_MAX_WIDTH))
+    .padding_symmetric(
+        Length::points(spacing.xl),
+        Length::points(spacing.m),
+    )
     .align(BoxAlignment::Center)
     .overflow(Overflow::Clip)
-    .aspect_ratio(16.0 / 9.0);
+    .aspect_ratio(MEDIA_ASPECT_RATIO);
 
 Container {
     child: Some(MediaPreview.into()),

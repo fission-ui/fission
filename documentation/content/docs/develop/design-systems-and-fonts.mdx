@@ -47,7 +47,10 @@ impl From<SettingsHeader> for Widget {
 
         Text::new(TextContent::Key("settings.title".into()))
             .size(tokens.typography.display_sm_size)
-            .line_height(tokens.typography.line_height_display)
+            .line_height(
+                tokens.typography.display_sm_size
+                    * tokens.typography.line_height_display,
+            )
             .weight(tokens.typography.font_weight_bold)
             .color(tokens.colors.text_primary)
             .into()

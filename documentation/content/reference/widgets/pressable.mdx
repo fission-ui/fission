@@ -11,13 +11,25 @@ slug: /widgets/pressable
 Use built-in widgets such as `Button`, `Link`, `MenuItem`, `Checkbox`, and `Switch` when they fit. Use `Pressable` when the visual shape is custom but the interaction is still a button, link, or menu item.
 
 ```rust
-Pressable::new(Text::new("Open report"))
+let (_ctx, view) = fission::build::current::<ReportsState>();
+let spacing = &view.env().theme.tokens.spacing;
+let open_report_label = view
+    .env()
+    .i18n
+    .get(&view.env().locale, "reports.open")
+    .unwrap_or("reports.open")
+    .to_string();
+
+Pressable::new(Text::new(TextContent::Key("reports.open".into())))
     .id(WidgetId::explicit("report.open"))
     .semantics_identifier("report.open")
-    .label("Open report")
+    .label(open_report_label)
     .role(PressableRole::Button)
     .on_press(open_report)
-    .layout(BoxStyle::default().padding_symmetric(Length::points(16.0), Length::points(10.0)))
+    .layout(BoxStyle::default().padding_symmetric(
+        Length::points(spacing.m),
+        Length::points(spacing.s),
+    ))
     .into()
 ```
 

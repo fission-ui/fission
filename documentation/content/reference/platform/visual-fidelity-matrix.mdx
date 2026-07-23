@@ -14,7 +14,13 @@ description: Target support for responsive layout, typed paint, fonts, screensho
 | Gradients and shadows | yes | yes | yes | yes | yes | yes | degraded | yes | yes |
 | Backdrop blur | yes | yes | yes | browser-dependent | yes | yes | no | browser-dependent | browser-dependent |
 | Packaged fonts | yes | yes | yes | yes | yes | yes | terminal-dependent | yes | yes |
-| LiveTest screenshots | yes | yes | yes | yes | yes | yes | text capture | yes | yes |
-| Golden image comparison | yes | yes | yes | yes | yes | yes | text/glyph-limited | yes | yes |
+| LiveTest command server | yes | yes | yes | no | yes | yes | partial | no | no |
+| Selector-based LiveTest actions | yes | yes | yes | no | yes | yes | no | no | no |
+| PNG capture | yes | yes | yes | CDP | yes | yes | yes | CDP | CDP |
+| Golden image comparison | yes | yes | yes | via CDP capture | yes | yes | glyph-limited | via CDP capture | via CDP capture |
 
-`partial` means the authored API is accepted but the target can only represent a subset of the native behavior.
+`partial` means the authored API is accepted but the target only implements a
+subset. Terminal LiveTest supports coordinate/text input and PNG capture, but
+not selector or deterministic-motion commands. Web, Static site, and SSR use
+the test driver's Chrome DevTools Protocol harness for readiness and
+screenshots; they do not expose the native `/cmd` server.

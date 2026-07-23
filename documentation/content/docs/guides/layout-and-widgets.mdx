@@ -31,7 +31,7 @@ That is the foundation of responsive design in Fission. You are not only placing
 
 Fission supports two shapes for responsive layout decisions.
 
-Use declarative responsive layout when the rule is mostly about available width or height: switch this region below a breakpoint, clamp this pane between sensible bounds, or let a child size itself relative to its parent. That keeps the sizing rule in Fission's layout description instead of making every screen manually calculate pixels.
+Use declarative responsive layout when the rule is about available width: switch this region below a breakpoint, clamp this pane between sensible bounds, or let a child size itself relative to its parent. `Responsive` currently evaluates width. Read `view.viewport_size().height` when a decision genuinely depends on height.
 
 Use imperative layout when the rule needs ordinary Rust control flow: combine viewport size with app state, environment values, previous layout geometry, permissions, feature flags, or product-specific state that cannot be expressed as a simple responsive case.
 
@@ -64,8 +64,11 @@ The product rule is the same regardless of syntax:
 Use this form when the responsive rule is a straightforward layout concern. The breakpoint and width constraint stay in Fission's layout model, while app state still decides which content appears.
 
 ```rust
-use fission::core::Length;
 use fission::prelude::*;
+
+const PHONE_BREAKPOINT: f32 = 900.0;
+const LIST_PANE_MIN_WIDTH: f32 = 280.0;
+const LIST_PANE_MAX_WIDTH: f32 = 360.0;
 
 pub struct MailScreen;
 
@@ -75,7 +78,7 @@ impl From<MailScreen> for Widget {
             id: Some(WidgetId::explicit("mail.screen.safe_area")),
             child: Responsive::new(MailDesktopLayout)
                 .id(WidgetId::explicit("mail.screen.responsive"))
-                .case(ResponsiveCase::max_width(900.0, MailPhoneLayout))
+                .case(ResponsiveCase::max_width(PHONE_BREAKPOINT, MailPhoneLayout))
                 .into(),
         }
         .into()
@@ -108,6 +111,7 @@ pub struct MailDesktopLayout;
 impl From<MailDesktopLayout> for Widget {
     fn from(_layout: MailDesktopLayout) -> Widget {
         let (_ctx, view) = fission::build::current::<MailState>();
+        let spacing = &view.env().theme.tokens.spacing;
 
         let detail: Widget = if let Some(thread_id) = view.state().selected_thread {
             ThreadDetail { thread_id }.into()
@@ -117,13 +121,13 @@ impl From<MailDesktopLayout> for Widget {
 
         Row {
             id: Some(WidgetId::explicit("mail.desktop.split")),
-            gap: Some(16.0),
+            gap: Some(spacing.m),
             children: widgets![
                 Container::new(ThreadList)
                     .width_length(Length::clamp(
-                        Length::points(280.0),
+                        Length::points(LIST_PANE_MIN_WIDTH),
                         Length::percent(32.0),
-                        Length::points(360.0),
+                        Length::points(LIST_PANE_MAX_WIDTH),
                     ))
                     .flex_shrink(0.0)
                     .into(),
@@ -136,11 +140,13 @@ impl From<MailDesktopLayout> for Widget {
 }
 ```
 
-`Responsive::new(MailDesktopLayout)` makes the desktop layout the fallback. The `max_width(900.0, MailPhoneLayout)` case overrides that fallback on narrow viewports. Cases are explicit and ordered, so the layout rule is visible at the screen boundary instead of being hidden in ad hoc arithmetic.
+`Responsive::new(MailDesktopLayout)` makes the desktop layout the fallback. The `max_width(PHONE_BREAKPOINT, MailPhoneLayout)` case overrides that fallback on narrow viewports. Cases are explicit and ordered, and the first matching case wins.
 
 `Length::clamp(...)` replaces manual width math. The list pane wants to be 32% of its parent row, but never smaller than 280 points or larger than 360 points. Use `Length::percent(32.0)` for parent-relative sizing. Use `Length::vw(32.0)` only when the rule truly means 32% of the viewport.
 
 The phone and desktop branches are named widgets. That keeps retained widget identity clearer, makes the examples easier to test, and avoids turning screen composition into a collection of helper functions that return anonymous widget trees.
+
+Fission lowers every branch so it can switch layouts deterministically. Construct each branch independently rather than cloning a `Widget` into several cases, and keep explicit `WidgetId` values unique across the complete responsive tree.
 
 </TabItem>
 <TabItem value="imperative" label="Imperative syntax">
@@ -150,13 +156,18 @@ Use this form when the responsive rule needs raw viewport information or must co
 ```rust
 use fission::prelude::*;
 
+const PHONE_BREAKPOINT: f32 = 900.0;
+const LIST_PANE_MIN_WIDTH: f32 = 280.0;
+const LIST_PANE_MAX_WIDTH: f32 = 360.0;
+
 pub struct MailScreen;
 
 impl From<MailScreen> for Widget {
     fn from(_screen: MailScreen) -> Widget {
         let (_ctx, view) = fission::build::current::<MailState>();
         let viewport = view.viewport_size();
-        let is_phone = viewport.width < 900.0;
+        let spacing = &view.env().theme.tokens.spacing;
+        let is_phone = viewport.width < PHONE_BREAKPOINT;
 
         let list: Widget = ThreadList.into();
         let detail: Widget = if let Some(thread_id) = view.state().selected_thread {
@@ -181,10 +192,14 @@ impl From<MailScreen> for Widget {
         } else {
             Row {
                 id: Some(WidgetId::explicit("mail.desktop.split")),
-                gap: Some(16.0),
+                gap: Some(spacing.m),
                 children: widgets![
                     Container::new(list)
-                        .width((viewport.width * 0.32).clamp(280.0, 360.0))
+                        .width_length(Length::clamp(
+                            Length::points(LIST_PANE_MIN_WIDTH),
+                            Length::percent(32.0),
+                            Length::points(LIST_PANE_MAX_WIDTH),
+                        ))
                         .flex_shrink(0.0)
                         .into(),
                     Container::new(detail).flex_grow(1.0).into(),
@@ -205,7 +220,7 @@ impl From<MailScreen> for Widget {
 
 `view.viewport_size()` gives this conversion the current viewport. The screen then decides whether side-by-side work is realistic. App state decides whether the detail panel has a selected thread or should show an empty state.
 
-This style is useful when you need the exact viewport value for a calculation that is not covered by `Length`, when you need to branch on several inputs at once, or when the layout rule is temporary and easier to inspect as ordinary Rust before you promote it into named responsive widgets.
+This style is useful when you need to branch on viewport height, combine geometry with product state, or inspect previous-frame layout. Imperative branching does not require imperative sizing: the desktop branch still uses `Length::clamp`.
 
 </TabItem>
 </Tabs>
@@ -258,7 +273,7 @@ Responsive layout is not only about breakpoints. It is also about restraint.
 
 Very wide containers can make forms awkward, body text tiring to read, and side panels visually weak. Very narrow fixed widths can cause text clipping and cramped controls. In Fission, it is common to combine flexible containers with clamps or explicit widths for the parts that should not grow forever.
 
-You saw that in the mail example when the list pane width was clamped. In the declarative version, `Length::clamp(Length::points(280.0), Length::percent(32.0), Length::points(360.0))` keeps the sizing rule in the layout tree. In the imperative version, the same idea is expressed with `(viewport.width * 0.32).clamp(280.0, 360.0)`.
+You saw that in the mail example when the list pane width was clamped. Both versions use `Length::clamp(Length::points(280.0), Length::percent(32.0), Length::points(360.0))`, because sizing remains a layout constraint even when the surrounding screen structure is chosen imperatively.
 
 Prefer `Length` when the rule is a layout constraint. Reach for manual arithmetic when the rule genuinely depends on raw viewport geometry or other product logic. Either way, the pane is allowed to respond to available space, but only inside a reasonable range.
 

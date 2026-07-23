@@ -16,6 +16,9 @@ Most production screens should start with a named responsive shell.
 ```rust
 use fission::prelude::*;
 
+const PHONE_BREAKPOINT: f32 = 760.0;
+const TABLET_BREAKPOINT: f32 = 1_120.0;
+
 pub struct DashboardScreen;
 
 impl From<DashboardScreen> for Widget {
@@ -24,8 +27,12 @@ impl From<DashboardScreen> for Widget {
             id: Some(WidgetId::explicit("dashboard.safe_area")),
             child: Responsive::new(DashboardDesktop)
                 .id(WidgetId::explicit("dashboard.responsive"))
-                .case(ResponsiveCase::max_width(760.0, DashboardPhone))
-                .case(ResponsiveCase::between(760.0, 1120.0, DashboardTablet))
+                .case(ResponsiveCase::max_width(PHONE_BREAKPOINT, DashboardPhone))
+                .case(ResponsiveCase::between(
+                    PHONE_BREAKPOINT,
+                    TABLET_BREAKPOINT,
+                    DashboardTablet,
+                ))
                 .into(),
         }
         .into()
@@ -41,11 +48,14 @@ The fallback is the desktop layout because it is the broadest version of the scr
 <TabItem value="declarative" label="Declarative">
 
 ```rust
+const REPORT_LIST_MIN_WIDTH: f32 = 280.0;
+const REPORT_LIST_MAX_WIDTH: f32 = 420.0;
+
 Container::new(ReportList)
     .width_length(Length::clamp(
-        Length::points(280.0),
+        Length::points(REPORT_LIST_MIN_WIDTH),
         Length::percent(34.0),
-        Length::points(420.0),
+        Length::points(REPORT_LIST_MAX_WIDTH),
     ))
     .flex_shrink(0.0)
     .into()
@@ -57,11 +67,13 @@ Use this when the sizing rule is independent of app state. The runtime can inspe
 <TabItem value="imperative" label="Imperative">
 
 ```rust
+const INSPECTOR_BREAKPOINT: f32 = 1_120.0;
+
 let (_ctx, view) = fission::build::current::<ReportsState>();
 let viewport = view.viewport_size();
 let inspector_open = view.state().inspector_open;
 
-let content: Widget = if viewport.width >= 1120.0 && inspector_open {
+let content: Widget = if viewport.width >= INSPECTOR_BREAKPOINT && inspector_open {
     ReportsWithInspector.into()
 } else {
     ReportsSingleColumn.into()
@@ -78,9 +90,11 @@ Use this when the breakpoint is not the only decision. This remains valid Fissio
 Use a container query when a reusable widget should adapt to its parent instead of the whole viewport.
 
 ```rust
+const WIDE_CARD_BREAKPOINT: f32 = 520.0;
+
 Responsive::new(CompactCard)
     .container_query()
-    .case(ResponsiveCase::min_width(520.0, WideCard))
+    .case(ResponsiveCase::min_width(WIDE_CARD_BREAKPOINT, WideCard))
 ```
 
 This is useful for cards, inspectors, embedded panels, and generated app surfaces that may be mounted inside another host.

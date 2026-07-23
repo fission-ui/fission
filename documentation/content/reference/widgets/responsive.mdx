@@ -9,10 +9,17 @@ slug: /widgets/responsive
 `Responsive` selects one child from ordered breakpoint cases plus a required fallback.
 
 ```rust
+const PHONE_BREAKPOINT: f32 = 720.0;
+const TABLET_BREAKPOINT: f32 = 1_120.0;
+
 Responsive::new(DesktopLayout)
     .id(WidgetId::explicit("settings.responsive"))
-    .case(ResponsiveCase::max_width(720.0, PhoneLayout))
-    .case(ResponsiveCase::between(720.0, 1120.0, TabletLayout))
+    .case(ResponsiveCase::max_width(PHONE_BREAKPOINT, PhoneLayout))
+    .case(ResponsiveCase::between(
+        PHONE_BREAKPOINT,
+        TABLET_BREAKPOINT,
+        TabletLayout,
+    ))
     .into()
 ```
 

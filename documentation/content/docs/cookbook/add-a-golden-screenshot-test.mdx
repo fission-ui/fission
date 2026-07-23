@@ -15,7 +15,7 @@ fn settings_phone_matches_golden() -> anyhow::Result<()> {
     client.wait_for_idle(2_000, false)?;
     client.tap_semantic_identifier("settings.open")?;
 
-    let report = client.compare_golden(
+    client.compare_golden(
         "tests/goldens/settings-phone.png",
         Some(".artifacts/diffs/settings-phone.png"),
         GoldenOptions {
@@ -23,10 +23,10 @@ fn settings_phone_matches_golden() -> anyhow::Result<()> {
             max_changed_percent: 0.2,
         },
     )?;
-
-    assert!(report.changed_percent <= 0.2);
     Ok(())
 }
 ```
 
-Use semantic identifiers to drive the screen into the desired state before comparing pixels.
+Use semantic identifiers to drive the screen into the desired state before
+comparing pixels. `compare_golden` returns an error when the changed-pixel
+budget is exceeded, so a second threshold assertion is unnecessary.

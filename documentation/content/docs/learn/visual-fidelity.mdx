@@ -12,6 +12,9 @@ The goal is not to hard-code more detail. The goal is to make design decisions d
 ## Use tokens before literals
 
 ```rust
+const HERO_HORIZONTAL_PADDING_MIN: f32 = 20.0;
+const HERO_HORIZONTAL_PADDING_MAX: f32 = 64.0;
+
 impl From<HeroCard> for Widget {
     fn from(_: HeroCard) -> Widget {
         let (_ctx, view) = fission::build::current::<AppState>();
@@ -19,8 +22,12 @@ impl From<HeroCard> for Widget {
 
         Container::new(Text::new(TextContent::Key("home.hero.title".into())))
             .padding_lengths(Length::symmetric(
-                Length::clamp(Length::points(20.0), Length::vw(5.0), Length::points(64.0)),
-                Length::points(24.0),
+                Length::clamp(
+                    Length::points(HERO_HORIZONTAL_PADDING_MIN),
+                    Length::vw(5.0),
+                    Length::points(HERO_HORIZONTAL_PADDING_MAX),
+                ),
+                Length::points(tokens.spacing.xl),
             ))
             .bg(tokens.colors.surface)
             .border(tokens.colors.border, 1.0)

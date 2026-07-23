@@ -17,11 +17,14 @@ The modern Fission layout surface is built around typed primitives. These are no
 ## Length
 
 ```rust
+const PROFILE_MIN_WIDTH: f32 = 280.0;
+const PROFILE_MAX_WIDTH: f32 = 520.0;
+
 Container::new(ProfileSummary)
     .width_length(Length::clamp(
-        Length::points(280.0),
+        Length::points(PROFILE_MIN_WIDTH),
         Length::percent(40.0),
-        Length::points(520.0),
+        Length::points(PROFILE_MAX_WIDTH),
     ))
     .max_height_length(Length::vh(80.0))
     .into()
@@ -32,11 +35,19 @@ Percentages are expressed as whole percentages: `Length::percent(50.0)` means ha
 ## BoxStyle
 
 ```rust
+const PANEL_MAX_WIDTH: f32 = 960.0;
+
+let (_ctx, view) = fission::build::current::<SettingsState>();
+let spacing = &view.env().theme.tokens.spacing;
+
 let panel = BoxStyle::default()
     .width(Length::percent(100.0))
-    .max_width(Length::points(960.0))
-    .padding_symmetric(Length::points(24.0), Length::points(18.0))
-    .margin_symmetric(Length::Auto, Length::points(0.0))
+    .max_width(Length::points(PANEL_MAX_WIDTH))
+    .padding_symmetric(
+        Length::points(spacing.xl),
+        Length::points(spacing.l),
+    )
+    .margin_symmetric(Length::Auto, Length::points(spacing.none))
     .align(BoxAlignment::Center)
     .overflow(Overflow::Clip);
 
@@ -53,13 +64,18 @@ Use the builder methods on `Container` for common cases, and use `BoxStyle` when
 ## Grid tracks
 
 ```rust
+const CARD_MIN_WIDTH: f32 = 220.0;
+
+let (_ctx, view) = fission::build::current::<CatalogState>();
+let spacing = &view.env().theme.tokens.spacing;
+
 Grid {
     columns: vec![GridTrack::auto_fit(GridTrack::minmax(
-        GridTrack::Points(220.0),
+        GridTrack::Points(CARD_MIN_WIDTH),
         GridTrack::Fr(1.0),
     ))],
-    row_gap: Some(18.0),
-    column_gap: Some(18.0),
+    row_gap: Some(spacing.l),
+    column_gap: Some(spacing.l),
     children: cards,
     ..Default::default()
 }

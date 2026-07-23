@@ -21,9 +21,11 @@ description: Grid track definitions for explicit and responsive grid layouts.
 | `GridTrack::auto_fill(track)` | Repeat to fill available space and retain empty tracks. |
 
 ```rust
+const CARD_MIN_WIDTH: f32 = 220.0;
+
 Grid {
     columns: vec![GridTrack::auto_fit(GridTrack::minmax(
-        GridTrack::Points(220.0),
+        GridTrack::Points(CARD_MIN_WIDTH),
         GridTrack::Fr(1.0),
     ))],
     children: cards,

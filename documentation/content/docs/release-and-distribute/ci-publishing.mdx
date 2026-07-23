@@ -10,9 +10,26 @@ CI publishing should be non-interactive. Every required decision must come from 
 Recommended shape:
 
 ```bash
-fission package --target android --project-dir . --release
-fission publish --target android --project-dir . --track internal --non-interactive
+fission package \
+  --target android \
+  --format aab \
+  --project-dir . \
+  --release \
+  --json
+
+fission publish \
+  --provider play-store \
+  --artifact target/fission/release/android/aab/artifact-manifest.json \
+  --track internal \
+  --project-dir . \
+  --yes \
+  --json
 ```
+
+`fission package` always requires an explicit `--format`. In CI, pass the
+resulting `artifact-manifest.json` to `fission publish` so the upload cannot
+silently select a different build. `--yes` is the non-interactive confirmation
+flag; `--non-interactive` is not a Fission option.
 
 ## Secret policy
 

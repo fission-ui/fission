@@ -14,8 +14,10 @@ Use `Container` when you need to shape or decorate a single child. Do not use it
 ## Example
 
 ```rust
-use fission::core::Length;
 use fission::prelude::*;
+
+const SUMMARY_MIN_WIDTH: f32 = 280.0;
+const SUMMARY_MAX_WIDTH: f32 = 520.0;
 
 let (_ctx, view) = fission::build::current::<BillingState>();
 let tokens = &view.env().theme.tokens;
@@ -23,12 +25,12 @@ let tokens = &view.env().theme.tokens;
 let card = Container::new(Text::new(TextContent::Key("billing.summary".into())))
     .padding_lengths(Length::symmetric(
         Length::points(tokens.spacing.l),
-        Length::points(tokens.spacing.md),
+        Length::points(tokens.spacing.m),
     ))
     .width_length(Length::clamp(
-        Length::points(280.0),
+        Length::points(SUMMARY_MIN_WIDTH),
         Length::percent(42.0),
-        Length::points(520.0),
+        Length::points(SUMMARY_MAX_WIDTH),
     ))
     .bg(tokens.colors.surface)
     .border(tokens.colors.border, 1.0)

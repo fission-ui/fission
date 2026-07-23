@@ -8,17 +8,32 @@ description: Build a custom accessible control with Pressable, semantic identifi
 Use `Pressable` when you need a custom interaction surface but still want button/link/menu-item semantics, focus behavior, pointer state, and test automation support.
 
 ```rust
+let (_ctx, view) = fission::build::current::<ApprovalState>();
+let tokens = &view.env().theme.tokens;
+let approve_label = view
+    .env()
+    .i18n
+    .get(&view.env().locale, "approval.approve")
+    .unwrap_or("approval.approve")
+    .to_string();
+
 Pressable::new(Row {
-    gap: Some(10.0),
-    children: widgets![Icon::new("check").into(), Text::new("Approve").into()],
+    gap: Some(tokens.spacing.s),
+    children: widgets![
+        Icon::svg(material::action::check_circle::regular()),
+        Text::new(TextContent::Key("approval.approve".into())),
+    ],
     ..Default::default()
 })
 .id(WidgetId::explicit("approval.approve"))
 .semantics_identifier("approval.approve")
-.label("Approve request")
+.label(approve_label)
 .role(PressableRole::Button)
 .on_press(approve)
-.layout(BoxStyle::default().padding_symmetric(Length::points(16.0), Length::points(10.0)))
+.layout(BoxStyle::default().padding_symmetric(
+    Length::points(tokens.spacing.m),
+    Length::points(tokens.spacing.s),
+))
 .style(PressableStyle {
     background: Some(Fill::Solid(tokens.colors.primary)),
     corner_radius: Some(tokens.radii.medium),
