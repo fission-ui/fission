@@ -21,11 +21,17 @@ impl NativeSurfaceRegistry {
     }
 
     pub(crate) fn present_surfaces(&mut self, frames: &[NativeSurfaceFrame]) {
+        let mut claimed = vec![false; frames.len()];
         for handler in &mut self.handlers {
             let claimed = frames
                 .iter()
-                .filter(|frame| handler.handles_payload(&frame.payload))
-                .cloned()
+                .enumerate()
+                .filter_map(|(index, frame)| {
+                    (!claimed[index] && handler.handles_payload(&frame.payload)).then(|| {
+                        claimed[index] = true;
+                        frame.clone()
+                    })
+                })
                 .collect::<Vec<_>>();
             handler.present_surfaces(&claimed);
         }
@@ -95,5 +101,29 @@ mod tests {
         registry.attach_host(NativeSurfaceHost::from_raw_window_handle(
             RawWindowHandle::Web(raw_window_handle::WebWindowHandle::new(0)),
         ));
+    }
+
+    #[test]
+    fn gives_overlapping_payloads_to_the_first_registered_handler() {
+        let first = Arc::new(Mutex::new(Vec::new()));
+        let second = Arc::new(Mutex::new(Vec::new()));
+        let mut registry = NativeSurfaceRegistry::default();
+        registry.register(RecordingHandler {
+            prefix: b"maps:",
+            frames: first.clone(),
+        });
+        registry.register(RecordingHandler {
+            prefix: b"maps:",
+            frames: second.clone(),
+        });
+
+        registry.present_surfaces(&[NativeSurfaceFrame {
+            widget_id: WidgetId::from_u128(1),
+            rect: LayoutRect::new(0.0, 0.0, 1.0, 1.0),
+            payload: b"maps:payload".to_vec(),
+        }]);
+
+        assert_eq!(first.lock().unwrap().len(), 1);
+        assert!(second.lock().unwrap().is_empty());
     }
 }

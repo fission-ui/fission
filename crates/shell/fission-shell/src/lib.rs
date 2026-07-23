@@ -91,7 +91,8 @@ impl NativeSurfaceHost {
 /// platform views in [`attach_host`](NativeSurfaceHandler::attach_host), then
 /// reconcile their geometry and visibility in
 /// [`present_surfaces`](NativeSurfaceHandler::present_surfaces). The shell is
-/// intentionally unaware of individual extension types.
+/// intentionally unaware of individual extension types. A custom surface is
+/// delivered to the first registered handler that claims it.
 pub trait NativeSurfaceHandler {
     /// Returns whether this handler owns a custom embed payload.
     fn handles_payload(&self, payload: &[u8]) -> bool;
