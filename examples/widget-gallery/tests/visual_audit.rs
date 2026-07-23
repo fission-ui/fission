@@ -1,4 +1,4 @@
-use fission::core::{BuildCtxHandle, GlobalState, ViewHandle, WidgetId};
+use fission::core::{GlobalState, WidgetId};
 use fission::layout::LayoutSize;
 use fission::render::DisplayOp;
 use fission_test::prelude::*;
@@ -10,6 +10,7 @@ use fission::core::ui::{
     Button, ButtonVariant, Checkbox, Container, Scroll, Slider, Switch, Text, TextInput, Widget,
 };
 use fission::core::{ActionEnvelope, FlexDirection};
+use fission::widgets;
 use fission::widgets::{
     Accordion, AccordionItem, Alert, AlertKind, Avatar, Badge, Breadcrumb, BreadcrumbItem, Card,
     CircularProgress, Code, EmptyState, Kbd, Link, MenuButton, MenuItem, NumberInput, Pagination,
@@ -22,373 +23,381 @@ use serde::{Deserialize, Serialize};
 struct GS;
 impl GlobalState for GS {}
 
-fn section(title: &str, children: Vec<Widget>) -> Widget {
-    VStack {
-        spacing: Some(8.0),
-        children: std::iter::once(Text::new(title).size(20.0).into())
-            .chain(children)
-            .collect(),
-    }
-    .into()
+struct TestSection {
+    title: &'static str,
+    children: Vec<Widget>,
 }
 
-// Build a minimal version of each widget category to test rendering
-fn build_all_widgets(_ctx: BuildCtxHandle<GS>, _view: ViewHandle<GS>) -> Widget {
-    let _noop = ActionEnvelope {
-        id: fission::core::ActionId::from_u128(9999),
-        payload: vec![],
-    };
-
-    let display = section(
-        "Display",
-        vec![
-            Text::new("Hello").size(16.0).into(),
-            Badge {
-                text: "New".into(),
-                ..Default::default()
-            }
-            .into(),
-            Tag {
-                label: "Rust".into(),
-                on_close: None,
-            }
-            .into(),
-            Avatar {
-                name: Some("John Doe".into()),
-                src: None,
-                size: Some(40.0),
-            }
-            .into(),
-            Code {
-                text: "let x = 42;".into(),
-            }
-            .into(),
-            Kbd {
-                text: "Ctrl+C".into(),
-            }
-            .into(),
-            Stat {
-                label: "Users".into(),
-                value: "1234".into(),
-                help_text: Some("up".into()),
-            }
-            .into(),
-        ],
-    );
-
-    let input = section(
-        "Input",
-        vec![
-            Button {
-                variant: ButtonVariant::Filled,
-                child: Some(Text::new("Filled").into()),
-                ..Default::default()
-            }
-            .into(),
-            Button {
-                variant: ButtonVariant::Outline,
-                child: Some(Text::new("Outline").into()),
-                ..Default::default()
-            }
-            .into(),
-            Button {
-                variant: ButtonVariant::Ghost,
-                child: Some(Text::new("Ghost").into()),
-                ..Default::default()
-            }
-            .into(),
-            Button {
-                variant: ButtonVariant::Filled,
-                child: Some(Text::new("Disabled").into()),
-                disabled: true,
-                ..Default::default()
-            }
-            .into(),
-            TextInput {
-                value: "hello".into(),
-                placeholder: Some("Type...".into()),
-                width: Some(200.0),
-                ..Default::default()
-            }
-            .into(),
-            Checkbox {
-                checked: true,
-                label: Some("Check".into()),
-                ..Default::default()
-            }
-            .into(),
-            Switch {
-                checked: true,
-                ..Default::default()
-            }
-            .into(),
-            Container::new(Slider {
-                value: 0.5,
-                min: 0.0,
-                max: 1.0,
-                ..Default::default()
-            })
-            .width(200.0)
-            .into(),
-            NumberInput {
-                value: 5.0,
-                step: 1.0,
-                ..Default::default()
-            }
-            .into(),
-        ],
-    );
-
-    let feedback = section(
-        "Feedback",
-        vec![
-            Alert {
-                kind: AlertKind::Info,
-                title: "Info".into(),
-                description: Some("Desc".into()),
-            }
-            .into(),
-            Alert {
-                kind: AlertKind::Success,
-                title: "Success".into(),
-                description: None,
-            }
-            .into(),
-            Alert {
-                kind: AlertKind::Warning,
-                title: "Warning".into(),
-                description: None,
-            }
-            .into(),
-            Alert {
-                kind: AlertKind::Error,
-                title: "Error".into(),
-                description: None,
-            }
-            .into(),
-            ProgressBar { value: 0.65 }.into(),
-            Spinner {
-                id: WidgetId::explicit("sp"),
-                color: None,
-                motion: Some(SpinnerMotion::Default),
-            }
-            .into(),
-            CircularProgress {
-                value: Some(0.7),
-                size: 40.0,
-                ..Default::default()
-            }
-            .into(),
-            Skeleton {
-                id: WidgetId::explicit("sk"),
-                width: Some(120.0),
-                height: Some(20.0),
-                circle: false,
-                motion: Some(SkeletonMotion::Default),
-            }
-            .into(),
-            EmptyState {
-                icon: None,
-                title: "Empty".into(),
-                description: Some("Nothing here".into()),
-                action: None,
-            }
-            .into(),
-        ],
-    );
-
-    let nav = section(
-        "Navigation",
-        vec![
-            Tabs {
-                active_index: 0,
-                items: vec![
-                    TabItem {
-                        title: "A".into(),
-                        content: Text::new("A content").into(),
-                        on_press: None,
-                    },
-                    TabItem {
-                        title: "B".into(),
-                        content: Text::new("B content").into(),
-                        on_press: None,
-                    },
-                ],
-                ..Default::default()
-            }
-            .into(),
-            Breadcrumb {
-                items: vec![
-                    BreadcrumbItem {
-                        label: "Home".into(),
-                        on_click: None,
-                    },
-                    BreadcrumbItem {
-                        label: "Page".into(),
-                        on_click: None,
-                    },
-                ],
-            }
-            .into(),
-            Pagination {
-                current_page: 3,
-                total_pages: 10,
-                on_change: None,
-            }
-            .into(),
-            Link {
-                text: "Click me".into(),
-                on_click: None,
-            }
-            .into(),
-        ],
-    );
-
-    let data = section(
-        "Data",
-        vec![
-            Card {
-                child: Text::new("Card content").into(),
-                ..Default::default()
-            }
-            .into(),
-            Accordion {
-                items: vec![
-                    AccordionItem {
-                        title: "Sec 1".into(),
-                        content: Text::new("Content 1").into(),
-                        is_expanded: true,
-                        on_toggle: None,
-                    },
-                    AccordionItem {
-                        title: "Sec 2".into(),
-                        content: Text::new("Content 2").into(),
-                        is_expanded: false,
-                        on_toggle: None,
-                    },
-                ],
-                motion: None,
-            }
-            .into(),
-            Stepper {
-                steps: vec!["A".into(), "B".into(), "C".into()],
-                active_index: 1,
-            }
-            .into(),
-            Timeline {
-                items: vec![
-                    TimelineItem {
-                        title: "Start".into(),
-                        description: None,
-                        timestamp: None,
-                    },
-                    TimelineItem {
-                        title: "End".into(),
-                        description: None,
-                        timestamp: None,
-                    },
-                ],
-            }
-            .into(),
-            TreeView {
-                items: vec![TreeItem {
-                    id: "root".into(),
-                    label: "root/".into(),
-                    icon: None,
-                    children: vec![TreeItem {
-                        id: "child".into(),
-                        label: "file.rs".into(),
-                        icon: None,
-                        children: vec![],
-                        on_toggle: None,
-                        on_select: None,
-                    }],
-                    on_toggle: None,
-                    on_select: None,
-                }],
-                expanded_ids: {
-                    let mut s = HashSet::new();
-                    s.insert("root".into());
-                    s
-                },
-                selected_id: None,
-            }
-            .into(),
-        ],
-    );
-
-    let overlays = section(
-        "Overlays",
-        vec![
-            Tooltip {
-                id: WidgetId::explicit("tt"),
-                child: Text::new("Hover").into(),
-                text: "Tip".into(),
-                is_visible: false,
-                motion: None,
-            }
-            .into(),
-            Select {
-                id: WidgetId::explicit("sel"),
-                selected_label: Some("Opt A".into()),
-                items: vec![],
-                is_open: false,
-                on_toggle: None,
-                placeholder: "Select".into(),
-                width: Some(200.0),
-            }
-            .into(),
-            MenuButton {
-                id: WidgetId::explicit("mb"),
-                label: "Menu".into(),
-                items: vec![MenuItem {
-                    label: "Edit".into(),
-                    icon: None,
-                    on_select: None,
-                }],
-                is_open: false,
-                on_toggle: None,
-            }
-            .into(),
-        ],
-    );
-
-    let all: Widget = VStack {
-        spacing: Some(16.0),
-        children: vec![
-            Text::new("Fission Widget Gallery").size(28.0).into(),
-            display,
-            input,
-            feedback,
-            nav,
-            data,
-            overlays,
-        ],
+impl TestSection {
+    fn new(title: &'static str, children: Vec<Widget>) -> Self {
+        Self { title, children }
     }
-    .into();
+}
 
-    Scroll {
-        direction: FlexDirection::Column,
-        child: Some(Container::new(all).padding_all(24.0).flex_grow(1.0).into()),
-        show_scrollbar: true,
-        flex_grow: 1.0,
-        flex_shrink: 1.0,
-        ..Default::default()
+impl From<TestSection> for Widget {
+    fn from(section: TestSection) -> Self {
+        let mut children = widgets![Text::new(section.title).size(20.0)];
+        children.extend(section.children);
+        VStack {
+            spacing: Some(8.0),
+            children,
+        }
+        .into()
     }
-    .into()
 }
 
 #[derive(Clone)]
-struct GalleryWidget;
-impl From<GalleryWidget> for Widget {
-    fn from(_component: GalleryWidget) -> Self {
-        let (ctx, view) = fission::build::current::<GS>();
-        build_all_widgets(ctx, view)
+struct AllWidgets;
+
+impl From<AllWidgets> for Widget {
+    fn from(_: AllWidgets) -> Self {
+        let _noop = ActionEnvelope {
+            id: fission::core::ActionId::from_u128(9999),
+            payload: vec![],
+        };
+
+        let display = TestSection::new(
+            "Display",
+            vec![
+                Text::new("Hello").size(16.0).into(),
+                Badge {
+                    text: "New".into(),
+                    ..Default::default()
+                }
+                .into(),
+                Tag {
+                    label: "Rust".into(),
+                    on_close: None,
+                }
+                .into(),
+                Avatar {
+                    name: Some("John Doe".into()),
+                    src: None,
+                    size: Some(40.0),
+                }
+                .into(),
+                Code {
+                    text: "let x = 42;".into(),
+                }
+                .into(),
+                Kbd {
+                    text: "Ctrl+C".into(),
+                }
+                .into(),
+                Stat {
+                    label: "Users".into(),
+                    value: "1234".into(),
+                    help_text: Some("up".into()),
+                }
+                .into(),
+            ],
+        );
+
+        let input = TestSection::new(
+            "Input",
+            vec![
+                Button {
+                    variant: ButtonVariant::Filled,
+                    child: Some(Text::new("Filled").into()),
+                    ..Default::default()
+                }
+                .into(),
+                Button {
+                    variant: ButtonVariant::Outline,
+                    child: Some(Text::new("Outline").into()),
+                    ..Default::default()
+                }
+                .into(),
+                Button {
+                    variant: ButtonVariant::Ghost,
+                    child: Some(Text::new("Ghost").into()),
+                    ..Default::default()
+                }
+                .into(),
+                Button {
+                    variant: ButtonVariant::Filled,
+                    child: Some(Text::new("Disabled").into()),
+                    disabled: true,
+                    ..Default::default()
+                }
+                .into(),
+                TextInput {
+                    value: "hello".into(),
+                    placeholder: Some("Type...".into()),
+                    width: Some(200.0),
+                    ..Default::default()
+                }
+                .into(),
+                Checkbox {
+                    checked: true,
+                    label: Some("Check".into()),
+                    ..Default::default()
+                }
+                .into(),
+                Switch {
+                    checked: true,
+                    ..Default::default()
+                }
+                .into(),
+                Container::new(Slider {
+                    value: 0.5,
+                    min: 0.0,
+                    max: 1.0,
+                    ..Default::default()
+                })
+                .width(200.0)
+                .into(),
+                NumberInput {
+                    value: 5.0,
+                    step: 1.0,
+                    ..Default::default()
+                }
+                .into(),
+            ],
+        );
+
+        let feedback = TestSection::new(
+            "Feedback",
+            vec![
+                Alert {
+                    kind: AlertKind::Info,
+                    title: "Info".into(),
+                    description: Some("Desc".into()),
+                }
+                .into(),
+                Alert {
+                    kind: AlertKind::Success,
+                    title: "Success".into(),
+                    description: None,
+                }
+                .into(),
+                Alert {
+                    kind: AlertKind::Warning,
+                    title: "Warning".into(),
+                    description: None,
+                }
+                .into(),
+                Alert {
+                    kind: AlertKind::Error,
+                    title: "Error".into(),
+                    description: None,
+                }
+                .into(),
+                ProgressBar { value: 0.65 }.into(),
+                Spinner {
+                    id: WidgetId::explicit("sp"),
+                    color: None,
+                    motion: Some(SpinnerMotion::Default),
+                }
+                .into(),
+                CircularProgress {
+                    value: Some(0.7),
+                    size: 40.0,
+                    ..Default::default()
+                }
+                .into(),
+                Skeleton {
+                    id: WidgetId::explicit("sk"),
+                    width: Some(120.0),
+                    height: Some(20.0),
+                    circle: false,
+                    motion: Some(SkeletonMotion::Default),
+                }
+                .into(),
+                EmptyState {
+                    icon: None,
+                    title: "Empty".into(),
+                    description: Some("Nothing here".into()),
+                    action: None,
+                }
+                .into(),
+            ],
+        );
+
+        let nav = TestSection::new(
+            "Navigation",
+            vec![
+                Tabs {
+                    active_index: 0,
+                    items: vec![
+                        TabItem {
+                            title: "A".into(),
+                            content: Text::new("A content").into(),
+                            on_press: None,
+                        },
+                        TabItem {
+                            title: "B".into(),
+                            content: Text::new("B content").into(),
+                            on_press: None,
+                        },
+                    ],
+                    ..Default::default()
+                }
+                .into(),
+                Breadcrumb {
+                    items: vec![
+                        BreadcrumbItem {
+                            label: "Home".into(),
+                            on_click: None,
+                        },
+                        BreadcrumbItem {
+                            label: "Page".into(),
+                            on_click: None,
+                        },
+                    ],
+                }
+                .into(),
+                Pagination {
+                    current_page: 3,
+                    total_pages: 10,
+                    on_change: None,
+                }
+                .into(),
+                Link {
+                    text: "Click me".into(),
+                    on_click: None,
+                }
+                .into(),
+            ],
+        );
+
+        let data = TestSection::new(
+            "Data",
+            vec![
+                Card {
+                    child: Text::new("Card content").into(),
+                    ..Default::default()
+                }
+                .into(),
+                Accordion {
+                    items: vec![
+                        AccordionItem {
+                            title: "Sec 1".into(),
+                            content: Text::new("Content 1").into(),
+                            is_expanded: true,
+                            on_toggle: None,
+                        },
+                        AccordionItem {
+                            title: "Sec 2".into(),
+                            content: Text::new("Content 2").into(),
+                            is_expanded: false,
+                            on_toggle: None,
+                        },
+                    ],
+                    motion: None,
+                }
+                .into(),
+                Stepper {
+                    steps: vec!["A".into(), "B".into(), "C".into()],
+                    active_index: 1,
+                }
+                .into(),
+                Timeline {
+                    items: vec![
+                        TimelineItem {
+                            title: "Start".into(),
+                            description: None,
+                            timestamp: None,
+                        },
+                        TimelineItem {
+                            title: "End".into(),
+                            description: None,
+                            timestamp: None,
+                        },
+                    ],
+                }
+                .into(),
+                TreeView {
+                    items: vec![TreeItem {
+                        id: "root".into(),
+                        label: "root/".into(),
+                        icon: None,
+                        children: vec![TreeItem {
+                            id: "child".into(),
+                            label: "file.rs".into(),
+                            icon: None,
+                            children: vec![],
+                            on_toggle: None,
+                            on_select: None,
+                        }],
+                        on_toggle: None,
+                        on_select: None,
+                    }],
+                    expanded_ids: {
+                        let mut s = HashSet::new();
+                        s.insert("root".into());
+                        s
+                    },
+                    selected_id: None,
+                }
+                .into(),
+            ],
+        );
+
+        let overlays = TestSection::new(
+            "Overlays",
+            vec![
+                Tooltip {
+                    id: WidgetId::explicit("tt"),
+                    child: Text::new("Hover").into(),
+                    text: "Tip".into(),
+                    is_visible: false,
+                    motion: None,
+                }
+                .into(),
+                Select {
+                    id: WidgetId::explicit("sel"),
+                    selected_label: Some("Opt A".into()),
+                    items: vec![],
+                    is_open: false,
+                    on_toggle: None,
+                    placeholder: "Select".into(),
+                    width: Some(200.0),
+                }
+                .into(),
+                MenuButton {
+                    id: WidgetId::explicit("mb"),
+                    label: "Menu".into(),
+                    items: vec![MenuItem {
+                        label: "Edit".into(),
+                        icon: None,
+                        on_select: None,
+                    }],
+                    is_open: false,
+                    on_toggle: None,
+                }
+                .into(),
+            ],
+        );
+
+        let all: Widget = VStack {
+            spacing: Some(16.0),
+            children: widgets![
+                Text::new("Fission Widget Gallery").size(28.0),
+                display,
+                input,
+                feedback,
+                nav,
+                data,
+                overlays,
+            ],
+        }
+        .into();
+
+        Scroll {
+            direction: FlexDirection::Column,
+            child: Some(Container::new(all).padding_all(24.0).flex_grow(1.0).into()),
+            show_scrollbar: true,
+            flex_grow: 1.0,
+            flex_shrink: 1.0,
+            ..Default::default()
+        }
+        .into()
     }
 }
 #[test]
 fn all_widgets_render_without_panic() {
-    let mut harness = TestHarness::<GS>::new(GS).with_root_widget(GalleryWidget);
+    let mut harness = TestHarness::<GS>::new(GS).with_root_widget(AllWidgets);
     harness.env.viewport_size = LayoutSize::new(900.0, 3000.0);
     harness.pump().expect("pump should succeed");
 
@@ -482,7 +491,7 @@ fn all_widgets_render_without_panic() {
 
 #[test]
 fn no_zero_size_interactive_widgets() {
-    let mut harness = TestHarness::<GS>::new(GS).with_root_widget(GalleryWidget);
+    let mut harness = TestHarness::<GS>::new(GS).with_root_widget(AllWidgets);
     harness.env.viewport_size = LayoutSize::new(900.0, 3000.0);
     harness.pump().expect("pump");
 
@@ -505,7 +514,7 @@ fn no_zero_size_interactive_widgets() {
 
 #[test]
 fn progress_bar_partial_fill() {
-    let mut harness = TestHarness::<GS>::new(GS).with_root_widget(GalleryWidget);
+    let mut harness = TestHarness::<GS>::new(GS).with_root_widget(AllWidgets);
     harness.env.viewport_size = LayoutSize::new(900.0, 3000.0);
     harness.pump().expect("pump");
 
@@ -559,7 +568,7 @@ fn progress_bar_partial_fill() {
 
 #[test]
 fn avatar_initials_centered() {
-    let mut harness = TestHarness::<GS>::new(GS).with_root_widget(GalleryWidget);
+    let mut harness = TestHarness::<GS>::new(GS).with_root_widget(AllWidgets);
     harness.env.viewport_size = LayoutSize::new(900.0, 3000.0);
     harness.pump().expect("pump");
 
