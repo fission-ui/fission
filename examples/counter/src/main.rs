@@ -19,18 +19,21 @@ fn decrement(count: &mut i32) {
 
 impl From<CounterApp> for Widget {
     fn from(counter: CounterApp) -> Self {
-        let (ctx, _) = fission::build::current::<()>();
+        let (ctx, view) = fission::build::current::<()>();
+        let tokens = &view.env().theme.tokens;
+        let spacing = &tokens.spacing;
+        let typography = &tokens.typography;
         let count = counter.count();
         let decrement = ctx.bind_local(Decrement, count.clone(), reduce!(decrement));
         let increment = ctx.bind_local(Increment, count.clone(), reduce!(increment));
 
         Container::new(Column {
-            gap: Some(20.0),
+            gap: Some(spacing.l),
             children: widgets![
-                Text::new("Counter").size(32.0),
-                Text::new(format!("{}", count.get())).size(56.0),
+                Text::new("Counter").size(typography.heading1_size),
+                Text::new(format!("{}", count.get())).size(typography.display_md_size),
                 Row {
-                    gap: Some(12.0),
+                    gap: Some(spacing.m),
                     children: widgets![
                         Button {
                             on_press: Some(decrement),
@@ -48,7 +51,7 @@ impl From<CounterApp> for Widget {
             ],
             ..Default::default()
         })
-        .padding_all(32.0)
+        .padding_all(spacing.xl)
         .into()
     }
 }
