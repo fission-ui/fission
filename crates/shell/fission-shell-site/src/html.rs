@@ -1432,7 +1432,9 @@ impl HtmlRenderer<'_> {
                 let mut css = format!(
                     ".{child_class}{{display:none}}.{root_class}-{fallback_index}{{display:block}}"
                 );
-                for (index, condition) in cases.iter().enumerate() {
+                // Emit earlier cases later so equal-specificity CSS preserves
+                // Fission's documented first-match precedence.
+                for (index, condition) in cases.iter().enumerate().rev() {
                     let mut terms = Vec::new();
                     if let Some(minimum) = condition.min_width {
                         terms.push(format!("(min-width:{}px)", px(minimum)));
@@ -4251,5 +4253,54 @@ mod tests {
         assert!(rendered
             .html
             .contains("data-fission-action-payload=\"dead\""));
+    }
+
+    #[test]
+    fn responsive_css_preserves_first_match_precedence() {
+        let root = WidgetId::explicit("responsive");
+        let first = WidgetId::explicit("first");
+        let second = WidgetId::explicit("second");
+        let fallback = WidgetId::explicit("fallback");
+        let mut ir = CoreIR::new();
+        for child in [first, second, fallback] {
+            ir.add_node(
+                child,
+                Op::Structural(fission_ir::StructuralOp::Group { stable_hash: 1 }),
+                Vec::new(),
+            );
+        }
+        ir.add_node(
+            root,
+            Op::Layout(LayoutOp::Responsive {
+                query: fission_ir::op::ResponsiveQuery::Viewport,
+                cases: vec![
+                    fission_ir::op::ResponsiveCondition {
+                        min_width: None,
+                        max_width: Some(900.0),
+                    },
+                    fission_ir::op::ResponsiveCondition {
+                        min_width: None,
+                        max_width: Some(600.0),
+                    },
+                ],
+            }),
+            vec![first, second, fallback],
+        );
+        ir.set_root(root);
+
+        let rendered = render_ir_to_html(&ir, &HtmlRenderOptions::default()).unwrap();
+        let later_case = rendered
+            .css
+            .find("(max-width:599.990px)")
+            .expect("later responsive case");
+        let first_case = rendered
+            .css
+            .find("(max-width:899.990px)")
+            .expect("first responsive case");
+
+        assert!(
+            later_case < first_case,
+            "the first case must be emitted last so equal-specificity CSS wins"
+        );
     }
 }

@@ -97,8 +97,8 @@ impl PressableStyle {
 ///     .role(PressableRole::Button)
 ///     .on_press(open_report)
 ///     .layout(BoxStyle::default().padding_symmetric(
-///         Length::points(16.0),
-///         Length::points(10.0),
+///         Length::points(tokens.spacing.m),
+///         Length::points(tokens.spacing.s),
 ///     ))
 ///     .into()
 /// ```

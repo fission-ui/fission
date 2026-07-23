@@ -16,18 +16,17 @@ use serde::{Deserialize, Serialize};
 /// # Example
 ///
 /// ```rust,ignore
+/// const CARD_MIN_WIDTH: f32 = 220.0;
+///
 /// Grid {
 ///     columns: vec![GridTrack::auto_fit(GridTrack::minmax(
-///         GridTrack::Points(220.0),
+///         GridTrack::Points(CARD_MIN_WIDTH),
 ///         GridTrack::Fr(1.0),
 ///     ))],
 ///     rows: vec![GridTrack::Auto],
-///     column_gap: Some(18.0),
-///     row_gap: Some(18.0),
-///     children: vec![
-///         GridItem::new(Text::new("A")).cell(1, 1).into(),
-///         GridItem::new(Text::new("B")).cell(1, 2).into(),
-///     ],
+///     column_gap: Some(tokens.spacing.m),
+///     row_gap: Some(tokens.spacing.m),
+///     children: widgets![CardA, CardB, CardC],
 ///     ..Default::default()
 /// }
 /// ```

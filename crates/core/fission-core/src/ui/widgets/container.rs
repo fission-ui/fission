@@ -22,15 +22,18 @@ use super::split_box_margin;
 /// # Example
 ///
 /// ```rust,ignore
+/// const CARD_MIN_WIDTH: f32 = 280.0;
+/// const CARD_MAX_WIDTH: f32 = 520.0;
+///
 /// Container::new(Text::new("Card body"))
 ///     .bg(theme.tokens.colors.surface)
 ///     .border(theme.tokens.colors.border, 1.0)
 ///     .border_radius(theme.tokens.radii.large)
 ///     .padding_lengths(Length::all(Length::points(theme.tokens.spacing.l)))
 ///     .width_length(Length::clamp(
-///         Length::points(280.0),
+///         Length::points(CARD_MIN_WIDTH),
 ///         Length::percent(42.0),
-///         Length::points(520.0),
+///         Length::points(CARD_MAX_WIDTH),
 ///     ))
 ///     .flex_grow(1.0)
 /// ```

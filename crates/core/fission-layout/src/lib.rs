@@ -1084,6 +1084,63 @@ mod tests {
     }
 
     #[test]
+    fn responsive_cases_use_first_match_precedence() {
+        let root = WidgetId::from_u128(110);
+        let responsive = WidgetId::from_u128(111);
+        let first_match = WidgetId::from_u128(112);
+        let later_match = WidgetId::from_u128(113);
+        let fallback = WidgetId::from_u128(114);
+        let nodes = vec![
+            node(
+                root,
+                None,
+                vec![responsive],
+                LayoutOp::Box {
+                    width: Some(500.0),
+                    height: Some(100.0),
+                    min_width: None,
+                    max_width: None,
+                    min_height: None,
+                    max_height: None,
+                    padding: [0.0; 4],
+                    flex_grow: 0.0,
+                    flex_shrink: 1.0,
+                    aspect_ratio: None,
+                },
+            ),
+            node(
+                responsive,
+                Some(root),
+                vec![first_match, later_match, fallback],
+                LayoutOp::Responsive {
+                    query: ResponsiveQuery::Viewport,
+                    cases: vec![
+                        ResponsiveCondition {
+                            min_width: None,
+                            max_width: Some(900.0),
+                        },
+                        ResponsiveCondition {
+                            min_width: None,
+                            max_width: Some(600.0),
+                        },
+                    ],
+                },
+            ),
+            box_node(first_match, Some(responsive), vec![]),
+            box_node(later_match, Some(responsive), vec![]),
+            box_node(fallback, Some(responsive), vec![]),
+        ];
+        let mut engine = LayoutEngine::new();
+        let snapshot = engine
+            .compute_layout(&nodes, root, LayoutSize::new(500.0, 600.0), &|_| 0.0)
+            .expect("responsive layout");
+
+        assert!(snapshot.nodes.contains_key(&first_match));
+        assert!(!snapshot.nodes.contains_key(&later_match));
+        assert!(!snapshot.nodes.contains_key(&fallback));
+    }
+
+    #[test]
     fn grid_repeat_and_spans_are_applied_by_the_layout_engine() {
         let root = WidgetId::from_u128(200);
         let first = WidgetId::from_u128(201);
@@ -4041,7 +4098,6 @@ impl LayoutEngine {
                 let selected_index = cases
                     .iter()
                     .enumerate()
-                    .rev()
                     .find_map(|(index, condition)| condition.matches(query_width).then_some(index))
                     .unwrap_or(cases.len());
                 let child_size = node

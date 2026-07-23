@@ -70,6 +70,10 @@ impl ResponsiveCase {
 ///     .case(ResponsiveCase::between(900.0, 1200.0, TabletShell))
 ///     .into()
 /// ```
+///
+/// Every branch is lowered, even though layout displays only the selected one.
+/// Build each branch independently rather than cloning a `Widget` value, and
+/// keep explicit widget IDs unique across the complete responsive tree.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Responsive {
     /// Optional stable identity for diagnostics and retained child identity.
