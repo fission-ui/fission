@@ -408,9 +408,7 @@ pub(super) fn app_store_status(
     let client = http_client()?;
     let token = app_store_access_token(&cfg)?;
     let app_id = app_store_app_id(&cfg, &client, &token)?;
-    let builds_url = format!(
-        "{APP_STORE_API}/v1/apps/{app_id}/builds?limit=10&sort=-uploadedDate&fields[builds]=version,uploadedDate,processingState,expired,minOsVersion,usesNonExemptEncryption"
-    );
+    let builds_url = app_store_builds_status_url(&app_id);
     let builds_response = client
         .get(builds_url)
         .bearer_auth(&token)
@@ -458,6 +456,12 @@ pub(super) fn app_store_status(
         stderr: None,
         manual_follow_up: Vec::new(),
     })
+}
+
+pub(super) fn app_store_builds_status_url(app_id: &str) -> String {
+    format!(
+        "{APP_STORE_API}/v1/builds?filter[app]={app_id}&limit=10&sort=-uploadedDate&fields[builds]=version,uploadedDate,processingState,expired,minOsVersion,usesNonExemptEncryption"
+    )
 }
 
 pub(super) fn app_store_lifecycle(

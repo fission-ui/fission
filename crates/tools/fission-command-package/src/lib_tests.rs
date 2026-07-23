@@ -401,6 +401,15 @@ fn app_store_status_prefers_review_submission_state_over_build_processing() {
 }
 
 #[test]
+fn app_store_status_queries_the_sortable_global_builds_endpoint() {
+    let url = stores::app_store_builds_status_url("6794005791");
+
+    assert!(url.contains("/v1/builds?filter[app]=6794005791"));
+    assert!(url.contains("sort=-uploadedDate"));
+    assert!(!url.contains("/v1/apps/6794005791/builds"));
+}
+
+#[test]
 fn app_store_upload_follow_up_points_to_review_submission_command() {
     let msg = stores::app_store_upload_follow_up(
         "app-store-review",
