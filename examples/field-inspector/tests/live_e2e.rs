@@ -1,4 +1,4 @@
-use fission_test_driver::LiveTestClient;
+use fission_test_driver::{LiveTestClient, SelectorQuery};
 use std::net::TcpListener;
 use std::process::{Child, Command};
 
@@ -54,13 +54,28 @@ fn field_inspector_runs_capability_workflow_smoke() {
     client.wait(1_000).expect("wait for capability effects");
     client.pump().expect("pump after capability effects");
     client
+        .scroll_into_view(SelectorQuery::semantic_identifier(
+            "field-inspector.capability-readiness",
+        ))
+        .expect("scroll capability readiness into view");
+    client
         .assert_text_visible("Capability readiness")
         .expect("readiness panel should stay visible");
     client
-        .assert_text_visible("51.50740")
+        .scroll_into_view(SelectorQuery::semantic_identifier(
+            "field-inspector.capability.geolocation",
+        ))
+        .expect("scroll geolocation result into view");
+    client
+        .wait_for_text("51.50740", 5_000)
         .expect("geolocation capability result should be rendered");
     client
-        .assert_text_visible("1 nearby device(s)")
+        .scroll_into_view(SelectorQuery::semantic_identifier(
+            "field-inspector.capability.bluetooth",
+        ))
+        .expect("scroll bluetooth result into view");
+    client
+        .wait_for_text("1 nearby device(s)", 5_000)
         .expect("bluetooth capability result should be rendered");
 
     let path = format!("{}/field_inspector_overview.png", screenshot_dir());

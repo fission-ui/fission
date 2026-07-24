@@ -7,8 +7,8 @@ use crate::widgets::common::PolicyControl;
 use fission::build::BuildCtxHandle;
 use fission::widgets::Wrap;
 use fission::{
-    Button, ButtonVariant, Column, Container, FlexDirection, Length, Responsive, ResponsiveCase,
-    Row, Scroll, Text, Widget, WidgetId,
+    Button, ButtonVariant, Column, Container, FlexDirection, Length, Row, Scroll, Text, Widget,
+    WidgetId,
 };
 
 mod app_shell;

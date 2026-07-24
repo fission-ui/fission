@@ -738,12 +738,8 @@ pub fn on_start_inspection(
         CapabilityState::Pending,
     );
 
-    let ok = ctx
-        .effects
-        .bind(CapabilitySucceeded, reduce_with!(on_capability_succeeded));
-    let err = ctx
-        .effects
-        .bind(CapabilityFailed, reduce_with!(on_capability_failed));
+    let ok: ActionEnvelope = CapabilitySucceeded.into();
+    let err: ActionEnvelope = CapabilityFailed.into();
 
     ctx.effects
         .notifications()
@@ -858,12 +854,8 @@ pub fn on_verify_with_barcode(
         "Opening scanner for the selected asset",
         CapabilityState::Pending,
     );
-    let ok = ctx
-        .effects
-        .bind(CapabilitySucceeded, reduce_with!(on_capability_succeeded));
-    let err = ctx
-        .effects
-        .bind(CapabilityFailed, reduce_with!(on_capability_failed));
+    let ok: ActionEnvelope = CapabilitySucceeded.into();
+    let err: ActionEnvelope = CapabilityFailed.into();
     ctx.effects
         .camera()
         .request_permission(CameraPermissionRequest {
@@ -896,12 +888,8 @@ pub fn on_verify_with_nfc(
         "Waiting for the asset service tag",
         CapabilityState::Pending,
     );
-    let ok = ctx
-        .effects
-        .bind(CapabilitySucceeded, reduce_with!(on_capability_succeeded));
-    let err = ctx
-        .effects
-        .bind(CapabilityFailed, reduce_with!(on_capability_failed));
+    let ok: ActionEnvelope = CapabilitySucceeded.into();
+    let err: ActionEnvelope = CapabilityFailed.into();
     ctx.effects
         .nfc()
         .scan_tag(NfcScanRequest {
@@ -932,12 +920,8 @@ pub fn on_capture_evidence_photo(
         "Capturing a still image for the report",
         CapabilityState::Pending,
     );
-    let ok = ctx
-        .effects
-        .bind(CapabilitySucceeded, reduce_with!(on_capability_succeeded));
-    let err = ctx
-        .effects
-        .bind(CapabilityFailed, reduce_with!(on_capability_failed));
+    let ok: ActionEnvelope = CapabilitySucceeded.into();
+    let err: ActionEnvelope = CapabilityFailed.into();
     ctx.effects
         .camera()
         .request_permission(CameraPermissionRequest {
@@ -973,12 +957,8 @@ pub fn on_toggle_torch(
 ) {
     state.panel = InspectorPanel::Evidence;
     state.torch_on = !state.torch_on;
-    let ok = ctx
-        .effects
-        .bind(CapabilitySucceeded, reduce_with!(on_capability_succeeded));
-    let err = ctx
-        .effects
-        .bind(CapabilityFailed, reduce_with!(on_capability_failed));
+    let ok: ActionEnvelope = CapabilitySucceeded.into();
+    let err: ActionEnvelope = CapabilityFailed.into();
     ctx.effects
         .camera()
         .set_flashlight(CameraFlashlightRequest {
@@ -1001,12 +981,8 @@ pub fn on_record_voice_note(
         "Recording a bounded one-second note",
         CapabilityState::Pending,
     );
-    let ok = ctx
-        .effects
-        .bind(CapabilitySucceeded, reduce_with!(on_capability_succeeded));
-    let err = ctx
-        .effects
-        .bind(CapabilityFailed, reduce_with!(on_capability_failed));
+    let ok: ActionEnvelope = CapabilitySucceeded.into();
+    let err: ActionEnvelope = CapabilityFailed.into();
     ctx.effects
         .microphone()
         .capture_audio(MicrophoneCaptureRequest {
@@ -1031,12 +1007,8 @@ pub fn on_scan_sensors(
         "Scanning Bluetooth and Wi-Fi context",
         CapabilityState::Pending,
     );
-    let ok = ctx
-        .effects
-        .bind(CapabilitySucceeded, reduce_with!(on_capability_succeeded));
-    let err = ctx
-        .effects
-        .bind(CapabilityFailed, reduce_with!(on_capability_failed));
+    let ok: ActionEnvelope = CapabilitySucceeded.into();
+    let err: ActionEnvelope = CapabilityFailed.into();
     ctx.effects
         .bluetooth()
         .request_permission(BluetoothPermissionRequest {
@@ -1079,12 +1051,8 @@ pub fn on_connect_sensor(
     ctx: &mut ReducerContext<FieldInspectorState>,
 ) {
     state.panel = InspectorPanel::Sensors;
-    let ok = ctx
-        .effects
-        .bind(CapabilitySucceeded, reduce_with!(on_capability_succeeded));
-    let err = ctx
-        .effects
-        .bind(CapabilityFailed, reduce_with!(on_capability_failed));
+    let ok: ActionEnvelope = CapabilitySucceeded.into();
+    let err: ActionEnvelope = CapabilityFailed.into();
     ctx.effects
         .bluetooth()
         .connect_device(BluetoothConnectRequest {
@@ -1109,12 +1077,8 @@ pub fn on_read_sensor(
         );
         return;
     };
-    let ok = ctx
-        .effects
-        .bind(CapabilitySucceeded, reduce_with!(on_capability_succeeded));
-    let err = ctx
-        .effects
-        .bind(CapabilityFailed, reduce_with!(on_capability_failed));
+    let ok: ActionEnvelope = CapabilitySucceeded.into();
+    let err: ActionEnvelope = CapabilityFailed.into();
     ctx.effects
         .bluetooth()
         .read_characteristic(BluetoothReadRequest {
@@ -1132,12 +1096,8 @@ pub fn on_secure_unlock(
     ctx: &mut ReducerContext<FieldInspectorState>,
 ) {
     state.panel = InspectorPanel::Security;
-    let ok = ctx
-        .effects
-        .bind(CapabilitySucceeded, reduce_with!(on_capability_succeeded));
-    let err = ctx
-        .effects
-        .bind(CapabilityFailed, reduce_with!(on_capability_failed));
+    let ok: ActionEnvelope = CapabilitySucceeded.into();
+    let err: ActionEnvelope = CapabilityFailed.into();
     ctx.effects
         .biometrics()
         .authenticate(BiometricAuthenticateRequest {
@@ -1159,12 +1119,8 @@ pub fn on_register_passkey(
     ctx: &mut ReducerContext<FieldInspectorState>,
 ) {
     state.panel = InspectorPanel::Security;
-    let ok = ctx
-        .effects
-        .bind(CapabilitySucceeded, reduce_with!(on_capability_succeeded));
-    let err = ctx
-        .effects
-        .bind(CapabilityFailed, reduce_with!(on_capability_failed));
+    let ok: ActionEnvelope = CapabilitySucceeded.into();
+    let err: ActionEnvelope = CapabilityFailed.into();
     ctx.effects
         .passkeys()
         .register(PasskeyRegistrationRequest {
@@ -1195,12 +1151,8 @@ pub fn on_authenticate_passkey(
     ctx: &mut ReducerContext<FieldInspectorState>,
 ) {
     state.panel = InspectorPanel::Security;
-    let ok = ctx
-        .effects
-        .bind(CapabilitySucceeded, reduce_with!(on_capability_succeeded));
-    let err = ctx
-        .effects
-        .bind(CapabilityFailed, reduce_with!(on_capability_failed));
+    let ok: ActionEnvelope = CapabilitySucceeded.into();
+    let err: ActionEnvelope = CapabilityFailed.into();
     ctx.effects
         .passkeys()
         .authenticate(PasskeyAuthenticationRequest {
@@ -1224,12 +1176,8 @@ pub fn on_copy_report_summary(
     let summary = state.report_summary();
     state.copied_summary = Some(summary.clone());
     state.complete_check("report");
-    let ok = ctx
-        .effects
-        .bind(CapabilitySucceeded, reduce_with!(on_capability_succeeded));
-    let err = ctx
-        .effects
-        .bind(CapabilityFailed, reduce_with!(on_capability_failed));
+    let ok: ActionEnvelope = CapabilitySucceeded.into();
+    let err: ActionEnvelope = CapabilityFailed.into();
     ctx.effects
         .clipboard()
         .write_text(ClipboardWriteTextRequest { text: summary })
@@ -1244,12 +1192,8 @@ pub fn on_schedule_reminder(
 ) {
     state.panel = InspectorPanel::Review;
     let order = state.selected_order();
-    let ok = ctx
-        .effects
-        .bind(CapabilitySucceeded, reduce_with!(on_capability_succeeded));
-    let err = ctx
-        .effects
-        .bind(CapabilityFailed, reduce_with!(on_capability_failed));
+    let ok: ActionEnvelope = CapabilitySucceeded.into();
+    let err: ActionEnvelope = CapabilityFailed.into();
     ctx.effects
         .notifications()
         .schedule(NotificationRequest {
@@ -1284,12 +1228,8 @@ pub fn on_adjust_alert_volume(
     ctx: &mut ReducerContext<FieldInspectorState>,
 ) {
     state.panel = InspectorPanel::Review;
-    let ok = ctx
-        .effects
-        .bind(CapabilitySucceeded, reduce_with!(on_capability_succeeded));
-    let err = ctx
-        .effects
-        .bind(CapabilityFailed, reduce_with!(on_capability_failed));
+    let ok: ActionEnvelope = CapabilitySucceeded.into();
+    let err: ActionEnvelope = CapabilityFailed.into();
     ctx.effects
         .volume()
         .adjust_level(VolumeAdjustRequest {
@@ -1310,12 +1250,8 @@ pub fn on_submit_report(
     state.report_submitted = true;
     state.complete_check("report");
     let order = state.selected_order();
-    let ok = ctx
-        .effects
-        .bind(CapabilitySucceeded, reduce_with!(on_capability_succeeded));
-    let err = ctx
-        .effects
-        .bind(CapabilityFailed, reduce_with!(on_capability_failed));
+    let ok: ActionEnvelope = CapabilitySucceeded.into();
+    let err: ActionEnvelope = CapabilityFailed.into();
     ctx.effects
         .notifications()
         .show(NotificationRequest {

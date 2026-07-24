@@ -7,18 +7,20 @@ pub(super) struct Dashboard<'a> {
 
 impl From<Dashboard<'_>> for Widget {
     fn from(dashboard: Dashboard<'_>) -> Self {
-        Responsive::new(DashboardCompact {
-            ctx: dashboard.ctx,
-            state: dashboard.state,
-        })
-        .id(WidgetId::explicit("animation-gallery.dashboard.responsive"))
-        .case(ResponsiveCase::min_width(
-            DASHBOARD_COMPACT_BREAKPOINT,
+        let (_, view) = fission::build::current::<AnimationGalleryState>();
+
+        if view.viewport_size().width >= DASHBOARD_COMPACT_BREAKPOINT {
             DashboardExpanded {
                 ctx: dashboard.ctx,
                 state: dashboard.state,
-            },
-        ))
-        .into()
+            }
+            .into()
+        } else {
+            DashboardCompact {
+                ctx: dashboard.ctx,
+                state: dashboard.state,
+            }
+            .into()
+        }
     }
 }

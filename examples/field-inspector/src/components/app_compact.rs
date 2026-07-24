@@ -23,8 +23,8 @@ impl From<FieldInspectorCompact> for Widget {
                         id: Some(WidgetId::explicit("field-inspector.compact.content")),
                         gap: Some(tokens.spacing.m),
                         children: widgets![
-                            InspectorMainColumn { compact: true },
                             WorkOrderRail { compact: true },
+                            InspectorMainColumn { compact: true },
                         ],
                         ..Default::default()
                     }
