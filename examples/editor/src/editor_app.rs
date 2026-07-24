@@ -1,27 +1,11 @@
-use crate::activity_bar::ActivityBar;
-use crate::breadcrumb::Breadcrumb;
 use crate::command_palette::CommandPalette;
 use crate::completion_popup::CompletionPopup;
 use crate::context_menu::ContextMenu;
-use crate::editor_surface::EditorSurface;
-use crate::file_tree::FileTree;
-use crate::find_replace_bar::FindReplaceBar;
-use crate::git_panel::GitPanel;
+use crate::editor_workspace::EditorWorkspace;
 use crate::hover_tooltip::HoverTooltip;
-use crate::layout::{
-    DIVIDER_THICKNESS, EDITOR_HORIZONTAL_RESERVE, PANEL_HEADER_HEIGHT, SIDEBAR_MAX_WIDTH,
-    SIDEBAR_MIN_WIDTH,
-};
-use crate::menu_bar::MenuBar;
 use crate::model::*;
-use crate::palette::{BORDER_COLOR, DIM_TEXT, SIDEBAR_HEADING, SURFACE_BG};
-use crate::search_panel::SearchPanel;
-use crate::status_bar::StatusBar;
-use crate::tab_bar::TabBar;
-use crate::terminal_panel::TerminalPanel;
-use fission::core::ui::{Column, Container, Row, Text, Widget};
+use fission::core::ui::Widget;
 use fission::core::{reduce_with, JobResource, ReducerContext, ResourceKey, TimerResource};
-use fission::widgets::Spacer;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -31,7 +15,6 @@ pub(crate) struct EditorApp;
 impl From<EditorApp> for Widget {
     fn from(_component: EditorApp) -> Self {
         let (ctx, view) = fission::build::current::<EditorState>();
-        let tokens = &view.env().theme.tokens;
         let _start_editor = ctx.bind(
             EditorStarted {
                 root_path: PathBuf::from("."),
@@ -218,141 +201,7 @@ impl From<EditorApp> for Widget {
             });
         }
 
-        let viewport = view.viewport_size();
-        let sidebar_width = view.state().sidebar_width.min(
-            (viewport.width - EDITOR_HORIZONTAL_RESERVE)
-                .clamp(SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH),
-        );
-
-        // ── Menu bar (topmost) ──
-        let menu_bar = MenuBar.into();
-
-        // ── Activity bar (leftmost strip) ──
-        let activity_bar = ActivityBar.into();
-
-        // ── Sidebar (content depends on active section) ──
-        let sidebar = if view.state().sidebar_visible {
-            let (header_text, panel_content) = match view.state().sidebar_section {
-                SidebarSection::Explorer => ("EXPLORER", FileTree.into()),
-                SidebarSection::Search => ("SEARCH", SearchPanel.into()),
-                SidebarSection::Git => ("SOURCE CONTROL", GitPanel.into()),
-                SidebarSection::Extensions => (
-                    "EXTENSIONS",
-                    Container::new(
-                        Text::new("No extensions installed")
-                            .size(tokens.typography.font_size_xs)
-                            .color(DIM_TEXT),
-                    )
-                    .padding_all(tokens.spacing.s)
-                    .flex_grow(1.0)
-                    .into(),
-                ),
-            };
-
-            let header = Container::new(
-                Text::new(header_text)
-                    .size(tokens.typography.font_size_xs)
-                    .color(SIDEBAR_HEADING),
-            )
-            .bg(SURFACE_BG)
-            .height(PANEL_HEADER_HEIGHT)
-            .padding_all(tokens.spacing.s)
-            .flex_shrink(0.0)
-            .into();
-
-            Container::new(Column {
-                children: vec![header, panel_content],
-                flex_grow: 1.0,
-                ..Default::default()
-            })
-            .width(sidebar_width)
-            .bg(SURFACE_BG)
-            .flex_shrink(0.0)
-            .into()
-        } else {
-            Spacer {
-                width: Some(0.0),
-                ..Default::default()
-            }
-            .into()
-        };
-
-        // 1px vertical divider between sidebar and editor
-        let sidebar_divider = if view.state().sidebar_visible {
-            Container::new(Spacer::default())
-                .width(DIVIDER_THICKNESS)
-                .bg(BORDER_COLOR)
-                .flex_shrink(0.0)
-                .into()
-        } else {
-            Spacer {
-                width: Some(0.0),
-                ..Default::default()
-            }
-            .into()
-        };
-
-        // ── Editor area: tabs + breadcrumb + find/replace + surface ──
-        let tab_bar_node = TabBar.into();
-        let breadcrumb_node = Breadcrumb.into();
-        let find_replace_node = FindReplaceBar.into();
-        let editor_surface_node = EditorSurface.into();
-
-        let editor_area: Widget = Column {
-            children: vec![
-                tab_bar_node,
-                breadcrumb_node,
-                find_replace_node,
-                editor_surface_node,
-            ],
-            flex_grow: 1.0,
-            ..Default::default()
-        }
-        .into();
-
-        // 1px horizontal divider above terminal
-        let terminal_divider = Container::new(Spacer::default())
-            .height(DIVIDER_THICKNESS)
-            .bg(BORDER_COLOR)
-            .flex_shrink(0.0)
-            .into();
-
-        // Center: editor area + terminal
-        let center = Column {
-            children: if view.state().terminal_visible {
-                vec![
-                    Container::new(editor_area).flex_grow(1.0).into(),
-                    terminal_divider,
-                    TerminalPanel.into(),
-                ]
-            } else {
-                vec![Container::new(editor_area).flex_grow(1.0).into()]
-            },
-            flex_grow: 1.0,
-            ..Default::default()
-        }
-        .into();
-
-        // Main layout: activity bar | sidebar | divider | center
-        let main_layout: Widget = Row {
-            children: vec![activity_bar, sidebar, sidebar_divider, center],
-            align_items: fission::op::AlignItems::Stretch,
-            flex_grow: 1.0,
-            ..Default::default()
-        }
-        .into();
-
-        // Root: menu bar + main + status bar
-        let root = Column {
-            children: vec![
-                menu_bar,
-                Container::new(main_layout).flex_grow(1.0).into(),
-                StatusBar.into(),
-            ],
-            flex_grow: 1.0,
-            ..Default::default()
-        }
-        .into();
+        let root: Widget = EditorWorkspace.into();
 
         // ── Overlays (portals) ──
         let _: Widget = CommandPalette.into();

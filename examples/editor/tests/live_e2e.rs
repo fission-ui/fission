@@ -540,7 +540,9 @@ fn ctrl_f_opens_find_bar_on_open_file() {
 
     client.tap_text("README.md").expect("open README");
     client.wait(600).expect("wait after open");
-    client.press_key("f", 2).expect("ctrl+f");
+    client
+        .press_key("f", shortcut_modifier())
+        .expect("ctrl/cmd+f");
     client.wait(500).expect("wait after ctrl+f");
 
     let d = dir();
@@ -595,7 +597,7 @@ fn cargo_lock_opens_with_visible_content_near_the_top() {
     let texts = client.get_text().expect("get visible text");
     let visible_line = texts
         .iter()
-        .find(|item| item.text == "version = 4")
+        .find(|item| item.text.lines().any(|line| line == "version = 4"))
         .expect("expected top Cargo.lock content line to be present");
     assert!(
         visible_line.y < 160.0,
