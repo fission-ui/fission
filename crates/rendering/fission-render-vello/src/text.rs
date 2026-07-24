@@ -150,15 +150,17 @@ impl VelloTextMeasurer {
     }
 
     fn layout_measured_size(layout: &Layout<ParleyBrush>) -> (f32, f32) {
+        let mut width = 0.0_f32;
         let height = layout.lines().fold(0.0_f32, |height, line| {
             let metrics = line.metrics();
+            width = width.max((metrics.advance - metrics.trailing_whitespace).max(0.0));
             let line_height = metrics
                 .line_height
                 .max(metrics.ascent + metrics.descent)
                 .max(1.0);
             height.max(metrics.baseline - metrics.ascent + line_height)
         });
-        (layout.width(), height)
+        (width, height)
     }
 
     pub(crate) fn rich_layout_input_from_render_runs(
@@ -987,5 +989,15 @@ mod tests {
             wrapped_height > one_line_height * 1.5,
             "wrapped text should report multi-line height; one_line={one_line_height}, wrapped={wrapped_height}"
         );
+    }
+
+    #[test]
+    fn bounded_short_text_reports_content_width_instead_of_constraint_width() {
+        let measurer = measurer();
+        let intrinsic = measurer.measure("JD", 16.0, None).0;
+        let bounded = measurer.measure("JD", 16.0, Some(80.0)).0;
+
+        assert!((bounded - intrinsic).abs() < 0.5);
+        assert!(bounded < 80.0);
     }
 }

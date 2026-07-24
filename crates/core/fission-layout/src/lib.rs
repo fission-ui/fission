@@ -1675,6 +1675,50 @@ pub struct LayoutInputNode {
     pub rich_text: Option<Vec<TextRun>>,
 }
 
+fn has_explicit_axis_size(node: &LayoutInputNode, horizontal: bool) -> bool {
+    let fixed = if horizontal { node.width } else { node.height };
+    if fixed.is_some() {
+        return true;
+    }
+
+    let typed_length_is_explicit =
+        |length: Option<&Length>| length.is_some_and(|length| !matches!(length, Length::Auto));
+
+    match &node.op {
+        LayoutOp::Box { width, height, .. }
+        | LayoutOp::Scroll { width, height, .. }
+        | LayoutOp::Embed { width, height, .. }
+        | LayoutOp::Positioned { width, height, .. } => {
+            if horizontal {
+                width.is_some()
+            } else {
+                height.is_some()
+            }
+        }
+        LayoutOp::StyledBox { style, .. } => typed_length_is_explicit(if horizontal {
+            style.width.as_ref()
+        } else {
+            style.height.as_ref()
+        }),
+        LayoutOp::PositionedLengths { width, height, .. } => {
+            typed_length_is_explicit(if horizontal {
+                width.as_ref()
+            } else {
+                height.as_ref()
+            })
+        }
+        _ => false,
+    }
+}
+
+fn has_explicit_cross_axis_size(node: &LayoutInputNode, is_row: bool) -> bool {
+    has_explicit_axis_size(node, !is_row)
+}
+
+fn has_explicit_main_axis_size(node: &LayoutInputNode, is_row: bool) -> bool {
+    has_explicit_axis_size(node, is_row)
+}
+
 /// Per-line metrics returned by text measurement.
 ///
 /// When the layout engine or hit-testing code needs to know about individual lines
@@ -2757,6 +2801,7 @@ impl LayoutEngine {
                         matches!(
                             self.graph_state.node(parent_id).map(|parent| &parent.op),
                             Some(LayoutOp::Flex { .. })
+                                | Some(LayoutOp::Align)
                                 | Some(LayoutOp::StyledBox { flex_grow: 0.0, .. })
                         )
                     }) =>
@@ -2885,6 +2930,25 @@ impl LayoutEngine {
                             })
                             .unwrap_or((None, None, None, None));
                         let mut child_constraints = base_child_constraints;
+                        let child_is_align = self
+                            .graph_state
+                            .node(*child_id)
+                            .is_some_and(|child| matches!(&child.op, LayoutOp::Align));
+                        // Align intentionally fills a bounded constraint. When it
+                        // is the direct child of an auto-sized, non-stretch box,
+                        // measure it intrinsically so controls such as Button do
+                        // not grow to the full loose width or height supplied by
+                        // a flex line. Other children retain the finite maximum
+                        // so text wrapping and bounded layout remain intact.
+                        if box_alignment != fission_ir::op::BoxAlignment::Stretch && child_is_align
+                        {
+                            if width.is_none() && local.min_w < local.max_w {
+                                child_constraints.max_w = f32::INFINITY;
+                            }
+                            if height.is_none() && local.min_h < local.max_h {
+                                child_constraints.max_h = f32::INFINITY;
+                            }
+                        }
                         if matches!(intrinsic_box_width, Some(Length::MinContent)) {
                             let intrinsic_width = self.measure_grid_intrinsic_width(
                                 *child_id,
@@ -3066,10 +3130,22 @@ impl LayoutEngine {
                     let mut max_line_main = 0.0f32;
 
                     for child_id in &flow_children {
-                        let child_constraints = if is_row {
+                        let has_explicit_main = self
+                            .graph_state
+                            .node(*child_id)
+                            .is_some_and(|child| has_explicit_main_axis_size(child, is_row));
+                        // Measure wrapped children at their intrinsic main-axis size.
+                        // Giving every auto-sized child the full line width makes legacy
+                        // Box-backed controls (buttons, switches, tags) expand to one
+                        // item per line instead of wrapping like CSS flex items.
+                        let mut child_constraints = if is_row {
                             BoxConstraints {
                                 min_w: 0.0,
-                                max_w: max_main,
+                                max_w: if main_bounded && has_explicit_main {
+                                    max_main
+                                } else {
+                                    f32::INFINITY
+                                },
                                 min_h: 0.0,
                                 max_h: max_cross,
                             }
@@ -3078,10 +3154,14 @@ impl LayoutEngine {
                                 min_w: 0.0,
                                 max_w: max_cross,
                                 min_h: 0.0,
-                                max_h: max_main,
+                                max_h: if main_bounded && has_explicit_main {
+                                    max_main
+                                } else {
+                                    f32::INFINITY
+                                },
                             }
                         };
-                        let child_size = self.layout_node_constraints(
+                        let mut child_size = self.layout_node_constraints(
                             *child_id,
                             child_constraints,
                             LayoutPoint::ZERO,
@@ -3092,11 +3172,34 @@ impl LayoutEngine {
                             false,
                             depth + 1,
                         )?;
-                        let child_main = if is_row {
+                        let mut child_main = if is_row {
                             child_size.width
                         } else {
                             child_size.height
                         };
+                        if main_bounded && child_main > max_main {
+                            if is_row {
+                                child_constraints.max_w = max_main;
+                            } else {
+                                child_constraints.max_h = max_main;
+                            }
+                            child_size = self.layout_node_constraints(
+                                *child_id,
+                                child_constraints,
+                                LayoutPoint::ZERO,
+                                out,
+                                constraints_out,
+                                measure_cache,
+                                scroll_source,
+                                false,
+                                depth + 1,
+                            )?;
+                            child_main = if is_row {
+                                child_size.width
+                            } else {
+                                child_size.height
+                            };
+                        }
                         let child_cross = if is_row {
                             child_size.height
                         } else {
@@ -3216,7 +3319,13 @@ impl LayoutEngine {
                             } else {
                                 child_size.width
                             };
-                            if matches!(align_items, fission_ir::op::AlignItems::Stretch) {
+                            let has_explicit_cross = self
+                                .graph_state
+                                .node(child_id)
+                                .is_some_and(|child| has_explicit_cross_axis_size(child, is_row));
+                            if matches!(align_items, fission_ir::op::AlignItems::Stretch)
+                                && !has_explicit_cross
+                            {
                                 if is_row {
                                     child_constraints.min_h = line_cross;
                                     child_constraints.max_h = line_cross;
@@ -3301,6 +3410,8 @@ impl LayoutEngine {
                             Some(child) => child,
                             None => continue,
                         };
+                        let has_explicit_cross = has_explicit_cross_axis_size(child, is_row);
+                        let has_explicit_main = has_explicit_main_axis_size(child, is_row);
                         let flex = child.flex_grow;
                         if flex > 0.0 && !treat_flex_as_nonflex {
                             total_flex += flex;
@@ -3317,6 +3428,7 @@ impl LayoutEngine {
                             let cross =
                                 if matches!(align_items, fission_ir::op::AlignItems::Stretch)
                                     && cross_bounded
+                                    && !has_explicit_cross
                                     && child.rich_text.is_none()
                                     && !matches!(
                                         child.op,
@@ -3329,14 +3441,22 @@ impl LayoutEngine {
                                 {
                                     BoxConstraints {
                                         min_w: 0.0,
-                                        max_w: f32::INFINITY,
+                                        max_w: if main_bounded && has_explicit_main {
+                                            max_main
+                                        } else {
+                                            f32::INFINITY
+                                        },
                                         min_h: max_cross,
                                         max_h: max_cross,
                                     }
                                 } else {
                                     BoxConstraints {
                                         min_w: 0.0,
-                                        max_w: f32::INFINITY,
+                                        max_w: if main_bounded && has_explicit_main {
+                                            max_main
+                                        } else {
+                                            f32::INFINITY
+                                        },
                                         min_h: 0.0,
                                         max_h: max_cross,
                                     }
@@ -3346,6 +3466,7 @@ impl LayoutEngine {
                             let cross =
                                 if matches!(align_items, fission_ir::op::AlignItems::Stretch)
                                     && cross_bounded
+                                    && !has_explicit_cross
                                     && child.rich_text.is_none()
                                     && !matches!(
                                         child.op,
@@ -3360,14 +3481,22 @@ impl LayoutEngine {
                                         min_w: max_cross,
                                         max_w: max_cross,
                                         min_h: 0.0,
-                                        max_h: f32::INFINITY,
+                                        max_h: if main_bounded && has_explicit_main {
+                                            max_main
+                                        } else {
+                                            f32::INFINITY
+                                        },
                                     }
                                 } else {
                                     BoxConstraints {
                                         min_w: 0.0,
                                         max_w: max_cross,
                                         min_h: 0.0,
-                                        max_h: f32::INFINITY,
+                                        max_h: if main_bounded && has_explicit_main {
+                                            max_main
+                                        } else {
+                                            f32::INFINITY
+                                        },
                                     }
                                 };
                             cross
@@ -3413,6 +3542,10 @@ impl LayoutEngine {
 
                     for entry in measured.iter_mut().filter(|e| e.is_flex) {
                         let flex = entry.flex;
+                        let has_explicit_cross = self
+                            .graph_state
+                            .node(entry.id)
+                            .is_some_and(|child| has_explicit_cross_axis_size(child, is_row));
                         let allocated = if main_bounded && total_flex > 0.0 {
                             remaining * (flex / total_flex)
                         } else {
@@ -3422,6 +3555,7 @@ impl LayoutEngine {
                             let cross =
                                 if matches!(align_items, fission_ir::op::AlignItems::Stretch)
                                     && cross_bounded
+                                    && !has_explicit_cross
                                 {
                                     BoxConstraints {
                                         min_w: allocated,
@@ -3442,6 +3576,7 @@ impl LayoutEngine {
                             let cross =
                                 if matches!(align_items, fission_ir::op::AlignItems::Stretch)
                                     && cross_bounded
+                                    && !has_explicit_cross
                                 {
                                     BoxConstraints {
                                         min_w: max_cross,
@@ -3680,17 +3815,7 @@ impl LayoutEngine {
                             // Only stretch children that don't have an explicit cross-axis size.
                             let child_node = self.graph_state.node(entry.id);
                             let has_explicit_cross = child_node
-                                .map(|n| match &n.op {
-                                    LayoutOp::Box { width, height, .. } => {
-                                        if is_row {
-                                            height.is_some()
-                                        } else {
-                                            width.is_some()
-                                        }
-                                    }
-                                    _ => false,
-                                })
-                                .unwrap_or(false);
+                                .is_some_and(|node| has_explicit_cross_axis_size(node, is_row));
                             // Text owns its measured height/width; stretching the
                             // text layout node would turn a line into the full
                             // row height and distort vertical centering.
