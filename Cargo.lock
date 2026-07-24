@@ -2690,6 +2690,7 @@ dependencies = [
  "fission-command-core",
  "fission-command-package",
  "fission-test-driver",
+ "image 0.25.8",
  "jsonwebtoken",
  "md-5 0.10.6",
  "reqwest",

@@ -2,6 +2,7 @@ use super::*;
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use fission_test_driver::{Selector, SelectorQuery};
+use image::{Rgb, RgbImage};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -241,7 +242,7 @@ pub(super) fn render_release_content(
     let output_dir = rendered_root.join(provider.as_str());
     fs::create_dir_all(&output_dir)?;
     let mut assets = Vec::new();
-    collect_render_assets(&raw_dir, &raw_dir, &output_dir, &mut assets)?;
+    collect_render_assets(provider, &raw_dir, &raw_dir, &output_dir, &mut assets)?;
     let manifest = RenderManifest {
         schema_version: 1,
         created_at_unix_seconds: now_unix_seconds(),
@@ -1303,6 +1304,7 @@ fn configured_microsoft_logo_count(project_dir: &Path, config: &ContentToml) -> 
 }
 
 fn collect_render_assets(
+    provider: DistributionProvider,
     root: &Path,
     current: &Path,
     output_root: &Path,
@@ -1315,7 +1317,7 @@ fn collect_render_assets(
         let entry = entry?;
         let path = entry.path();
         if entry.file_type()?.is_dir() {
-            collect_render_assets(root, &path, output_root, assets)?;
+            collect_render_assets(provider, root, &path, output_root, assets)?;
             continue;
         }
         if !is_release_asset(&path) {
@@ -1326,7 +1328,7 @@ fn collect_render_assets(
         if let Some(parent) = dest.parent() {
             fs::create_dir_all(parent)?;
         }
-        fs::copy(&path, &dest)?;
+        materialize_render_asset(provider, &path, &dest)?;
         let size = fs::metadata(&dest)?.len();
         let sha256 = sha256_file(&dest)?;
         let kind = asset_kind(&dest);
@@ -1346,6 +1348,47 @@ fn collect_render_assets(
         });
     }
     Ok(())
+}
+
+fn materialize_render_asset(
+    provider: DistributionProvider,
+    source: &Path,
+    destination: &Path,
+) -> Result<()> {
+    let extension = source
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if provider != DistributionProvider::AppStore || extension != "png" {
+        fs::copy(source, destination)?;
+        return Ok(());
+    }
+
+    let rgba = image::open(source)
+        .with_context(|| format!("failed to decode App Store image {}", source.display()))?
+        .to_rgba8();
+    let mut flattened = RgbImage::new(rgba.width(), rgba.height());
+    for (x, y, pixel) in rgba.enumerate_pixels() {
+        let alpha = u16::from(pixel[3]);
+        let inverse = 255 - alpha;
+        flattened.put_pixel(
+            x,
+            y,
+            Rgb([
+                blend_over_white(pixel[0], alpha, inverse),
+                blend_over_white(pixel[1], alpha, inverse),
+                blend_over_white(pixel[2], alpha, inverse),
+            ]),
+        );
+    }
+    flattened
+        .save(destination)
+        .with_context(|| format!("failed to write App Store image {}", destination.display()))
+}
+
+fn blend_over_white(channel: u8, alpha: u16, inverse: u16) -> u8 {
+    ((u16::from(channel) * alpha + 255 * inverse + 127) / 255) as u8
 }
 
 fn sha256_file(path: &Path) -> Result<String> {
@@ -1491,7 +1534,7 @@ fn validate_image_asset(
     });
     match image_dimensions(path) {
         Ok(Some((width, height))) => {
-            let valid = provider_dimension_check(provider, width, height);
+            let valid = provider_dimension_check(provider, path, width, height);
             checks.push(LifecycleCheck {
                 id: format!(
                     "release_content.{}.image.{id_stem}.dimensions",
@@ -1521,7 +1564,32 @@ fn validate_image_asset(
     }
     if provider == DistributionProvider::AppStore {
         validate_app_store_display_type(path, id_stem, checks);
+        validate_app_store_alpha(path, id_stem, checks);
     }
+}
+
+fn validate_app_store_alpha(path: &Path, id_stem: &str, checks: &mut Vec<LifecycleCheck>) {
+    let (status, details) = match image::open(path) {
+        Ok(image) if image.color().has_alpha() => (
+            "failed",
+            format!("{} contains an alpha channel", path.display()),
+        ),
+        Ok(_) => ("passed", format!("{} is fully opaque", path.display())),
+        Err(error) => (
+            "failed",
+            format!("could not decode {}: {error}", path.display()),
+        ),
+    };
+    checks.push(LifecycleCheck {
+        id: format!("release_content.app-store.image.{id_stem}.alpha"),
+        status: status.to_string(),
+        summary: "App Store screenshot has no alpha channel".to_string(),
+        details: Some(details),
+        remediation: vec![
+            "Run release-content render for app-store to flatten screenshots before upload."
+                .to_string(),
+        ],
+    });
 }
 
 fn validate_app_store_display_type(path: &Path, id_stem: &str, checks: &mut Vec<LifecycleCheck>) {
@@ -1700,12 +1768,25 @@ fn provider_max_image_bytes(provider: DistributionProvider) -> u64 {
     }
 }
 
-fn provider_dimension_check(provider: DistributionProvider, width: u32, height: u32) -> bool {
+fn provider_dimension_check(
+    provider: DistributionProvider,
+    path: &Path,
+    width: u32,
+    height: u32,
+) -> bool {
     match provider {
         DistributionProvider::PlayStore => {
             let min = width.min(height);
             let max = width.max(height);
             min >= 320 && max <= 3840 && max <= min * 2
+        }
+        DistributionProvider::AppStore
+            if app_store_screenshot_display_type(path) == Some("APP_DESKTOP") =>
+        {
+            matches!(
+                (width, height),
+                (1280, 800) | (1440, 900) | (2560, 1600) | (2880, 1800)
+            )
         }
         DistributionProvider::AppStore => width >= 320 && height >= 320,
         DistributionProvider::MicrosoftStore => width >= 1366 && height >= 768,
@@ -1725,10 +1806,10 @@ fn check_optional_path(
     } else {
         checks.push(LifecycleCheck {
             id: id.to_string(),
-            status: "missing".to_string(),
+            status: "skipped".to_string(),
             summary: summary.to_string(),
-            details: None,
-            remediation: vec!["Configure the provider asset path in fission.toml.".to_string()],
+            details: Some("optional asset is not configured".to_string()),
+            remediation: Vec::new(),
         });
     }
 }

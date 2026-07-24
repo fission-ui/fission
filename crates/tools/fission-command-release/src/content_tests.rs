@@ -1,4 +1,5 @@
 use super::*;
+use image::{Rgba, RgbaImage};
 use std::path::PathBuf;
 
 fn unique_dir(name: &str) -> PathBuf {
@@ -75,6 +76,34 @@ fn render_release_content_copies_raw_assets_and_writes_manifest() {
     let manifest: serde_json::Value = serde_json::from_slice(&fs::read(manifest).unwrap()).unwrap();
     let sha = manifest["assets"][0]["sha256"].as_str().unwrap();
     assert_eq!(sha.len(), 64);
+}
+
+#[test]
+fn app_store_render_flattens_png_alpha() {
+    let dir = unique_dir("app-store-alpha");
+    let raw_dir = dir.join("release-content/screenshots/raw/en-US/APP_DESKTOP");
+    fs::create_dir_all(&raw_dir).unwrap();
+    RgbaImage::from_pixel(2, 2, Rgba([10, 20, 30, 128]))
+        .save(raw_dir.join("home.png"))
+        .unwrap();
+    fs::write(
+        dir.join("fission.toml"),
+        r#"[app]
+name = "content-demo"
+app_id = "com.example.content_demo"
+
+[release.screenshots]
+raw_dir = "release-content/screenshots/raw"
+rendered_dir = "release-content/screenshots/rendered"
+"#,
+    )
+    .unwrap();
+
+    render_release_content(&dir, DistributionProvider::AppStore).unwrap();
+
+    let rendered =
+        dir.join("release-content/screenshots/rendered/app-store/en-US/APP_DESKTOP/home.png");
+    assert!(!image::open(rendered).unwrap().color().has_alpha());
 }
 
 #[test]
@@ -178,6 +207,26 @@ app_previews_dir = "release-content/previews/app-store"
     let report = validate_release_content_model(&dir, Some(DistributionProvider::AppStore));
     assert!(report.checks.iter().any(|check| {
         check.id == "release_content.app-store.video.demo.preview_type" && check.status == "failed"
+    }));
+}
+
+#[test]
+fn app_store_validation_does_not_require_optional_preview_video() {
+    let dir = unique_dir("app-store-optional-preview");
+    fs::write(
+        dir.join("fission.toml"),
+        r#"[app]
+name = "content-demo"
+app_id = "com.example.content_demo"
+
+[release.assets.app_store]
+"#,
+    )
+    .unwrap();
+
+    let report = validate_release_content_model(&dir, Some(DistributionProvider::AppStore));
+    assert!(report.checks.iter().any(|check| {
+        check.id == "release_content.app_store.app_previews_dir" && check.status == "skipped"
     }));
 }
 
