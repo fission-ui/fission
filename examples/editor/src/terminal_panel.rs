@@ -1,14 +1,17 @@
+#[cfg(not(target_arch = "wasm32"))]
 use crate::layout::{
     ACTIVITY_BAR_WIDTH, DIVIDER_THICKNESS, EDITOR_HORIZONTAL_RESERVE, MIN_TERMINAL_CONTENT_HEIGHT,
-    MIN_TERMINAL_HEIGHT, MIN_TERMINAL_WIDTH, PANEL_HEADER_HEIGHT, SIDEBAR_MAX_WIDTH,
-    SIDEBAR_MIN_WIDTH, TERMINAL_HEIGHT_FRACTION,
+    MIN_TERMINAL_WIDTH, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH,
 };
+use crate::layout::{MIN_TERMINAL_HEIGHT, PANEL_HEADER_HEIGHT, TERMINAL_HEIGHT_FRACTION};
 use crate::model::{BottomPanelTab, EditorState};
 use crate::palette::{BORDER_COLOR, DIM_TEXT, SURFACE_BG, TERMINAL_BG};
 use crate::terminal_panel_tab::TerminalPanelTab;
 use fission::core::reduce_with;
 use fission::core::ui::{Container, Text, Widget};
-use fission::widgets::{HStack, Spacer, TerminalView};
+#[cfg(not(target_arch = "wasm32"))]
+use fission::widgets::TerminalView;
+use fission::widgets::{HStack, Spacer};
 use fission::{WidgetId, WidgetIdExt};
 use std::path::Path;
 
@@ -85,10 +88,12 @@ impl From<TerminalPanel> for Widget {
         .flex_shrink(0.0)
         .into();
 
+        #[cfg(not(target_arch = "wasm32"))]
         let sidebar_width = view.state().sidebar_width.min(
             (view.viewport_size().width - EDITOR_HORIZONTAL_RESERVE)
                 .clamp(SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH),
         );
+        #[cfg(not(target_arch = "wasm32"))]
         let panel_width = (view.viewport_size().width
             - ACTIVITY_BAR_WIDTH
             - if view.state().sidebar_visible {
@@ -97,11 +102,13 @@ impl From<TerminalPanel> for Widget {
                 tokens.spacing.none
             })
         .max(MIN_TERMINAL_WIDTH);
+        #[cfg(not(target_arch = "wasm32"))]
         let terminal_height = (view.state().terminal_height.min(
             (view.viewport_size().height * TERMINAL_HEIGHT_FRACTION).max(MIN_TERMINAL_HEIGHT),
         ) - PANEL_HEADER_HEIGHT)
             .max(MIN_TERMINAL_CONTENT_HEIGHT);
 
+        #[cfg(not(target_arch = "wasm32"))]
         let content: Widget = if is_terminal {
             if let Some(session) = view.state().terminal_session.clone() {
                 TerminalView::new(session, panel_width, terminal_height)
@@ -122,6 +129,20 @@ impl From<TerminalPanel> for Widget {
                 .flex_grow(1.0)
                 .into()
             }
+        } else {
+            crate::diagnostics_panel::DiagnosticsPanel.into()
+        };
+        #[cfg(target_arch = "wasm32")]
+        let content: Widget = if is_terminal {
+            Container::new(
+                Text::new("The integrated terminal requires native process access.")
+                    .size(tokens.typography.font_size_sm)
+                    .color(DIM_TEXT),
+            )
+            .padding_all(tokens.spacing.m)
+            .bg(TERMINAL_BG)
+            .flex_grow(1.0)
+            .into()
         } else {
             crate::diagnostics_panel::DiagnosticsPanel.into()
         };

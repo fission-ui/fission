@@ -7,7 +7,7 @@ const CONTENT_MIN_WIDTH: f32 = 280.0;
 const CONTENT_MAX_WIDTH: f32 = 672.0;
 
 #[derive(Clone)]
-pub(crate) struct TextLabApp;
+pub struct TextLabApp;
 
 impl From<TextLabApp> for Widget {
     fn from(_app: TextLabApp) -> Self {
