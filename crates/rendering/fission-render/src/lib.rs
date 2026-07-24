@@ -16,11 +16,15 @@ pub struct Color {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Fill {
     Solid(Color),
+    /// A gradient whose start and end points are normalized to the painted
+    /// bounds, where `(0.0, 0.0)` is the top-left and `(1.0, 1.0)` is the
+    /// bottom-right.
     LinearGradient {
         start: (f32, f32),
         end: (f32, f32),
         stops: Vec<(f32, Color)>,
     },
+    /// A gradient whose center and radius are normalized to the painted bounds.
     RadialGradient {
         center: (f32, f32),
         radius: f32,
@@ -391,3 +395,5 @@ mod tests {
         assert_eq!(color.a, 255);
     }
 }
+#[doc(hidden)]
+pub mod image_cache_store;

@@ -15,6 +15,9 @@ Fission paint primitives are typed data that can be lowered to native renderers,
 | `BoxShadow` | Outer or inset shadow with offset, blur, spread, and color. |
 | `BackdropFilter` | Filter applied to already-painted content behind a widget. |
 
+Gradient geometry is normalized to the painted bounds. `(0.0, 0.0)` is the
+top-left, `(1.0, 1.0)` is the bottom-right, and stop offsets use `0.0..=1.0`.
+
 ```rust
 Container::new(Text::new("Status"))
     .bg_fill(Fill::LinearGradient {

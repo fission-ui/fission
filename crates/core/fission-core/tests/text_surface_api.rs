@@ -158,7 +158,7 @@ fn rich_text_widget_lowers_multiple_runs() {
 fn container_background_fill_accepts_gradients() {
     let gradient = Fill::LinearGradient {
         start: (0.0, 0.0),
-        end: (200.0, 0.0),
+        end: (1.0, 0.0),
         stops: vec![(0.0, Color::BLACK), (1.0, Color::WHITE)],
     };
 
@@ -186,7 +186,7 @@ fn container_background_fill_accepts_gradients() {
 fn button_background_fill_and_text_override_lower() {
     let gradient = Fill::LinearGradient {
         start: (0.0, 0.0),
-        end: (240.0, 0.0),
+        end: (1.0, 0.0),
         stops: vec![
             (
                 0.0,

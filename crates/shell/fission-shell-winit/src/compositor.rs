@@ -5,7 +5,7 @@ use fission_layout::LayoutPoint;
 use fission_render::LayerClip;
 use fission_render::Renderer as _;
 use fission_render_vello::{
-    workload_profile_for_scene, RetainedSceneCache, VelloRenderer, VelloTextMeasurer,
+    workload_profile_for_encoded_scene, RetainedSceneCache, VelloRenderer, VelloTextMeasurer,
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -1485,8 +1485,6 @@ fn render_plan_scene(
         height,
         antialiasing_method: vello::AaConfig::Area,
     };
-    let workload_profile = workload_profile_for_scene(scene, width, height, scale_factor);
-
     if let Some(cache_key) = scene_cache_key {
         let cached_scene = retained_scene_cache.get_or_insert_with(cache_key, |scene_cache| {
             let mut encoded = Scene::new();
@@ -1499,6 +1497,8 @@ fn render_plan_scene(
             renderer.render_scene(scene)?;
             Ok(encoded)
         })?;
+        let workload_profile =
+            workload_profile_for_encoded_scene(scene, cached_scene, width, height, scale_factor);
         vello_renderer
             .render_to_texture_with_workload_profile(
                 device,
@@ -1516,6 +1516,8 @@ fn render_plan_scene(
     let mut renderer =
         VelloRenderer::new(&mut encoded, measurer, retained_scene_cache, scale_factor);
     renderer.render_scene(scene)?;
+    let workload_profile =
+        workload_profile_for_encoded_scene(scene, &encoded, width, height, scale_factor);
     vello_renderer
         .render_to_texture_with_workload_profile(
             device,

@@ -1,15 +1,10 @@
 use anyhow::{anyhow, Result};
 use fission_ir::op::{HttpHeader, ImageAlignment, ImageRequest, ImageSource};
 use fission_render::{
-    surface_placeholder_color, Color as RenderColor, DisplayList, DisplayOp, Fill, ImageFit,
-    LineCap, LineJoin, RenderScene, Stroke, TextRun,
+    image_cache_store::ImageCacheStore, surface_placeholder_color, Color as RenderColor,
+    DisplayList, DisplayOp, Fill, ImageFit, LineCap, LineJoin, RenderScene, Stroke, TextRun,
 };
-use fontdue::{
-    layout::{CoordinateSystem, Layout, LayoutSettings, TextStyle as FontdueTextStyle},
-    Font, FontSettings,
-};
-use moka::notification::RemovalCause;
-use moka::sync::Cache;
+use fontdue::layout::{CoordinateSystem, Layout, LayoutSettings, TextStyle as FontdueTextStyle};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -25,6 +20,8 @@ use tiny_skia::{
     PremultipliedColorU8, Shader, SpreadMode, Stroke as TinyStroke, Transform,
 };
 use vello::kurbo::{BezPath, PathEl, Rect as KurboRect, RoundedRect, Shape};
+
+use crate::software_fonts::{default_font, packaged_font};
 
 const DEFAULT_IMAGE_CACHE_BYTES: u64 = 50 * 1024 * 1024;
 
@@ -53,9 +50,7 @@ enum SvgShape {
     },
 }
 
-static DEFAULT_FONT: OnceLock<Font> = OnceLock::new();
-static PACKAGED_FONTS: OnceLock<Mutex<Vec<SoftwareFontFace>>> = OnceLock::new();
-static IMAGE_CACHE: OnceLock<Cache<String, ImageCacheEntry>> = OnceLock::new();
+static IMAGE_CACHE: OnceLock<ImageCacheStore<ImageCacheEntry>> = OnceLock::new();
 static SVG_CACHE: OnceLock<Mutex<HashMap<u64, Arc<SvgCacheEntry>>>> = OnceLock::new();
 static IMAGE_CACHE_GENERATION: AtomicU64 = AtomicU64::new(0);
 static IMAGE_CACHE_HITS: AtomicU64 = AtomicU64::new(0);
@@ -64,13 +59,6 @@ static IMAGE_LOADS_STARTED: AtomicU64 = AtomicU64::new(0);
 static IMAGE_LOADS_COMPLETED: AtomicU64 = AtomicU64::new(0);
 static IMAGE_LOADS_FAILED: AtomicU64 = AtomicU64::new(0);
 static IMAGE_CACHE_EVICTIONS: AtomicU64 = AtomicU64::new(0);
-
-struct SoftwareFontFace {
-    family: String,
-    weight: u16,
-    style: fission_theme::PackagedFontStyle,
-    font: Arc<Font>,
-}
 
 #[derive(Clone)]
 enum ImageCacheEntry {
@@ -102,78 +90,19 @@ impl ImageCacheEntry {
     }
 }
 
-fn default_font() -> &'static Font {
-    DEFAULT_FONT.get_or_init(|| {
-        Font::from_bytes(
-            fission_theme::fonts::default_font_bytes(),
-            FontSettings::default(),
-        )
-        .expect("failed to load bundled UI font")
-    })
-}
-
-pub(crate) fn register_packaged_fonts(fonts: &'static [fission_theme::PackagedFont]) {
-    let registry = PACKAGED_FONTS.get_or_init(|| Mutex::new(Vec::new()));
-    let mut registry = registry.lock().unwrap();
-    for face in fonts {
-        let Ok(font) = Font::from_bytes(face.data, FontSettings::default()) else {
-            continue;
-        };
-        if let Some(existing) = registry.iter_mut().find(|existing| {
-            existing.family.eq_ignore_ascii_case(face.family)
-                && existing.weight == face.weight
-                && existing.style == face.style
-        }) {
-            existing.font = Arc::new(font);
-        } else {
-            registry.push(SoftwareFontFace {
-                family: face.family.to_owned(),
-                weight: face.weight,
-                style: face.style,
-                font: Arc::new(font),
-            });
-        }
-    }
-}
-
-fn packaged_font(
-    family: Option<&str>,
-    weight: u16,
-    style: fission_ir::op::FontStyle,
-) -> Option<Arc<Font>> {
-    let family = family?;
-    let desired_style = match style {
-        fission_ir::op::FontStyle::Normal => fission_theme::PackagedFontStyle::Normal,
-        fission_ir::op::FontStyle::Italic => fission_theme::PackagedFontStyle::Italic,
-    };
-    PACKAGED_FONTS
-        .get()?
-        .lock()
-        .unwrap()
-        .iter()
-        .filter(|face| face.family.eq_ignore_ascii_case(family))
-        .min_by_key(|face| {
-            let style_penalty = u32::from(face.style != desired_style) * 10_000;
-            style_penalty + u32::from(face.weight.abs_diff(weight))
-        })
-        .map(|face| face.font.clone())
-}
-
-fn image_cache() -> &'static Cache<String, ImageCacheEntry> {
+fn image_cache() -> &'static ImageCacheStore<ImageCacheEntry> {
     IMAGE_CACHE.get_or_init(build_image_cache)
 }
 
-fn build_image_cache() -> Cache<String, ImageCacheEntry> {
-    Cache::<String, ImageCacheEntry>::builder()
-        .name("fission-software-images")
-        .max_capacity(configured_image_cache_bytes())
-        .weigher(|_, entry| entry.weight())
-        .eviction_listener(|_, _, cause| {
-            if matches!(cause, RemovalCause::Size) {
-                IMAGE_CACHE_EVICTIONS.fetch_add(1, Ordering::AcqRel);
-            }
-        })
-        .build()
+fn build_image_cache() -> ImageCacheStore<ImageCacheEntry> {
+    ImageCacheStore::new(
+        "fission-software-images",
+        configured_image_cache_bytes(),
+        ImageCacheEntry::weight,
+        || {
+            IMAGE_CACHE_EVICTIONS.fetch_add(1, Ordering::AcqRel);
+        },
+    )
 }
 
 fn configured_image_cache_bytes() -> u64 {
@@ -223,8 +152,9 @@ pub(crate) fn image_cache_generation() -> u64 {
 
 pub(crate) fn image_cache_has_pending() -> bool {
     image_cache()
-        .iter()
-        .any(|entry| matches!(entry.1, ImageCacheEntry::Loading))
+        .values()
+        .into_iter()
+        .any(|entry| matches!(entry, ImageCacheEntry::Loading))
 }
 
 pub(crate) fn image_cache_stats() -> ImageCacheStats {
@@ -234,8 +164,9 @@ pub(crate) fn image_cache_stats() -> ImageCacheStats {
         weighted_bytes: image_cache().weighted_size(),
         max_bytes: configured_image_cache_bytes(),
         pending: image_cache()
-            .iter()
-            .filter(|entry| matches!(entry.1, ImageCacheEntry::Loading))
+            .values()
+            .into_iter()
+            .filter(|entry| matches!(entry, ImageCacheEntry::Loading))
             .count() as u64,
         hits: IMAGE_CACHE_HITS.load(Ordering::Acquire),
         misses: IMAGE_CACHE_MISSES.load(Ordering::Acquire),
@@ -265,7 +196,14 @@ fn tiny_color(color: RenderColor) -> Color {
     Color::from_rgba8(color.r, color.g, color.b, color.a)
 }
 
-fn fill_shader(fill: &Fill) -> Option<Shader<'static>> {
+fn normalized_fill_point(bounds: fission_render::LayoutRect, point: (f32, f32)) -> Point {
+    Point::from_xy(
+        bounds.origin.x + bounds.width() * point.0,
+        bounds.origin.y + bounds.height() * point.1,
+    )
+}
+
+fn fill_shader(fill: &Fill, bounds: fission_render::LayoutRect) -> Option<Shader<'static>> {
     match fill {
         Fill::Solid(color) => Some(Shader::SolidColor(tiny_color(*color))),
         Fill::LinearGradient { start, end, stops } => {
@@ -274,8 +212,8 @@ fn fill_shader(fill: &Fill) -> Option<Shader<'static>> {
                 .map(|(offset, color)| GradientStop::new(*offset, tiny_color(*color)))
                 .collect::<Vec<_>>();
             tiny_skia::LinearGradient::new(
-                Point::from_xy(start.0, start.1),
-                Point::from_xy(end.0, end.1),
+                normalized_fill_point(bounds, *start),
+                normalized_fill_point(bounds, *end),
                 stops,
                 SpreadMode::Pad,
                 Transform::identity(),
@@ -291,9 +229,9 @@ fn fill_shader(fill: &Fill) -> Option<Shader<'static>> {
                 .map(|(offset, color)| GradientStop::new(*offset, tiny_color(*color)))
                 .collect::<Vec<_>>();
             tiny_skia::RadialGradient::new(
-                Point::from_xy(center.0, center.1),
-                Point::from_xy(center.0, center.1),
-                *radius,
+                normalized_fill_point(bounds, *center),
+                normalized_fill_point(bounds, *center),
+                radius * bounds.width().max(bounds.height()),
                 stops,
                 SpreadMode::Pad,
                 Transform::identity(),
@@ -302,9 +240,9 @@ fn fill_shader(fill: &Fill) -> Option<Shader<'static>> {
     }
 }
 
-fn fill_paint(fill: &Fill) -> Paint<'static> {
+fn fill_paint(fill: &Fill, bounds: fission_render::LayoutRect) -> Paint<'static> {
     let mut paint = Paint::default();
-    if let Some(shader) = fill_shader(fill) {
+    if let Some(shader) = fill_shader(fill, bounds) {
         paint.shader = shader;
     }
     paint.anti_alias = true;
@@ -703,6 +641,15 @@ mod image_tests {
     use std::net::TcpListener;
     use std::time::{Duration, Instant};
 
+    #[test]
+    fn normalized_gradient_point_maps_to_painted_bounds() {
+        let point = normalized_fill_point(
+            fission_render::LayoutRect::new(20.0, 40.0, 200.0, 100.0),
+            (0.25, 0.75),
+        );
+        assert_eq!(point, Point::from_xy(70.0, 115.0));
+    }
+
     fn tiny_png() -> Vec<u8> {
         let image = image::RgbaImage::from_pixel(1, 1, image::Rgba([0, 128, 255, 255]));
         let mut bytes = Cursor::new(Vec::new());
@@ -757,30 +704,6 @@ mod image_tests {
             let _ = std::io::Write::flush(&mut stream);
         });
         url
-    }
-
-    #[test]
-    fn packaged_fonts_are_available_to_software_rich_text() {
-        let fonts = Box::leak(
-            vec![fission_theme::PackagedFont {
-                family: "Software Test Sans",
-                weight: 700,
-                style: fission_theme::PackagedFontStyle::Normal,
-                format: "truetype",
-                data: fission_theme::fonts::default_font_bytes(),
-                axes: &[],
-            }]
-            .into_boxed_slice(),
-        );
-
-        register_packaged_fonts(fonts);
-
-        assert!(packaged_font(
-            Some("Software Test Sans"),
-            700,
-            fission_ir::op::FontStyle::Normal
-        )
-        .is_some());
     }
 
     #[test]
@@ -1490,7 +1413,7 @@ impl SoftwareRenderer {
         }
 
         if let Some(fill) = fill {
-            let paint = fill_paint(fill);
+            let paint = fill_paint(fill, rect);
             surface.fill_path(
                 &path,
                 &paint,
@@ -1500,7 +1423,7 @@ impl SoftwareRenderer {
             );
         }
         if let Some(stroke) = stroke {
-            let paint = fill_paint(&stroke.fill);
+            let paint = fill_paint(&stroke.fill, rect);
             let style = stroke_style(stroke);
             surface.stroke_path(&path, &paint, &style, transform, clip.as_ref());
         }
@@ -1796,8 +1719,10 @@ impl SoftwareRenderer {
         );
         let clip = self.current_clip().cloned();
         let surface = self.current_surface_mut();
+        let paint_bounds =
+            fission_render::LayoutRect::new(0.0, 0.0, bounds.width(), bounds.height());
         if let Some(fill) = fill {
-            let paint = fill_paint(fill);
+            let paint = fill_paint(fill, paint_bounds);
             surface.fill_path(
                 &path,
                 &paint,
@@ -1807,7 +1732,7 @@ impl SoftwareRenderer {
             );
         }
         if let Some(stroke) = stroke {
-            let paint = fill_paint(&stroke.fill);
+            let paint = fill_paint(&stroke.fill, paint_bounds);
             let style = stroke_style(stroke);
             surface.stroke_path(&path, &paint, &style, transform, clip.as_ref());
         }
@@ -1848,6 +1773,7 @@ impl SoftwareRenderer {
         );
         let clip = self.current_clip().cloned();
         let surface = self.current_surface_mut();
+        let paint_bounds = fission_render::LayoutRect::new(vb_x, vb_y, vb_w, vb_h);
 
         for shape in &entry.shapes {
             match shape {
@@ -1856,7 +1782,7 @@ impl SoftwareRenderer {
                         continue;
                     };
                     if let Some(fill) = fill {
-                        let paint = fill_paint(fill);
+                        let paint = fill_paint(fill, paint_bounds);
                         surface.fill_path(
                             &path,
                             &paint,
@@ -1866,7 +1792,7 @@ impl SoftwareRenderer {
                         );
                     }
                     if let Some(stroke) = stroke {
-                        let paint = fill_paint(&stroke.fill);
+                        let paint = fill_paint(&stroke.fill, paint_bounds);
                         let style = stroke_style(stroke);
                         surface.stroke_path(&path, &paint, &style, transform, clip.as_ref());
                     }
@@ -1883,7 +1809,7 @@ impl SoftwareRenderer {
                         continue;
                     };
                     if let Some(fill) = fill {
-                        let paint = fill_paint(fill);
+                        let paint = fill_paint(fill, paint_bounds);
                         surface.fill_path(
                             &path,
                             &paint,
@@ -1893,7 +1819,7 @@ impl SoftwareRenderer {
                         );
                     }
                     if let Some(stroke) = stroke {
-                        let paint = fill_paint(&stroke.fill);
+                        let paint = fill_paint(&stroke.fill, paint_bounds);
                         let style = stroke_style(stroke);
                         surface.stroke_path(&path, &paint, &style, transform, clip.as_ref());
                     }

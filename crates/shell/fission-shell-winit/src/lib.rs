@@ -53,7 +53,7 @@ use fission_layout::{LayoutEngine, LayoutSize};
 use fission_render::{LayoutPoint, LayoutRect, Renderer as _};
 use fission_render_vello::parley::FontContext;
 use fission_render_vello::{
-    workload_profile_for_scene, RetainedSceneCache, VelloRenderer, VelloTextMeasurer,
+    workload_profile_for_encoded_scene, RetainedSceneCache, VelloRenderer, VelloTextMeasurer,
 };
 use fission_shell::async_host::{
     AsyncMessage, AsyncRegistry, RunningServiceHandle, ServiceControlMessage,
@@ -93,6 +93,7 @@ mod renderer_diagnostics;
 #[cfg(target_arch = "wasm32")]
 use renderer_diagnostics::renderer_request_from_value;
 use renderer_diagnostics::{emit_renderer_report, RendererReport, RendererRequest};
+mod software_fonts;
 mod software_renderer;
 use software_renderer::SoftwareRenderer;
 mod video_backend;
@@ -7321,13 +7322,6 @@ where
                                                                     .expect(
                                                                         "retained render scene missing before render",
                                                                     );
-                                                            let workload_profile =
-                                                                workload_profile_for_scene(
-                                                                    retained_scene,
-                                                                    render_target_size.0,
-                                                                    render_target_size.1,
-                                                                    scale_factor,
-                                                                );
                                                             let mut renderer_wrapper =
                                                                 VelloRenderer::new(
                                                                     &mut presenter.scene,
@@ -7341,6 +7335,14 @@ where
                                                                     .expect(
                                                                         "failed to encode retained scene",
                                                                     );
+                                                            let workload_profile =
+                                                                workload_profile_for_encoded_scene(
+                                                                    retained_scene,
+                                                                    &presenter.scene,
+                                                                    render_target_size.0,
+                                                                    render_target_size.1,
+                                                                    scale_factor,
+                                                                );
                                                             renderer
                                                                     .render_to_texture_with_workload_profile(
                                                                         &device_handle.device,
@@ -7530,13 +7532,6 @@ where
                                                         .expect(
                                                             "retained render scene missing before render",
                                                         );
-                                                    let workload_profile =
-                                                        workload_profile_for_scene(
-                                                            retained_scene,
-                                                            render_target_size.0,
-                                                            render_target_size.1,
-                                                            scale_factor,
-                                                        );
                                                     let mut renderer_wrapper = VelloRenderer::new(
                                                         &mut scene,
                                                         measurer.clone(),
@@ -7546,6 +7541,14 @@ where
                                                     renderer_wrapper
                                                         .render_scene(retained_scene)
                                                         .expect("failed to encode retained scene");
+                                                    let workload_profile =
+                                                        workload_profile_for_encoded_scene(
+                                                            retained_scene,
+                                                            &scene,
+                                                            render_target_size.0,
+                                                            render_target_size.1,
+                                                            scale_factor,
+                                                        );
                                                     renderer
                                                         .render_to_texture_with_workload_profile(
                                                             &device_handle.device,
@@ -8329,7 +8332,7 @@ fn register_packaged_fonts(
     font_cx: &Arc<Mutex<FontContext>>,
     fonts: &'static [fission_theme::PackagedFont],
 ) {
-    software_renderer::register_packaged_fonts(fonts);
+    software_fonts::register_packaged_fonts(fonts);
     let mut font_cx = font_cx.lock().unwrap();
     for font in fonts {
         let axes = font
@@ -8351,7 +8354,7 @@ fn register_packaged_fonts(
         };
         font_cx
             .collection
-            .register_fonts(Blob::from(font.data.to_vec()), Some(info_override));
+            .register_fonts(Blob::new(Arc::new(font.data)), Some(info_override));
     }
 }
 

@@ -1405,8 +1405,8 @@ fn render_line(
             }
             area_path.push_str(" Z");
             let fill = Fill::LinearGradient {
-                start: (area.plot.x(), area.plot.y()),
-                end: (area.plot.x(), area.plot.bottom()),
+                start: (0.0, 0.0),
+                end: (0.0, 1.0),
                 stops: vec![(0.0, area_color), (1.0, area_color.with_alpha(16))],
             };
             add_path(cx, root, &area_path, Some(fill), None);
