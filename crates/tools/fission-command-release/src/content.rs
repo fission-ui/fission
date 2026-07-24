@@ -660,43 +660,47 @@ fn run_test_control_steps(
         &format!("release_content.capture.{id}.test_control_ready"),
         format!("http://127.0.0.1:{port}"),
     ));
-    if let Some(wait_for) = scenario.wait_for.as_deref() {
-        let payload = wait_for_payload(wait_for, timeout)?;
-        send_test_command(&client, port, &payload)?;
-        checks.push(ok_check(
-            &format!("release_content.capture.{id}.wait_for"),
-            wait_for.to_string(),
-        ));
-    }
-    let mut saw_screenshot = false;
-    for (index, step) in scenario.steps.iter().enumerate() {
-        let response = send_test_command(&client, port, &step_payload(step, raw_dir, set, id)?)?;
-        if step.cmd == "screenshot" || step.cmd == "capture_screenshot" {
-            write_screenshot_response(raw_dir, set, id, index, step, &response)?;
-            saw_screenshot = true;
+    let result = (|| -> Result<()> {
+        if let Some(wait_for) = scenario.wait_for.as_deref() {
+            let payload = wait_for_payload(wait_for, timeout)?;
+            send_test_command(&client, port, &payload)?;
+            checks.push(ok_check(
+                &format!("release_content.capture.{id}.wait_for"),
+                wait_for.to_string(),
+            ));
         }
-        checks.push(ok_check(
-            &format!("release_content.capture.{id}.step.{index}"),
-            step.cmd.clone(),
-        ));
-    }
-    if !saw_screenshot {
-        let response = send_test_command(&client, port, &json!({"cmd": "CaptureScreenshot"}))?;
-        write_screenshot_response(
-            raw_dir,
-            set,
-            id,
-            scenario.steps.len(),
-            &ScreenshotStep {
-                cmd: "capture_screenshot".to_string(),
-                name: Some("final".to_string()),
-                ..Default::default()
-            },
-            &response,
-        )?;
-    }
+        let mut saw_screenshot = false;
+        for (index, step) in scenario.steps.iter().enumerate() {
+            let response =
+                send_test_command(&client, port, &step_payload(step, raw_dir, set, id)?)?;
+            if step.cmd == "screenshot" || step.cmd == "capture_screenshot" {
+                write_screenshot_response(raw_dir, set, id, index, step, &response)?;
+                saw_screenshot = true;
+            }
+            checks.push(ok_check(
+                &format!("release_content.capture.{id}.step.{index}"),
+                step.cmd.clone(),
+            ));
+        }
+        if !saw_screenshot {
+            let response = send_test_command(&client, port, &json!({"cmd": "CaptureScreenshot"}))?;
+            write_screenshot_response(
+                raw_dir,
+                set,
+                id,
+                scenario.steps.len(),
+                &ScreenshotStep {
+                    cmd: "capture_screenshot".to_string(),
+                    name: Some("final".to_string()),
+                    ..Default::default()
+                },
+                &response,
+            )?;
+        }
+        Ok(())
+    })();
     let _ = send_test_command(&client, port, &json!({"cmd": "Quit"}));
-    Ok(())
+    result
 }
 
 fn wait_for_test_control(client: &Client, port: u16, timeout: Duration) -> Result<()> {
