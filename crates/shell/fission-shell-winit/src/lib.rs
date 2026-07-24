@@ -3277,6 +3277,19 @@ fn resolve_selector_record(
         });
     }
 
+    if query.include_hidden && visible_matched.len() > 1 {
+        let laid_out = visible_matched
+            .iter()
+            .filter(|record| {
+                record.node.logical_bounds.width > 0.0 || record.node.logical_bounds.height > 0.0
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        if let [record] = laid_out.as_slice() {
+            return Ok(record.clone());
+        }
+    }
+
     if visible_matched.len() > 1 {
         return Err(selector_failure(
             query.clone(),
@@ -8951,6 +8964,63 @@ mod tests {
         let record = resolve_selector_record(&pipeline, &ScrollStateMap::default(), &query)
             .expect("scoped selector should resolve");
         assert_eq!(record.node.identifier.as_deref(), Some("app.open"));
+    }
+
+    #[test]
+    fn hidden_selector_prefers_the_responsive_branch_participating_in_layout() {
+        let root = WidgetId::from_u128(30);
+        let active = WidgetId::from_u128(31);
+        let inactive = WidgetId::from_u128(32);
+        let mut ir = CoreIR::new();
+        for id in [active, inactive] {
+            ir.add_node(
+                id,
+                Op::Semantics(Semantics {
+                    role: Role::Button,
+                    label: Some("Continue".into()),
+                    identifier: Some("tour.continue".into()),
+                    focusable: true,
+                    ..Semantics::default()
+                }),
+                Vec::new(),
+            );
+        }
+        ir.add_node(
+            root,
+            Op::Semantics(Semantics {
+                role: Role::Generic,
+                identifier: Some("root".into()),
+                ..Semantics::default()
+            }),
+            vec![active, inactive],
+        );
+        ir.set_root(root);
+
+        let mut snapshot = LayoutSnapshot::new(LayoutSize::new(320.0, 240.0));
+        snapshot.nodes.insert(
+            root,
+            LayoutNodeGeometry {
+                rect: LayoutRect::new(0.0, 0.0, 320.0, 240.0),
+                content_size: LayoutSize::new(320.0, 240.0),
+            },
+        );
+        snapshot.nodes.insert(
+            active,
+            LayoutNodeGeometry {
+                rect: LayoutRect::new(20.0, 30.0, 120.0, 40.0),
+                content_size: LayoutSize::new(120.0, 40.0),
+            },
+        );
+
+        let mut pipeline = crate::Pipeline::new();
+        pipeline.prev_ir = Some(ir);
+        pipeline.last_snapshot = Some(snapshot);
+        let query = fission_test_driver::SelectorQuery::semantic_identifier("tour.continue")
+            .include_hidden();
+        let record = resolve_selector_record(&pipeline, &ScrollStateMap::default(), &query)
+            .expect("the active responsive branch should disambiguate the selector");
+
+        assert_eq!(record.id, active);
     }
 
     #[test]
