@@ -99,3 +99,9 @@ Use `TextContent::Key` for product copy and `TextContent::Literal` for data. A l
 ## Related pages
 
 For the step-by-step guide, read [Theming and internationalization](/docs/guides/theming-and-i18n/). For DSP generation and presets, read [Design system](/docs/guides/design-system/). For the exact `Env` contract, see [Environment, input, and input method editor](/reference/core/environment-input-and-ime/).
+
+## Font assets
+
+Generated design systems can expose packaged fonts through `DesignSystem::font_faces()`. Each `PackagedFont` contains the family, weight, style, format, embedded bytes, and optional variation axes. Shells register those fonts for rendering so components can use generated typography tokens without relying on platform font installation.
+
+See [Fonts](/reference/core/fonts/) for the field-level reference and [Design systems and fonts](/docs/develop/design-systems-and-fonts/) for the app setup flow.

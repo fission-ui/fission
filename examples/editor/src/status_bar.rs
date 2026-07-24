@@ -1,7 +1,8 @@
+use crate::layout::STATUS_BAR_HEIGHT;
 use crate::model::EditorState;
-use fission::core::op::Color;
-use fission::core::ui::{Container, Icon, Text, Widget};
+use crate::palette::{STATUS_ERROR, STATUS_TEXT, STATUS_WARNING, SURFACE_BG};
 use fission::icons::material;
+use fission::prelude::*;
 use fission::widgets::{HStack, Spacer};
 
 pub struct StatusBar;
@@ -9,44 +10,21 @@ pub struct StatusBar;
 impl From<StatusBar> for Widget {
     fn from(_component: StatusBar) -> Self {
         let (_ctx, view) = fission::build::current::<EditorState>();
-        let bg = Color {
-            r: 37,
-            g: 37,
-            b: 38,
-            a: 255,
-        }; // Workspace dark gray
-        let text_color = Color {
-            r: 255,
-            g: 255,
-            b: 255,
-            a: 255,
-        };
-
-        let error_color = Color {
-            r: 255,
-            g: 80,
-            b: 80,
-            a: 255,
-        };
-        let warn_color = Color {
-            r: 255,
-            g: 200,
-            b: 60,
-            a: 255,
-        };
+        let tokens = &view.env().theme.tokens;
+        let icon_size = view.env().theme.components.button.icon_size;
 
         let mut items = vec![];
 
-        // Branch indicator with icon
         items.push(
             HStack {
-                spacing: Some(4.0),
-                children: vec![
+                spacing: Some(tokens.spacing.xs),
+                children: widgets![
                     Icon::svg(material::notification::account_tree::round())
-                        .size(14.0)
-                        .color(text_color)
-                        .into(),
-                    Text::new("main").size(12.0).color(text_color).into(),
+                        .size(icon_size)
+                        .color(STATUS_TEXT),
+                    Text::new("main")
+                        .size(tokens.typography.font_size_sm)
+                        .color(STATUS_TEXT),
                 ],
             }
             .into(),
@@ -54,13 +32,12 @@ impl From<StatusBar> for Widget {
 
         items.push(
             Spacer {
-                width: Some(16.0),
+                width: Some(tokens.spacing.l),
                 ..Default::default()
             }
             .into(),
         );
 
-        // Diagnostics summary
         let error_count: usize = view
             .state()
             .diagnostics
@@ -78,47 +55,43 @@ impl From<StatusBar> for Widget {
 
         items.push(
             HStack {
-                spacing: Some(4.0),
-                children: vec![
+                spacing: Some(tokens.spacing.xs),
+                children: widgets![
                     Icon::svg(material::alert::error::round())
-                        .size(14.0)
+                        .size(icon_size)
                         .color(if error_count > 0 {
-                            error_color
+                            STATUS_ERROR
                         } else {
-                            text_color
-                        })
-                        .into(),
+                            STATUS_TEXT
+                        }),
                     Text::new(error_count.to_string())
-                        .size(12.0)
-                        .color(text_color)
-                        .into(),
+                        .size(tokens.typography.font_size_sm)
+                        .color(STATUS_TEXT),
                 ],
             }
             .into(),
         );
         items.push(
             Spacer {
-                width: Some(8.0),
+                width: Some(tokens.spacing.s),
                 ..Default::default()
             }
             .into(),
         );
         items.push(
             HStack {
-                spacing: Some(4.0),
-                children: vec![
+                spacing: Some(tokens.spacing.xs),
+                children: widgets![
                     Icon::svg(material::alert::warning::round())
-                        .size(14.0)
+                        .size(icon_size)
                         .color(if warn_count > 0 {
-                            warn_color
+                            STATUS_WARNING
                         } else {
-                            text_color
-                        })
-                        .into(),
+                            STATUS_TEXT
+                        }),
                     Text::new(warn_count.to_string())
-                        .size(12.0)
-                        .color(text_color)
-                        .into(),
+                        .size(tokens.typography.font_size_sm)
+                        .color(STATUS_TEXT),
                 ],
             }
             .into(),
@@ -126,13 +99,12 @@ impl From<StatusBar> for Widget {
 
         items.push(
             Spacer {
-                width: Some(16.0),
+                width: Some(tokens.spacing.l),
                 ..Default::default()
             }
             .into(),
         );
 
-        // Active file info
         if let Some((_tab, buf)) = view.state().active_buffer() {
             items.push(
                 Text::new(format!(
@@ -140,14 +112,14 @@ impl From<StatusBar> for Widget {
                     buf.cursor_line + 1,
                     buf.cursor_col + 1
                 ))
-                .size(12.0)
-                .color(text_color)
+                .size(tokens.typography.font_size_sm)
+                .color(STATUS_TEXT)
                 .into(),
             );
 
             items.push(
                 Spacer {
-                    width: Some(16.0),
+                    width: Some(tokens.spacing.l),
                     ..Default::default()
                 }
                 .into(),
@@ -155,24 +127,29 @@ impl From<StatusBar> for Widget {
 
             items.push(
                 Text::new(buf.language.display_name())
-                    .size(12.0)
-                    .color(text_color)
+                    .size(tokens.typography.font_size_sm)
+                    .color(STATUS_TEXT)
                     .into(),
             );
 
             items.push(
                 Spacer {
-                    width: Some(16.0),
+                    width: Some(tokens.spacing.l),
                     ..Default::default()
                 }
                 .into(),
             );
 
-            items.push(Text::new("UTF-8").size(12.0).color(text_color).into());
+            items.push(
+                Text::new("UTF-8")
+                    .size(tokens.typography.font_size_sm)
+                    .color(STATUS_TEXT)
+                    .into(),
+            );
 
             items.push(
                 Spacer {
-                    width: Some(16.0),
+                    width: Some(tokens.spacing.l),
                     ..Default::default()
                 }
                 .into(),
@@ -180,20 +157,25 @@ impl From<StatusBar> for Widget {
 
             items.push(
                 Text::new(buf.mode_label())
-                    .size(12.0)
-                    .color(text_color)
+                    .size(tokens.typography.font_size_sm)
+                    .color(STATUS_TEXT)
                     .into(),
             );
 
             items.push(
                 Spacer {
-                    width: Some(16.0),
+                    width: Some(tokens.spacing.l),
                     ..Default::default()
                 }
                 .into(),
             );
 
-            items.push(Text::new("Spaces: 4").size(12.0).color(text_color).into());
+            items.push(
+                Text::new("Spaces: 4")
+                    .size(tokens.typography.font_size_sm)
+                    .color(STATUS_TEXT)
+                    .into(),
+            );
         }
 
         items.push(
@@ -204,18 +186,22 @@ impl From<StatusBar> for Widget {
             .into(),
         );
 
-        // Status message
         if let Some(msg) = &view.state().status_message {
-            items.push(Text::new(msg.clone()).size(12.0).color(text_color).into());
+            items.push(
+                Text::new(msg.clone())
+                    .size(tokens.typography.font_size_sm)
+                    .color(STATUS_TEXT)
+                    .into(),
+            );
         }
 
         Container::new(HStack {
-            spacing: Some(0.0),
+            spacing: Some(tokens.spacing.none),
             children: items,
         })
-        .bg(bg)
-        .height(26.0)
-        .padding_all(4.0)
+        .bg(SURFACE_BG)
+        .height(STATUS_BAR_HEIGHT)
+        .padding_all(tokens.spacing.xs)
         .flex_shrink(0.0)
         .into()
     }

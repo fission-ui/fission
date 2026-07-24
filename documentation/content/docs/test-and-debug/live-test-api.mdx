@@ -1,0 +1,48 @@
+---
+title: LiveTest API
+description: Drive a real Fission app with /health, /cmd, semantic selectors, screenshots, and wait commands.
+---
+
+# LiveTest API
+
+LiveTest is the runtime control surface for real Fission hosts. It lets tests and manual QA drive the current frame without calculating coordinates by hand.
+
+Enable the server by launching an app with `FISSION_TEST_CONTROL_PORT`.
+
+```bash
+FISSION_TEST_CONTROL_PORT=9876 cargo run -p counter
+```
+
+Then check readiness:
+
+```bash
+curl -s http://127.0.0.1:9876/health
+```
+
+## Command shape
+
+All commands go to `POST /cmd` with JSON.
+
+```bash
+curl -s http://127.0.0.1:9876/cmd   -H 'content-type: application/json'   -d '{"cmd":"GetTree"}'
+```
+
+Prefer `LiveTestClient` in Rust tests and `curl` for quick manual QA or screenshot capture.
+
+## Selector-driven actions
+
+```bash
+curl -s http://127.0.0.1:9876/cmd   -H 'content-type: application/json'   -d '{"cmd":"TapSelector","query":{"selector":{"kind":"semantic_identifier","identifier":"settings.save"}}}'
+```
+
+Selectors can target semantic identifiers, explicit widget ids, labels, role plus label, test/accessibility identifiers, duplicate indexes, and scopes.
+
+## Screenshots
+
+```bash
+curl -s http://127.0.0.1:9876/cmd   -H 'content-type: application/json'   -d '{"cmd":"Screenshot","path":".artifacts/manual/settings.png"}'
+```
+
+Use `Screenshot` to save a file on the app host. Use `CaptureScreenshot` when the caller needs the PNG bytes returned as base64 for a custom QA tool. Screenshots are used for visual QA, store assets, and golden comparisons.
+
+See [LiveTest commands](/reference/testing/live-test-commands/) for the complete reference.

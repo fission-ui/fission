@@ -1,13 +1,9 @@
 use super::common::*;
-use crate::state::{
-    current_composition_atoms, reset_timeline, AnimationGalleryState, MotionAtom, MotionChoice,
-    MotionPolicy, ResetTimeline,
-};
-use crate::style::{MUTED, SOFT_TEAL};
-use crate::ui;
+use super::toast_preview::ToastPreview;
+use crate::state::AnimationGalleryState;
+use crate::style::SOFT_TEAL;
 use fission::build::BuildCtxHandle;
-use fission::widgets::{Toast, ToastKind, ToastMotion};
-use fission::{Column, Text, Widget, WidgetId};
+use fission::Widget;
 
 pub const PATH: &str = "/widgets/toast";
 
@@ -38,94 +34,6 @@ impl From<ToastPage<'_>> for Widget {
         }
         .into()
     }
-}
-
-struct ToastPreview<'a> {
-    ctx: &'a BuildCtxHandle<AnimationGalleryState>,
-    state: &'a AnimationGalleryState,
-}
-
-impl From<ToastPreview<'_>> for Widget {
-    fn from(preview: ToastPreview<'_>) -> Self {
-        let state = preview.state;
-        let close = preview
-            .ctx
-            .bind(ResetTimeline, fission::reduce_with!(reset_timeline));
-        let toast: Widget = if preview_active(state) {
-            Toast {
-                id: WidgetId::explicit("gallery.real.toast"),
-                kind: ToastKind::Success,
-                message: "Saved changes with real Toast motion.".into(),
-                on_close: Some(close),
-                motion: toast_motion(state),
-            }
-            .into()
-        } else {
-            Text::new("Use the playback control to mount the real Toast widget.")
-                .size(12.0)
-                .color(MUTED)
-                .into()
-        };
-
-        PreviewShell {
-            child: Column {
-                gap: Some(12.0),
-                children: vec![
-                    Text::new("Actual Toast widget; app state controls its lifetime.")
-                        .size(12.0)
-                        .color(MUTED)
-                        .into(),
-                    toast,
-                    if preview_active(state) {
-                        ui::SmallButton {
-                            ctx: preview.ctx,
-                            label: "Dismiss toast",
-                            action: ResetTimeline,
-                            reducer: reset_timeline,
-                        }
-                        .into()
-                    } else {
-                        Text::new("The toast close action is wired to application state.")
-                            .size(11.0)
-                            .color(MUTED)
-                            .into()
-                    },
-                ],
-                ..Default::default()
-            }
-            .into(),
-        }
-        .into()
-    }
-}
-
-fn toast_motion(state: &AnimationGalleryState) -> Option<ToastMotion> {
-    if !policy_allows_motion(state) {
-        return None;
-    }
-    if state.policy == MotionPolicy::Reduced {
-        return Some(ToastMotion::Fade);
-    }
-    match state.motion {
-        MotionChoice::None => None,
-        MotionChoice::Default => Some(ToastMotion::Default),
-        MotionChoice::Fade => Some(ToastMotion::Fade),
-        MotionChoice::Scale => Some(ToastMotion::Pop),
-        MotionChoice::Directional => Some(ToastMotion::SlideFromTop),
-        MotionChoice::Composition => compose_toast_motion(current_composition_atoms(state)),
-    }
-}
-
-fn compose_toast_motion(atoms: &[MotionAtom]) -> Option<ToastMotion> {
-    let mut motions = atoms.iter().copied().filter_map(|atom| match atom {
-        MotionAtom::FromTop => Some(ToastMotion::SlideFromTop),
-        MotionAtom::FromBottom => Some(ToastMotion::SlideFromBottom),
-        MotionAtom::Fade => Some(ToastMotion::Fade),
-        MotionAtom::Pop | MotionAtom::Scale => Some(ToastMotion::Pop),
-        _ => None,
-    });
-    let first = motions.next()?;
-    Some(motions.fold(first, |acc, motion| acc + motion))
 }
 
 fn case() -> GalleryCase {

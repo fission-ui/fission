@@ -10,11 +10,9 @@ impl From<AnimationGalleryApp> for Widget {
     fn from(_component: AnimationGalleryApp) -> Self {
         let (ctx, view) = build::current::<AnimationGalleryState>();
         let state = view.state().clone();
-        let viewport = view.viewport_size();
         Container::new(chrome::AppShell {
             ctx: &ctx,
             state: &state,
-            viewport_width: viewport.width,
         })
         .bg(BACKGROUND)
         .into()

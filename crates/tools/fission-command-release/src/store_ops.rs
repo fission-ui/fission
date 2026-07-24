@@ -161,6 +161,7 @@ struct PlayStoreConfig {
 struct AppStoreConfig {
     app_id: Option<String>,
     bundle_id: Option<String>,
+    platform: Option<String>,
     issuer_id: Option<String>,
     key_id: Option<String>,
     access_token_env: Option<String>,
@@ -169,6 +170,22 @@ struct AppStoreConfig {
     api_key_env: Option<String>,
     api_key_base64_env: Option<String>,
     api_key_path_env: Option<String>,
+}
+
+fn app_store_platform_api_value(cfg: &AppStoreConfig) -> Result<&'static str> {
+    match cfg
+        .platform
+        .as_deref()
+        .unwrap_or("ios")
+        .trim()
+        .to_ascii_lowercase()
+        .replace('_', "-")
+        .as_str()
+    {
+        "ios" => Ok("IOS"),
+        "macos" | "mac-os" => Ok("MAC_OS"),
+        other => bail!("distribution.app_store.platform must be `ios` or `macos`, got `{other}`"),
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -1160,7 +1177,8 @@ fn resolve_app_store_beta_build(
 
 fn app_store_builds_url(app_id: &str, build_number: Option<&str>) -> String {
     let mut url = format!(
-        "{APP_STORE_API}/v1/apps/{app_id}/builds?limit=10&sort=-uploadedDate&fields[builds]=version,uploadedDate,processingState,expired,minOsVersion,usesNonExemptEncryption"
+        "{APP_STORE_API}/v1/builds?filter[app]={}&limit=10&sort=-uploadedDate&fields[builds]=version,uploadedDate,processingState,expired,minOsVersion,usesNonExemptEncryption",
+        encode_query_component(app_id)
     );
     if let Some(build_number) = build_number.filter(|value| !value.trim().is_empty()) {
         url.push_str("&filter[version]=");
@@ -1652,6 +1670,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn app_store_platform_supports_ios_and_macos() {
+        assert_eq!(
+            app_store_platform_api_value(&AppStoreConfig::default()).unwrap(),
+            "IOS"
+        );
+        assert_eq!(
+            app_store_platform_api_value(&AppStoreConfig {
+                platform: Some("macos".to_string()),
+                ..Default::default()
+            })
+            .unwrap(),
+            "MAC_OS"
+        );
+        assert!(app_store_platform_api_value(&AppStoreConfig {
+            platform: Some("windows".to_string()),
+            ..Default::default()
+        })
+        .is_err());
+    }
+
+    #[test]
     fn latest_user_comment_uses_newest_user_comment() {
         let value = json!({
             "comments": [
@@ -1851,7 +1890,8 @@ groups = ["qa@example.com"]
     #[test]
     fn app_store_build_lookup_filters_artifact_build() {
         let url = app_store_builds_url("app-123", Some("42"));
-        assert!(url.contains("/v1/apps/app-123/builds?"));
+        assert!(url.contains("/v1/builds?"));
+        assert!(url.contains("filter[app]=app-123"));
         assert!(url.contains("filter[version]=42"));
         assert!(url.contains("sort=-uploadedDate"));
     }
@@ -1916,6 +1956,33 @@ groups = ["qa@example.com"]
                 .pointer("/data/relationships/appStoreVersion/data/id")
                 .and_then(Value::as_str),
             Some("version-123")
+        );
+    }
+
+    #[test]
+    fn app_store_localization_update_omits_immutable_locale() {
+        let localization = AppStoreLocalization {
+            id: Some("localization-123".to_string()),
+            locale: "en-US".to_string(),
+            description: "A focused task manager.".to_string(),
+            keywords: Some("todo,tasks".to_string()),
+            marketing_url: Some("https://example.com".to_string()),
+            promotional_text: Some("Better planning.".to_string()),
+            support_url: Some("https://example.com/support".to_string()),
+            whats_new: Some("New editor.".to_string()),
+        };
+
+        let payload = app_store_localization_update_payload("localization-123", &localization);
+
+        assert!(
+            payload.pointer("/data/attributes/locale").is_none(),
+            "App Store Connect rejects locale on localization updates"
+        );
+        assert_eq!(
+            payload
+                .pointer("/data/attributes/description")
+                .and_then(Value::as_str),
+            Some("A focused task manager.")
         );
     }
 

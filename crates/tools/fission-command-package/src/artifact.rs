@@ -152,7 +152,7 @@ pub(super) fn package_notarization_context(
     let macos = fission_command_core::read_macos_package_config_for_profile_and_variant(
         project_dir,
         release,
-        variant.map(NativeVariant::as_str),
+        variant,
     )?;
     if macos.notarize.unwrap_or(false) {
         Ok(Some(json!({
@@ -192,7 +192,7 @@ pub(super) fn package_signing_identity(
         let macos = fission_command_core::read_macos_package_config_for_profile_and_variant(
             project_dir,
             release,
-            variant.map(NativeVariant::as_str),
+            variant,
         )?;
         return Ok(match format {
             PackageFormat::Pkg => macos.installer_identity.or(macos.signing_identity),

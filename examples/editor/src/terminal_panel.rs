@@ -1,47 +1,23 @@
+use crate::layout::{
+    ACTIVITY_BAR_WIDTH, DIVIDER_THICKNESS, EDITOR_HORIZONTAL_RESERVE, MIN_TERMINAL_CONTENT_HEIGHT,
+    MIN_TERMINAL_HEIGHT, MIN_TERMINAL_WIDTH, PANEL_HEADER_HEIGHT, SIDEBAR_MAX_WIDTH,
+    SIDEBAR_MIN_WIDTH, TERMINAL_HEIGHT_FRACTION,
+};
 use crate::model::{BottomPanelTab, EditorState};
-use fission::core::op::Color;
+use crate::palette::{BORDER_COLOR, DIM_TEXT, SURFACE_BG, TERMINAL_BG};
+use crate::terminal_panel_tab::TerminalPanelTab;
 use fission::core::reduce_with;
-use fission::core::ui::{Button, ButtonVariant, Container, Text, Widget};
-use fission::widgets::{HStack, Spacer, TerminalView, VStack};
+use fission::core::ui::{Container, Text, Widget};
+use fission::widgets::{HStack, Spacer, TerminalView};
 use fission::{WidgetId, WidgetIdExt};
 use std::path::Path;
 
 pub struct TerminalPanel;
 
-const BG: Color = Color {
-    r: 24,
-    g: 24,
-    b: 24,
-    a: 255,
-};
-const HEADER_BG: Color = Color {
-    r: 37,
-    g: 37,
-    b: 38,
-    a: 255,
-};
-const BORDER: Color = Color {
-    r: 48,
-    g: 48,
-    b: 49,
-    a: 255,
-};
-const TEXT: Color = Color {
-    r: 204,
-    g: 204,
-    b: 204,
-    a: 255,
-};
-const MUTED: Color = Color {
-    r: 150,
-    g: 150,
-    b: 150,
-    a: 255,
-};
-
 impl From<TerminalPanel> for Widget {
     fn from(_component: TerminalPanel) -> Self {
         let (ctx, view) = fission::build::current::<EditorState>();
+        let tokens = &view.env().theme.tokens;
         let is_terminal = view.state().bottom_panel_tab == BottomPanelTab::Terminal;
         let is_problems = view.state().bottom_panel_tab == BottomPanelTab::Problems;
         let set_terminal = ctx.bind(
@@ -64,49 +40,6 @@ impl From<TerminalPanel> for Widget {
             ),
         );
 
-        let tab = |label: &str,
-                   active: bool,
-                   action: fission::core::ActionEnvelope,
-                   id: &str|
-         -> Widget {
-            Button {
-                id: Some(WidgetId::explicit(id)),
-                variant: ButtonVariant::Ghost,
-                child: Some(
-                    VStack {
-                        spacing: Some(0.0),
-                        children: vec![
-                            Container::new(Text::new(label).size(11.0).color(if active {
-                                TEXT
-                            } else {
-                                MUTED
-                            }))
-                            .padding_all(6.0)
-                            .into(),
-                            Container::new(Spacer::default())
-                                .height(2.0)
-                                .bg(if active {
-                                    TEXT
-                                } else {
-                                    Color {
-                                        r: 0,
-                                        g: 0,
-                                        b: 0,
-                                        a: 0,
-                                    }
-                                })
-                                .into(),
-                        ],
-                    }
-                    .into(),
-                ),
-                on_press: Some(action),
-                padding: Some([0.0; 4]),
-                ..Default::default()
-            }
-            .into()
-        };
-
         let title = view
             .state()
             .terminal_session
@@ -116,70 +49,76 @@ impl From<TerminalPanel> for Widget {
             .unwrap_or_else(|| "Terminal".into());
 
         let header = Container::new(HStack {
-            spacing: Some(0.0),
+            spacing: Some(tokens.spacing.none),
             children: vec![
-                tab(
-                    "TERMINAL",
-                    is_terminal,
-                    set_terminal,
-                    "editor_terminal_tab_button",
-                ),
-                tab(
-                    "PROBLEMS",
-                    is_problems,
-                    set_problems,
-                    "editor_problems_tab_button",
-                ),
+                TerminalPanelTab {
+                    label: "TERMINAL",
+                    active: is_terminal,
+                    action: set_terminal,
+                    id: "editor_terminal_tab_button",
+                }
+                .into(),
+                TerminalPanelTab {
+                    label: "PROBLEMS",
+                    active: is_problems,
+                    action: set_problems,
+                    id: "editor_problems_tab_button",
+                }
+                .into(),
                 Spacer {
                     flex_grow: 1.0,
                     ..Default::default()
                 }
                 .into(),
-                Container::new(Text::new(title).size(11.0).color(MUTED))
-                    .padding_all(8.0)
-                    .into(),
+                Container::new(
+                    Text::new(title)
+                        .size(tokens.typography.font_size_xs)
+                        .color(DIM_TEXT),
+                )
+                .padding_all(tokens.spacing.s)
+                .into(),
             ],
         })
-        .bg(HEADER_BG)
-        .height(28.0)
-        .border(BORDER, 1.0)
+        .bg(SURFACE_BG)
+        .height(PANEL_HEADER_HEIGHT)
+        .border(BORDER_COLOR, 1.0)
         .flex_shrink(0.0)
         .into();
 
-        let sidebar_width = view
-            .state()
-            .sidebar_width
-            .min((view.viewport_size().width - 160.0).clamp(180.0, 360.0));
+        let sidebar_width = view.state().sidebar_width.min(
+            (view.viewport_size().width - EDITOR_HORIZONTAL_RESERVE)
+                .clamp(SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH),
+        );
         let panel_width = (view.viewport_size().width
-            - 48.0
+            - ACTIVITY_BAR_WIDTH
             - if view.state().sidebar_visible {
-                sidebar_width + 1.0
+                sidebar_width + DIVIDER_THICKNESS
             } else {
-                0.0
+                tokens.spacing.none
             })
-        .max(280.0);
-        let terminal_height = (view
-            .state()
-            .terminal_height
-            .min((view.viewport_size().height * 0.33).max(96.0))
-            - 28.0)
-            .max(72.0);
+        .max(MIN_TERMINAL_WIDTH);
+        let terminal_height = (view.state().terminal_height.min(
+            (view.viewport_size().height * TERMINAL_HEIGHT_FRACTION).max(MIN_TERMINAL_HEIGHT),
+        ) - PANEL_HEADER_HEIGHT)
+            .max(MIN_TERMINAL_CONTENT_HEIGHT);
 
         let content: Widget = if is_terminal {
             if let Some(session) = view.state().terminal_session.clone() {
                 TerminalView::new(session, panel_width, terminal_height)
-                    .font_size(13.0)
-                    .line_height(18.0)
-                    .padding(10.0, 8.0)
+                    .font_size(tokens.typography.font_size_sm)
+                    .line_height(
+                        tokens.typography.font_size_sm * tokens.typography.line_height_normal,
+                    )
+                    .padding(tokens.spacing.s, tokens.spacing.s)
                     .into()
             } else {
                 Container::new(
                     Text::new("Terminal session unavailable")
-                        .size(13.0)
-                        .color(MUTED),
+                        .size(tokens.typography.font_size_sm)
+                        .color(DIM_TEXT),
                 )
-                .padding_all(12.0)
-                .bg(BG)
+                .padding_all(tokens.spacing.m)
+                .bg(TERMINAL_BG)
                 .flex_grow(1.0)
                 .into()
             }
@@ -200,11 +139,11 @@ impl From<TerminalPanel> for Widget {
             ..Default::default()
         })
         .height(
-            view.state()
-                .terminal_height
-                .min((view.viewport_size().height * 0.33).max(96.0)),
+            view.state().terminal_height.min(
+                (view.viewport_size().height * TERMINAL_HEIGHT_FRACTION).max(MIN_TERMINAL_HEIGHT),
+            ),
         )
-        .bg(BG)
+        .bg(TERMINAL_BG)
         .flex_shrink(0.0)
         .into()
     }

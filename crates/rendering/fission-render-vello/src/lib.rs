@@ -25,7 +25,14 @@ fn map_color(c: &fission_render::Color) -> Color {
     Color::from_rgba8(c.r, c.g, c.b, c.a).into()
 }
 
-fn map_fill_to_brush(f: &fission_render::Fill) -> Brush {
+fn normalized_point(bounds: Rect, point: (f32, f32)) -> Point {
+    Point::new(
+        bounds.x0 + bounds.width() * point.0 as f64,
+        bounds.y0 + bounds.height() * point.1 as f64,
+    )
+}
+
+fn map_fill_to_brush(f: &fission_render::Fill, bounds: Rect) -> Brush {
     match f {
         fission_render::Fill::Solid(c) => Brush::Solid(map_color(c)),
         fission_render::Fill::LinearGradient { start, end, stops } => {
@@ -38,8 +45,8 @@ fn map_fill_to_brush(f: &fission_render::Fill) -> Brush {
                 .collect();
             Brush::Gradient(
                 vello::peniko::Gradient::new_linear(
-                    vello::kurbo::Point::new(start.0 as f64, start.1 as f64),
-                    vello::kurbo::Point::new(end.0 as f64, end.1 as f64),
+                    normalized_point(bounds, *start),
+                    normalized_point(bounds, *end),
                 )
                 .with_stops(vello_stops.as_slice()),
             )
@@ -58,8 +65,8 @@ fn map_fill_to_brush(f: &fission_render::Fill) -> Brush {
                 .collect();
             Brush::Gradient(
                 vello::peniko::Gradient::new_radial(
-                    vello::kurbo::Point::new(center.0 as f64, center.1 as f64),
-                    *radius as f32,
+                    normalized_point(bounds, *center),
+                    radius * bounds.width().max(bounds.height()) as f32,
                 )
                 .with_stops(vello_stops.as_slice()),
             )
@@ -67,7 +74,7 @@ fn map_fill_to_brush(f: &fission_render::Fill) -> Brush {
     }
 }
 
-fn map_stroke(s: &fission_render::Stroke) -> (vello::kurbo::Stroke, Brush) {
+fn map_stroke(s: &fission_render::Stroke, bounds: Rect) -> (vello::kurbo::Stroke, Brush) {
     let cap = match s.line_cap {
         fission_render::LineCap::Butt => vello::kurbo::Cap::Butt,
         fission_render::LineCap::Round => vello::kurbo::Cap::Round,
@@ -87,13 +94,12 @@ fn map_stroke(s: &fission_render::Stroke) -> (vello::kurbo::Stroke, Brush) {
         stroke = stroke.with_dashes(0.0, dashes);
     }
 
-    (stroke, map_fill_to_brush(&s.fill))
+    (stroke, map_fill_to_brush(&s.fill, bounds))
 }
 
 use crate::text::ParleyBrush;
+use fission_render::image_cache_store::ImageCacheStore;
 use lazy_static::lazy_static;
-use moka::notification::RemovalCause;
-use moka::sync::Cache;
 use parley::layout::{Alignment as ParleyAlignment, AlignmentOptions, PositionedLayoutItem};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, VecDeque};
@@ -126,6 +132,28 @@ pub fn workload_profile_for_scene(
         builder.visit_node(root);
     }
     builder.finish()
+}
+
+/// Build a workload profile using the encoded Vello scene for text complexity.
+///
+/// Fission display operations retain complete text values so editing, selection,
+/// and accessibility continue to work outside the visible viewport. The Vello
+/// encoder culls those values to the glyphs that can actually contribute to the
+/// frame. Using that encoded count prevents caller-sized GPU buffers from being
+/// based on an entire large document while preserving Fission's more precise
+/// coverage and composition context.
+pub fn workload_profile_for_encoded_scene(
+    scene: &RenderScene,
+    encoded_scene: &Scene,
+    width_px: u32,
+    height_px: u32,
+    scale_factor: f64,
+) -> vello::RenderWorkloadProfile {
+    let mut profile = workload_profile_for_scene(scene, width_px, height_px, scale_factor);
+    let encoding = encoded_scene.encoding();
+    profile.scene.glyphs = encoding.resources.glyphs.len().min(u32::MAX as usize) as u32;
+    profile.scene.glyph_runs = encoding.resources.glyph_runs.len().min(u32::MAX as usize) as u32;
+    profile
 }
 
 struct WorkloadProfileBuilder {
@@ -282,10 +310,6 @@ impl WorkloadProfileBuilder {
                     let glyphs = text.chars().count() as u32;
                     self.scene.glyphs = self.scene.glyphs.saturating_add(glyphs);
                     self.scene.path_ops = self.scene.path_ops.saturating_add(1);
-                    self.scene.estimated_path_segments = self
-                        .scene
-                        .estimated_path_segments
-                        .saturating_add(glyphs.saturating_mul(16));
                     self.add_coverage(*bounds, true);
                 }
                 DisplayOp::DrawRichText { runs, bounds, .. } => {
@@ -297,10 +321,6 @@ impl WorkloadProfileBuilder {
                         .fold(0_u32, u32::saturating_add);
                     self.scene.glyphs = self.scene.glyphs.saturating_add(glyphs);
                     self.scene.path_ops = self.scene.path_ops.saturating_add(1);
-                    self.scene.estimated_path_segments = self
-                        .scene
-                        .estimated_path_segments
-                        .saturating_add(glyphs.saturating_mul(16));
                     self.add_coverage(*bounds, true);
                 }
                 DisplayOp::DrawImage { bounds, .. } => {
@@ -443,11 +463,11 @@ struct TextClip {
 
 impl TextClip {
     fn intersects_y(self, top: f32, bottom: f32) -> bool {
-        bottom >= self.top && top <= self.bottom
+        self.bottom >= self.top && bottom >= self.top && top <= self.bottom
     }
 
     fn intersects_x(self, left: f32, right: f32) -> bool {
-        right >= self.left && left <= self.right
+        self.right >= self.left && right >= self.left && left <= self.right
     }
 }
 
@@ -718,7 +738,7 @@ fn paragraph_fade(
 }
 
 lazy_static! {
-    static ref IMAGE_CACHE: Cache<String, ImageCacheEntry> = build_image_cache();
+    static ref IMAGE_CACHE: ImageCacheStore<ImageCacheEntry> = build_image_cache();
     static ref SVG_CACHE: Mutex<HashMap<u64, Arc<SvgCacheEntry>>> = Mutex::new(HashMap::new());
 }
 
@@ -764,17 +784,15 @@ impl ImageCacheEntry {
     }
 }
 
-fn build_image_cache() -> Cache<String, ImageCacheEntry> {
-    Cache::<String, ImageCacheEntry>::builder()
-        .name("fission-render-vello-images")
-        .max_capacity(configured_image_cache_bytes())
-        .weigher(|_, entry| entry.weight())
-        .eviction_listener(|_, _, cause| {
-            if matches!(cause, RemovalCause::Size) {
-                IMAGE_CACHE_EVICTIONS.fetch_add(1, Ordering::AcqRel);
-            }
-        })
-        .build()
+fn build_image_cache() -> ImageCacheStore<ImageCacheEntry> {
+    ImageCacheStore::new(
+        "fission-render-vello-images",
+        configured_image_cache_bytes(),
+        ImageCacheEntry::weight,
+        || {
+            IMAGE_CACHE_EVICTIONS.fetch_add(1, Ordering::AcqRel);
+        },
+    )
 }
 
 fn configured_image_cache_bytes() -> u64 {
@@ -824,8 +842,9 @@ pub fn image_cache_generation() -> u64 {
 
 pub fn image_cache_has_pending() -> bool {
     IMAGE_CACHE
-        .iter()
-        .any(|entry| matches!(entry.1, ImageCacheEntry::Loading))
+        .values()
+        .into_iter()
+        .any(|entry| matches!(entry, ImageCacheEntry::Loading))
 }
 
 pub fn image_cache_stats() -> ImageCacheStats {
@@ -835,8 +854,9 @@ pub fn image_cache_stats() -> ImageCacheStats {
         weighted_bytes: IMAGE_CACHE.weighted_size(),
         max_bytes: configured_image_cache_bytes(),
         pending: IMAGE_CACHE
-            .iter()
-            .filter(|entry| matches!(entry.1, ImageCacheEntry::Loading))
+            .values()
+            .into_iter()
+            .filter(|entry| matches!(entry, ImageCacheEntry::Loading))
             .count() as u64,
         hits: IMAGE_CACHE_HITS.load(Ordering::Acquire),
         misses: IMAGE_CACHE_MISSES.load(Ordering::Acquire),
@@ -1265,10 +1285,11 @@ fn parse_svg_entry(content: &str) -> SvgCacheEntry {
 #[cfg(test)]
 mod tests {
     use super::{
-        paragraph_alignment, paragraph_fade, paragraph_line_trim, paragraph_line_visual_bounds,
-        paragraph_y_offset, parse_svg_entry, text_background_segments_for_cluster_ranges,
-        ParagraphFade, RetainedSceneCache, SvgShape, TextBackgroundSegment, TextClip,
-        VelloRenderer, VelloTextMeasurer,
+        map_fill_to_brush, paragraph_alignment, paragraph_fade, paragraph_line_trim,
+        paragraph_line_visual_bounds, paragraph_y_offset, parse_svg_entry,
+        text_background_segments_for_cluster_ranges, workload_profile_for_encoded_scene,
+        workload_profile_for_scene, ParagraphFade, RetainedSceneCache, SvgShape,
+        TextBackgroundSegment, TextClip, VelloRenderer, VelloTextMeasurer,
     };
     use fission_ir::op::{
         FontStyle, MouseCursor, RichTextAnnotation, TextAlign, TextDirection, TextHeightBehavior,
@@ -1277,11 +1298,54 @@ mod tests {
     use fission_ir::{semantics::ActionTrigger, ActionEntry};
     use fission_layout::TextMeasurer;
     use fission_render::{
-        Color as RenderColor, LayoutPoint, LayoutRect, TextStyle as RenderTextStyle,
+        Color as RenderColor, DisplayList, DisplayOp, Fill as RenderFill, LayoutPoint, LayoutRect,
+        RenderScene, Renderer, TextStyle as RenderTextStyle,
     };
     use parley::FontContext;
     use std::sync::{Arc, Mutex};
+    use vello::kurbo::{Point, Rect};
+    use vello::peniko::{Brush, GradientKind, Mix};
     use vello::Scene;
+
+    #[test]
+    fn normalized_gradient_geometry_maps_to_painted_bounds() {
+        let brush = map_fill_to_brush(
+            &RenderFill::LinearGradient {
+                start: (0.0, 0.25),
+                end: (1.0, 0.75),
+                stops: vec![
+                    (
+                        0.0,
+                        RenderColor {
+                            r: 0,
+                            g: 0,
+                            b: 0,
+                            a: 255,
+                        },
+                    ),
+                    (
+                        1.0,
+                        RenderColor {
+                            r: 255,
+                            g: 255,
+                            b: 255,
+                            a: 255,
+                        },
+                    ),
+                ],
+            },
+            Rect::new(20.0, 40.0, 220.0, 140.0),
+        );
+
+        let Brush::Gradient(gradient) = brush else {
+            panic!("expected gradient brush");
+        };
+        let GradientKind::Linear(position) = gradient.kind else {
+            panic!("expected linear gradient");
+        };
+        assert_eq!(position.start, Point::new(20.0, 65.0));
+        assert_eq!(position.end, Point::new(220.0, 115.0));
+    }
 
     #[test]
     fn svg_parser_skips_fill_none_rect_placeholders() {
@@ -1624,6 +1688,98 @@ mod tests {
         assert!(
             glyphs < 256,
             "renderer should not encode the full off-bounds text run; glyphs={glyphs}"
+        );
+    }
+
+    #[test]
+    fn encoded_workload_profile_counts_only_glyphs_contributing_to_the_frame() {
+        let text = "M".repeat(20_000);
+        let bounds = LayoutRect::new(0.0, 0.0, 120.0, 32.0);
+        let mut list = DisplayList::new(bounds);
+        list.push(DisplayOp::DrawText {
+            text,
+            position: LayoutPoint::new(0.0, 0.0),
+            size: 16.0,
+            color: RenderColor {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
+            bounds,
+            node_id: None,
+            underline: false,
+            wrap: false,
+            caret_index: None,
+            caret_color: None,
+            caret_width: None,
+            caret_height: None,
+            caret_radius: None,
+            paragraph_style: None,
+        });
+        let retained = RenderScene::from_display_list(list);
+        let raw_profile = workload_profile_for_scene(&retained, 120, 32, 1.0);
+        assert_eq!(raw_profile.scene.glyphs, 20_000);
+
+        let mut encoded = Scene::new();
+        let mut cache = RetainedSceneCache::default();
+        let mut renderer = test_renderer(&mut encoded, &mut cache);
+        renderer.render_scene(&retained).expect("encode test scene");
+        drop(renderer);
+
+        let profile = workload_profile_for_encoded_scene(&retained, &encoded, 120, 32, 1.0);
+        assert_eq!(
+            profile.scene.glyphs as usize,
+            encoded.encoding().resources.glyphs.len()
+        );
+        assert_eq!(
+            profile.scene.glyph_runs as usize,
+            encoded.encoding().resources.glyph_runs.len()
+        );
+        assert!(
+            profile.scene.glyphs < 256,
+            "workload sizing should use the encoder's culled glyphs, not the retained document"
+        );
+    }
+
+    #[test]
+    fn rich_multiline_text_encodes_only_lines_inside_the_visible_bounds() {
+        let text = "version = 4\n".repeat(10_000);
+        let style = test_style();
+        let styles = vec![(0..text.len(), style.clone())];
+        let mut scene = Scene::new();
+        let mut cache = RetainedSceneCache::default();
+        let mut renderer = test_renderer(&mut scene, &mut cache);
+        let viewport = Rect::new(0.0, 0.0, 400.0, 80.0);
+        renderer
+            .scene
+            .push_layer(Mix::Normal, 1.0, renderer.current_transform, &viewport);
+        renderer.push_clip_bounds(viewport);
+
+        renderer.render_text(
+            &text,
+            style.font_size,
+            style.color,
+            false,
+            false,
+            LayoutPoint::new(0.0, 0.0),
+            LayoutRect::new(0.0, 0.0, 400.0, 200_000.0),
+            Some(0),
+            Some(style.color),
+            Some(2.0),
+            None,
+            None,
+            None,
+            &[],
+            &styles,
+        );
+        renderer.scene.pop_layer();
+        drop(renderer);
+
+        let glyphs = scene.encoding().resources.glyphs.len();
+        assert!(
+            glyphs < 256,
+            "renderer should not encode offscreen rich-text lines; glyphs={glyphs}"
         );
     }
 
@@ -2019,17 +2175,24 @@ impl<'a> VelloRenderer<'a> {
     }
 
     fn text_clip(
+        &self,
         position: fission_render::LayoutPoint,
         bounds: fission_render::LayoutRect,
     ) -> Option<TextClip> {
         if bounds.width() <= 0.0 || bounds.height() <= 0.0 {
             return None;
         }
+        let mut visible = Self::layout_rect_to_rect(bounds);
+        if let Some(active_clip) = self.clip_stack.last().copied() {
+            let local_clip =
+                Self::transform_rect_bounds(self.current_transform.inverse(), active_clip);
+            visible = Self::intersect_rects(visible, local_clip);
+        }
         Some(TextClip {
-            left: bounds.x() - position.x - TEXT_CULL_PADDING,
-            right: bounds.right() - position.x + TEXT_CULL_PADDING,
-            top: bounds.y() - position.y - TEXT_CULL_PADDING,
-            bottom: bounds.bottom() - position.y + TEXT_CULL_PADDING,
+            left: visible.x0 as f32 - position.x - TEXT_CULL_PADDING,
+            right: visible.x1 as f32 - position.x + TEXT_CULL_PADDING,
+            top: visible.y0 as f32 - position.y - TEXT_CULL_PADDING,
+            bottom: visible.y1 as f32 - position.y + TEXT_CULL_PADDING,
         })
     }
 
@@ -2533,7 +2696,7 @@ impl<'a> VelloRenderer<'a> {
                     visible_lines == 1,
                 ),
         );
-        let text_clip = Self::text_clip(draw_position, bounds);
+        let text_clip = self.text_clip(draw_position, bounds);
 
         for (line_idx, line) in lines.iter().take(visible_lines).enumerate() {
             let metrics = *line.metrics();
@@ -2749,7 +2912,7 @@ impl<'a> VelloRenderer<'a> {
             return;
         }
 
-        let text_clip = Self::text_clip(position, bounds);
+        let text_clip = self.text_clip(position, bounds);
 
         // Fast path for simple text using cache
         if styles.is_empty() && inline_boxes.is_empty() {
@@ -3316,7 +3479,7 @@ impl<'a> VelloRenderer<'a> {
                     }
 
                     if let Some(f) = fill {
-                        let brush = map_fill_to_brush(f);
+                        let brush = map_fill_to_brush(f, rect);
                         self.scene.fill(
                             Fill::NonZero,
                             self.current_transform,
@@ -3326,7 +3489,7 @@ impl<'a> VelloRenderer<'a> {
                         );
                     }
                     if let Some(s) = stroke {
-                        let (stroke_style, brush) = map_stroke(s);
+                        let (stroke_style, brush) = map_stroke(s, rect);
                         self.scene.stroke(
                             &stroke_style,
                             self.current_transform,
@@ -3552,14 +3715,20 @@ impl<'a> VelloRenderer<'a> {
                     if let Ok(bez_path) = BezPath::from_svg(path) {
                         let transform = self.current_transform
                             * Affine::translate((bounds.origin.x as f64, bounds.origin.y as f64));
+                        let paint_bounds = Rect::new(
+                            0.0,
+                            0.0,
+                            bounds.size.width as f64,
+                            bounds.size.height as f64,
+                        );
 
                         if let Some(f) = fill {
-                            let brush = map_fill_to_brush(f);
+                            let brush = map_fill_to_brush(f, paint_bounds);
                             self.scene
                                 .fill(Fill::NonZero, transform, &brush, None, &bez_path);
                         }
                         if let Some(s) = stroke {
-                            let (stroke_style, brush) = map_stroke(s);
+                            let (stroke_style, brush) = map_stroke(s, paint_bounds);
                             self.scene
                                 .stroke(&stroke_style, transform, &brush, None, &bez_path);
                         }
@@ -3596,12 +3765,13 @@ impl<'a> VelloRenderer<'a> {
                         };
                     let svg_transform =
                         self.current_transform * Affine::translate((dx, dy)) * Affine::scale(scale);
+                    let paint_bounds = Rect::new(vb_x, vb_y, vb_x + vb_w, vb_y + vb_h);
 
                     for shape in &entry.shapes {
                         match shape {
                             SvgShape::Path(path) => {
                                 if let Some(f) = fill {
-                                    let brush = map_fill_to_brush(f);
+                                    let brush = map_fill_to_brush(f, paint_bounds);
                                     self.scene.fill(
                                         Fill::NonZero,
                                         svg_transform,
@@ -3611,7 +3781,7 @@ impl<'a> VelloRenderer<'a> {
                                     );
                                 }
                                 if let Some(s) = stroke {
-                                    let (stroke_style, brush) = map_stroke(s);
+                                    let (stroke_style, brush) = map_stroke(s, paint_bounds);
                                     self.scene.stroke(
                                         &stroke_style,
                                         svg_transform,
@@ -3623,7 +3793,7 @@ impl<'a> VelloRenderer<'a> {
                             }
                             SvgShape::Rect(rect) => {
                                 if let Some(f) = fill {
-                                    let brush = map_fill_to_brush(f);
+                                    let brush = map_fill_to_brush(f, paint_bounds);
                                     self.scene.fill(
                                         Fill::NonZero,
                                         svg_transform,
@@ -3633,7 +3803,7 @@ impl<'a> VelloRenderer<'a> {
                                     );
                                 }
                                 if let Some(s) = stroke {
-                                    let (stroke_style, brush) = map_stroke(s);
+                                    let (stroke_style, brush) = map_stroke(s, paint_bounds);
                                     self.scene.stroke(
                                         &stroke_style,
                                         svg_transform,

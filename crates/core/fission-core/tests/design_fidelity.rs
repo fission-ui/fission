@@ -1,6 +1,6 @@
 use fission_core::internal::BuildCtx;
-use fission_core::ui::{Container, Spacer};
-use fission_core::{build, Env, Length, RuntimeState, Widget};
+use fission_core::ui::{Container, Responsive, ResponsiveCase, Spacer};
+use fission_core::{build, Env, Length, RuntimeState, Widget, WidgetId};
 use fission_ir::op::{BackdropFilter, BoxShadow, Color, LayoutOp, Op, PaintOp};
 
 fn lower(widget: impl Into<Widget>) -> fission_ir::CoreIR {
@@ -20,6 +20,19 @@ fn shadow(color: Color, inset: bool) -> BoxShadow {
         spread_radius: 1.0,
         inset,
     }
+}
+
+#[test]
+#[should_panic(expected = "duplicate WidgetId")]
+fn lowering_rejects_duplicate_explicit_ids_across_responsive_branches() {
+    let duplicate = WidgetId::explicit("duplicate.responsive.child");
+    let branch = Container {
+        id: Some(duplicate),
+        child: Some(Spacer::default().into()),
+        ..Default::default()
+    };
+
+    let _ = lower(Responsive::new(branch.clone()).case(ResponsiveCase::max_width(600.0, branch)));
 }
 
 #[test]

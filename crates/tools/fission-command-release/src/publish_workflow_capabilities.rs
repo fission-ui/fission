@@ -80,7 +80,7 @@ pub(super) fn provider_capabilities(provider: DistributionProvider) -> Vec<Provi
             capabilities.push(capability(
                 "artifact_upload",
                 Supported,
-                "IPA upload through App Store Connect tooling",
+                "iOS IPA and macOS PKG upload through App Store Connect tooling",
                 Some("Uses Xcode upload tooling and App Store Connect API checks."),
             ));
             capabilities.push(capability(

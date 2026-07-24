@@ -1289,12 +1289,31 @@ fn artifact_manifest_hashes_check(manifest: &ArtifactManifest) -> ReadinessCheck
 }
 
 fn artifact_file_path(manifest: &ArtifactManifest, artifact: &ArtifactFile) -> PathBuf {
-    let path = PathBuf::from(&artifact.path);
-    if path.is_absolute() {
-        path
-    } else {
-        Path::new(&manifest.root_dir).join(path)
+    resolve_artifact_file_path(
+        &manifest.root_dir,
+        &artifact.path,
+        &artifact.relative_path,
+        Path::is_file,
+    )
+}
+
+fn resolve_artifact_file_path(
+    root_dir: &str,
+    artifact_path: &str,
+    relative_path: &str,
+    is_file: impl Fn(&Path) -> bool,
+) -> PathBuf {
+    let declared = PathBuf::from(artifact_path);
+    if declared.is_absolute() || is_file(&declared) {
+        return declared;
     }
+
+    let relative_to_root = Path::new(root_dir).join(relative_path);
+    if is_file(&relative_to_root) {
+        return relative_to_root;
+    }
+
+    Path::new(root_dir).join(declared)
 }
 
 fn artifact_manifest_validation_check(manifest: &ArtifactManifest) -> ReadinessCheck {
@@ -1339,6 +1358,43 @@ fn artifact_manifest_validation_check(manifest: &ArtifactManifest) -> ReadinessC
         )),
         vec!["Re-run package validation and resolve failed artifact checks before distribution."],
     )
+}
+
+#[cfg(test)]
+mod artifact_path_tests {
+    use super::resolve_artifact_file_path;
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn root_prefixed_declared_path_is_not_prefixed_twice() {
+        let root = "crates/desktop/target/fission/release/macos/pkg";
+        let declared = format!("{root}/Developer-Defence.pkg");
+        let declared_path = PathBuf::from(&declared);
+
+        let resolved = resolve_artifact_file_path(
+            root,
+            &declared,
+            "Developer-Defence.pkg",
+            |candidate: &Path| candidate == declared_path,
+        );
+
+        assert_eq!(resolved, declared_path);
+    }
+
+    #[test]
+    fn portable_relative_path_resolves_beneath_manifest_root() {
+        let root = "target/fission/release/macos/pkg";
+        let expected = PathBuf::from(root).join("Developer-Defence.pkg");
+
+        let resolved = resolve_artifact_file_path(
+            root,
+            "Developer-Defence.pkg",
+            "Developer-Defence.pkg",
+            |candidate: &Path| candidate == expected,
+        );
+
+        assert_eq!(resolved, expected);
+    }
 }
 
 pub(super) fn provider_requires_static_root(provider: DistributionProvider) -> bool {

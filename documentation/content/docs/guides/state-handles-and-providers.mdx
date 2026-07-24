@@ -426,3 +426,9 @@ After this guide, you should be able to explain where `State, handles, and provi
 | A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
 | The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
 | Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |
+
+## State and responsive layout
+
+Do not store breakpoint state in `GlobalState` just to make a screen responsive. If the branch is only about available width, use [`Responsive`](/reference/widgets/responsive/) and [`Length`](/reference/core/length/). The runtime can then inspect the layout rule and lower it consistently across shells.
+
+Use ordinary Rust branching with `view.viewport_size()` only when the branch also depends on product state, environment values, previous layout geometry, or another runtime input. State should hold durable facts such as the selected thread or open inspector, not a cached copy of the current breakpoint.

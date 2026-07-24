@@ -1,12 +1,9 @@
+use super::button_preview::ButtonPreview;
 use super::common::*;
-use crate::state::{
-    current_composition_atoms, toggle_play, AnimationGalleryState, MotionAtom, MotionChoice,
-    TogglePlay,
-};
+use crate::state::AnimationGalleryState;
 use crate::style::SOFT_VIOLET;
 use fission::build::BuildCtxHandle;
-use fission::widgets::ButtonMotion;
-use fission::{Button, ButtonVariant, Text, Widget, WidgetId};
+use fission::Widget;
 
 pub const PATH: &str = "/widgets/button";
 
@@ -37,52 +34,6 @@ impl From<ButtonPage<'_>> for Widget {
         }
         .into()
     }
-}
-
-struct ButtonPreview<'a> {
-    ctx: &'a BuildCtxHandle<AnimationGalleryState>,
-    state: &'a AnimationGalleryState,
-}
-
-impl From<ButtonPreview<'_>> for Widget {
-    fn from(preview: ButtonPreview<'_>) -> Self {
-        let state = preview.state;
-        PreviewShell {
-            child: Button {
-                id: Some(WidgetId::explicit("gallery.preview.button")),
-                variant: ButtonVariant::Filled,
-                child: Some(Text::new("Send").into()),
-                on_press: Some(
-                    preview
-                        .ctx
-                        .bind(TogglePlay, fission::reduce_with!(toggle_play)),
-                ),
-                motion: match state.motion {
-                    MotionChoice::None => None,
-                    MotionChoice::Default => Some(ButtonMotion::Default),
-                    MotionChoice::Scale => Some(ButtonMotion::HoverPressScale),
-                    MotionChoice::Composition => {
-                        compose_button_motion(current_composition_atoms(state))
-                    }
-                    _ => Some(ButtonMotion::HoverPressRipple),
-                },
-                ..Default::default()
-            }
-            .into(),
-        }
-        .into()
-    }
-}
-
-fn compose_button_motion(atoms: &[MotionAtom]) -> Option<ButtonMotion> {
-    let mut motions = atoms.iter().copied().filter_map(|atom| match atom {
-        MotionAtom::HoverScale | MotionAtom::Scale => Some(ButtonMotion::HoverScale),
-        MotionAtom::PressScale => Some(ButtonMotion::PressScale),
-        MotionAtom::Ripple => Some(ButtonMotion::Ripple),
-        _ => None,
-    });
-    let first = motions.next()?;
-    Some(motions.fold(first, |acc, motion| acc + motion))
 }
 
 fn case() -> GalleryCase {

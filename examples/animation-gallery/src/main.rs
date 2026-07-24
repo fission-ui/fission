@@ -1,5 +1,6 @@
 mod app;
 mod chrome;
+mod layout;
 mod pages;
 mod routes;
 mod state;

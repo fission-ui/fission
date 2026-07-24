@@ -1,56 +1,53 @@
+use crate::layout::BREADCRUMB_HEIGHT;
 use crate::model::EditorState;
-use fission::core::op::Color;
-use fission::core::ui::{Container, Widget, Text};
-use fission::core::{BuildCtxHandle, ViewHandle};
-use fission::widgets::{HStack, Spacer};
+use crate::palette::{DIM_TEXT, SURFACE_BG};
+use fission::core::ui::{Container, Row, Text, Widget};
+use fission::widgets::Spacer;
 
-pub struct Breadcrumb;
+pub(crate) struct Breadcrumb;
 
 impl From<Breadcrumb> for Widget {
-    fn from(component: Breadcrumb) -> Self {
-        let (ctx, view) = fission::build::current::<EditorState>();
-        let Some((tab, _buf)) = view.state().active_buffer() else {
-            return Spacer { height: Some(0.0), ..Default::default() }.into();
-        };
+    fn from(_component: Breadcrumb) -> Self {
+        let (_ctx, view) = fission::build::current::<EditorState>();
+        let tokens = &view.env().theme.tokens;
+        // Only shown when a file is open
+        if view.state().open_tabs.is_empty() || view.state().breadcrumb_path.is_empty() {
+            return Spacer {
+                height: Some(0.0),
+                ..Default::default()
+            }
+            .into();
+        }
 
-        let dim = Color { r: 140, g: 140, b: 140, a: 255 };
-        let sep_color = Color { r: 100, g: 100, b: 100, a: 255 };
-        let text_color = Color { r: 190, g: 190, b: 190, a: 255 };
+        let segments = &view.state().breadcrumb_path;
+        let mut children: Vec<Widget> = Vec::new();
 
-        // Build breadcrumb from file path relative to root
-        let root_str = view.state().root_path.to_string_lossy().to_string();
-        let relative = if tab.path.starts_with(&root_str) {
-            tab.path[root_str.len()..].trim_start_matches('/').to_string()
-        } else {
-            tab.path.clone()
-        };
-
-        let segments: Vec<&str> = relative.split('/').filter(|s| !s.is_empty()).collect();
-
-        let mut children = Vec::new();
         for (i, seg) in segments.iter().enumerate() {
             if i > 0 {
                 children.push(
-                    Text::new(">").size(10.0).color(sep_color).into(),
+                    Text::new(" > ")
+                        .size(tokens.typography.font_size_xs)
+                        .color(DIM_TEXT)
+                        .into(),
                 );
             }
-            let color = if i == segments.len() - 1 { text_color } else { dim };
             children.push(
-                Text::new(*seg).size(11.0).color(color).into(),
+                Text::new(seg.as_str())
+                    .size(tokens.typography.font_size_xs)
+                    .color(DIM_TEXT)
+                    .into(),
             );
         }
 
-        Container::new(
-            HStack {
-                spacing: Some(4.0),
-                children,
-            },
-        )
-        .bg(Color { r: 30, g: 30, b: 30, a: 255 })
-        .height(22.0)
-        .padding_all(4.0)
+        Container::new(Row {
+            children,
+            align_items: fission::op::AlignItems::Center,
+            ..Default::default()
+        })
+        .height(BREADCRUMB_HEIGHT)
+        .padding_all(tokens.spacing.xs)
+        .bg(SURFACE_BG)
         .flex_shrink(0.0)
         .into()
-
     }
 }

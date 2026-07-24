@@ -411,6 +411,7 @@ struct PlayStoreConfig {
 struct AppStoreConfig {
     app_id: Option<String>,
     bundle_id: Option<String>,
+    platform: Option<String>,
     issuer_id: Option<String>,
     key_id: Option<String>,
     default_track: Option<String>,

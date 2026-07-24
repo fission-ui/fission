@@ -1,6 +1,13 @@
+use crate::layout::{
+    MINIMAP_BAR_HEIGHT, MINIMAP_CHARACTER_WIDTH_FACTOR, MINIMAP_MAX_BAR_COUNT,
+    MINIMAP_MAX_BAR_WIDTH, MINIMAP_MAX_CONTENT_HEIGHT, MINIMAP_MIN_BAR_WIDTH,
+    MINIMAP_VISIBLE_LINE_COUNT, MINIMAP_WIDTH,
+};
 use crate::model::EditorState;
-use fission::core::op::Color;
-use fission::core::ui::{Container, Widget};
+use crate::palette::{
+    MINIMAP_BG, MINIMAP_CODE, MINIMAP_COMMENT, MINIMAP_EMPTY, MINIMAP_STRING, MINIMAP_VIEWPORT,
+};
+use fission::prelude::*;
 use fission::widgets::{Spacer, VStack};
 
 /// A minimap widget that renders a narrow, scaled-down overview of the file
@@ -10,76 +17,23 @@ use fission::widgets::{Spacer, VStack};
 /// the trimmed line length.
 pub struct Minimap;
 
-/// Background colour for the minimap column.
-const MINIMAP_BG: Color = Color {
-    r: 25,
-    g: 25,
-    b: 25,
-    a: 255,
-};
-
-/// Width of the minimap column in logical pixels.
-const MINIMAP_WIDTH: f32 = 60.0;
-
-/// Maximum total height (in logical pixels) the minimap bars may occupy.
-/// Files longer than `MAX_HEIGHT / BAR_HEIGHT` lines are scaled down so that
-/// the entire file fits inside this budget.
-const MAX_HEIGHT: f32 = 400.0;
-
-/// Default height of each per-line bar (before scaling).
-const BAR_HEIGHT: f32 = 2.0;
-
-/// Semi-transparent overlay that highlights the currently-visible region.
-const VIEWPORT_OVERLAY: Color = Color {
-    r: 255,
-    g: 255,
-    b: 255,
-    a: 25,
-};
-
-// Line-type colours -------------------------------------------------------
-
-const COLOR_EMPTY: Color = Color {
-    r: 30,
-    g: 30,
-    b: 30,
-    a: 255,
-};
-const COLOR_COMMENT: Color = Color {
-    r: 60,
-    g: 80,
-    b: 50,
-    a: 255,
-};
-const COLOR_STRING: Color = Color {
-    r: 80,
-    g: 60,
-    b: 50,
-    a: 255,
-};
-const COLOR_CODE: Color = Color {
-    r: 70,
-    g: 70,
-    b: 70,
-    a: 255,
-};
-
 /// Classify a single trimmed source line into a colour.
 fn line_color(trimmed: &str) -> Color {
     if trimmed.is_empty() {
-        COLOR_EMPTY
+        MINIMAP_EMPTY
     } else if trimmed.starts_with("//") || trimmed.starts_with("/*") || trimmed.starts_with('*') {
-        COLOR_COMMENT
+        MINIMAP_COMMENT
     } else if trimmed.contains('"') {
-        COLOR_STRING
+        MINIMAP_STRING
     } else {
-        COLOR_CODE
+        MINIMAP_CODE
     }
 }
 
 impl From<Minimap> for Widget {
     fn from(_component: Minimap) -> Self {
         let (_ctx, view) = fission::build::current::<EditorState>();
+        let tokens = &view.env().theme.tokens;
         // If there is no active buffer we collapse to nothing.
         let Some((_tab, buffer)) = view.state().active_buffer() else {
             return Spacer::default().into();
@@ -92,26 +46,18 @@ impl From<Minimap> for Widget {
             return Spacer::default().into();
         }
 
-        // Scale factor: if the file is long we shrink each bar so everything
-        // fits within MAX_HEIGHT.
-        let scale = if line_count as f32 * BAR_HEIGHT > MAX_HEIGHT {
-            MAX_HEIGHT / line_count as f32
+        let scale = if line_count as f32 * MINIMAP_BAR_HEIGHT > MINIMAP_MAX_CONTENT_HEIGHT {
+            MINIMAP_MAX_CONTENT_HEIGHT / line_count as f32
         } else {
-            BAR_HEIGHT
+            MINIMAP_BAR_HEIGHT
         };
 
-        // The cursor line determines which region is "visible".  We highlight
-        // a window of lines centred on the cursor.
-        let visible_window = 40_usize; // roughly how many editor lines fit on screen
         let cursor = buffer.cursor_line;
-        let vis_start = cursor.saturating_sub(visible_window / 2);
-        let vis_end = (cursor + visible_window / 2).min(line_count);
+        let vis_start = cursor.saturating_sub(MINIMAP_VISIBLE_LINE_COUNT / 2);
+        let vis_end = (cursor + MINIMAP_VISIBLE_LINE_COUNT / 2).min(line_count);
 
-        // Sample every Nth line to cap widget count at ~MAX_MINIMAP_BARS.
-        // For files shorter than the limit every line is shown.
-        const MAX_MINIMAP_BARS: usize = 50;
-        let step = if line_count > MAX_MINIMAP_BARS {
-            line_count / MAX_MINIMAP_BARS
+        let step = if line_count > MINIMAP_MAX_BAR_COUNT {
+            line_count / MINIMAP_MAX_BAR_COUNT
         } else {
             1
         };
@@ -125,9 +71,8 @@ impl From<Minimap> for Widget {
             let trimmed = line.trim();
             let color = line_color(trimmed);
 
-            // Width proportional to the trimmed length (capped to fit inside
-            // the minimap column).
-            let width = (trimmed.len() as f32 * 0.5).clamp(2.0, 50.0);
+            let width = (trimmed.len() as f32 * MINIMAP_CHARACTER_WIDTH_FACTOR)
+                .clamp(MINIMAP_MIN_BAR_WIDTH, MINIMAP_MAX_BAR_WIDTH);
 
             let in_viewport = i >= vis_start && i < vis_end;
 
@@ -138,12 +83,10 @@ impl From<Minimap> for Widget {
                 .into();
 
             if in_viewport {
-                // Wrap in a container with the semi-transparent viewport
-                // overlay so the visible region stands out.
                 bars.push(
                     Container::new(bar)
                         .height(scale)
-                        .bg(VIEWPORT_OVERLAY)
+                        .bg(MINIMAP_VIEWPORT)
                         .into(),
                 );
             } else {
@@ -152,12 +95,12 @@ impl From<Minimap> for Widget {
         }
 
         Container::new(VStack {
-            spacing: Some(0.0),
+            spacing: Some(tokens.spacing.none),
             children: bars,
         })
         .width(MINIMAP_WIDTH)
         .bg(MINIMAP_BG)
-        .padding_all(4.0)
+        .padding_all(tokens.spacing.xs)
         .flex_shrink(0.0)
         .into()
     }

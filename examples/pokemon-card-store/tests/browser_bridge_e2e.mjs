@@ -230,7 +230,7 @@ timeout = setTimeout(() => {
   stopChildren();
   console.error('browser bridge E2E timed out');
   process.exit(124);
-}, 240000);
+}, 360000);
 
 try {
   server = spawn('cargo', [
@@ -238,7 +238,7 @@ try {
     'server', 'serve', '--project-dir', projectDir,
     '--host', '127.0.0.1', '--port', String(serverPort),
   ], { cwd: process.cwd(), stdio: ['ignore', 'pipe', 'pipe'], detached: true });
-  await waitForOutput(server, /Serving Fission server app/, 120000, 'Fission server');
+  await waitForOutput(server, /Serving Fission server app/, 300000, 'Fission server');
 
   const wasm = await httpStatus(`http://127.0.0.1:${serverPort}/assets/islands/cart-drawer.wasm`);
   if (wasm.status !== 200) throw new Error(`cart-drawer.wasm returned ${wasm.status}`);

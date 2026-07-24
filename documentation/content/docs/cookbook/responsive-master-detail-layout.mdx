@@ -1,0 +1,54 @@
+---
+title: Responsive master-detail layout
+description: Build a mail-style screen that uses Responsive for phone and desktop layouts.
+---
+
+# Responsive master-detail layout
+
+A master-detail screen should show one pane on phones and two or three useful panes on desktop.
+
+```rust
+use fission::prelude::*;
+
+const PHONE_BREAKPOINT: f32 = 900.0;
+const THREAD_LIST_MIN_WIDTH: f32 = 280.0;
+const THREAD_LIST_MAX_WIDTH: f32 = 380.0;
+
+pub struct MailRoot;
+
+impl From<MailRoot> for Widget {
+    fn from(_: MailRoot) -> Widget {
+        Responsive::new(MailDesktop)
+            .case(ResponsiveCase::max_width(PHONE_BREAKPOINT, MailPhone))
+            .into()
+    }
+}
+
+pub struct MailDesktop;
+
+impl From<MailDesktop> for Widget {
+    fn from(_: MailDesktop) -> Widget {
+        let (_ctx, view) = fission::build::current::<MailState>();
+        let spacing = &view.env().theme.tokens.spacing;
+
+        Row {
+            gap: Some(spacing.m),
+            children: widgets![
+                Container::new(ThreadList)
+                    .width_length(Length::clamp(
+                        Length::points(THREAD_LIST_MIN_WIDTH),
+                        Length::percent(32.0),
+                        Length::points(THREAD_LIST_MAX_WIDTH),
+                    ))
+                    .flex_shrink(0.0)
+                    .into(),
+                Container::new(ThreadDetail).flex_grow(1.0).into(),
+            ],
+            ..Default::default()
+        }
+        .into()
+    }
+}
+```
+
+Keep the phone and desktop branches as named widgets so retained state and tests have stable boundaries.

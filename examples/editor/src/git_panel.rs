@@ -1,47 +1,16 @@
+use crate::git_status_item::GitStatusItem;
+use crate::layout::PANEL_ACTION_HEIGHT;
 use crate::model::{EditorState, OpenFile, RefreshGitStatus};
-use fission::core::op::Color;
-use fission::core::ui::{
-    Button, ButtonContentAlign, ButtonVariant, Column, Container, Scroll, Text, Widget,
-};
-use fission::core::{reduce_with, ActionEnvelope, FlexDirection};
+use crate::palette::{DIM_TEXT, PANEL_TEXT, SURFACE_BG};
+use fission::prelude::*;
 use fission::widgets::{HStack, Spacer, VStack};
-use serde_json;
 
 pub struct GitPanel;
 
 impl From<GitPanel> for Widget {
     fn from(_component: GitPanel) -> Self {
         let (ctx, view) = fission::build::current::<EditorState>();
-        let text_color = Color {
-            r: 204,
-            g: 204,
-            b: 204,
-            a: 255,
-        };
-        let dim_color = Color {
-            r: 140,
-            g: 140,
-            b: 140,
-            a: 255,
-        };
-        let added_color = Color {
-            r: 80,
-            g: 200,
-            b: 80,
-            a: 255,
-        };
-        let modified_color = Color {
-            r: 220,
-            g: 180,
-            b: 50,
-            a: 255,
-        };
-        let deleted_color = Color {
-            r: 220,
-            g: 80,
-            b: 80,
-            a: 255,
-        };
+        let tokens = &view.env().theme.tokens;
 
         let refresh = ctx.bind(
             RefreshGitStatus,
@@ -56,22 +25,30 @@ impl From<GitPanel> for Widget {
             .id;
 
         let mut children = vec![HStack {
-            spacing: Some(4.0),
-            children: vec![
+            spacing: Some(tokens.spacing.xs),
+            children: widgets![
                 Spacer {
                     flex_grow: 1.0,
                     ..Default::default()
-                }
-                .into(),
+                },
                 Button {
                     variant: ButtonVariant::Ghost,
-                    child: Some(Text::new("Refresh").size(11.0).color(text_color).into()),
+                    child: Some(
+                        Text::new("Refresh")
+                            .size(tokens.typography.font_size_xs)
+                            .color(PANEL_TEXT)
+                            .into(),
+                    ),
                     on_press: Some(refresh),
-                    height: Some(24.0),
-                    padding: Some([4.0, 4.0, 0.0, 0.0]),
+                    height: Some(PANEL_ACTION_HEIGHT),
+                    padding: Some([
+                        tokens.spacing.xs,
+                        tokens.spacing.xs,
+                        tokens.spacing.none,
+                        tokens.spacing.none,
+                    ]),
                     ..Default::default()
-                }
-                .into(),
+                },
             ],
         }
         .into()];
@@ -79,60 +56,25 @@ impl From<GitPanel> for Widget {
         if view.state().git_status_lines.is_empty() {
             children.push(
                 Text::new("No changes detected.\nClick ↻ to refresh.")
-                    .size(12.0)
-                    .color(dim_color)
+                    .size(tokens.typography.font_size_sm)
+                    .color(DIM_TEXT)
                     .into(),
             );
         } else {
-            let mut items = Vec::new();
-            for entry in &view.state().git_status_lines {
-                let status_color = match entry.status.as_str() {
-                    "M" => modified_color,
-                    "A" => added_color,
-                    "D" => deleted_color,
-                    "?" | "??" => dim_color,
-                    _ => text_color,
-                };
-
-                items.push(
-                    Button {
-                        variant: ButtonVariant::Ghost,
-                        content_align: ButtonContentAlign::Start,
-                        child: Some(
-                            HStack {
-                                spacing: Some(6.0),
-                                children: vec![
-                                    Text::new(entry.status.clone())
-                                        .size(12.0)
-                                        .color(status_color)
-                                        .into(),
-                                    Text::new(entry.path.rsplit('/').next().unwrap_or(&entry.path))
-                                        .size(12.0)
-                                        .color(text_color)
-                                        .flex_grow(1.0)
-                                        .into(),
-                                ],
-                            }
-                            .into(),
-                        ),
-                        on_press: Some(ActionEnvelope {
-                            id: open_id,
-                            payload: serde_json::to_vec(&OpenFile(entry.path.clone())).unwrap(),
-                        }),
-                        height: Some(24.0),
-                        padding: Some([4.0, 4.0, 0.0, 0.0]),
-                        ..Default::default()
-                    }
-                    .into(),
-                );
-            }
+            let items = view
+                .state()
+                .git_status_lines
+                .iter()
+                .cloned()
+                .map(|entry| GitStatusItem { entry, open_id }.into())
+                .collect();
 
             children.push(
                 Scroll {
                     direction: FlexDirection::Column,
                     child: Some(
                         VStack {
-                            spacing: Some(0.0),
+                            spacing: Some(tokens.spacing.none),
                             children: items,
                         }
                         .into(),
@@ -148,18 +90,13 @@ impl From<GitPanel> for Widget {
 
         Container::new(Column {
             children,
-            gap: Some(8.0),
+            gap: Some(tokens.spacing.s),
             flex_grow: 1.0,
             justify_content: fission::core::op::JustifyContent::Start,
             ..Default::default()
         })
-        .padding_all(8.0)
-        .bg(Color {
-            r: 37,
-            g: 37,
-            b: 38,
-            a: 255,
-        }) // Surface background
+        .padding_all(tokens.spacing.s)
+        .bg(SURFACE_BG)
         .flex_grow(1.0)
         .into()
     }

@@ -1,91 +1,134 @@
 use crate::api::{ApiError, ProductCategory};
+use crate::components::category_entry::CategoryEntry;
+use crate::components::layout::{
+    CATEGORY_RAIL_MAX_WIDTH, CATEGORY_RAIL_MIN_WIDTH, CATEGORY_RAIL_PERCENT,
+};
 use crate::model::{on_category_selected, CategorySelected, ProductBrowserState};
 use fission::prelude::*;
 
 #[derive(Clone, Debug)]
 pub struct CategoryRail {
     pub snapshot: AsyncSnapshot<Vec<ProductCategory>, ApiError>,
+    pub instance: &'static str,
 }
 
 impl From<CategoryRail> for Widget {
     fn from(component: CategoryRail) -> Self {
         let (ctx, view) = fission::build::current::<ProductBrowserState>();
+        let compact = component.instance == "compact";
         let tokens = &view.env().theme.tokens;
-        let mut children = vec![
-            Text::new("Categories")
-                .size(16.0)
-                .weight(700)
-                .color(tokens.colors.text_primary)
-                .into(),
-            category_button(ctx, view, "All products".to_string(), None),
-        ];
+
+        let heading = Text::new("Categories")
+            .size(tokens.typography.body_medium_size)
+            .weight(tokens.typography.font_weight_bold)
+            .color(tokens.colors.text_primary)
+            .into();
+        let mut entries = vec![CategoryEntry {
+            label: "All products".to_string(),
+            action: with_reducer!(ctx, CategorySelected(None), on_category_selected),
+            selected: view.state().selected_category.is_none(),
+            identifier: format!("product-browser.category.{}.all", component.instance),
+        }
+        .into()];
 
         match component.snapshot.connection_state {
-            AsyncConnectionState::Waiting => children.push(
-                Text::new("Loading categories...")
-                    .size(13.0)
-                    .color(tokens.colors.text_secondary)
-                    .into(),
-            ),
-            _ if component.snapshot.has_error() => children.push(
-                Text::new("Categories unavailable")
-                    .size(13.0)
-                    .color(tokens.colors.text_secondary)
-                    .into(),
-            ),
+            AsyncConnectionState::Waiting => {
+                entries.push(
+                    Text::new("Loading categories...")
+                        .size(tokens.typography.body_medium_size)
+                        .color(tokens.colors.text_secondary)
+                        .into(),
+                );
+            }
+            _ if component.snapshot.has_error() => {
+                entries.push(
+                    Text::new("Categories unavailable")
+                        .size(tokens.typography.body_medium_size)
+                        .color(tokens.colors.text_secondary)
+                        .into(),
+                );
+            }
             _ => {
                 if let Some(categories) = component.snapshot.data() {
-                    children.extend(categories.iter().map(|category| {
-                        category_button(
-                            ctx,
-                            view,
-                            category.name.clone(),
-                            Some(category.slug.clone()),
-                        )
+                    entries.extend(categories.iter().map(|category| {
+                        CategoryEntry {
+                            label: category.name.clone(),
+                            action: with_reducer!(
+                                ctx,
+                                CategorySelected(Some(category.slug.clone())),
+                                on_category_selected
+                            ),
+                            selected: view.state().selected_category == Some(category.slug.clone()),
+                            identifier: format!(
+                                "product-browser.category.{}.{}",
+                                component.instance, category.slug
+                            ),
+                        }
+                        .into()
                     }));
                 }
             }
         }
 
-        Container::new(Scroll {
-            child: Some(
-                Column {
-                    gap: Some(8.0),
-                    children,
-                    ..Default::default()
-                }
-                .into(),
-            ),
-            flex_grow: 1.0,
-            ..Default::default()
-        })
-        .width(220.0)
-        .padding_all(16.0)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(22.0)
-        .into()
-    }
-}
-fn category_button(
-    ctx: BuildCtxHandle<ProductBrowserState>,
-    view: ViewHandle<ProductBrowserState>,
-    label: String,
-    category: Option<String>,
-) -> Widget {
-    let selected = view.state().selected_category == category;
-    let action = with_reducer!(ctx, CategorySelected(category), on_category_selected);
-    Button {
-        on_press: Some(action),
-        variant: if selected {
-            ButtonVariant::Filled
+        let content: Widget = if compact {
+            Column {
+                gap: Some(tokens.spacing.s),
+                children: widgets![
+                    heading,
+                    Scroll {
+                        id: Some(WidgetId::explicit(
+                            "product-browser.categories.compact.scroll",
+                        )),
+                        child: Some(
+                            Column {
+                                gap: Some(tokens.spacing.s),
+                                children: entries,
+                                ..Default::default()
+                            }
+                            .into(),
+                        ),
+                        height: Some(tokens.spacing.xxxxl),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            }
+            .into()
         } else {
-            ButtonVariant::Ghost
-        },
-        content_align: ButtonContentAlign::Start,
-        width: Some(188.0),
-        child: Some(Text::new(label).max_lines(1).into()),
-        ..Default::default()
+            Scroll {
+                id: Some(WidgetId::explicit(
+                    "product-browser.categories.expanded.scroll",
+                )),
+                child: Some(
+                    Column {
+                        gap: Some(tokens.spacing.s),
+                        children: std::iter::once(heading).chain(entries).collect(),
+                        ..Default::default()
+                    }
+                    .into(),
+                ),
+                flex_grow: 1.0,
+                ..Default::default()
+            }
+            .into()
+        };
+
+        let rail = Container::new(content)
+            .padding_lengths(Length::all(Length::points(tokens.spacing.m)))
+            .bg(tokens.colors.surface)
+            .border(tokens.colors.border, 1.0)
+            .border_radius(tokens.radii.large)
+            .flex_shrink(0.0);
+
+        if compact {
+            rail.width_length(Length::percent(100.0)).into()
+        } else {
+            rail.width_length(Length::clamp(
+                Length::points(CATEGORY_RAIL_MIN_WIDTH),
+                Length::percent(CATEGORY_RAIL_PERCENT),
+                Length::points(CATEGORY_RAIL_MAX_WIDTH),
+            ))
+            .into()
+        }
     }
-    .into()
 }

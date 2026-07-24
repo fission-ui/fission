@@ -1,0 +1,24 @@
+---
+title: App release checklist
+description: Step through the release checks every production Fission app should pass before distribution.
+---
+
+# App release checklist
+
+A release is not just a build artifact. A production release needs tested behavior, visual evidence, package metadata, signing, release notes, screenshots, provider validation, upload, and post-upload status.
+
+## Checklist
+
+| Step | What to verify |
+| --- | --- |
+| Version | App version, platform build number, Android version code, and release tag are unique. |
+| Tests | Reducer, headless, LiveTest, target smoke, and golden tests pass. |
+| Visual QA | Phone, tablet, desktop, static/SSR, and dark/light screenshots are reviewed where applicable. |
+| Accessibility | Important controls and regions expose roles, labels, values, and semantic identifiers. |
+| Metadata | Release notes, description, homepage, privacy URL, support URL, categories, locales, and screenshots are present or intentionally skipped. |
+| Signing | Signing material comes from environment variables or local/CI secret files, not from committed paths. |
+| Package | The platform package builds and can be inspected locally. |
+| Publish | Provider upload succeeds and provider-side validation is checked. |
+| Receipt | Store edit, release id, deployment URL, GitHub release, or artifact URL is saved. |
+
+Use the Fission CLI guided flow for local releases and fully specified command arguments for CI.

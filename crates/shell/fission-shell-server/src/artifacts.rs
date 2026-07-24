@@ -2,8 +2,9 @@ use crate::{FissionServerApp, ProgressiveWorker, WasmIsland};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BrowserArtifactKind {
@@ -263,30 +264,53 @@ fn compile_shim(plan: &BrowserArtifactPlan, options: &BrowserArtifactBuildOption
         .arg("--manifest-path")
         .arg(plan.shim_dir.join("Cargo.toml"))
         .arg("--target")
-        .arg("wasm32-unknown-unknown");
+        .arg("wasm32-unknown-unknown")
+        .arg("--message-format=json-render-diagnostics")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit());
     if options.release {
         command.arg("--release");
     }
-    let status = command
-        .status()
+
+    let mut child = command
+        .spawn()
         .with_context(|| format!("failed to compile browser artifact `{}`", plan.id))?;
+    let stdout = child
+        .stdout
+        .take()
+        .context("cargo did not expose browser artifact build output")?;
+    let expected_crate = shim_crate_name(plan).replace('-', "_");
+    let mut compiled_wasm = None;
+    for line in BufReader::new(stdout).lines() {
+        let line = line.context("failed to read browser artifact build output")?;
+        if let Some(path) = compiled_wasm_from_cargo_message(&line, &expected_crate) {
+            compiled_wasm = Some(path);
+        }
+        if let Some(rendered) = rendered_cargo_diagnostic(&line) {
+            eprint!("{rendered}");
+        }
+    }
+    let status = child
+        .wait()
+        .with_context(|| format!("failed to wait for browser artifact `{}`", plan.id))?;
     if !status.success() {
         bail!("browser artifact `{}` failed with {status}", plan.id);
     }
-    copy_compiled_artifact(plan, options)?;
+    let compiled_wasm = compiled_wasm.with_context(|| {
+        format!(
+            "cargo did not report a wasm artifact for browser artifact `{}`",
+            plan.id
+        )
+    })?;
+    copy_compiled_artifact(plan, options, &compiled_wasm)?;
     Ok(())
 }
 
 fn copy_compiled_artifact(
     plan: &BrowserArtifactPlan,
     options: &BrowserArtifactBuildOptions,
+    wasm: &Path,
 ) -> Result<()> {
-    let profile = if options.release { "release" } else { "debug" };
-    let wasm = plan
-        .shim_dir
-        .join("target/wasm32-unknown-unknown")
-        .join(profile)
-        .join(format!("{}.wasm", shim_crate_name(plan).replace('-', "_")));
     let relative = safe_artifact_output_path(&plan.artifact)
         .with_context(|| format!("browser artifact path `{}` is invalid", plan.artifact))?;
     let output = options.output_dir.join(relative);
@@ -302,6 +326,37 @@ fn copy_compiled_artifact(
         )
     })?;
     Ok(())
+}
+
+fn compiled_wasm_from_cargo_message(line: &str, expected_crate: &str) -> Option<PathBuf> {
+    let message: serde_json::Value = serde_json::from_str(line).ok()?;
+    if message.get("reason")?.as_str()? != "compiler-artifact"
+        || message.get("target")?.get("name")?.as_str()? != expected_crate
+    {
+        return None;
+    }
+    message
+        .get("filenames")?
+        .as_array()?
+        .iter()
+        .filter_map(|path| path.as_str())
+        .map(PathBuf::from)
+        .find(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "wasm")
+        })
+}
+
+fn rendered_cargo_diagnostic(line: &str) -> Option<String> {
+    let message: serde_json::Value = serde_json::from_str(line).ok()?;
+    if message.get("reason")?.as_str()? != "compiler-message" {
+        return None;
+    }
+    message
+        .get("message")?
+        .get("rendered")?
+        .as_str()
+        .map(str::to_owned)
 }
 
 fn shim_crate_name(plan: &BrowserArtifactPlan) -> String {
@@ -516,5 +571,30 @@ mod tests {
                     .entry("demo::filters::boot(); std::process::exit(1)"),
             );
         assert!(BrowserArtifactBuild::from_app(&app, &options).is_err());
+    }
+
+    #[test]
+    fn finds_compiled_wasm_in_cargo_artifact_messages_without_assuming_target_dir() {
+        let line = serde_json::json!({
+            "reason": "compiler-artifact",
+            "target": {
+                "name": "fission_worker_filters",
+            },
+            "filenames": [
+                "/custom/shared/target/wasm32-unknown-unknown/debug/fission_worker_filters.wasm",
+            ],
+        })
+        .to_string();
+
+        assert_eq!(
+            compiled_wasm_from_cargo_message(&line, "fission_worker_filters"),
+            Some(PathBuf::from(
+                "/custom/shared/target/wasm32-unknown-unknown/debug/fission_worker_filters.wasm"
+            ))
+        );
+        assert_eq!(
+            compiled_wasm_from_cargo_message(&line, "fission_island_filters"),
+            None
+        );
     }
 }

@@ -1,0 +1,24 @@
+---
+title: Store screenshots
+description: Generate app-store and release screenshots from real Fission targets with LiveTest.
+---
+
+# Store screenshots
+
+Store screenshots should come from the same app binary and target shell you are about to ship. Fission's LiveTest API can resize, navigate, wait for idle frames, and capture screenshots, which makes screenshots part of the release process instead of a manual afterthought.
+
+## Recommended flow
+
+1. Build the target package or runnable binary.
+2. Launch it with `FISSION_TEST_CONTROL_PORT`.
+3. Seed deterministic state through test configuration or fixture-only test infrastructure.
+4. Drive the app with semantic selectors.
+5. Capture screenshots at store-required sizes.
+6. Compare against goldens where appropriate.
+7. Point release metadata at the approved image files.
+
+```bash
+curl -s http://127.0.0.1:9876/cmd   -H 'content-type: application/json'   -d '{"cmd":"Screenshot","path":"release/screenshots/android/phone-home.png"}'
+```
+
+Do not pad production UI with screenshot-only fixture data. Keep test fixtures in test infrastructure and make the production empty/error states explicit.

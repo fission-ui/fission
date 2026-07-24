@@ -1,4 +1,13 @@
-use fission::core::op::Color;
+mod layout;
+mod palette;
+mod window_dot;
+
+use crate::layout::{
+    CHROME_VERTICAL_RESERVE, MIN_TERMINAL_HEIGHT, MIN_TERMINAL_WIDTH, TERMINAL_FONT_SIZE,
+    TERMINAL_LINE_HEIGHT,
+};
+use crate::palette::{CHROME_BG, GREEN, MUTED, RED, TEXT, WINDOW_BG, YELLOW};
+use crate::window_dot::WindowDot;
 use fission::core::ui::{Container, Text, Widget};
 use fission::core::{Action, ActionId, GlobalState, ReducerContext, ResourceKey, TimerResource};
 use fission::prelude::DesktopApp;
@@ -9,49 +18,6 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
-
-const WINDOW_BG: Color = Color {
-    r: 24,
-    g: 24,
-    b: 24,
-    a: 255,
-};
-const CHROME_BG: Color = Color {
-    r: 40,
-    g: 40,
-    b: 40,
-    a: 255,
-};
-const TEXT: Color = Color {
-    r: 214,
-    g: 214,
-    b: 214,
-    a: 255,
-};
-const MUTED: Color = Color {
-    r: 143,
-    g: 143,
-    b: 143,
-    a: 255,
-};
-const RED: Color = Color {
-    r: 255,
-    g: 95,
-    b: 86,
-    a: 255,
-};
-const YELLOW: Color = Color {
-    r: 255,
-    g: 189,
-    b: 46,
-    a: 255,
-};
-const GREEN: Color = Color {
-    r: 39,
-    g: 201,
-    b: 63,
-    a: 255,
-};
 
 #[derive(Clone, Debug, Default)]
 struct TerminalExampleState {
@@ -123,6 +89,7 @@ struct TerminalExampleApp;
 impl From<TerminalExampleApp> for Widget {
     fn from(_component: TerminalExampleApp) -> Self {
         let (ctx, view) = fission::build::current::<TerminalExampleState>();
+        let tokens = &view.env().theme.tokens;
         ctx.register(
             start_terminal
                 as fn(
@@ -160,22 +127,25 @@ impl From<TerminalExampleApp> for Widget {
             .unwrap_or_else(|| "Shell".into());
 
         let chrome = Container::new(HStack {
-            spacing: Some(8.0),
+            spacing: Some(tokens.spacing.s),
             children: vec![
-                dot(RED),
-                dot(YELLOW),
-                dot(GREEN),
+                WindowDot { color: RED }.into(),
+                WindowDot { color: YELLOW }.into(),
+                WindowDot { color: GREEN }.into(),
                 Spacer {
-                    width: Some(12.0),
+                    width: Some(tokens.spacing.m),
                     ..Default::default()
                 }
                 .into(),
                 VStack {
-                    spacing: Some(2.0),
+                    spacing: Some(tokens.spacing.xs),
                     children: vec![
-                        Text::new(title).size(12.0).color(TEXT).into(),
+                        Text::new(title)
+                            .size(tokens.typography.font_size_sm)
+                            .color(TEXT)
+                            .into(),
                         Text::new(view.state().cwd.display().to_string())
-                            .size(10.0)
+                            .size(tokens.typography.font_size_xs)
                             .color(MUTED)
                             .into(),
                     ],
@@ -186,47 +156,43 @@ impl From<TerminalExampleApp> for Widget {
                     ..Default::default()
                 }
                 .into(),
-                Text::new("Fission Terminal").size(11.0).color(MUTED).into(),
+                Text::new("Fission Terminal")
+                    .size(tokens.typography.font_size_xs)
+                    .color(MUTED)
+                    .into(),
             ],
         })
         .bg(CHROME_BG)
-        .padding_all(10.0)
+        .padding_all(tokens.spacing.m)
         .into();
 
-        let terminal_height = (view.viewport_size().height - 52.0).max(180.0);
-        let terminal_width = view.viewport_size().width.max(320.0);
+        let terminal_height =
+            (view.viewport_size().height - CHROME_VERTICAL_RESERVE).max(MIN_TERMINAL_HEIGHT);
+        let terminal_width = view.viewport_size().width.max(MIN_TERMINAL_WIDTH);
         let body = if let Some(session) = view.state().session.clone() {
             TerminalView::new(session, terminal_width, terminal_height)
-                .font_size(13.0)
-                .line_height(18.0)
-                .padding(10.0, 10.0)
+                .font_size(TERMINAL_FONT_SIZE)
+                .line_height(TERMINAL_LINE_HEIGHT)
+                .padding(tokens.spacing.m, tokens.spacing.m)
                 .into()
         } else {
-            Container::new(Text::new("Failed to start shell").size(13.0).color(TEXT))
-                .padding_all(16.0)
-                .bg(WINDOW_BG)
-                .into()
+            Container::new(
+                Text::new("Failed to start shell")
+                    .size(tokens.typography.body_medium_size)
+                    .color(TEXT),
+            )
+            .padding_all(tokens.spacing.l)
+            .bg(WINDOW_BG)
+            .into()
         };
 
         Container::new(VStack {
-            spacing: Some(0.0),
+            spacing: Some(tokens.spacing.none),
             children: vec![chrome, body],
         })
         .bg(WINDOW_BG)
         .into()
     }
-}
-fn dot(color: Color) -> Widget {
-    Container::new(Spacer {
-        width: Some(12.0),
-        height: Some(12.0),
-        ..Default::default()
-    })
-    .width(12.0)
-    .height(12.0)
-    .bg(color)
-    .border_radius(999.0)
-    .into()
 }
 
 fn format_terminal_title(title: &str) -> String {

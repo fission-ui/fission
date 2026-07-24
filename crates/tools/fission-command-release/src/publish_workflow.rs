@@ -1432,6 +1432,21 @@ fn build_release_plan(
     artifact: Option<&Path>,
 ) -> Result<ReleasePlanReport> {
     let mut requirements = Vec::new();
+    let signing_variant = artifact
+        .filter(|path| path.exists())
+        .map(read_json_file)
+        .transpose()?
+        .and_then(|manifest| {
+            manifest
+                .get("variant")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .map(|variant| variant.parse::<fission_command_core::NativeVariant>())
+        .transpose()
+        .map_err(|error| {
+            anyhow::anyhow!("artifact manifest contains an invalid native variant: {error}")
+        })?;
     if let Some(target) = options.target {
         requirements.extend(
             package_cmd::package_readiness_checks_for_profile(
@@ -1445,9 +1460,13 @@ fn build_release_plan(
         );
         if release_target_requires_signing(target) {
             requirements.extend(
-                signing_ops::status_checks(&options.project_dir, target)
-                    .into_iter()
-                    .map(|check| lifecycle_requirement(check, RequirementLevel::ProviderRequired)),
+                signing_ops::status_checks_for_variant(
+                    &options.project_dir,
+                    target,
+                    signing_variant.as_ref(),
+                )
+                .into_iter()
+                .map(|check| lifecycle_requirement(check, RequirementLevel::ProviderRequired)),
             );
         }
     }

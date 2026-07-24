@@ -1,7 +1,19 @@
 mod app;
 mod charts;
 mod data;
+mod doc_capture_view;
+mod gallery_compact;
+mod gallery_content;
+mod gallery_controls;
+mod gallery_expanded;
+mod gallery_sidebar;
+mod gallery_sidebar_button;
+mod gallery_switch_control;
+mod layout;
 mod showcase;
+mod showcase_chart_card;
+mod showcase_grid;
+mod showcase_metric_card;
 mod state;
 mod style;
 

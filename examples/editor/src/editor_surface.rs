@@ -1,31 +1,33 @@
+use crate::editor_welcome_screen::EditorWelcomeScreen;
+use crate::layout::{
+    ACTIVITY_BAR_WIDTH, BREADCRUMB_HEIGHT, DIVIDER_THICKNESS, EDITOR_HORIZONTAL_RESERVE,
+    FIND_REPLACE_REGION_HEIGHT, MENU_BAR_HEIGHT, MINIMAP_WIDTH, MIN_EDITOR_HEIGHT,
+    MIN_EDITOR_WIDTH, MIN_TERMINAL_HEIGHT, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH, STATUS_BAR_HEIGHT,
+    TAB_BAR_HEIGHT, TERMINAL_HEIGHT_FRACTION,
+};
 use crate::minimap::Minimap;
 use crate::model::{EditorState, UpdateCursorPosition, UpdateEditorDocument};
-use fission::core::op::Color;
-use fission::core::ui::{Container, Row, Text, TextInput, Widget};
-use fission::core::{reduce_with, BuildCtxHandle, ViewHandle};
-use fission::widgets::{HStack, Spacer, VStack};
+use crate::palette::{BORDER_COLOR, BRIGHT_TEXT, EDITOR_SELECTION, WELCOME_BG};
+use fission::core::reduce_with;
+use fission::core::ui::{Container, Row, TextInput, Widget};
+use fission::widgets::{Spacer, VStack};
 use fission::WidgetId;
 
 pub struct EditorSurface;
 
 impl From<EditorSurface> for Widget {
-    fn from(component: EditorSurface) -> Self {
+    fn from(_component: EditorSurface) -> Self {
         let (ctx, view) = fission::build::current::<EditorState>();
-        const MENU_BAR_HEIGHT: f32 = 28.0;
-        const STATUS_BAR_HEIGHT: f32 = 26.0;
-        const TAB_BAR_HEIGHT: f32 = 35.0;
-        const BREADCRUMB_HEIGHT: f32 = 22.0;
-        const FIND_REPLACE_HEIGHT: f32 = 60.0;
-        const BOTTOM_PANEL_DIVIDER_HEIGHT: f32 = 1.0;
+        let tokens = &view.env().theme.tokens;
 
-        let sidebar_width = view
-            .state()
-            .sidebar_width
-            .min((view.viewport_size().width - 160.0).clamp(180.0, 360.0));
+        let sidebar_width = view.state().sidebar_width.min(
+            (view.viewport_size().width - EDITOR_HORIZONTAL_RESERVE)
+                .clamp(SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH),
+        );
         let terminal_height = if view.state().terminal_visible {
-            view.state()
-                .terminal_height
-                .min((view.viewport_size().height * 0.33).max(96.0))
+            view.state().terminal_height.min(
+                (view.viewport_size().height * TERMINAL_HEIGHT_FRACTION).max(MIN_TERMINAL_HEIGHT),
+            )
         } else {
             0.0
         };
@@ -35,29 +37,29 @@ impl From<EditorSurface> for Widget {
             - TAB_BAR_HEIGHT
             - BREADCRUMB_HEIGHT
             - if view.state().show_find_replace {
-                FIND_REPLACE_HEIGHT
+                FIND_REPLACE_REGION_HEIGHT
             } else {
                 0.0
             }
             - if view.state().terminal_visible {
-                terminal_height + BOTTOM_PANEL_DIVIDER_HEIGHT
+                terminal_height + DIVIDER_THICKNESS
             } else {
                 0.0
             })
-        .max(120.0);
+        .max(MIN_EDITOR_HEIGHT);
         let editor_viewport_width = (view.viewport_size().width
-            - 48.0
+            - ACTIVITY_BAR_WIDTH
             - if view.state().sidebar_visible {
-                sidebar_width + 1.0
+                sidebar_width + DIVIDER_THICKNESS
             } else {
-                0.0
+                tokens.spacing.none
             }
-            - 61.0
-            - 24.0)
-            .max(180.0);
+            - MINIMAP_WIDTH
+            - tokens.spacing.l)
+            .max(MIN_EDITOR_WIDTH);
 
         let Some((tab, buffer)) = view.state().active_buffer() else {
-            return component.build_welcome_screen(ctx, view);
+            return EditorWelcomeScreen.into();
         };
         let path = tab.path.clone();
 
@@ -108,26 +110,13 @@ impl From<EditorSurface> for Widget {
             capture_tab: true,
             auto_indent: true,
             read_only: !buffer.is_editable(),
-            font_size: Some(13.0),
-            line_height: Some(20.0),
-            text_color: Some(Color {
-                r: 220,
-                g: 220,
-                b: 220,
-                a: 255,
-            }),
-            cursor_color: Some(Color {
-                r: 255,
-                g: 255,
-                b: 255,
-                a: 255,
-            }),
-            selection_color: Some(Color {
-                r: 55,
-                g: 100,
-                b: 170,
-                a: 160,
-            }),
+            font_size: Some(tokens.typography.font_size_sm),
+            line_height: Some(
+                tokens.typography.font_size_sm * tokens.typography.line_height_normal,
+            ),
+            text_color: Some(BRIGHT_TEXT),
+            cursor_color: Some(fission::op::Color::WHITE),
+            selection_color: Some(EDITOR_SELECTION),
             spell_check: false,
             smart_dashes: false,
             smart_quotes: false,
@@ -143,13 +132,8 @@ impl From<EditorSurface> for Widget {
             .into();
 
         let minimap_separator = Container::new(Spacer::default())
-            .width(1.0)
-            .bg(Color {
-                r: 48,
-                g: 48,
-                b: 49,
-                a: 255,
-            })
+            .width(DIVIDER_THICKNESS)
+            .bg(BORDER_COLOR)
             .flex_shrink(0.0)
             .into();
 
@@ -164,136 +148,15 @@ impl From<EditorSurface> for Widget {
         .into();
 
         let editor_column: Widget = VStack {
-            spacing: Some(0.0),
+            spacing: Some(tokens.spacing.none),
             children: vec![editor_row],
         }
         .into();
 
         Container::new(editor_column)
-            .bg(Color {
-                r: 30,
-                g: 30,
-                b: 30,
-                a: 255,
-            })
+            .bg(WELCOME_BG)
             .flex_grow(1.0)
             .flex_shrink(1.0)
             .into()
-    }
-}
-impl EditorSurface {
-    fn build_welcome_screen(
-        &self,
-        _ctx: BuildCtxHandle<EditorState>,
-        _view: ViewHandle<EditorState>,
-    ) -> Widget {
-        let dim = Color {
-            r: 100,
-            g: 100,
-            b: 100,
-            a: 255,
-        };
-        let shortcut_color = Color {
-            r: 130,
-            g: 130,
-            b: 130,
-            a: 255,
-        };
-        let key_color = Color {
-            r: 160,
-            g: 160,
-            b: 160,
-            a: 255,
-        };
-        let heading_color = Color {
-            r: 150,
-            g: 150,
-            b: 150,
-            a: 255,
-        };
-
-        let shortcut_row = |keys: &str, desc: &str| -> Widget {
-            HStack {
-                spacing: Some(16.0),
-                children: vec![
-                    Container::new(Text::new(keys).size(12.0).color(key_color))
-                        .width(140.0)
-                        .into(),
-                    Text::new(desc).size(12.0).color(shortcut_color).into(),
-                ],
-            }
-            .into()
-        };
-
-        Container::new(fission::widgets::center::Center {
-            child: VStack {
-                spacing: Some(8.0),
-                children: vec![
-                    Text::new("Fission Editor")
-                        .size(36.0)
-                        .color(Color {
-                            r: 80,
-                            g: 80,
-                            b: 80,
-                            a: 255,
-                        })
-                        .into(),
-                    Spacer {
-                        height: Some(4.0),
-                        ..Default::default()
-                    }
-                    .into(),
-                    Text::new("Open a file from the explorer to begin")
-                        .size(14.0)
-                        .color(dim)
-                        .into(),
-                    Spacer {
-                        height: Some(16.0),
-                        ..Default::default()
-                    }
-                    .into(),
-                    // Keyboard shortcuts section
-                    Text::new("Keyboard Shortcuts")
-                        .size(14.0)
-                        .color(heading_color)
-                        .into(),
-                    Spacer {
-                        height: Some(4.0),
-                        ..Default::default()
-                    }
-                    .into(),
-                    shortcut_row("Ctrl+Shift+P", "Command Palette"),
-                    shortcut_row("Ctrl+B", "Toggle Sidebar"),
-                    shortcut_row("Ctrl+`", "Toggle Terminal"),
-                    shortcut_row("Ctrl+S", "Save File"),
-                    Spacer {
-                        height: Some(20.0),
-                        ..Default::default()
-                    }
-                    .into(),
-                    // Recent files section
-                    Text::new("Recent Files")
-                        .size(14.0)
-                        .color(heading_color)
-                        .into(),
-                    Spacer {
-                        height: Some(4.0),
-                        ..Default::default()
-                    }
-                    .into(),
-                    Text::new("No recent files").size(12.0).color(dim).into(),
-                ],
-            }
-            .into(),
-        })
-        .bg(Color {
-            r: 30,
-            g: 30,
-            b: 30,
-            a: 255,
-        })
-        .flex_grow(1.0)
-        .flex_shrink(1.0)
-        .into()
     }
 }

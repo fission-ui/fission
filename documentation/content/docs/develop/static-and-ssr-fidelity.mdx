@@ -1,0 +1,26 @@
+---
+title: Static and SSR fidelity
+description: Understand how Fission responsive layout, paint, fonts, and interaction lower to static-site and server-rendered targets.
+---
+
+# Static and SSR fidelity
+
+Static site and SSR targets share the same authored widget tree as native targets, but they do not have every native runtime capability. The right model is progressive fidelity: use typed Fission primitives, let the site shell lower what can be represented in HTML/CSS, and keep interactive host work explicit.
+
+## What lowers well
+
+| Fission primitive | Static site | SSR |
+| --- | --- | --- |
+| `Length` points, percent, viewport units, clamp | CSS lengths and `clamp()` where possible | CSS lengths and `clamp()` where possible |
+| `Responsive` viewport cases | CSS/media-rule style branch selection | CSS/media-rule style branch selection |
+| `Responsive` container query | Lowered when static constraints can express it | Lowered where request/runtime supports container sizing |
+| `GridTrack` points/fr/auto/minmax/repeat/auto-fit | CSS grid tracks | CSS grid tracks |
+| Solid fills, gradients, borders, radius, shadows | CSS paint | CSS paint |
+| Packaged fonts | Emitted as font assets where configured | Emitted as font assets where configured |
+| Backdrop blur | CSS backdrop-filter if supported by browser | CSS backdrop-filter if supported by browser |
+
+## What needs care
+
+Portals, animations, jobs, services, and capabilities still need a runtime. Static output can describe the initial state; it cannot perform user-triggered host work without a client runtime or island.
+
+Prefer declarative layout primitives for pages that must statically render well. Use imperative viewport logic only when the result can still be evaluated by the target shell.

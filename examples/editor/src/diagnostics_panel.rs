@@ -1,47 +1,16 @@
+use crate::diagnostic_item::DiagnosticItem;
 use crate::model::{DiagSeverity, EditorState, OpenFile};
-use fission::core::op::Color;
-use fission::core::ui::{
-    Button, ButtonContentAlign, ButtonVariant, Container, Scroll, Text, Widget,
-};
-use fission::core::{reduce_with, ActionEnvelope, FlexDirection};
+use crate::palette::{DIM_TEXT, TERMINAL_BG};
+use fission::core::ui::{Container, Scroll, Text, Widget};
+use fission::core::{reduce_with, FlexDirection};
 use fission::widgets::VStack;
-use serde_json;
 
 pub struct DiagnosticsPanel;
 
 impl From<DiagnosticsPanel> for Widget {
     fn from(_component: DiagnosticsPanel) -> Self {
         let (ctx, view) = fission::build::current::<EditorState>();
-        let text_color = Color {
-            r: 204,
-            g: 204,
-            b: 204,
-            a: 255,
-        };
-        let error_color = Color {
-            r: 244,
-            g: 71,
-            b: 71,
-            a: 255,
-        };
-        let warn_color = Color {
-            r: 255,
-            g: 193,
-            b: 7,
-            a: 255,
-        };
-        let info_color = Color {
-            r: 66,
-            g: 133,
-            b: 244,
-            a: 255,
-        };
-        let dim_color = Color {
-            r: 140,
-            g: 140,
-            b: 140,
-            a: 255,
-        };
+        let tokens = &view.env().theme.tokens;
 
         let open_id = ctx
             .bind(
@@ -66,69 +35,35 @@ impl From<DiagnosticsPanel> for Widget {
             sev_ord(&a.1.severity).cmp(&sev_ord(&b.1.severity))
         });
 
-        let bg = Color {
-            r: 24,
-            g: 24,
-            b: 24,
-            a: 255,
-        };
-
         if all_diags.is_empty() {
             return Container::new(
                 Text::new("No problems detected")
-                    .size(12.0)
-                    .color(dim_color),
+                    .size(tokens.typography.font_size_sm)
+                    .color(DIM_TEXT),
             )
-            .bg(bg)
-            .padding_all(8.0)
+            .bg(TERMINAL_BG)
+            .padding_all(tokens.spacing.s)
             .flex_grow(1.0)
             .into();
         }
 
-        let mut items = Vec::new();
-        for (path, diag) in &all_diags {
-            let (icon, color) = match diag.severity {
-                DiagSeverity::Error => ("✕", error_color),
-                DiagSeverity::Warning => ("⚠", warn_color),
-                DiagSeverity::Info => ("ℹ", info_color),
-                DiagSeverity::Hint => ("💡", dim_color),
-            };
-            let filename = path.rsplit('/').next().unwrap_or(path);
-            let label = format!("{} {}:{}:{}", icon, filename, diag.line, diag.col);
-
-            items.push(
-                Button {
-                    variant: ButtonVariant::Ghost,
-                    content_align: ButtonContentAlign::Start,
-                    child: Some(
-                        VStack {
-                            spacing: Some(1.0),
-                            children: vec![
-                                Text::new(label).size(12.0).color(color).into(),
-                                Text::new(diag.message.chars().take(80).collect::<String>())
-                                    .size(11.0)
-                                    .color(text_color)
-                                    .into(),
-                            ],
-                        }
-                        .into(),
-                    ),
-                    on_press: Some(ActionEnvelope {
-                        id: open_id,
-                        payload: serde_json::to_vec(&OpenFile(path.to_string())).unwrap(),
-                    }),
-                    padding: Some([4.0, 4.0, 0.0, 0.0]),
-                    ..Default::default()
+        let items = all_diags
+            .into_iter()
+            .map(|(path, diagnostic)| {
+                DiagnosticItem {
+                    path: path.clone(),
+                    diagnostic: diagnostic.clone(),
+                    open_id,
                 }
-                .into(),
-            );
-        }
+                .into()
+            })
+            .collect();
 
         Container::new(Scroll {
             direction: FlexDirection::Column,
             child: Some(
                 VStack {
-                    spacing: Some(2.0),
+                    spacing: Some(tokens.spacing.xs),
                     children: items,
                 }
                 .into(),
@@ -138,8 +73,8 @@ impl From<DiagnosticsPanel> for Widget {
             flex_shrink: 1.0,
             ..Default::default()
         })
-        .bg(bg)
-        .padding_all(4.0)
+        .bg(TERMINAL_BG)
+        .padding_all(tokens.spacing.xs)
         .flex_grow(1.0)
         .into()
     }

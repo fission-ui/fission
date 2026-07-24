@@ -1,0 +1,41 @@
+---
+title: Paint and fills
+description: Color, Fill, Stroke, BoxShadow, and BackdropFilter primitives.
+---
+
+# Paint and fills
+
+Fission paint primitives are typed data that can be lowered to native renderers, web output, static HTML/CSS, SSR, and terminal fallbacks where supported.
+
+| Type | Purpose |
+| --- | --- |
+| `Color` | RGBA color with constants and helpers. |
+| `Fill` | Solid, linear-gradient, or radial-gradient fill. |
+| `Stroke` | Border or line paint with width, cap, join, and dash data. |
+| `BoxShadow` | Outer or inset shadow with offset, blur, spread, and color. |
+| `BackdropFilter` | Filter applied to already-painted content behind a widget. |
+
+Gradient geometry is normalized to the painted bounds. `(0.0, 0.0)` is the
+top-left, `(1.0, 1.0)` is the bottom-right, and stop offsets use `0.0..=1.0`.
+
+```rust
+Container::new(Text::new("Status"))
+    .bg_fill(Fill::LinearGradient {
+        start: (0.0, 0.0),
+        end: (1.0, 1.0),
+        stops: vec![
+            (0.0, Color { r: 14, g: 165, b: 233, a: 255 }),
+            (1.0, Color { r: 34, g: 197, b: 94, a: 255 }),
+        ],
+    })
+    .shadows(vec![BoxShadow {
+        offset: (0.0, 16.0),
+        blur_radius: 36.0,
+        spread_radius: -10.0,
+        color: Color { r: 15, g: 23, b: 42, a: 80 },
+        inset: false,
+    }])
+    .into()
+```
+
+Prefer theme tokens for product colors. Use these primitives to express how those tokens are applied.

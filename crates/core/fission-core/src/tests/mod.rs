@@ -1,4 +1,5 @@
 pub mod clip_test;
+pub mod custom_render_focus_test;
 pub mod effect_test;
 pub mod focus_scope_test;
 pub mod focus_traversal_test;

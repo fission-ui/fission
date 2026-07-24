@@ -1,5 +1,4 @@
 use super::GalleryBuildExt;
-use crate::state::GalleryState;
 use fission::charts::{
     Axis, BarSeries, Chart, ChartBrush, ChartGraphic, ChartInteraction, ChartTimeline,
     ChartToolAction, DataZoom, Legend, LineSeries, MarkArea, MarkLine, MarkPoint, ScatterSeries,
@@ -7,24 +6,27 @@ use fission::charts::{
 };
 use fission::core::op::Color;
 use fission::core::ui::Widget;
-use fission::core::{BuildCtxHandle, ViewHandle};
 
-pub(super) fn build_chart(
-    chart: usize,
-    ctx: BuildCtxHandle<GalleryState>,
-    view: ViewHandle<GalleryState>,
-    content_width: f32,
-    s: f32,
-) -> Widget {
-    match chart {
-        0 => mark_line_point(s).build_in_gallery(ctx, view, content_width),
-        1 => data_zoom(s).build_in_gallery(ctx, view, content_width),
-        2 => tooltip_axis(s).build_in_gallery(ctx, view, content_width),
-        3 => timeline_events(s).build_in_gallery(ctx, view, content_width),
-        4 => toolbox_actions(s).build_in_gallery(ctx, view, content_width),
-        5 => brush_select(s).build_in_gallery(ctx, view, content_width),
-        6 => graphic_overlay(s).build_in_gallery(ctx, view, content_width),
-        _ => unreachable!("chart catalog and component builder are out of sync"),
+pub(super) struct ComponentChart {
+    pub chart: usize,
+    pub scale: f32,
+}
+
+impl From<ComponentChart> for Widget {
+    fn from(selection: ComponentChart) -> Self {
+        let chart = selection.chart;
+        let s = selection.scale;
+
+        match chart {
+            0 => mark_line_point(s).in_gallery().into(),
+            1 => data_zoom(s).in_gallery().into(),
+            2 => tooltip_axis(s).in_gallery().into(),
+            3 => timeline_events(s).in_gallery().into(),
+            4 => toolbox_actions(s).in_gallery().into(),
+            5 => brush_select(s).in_gallery().into(),
+            6 => graphic_overlay(s).in_gallery().into(),
+            _ => unreachable!("chart catalog and component builder are out of sync"),
+        }
     }
 }
 

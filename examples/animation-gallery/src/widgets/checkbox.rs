@@ -1,12 +1,9 @@
+use super::checkbox_preview::CheckboxPreview;
 use super::common::*;
-use crate::state::{
-    current_composition_atoms, reset_timeline, toggle_play, AnimationGalleryState, MotionAtom,
-    MotionChoice, ResetTimeline, TogglePlay,
-};
+use crate::state::AnimationGalleryState;
 use crate::style::SOFT_TEAL;
 use fission::build::BuildCtxHandle;
-use fission::motion::{scalar, Motion, MotionPropertyId, MotionStartValue, MotionTrack};
-use fission::{Checkbox, Column, Text, Widget, WidgetId};
+use fission::Widget;
 
 pub const PATH: &str = "/widgets/checkbox";
 
@@ -37,76 +34,6 @@ impl From<CheckboxPage<'_>> for Widget {
         }
         .into()
     }
-}
-
-struct CheckboxPreview<'a> {
-    ctx: &'a BuildCtxHandle<AnimationGalleryState>,
-    state: &'a AnimationGalleryState,
-}
-
-impl From<CheckboxPreview<'_>> for Widget {
-    fn from(preview: CheckboxPreview<'_>) -> Self {
-        let state = preview.state;
-        let id = WidgetId::explicit("gallery.real.checkbox");
-        let progress = preview_progress(state);
-        let on_toggle = if preview_active(state) {
-            preview
-                .ctx
-                .bind(ResetTimeline, fission::reduce_with!(reset_timeline))
-        } else {
-            preview
-                .ctx
-                .bind(TogglePlay, fission::reduce_with!(toggle_play))
-        };
-        PreviewShell {
-            child: Column {
-                gap: Some(12.0),
-                children: vec![
-                    Text::new("Real Checkbox widget wrapped in native Motion.")
-                        .size(12.0)
-                        .into(),
-                    Motion {
-                        id: WidgetId::explicit("gallery.checkbox.motion"),
-                        tracks: if checkbox_scale_enabled(state) {
-                            vec![MotionTrack::composite(
-                                MotionPropertyId::Scale,
-                                MotionStartValue::Explicit(scalar(0.94)),
-                                scalar(1.0 + progress * 0.04),
-                            )]
-                        } else {
-                            Vec::new()
-                        },
-                        child: Checkbox {
-                            id: Some(id),
-                            semantics_identifier: Some("gallery.checkbox.accept_motion".into()),
-                            checked: preview_active(state),
-                            on_toggle: Some(on_toggle),
-                            label: Some("Accept motion terms".into()),
-                        }
-                        .into(),
-                        ..Default::default()
-                    }
-                    .into(),
-                ],
-                ..Default::default()
-            }
-            .into(),
-        }
-        .into()
-    }
-}
-
-fn checkbox_scale_enabled(state: &AnimationGalleryState) -> bool {
-    if !policy_allows_motion(state) {
-        return false;
-    }
-    state.motion != MotionChoice::Composition
-        || current_composition_atoms(state).iter().any(|atom| {
-            matches!(
-                atom,
-                MotionAtom::Scale | MotionAtom::HoverScale | MotionAtom::PressScale
-            )
-        })
 }
 
 fn case() -> GalleryCase {

@@ -12,8 +12,9 @@ use serde::{Deserialize, Serialize};
 
 use super::split_box_margin;
 
-/// The universal wrapper widget: background fill, border, padding, size
-/// constraints, and box shadow on a single child.
+/// The universal wrapper widget: typed box layout, background fill, border,
+/// padding, margin, overflow, aspect ratio, positioning, and shadow on one
+/// child.
 ///
 /// `Container` is the workhorse of layout composition. Use it whenever you
 /// need to add visual decoration or spacing around a child widget.
@@ -21,12 +22,19 @@ use super::split_box_margin;
 /// # Example
 ///
 /// ```rust,ignore
+/// const CARD_MIN_WIDTH: f32 = 280.0;
+/// const CARD_MAX_WIDTH: f32 = 520.0;
+///
 /// Container::new(Text::new("Card body"))
 ///     .bg(theme.tokens.colors.surface)
 ///     .border(theme.tokens.colors.border, 1.0)
-///     .border_radius(8.0)
-///     .padding_all(16.0)
-///     .width(320.0)
+///     .border_radius(theme.tokens.radii.large)
+///     .padding_lengths(Length::all(Length::points(theme.tokens.spacing.l)))
+///     .width_length(Length::clamp(
+///         Length::points(CARD_MIN_WIDTH),
+///         Length::percent(42.0),
+///         Length::points(CARD_MAX_WIDTH),
+///     ))
 ///     .flex_grow(1.0)
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]

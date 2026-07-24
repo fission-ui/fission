@@ -1,0 +1,22 @@
+---
+title: Local publishing
+description: Use Fission's guided local publishing flow without committing credentials or release-only state.
+---
+
+# Local publishing
+
+Local publishing is for an interactive developer who has the production credentials on their machine and wants clear guidance from build to provider upload.
+
+The guided flow should:
+
+- run preflight checks,
+- show required and recommended release metadata,
+- let the developer enter paths to signing and provider files,
+- write stable non-secret settings to `fission.toml`,
+- keep secrets in environment variables or local files outside the repository,
+- build the app,
+- capture or validate screenshots,
+- upload to the selected provider,
+- show provider receipts and next actions.
+
+Use local publishing to prove a release process once. Then encode the same non-interactive steps in CI.

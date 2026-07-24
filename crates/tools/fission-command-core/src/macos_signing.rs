@@ -1,3 +1,4 @@
+use crate::NativeVariant;
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -10,11 +11,17 @@ use std::process::Command;
 pub struct MacosPackageConfig {
     pub bundle_id: Option<String>,
     pub minimum_os: Option<String>,
+    pub application_category: Option<String>,
     pub entitlements: Option<String>,
     pub provisioning_profile: Option<String>,
     pub signing_identity: Option<String>,
     pub installer_identity: Option<String>,
     pub notarize: Option<bool>,
+    pub pkg_builder: Option<String>,
+    #[serde(default)]
+    pub cargo_features: Vec<String>,
+    #[serde(default)]
+    pub cargo_no_default_features: bool,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -44,22 +51,26 @@ struct MacosRunConfig {
 struct MacosPackageManifest {
     #[serde(flatten)]
     base: MacosPackageConfig,
-    release: Option<MacosReleasePackageConfig>,
+    release: Option<MacosPackageOverlay>,
     #[serde(default)]
-    variants: BTreeMap<String, MacosReleasePackageConfig>,
+    variants: BTreeMap<NativeVariant, MacosPackageOverlay>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
-struct MacosReleasePackageConfig {
+struct MacosPackageOverlay {
+    application_category: Option<String>,
     entitlements: Option<String>,
     provisioning_profile: Option<String>,
     signing_identity: Option<String>,
     installer_identity: Option<String>,
     notarize: Option<bool>,
+    pkg_builder: Option<String>,
+    cargo_features: Option<Vec<String>>,
+    cargo_no_default_features: Option<bool>,
 }
 
 impl MacosPackageManifest {
-    fn effective(&self, release: bool, variant: Option<&str>) -> MacosPackageConfig {
+    fn effective(&self, release: bool, variant: Option<&NativeVariant>) -> MacosPackageConfig {
         let mut config = self.base.clone();
         if release {
             if let Some(overlay) = &self.release {
@@ -73,8 +84,13 @@ impl MacosPackageManifest {
     }
 }
 
-impl MacosReleasePackageConfig {
+impl MacosPackageOverlay {
     fn apply_to(&self, config: &mut MacosPackageConfig) {
+        if self.application_category.is_some() {
+            config
+                .application_category
+                .clone_from(&self.application_category);
+        }
         if self.entitlements.is_some() {
             config.entitlements.clone_from(&self.entitlements);
         }
@@ -94,6 +110,15 @@ impl MacosReleasePackageConfig {
         if self.notarize.is_some() {
             config.notarize = self.notarize;
         }
+        if self.pkg_builder.is_some() {
+            config.pkg_builder.clone_from(&self.pkg_builder);
+        }
+        if let Some(features) = &self.cargo_features {
+            config.cargo_features.clone_from(features);
+        }
+        if let Some(no_default_features) = self.cargo_no_default_features {
+            config.cargo_no_default_features = no_default_features;
+        }
     }
 }
 
@@ -111,7 +136,7 @@ pub fn read_macos_package_config_for_profile(
 pub fn read_macos_package_config_for_profile_and_variant(
     project_dir: &Path,
     release: bool,
-    variant: Option<&str>,
+    variant: Option<&NativeVariant>,
 ) -> Result<MacosPackageConfig> {
     let manifest = read_manifest(project_dir)?;
     Ok(package_config(manifest.package.as_ref(), release, variant))
@@ -157,7 +182,7 @@ fn read_manifest(project_dir: &Path) -> Result<PackageManifest> {
 fn package_config(
     package: Option<&PackageRoot>,
     release: bool,
-    variant: Option<&str>,
+    variant: Option<&NativeVariant>,
 ) -> MacosPackageConfig {
     package
         .and_then(|package| package.macos.as_ref())
@@ -187,6 +212,8 @@ pub fn sign_macos_app_if_configured(
     if let Some(profile) = profile {
         embed_macos_provisioning_profile(project_dir, app_bundle, profile)?;
     }
+    remove_macos_bundle_extended_attributes(app_bundle)?;
+    make_macos_bundle_world_readable(app_bundle)?;
 
     let Some(identity) = identity else {
         return Ok(());
@@ -236,6 +263,60 @@ fn embed_macos_provisioning_profile(
     Ok(())
 }
 
+fn remove_macos_bundle_extended_attributes(_app_bundle: &Path) -> Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        let status = Command::new("xattr")
+            .args(["-c", "-r"])
+            .arg(_app_bundle)
+            .status()
+            .context("failed to remove extended attributes from macOS app bundle")?;
+        if !status.success() {
+            bail!("xattr failed with {status}");
+        }
+    }
+    Ok(())
+}
+
+fn make_macos_bundle_world_readable(app_bundle: &Path) -> Result<()> {
+    let mut pending = vec![app_bundle.to_path_buf()];
+    while let Some(path) = pending.pop() {
+        let metadata = fs::symlink_metadata(&path)
+            .with_context(|| format!("failed to inspect macOS bundle path {}", path.display()))?;
+        if metadata.file_type().is_symlink() {
+            continue;
+        }
+        if metadata.is_dir() {
+            for entry in fs::read_dir(&path)
+                .with_context(|| format!("failed to read macOS bundle path {}", path.display()))?
+            {
+                pending.push(entry?.path());
+            }
+        }
+        make_world_readable(&path, metadata.permissions())?;
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn make_world_readable(path: &Path, mut permissions: fs::Permissions) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let readable = if path.is_dir() { 0o0555 } else { 0o0444 };
+    permissions.set_mode(permissions.mode() | readable);
+    fs::set_permissions(path, permissions).with_context(|| {
+        format!(
+            "failed to make macOS bundle path readable: {}",
+            path.display()
+        )
+    })
+}
+
+#[cfg(not(unix))]
+fn make_world_readable(_path: &Path, _permissions: fs::Permissions) -> Result<()> {
+    Ok(())
+}
+
 fn codesign_arguments(
     project_dir: &Path,
     identity: &str,
@@ -280,6 +361,7 @@ mod tests {
 [package.macos]
 bundle_id = "com.example.app"
 minimum_os = "14.0"
+application_category = "public.app-category.developer-tools"
 entitlements = "platforms/macos/App.entitlements"
 provisioning_profile = "profiles/Developer.provisionprofile"
 signing_identity = "Apple Development"
@@ -299,11 +381,13 @@ signing_identity = "-"
             MacosPackageConfig {
                 bundle_id: Some("com.example.app".into()),
                 minimum_os: Some("14.0".into()),
+                application_category: Some("public.app-category.developer-tools".into()),
                 entitlements: Some("platforms/macos/App.entitlements".into()),
                 provisioning_profile: Some("profiles/Developer.provisionprofile".into()),
                 signing_identity: Some("Apple Development".into()),
                 installer_identity: Some("Developer ID Installer".into()),
                 notarize: Some(true),
+                ..Default::default()
             }
         );
         let run = manifest.run.as_ref().unwrap().macos.as_ref().unwrap();
@@ -329,6 +413,7 @@ entitlements = "platforms/macos/Development.entitlements"
 signing_identity = "-"
 
 [package.macos.release]
+application_category = "public.app-category.utilities"
 entitlements = "platforms/macos/Release.entitlements"
 provisioning_profile = "profiles/Distribution.provisionprofile"
 signing_identity = "Developer ID Application: Example Ltd"
@@ -354,6 +439,10 @@ notarize = true
             Some("platforms/macos/Release.entitlements")
         );
         assert_eq!(
+            release.application_category.as_deref(),
+            Some("public.app-category.utilities")
+        );
+        assert_eq!(
             release.provisioning_profile.as_deref(),
             Some("profiles/Distribution.provisionprofile")
         );
@@ -375,42 +464,56 @@ notarize = true
     }
 
     #[test]
-    fn package_variant_overrides_release_signing_and_notarization() {
+    fn selected_variant_overrides_effective_release_signing() {
         let manifest: PackageManifest = toml::from_str(
             r#"
 [package.macos]
 bundle_id = "com.example.app"
+signing_identity = "-"
 
 [package.macos.release]
+entitlements = "platforms/macos/DeveloperId.entitlements"
+provisioning_profile = "profiles/DeveloperId.provisionprofile"
 signing_identity = "Developer ID Application: Example Ltd"
 installer_identity = "Developer ID Installer: Example Ltd"
 notarize = true
 
 [package.macos.variants.app-store]
+entitlements = "platforms/macos/AppStore.entitlements"
+provisioning_profile = "profiles/AppStore.provisionprofile"
 signing_identity = "Apple Distribution: Example Ltd"
 installer_identity = "3rd Party Mac Developer Installer: Example Ltd"
 notarize = false
+pkg_builder = "productbuild"
+cargo_features = ["macos-app-store"]
+cargo_no_default_features = true
 "#,
         )
         .unwrap();
+        let variant: NativeVariant = "app-store".parse().unwrap();
 
-        let app_store = package_config(manifest.package.as_ref(), true, Some("app-store"));
+        let config = package_config(manifest.package.as_ref(), true, Some(&variant));
+
         assert_eq!(
-            app_store.signing_identity.as_deref(),
+            config.entitlements.as_deref(),
+            Some("platforms/macos/AppStore.entitlements")
+        );
+        assert_eq!(
+            config.provisioning_profile.as_deref(),
+            Some("profiles/AppStore.provisionprofile")
+        );
+        assert_eq!(
+            config.signing_identity.as_deref(),
             Some("Apple Distribution: Example Ltd")
         );
         assert_eq!(
-            app_store.installer_identity.as_deref(),
+            config.installer_identity.as_deref(),
             Some("3rd Party Mac Developer Installer: Example Ltd")
         );
-        assert_eq!(app_store.notarize, Some(false));
-
-        let release = package_config(manifest.package.as_ref(), true, None);
-        assert_eq!(
-            release.signing_identity.as_deref(),
-            Some("Developer ID Application: Example Ltd")
-        );
-        assert_eq!(release.notarize, Some(true));
+        assert_eq!(config.notarize, Some(false));
+        assert_eq!(config.pkg_builder.as_deref(), Some("productbuild"));
+        assert_eq!(config.cargo_features, ["macos-app-store"]);
+        assert!(config.cargo_no_default_features);
     }
 
     #[test]
@@ -508,6 +611,67 @@ signing_identity = "-"
             fs::read(app.join("Contents/embedded.provisionprofile")).unwrap(),
             b"profile-data"
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn macos_bundle_resources_are_readable_by_non_root_users() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = std::env::temp_dir().join(format!(
+            "fission-macos-readable-bundle-{}",
+            std::process::id()
+        ));
+        let app = root.join("Demo.app");
+        let resource = app.join("Contents/Resources/private.dat");
+        fs::remove_dir_all(&root).ok();
+        fs::create_dir_all(resource.parent().unwrap()).unwrap();
+        fs::write(&resource, b"resource").unwrap();
+        fs::set_permissions(&resource, fs::Permissions::from_mode(0o600)).unwrap();
+
+        make_macos_bundle_world_readable(&app).unwrap();
+
+        assert_eq!(
+            fs::metadata(&resource).unwrap().permissions().mode() & 0o004,
+            0o004
+        );
+        assert_eq!(
+            fs::metadata(resource.parent().unwrap())
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o001,
+            0o001
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_bundle_extended_attributes_are_removed_before_signing() {
+        let root =
+            std::env::temp_dir().join(format!("fission-macos-clean-bundle-{}", std::process::id()));
+        let app = root.join("Demo.app");
+        let resource = app.join("Contents/Resources/downloaded.dat");
+        fs::remove_dir_all(&root).ok();
+        fs::create_dir_all(resource.parent().unwrap()).unwrap();
+        fs::write(&resource, b"resource").unwrap();
+        let status = Command::new("xattr")
+            .args(["-w", "com.apple.quarantine", "0081;test;Fission;"])
+            .arg(&resource)
+            .status()
+            .unwrap();
+        assert!(status.success());
+
+        remove_macos_bundle_extended_attributes(&app).unwrap();
+
+        let status = Command::new("xattr")
+            .args(["-p", "com.apple.quarantine"])
+            .arg(&resource)
+            .status()
+            .unwrap();
+        assert!(!status.success());
         fs::remove_dir_all(root).unwrap();
     }
 

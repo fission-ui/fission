@@ -15,25 +15,26 @@ Use `Container` when you need to shape or decorate a single child. Do not use it
 
 ```rust
 use fission::prelude::*;
-let card = Container::new(Text::new("Billing summary").into())
-    .padding_all(16.0)
-    .width(320.0)
-    .bg(fission::core::op::Color {
-        r: 245,
-        g: 247,
-        b: 250,
-        a: 255,
-    })
-    .border(
-        fission::core::op::Color {
-            r: 210,
-            g: 214,
-            b: 220,
-            a: 255,
-        },
-        1.0,
-    )
-    .border_radius(12.0)
+
+const SUMMARY_MIN_WIDTH: f32 = 280.0;
+const SUMMARY_MAX_WIDTH: f32 = 520.0;
+
+let (_ctx, view) = fission::build::current::<BillingState>();
+let tokens = &view.env().theme.tokens;
+
+let card = Container::new(Text::new(TextContent::Key("billing.summary".into())))
+    .padding_lengths(Length::symmetric(
+        Length::points(tokens.spacing.l),
+        Length::points(tokens.spacing.m),
+    ))
+    .width_length(Length::clamp(
+        Length::points(SUMMARY_MIN_WIDTH),
+        Length::percent(42.0),
+        Length::points(SUMMARY_MAX_WIDTH),
+    ))
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.large)
     .into();
 ```
 
@@ -52,18 +53,37 @@ let card = Container::new(Text::new("Billing summary").into())
 | `padding` | `[f32; 4]` | Inner padding in `[left, right, top, bottom]` order. | Defaults to `[0.0; 4]`. |
 | `flex_grow` | `f32` | Extra space the container may absorb. | Defaults to `0.0`. |
 | `flex_shrink` | `f32` | How much the container may shrink in tight layouts. | Defaults to `1.0`. |
+| `box_style` | `BoxStyle` | Typed sizing, margin, padding, alignment, overflow, aspect ratio, positioning, grid placement, and flex data. | Defaults to `BoxStyle::default()`. |
+| `margin` | `[f32; 4]` | Legacy point-based outer spacing in `[left, right, top, bottom]` order. | Defaults to `[0.0; 4]`. |
 | `background_fill` | `Option<Fill>` | Background fill for the container box. | Defaults to `None`. |
 | `background_color` | `Option<Color>` | Legacy solid-color background field. | Usually set indirectly by `.bg(...)`. |
 | `border_color` | `Option<Color>` | Border color. | Defaults to `None`. |
 | `border_width` | `f32` | Border thickness. | Defaults to `0.0`. |
 | `border_radius` | `f32` | Corner radius. | Defaults to `0.0`. |
 | `shadow` | `Option<BoxShadow>` | Optional drop shadow. | Defaults to `None`. |
+| `shadows` | `Vec<BoxShadow>` | Ordered additional shadows. | Defaults to an empty list. |
+| `backdrop_filter` | `Option<BackdropFilter>` | Filter applied to already-painted content behind the container. | Defaults to `None`. |
 
 ## Layout and rendering behavior
 
 `Container` lowers to a box layout node and, when needed, a paint layer for background, border, radius, and shadow. That means it handles both spacing and decoration in one place.
 
 The padding order is worth calling out because it is explicit: `[left, right, top, bottom]`. If you come from systems that use top-right-bottom-left ordering, double-check your values.
+
+Prefer the typed layout helpers for new responsive code:
+
+| Helper | Use it for |
+| --- | --- |
+| `width_length` / `height_length` | `Length`-based preferred size. |
+| `min_width_length` / `max_width_length` | Responsive bounds without manual viewport math. |
+| `padding_lengths` / `margin_lengths` | Fixed, percentage, viewport, or intrinsic edge sizing. |
+| `align_child` | Child alignment inside the content rectangle. |
+| `aspect_ratio` | Media, cards, and embeds that must preserve a ratio. |
+| `positioned_lengths` | Absolute positioning with typed offsets. |
+| `grid_cell` / `grid_span` | Placement inside a parent grid. |
+| `clip_overflow` | Clip painted content and descendants to the container bounds. |
+| `bg_fill` | Solid or gradient background fills. |
+| `shadows` / `backdrop_blur` | Design-fidelity effects. |
 
 ## Specific advice
 
