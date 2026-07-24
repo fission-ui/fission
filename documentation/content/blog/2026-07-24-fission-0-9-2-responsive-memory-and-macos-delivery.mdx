@@ -1,0 +1,117 @@
+---
+title: Fission 0.9.2: responsive apps, bounded rendering, and Mac App Store delivery
+authors:
+  - fission
+tags:
+  - release
+  - responsive-design
+  - performance
+  - macos
+  - app-store
+  - testing
+categories:
+  - Releases
+---
+
+Fission 0.9.2 closes the gap between having a capable API and proving that the whole framework uses it well. The release rebuilds the examples around retained responsive components, fixes the renderer and layout issues those examples exposed, adds anchored spotlight layouts, and completes the path from a Fission macOS project to a submitted Mac App Store build.
+
+The examples were important to this work. They are not decorative screenshots; they are applications developers read, run, test, and copy. When the editor, inbox, galleries, and product demos were exercised across desktop and compact viewports, they exposed unreachable controls, duplicated responsive state, incorrect intrinsic sizing, unstable custom input identity, and memory use that did not correspond to the visible scene. 0.9.2 fixes those causes rather than hiding them behind reduced functionality.
+
+## Responsive examples that model real Fission applications
+
+The animation gallery, chart gallery, editor, field inspector, inbox, product examples, text lab, widget gallery, and smoke examples now use concrete widget structs, retained component boundaries, stable identities, design-system values, and explicit responsive branches.
+
+That means compact layouts are designed rather than merely compressed. Product filters and detail views remain reachable, chart plots and legends adapt to the available width, gallery controls remain usable on narrow screens, and stateful controls are not duplicated across simultaneously lowered responsive branches.
+
+The documentation grew with the examples. Learn, Develop, Cookbook, Test and Debug, Release and Distribute, and Reference now cover the responsive and visual-fidelity APIs in context: typed `Length`, responsive variants, `Grid`, `Container`, `Pressable`, packaged fonts, golden image checks, package metadata, and release screenshots.
+
+The result is a more useful source tree. Applications can still choose declarative responsive composition or make an imperative viewport decision where that is genuinely clearer, but the examples no longer mix the two styles accidentally or hide reusable widget trees behind `fn -> Widget` factories.
+
+## Memory now follows visible rendering work
+
+The manual QA pass found a more serious problem than layout polish. GPU examples that should have remained modest in memory were retaining substantially more than their visible content justified.
+
+Profiling narrowed that to two concrete causes. Packaged fonts were eagerly parsed for the software renderer even when the application was using Vello, retaining roughly 57 MB that the active renderer did not need. Large documents also used retained document glyph counts to size Vello caller buffers, even when most of those glyphs were outside the current scroll clip. A large `Cargo.lock` could request an 805 MB line buffer despite only a small portion of the document being visible.
+
+0.9.2 parses packaged software fonts only when software rendering needs them, culls rich text against active scroll clips before glyph encoding, and sizes Vello workloads from the encoded visible scene. Native Moka and WASM-safe LRU image caches now share the same bounded 50 MB policy as well.
+
+The measured macOS physical footprint changed materially:
+
+| Example | Viewport | Before | After |
+| --- | ---: | ---: | ---: |
+| Inbox | 800 x 600 | 122 MB | 52 MB |
+| Inbox | 1280 x 800 | 158 MB | 90 MB |
+| Inbox | compact/mobile | 148 MB | 53 MB |
+| Editor | 800 x 600 | 79 MB | 66-67 MB |
+| Editor | 1280 x 800 | 110 MB | 80 MB |
+| Editor | compact/mobile | 98 MB | 56 MB |
+
+A large `Cargo.lock` now renders without the GPU buffer overflow at roughly 127 MB. Whole-document Parley shaping remains the next large-document cost, but Vello is no longer allocating buffers from offscreen work it will not encode.
+
+## Layout, input, and retained identity fixes
+
+The same QA pass fixed several smaller problems that shared one theme: the rendered geometry, hit geometry, semantics, and retained identity must describe the same control.
+
+Wrapped and aligned controls now preserve their intrinsic dimensions. Stretch alignment retains an explicit cross-axis size instead of silently replacing it. Sliders align their thumb with the track and map pointer positions to the value implied by the point that was clicked. Flyouts now clamp using the bounds of their rendered descendants, which prevents a tooltip or other intrinsic popup from escaping the viewport because its root box understated the visible content.
+
+Custom render widgets also receive stable identities across rebuilds. This matters for editor, terminal, chart, and other input-heavy surfaces where a rebuild should not create a new logical input target. Timer resources and startup reducers now schedule the required rebuild after state changes instead of mutating state without refreshing the visible tree.
+
+LiveTest selector resolution has been tightened for responsive trees too. When inactive and active branches share a semantic identifier and hidden nodes are included, Fission prefers the branch that actually participates in layout. Tests can keep using stable semantic selectors instead of calculating coordinates or knowing which responsive implementation is active.
+
+## Anchored spotlight layouts
+
+`Spotlight` is a new low-level widget for product tours and contextual onboarding. It receives an existing anchor `WidgetId`, reveal padding, and five children: four shaded regions around the target and one focus-ring region over it.
+
+```rust
+Spotlight {
+    anchor: WidgetId::explicit("onboarding.primary_action"),
+    padding: tokens.spacing.s,
+    children: spotlight_regions,
+}
+.into()
+```
+
+The geometry is part of Fission's normal lowering and layout pipeline on native targets. Web, Static site, and SSR output emit the same contract and update the regions after resize, scroll, or observed anchor changes. If the anchor is unavailable, the overlay closes the hole rather than revealing an arbitrary part of the application.
+
+`Spotlight` deliberately does not invent a tour state machine, user-facing copy, focus policy, or accessibility announcement. Applications keep those responsibilities in a named component, with localized text and semantic actions that can be exercised through LiveTest. Terminal output rejects the layout because a terminal cell grid cannot preserve the same overlay geometry.
+
+## Mac App Store delivery
+
+Fission's macOS release path now covers both notarized direct distribution and the Mac App Store instead of treating every App Store Connect build as an iOS IPA.
+
+The CLI can build a signed Mac App Store PKG with the selected macOS package variant, upload it, follow processing state, resolve the corresponding macOS build, synchronize version metadata, and submit the build for review. Readiness selects iOS or macOS from the requested IPA or PKG format before an artifact exists, then checks the correct target build number.
+
+Several issues found during a real submission are fixed in the same path:
+
+- existing App Store localizations no longer send Apple's immutable locale field during updates;
+- generated artifact paths no longer prepend the project root twice;
+- PKG uploads and build queries use the macOS App Store platform;
+- App Store screenshots can be organized by explicit display type and rendered without an alpha channel;
+- failed screenshot capture scenarios stop their application, honor their configured timeout, and use the public LiveTest selector protocol.
+
+Three cookbook tutorials now take maintainers through Apple certificate, provisioning-profile, and API-key setup; notarized direct macOS distribution; and Mac App Store metadata, screenshots, packaging, upload, and submission.
+
+Desktop package variants also use one effective Cargo configuration across development and release. `fission run` and desktop builds honor the same variant `cargo_features` and `cargo_no_default_features` overlay that packaging uses, so a Store-specific feature set is tested before it is packaged.
+
+## Validation
+
+The responsive and renderer work was manually exercised across 19 example and browser paths with more than 322 LiveTest `/cmd` actions. All 13 colour-picker variants were checked at desktop and mobile sizes, and 49 ignored end-to-end LiveTests were run alongside the core, layout, Vello, Winit, server, WebGPU, Static site, and SSR suites.
+
+The Mac App Store and Spotlight changes add focused package, release, layout, widget, native-shell, browser-renderer, Android, iOS, Web/WASM, and CLI platform coverage.
+
+## Migration notes
+
+Update Fission dependencies to 0.9.2:
+
+```toml
+fission = { version = "0.9.2", default-features = false, features = ["desktop"] }
+```
+
+Ordinary applications do not need a code migration. Desktop variants should list their complete effective Cargo feature set because a variant feature list replaces the base list, matching the package overlay model. Mac App Store projects should use a macOS package variant, PKG format, and `distribution.app_store.platform = "macos"`.
+
+Relevant pull requests:
+
+- [#141: responsive examples and renderer memory hardening](https://github.com/fission-ui/fission/pull/141)
+- [#143: desktop packaging with Cargo target overrides](https://github.com/fission-ui/fission/pull/143)
+- [#146: macOS App Store release workflows](https://github.com/fission-ui/fission/pull/146)
+- [#145: Spotlight, release capture, and variant readiness](https://github.com/fission-ui/fission/pull/145)

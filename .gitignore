@@ -34,6 +34,7 @@ test_output.txt
 # Static site output
 **/dist/site/
 /documentation/dist/
+/documentation/target/
 
 # Separate publications repository
 publications/
