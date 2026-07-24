@@ -517,7 +517,7 @@ impl fission_core::internal::InternalLowerer for ChartInternalLowerer {
 fn chart_area(chart: &Chart, cx: &fission_core::internal::InternalLoweringCx) -> ChartArea {
     let outer_w = chart.width.unwrap_or_else(|| {
         let available_w = cx.env.viewport_size.width;
-        (available_w - 380.0).max(360.0)
+        (available_w - 380.0).max(260.0)
     });
     let outer_h = chart.height.unwrap_or_else(|| {
         let available_h = cx.env.viewport_size.height;
@@ -528,13 +528,26 @@ fn chart_area(chart: &Chart, cx: &fission_core::internal::InternalLoweringCx) ->
 
 fn chart_area_for_size(chart: &Chart, outer_w: f32, outer_h: f32) -> ChartArea {
     let grid = chart.grid.clone().unwrap_or_default();
-    let left = grid.left.unwrap_or(70.0);
-    let top = grid
-        .top
-        .unwrap_or(if chart.title.is_some() { 58.0 } else { 38.0 });
-    let right = grid
-        .right
-        .unwrap_or(if chart.legend.is_some() { 130.0 } else { 44.0 });
+    let compact = outer_w < 420.0;
+    let left = grid.left.unwrap_or(if compact { 50.0 } else { 70.0 });
+    let top = grid.top.unwrap_or(if compact && chart.legend.is_some() {
+        if chart.title.is_some() {
+            84.0
+        } else {
+            58.0
+        }
+    } else if chart.title.is_some() {
+        58.0
+    } else {
+        38.0
+    });
+    let right = grid.right.unwrap_or(if compact {
+        20.0
+    } else if chart.legend.is_some() {
+        130.0
+    } else {
+        44.0
+    });
     let bottom = grid.bottom.unwrap_or(if chart.data_zoom.is_some() {
         78.0
     } else {
@@ -1076,11 +1089,21 @@ fn draw_title(
     cx: &mut fission_core::internal::InternalLoweringCx,
     root: &mut fission_core::internal::InternalIrBuilder,
     model: &ChartModel,
-    _area: &ChartArea,
+    area: &ChartArea,
     theme: &ChartTheme,
 ) {
     if let Some(title) = model.title.as_ref() {
-        add_text(cx, root, title, 18.0, theme.title, 20.0, 18.0, 360.0, 28.0);
+        add_text(
+            cx,
+            root,
+            title,
+            18.0,
+            theme.title,
+            20.0,
+            18.0,
+            (area.outer_w - 40.0).max(1.0),
+            28.0,
+        );
     }
 }
 
@@ -3368,6 +3391,38 @@ fn draw_legend(
     theme: &ChartTheme,
 ) {
     if chart.legend.is_none() {
+        return;
+    }
+    if area.outer_w < 420.0 {
+        let mut x = 20.0;
+        let mut y = if chart.title.is_some() { 54.0 } else { 24.0 };
+        for (idx, name) in series_names(model).iter().enumerate() {
+            let item_width = 28.0 + name.chars().count() as f32 * 6.5;
+            if x > 20.0 && x + item_width > area.outer_w - 20.0 {
+                x = 20.0;
+                y += 20.0;
+            }
+            add_rect(
+                cx,
+                root,
+                LayoutRect::new(x, y + 3.0, 10.0, 10.0),
+                theme.palette[idx % theme.palette.len()],
+                None,
+                2.0,
+            );
+            add_text(
+                cx,
+                root,
+                name,
+                11.0,
+                theme.label,
+                x + 16.0,
+                y,
+                item_width,
+                16.0,
+            );
+            x += item_width;
+        }
         return;
     }
     let mut y = area.plot.y();

@@ -52,7 +52,10 @@ impl From<ShowcaseChartCard> for Widget {
                     gap: Some(tokens.spacing.s),
                     ..Default::default()
                 },
-                configure_chart(card.chart, view).height(SHOWCASE_CHART_HEIGHT),
+                Container::new(configure_chart(card.chart, view).height(SHOWCASE_CHART_HEIGHT))
+                    .width_length(Length::percent(100.0))
+                    .height(SHOWCASE_CHART_HEIGHT)
+                    .min_width(0.0),
             ],
             gap: Some(tokens.spacing.m),
             ..Default::default()
@@ -62,6 +65,7 @@ impl From<ShowcaseChartCard> for Widget {
         .border_radius(tokens.radii.xxl)
         .bg(tokens.colors.surface)
         .border(tokens.colors.border, 1.0)
+        .clip_overflow(true)
         .into()
     }
 }

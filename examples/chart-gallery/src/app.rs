@@ -36,61 +36,42 @@ impl From<GalleryApp> for Widget {
         let toggle_markers = with_reducer!(ctx, ToggleMarkers(false), toggle_markers);
         ctx.register::<ChartInteractionEvent, _>(reduce_with!(record_chart_interaction));
 
-        let compact_controls = GalleryControls {
-            toggle_smooth: toggle_smooth.clone(),
-            update_scale: update_scale.clone(),
-            toggle_theme: toggle_theme.clone(),
-            toggle_interactions: toggle_interactions.clone(),
-            toggle_animations: toggle_animations.clone(),
-            toggle_markers: toggle_markers.clone(),
-            instance: "compact",
-        };
-        let expanded_controls = GalleryControls {
+        let expanded = view.viewport_size().width >= EXPANDED_BREAKPOINT;
+        let instance = if expanded { "expanded" } else { "compact" };
+        let controls = GalleryControls {
             toggle_smooth,
             update_scale,
             toggle_theme,
             toggle_interactions,
             toggle_animations,
             toggle_markers,
-            instance: "expanded",
+            instance,
+        };
+        let sidebar = GallerySidebar {
+            select_chart_id,
+            layout: if expanded {
+                GallerySidebarLayout::Expanded
+            } else {
+                GallerySidebarLayout::Compact
+            },
+            instance,
+        };
+        let content = GalleryContent {
+            chart: SelectedChart {
+                scale: view.state().data_scale,
+            },
+            controls,
+            instance,
+        };
+        let gallery: Widget = if expanded {
+            GalleryExpanded { sidebar, content }.into()
+        } else {
+            GalleryCompact { sidebar, content }.into()
         };
 
-        Container::new(
-            Responsive::new(GalleryCompact {
-                sidebar: GallerySidebar {
-                    select_chart_id,
-                    layout: GallerySidebarLayout::Compact,
-                    instance: "compact",
-                },
-                content: GalleryContent {
-                    chart: SelectedChart {
-                        scale: view.state().data_scale,
-                    },
-                    controls: compact_controls,
-                    instance: "compact",
-                },
-            })
-            .id(WidgetId::explicit("chart-gallery.responsive"))
-            .case(ResponsiveCase::min_width(
-                EXPANDED_BREAKPOINT,
-                GalleryExpanded {
-                    sidebar: GallerySidebar {
-                        select_chart_id,
-                        layout: GallerySidebarLayout::Expanded,
-                        instance: "expanded",
-                    },
-                    content: GalleryContent {
-                        chart: SelectedChart {
-                            scale: view.state().data_scale,
-                        },
-                        controls: expanded_controls,
-                        instance: "expanded",
-                    },
-                },
-            )),
-        )
-        .width_length(Length::vw(100.0))
-        .height_length(Length::vh(100.0))
-        .into()
+        Container::new(gallery)
+            .width_length(Length::vw(100.0))
+            .height_length(Length::vh(100.0))
+            .into()
     }
 }
