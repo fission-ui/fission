@@ -415,6 +415,16 @@ pub(super) fn app_store_status(
         .send()
         .context("failed to query App Store Connect build status")?;
     let builds = json_response(builds_response, "App Store Connect build status")?;
+    let build_uploads_url = app_store_build_uploads_status_url(&app_id);
+    let build_uploads_response = client
+        .get(build_uploads_url)
+        .bearer_auth(&token)
+        .send()
+        .context("failed to query App Store Connect build upload status")?;
+    let build_uploads = json_response(
+        build_uploads_response,
+        "App Store Connect build upload status",
+    )?;
     let review_submissions_url = format!(
         "{APP_STORE_API}/v1/apps/{app_id}/reviewSubmissions?limit=10&fields[reviewSubmissions]=state,platform&include=items&fields[reviewSubmissionItems]=state,appStoreVersion"
     );
@@ -433,10 +443,11 @@ pub(super) fn app_store_status(
         .send()
         .context("failed to query App Store TestFlight beta group status")?;
     let beta_groups = json_response(beta_groups_response, "App Store beta groups status")?;
-    let status = app_store_observed_status(&builds, &review_submissions);
+    let status = app_store_observed_status(&builds, &review_submissions, &build_uploads);
     let stdout = json!({
         "app_id": app_id,
         "builds": builds,
+        "build_uploads": build_uploads,
         "review_submissions": review_submissions,
         "beta_groups": beta_groups,
     });
@@ -461,6 +472,12 @@ pub(super) fn app_store_status(
 pub(super) fn app_store_builds_status_url(app_id: &str) -> String {
     format!(
         "{APP_STORE_API}/v1/builds?filter[app]={app_id}&limit=10&sort=-uploadedDate&fields[builds]=version,uploadedDate,processingState,expired,minOsVersion,usesNonExemptEncryption"
+    )
+}
+
+pub(super) fn app_store_build_uploads_status_url(app_id: &str) -> String {
+    format!(
+        "{APP_STORE_API}/v1/apps/{app_id}/buildUploads?limit=10&sort=-uploadedDate&fields[buildUploads]=cfBundleShortVersionString,cfBundleVersion,createdDate,state,platform,uploadedDate,build"
     )
 }
 
@@ -792,9 +809,31 @@ pub(super) fn microsoft_store_status(
     })
 }
 
-pub(super) fn app_store_observed_status(builds: &Value, review_submissions: &Value) -> String {
+pub(super) fn app_store_observed_status(
+    builds: &Value,
+    review_submissions: &Value,
+    build_uploads: &Value,
+) -> String {
     app_store_latest_review_submission_status(review_submissions)
-        .unwrap_or_else(|| app_store_latest_build_status(builds))
+        .or_else(|| {
+            let status = app_store_latest_build_status(builds);
+            (status != "no-builds").then_some(status)
+        })
+        .or_else(|| app_store_latest_build_upload_status(build_uploads))
+        .unwrap_or_else(|| "no-builds".to_string())
+}
+
+fn app_store_latest_build_upload_status(value: &Value) -> Option<String> {
+    let state = value
+        .get("data")
+        .and_then(Value::as_array)
+        .and_then(|items| items.first())
+        .and_then(|item| item.get("attributes"))
+        .and_then(|attributes| attributes.get("state"))?;
+    state
+        .as_str()
+        .or_else(|| state.get("state").and_then(Value::as_str))
+        .map(|state| state.to_ascii_lowercase())
 }
 
 fn app_store_latest_review_submission_status(value: &Value) -> Option<String> {

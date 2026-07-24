@@ -396,6 +396,7 @@ fn app_store_status_prefers_review_submission_state_over_build_processing() {
                 "attributes": { "state": "WAITING_FOR_REVIEW" }
             }]
         }),
+        &json!({ "data": [] }),
     );
     assert_eq!(status, "waiting_for_review");
 }
@@ -407,6 +408,35 @@ fn app_store_status_queries_the_sortable_global_builds_endpoint() {
     assert!(url.contains("/v1/builds?filter[app]=6794005791"));
     assert!(url.contains("sort=-uploadedDate"));
     assert!(!url.contains("/v1/apps/6794005791/builds"));
+}
+
+#[test]
+fn app_store_status_reports_build_upload_failures_before_a_build_exists() {
+    let status = stores::app_store_observed_status(
+        &json!({ "data": [] }),
+        &json!({ "data": [] }),
+        &json!({
+            "data": [{
+                "attributes": {
+                    "state": {
+                        "state": "FAILED",
+                        "errors": [{ "code": "91109" }]
+                    }
+                }
+            }]
+        }),
+    );
+
+    assert_eq!(status, "failed");
+}
+
+#[test]
+fn app_store_build_upload_status_uses_the_app_relationship_endpoint() {
+    let url = stores::app_store_build_uploads_status_url("6794005791");
+
+    assert!(url.contains("/v1/apps/6794005791/buildUploads"));
+    assert!(url.contains("sort=-uploadedDate"));
+    assert!(url.contains("fields[buildUploads]"));
 }
 
 #[test]
