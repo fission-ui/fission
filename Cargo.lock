@@ -2689,6 +2689,7 @@ dependencies = [
  "clap",
  "fission-command-core",
  "fission-command-package",
+ "fission-test-driver",
  "jsonwebtoken",
  "md-5 0.10.6",
  "reqwest",

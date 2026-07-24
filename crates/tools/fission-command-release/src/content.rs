@@ -1,6 +1,7 @@
 use super::*;
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
+use fission_test_driver::{Selector, SelectorQuery};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -865,14 +866,9 @@ fn selector_query_payload(selector: &str) -> Result<Value> {
     if value.is_empty() {
         bail!("selector cannot be empty");
     }
-    let mut query = json!({
-        "selector": selector_payload(value)?,
-        "include_hidden": false,
-    });
-    if let Some(index) = index {
-        query["index"] = json!(index);
-    }
-    Ok(query)
+    let mut query = SelectorQuery::new(selector_payload(value)?);
+    query.index = index;
+    serde_json::to_value(query).context("failed to serialize LiveTest selector query")
 }
 
 fn split_selector_index(selector: &str) -> (&str, Option<usize>) {
@@ -885,38 +881,38 @@ fn split_selector_index(selector: &str) -> (&str, Option<usize>) {
     }
 }
 
-fn selector_payload(selector: &str) -> Result<Value> {
+fn selector_payload(selector: &str) -> Result<Selector> {
     if let Some(value) = selector.strip_prefix("semantic:") {
-        return Ok(json!({"SemanticIdentifier": {"identifier": value}}));
+        return Ok(Selector::semantic_identifier(value));
     }
     if let Some(value) = selector
         .strip_prefix("test_id:")
         .or_else(|| selector.strip_prefix("test-id:"))
     {
-        return Ok(json!({"TestId": {"test_id": value}}));
+        return Ok(Selector::test_id(value));
     }
     if let Some(value) = selector
         .strip_prefix("widget_id:")
         .or_else(|| selector.strip_prefix("widget:"))
     {
-        return Ok(json!({"WidgetId": {"widget_id": value}}));
+        return Ok(Selector::widget_id(value));
     }
     if let Some(value) = selector
         .strip_prefix("accessibility:")
         .or_else(|| selector.strip_prefix("a11y:"))
     {
-        return Ok(json!({"AccessibilityIdentifier": {"identifier": value}}));
+        return Ok(Selector::accessibility_identifier(value));
     }
     if let Some(value) = selector.strip_prefix("label:") {
-        return Ok(json!({"Label": {"label": value}}));
+        return Ok(Selector::label(value));
     }
     if let Some(value) = selector.strip_prefix("role:") {
         let (role, label) = value
             .split_once(':')
             .context("role selector must be role:<role>:<label>")?;
-        return Ok(json!({"RoleLabel": {"role": role, "label": label}}));
+        return Ok(Selector::role_label(role, label));
     }
-    Ok(json!({"SemanticIdentifier": {"identifier": selector}}))
+    Ok(Selector::semantic_identifier(selector))
 }
 
 fn write_screenshot_response(

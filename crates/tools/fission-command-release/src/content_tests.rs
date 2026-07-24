@@ -264,8 +264,9 @@ fn screenshot_wait_for_uses_selector_protocol() {
 
     assert_eq!(payload["cmd"], "WaitForVisible");
     assert_eq!(payload["timeout_ms"], 7000);
+    assert_eq!(payload["query"]["selector"]["kind"], "semantic_identifier");
     assert_eq!(
-        payload["query"]["selector"]["SemanticIdentifier"]["identifier"],
+        payload["query"]["selector"]["identifier"],
         "checkout.submit"
     );
 }
@@ -283,8 +284,6 @@ fn screenshot_step_payload_supports_selector_actions() {
     assert_eq!(payload["cmd"], "FillText");
     assert_eq!(payload["text"], "person@example.com");
     assert_eq!(payload["query"]["index"], 1);
-    assert_eq!(
-        payload["query"]["selector"]["TestId"]["test_id"],
-        "login.email"
-    );
+    assert_eq!(payload["query"]["selector"]["kind"], "test_id");
+    assert_eq!(payload["query"]["selector"]["test_id"], "login.email");
 }
