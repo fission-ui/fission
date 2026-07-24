@@ -994,7 +994,7 @@ pub(super) fn readiness_distribute(
             stores::readiness_play_store(project_dir, track, artifact, config, &mut checks)?
         }
         DistributionProvider::AppStore => {
-            stores::readiness_app_store(project_dir, track, artifact, config, &mut checks)?
+            stores::readiness_app_store(project_dir, track, format, artifact, config, &mut checks)?
         }
         DistributionProvider::MicrosoftStore => stores::readiness_microsoft_store(
             project_dir,

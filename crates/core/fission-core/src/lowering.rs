@@ -423,6 +423,16 @@ pub fn build_layout_tree(ir: &CoreIR, _env: &Env) -> Vec<LayoutInputNode> {
                     0.0,
                     0.0,
                 ),
+                LayoutOp::Spotlight { anchor, padding } => (
+                    LayoutOp::Spotlight {
+                        anchor: *anchor,
+                        padding: *padding,
+                    },
+                    None,
+                    None,
+                    0.0,
+                    0.0,
+                ),
                 LayoutOp::Clip { path } => {
                     (LayoutOp::Clip { path: path.clone() }, None, None, 0.0, 0.0)
                 }

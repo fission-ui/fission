@@ -58,6 +58,10 @@ fn verify_layout(node_id: WidgetId, layout: &LayoutOp) -> Result<(), TerminalSup
             node_id,
             "flyout placement is not yet supported by the terminal shell",
         )),
+        LayoutOp::Spotlight { .. } => Err(unsupported(
+            node_id,
+            "spotlight overlays are not representable in a terminal cell grid",
+        )),
         LayoutOp::Transform { .. } => Err(unsupported(
             node_id,
             "matrix transforms are not representable in a terminal cell grid",

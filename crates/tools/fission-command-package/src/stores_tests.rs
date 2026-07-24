@@ -494,6 +494,33 @@ build_number = "42"
 }
 
 #[test]
+fn configured_macos_build_number_uses_macos_package_value() {
+    let dir =
+        std::env::temp_dir().join(format!("fission-macos-build-number-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(
+        dir.join("fission.toml"),
+        r#"[app]
+build = 7
+
+[package.ios]
+build_number = "41"
+
+[package.macos]
+build_number = "42"
+"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        configured_macos_build_number(&dir).unwrap(),
+        Some("42".to_string())
+    );
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn app_store_provider_build_number_prefers_artifact_manifest_build() {
     let dir = std::env::temp_dir().join(format!(
         "fission-app-store-artifact-build-{}",
@@ -534,10 +561,41 @@ build_number = "9"
     };
 
     assert_eq!(
-        app_store_build_number_for_provider(&dir, Some(&manifest)).unwrap(),
+        app_store_build_number_for_provider(&dir, AppStorePlatform::Ios, Some(&manifest),).unwrap(),
         Some("43".to_string())
     );
     let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn app_store_readiness_infers_platform_from_requested_format() {
+    assert_eq!(
+        app_store_platform_for_readiness(
+            &AppStoreConfig::default(),
+            Some(PackageFormat::Ipa),
+            None,
+        )
+        .unwrap(),
+        AppStorePlatform::Ios
+    );
+    assert_eq!(
+        app_store_platform_for_readiness(
+            &AppStoreConfig::default(),
+            Some(PackageFormat::Pkg),
+            None,
+        )
+        .unwrap(),
+        AppStorePlatform::Macos
+    );
+    assert!(app_store_platform_for_readiness(
+        &AppStoreConfig {
+            platform: Some("macos".to_string()),
+            ..Default::default()
+        },
+        Some(PackageFormat::Ipa),
+        None,
+    )
+    .is_err());
 }
 
 #[test]

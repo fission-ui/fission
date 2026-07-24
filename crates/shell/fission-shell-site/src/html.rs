@@ -1595,6 +1595,25 @@ impl HtmlRenderer<'_> {
                     node.id
                 ))
             }
+            LayoutOp::Spotlight { anchor, padding } => {
+                let children = self.render_children(&node.children, &HashSet::new())?;
+                let class_name = self.class_name(
+                    "fission-site-node fission-site-spotlight",
+                    vec![
+                        "position:fixed".to_string(),
+                        "inset:0".to_string(),
+                        "z-index:1000".to_string(),
+                        "pointer-events:none".to_string(),
+                    ],
+                );
+                Ok(format!(
+                    "<div class=\"{}\" data-fission-spotlight-anchor=\"{}\" data-fission-spotlight-padding=\"{}\" data-fission-node=\"{}\">{children}</div>",
+                    escape_attr(&class_name),
+                    anchor,
+                    padding,
+                    node.id
+                ))
+            }
             LayoutOp::Transform { transform } => self.render_element(
                 "div",
                 node,
@@ -3382,6 +3401,67 @@ mod tests {
             value: 612.0,
         }],
     }];
+
+    #[test]
+    fn spotlight_layout_emits_browser_geometry_metadata() {
+        let root = WidgetId::explicit("root");
+        let anchor = WidgetId::explicit("tour-anchor");
+        let spotlight = WidgetId::explicit("tour-spotlight");
+        let regions = vec![
+            WidgetId::explicit("tour-region-top"),
+            WidgetId::explicit("tour-region-bottom"),
+            WidgetId::explicit("tour-region-left"),
+            WidgetId::explicit("tour-region-right"),
+            WidgetId::explicit("tour-region-focus"),
+        ];
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            anchor,
+            Op::Structural(fission_ir::StructuralOp::Group { stable_hash: 1 }),
+            Vec::new(),
+        );
+        for region in &regions {
+            ir.add_node(
+                *region,
+                Op::Structural(fission_ir::StructuralOp::Group { stable_hash: 2 }),
+                Vec::new(),
+            );
+        }
+        ir.add_node(
+            spotlight,
+            Op::Layout(LayoutOp::Spotlight {
+                anchor,
+                padding: 12.0,
+            }),
+            regions,
+        );
+        ir.add_node(
+            root,
+            Op::Structural(fission_ir::StructuralOp::Group { stable_hash: 3 }),
+            vec![anchor, spotlight],
+        );
+        ir.set_root(root);
+
+        let rendered = render_ir_to_html(&ir, &HtmlRenderOptions::default()).unwrap();
+
+        assert!(rendered
+            .html
+            .contains(&format!("data-fission-spotlight-anchor=\"{anchor}\"")));
+        assert!(rendered
+            .html
+            .contains("data-fission-spotlight-padding=\"12\""));
+        for region in [
+            WidgetId::explicit("tour-region-top"),
+            WidgetId::explicit("tour-region-bottom"),
+            WidgetId::explicit("tour-region-left"),
+            WidgetId::explicit("tour-region-right"),
+            WidgetId::explicit("tour-region-focus"),
+        ] {
+            assert!(rendered
+                .html
+                .contains(&format!("data-fission-node=\"{region}\"")));
+        }
+    }
 
     #[test]
     fn embeds_packaged_font_faces_in_site_css() {

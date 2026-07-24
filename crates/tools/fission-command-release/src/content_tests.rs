@@ -1,4 +1,5 @@
 use super::*;
+use image::{Rgba, RgbaImage};
 use std::path::PathBuf;
 
 fn unique_dir(name: &str) -> PathBuf {
@@ -75,6 +76,34 @@ fn render_release_content_copies_raw_assets_and_writes_manifest() {
     let manifest: serde_json::Value = serde_json::from_slice(&fs::read(manifest).unwrap()).unwrap();
     let sha = manifest["assets"][0]["sha256"].as_str().unwrap();
     assert_eq!(sha.len(), 64);
+}
+
+#[test]
+fn app_store_render_flattens_png_alpha() {
+    let dir = unique_dir("app-store-alpha");
+    let raw_dir = dir.join("release-content/screenshots/raw/en-US/APP_DESKTOP");
+    fs::create_dir_all(&raw_dir).unwrap();
+    RgbaImage::from_pixel(2, 2, Rgba([10, 20, 30, 128]))
+        .save(raw_dir.join("home.png"))
+        .unwrap();
+    fs::write(
+        dir.join("fission.toml"),
+        r#"[app]
+name = "content-demo"
+app_id = "com.example.content_demo"
+
+[release.screenshots]
+raw_dir = "release-content/screenshots/raw"
+rendered_dir = "release-content/screenshots/rendered"
+"#,
+    )
+    .unwrap();
+
+    render_release_content(&dir, DistributionProvider::AppStore).unwrap();
+
+    let rendered =
+        dir.join("release-content/screenshots/rendered/app-store/en-US/APP_DESKTOP/home.png");
+    assert!(!image::open(rendered).unwrap().color().has_alpha());
 }
 
 #[test]
@@ -182,6 +211,26 @@ app_previews_dir = "release-content/previews/app-store"
 }
 
 #[test]
+fn app_store_validation_does_not_require_optional_preview_video() {
+    let dir = unique_dir("app-store-optional-preview");
+    fs::write(
+        dir.join("fission.toml"),
+        r#"[app]
+name = "content-demo"
+app_id = "com.example.content_demo"
+
+[release.assets.app_store]
+"#,
+    )
+    .unwrap();
+
+    let report = validate_release_content_model(&dir, Some(DistributionProvider::AppStore));
+    assert!(report.checks.iter().any(|check| {
+        check.id == "release_content.app_store.app_previews_dir" && check.status == "skipped"
+    }));
+}
+
+#[test]
 fn content_manifest_materializes_referenced_release_files() {
     let dir = unique_dir("manifest");
     fs::create_dir_all(dir.join("release-content/metadata/1.0.0+1/notes")).unwrap();
@@ -264,8 +313,9 @@ fn screenshot_wait_for_uses_selector_protocol() {
 
     assert_eq!(payload["cmd"], "WaitForVisible");
     assert_eq!(payload["timeout_ms"], 7000);
+    assert_eq!(payload["query"]["selector"]["kind"], "semantic_identifier");
     assert_eq!(
-        payload["query"]["selector"]["SemanticIdentifier"]["identifier"],
+        payload["query"]["selector"]["identifier"],
         "checkout.submit"
     );
 }
@@ -283,8 +333,6 @@ fn screenshot_step_payload_supports_selector_actions() {
     assert_eq!(payload["cmd"], "FillText");
     assert_eq!(payload["text"], "person@example.com");
     assert_eq!(payload["query"]["index"], 1);
-    assert_eq!(
-        payload["query"]["selector"]["TestId"]["test_id"],
-        "login.email"
-    );
+    assert_eq!(payload["query"]["selector"]["kind"], "test_id");
+    assert_eq!(payload["query"]["selector"]["test_id"], "login.email");
 }

@@ -218,8 +218,88 @@
     });
   }
 
+  function findFissionNode(root,id){
+    var nodes=root.querySelectorAll('[data-fission-node]');
+    for(var i=0;i<nodes.length;i++){
+      if(nodes[i].getAttribute('data-fission-node')===id)return nodes[i];
+    }
+    return null;
+  }
+
+  function initSpotlights(root){
+    var spotlights=Array.prototype.slice.call(root.querySelectorAll('[data-fission-spotlight-anchor]'));
+    if(!spotlights.length)return;
+    var frame=0;
+
+    function place(region,left,top,width,height){
+      region.style.position='absolute';
+      region.style.left=Math.max(0,left)+'px';
+      region.style.top=Math.max(0,top)+'px';
+      region.style.width=Math.max(0,width)+'px';
+      region.style.height=Math.max(0,height)+'px';
+      region.hidden=width<=0||height<=0;
+    }
+
+    function layout(spotlight){
+      var regions=Array.prototype.slice.call(spotlight.children);
+      if(regions.length!==5)return;
+      var bounds=spotlight.getBoundingClientRect();
+      var anchor=findFissionNode(document,spotlight.getAttribute('data-fission-spotlight-anchor'));
+      if(!anchor){
+        place(regions[0],0,0,bounds.width,bounds.height);
+        for(var missing=1;missing<regions.length;missing++)place(regions[missing],0,0,0,0);
+        spotlight.dataset.fissionSpotlightState='anchor-missing';
+        return;
+      }
+
+      var target=anchor.getBoundingClientRect();
+      var padding=Number(spotlight.getAttribute('data-fission-spotlight-padding')||'0');
+      if(!Number.isFinite(padding))padding=0;
+      padding=Math.max(0,padding);
+      var left=Math.max(0,Math.min(bounds.width,target.left-bounds.left-padding));
+      var top=Math.max(0,Math.min(bounds.height,target.top-bounds.top-padding));
+      var right=Math.max(0,Math.min(bounds.width,target.right-bounds.left+padding));
+      var bottom=Math.max(0,Math.min(bounds.height,target.bottom-bounds.top+padding));
+      if(right<=left||bottom<=top){
+        place(regions[0],0,0,bounds.width,bounds.height);
+        for(var invalid=1;invalid<regions.length;invalid++)place(regions[invalid],0,0,0,0);
+        spotlight.dataset.fissionSpotlightState='anchor-hidden';
+        return;
+      }
+
+      place(regions[0],0,0,bounds.width,top);
+      place(regions[1],0,bottom,bounds.width,bounds.height-bottom);
+      place(regions[2],0,top,left,bottom-top);
+      place(regions[3],right,top,bounds.width-right,bottom-top);
+      place(regions[4],left,top,right-left,bottom-top);
+      spotlight.dataset.fissionSpotlightState='ready';
+    }
+
+    function update(){
+      frame=0;
+      spotlights.forEach(layout);
+    }
+    function schedule(){
+      if(frame)return;
+      frame=requestAnimationFrame(update);
+    }
+
+    update();
+    window.addEventListener('resize',schedule,{passive:true});
+    window.addEventListener('scroll',schedule,{passive:true,capture:true});
+    if(typeof ResizeObserver!=='undefined'){
+      var observer=new ResizeObserver(schedule);
+      spotlights.forEach(function(spotlight){
+        observer.observe(spotlight);
+        var anchor=findFissionNode(document,spotlight.getAttribute('data-fission-spotlight-anchor'));
+        if(anchor)observer.observe(anchor);
+      });
+    }
+  }
+
   function boot(){
     initTabs(document);
+    initSpotlights(document);
     document.querySelectorAll('.fission-site-doc-sidebar').forEach(initSidebar);
     document.querySelectorAll('.fission-site-doc-nav,.fission-site-main-nav,.fission-site-mobile-global-menu').forEach(initNav);
   }

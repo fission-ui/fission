@@ -12,6 +12,7 @@ const DEFAULT_APP_ICON_PNG: &[u8] = include_bytes!("../assets/fission_logo.png")
 const GENERATED_APP_AGENTS_MARKER: &str = "<!-- fission-cli-generated-agents:v1 -->";
 const GENERATED_APP_AGENTS_MD: &str = include_str!("../assets/AGENTS.md");
 
+mod desktop_features;
 mod icons;
 mod linux_native;
 mod macos_native;
@@ -20,6 +21,7 @@ mod native_cargo;
 mod native_variant;
 mod splash;
 mod windows_native;
+pub use desktop_features::{read_desktop_cargo_options, DesktopCargoOptions};
 pub use icons::{copy_icon_for_bundle, normalized_extension, resolve_app_icon, ResolvedIcon};
 pub use linux_native::{
     build_linux_native_modules, stage_linux_native_products, test_linux_native_modules,

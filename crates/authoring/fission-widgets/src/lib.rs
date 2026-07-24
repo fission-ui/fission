@@ -225,6 +225,9 @@ pub use popover::{Popover, PopoverMotion};
 pub mod router;
 pub use router::{Route, RouteParams, Router};
 
+pub mod spotlight;
+pub use spotlight::Spotlight;
+
 use fission_core::{
     internal::{InternalIrBuilder, InternalLowerer, InternalLoweringCx},
     op::StructuralOp,
