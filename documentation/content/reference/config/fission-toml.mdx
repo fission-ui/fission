@@ -740,11 +740,15 @@ installer_script = "platforms/linux/package-run.sh"
 | `build_number` | string | No | macOS `CFBundleVersion`. If omitted, Fission falls back to the resolved release/app build number. |
 | `team_id` | string | No | Apple Developer Team ID used by signing/notarization readiness checks. |
 | `minimum_os` | string | No | Records the intended minimum macOS version for package metadata. |
+| `application_category` | string | No | Writes the `LSApplicationCategoryType` UTI required for Mac App Store submission, such as `public.app-category.developer-tools`. |
 | `entitlements` | string | No | Base project-relative entitlements plist passed to `codesign` when signing. |
 | `provisioning_profile` | string | No | Base project-relative provisioning profile embedded at `Contents/embedded.provisionprofile` before signing. |
 | `signing_identity` | string | No | Base application signing identity. Flat signing fields apply to debug and release packaging for backward compatibility. |
 | `installer_identity` | string | No | Base installer identity passed to `pkgbuild` for `.pkg` output. |
 | `notarize` | boolean | No | Base notarization setting. Prefer the release overlay below for production notarization. |
+| `pkg_builder` | string | No | `.pkg` construction tool: `pkgbuild` (default) or `productbuild`. Mac App Store submissions use `productbuild`. |
+| `cargo_features` | array of strings | No | Cargo features enabled while building the packaged desktop binary. |
+| `cargo_no_default_features` | boolean | No | Passes `--no-default-features` while building the packaged desktop binary. |
 
 ### `[package.macos.release]`
 
@@ -758,17 +762,48 @@ production credentials.
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
+| `application_category` | string | No | Overrides the base `LSApplicationCategoryType` UTI for release packaging. |
 | `entitlements` | string | No | Project-relative release entitlements plist. |
 | `provisioning_profile` | string | No | Project-relative release provisioning profile embedded before signing. |
 | `signing_identity` | string | No | Developer ID Application identity used to sign release `.app` bundles. |
 | `installer_identity` | string | No | Developer ID Installer identity passed to `pkgbuild` for release `.pkg` output. |
 | `notarize` | boolean | No | When `true`, notarizes the signed `.app` and, for `.pkg` output, the signed installer. Requires `APP_STORE_CONNECT_KEY_ID`, `APP_STORE_CONNECT_ISSUER_ID`, and key material from `APP_STORE_CONNECT_API_KEY_PATH`, `APP_STORE_CONNECT_API_KEY`, or `APP_STORE_CONNECT_API_KEY_BASE64`. |
+| `pkg_builder` | string | No | Overrides the base `.pkg` construction tool for release packaging. |
+| `cargo_features` | array of strings | No | Replaces the base Cargo feature list for release packaging. |
+| `cargo_no_default_features` | boolean | No | Overrides the base `--no-default-features` setting for release packaging. |
 
 Fission submits an app bundle through a private temporary ZIP created with
 `ditto --keepParent`, then staples and validates the original `.app`. The ZIP
 and any API key material decoded from environment values are removed after the
 operation. `.pkg` notarization continues to submit, staple, and validate the
 signed installer itself.
+
+### `[package.macos.variants.<name>]`
+
+A selected desktop `--variant` may override the effective macOS package signing
+configuration. Fission applies `[package.macos]`, then
+`[package.macos.release]` for release packaging, then the selected variant.
+This keeps Developer ID and Mac App Store identities in one project without
+editing configuration between packages.
+
+```toml
+[package.macos.variants.app-store]
+application_category = "public.app-category.developer-tools"
+entitlements = "platforms/macos/AppStore.entitlements"
+provisioning_profile = ".fission/signing/macos/AppStore.provisionprofile"
+signing_identity = "Apple Distribution: Example Ltd"
+installer_identity = "3rd Party Mac Developer Installer: Example Ltd"
+notarize = false
+pkg_builder = "productbuild"
+cargo_features = ["macos-app-store"]
+```
+
+The variant accepts the same `application_category`, `entitlements`,
+`provisioning_profile`, `signing_identity`, `installer_identity`, `notarize`,
+`pkg_builder`, `cargo_features`, and `cargo_no_default_features` fields as the
+release overlay.
+Package it with `fission package --target macos --format pkg --release --variant
+app-store`.
 
 ### `[run.macos]`
 
@@ -982,6 +1017,7 @@ Credentials come from the configured environment-variable names. Do not put serv
 | --- | --- | --- | --- | --- |
 | `app_id` | string | Required unless `bundle_id` can resolve the app through the provider API | none | App Store Connect app id. |
 | `bundle_id` | string | Required when `app_id` is omitted | none | Bundle id used to look up the app. |
+| `platform` | string | No | inferred from the upload artifact, otherwise `ios` | App Store platform. Accepted values are `ios` and `macos`. |
 | `issuer_id` | string | Required unless the configured issuer env var is set | none | App Store Connect issuer id. |
 | `key_id` | string | Required unless the configured key-id env var is set | none | App Store Connect API key id. |
 | `default_track` | string | No | command/provider default | Default release/beta track label for commands that accept tracks. |
@@ -993,6 +1029,10 @@ Credentials come from the configured environment-variable names. Do not put serv
 | `api_key_path_env` | string | No | `APP_STORE_CONNECT_API_KEY_PATH` | Environment variable containing a local private-key path outside the repo. |
 
 API key material comes from the configured environment-variable names. Use the path variable only for local files outside the repo; use base64 CI secrets for automation.
+
+App Store distribution accepts an iOS `.ipa` or a macOS `.pkg`. Fission
+validates the artifact target against `platform`, passes the matching type to
+Apple's upload tool, and uses `IOS` or `MAC_OS` for App Review operations.
 
 ### `[distribution.microsoft_store]`
 
@@ -1351,6 +1391,7 @@ service_account_json_base64_env = "PLAY_STORE_SERVICE_ACCOUNT_JSON_BASE64"
 
 [distribution.app_store]
 bundle_id = "com.example.app"
+platform = "ios"
 issuer_id = "00000000-0000-0000-0000-000000000000"
 key_id = "ABC123DEFG"
 api_key_env = "APP_STORE_CONNECT_API_KEY"

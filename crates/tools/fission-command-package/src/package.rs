@@ -4,7 +4,7 @@ use anyhow::{bail, Context, Result};
 use fission_command_core::{
     build_linux_native_modules, build_windows_native_modules, cargo_package_name,
     embed_and_sign_macos_native_modules, ensure_native_variant_target, normalized_extension,
-    read_macos_package_config_for_profile, read_project_config, resolve_app_icon,
+    read_macos_package_config_for_profile_and_variant, read_project_config, resolve_app_icon,
     sign_macos_app_if_configured, stage_linux_native_products, stage_project_assets,
     stage_windows_runtime_products, sync_platform_config, variant_output_path,
     BuiltLinuxNativeProduct, BuiltWindowsNativeProduct, FissionProject, MacosNativeBundleMode,
@@ -249,7 +249,7 @@ fn package_linux_run(options: &PackageOptions) -> Result<ArtifactManifest> {
     let staging_dir = clean_package_dir(options)?;
     let payload_dir = staging_dir.join("payload");
     fs::create_dir_all(&payload_dir)?;
-    let binary = build_desktop_binary(&options.project_dir, options.release)?;
+    let binary = build_desktop_binary(&options.project_dir, options.release, &[], false)?;
     let executable_name = binary
         .file_name()
         .and_then(OsStr::to_str)
@@ -330,7 +330,7 @@ fn package_terminal_run(options: &PackageOptions) -> Result<ArtifactManifest> {
     let staging_dir = clean_package_dir(options)?;
     let payload_dir = staging_dir.join("payload");
     fs::create_dir_all(&payload_dir)?;
-    let binary = build_desktop_binary(&options.project_dir, options.release)?;
+    let binary = build_desktop_binary(&options.project_dir, options.release, &[], false)?;
     let executable_name = binary
         .file_name()
         .and_then(OsStr::to_str)
@@ -362,7 +362,11 @@ fn package_macos_app(options: &PackageOptions) -> Result<ArtifactManifest> {
     let project = read_project_config(&options.project_dir)?;
     let profile = profile_name(options.release);
     let staging_dir = clean_package_dir(options)?;
-    let macos = read_macos_package_config_for_profile(&options.project_dir, options.release)?;
+    let macos = read_macos_package_config_for_profile_and_variant(
+        &options.project_dir,
+        options.release,
+        options.variant.as_ref(),
+    )?;
     let app_bundle = create_macos_app_bundle(options, &project, &staging_dir, &macos)?;
     embed_and_sign_macos_native_modules(
         &options.project_dir,
@@ -386,7 +390,11 @@ fn package_macos_pkg(options: &PackageOptions) -> Result<ArtifactManifest> {
     let profile = profile_name(options.release);
     let staging_dir = clean_package_dir(options)?;
     let app_staging = staging_dir.join("app-staging");
-    let macos = read_macos_package_config_for_profile(&options.project_dir, options.release)?;
+    let macos = read_macos_package_config_for_profile_and_variant(
+        &options.project_dir,
+        options.release,
+        options.variant.as_ref(),
+    )?;
     let app_bundle = create_macos_app_bundle(options, &project, &app_staging, &macos)?;
     embed_and_sign_macos_native_modules(
         &options.project_dir,
@@ -405,20 +413,32 @@ fn package_macos_pkg(options: &PackageOptions) -> Result<ArtifactManifest> {
         sanitize_file_stem(&project.app.name),
         version
     ));
-    if find_in_path("pkgbuild").is_none() {
-        bail!("pkgbuild was not found; install Xcode command line tools to create macOS .pkg packages");
+    let component_plist = if macos.pkg_builder.as_deref().unwrap_or("pkgbuild") == "pkgbuild" {
+        Some(write_macos_component_plist(&staging_dir, &app_bundle)?)
+    } else {
+        None
+    };
+    let (pkg_builder, pkg_arguments) =
+        macos_pkg_builder_command(&app_bundle, &pkg_path, component_plist.as_deref(), &macos)?;
+    if find_in_path(pkg_builder).is_none() {
+        bail!(
+            "{pkg_builder} was not found; install Xcode command line tools to create macOS .pkg packages"
+        );
     }
-    let status = Command::new("pkgbuild")
-        .arg("--component")
-        .arg(&app_bundle)
-        .arg("--install-location")
-        .arg("/Applications")
-        .args(pkgbuild_signing_args(&macos))
-        .arg(&pkg_path)
+    let status = Command::new(pkg_builder)
+        .args(pkg_arguments)
         .status()
-        .context("failed to run pkgbuild")?;
+        .with_context(|| format!("failed to run {pkg_builder}"))?;
     if !status.success() {
-        bail!("pkgbuild failed with {status}");
+        bail!("{pkg_builder} failed with {status}");
+    }
+    if let Some(component_plist) = component_plist {
+        fs::remove_file(&component_plist).with_context(|| {
+            format!(
+                "failed to remove macOS component property list {}",
+                component_plist.display()
+            )
+        })?;
     }
     notarize_macos_artifact_if_configured(&pkg_path, &macos)?;
     fs::remove_dir_all(&app_staging).ok();
@@ -431,7 +451,7 @@ fn package_windows_exe(options: &PackageOptions) -> Result<ArtifactManifest> {
     let project = read_project_config(&options.project_dir)?;
     let profile = profile_name(options.release);
     let staging_dir = clean_package_dir(options)?;
-    let binary = build_desktop_binary(&options.project_dir, options.release)?;
+    let binary = build_desktop_binary(&options.project_dir, options.release, &[], false)?;
     let native_products = build_windows_native_modules(
         &options.project_dir,
         &project,
@@ -552,7 +572,7 @@ fn package_with_project_script(
     }
     let mut environment = Vec::new();
     if target == Target::Windows {
-        let binary = build_desktop_binary(&options.project_dir, options.release)?;
+        let binary = build_desktop_binary(&options.project_dir, options.release, &[], false)?;
         let native_products = build_windows_native_modules(
             &options.project_dir,
             &project,
@@ -617,10 +637,15 @@ fn finish_artifact_manifest(
         options.target,
         options.format,
         options.release,
+        options.variant.as_ref(),
         &manifest.validation.checks,
     )?;
-    manifest.notarization =
-        package_notarization_context(&options.project_dir, options.target, options.release)?;
+    manifest.notarization = package_notarization_context(
+        &options.project_dir,
+        options.target,
+        options.release,
+        options.variant.as_ref(),
+    )?;
     let manifest_path = staging_dir.join(ARTIFACT_MANIFEST);
     fs::write(&manifest_path, serde_json::to_vec_pretty(&manifest)?).with_context(|| {
         format!(
@@ -1501,7 +1526,12 @@ fn require_host_os(target: Target) -> Result<()> {
     }
 }
 
-fn build_desktop_binary(project_dir: &Path, release: bool) -> Result<PathBuf> {
+fn build_desktop_binary(
+    project_dir: &Path,
+    release: bool,
+    cargo_features: &[String],
+    cargo_no_default_features: bool,
+) -> Result<PathBuf> {
     let project_dir = fs::canonicalize(project_dir).with_context(|| {
         format!(
             "failed to resolve project directory {}",
@@ -1520,6 +1550,12 @@ fn build_desktop_binary(project_dir: &Path, release: bool) -> Result<PathBuf> {
         .current_dir(&project_dir);
     if release {
         command.arg("--release");
+    }
+    if cargo_no_default_features {
+        command.arg("--no-default-features");
+    }
+    if !cargo_features.is_empty() {
+        command.arg("--features").arg(cargo_features.join(","));
     }
     let status = command.status().context("failed to run cargo build")?;
     if !status.success() {
@@ -1591,7 +1627,12 @@ fn create_macos_app_bundle(
     staging_dir: &Path,
     macos: &MacosPackageConfig,
 ) -> Result<PathBuf> {
-    let binary = build_desktop_binary(&options.project_dir, options.release)?;
+    let binary = build_desktop_binary(
+        &options.project_dir,
+        options.release,
+        &macos.cargo_features,
+        macos.cargo_no_default_features,
+    )?;
     let executable = binary
         .file_name()
         .and_then(OsStr::to_str)
@@ -1688,6 +1729,7 @@ fn render_info_plist(
   <key>LSMinimumSystemVersion</key>
   <string>{}</string>
 {}
+{}
 </dict>
 </plist>
 "#,
@@ -1698,8 +1740,23 @@ fn render_info_plist(
         escape_xml(version),
         escape_xml(build),
         escape_xml(minimum_os),
+        render_macos_application_category_entry(macos),
         render_macos_info_plist_capability_entries(project)
     )
+}
+
+pub(super) fn render_macos_application_category_entry(macos: &MacosPackageConfig) -> String {
+    macos
+        .application_category
+        .as_deref()
+        .filter(|category| !category.trim().is_empty())
+        .map(|category| {
+            format!(
+                "  <key>LSApplicationCategoryType</key>\n  <string>{}</string>",
+                escape_xml(category)
+            )
+        })
+        .unwrap_or_default()
 }
 
 fn render_macos_info_plist_capability_entries(project: &FissionProject) -> String {
@@ -1748,6 +1805,91 @@ fn pkgbuild_signing_args(macos: &MacosPackageConfig) -> Vec<String> {
         .filter(|value| !value.trim().is_empty())
         .map(|identity| vec!["--sign".to_string(), identity.to_string()])
         .unwrap_or_default()
+}
+
+pub(super) fn macos_pkg_builder_command(
+    app_bundle: &Path,
+    pkg_path: &Path,
+    component_plist: Option<&Path>,
+    macos: &MacosPackageConfig,
+) -> Result<(&'static str, Vec<OsString>)> {
+    match macos.pkg_builder.as_deref().unwrap_or("pkgbuild") {
+        "pkgbuild" => {
+            let component_root = app_bundle
+                .parent()
+                .context("macOS app bundle must have a component root")?;
+            let component_plist =
+                component_plist.context("pkgbuild requires a macOS component property list")?;
+            let mut args = vec![
+                OsString::from("--root"),
+                component_root.as_os_str().to_owned(),
+                OsString::from("--install-location"),
+                OsString::from("/Applications"),
+                OsString::from("--component-plist"),
+                component_plist.as_os_str().to_owned(),
+            ];
+            args.extend(pkgbuild_signing_args(macos).into_iter().map(OsString::from));
+            args.push(pkg_path.as_os_str().to_owned());
+            Ok(("pkgbuild", args))
+        }
+        "productbuild" => {
+            let mut args = Vec::new();
+            if let Some(identity) = macos.installer_identity.as_deref() {
+                args.push(OsString::from("--sign"));
+                args.push(OsString::from(identity));
+            }
+            args.extend([
+                OsString::from("--component"),
+                app_bundle.as_os_str().to_owned(),
+                OsString::from("/Applications"),
+                pkg_path.as_os_str().to_owned(),
+            ]);
+            Ok(("productbuild", args))
+        }
+        other => {
+            bail!("package.macos pkg_builder must be `pkgbuild` or `productbuild`, got `{other}`")
+        }
+    }
+}
+
+pub(super) fn write_macos_component_plist(
+    staging_dir: &Path,
+    app_bundle: &Path,
+) -> Result<PathBuf> {
+    let bundle_name = app_bundle
+        .file_name()
+        .and_then(OsStr::to_str)
+        .context("macOS app bundle name must be valid UTF-8")?;
+    let component_plist = staging_dir.join("components.plist");
+    let contents = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<array>
+  <dict>
+    <key>RootRelativeBundlePath</key>
+    <string>{}</string>
+    <key>BundleIsRelocatable</key>
+    <false/>
+    <key>BundleIsVersionChecked</key>
+    <false/>
+    <key>BundleHasStrictIdentifier</key>
+    <true/>
+    <key>BundleOverwriteAction</key>
+    <string>upgrade</string>
+  </dict>
+</array>
+</plist>
+"#,
+        escape_xml(bundle_name)
+    );
+    fs::write(&component_plist, contents).with_context(|| {
+        format!(
+            "failed to write macOS component property list {}",
+            component_plist.display()
+        )
+    })?;
+    Ok(component_plist)
 }
 
 fn write_linux_run(

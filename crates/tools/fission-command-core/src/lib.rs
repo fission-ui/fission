@@ -32,7 +32,8 @@ pub use macos_native::{
     NativeMacosProductKind, NativeMacosProductSigningConfig,
 };
 pub use macos_signing::{
-    read_macos_package_config, read_macos_package_config_for_profile, read_macos_run_config,
+    read_macos_package_config, read_macos_package_config_for_profile,
+    read_macos_package_config_for_profile_and_variant, read_macos_run_config,
     read_macos_run_config_for_profile, sign_macos_app_if_configured, MacosPackageConfig,
 };
 pub use native_variant::{ensure_native_variant_target, variant_output_path, NativeVariant};

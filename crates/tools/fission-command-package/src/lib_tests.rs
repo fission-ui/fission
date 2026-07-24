@@ -282,6 +282,7 @@ keystore_alias = "upload"
         Target::Android,
         PackageFormat::Aab,
         false,
+        None,
         &[ReadinessCheck {
             id: "release.package.signature.android_aab".to_string(),
             severity: CheckSeverity::Warning,
@@ -318,24 +319,116 @@ notarize = true
     .unwrap();
 
     assert_eq!(
-        package_signing_identity(&dir, Target::Macos, PackageFormat::App, false).unwrap(),
+        package_signing_identity(&dir, Target::Macos, PackageFormat::App, false, None).unwrap(),
         None
     );
     assert_eq!(
-        package_signing_identity(&dir, Target::Macos, PackageFormat::App, true).unwrap(),
+        package_signing_identity(&dir, Target::Macos, PackageFormat::App, true, None).unwrap(),
         Some("Developer ID Application: Example Ltd".to_string())
     );
     assert_eq!(
-        package_signing_identity(&dir, Target::Macos, PackageFormat::Pkg, true).unwrap(),
+        package_signing_identity(&dir, Target::Macos, PackageFormat::Pkg, true, None).unwrap(),
         Some("Developer ID Installer: Example Ltd".to_string())
     );
-    assert!(package_notarization_context(&dir, Target::Macos, false)
-        .unwrap()
-        .is_none());
-    assert!(package_notarization_context(&dir, Target::Macos, true)
-        .unwrap()
-        .is_some());
+    assert!(
+        package_notarization_context(&dir, Target::Macos, false, None)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        package_notarization_context(&dir, Target::Macos, true, None)
+            .unwrap()
+            .is_some()
+    );
     fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn macos_app_store_package_uses_productbuild_component_archive() {
+    let app = Path::new("/tmp/Developer Defence.app");
+    let pkg = Path::new("/tmp/Developer-Defence.pkg");
+    let config = fission_command_core::MacosPackageConfig {
+        installer_identity: Some("3rd Party Mac Developer Installer: Example Ltd".to_string()),
+        pkg_builder: Some("productbuild".to_string()),
+        ..Default::default()
+    };
+
+    let (builder, arguments) = package::macos_pkg_builder_command(app, pkg, None, &config).unwrap();
+
+    assert_eq!(builder, "productbuild");
+    assert_eq!(
+        arguments,
+        [
+            "--sign",
+            "3rd Party Mac Developer Installer: Example Ltd",
+            "--component",
+            "/tmp/Developer Defence.app",
+            "/Applications",
+            "/tmp/Developer-Defence.pkg",
+        ]
+        .map(std::ffi::OsString::from)
+    );
+}
+
+#[test]
+fn macos_developer_id_package_uses_a_non_relocatable_component_root() {
+    let app = Path::new("/tmp/app-staging/Developer Defence.app");
+    let pkg = Path::new("/tmp/Developer-Defence.pkg");
+    let component_plist = Path::new("/tmp/components.plist");
+    let config = fission_command_core::MacosPackageConfig {
+        installer_identity: Some("Developer ID Installer: Example Ltd".to_string()),
+        ..Default::default()
+    };
+
+    let (builder, arguments) =
+        package::macos_pkg_builder_command(app, pkg, Some(component_plist), &config).unwrap();
+
+    assert_eq!(builder, "pkgbuild");
+    assert_eq!(
+        arguments,
+        [
+            "--root",
+            "/tmp/app-staging",
+            "--install-location",
+            "/Applications",
+            "--component-plist",
+            "/tmp/components.plist",
+            "--sign",
+            "Developer ID Installer: Example Ltd",
+            "/tmp/Developer-Defence.pkg",
+        ]
+        .map(std::ffi::OsString::from)
+    );
+}
+
+#[test]
+fn macos_component_plist_disables_bundle_relocation() {
+    let dir = unique_dir("macos-component-plist");
+    let app = dir.join("app-staging/Developer & Defence.app");
+    fs::create_dir_all(&app).unwrap();
+
+    let component_plist = package::write_macos_component_plist(&dir, &app).unwrap();
+    let contents = fs::read_to_string(component_plist).unwrap();
+
+    assert!(contents.contains("<string>Developer &amp; Defence.app</string>"));
+    assert!(contents.contains("<key>BundleIsRelocatable</key>\n    <false/>"));
+    assert!(contents.contains("<key>BundleIsVersionChecked</key>\n    <false/>"));
+    assert!(contents.contains("<key>BundleHasStrictIdentifier</key>\n    <true/>"));
+    assert!(contents.contains("<key>BundleOverwriteAction</key>\n    <string>upgrade</string>"));
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn macos_info_plist_includes_configured_application_category() {
+    let config = fission_command_core::MacosPackageConfig {
+        application_category: Some("public.app-category.developer-tools".to_string()),
+        ..Default::default()
+    };
+
+    assert_eq!(
+        package::render_macos_application_category_entry(&config),
+        "  <key>LSApplicationCategoryType</key>\n  <string>public.app-category.developer-tools</string>"
+    );
 }
 
 #[test]
@@ -351,8 +444,47 @@ fn app_store_status_prefers_review_submission_state_over_build_processing() {
                 "attributes": { "state": "WAITING_FOR_REVIEW" }
             }]
         }),
+        &json!({ "data": [] }),
     );
     assert_eq!(status, "waiting_for_review");
+}
+
+#[test]
+fn app_store_status_queries_the_sortable_global_builds_endpoint() {
+    let url = stores::app_store_builds_status_url("6794005791");
+
+    assert!(url.contains("/v1/builds?filter[app]=6794005791"));
+    assert!(url.contains("sort=-uploadedDate"));
+    assert!(!url.contains("/v1/apps/6794005791/builds"));
+}
+
+#[test]
+fn app_store_status_reports_build_upload_failures_before_a_build_exists() {
+    let status = stores::app_store_observed_status(
+        &json!({ "data": [] }),
+        &json!({ "data": [] }),
+        &json!({
+            "data": [{
+                "attributes": {
+                    "state": {
+                        "state": "FAILED",
+                        "errors": [{ "code": "91109" }]
+                    }
+                }
+            }]
+        }),
+    );
+
+    assert_eq!(status, "failed");
+}
+
+#[test]
+fn app_store_build_upload_status_uses_the_app_relationship_endpoint() {
+    let url = stores::app_store_build_uploads_status_url("6794005791");
+
+    assert!(url.contains("/v1/apps/6794005791/buildUploads"));
+    assert!(url.contains("sort=-uploadedDate"));
+    assert!(url.contains("fields[buildUploads]"));
 }
 
 #[test]

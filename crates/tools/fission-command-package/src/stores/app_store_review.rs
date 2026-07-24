@@ -32,7 +32,7 @@ pub(super) fn lifecycle(
         .as_deref()
         .context("App Store App Review submission requires --artifact <artifact-manifest.json>")?;
     let manifest = read_artifact_manifest(artifact_path)?;
-    let target_spec = app_store_target_spec(&manifest)?;
+    let platform = app_store_platform_for_manifest(&cfg, &manifest)?;
     let version = manifest
         .project
         .version
@@ -48,12 +48,10 @@ pub(super) fn lifecycle(
     let client = http_client()?;
     let token = app_store_access_token(&cfg)?;
     let app_id = app_store_app_id(&cfg, &client, &token)?;
-    let version_id =
-        resolve_app_store_version_id(&client, &token, &app_id, version, target_spec.api_platform)?;
+    let version_id = resolve_app_store_version_id(&client, &token, &app_id, version, platform)?;
     let build = resolve_app_store_review_build(&client, &token, &app_id, &build_number)?;
     let attach_payload = app_store_version_build_payload(&version_id, &build.id);
-    let create_payload =
-        app_store_review_submission_create_payload(&app_id, target_spec.api_platform);
+    let create_payload = app_store_review_submission_create_payload(&app_id, platform.api_value());
 
     if options.dry_run {
         let stdout = serde_json::to_string_pretty(&json!({
@@ -161,12 +159,12 @@ fn resolve_app_store_version_id(
     token: &str,
     app_id: &str,
     version: &str,
-    platform: &str,
+    platform: AppStorePlatform,
 ) -> Result<String> {
     let url = format!(
         "{APP_STORE_API}/v1/apps/{app_id}/appStoreVersions?filter[versionString]={}&filter[platform]={}&limit=1&fields[appStoreVersions]=versionString,appStoreState,platform",
         encode_query_component(version),
-        encode_query_component(platform)
+        platform.api_value()
     );
     let response = client
         .get(url)
@@ -355,6 +353,12 @@ mod app_store_review_tests {
                     "relationships": { "app": { "data": { "type": "apps", "id": "app-1" } } }
                 }
             })
+        );
+        assert_eq!(
+            app_store_review_submission_create_payload("app-1", "MAC_OS")
+                .pointer("/data/attributes/platform")
+                .and_then(Value::as_str),
+            Some("MAC_OS")
         );
         assert_eq!(
             app_store_review_submission_item_payload("submission-1", "version-1"),

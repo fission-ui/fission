@@ -1,5 +1,78 @@
 use super::*;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum AppStorePlatform {
+    Ios,
+    Macos,
+}
+
+impl AppStorePlatform {
+    pub(super) fn api_value(self) -> &'static str {
+        match self {
+            Self::Ios => "IOS",
+            Self::Macos => "MAC_OS",
+        }
+    }
+
+    pub(super) fn altool_type(self) -> &'static str {
+        match self {
+            Self::Ios => "ios",
+            Self::Macos => "macos",
+        }
+    }
+
+    pub(super) fn artifact_extension(self) -> &'static str {
+        match self {
+            Self::Ios => "ipa",
+            Self::Macos => "pkg",
+        }
+    }
+
+    pub(super) fn target(self) -> &'static str {
+        match self {
+            Self::Ios => "ios",
+            Self::Macos => "macos",
+        }
+    }
+}
+
+pub(super) fn app_store_platform(cfg: &AppStoreConfig) -> Result<AppStorePlatform> {
+    parse_app_store_platform(cfg.platform.as_deref().unwrap_or("ios"))
+}
+
+pub(super) fn app_store_platform_for_manifest(
+    cfg: &AppStoreConfig,
+    manifest: &ArtifactManifest,
+) -> Result<AppStorePlatform> {
+    let inferred = match (manifest.target.as_str(), manifest.format.as_str()) {
+        ("ios", "ipa") => AppStorePlatform::Ios,
+        ("macos", "pkg") => AppStorePlatform::Macos,
+        (target, format) => bail!(
+            "App Store upload requires an iOS .ipa or macOS .pkg artifact, got target `{target}` format `{format}`"
+        ),
+    };
+    if cfg.platform.is_none() {
+        return Ok(inferred);
+    }
+    let configured = app_store_platform(cfg)?;
+    if configured != inferred {
+        bail!(
+            "distribution.app_store.platform `{}` does not match artifact target `{}`",
+            configured.target(),
+            manifest.target
+        );
+    }
+    Ok(configured)
+}
+
+fn parse_app_store_platform(value: &str) -> Result<AppStorePlatform> {
+    match value.trim().to_ascii_lowercase().replace('_', "-").as_str() {
+        "ios" => Ok(AppStorePlatform::Ios),
+        "macos" | "mac-os" => Ok(AppStorePlatform::Macos),
+        other => bail!("distribution.app_store.platform must be `ios` or `macos`, got `{other}`"),
+    }
+}
+
 pub(super) fn create_play_edit(client: &Client, token: &str, package_name: &str) -> Result<String> {
     let url = format!("{PLAY_API}/androidpublisher/v3/applications/{package_name}/edits");
     let response = client

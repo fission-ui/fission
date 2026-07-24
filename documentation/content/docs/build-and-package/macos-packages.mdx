@@ -36,6 +36,7 @@ marketing_version = "1.4.0"
 build_number = "37"
 team_id = "ABCDE12345"
 minimum_os = "13.0"
+application_category = "public.app-category.developer-tools"
 entitlements = "platforms/macos/AcmeNotes.entitlements"
 provisioning_profile = "profiles/macos/AcmeNotes.provisionprofile"
 signing_identity = "Developer ID Application: Acme Software Ltd (ABCDE12345)"
@@ -58,6 +59,7 @@ The values are deliberately duplicated where the platform needs them:
 | `build_number` | The macOS `CFBundleVersion`, usually monotonically increasing for release artifacts. |
 | `team_id` | Used by signing, provisioning, notarization readiness, and review diagnostics. |
 | `minimum_os` | Documents and propagates the intended minimum macOS version. |
+| `application_category` | Writes the Mac App Store category UTI into `Info.plist`. |
 | `entitlements` | The app-level entitlements used when signing the containing `.app`. |
 | `provisioning_profile` | Embedded at `Contents/embedded.provisionprofile` before signing when profile-backed entitlements are required. |
 | `signing_identity` | The application signing identity passed to `codesign`. |
