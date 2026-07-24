@@ -1582,6 +1582,7 @@ fn render_macos_run_info_plist(
   <key>NSHighResolutionCapable</key>
   <true/>
 {}
+{}
 </dict>
 </plist>
 "#,
@@ -1592,8 +1593,23 @@ fn render_macos_run_info_plist(
         escape_xml(&binary.version),
         escape_xml(&binary.version),
         escape_xml(minimum_os),
+        render_macos_run_application_category_entry(macos),
         render_macos_run_capability_plist_entries(project)
     )
+}
+
+fn render_macos_run_application_category_entry(macos: &MacosPackageConfig) -> String {
+    macos
+        .application_category
+        .as_deref()
+        .filter(|category| !category.trim().is_empty())
+        .map(|category| {
+            format!(
+                "  <key>LSApplicationCategoryType</key>\n  <string>{}</string>",
+                escape_xml(category)
+            )
+        })
+        .unwrap_or_default()
 }
 
 fn render_macos_run_capability_plist_entries(project: &FissionProject) -> String {

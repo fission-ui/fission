@@ -271,7 +271,8 @@ pub(super) fn publish_app_store(
     let key_id = env_value("APP_STORE_CONNECT_KEY_ID")
         .or(cfg.key_id.clone())
         .context("distribution.app_store.key_id or APP_STORE_CONNECT_KEY_ID is required")?;
-    let ipa = primary_artifact_with_extensions(manifest, &["ipa"])?;
+    let platform = app_store_platform_for_manifest(&cfg, manifest)?;
+    let upload = primary_artifact_with_extensions(manifest, &[platform.artifact_extension()])?;
     let track = options
         .track
         .as_deref()
@@ -287,7 +288,7 @@ pub(super) fn publish_app_store(
             Some("https://appstoreconnect.apple.com/apps".to_string()),
             vec![format!(
                 "Would upload {} to App Store Connect with API key {key_id} for track {track}.",
-                ipa.display()
+                upload.display()
             )],
         ));
     }
@@ -306,9 +307,9 @@ pub(super) fn publish_app_store(
             "altool",
             "--upload-app",
             "-f",
-            ipa.to_string_lossy().as_ref(),
+            upload.to_string_lossy().as_ref(),
             "-t",
-            "ios",
+            platform.altool_type(),
             "--apiKey",
             &key_id,
             "--apiIssuer",
@@ -326,11 +327,13 @@ pub(super) fn publish_app_store(
         .context("failed to run xcrun altool; install Xcode and App Store Connect upload tools")?;
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    if !output.status.success() {
+    if !output.status.success() || app_store_upload_reported_error(&stdout, &stderr).is_some() {
+        let reported_error = app_store_upload_reported_error(&stdout, &stderr)
+            .unwrap_or_else(|| stderr.trim().to_string());
         bail!(
             "App Store Connect upload failed with {}: {}",
             output.status,
-            stderr.trim()
+            reported_error
         );
     }
 
@@ -350,6 +353,35 @@ pub(super) fn publish_app_store(
         stderr: (!stderr.trim().is_empty()).then_some(stderr),
         manual_follow_up: vec![app_store_upload_follow_up(track, artifact_path)],
     })
+}
+
+pub(super) fn app_store_upload_reported_error(stdout: &str, stderr: &str) -> Option<String> {
+    if let Ok(value) = serde_json::from_str::<Value>(stdout) {
+        if app_store_json_has_errors(&value) {
+            return Some(stdout.trim().to_string());
+        }
+    }
+    stderr.lines().find_map(|line| {
+        let trimmed = line.trim();
+        let uppercase = trimmed.to_ascii_uppercase();
+        (uppercase.starts_with("ERROR:") || uppercase.contains(" ERROR:"))
+            .then(|| trimmed.to_string())
+    })
+}
+
+fn app_store_json_has_errors(value: &Value) -> bool {
+    match value {
+        Value::Object(fields) => fields.iter().any(|(key, value)| {
+            let error_field = key.to_ascii_lowercase().ends_with("errors");
+            error_field
+                && !matches!(value, Value::Null)
+                && !matches!(value, Value::Array(items) if items.is_empty())
+                && !matches!(value, Value::Object(fields) if fields.is_empty())
+                || app_store_json_has_errors(value)
+        }),
+        Value::Array(values) => values.iter().any(app_store_json_has_errors),
+        _ => false,
+    }
 }
 
 pub(super) fn app_store_upload_follow_up(track: &str, artifact_path: &Path) -> String {
@@ -376,15 +408,23 @@ pub(super) fn app_store_status(
     let client = http_client()?;
     let token = app_store_access_token(&cfg)?;
     let app_id = app_store_app_id(&cfg, &client, &token)?;
-    let builds_url = format!(
-        "{APP_STORE_API}/v1/apps/{app_id}/builds?limit=10&sort=-uploadedDate&fields[builds]=version,uploadedDate,processingState,expired,minOsVersion,usesNonExemptEncryption"
-    );
+    let builds_url = app_store_builds_status_url(&app_id);
     let builds_response = client
         .get(builds_url)
         .bearer_auth(&token)
         .send()
         .context("failed to query App Store Connect build status")?;
     let builds = json_response(builds_response, "App Store Connect build status")?;
+    let build_uploads_url = app_store_build_uploads_status_url(&app_id);
+    let build_uploads_response = client
+        .get(build_uploads_url)
+        .bearer_auth(&token)
+        .send()
+        .context("failed to query App Store Connect build upload status")?;
+    let build_uploads = json_response(
+        build_uploads_response,
+        "App Store Connect build upload status",
+    )?;
     let review_submissions_url = format!(
         "{APP_STORE_API}/v1/apps/{app_id}/reviewSubmissions?limit=10&fields[reviewSubmissions]=state,platform&include=items&fields[reviewSubmissionItems]=state,appStoreVersion"
     );
@@ -403,10 +443,11 @@ pub(super) fn app_store_status(
         .send()
         .context("failed to query App Store TestFlight beta group status")?;
     let beta_groups = json_response(beta_groups_response, "App Store beta groups status")?;
-    let status = app_store_observed_status(&builds, &review_submissions);
+    let status = app_store_observed_status(&builds, &review_submissions, &build_uploads);
     let stdout = json!({
         "app_id": app_id,
         "builds": builds,
+        "build_uploads": build_uploads,
         "review_submissions": review_submissions,
         "beta_groups": beta_groups,
     });
@@ -426,6 +467,18 @@ pub(super) fn app_store_status(
         stderr: None,
         manual_follow_up: Vec::new(),
     })
+}
+
+pub(super) fn app_store_builds_status_url(app_id: &str) -> String {
+    format!(
+        "{APP_STORE_API}/v1/builds?filter[app]={app_id}&limit=10&sort=-uploadedDate&fields[builds]=version,uploadedDate,processingState,expired,minOsVersion,usesNonExemptEncryption"
+    )
+}
+
+pub(super) fn app_store_build_uploads_status_url(app_id: &str) -> String {
+    format!(
+        "{APP_STORE_API}/v1/apps/{app_id}/buildUploads?limit=10&sort=-uploadedDate&fields[buildUploads]=cfBundleShortVersionString,cfBundleVersion,createdDate,state,platform,uploadedDate,build"
+    )
 }
 
 pub(super) fn app_store_lifecycle(
@@ -756,9 +809,31 @@ pub(super) fn microsoft_store_status(
     })
 }
 
-pub(super) fn app_store_observed_status(builds: &Value, review_submissions: &Value) -> String {
+pub(super) fn app_store_observed_status(
+    builds: &Value,
+    review_submissions: &Value,
+    build_uploads: &Value,
+) -> String {
     app_store_latest_review_submission_status(review_submissions)
-        .unwrap_or_else(|| app_store_latest_build_status(builds))
+        .or_else(|| {
+            let status = app_store_latest_build_status(builds);
+            (status != "no-builds").then_some(status)
+        })
+        .or_else(|| app_store_latest_build_upload_status(build_uploads))
+        .unwrap_or_else(|| "no-builds".to_string())
+}
+
+fn app_store_latest_build_upload_status(value: &Value) -> Option<String> {
+    let state = value
+        .get("data")
+        .and_then(Value::as_array)
+        .and_then(|items| items.first())
+        .and_then(|item| item.get("attributes"))
+        .and_then(|attributes| attributes.get("state"))?;
+    state
+        .as_str()
+        .or_else(|| state.get("state").and_then(Value::as_str))
+        .map(|state| state.to_ascii_lowercase())
 }
 
 fn app_store_latest_review_submission_status(value: &Value) -> Option<String> {
@@ -1021,9 +1096,9 @@ fn app_store_build_number_state_check(
             "release.app_store.build_number_available",
             CheckSeverity::Error,
             CheckStatus::Missing,
-            "iOS build number is configured before App Store upload",
+            "build number is configured before App Store upload",
             None,
-            vec!["Set [package.ios].build_number or [app].build before publishing to App Store Connect."],
+            vec!["Set the target build number or [app].build before publishing to App Store Connect."],
         );
     };
     if !app_store_credentials_available_for_cfg(cfg) {
@@ -1085,7 +1160,7 @@ fn app_store_build_number_state_check(
             CheckStatus::Passed,
             "App Store build number has not been used",
             Some(format!("app {app_id} build {build_number}")),
-            vec!["Keep this build number for the next IPA build."],
+            vec!["Keep this build number for the next App Store build."],
         ),
         Err(error) => check(
             "release.app_store.build_number_available",
@@ -1094,7 +1169,7 @@ fn app_store_build_number_state_check(
             "App Store build number has already been used",
             Some(error.to_string()),
             vec![
-                "Run `fission release-config bump-build --target ios --yes`, rebuild the IPA, then publish again.",
+                "Bump the target build number, rebuild the App Store artifact, then publish again.",
             ],
         ),
     }
@@ -1235,7 +1310,7 @@ pub(super) fn readiness_app_store(
     checks.push(check_tool(
         "release.app_store.xcrun_available",
         "xcrun",
-        "Install Xcode and select it with xcode-select before uploading IPA files.",
+        "Install Xcode and select it with xcode-select before uploading IPA or macOS PKG files.",
     ));
     let selected_track = track
         .or(cfg.default_track.as_deref())
@@ -1257,12 +1332,32 @@ pub(super) fn readiness_app_store(
     ));
     if let Some(path) = artifact.filter(|path| path.exists()) {
         let manifest = read_artifact_manifest(path)?;
-        checks.push(artifact_format_check(
+        let platform = app_store_platform_for_manifest(&cfg, &manifest);
+        checks.push(check(
             "release.app_store.artifact_format",
-            &manifest,
-            &["ipa"],
-            "App Store Connect binary upload requires an IPA artifact.",
-        ));
+            CheckSeverity::Error,
+            if platform.is_ok() {
+                CheckStatus::Passed
+            } else {
+                CheckStatus::Failed
+            },
+            "artifact is an iOS .ipa or macOS .pkg",
+            Some(
+                platform
+                    .map(|platform| {
+                        format!(
+                            "target={} format={} platform={}",
+                            manifest.target,
+                            manifest.format,
+                            platform.target()
+                        )
+                    })
+                    .unwrap_or_else(|error| error.to_string()),
+            ),
+             vec![
+                 "Build an iOS .ipa or macOS .pkg and configure distribution.app_store.platform to match.",
+             ],
+         ));
         checks.push(app_store_build_number_state_check(
             project_dir,
             &cfg,

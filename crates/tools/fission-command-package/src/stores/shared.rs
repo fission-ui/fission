@@ -1,5 +1,78 @@
 use super::*;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum AppStorePlatform {
+    Ios,
+    Macos,
+}
+
+impl AppStorePlatform {
+    pub(super) fn api_value(self) -> &'static str {
+        match self {
+            Self::Ios => "IOS",
+            Self::Macos => "MAC_OS",
+        }
+    }
+
+    pub(super) fn altool_type(self) -> &'static str {
+        match self {
+            Self::Ios => "ios",
+            Self::Macos => "macos",
+        }
+    }
+
+    pub(super) fn artifact_extension(self) -> &'static str {
+        match self {
+            Self::Ios => "ipa",
+            Self::Macos => "pkg",
+        }
+    }
+
+    pub(super) fn target(self) -> &'static str {
+        match self {
+            Self::Ios => "ios",
+            Self::Macos => "macos",
+        }
+    }
+}
+
+pub(super) fn app_store_platform(cfg: &AppStoreConfig) -> Result<AppStorePlatform> {
+    parse_app_store_platform(cfg.platform.as_deref().unwrap_or("ios"))
+}
+
+pub(super) fn app_store_platform_for_manifest(
+    cfg: &AppStoreConfig,
+    manifest: &ArtifactManifest,
+) -> Result<AppStorePlatform> {
+    let inferred = match (manifest.target.as_str(), manifest.format.as_str()) {
+        ("ios", "ipa") => AppStorePlatform::Ios,
+        ("macos", "pkg") => AppStorePlatform::Macos,
+        (target, format) => bail!(
+            "App Store upload requires an iOS .ipa or macOS .pkg artifact, got target `{target}` format `{format}`"
+        ),
+    };
+    if cfg.platform.is_none() {
+        return Ok(inferred);
+    }
+    let configured = app_store_platform(cfg)?;
+    if configured != inferred {
+        bail!(
+            "distribution.app_store.platform `{}` does not match artifact target `{}`",
+            configured.target(),
+            manifest.target
+        );
+    }
+    Ok(configured)
+}
+
+fn parse_app_store_platform(value: &str) -> Result<AppStorePlatform> {
+    match value.trim().to_ascii_lowercase().replace('_', "-").as_str() {
+        "ios" => Ok(AppStorePlatform::Ios),
+        "macos" | "mac-os" => Ok(AppStorePlatform::Macos),
+        other => bail!("distribution.app_store.platform must be `ios` or `macos`, got `{other}`"),
+    }
+}
+
 pub(super) fn create_play_edit(client: &Client, token: &str, package_name: &str) -> Result<String> {
     let url = format!("{PLAY_API}/androidpublisher/v3/applications/{package_name}/edits");
     let response = client
@@ -694,7 +767,9 @@ pub(super) fn ensure_app_store_build_number_unused(
     build_number: &str,
 ) -> Result<()> {
     let url = format!(
-        "{APP_STORE_API}/v1/apps/{app_id}/builds?filter[version]={build_number}&limit=1&fields[builds]=version,processingState,uploadedDate"
+        "{APP_STORE_API}/v1/builds?filter[app]={}&filter[version]={}&limit=1&fields[builds]=version,processingState,uploadedDate",
+        encode_query_component(app_id),
+        encode_query_component(build_number)
     );
     let response = client
         .get(url)
@@ -704,7 +779,7 @@ pub(super) fn ensure_app_store_build_number_unused(
     let value = json_response(response, "App Store Connect build-number preflight")?;
     if app_store_builds_contain_build_number(&value, build_number) {
         bail!(
-            "App Store Connect build number {build_number} already exists for app {app_id}. Increment [package.ios].build_number or [app].build, rebuild the IPA, then publish again."
+            "App Store Connect build number {build_number} already exists for app {app_id}. Increment the target build number or [app].build, rebuild the App Store artifact, then publish again."
         );
     }
     Ok(())
@@ -722,6 +797,18 @@ pub(super) fn app_store_builds_contain_build_number(value: &Value, build_number:
                 .and_then(Value::as_str)
                 .is_some_and(|candidate| candidate == build_number)
         })
+}
+
+pub(super) fn encode_query_component(value: &str) -> String {
+    let mut out = String::new();
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
 }
 
 pub(super) fn microsoft_store_access_token(

@@ -57,17 +57,21 @@ struct WindowsPackageToml {
 
 pub(super) fn status(project_dir: &Path, target: Target, json: bool) -> Result<()> {
     print_report(
-        build_status_report("signing.status", project_dir, target),
+        build_status_report("signing.status", project_dir, target, None),
         json,
     )
 }
 
-pub(super) fn status_checks(project_dir: &Path, target: Target) -> Vec<LifecycleCheck> {
-    build_status_report("signing.status", project_dir, target).checks
+pub(super) fn status_checks_for_variant(
+    project_dir: &Path,
+    target: Target,
+    variant: Option<&fission_command_core::NativeVariant>,
+) -> Vec<LifecycleCheck> {
+    build_status_report("signing.status", project_dir, target, variant).checks
 }
 
 pub(super) fn sync(project_dir: &Path, target: Target, readonly: bool, json: bool) -> Result<()> {
-    let mut report = build_status_report("signing.sync", project_dir, target);
+    let mut report = build_status_report("signing.sync", project_dir, target, None);
     report.checks.push(ok_check(
         "signing.sync.mode",
         if readonly {
@@ -187,7 +191,12 @@ fn import_android(
     Ok(())
 }
 
-fn build_status_report(area: &str, project_dir: &Path, target: Target) -> LifecycleReport {
+fn build_status_report(
+    area: &str,
+    project_dir: &Path,
+    target: Target,
+    variant: Option<&fission_command_core::NativeVariant>,
+) -> LifecycleReport {
     let mut report = base_report(area, None, Some(target));
     let config_path = project_dir.join("fission.toml");
     report.checks.push(path_check(
@@ -207,7 +216,11 @@ fn build_status_report(area: &str, project_dir: &Path, target: Target) -> Lifecy
         }
         Target::Macos => {
             let cfg = config.package.and_then(|p| p.macos);
-            match fission_command_core::read_macos_package_config_for_profile(project_dir, true) {
+            match fission_command_core::read_macos_package_config_for_profile_and_variant(
+                project_dir,
+                true,
+                variant,
+            ) {
                 Ok(signing) => macos_checks(project_dir, cfg, &signing, &mut report),
                 Err(error) => {
                     report.checks.push(failed_check(
@@ -814,10 +827,16 @@ entitlements = "platforms/macos/Release.entitlements"
 signing_identity = "Developer ID Application: Example Ltd"
 installer_identity = "Developer ID Installer: Example Ltd"
 notarize = true
+
+[package.macos.variants.app-store]
+entitlements = "platforms/macos/AppStore.entitlements"
+signing_identity = "Apple Distribution: Example Ltd"
+installer_identity = "3rd Party Mac Developer Installer: Example Ltd"
+notarize = false
 "#,
         )
         .unwrap();
-        let report = build_status_report("test", &dir, Target::Macos);
+        let report = build_status_report("test", &dir, Target::Macos, None);
         let check = |id: &str| report.checks.iter().find(|check| check.id == id).unwrap();
 
         assert_eq!(check("signing.macos.identity").status, "passed");
@@ -833,6 +852,22 @@ notarize = true
             .checks
             .iter()
             .all(|check| check.id != "signing.macos.config"));
+
+        let variant = "app-store".parse().unwrap();
+        let report = build_status_report("test", &dir, Target::Macos, Some(&variant));
+        let identity = report
+            .checks
+            .iter()
+            .find(|check| check.id == "signing.macos.identity")
+            .unwrap();
+        assert_eq!(
+            identity.details.as_deref(),
+            Some("Apple Distribution: Example Ltd")
+        );
+        assert!(report
+            .checks
+            .iter()
+            .all(|check| !check.id.starts_with("signing.apple.notary_")));
         fs::remove_dir_all(dir).unwrap();
     }
 }
