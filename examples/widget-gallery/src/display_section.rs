@@ -1,7 +1,7 @@
 use crate::gallery_section::GallerySection;
 use fission::core::ui::{ContextMenu, ContextMenuEntry, ContextMenuItem, ContextMenuRegion};
 use fission::prelude::*;
-use fission::widgets::{Avatar, Badge, Code, HStack, Kbd, Stat, Tag};
+use fission::widgets::{Avatar, Badge, Code, HStack, Kbd, Stat, Tag, Wrap};
 
 const AVATAR_SIZE: f32 = 36.0;
 const BORDER_WIDTH: f32 = 1.0;
@@ -17,7 +17,8 @@ impl From<DisplaySection> for Widget {
         GallerySection::new(
             "Display",
             widgets![
-                HStack {
+                Wrap {
+                    direction: FlexDirection::Row,
                     spacing: Some(tokens.spacing.s),
                     children: widgets![
                         Text::new("Hello Fission")
@@ -60,6 +61,7 @@ impl From<DisplaySection> for Widget {
                         "Selectable Text: drag across this sentence, then use Ctrl/Cmd+C or right-click for Copy and Select All.".into(),
                     ),
                     selectable: true,
+                    wrap: true,
                     ..Default::default()
                 })
                 .width_length(Length::percent(100.0)),
@@ -72,13 +74,17 @@ impl From<DisplaySection> for Widget {
                             .weight(typography.font_weight_bold),
                     ],
                     selectable: true,
+                    wrap: true,
                     ..Default::default()
                 })
                 .width_length(Length::percent(100.0)),
                 ContextMenuRegion::new(
-                    Container::new(Text::new(
-                        "Right-click this custom region for a widget-backed context menu.",
-                    ))
+                    Container::new(
+                        Text::new(
+                            "Right-click this custom region for a widget-backed context menu.",
+                        )
+                        .wrap(true),
+                    )
                     .padding_lengths(Length::all(Length::points(tokens.spacing.s)))
                     .border(tokens.colors.border, BORDER_WIDTH)
                     .border_radius(tokens.radii.large),

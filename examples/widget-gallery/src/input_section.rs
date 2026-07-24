@@ -1,7 +1,7 @@
 use crate::gallery_section::GallerySection;
 use crate::state::GalleryState;
 use fission::prelude::*;
-use fission::widgets::{HStack, NumberInput};
+use fission::widgets::{HStack, NumberInput, Wrap};
 
 const CONTROL_MIN_WIDTH: f32 = 220.0;
 const CONTROL_MAX_WIDTH: f32 = 420.0;
@@ -59,7 +59,8 @@ impl From<InputSection> for Widget {
         GallerySection::new(
             "Input",
             widgets![
-                HStack {
+                Wrap {
+                    direction: FlexDirection::Row,
                     spacing: Some(tokens.spacing.s),
                     children: widgets![
                         Button {
@@ -103,7 +104,8 @@ impl From<InputSection> for Widget {
                     Length::percent(100.0),
                     Length::points(CONTROL_MAX_WIDTH),
                 )),
-                HStack {
+                Wrap {
+                    direction: FlexDirection::Row,
                     spacing: Some(tokens.spacing.m),
                     children: widgets![
                         Checkbox {

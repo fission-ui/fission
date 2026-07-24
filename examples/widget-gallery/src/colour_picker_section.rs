@@ -16,6 +16,12 @@ fn set_gallery_colour(state: &mut GalleryState, colour: Color) {
 fn set_gallery_colour_hue(state: &mut GalleryState, hue: f32) {
     let mut hsva = ColourHsva::from_color(state.colour_value);
     hsva.hue = hue;
+    if hsva.saturation <= f32::EPSILON {
+        hsva.saturation = 1.0;
+    }
+    if hsva.value <= f32::EPSILON {
+        hsva.value = 1.0;
+    }
     state.colour_value = hsva.to_color();
 }
 

@@ -572,9 +572,6 @@ fn avatar_initials_centered() {
     harness.env.viewport_size = LayoutSize::new(900.0, 3000.0);
     harness.pump().expect("pump");
 
-    let _ir = harness.last_ir.as_ref().unwrap();
-    let _snapshot = harness.last_snapshot.as_ref().unwrap();
-
     let mut jd_text_rect = None;
     let mut avatar_box_rect = None;
 
@@ -605,102 +602,24 @@ fn avatar_initials_centered() {
         {
             if (*corner_radius - 20.0).abs() < 1.0 && (rect.width() - 40.0).abs() < 2.0 {
                 avatar_box_rect = Some(*rect);
-            }
-        }
-    }
-
-    // Debug: dump all text content
-    let mut all_texts = Vec::new();
-    for op in &dl.ops {
-        match op {
-            DisplayOp::DrawText { text, .. } => all_texts.push(text.clone()),
-            DisplayOp::DrawRichText { runs, .. } => {
-                all_texts.push(runs.iter().map(|r| r.text.clone()).collect::<String>());
-            }
-            _ => {}
-        }
-    }
-    eprintln!("All text items ({}):", all_texts.len());
-    for t in &all_texts {
-        if t.len() < 40 {
-            eprintln!("  \"{}\"", t);
-        }
-    }
-    // Debug: dump all rects with large corner_radius
-    for op in &dl.ops {
-        if let DisplayOp::DrawRect {
-            rect,
-            corner_radius,
-            fill,
-            ..
-        } = op
-        {
-            if *corner_radius > 10.0 {
-                eprintln!(
-                    "  Rounded rect: {:.0}x{:.0} at ({:.0},{:.0}) radius={:.1} fill={:?}",
-                    rect.width(),
-                    rect.height(),
-                    rect.x(),
-                    rect.y(),
-                    corner_radius,
-                    fill.is_some()
-                );
-            }
-        }
-    }
-    eprintln!("Avatar circle found: {}", avatar_box_rect.is_some());
-
-    // Find the avatar circle: look for a rounded rect (radius >= 15) that's roughly 40x40
-    // Note: due to Flex stretch behavior, the avatar bg may be wider than expected.
-    // We look for any 40-tall rect with radius ~20 as the avatar background.
-    for op in &dl.ops {
-        if let DisplayOp::DrawRect {
-            rect,
-            fill: Some(_),
-            corner_radius,
-            ..
-        } = op
-        {
-            if (*corner_radius - 20.0).abs() < 1.0 && (rect.height() - 40.0).abs() < 2.0 {
-                avatar_box_rect = Some(*rect);
                 break;
             }
         }
     }
 
+    let text_bounds = jd_text_rect.expect("Avatar text 'JD' not found in display list");
+    let avatar_rect = avatar_box_rect.expect("40x40 avatar background circle not found");
+    let text_cx = text_bounds.x() + text_bounds.width() / 2.0;
+    let text_cy = text_bounds.y() + text_bounds.height() / 2.0;
+    let avatar_cx = avatar_rect.x() + avatar_rect.width() / 2.0;
+    let avatar_cy = avatar_rect.y() + avatar_rect.height() / 2.0;
+
     assert!(
-        jd_text_rect.is_some(),
-        "Avatar text 'JD' not found in display list"
+        (text_cx - avatar_cx).abs() < 2.0,
+        "avatar initials are not horizontally centered: text={text_bounds:?}, avatar={avatar_rect:?}"
     );
     assert!(
-        avatar_box_rect.is_some(),
-        "Avatar background circle not found"
+        (text_cy - avatar_cy).abs() < 2.0,
+        "avatar initials are not vertically centered: text={text_bounds:?}, avatar={avatar_rect:?}"
     );
-
-    if let (Some(text_bounds), Some(avatar_rect)) = (jd_text_rect, avatar_box_rect) {
-        // Check vertical centering at minimum (horizontal depends on stretch fix)
-        let text_cy = text_bounds.y() + text_bounds.height() / 2.0;
-        let avatar_cy = avatar_rect.y() + avatar_rect.height() / 2.0;
-        let dy = (text_cy - avatar_cy).abs();
-
-        println!("Avatar rect: {:.0}x{:.0} at ({:.0},{:.0}), Text bounds: {:.0}x{:.0} at ({:.0},{:.0}), dy={:.1}",
-            avatar_rect.width(), avatar_rect.height(), avatar_rect.x(), avatar_rect.y(),
-            text_bounds.width(), text_bounds.height(), text_bounds.x(), text_bounds.y(), dy);
-
-        // NOTE: Avatar centering depends on Flex stretch fix and proper bounds
-        // propagation in the paint pipeline. Skip hard assertion for now.
-        if dy > 8.0 {
-            eprintln!("KNOWN ISSUE: Avatar text not vertically centered (dy={:.1}). Flex stretch overrides explicit width.", dy);
-        }
-
-        // If avatar width is close to 40, also check horizontal centering
-        if (avatar_rect.width() - 40.0).abs() < 5.0 {
-            let text_cx = text_bounds.x() + text_bounds.width() / 2.0;
-            let avatar_cx = avatar_rect.x() + avatar_rect.width() / 2.0;
-            let dx = (text_cx - avatar_cx).abs();
-            assert!(dx < 5.0, "text X not centered in avatar: delta={:.1}", dx);
-        } else {
-            eprintln!("WARNING: Avatar width is {:.0}, expected ~40. Flex stretch may be overriding explicit width.", avatar_rect.width());
-        }
-    }
 }
