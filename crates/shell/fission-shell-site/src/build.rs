@@ -1730,6 +1730,16 @@ mod tests {
     }
 
     #[test]
+    fn site_enhancement_positions_spotlight_regions() {
+        let script = site_enhancement_js();
+
+        assert!(script.contains("function initSpotlights"));
+        assert!(script.contains("data-fission-spotlight-anchor"));
+        assert!(script.contains("ResizeObserver"));
+        assert!(script.contains("initSpotlights(document)"));
+    }
+
+    #[test]
     fn route_paths_are_derived_from_content_tree() {
         let root = PathBuf::from("content/docs");
         assert_eq!(
