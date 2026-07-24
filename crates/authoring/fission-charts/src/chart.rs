@@ -508,6 +508,10 @@ impl fission_core::internal::InternalLowerer for ChartInternalLowerer {
 
         root.build(cx)
     }
+
+    fn widget_id(&self) -> Option<WidgetId> {
+        self.chart.id
+    }
 }
 
 fn chart_area(chart: &Chart, cx: &fission_core::internal::InternalLoweringCx) -> ChartArea {

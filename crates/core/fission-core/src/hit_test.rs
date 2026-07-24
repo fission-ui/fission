@@ -273,6 +273,11 @@ pub fn preferred_focus_node_in_scope(ir: &CoreIR, scope_id: WidgetId) -> Option<
 /// Returns whether `node_id` is an enabled focus target.
 pub fn is_enabled_focus_node(ir: &CoreIR, node_id: WidgetId) -> bool {
     semantics(ir, node_id).is_some_and(|value| value.focusable && !value.disabled)
+        || ir
+            .custom_render_objects
+            .get(&node_id)
+            .and_then(downcast_render_object)
+            .is_some_and(|render_object| render_object.accepts_text_input())
 }
 
 /// Returns whether `node_id` is `ancestor_id` or belongs to its subtree.

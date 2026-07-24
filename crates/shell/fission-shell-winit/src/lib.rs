@@ -6622,6 +6622,9 @@ where
                             let pre_tick_active = active_animation_keys(&runtime);
                             match runtime.tick(dt_ms) {
                                 Ok(tick_result) => {
+                                    if tick_result.resource_actions_dispatched > 0 {
+                                        invalidations.mark_build();
+                                    }
                                     let tick_invalidations = pipeline
                                         .classify_animation_updates(&tick_result.changed_motions);
                                     invalidations.merge(tick_invalidations);
@@ -7010,15 +7013,31 @@ where
                                 if let Err(err) = runtime.reconcile_resources(resources) {
                                     eprintln!("Runtime resource reconciliation error: {:?}", err);
                                 }
+                                let mut startup_needs_rebuild = false;
                                 if !startup_dispatched {
                                     if let Some(action) = startup_action.clone() {
-                                        if let Err(err) =
-                                            runtime.dispatch(action, WidgetId::from_u128(0))
-                                        {
-                                            eprintln!("Startup action error: {:?}", err);
+                                        match runtime.dispatch(action, WidgetId::from_u128(0)) {
+                                            Ok(()) => startup_needs_rebuild = true,
+                                            Err(err) => {
+                                                eprintln!("Startup action error: {:?}", err);
+                                            }
                                         }
                                     }
                                     startup_dispatched = true;
+                                }
+                                if startup_needs_rebuild {
+                                    invalidations.mark_build();
+                                    request_redraw_logged(
+                                        &window,
+                                        elwt,
+                                        &mut last_redraw_at,
+                                        min_frame,
+                                        &mut redraw_pending,
+                                        &mut frame_trace,
+                                        "startup_action",
+                                    );
+                                    diag::end_frame(diag::FrameStats::default());
+                                    return;
                                 }
                                 runtime.sync_motion_declarations(
                                     &motion_declarations,

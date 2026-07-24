@@ -135,7 +135,8 @@ fn timer_resources_dispatch_actions_from_runtime_tick() {
         }])
         .unwrap();
 
-    runtime.tick(0).unwrap();
+    let tick = runtime.tick(0).unwrap();
+    assert_eq!(tick.resource_actions_dispatched, 1);
     let state = runtime.get_app_state::<TestState>().unwrap();
     assert_eq!(state.ticks, 1);
     assert_eq!(state.last_payload, "refresh");
