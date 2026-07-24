@@ -770,8 +770,8 @@ impl LayoutGraphState {
 #[cfg(test)]
 mod tests {
     use super::{
-        resolve_length, LayoutEngine, LayoutGraphState, LayoutInputNode, LayoutSize, TextMeasurer,
-        DEFAULT_RICH_TEXT_HIT_TEST_FONT_SIZE,
+        resolve_length, LayoutEngine, LayoutGraphState, LayoutInputNode, LayoutRect, LayoutSize,
+        TextMeasurer, DEFAULT_RICH_TEXT_HIT_TEST_FONT_SIZE,
     };
     use fission_ir::op::{
         BoxStyle, Color, FontStyle, GridTrack, Length, ResponsiveCondition, ResponsiveQuery,
@@ -1405,6 +1405,100 @@ mod tests {
         assert_eq!(snapshot.nodes[&child].rect.width(), 50.0);
         assert_eq!(snapshot.nodes[&child].rect.height(), 20.0);
     }
+
+    #[test]
+    fn spotlight_lays_out_inverse_overlay_around_anchor() {
+        let root = WidgetId::from_u128(20);
+        let positioned = WidgetId::from_u128(21);
+        let anchor = WidgetId::from_u128(22);
+        let spotlight = WidgetId::from_u128(23);
+        let panels = (24..=28).map(WidgetId::from_u128).collect::<Vec<_>>();
+
+        let mut nodes = vec![
+            LayoutInputNode {
+                id: root,
+                parent_id: None,
+                op: LayoutOp::ZStack,
+                children_ids: vec![positioned, spotlight],
+                debug_name: "root".into(),
+                width: None,
+                height: None,
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+                rich_text: None,
+            },
+            LayoutInputNode {
+                id: positioned,
+                parent_id: Some(root),
+                op: LayoutOp::Positioned {
+                    left: Some(100.0),
+                    top: Some(100.0),
+                    right: None,
+                    bottom: None,
+                    width: Some(200.0),
+                    height: Some(80.0),
+                },
+                children_ids: vec![anchor],
+                debug_name: "positioned-anchor".into(),
+                width: Some(200.0),
+                height: Some(80.0),
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
+                rich_text: None,
+            },
+            box_node(anchor, Some(positioned), vec![]),
+            LayoutInputNode {
+                id: spotlight,
+                parent_id: Some(root),
+                op: LayoutOp::Spotlight {
+                    anchor,
+                    padding: 12.0,
+                },
+                children_ids: panels.clone(),
+                debug_name: "spotlight".into(),
+                width: None,
+                height: None,
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+                rich_text: None,
+            },
+        ];
+        nodes[2].op = LayoutOp::Box {
+            width: Some(200.0),
+            height: Some(80.0),
+            min_width: None,
+            max_width: None,
+            min_height: None,
+            max_height: None,
+            padding: [0.0; 4],
+            flex_grow: 0.0,
+            flex_shrink: 0.0,
+            aspect_ratio: None,
+        };
+        nodes[2].width = Some(200.0);
+        nodes[2].height = Some(80.0);
+        nodes.extend(
+            panels
+                .iter()
+                .map(|id| box_node(*id, Some(spotlight), vec![])),
+        );
+
+        let mut engine = LayoutEngine::new();
+        let snapshot = engine
+            .compute_layout(&nodes, root, LayoutSize::new(800.0, 600.0), &|_| 0.0)
+            .expect("spotlight layout");
+
+        let expected = [
+            LayoutRect::new(0.0, 0.0, 800.0, 88.0),
+            LayoutRect::new(0.0, 192.0, 800.0, 408.0),
+            LayoutRect::new(0.0, 88.0, 88.0, 104.0),
+            LayoutRect::new(312.0, 88.0, 488.0, 104.0),
+            LayoutRect::new(88.0, 88.0, 224.0, 104.0),
+        ];
+        for (panel, expected_rect) in panels.iter().zip(expected) {
+            assert_eq!(snapshot.get_node_rect(*panel), Some(expected_rect));
+        }
+    }
 }
 
 fn layout_input_fingerprint(node: &LayoutInputNode) -> u64 {
@@ -1491,6 +1585,41 @@ impl LayoutRect {
     pub fn contains(&self, p: LayoutPoint) -> bool {
         p.x >= self.x() && p.x < self.right() && p.y >= self.y() && p.y < self.bottom()
     }
+}
+
+fn spotlight_regions(
+    bounds: LayoutRect,
+    target: Option<LayoutRect>,
+    padding: LayoutUnit,
+) -> [LayoutRect; 5] {
+    let zero = LayoutRect::new(bounds.x(), bounds.y(), 0.0, 0.0);
+    let Some(target) = target else {
+        return [bounds, zero, zero, zero, zero];
+    };
+
+    let padding = if padding.is_finite() {
+        padding.max(0.0)
+    } else {
+        0.0
+    };
+    let left = (target.x() - padding).clamp(bounds.x(), bounds.right());
+    let top = (target.y() - padding).clamp(bounds.y(), bounds.bottom());
+    let right = (target.right() + padding).clamp(bounds.x(), bounds.right());
+    let bottom = (target.bottom() + padding).clamp(bounds.y(), bounds.bottom());
+
+    if right <= left || bottom <= top {
+        return [bounds, zero, zero, zero, zero];
+    }
+
+    let hole_width = right - left;
+    let hole_height = bottom - top;
+    [
+        LayoutRect::new(bounds.x(), bounds.y(), bounds.width(), top - bounds.y()),
+        LayoutRect::new(bounds.x(), bottom, bounds.width(), bounds.bottom() - bottom),
+        LayoutRect::new(bounds.x(), top, left - bounds.x(), hole_height),
+        LayoutRect::new(left + hole_width, top, bounds.right() - right, hole_height),
+        LayoutRect::new(left, top, hole_width, hole_height),
+    ]
 }
 
 /// The computed geometry of a single layout node.
@@ -2075,6 +2204,31 @@ impl LayoutEngine {
             Some(pos)
         };
 
+        let mut spotlight_overrides = Vec::new();
+        for node in self.graph_state.ordered_nodes() {
+            let LayoutOp::Spotlight { anchor, padding } = node.op else {
+                continue;
+            };
+            if node.children_ids.len() != 5 {
+                continue;
+            }
+
+            let Some(bounds) = snapshot.nodes.get(&node.id).map(|geometry| geometry.rect) else {
+                continue;
+            };
+            let target = snapshot.nodes.get(&anchor).and_then(|geometry| {
+                let origin = visual_location(anchor)?;
+                Some(LayoutRect::new(
+                    origin.x,
+                    origin.y,
+                    geometry.rect.width(),
+                    geometry.rect.height(),
+                ))
+            });
+            let regions = spotlight_regions(bounds, target, padding);
+            spotlight_overrides.push((node.children_ids.clone(), regions));
+        }
+
         let mut flyout_abs_overrides: HashMap<WidgetId, (f32, f32)> = HashMap::new();
         for node in self.graph_state.ordered_nodes() {
             if let LayoutOp::Flyout { anchor, content } = node.op {
@@ -2103,6 +2257,22 @@ impl LayoutEngine {
                         flyout_abs_overrides.insert(content, (left_rel, top_rel));
                     }
                 }
+            }
+        }
+
+        for (children, regions) in spotlight_overrides {
+            for (child_id, region) in children.into_iter().zip(regions) {
+                self.layout_node_constraints(
+                    child_id,
+                    BoxConstraints::tight(region.size),
+                    region.origin,
+                    &mut snapshot.nodes,
+                    &mut snapshot.constraints,
+                    &mut measure_cache,
+                    scroll_source,
+                    true,
+                    0,
+                )?;
             }
         }
 
@@ -4429,6 +4599,26 @@ impl LayoutEngine {
                     self.layout_node_constraints(
                         *child_id,
                         BoxConstraints::tight(size),
+                        origin,
+                        out,
+                        constraints_out,
+                        measure_cache,
+                        scroll_source,
+                        record,
+                        depth + 1,
+                    )?;
+                }
+                content_size = size;
+                size
+            }
+            LayoutOp::Spotlight { .. } => {
+                let target_w = finite_or(constraints.max_w, finite_or(constraints.min_w, 0.0));
+                let target_h = finite_or(constraints.max_h, finite_or(constraints.min_h, 0.0));
+                let size = constraints.constrain(LayoutSize::new(target_w, target_h));
+                for child_id in self.graph_state.children_of(node_id) {
+                    self.layout_node_constraints(
+                        *child_id,
+                        BoxConstraints::tight(LayoutSize::ZERO),
                         origin,
                         out,
                         constraints_out,

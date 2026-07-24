@@ -1593,6 +1593,25 @@ impl HtmlRenderer<'_> {
                     node.id
                 ))
             }
+            LayoutOp::Spotlight { anchor, padding } => {
+                let children = self.render_children(&node.children, &HashSet::new())?;
+                let class_name = self.class_name(
+                    "fission-site-node fission-site-spotlight",
+                    vec![
+                        "position:fixed".to_string(),
+                        "inset:0".to_string(),
+                        "z-index:1000".to_string(),
+                        "pointer-events:none".to_string(),
+                    ],
+                );
+                Ok(format!(
+                    "<div class=\"{}\" data-fission-spotlight-anchor=\"{}\" data-fission-spotlight-padding=\"{}\" data-fission-node=\"{}\">{children}</div>",
+                    escape_attr(&class_name),
+                    anchor,
+                    padding,
+                    node.id
+                ))
+            }
             LayoutOp::Transform { transform } => self.render_element(
                 "div",
                 node,
