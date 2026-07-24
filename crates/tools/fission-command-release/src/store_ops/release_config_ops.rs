@@ -572,11 +572,17 @@ pub(super) fn app_store_localization_update_payload(
     id: &str,
     localization: &AppStoreLocalization,
 ) -> Value {
+    let mut attributes = app_store_localization_attributes(localization);
+    attributes
+        .as_object_mut()
+        .expect("localization attributes are always an object")
+        .remove("locale");
+
     json!({
         "data": {
             "type": "appStoreVersionLocalizations",
             "id": id,
-            "attributes": app_store_localization_attributes(localization)
+            "attributes": attributes
         }
     })
 }

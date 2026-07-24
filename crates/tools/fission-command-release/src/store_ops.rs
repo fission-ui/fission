@@ -1920,6 +1920,33 @@ groups = ["qa@example.com"]
     }
 
     #[test]
+    fn app_store_localization_update_omits_immutable_locale() {
+        let localization = AppStoreLocalization {
+            id: Some("localization-123".to_string()),
+            locale: "en-US".to_string(),
+            description: "A focused task manager.".to_string(),
+            keywords: Some("todo,tasks".to_string()),
+            marketing_url: Some("https://example.com".to_string()),
+            promotional_text: Some("Better planning.".to_string()),
+            support_url: Some("https://example.com/support".to_string()),
+            whats_new: Some("New editor.".to_string()),
+        };
+
+        let payload = app_store_localization_update_payload("localization-123", &localization);
+
+        assert!(
+            payload.pointer("/data/attributes/locale").is_none(),
+            "App Store Connect rejects locale on localization updates"
+        );
+        assert_eq!(
+            payload
+                .pointer("/data/attributes/description")
+                .and_then(Value::as_str),
+            Some("A focused task manager.")
+        );
+    }
+
+    #[test]
     fn release_config_lock_round_trips_provider_revision() {
         let dir = std::env::temp_dir().join(format!(
             "fission-release-config-lock-{}",
