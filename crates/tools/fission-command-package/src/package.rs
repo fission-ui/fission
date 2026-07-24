@@ -4,12 +4,12 @@ use anyhow::{bail, Context, Result};
 use fission_command_core::{
     build_linux_native_modules, build_windows_native_modules, cargo_package_name,
     embed_and_sign_macos_native_modules, ensure_native_variant_target, normalized_extension,
-    read_macos_package_config_for_profile_and_variant, read_project_config, resolve_app_icon,
-    sign_macos_app_if_configured, stage_linux_native_products, stage_project_assets,
-    stage_windows_runtime_products, sync_platform_config, variant_output_path,
-    BuiltLinuxNativeProduct, BuiltWindowsNativeProduct, FissionProject, MacosNativeBundleMode,
-    MacosPackageConfig, NativeLinuxProductKind, NativeWindowsProductKind, PlatformCapability,
-    Target,
+    read_desktop_cargo_features, read_macos_package_config_for_profile_and_variant,
+    read_project_config, resolve_app_icon, sign_macos_app_if_configured,
+    stage_linux_native_products, stage_project_assets, stage_windows_runtime_products,
+    sync_platform_config, variant_output_path, BuiltLinuxNativeProduct, BuiltWindowsNativeProduct,
+    FissionProject, MacosNativeBundleMode, MacosPackageConfig, NativeLinuxProductKind,
+    NativeWindowsProductKind, PlatformCapability, Target,
 };
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -249,7 +249,7 @@ fn package_linux_run(options: &PackageOptions) -> Result<ArtifactManifest> {
     let staging_dir = clean_package_dir(options)?;
     let payload_dir = staging_dir.join("payload");
     fs::create_dir_all(&payload_dir)?;
-    let binary = build_desktop_binary(&options.project_dir, options.release)?;
+    let binary = build_desktop_binary(options)?;
     let executable_name = binary
         .file_name()
         .and_then(OsStr::to_str)
@@ -330,7 +330,7 @@ fn package_terminal_run(options: &PackageOptions) -> Result<ArtifactManifest> {
     let staging_dir = clean_package_dir(options)?;
     let payload_dir = staging_dir.join("payload");
     fs::create_dir_all(&payload_dir)?;
-    let binary = build_desktop_binary(&options.project_dir, options.release)?;
+    let binary = build_desktop_binary(options)?;
     let executable_name = binary
         .file_name()
         .and_then(OsStr::to_str)
@@ -439,7 +439,7 @@ fn package_windows_exe(options: &PackageOptions) -> Result<ArtifactManifest> {
     let project = read_project_config(&options.project_dir)?;
     let profile = profile_name(options.release);
     let staging_dir = clean_package_dir(options)?;
-    let binary = build_desktop_binary(&options.project_dir, options.release)?;
+    let binary = build_desktop_binary(options)?;
     let native_products = build_windows_native_modules(
         &options.project_dir,
         &project,
@@ -560,7 +560,7 @@ fn package_with_project_script(
     }
     let mut environment = Vec::new();
     if target == Target::Windows {
-        let binary = build_desktop_binary(&options.project_dir, options.release)?;
+        let binary = build_desktop_binary(options)?;
         let native_products = build_windows_native_modules(
             &options.project_dir,
             &project,
@@ -1514,15 +1514,20 @@ fn require_host_os(target: Target) -> Result<()> {
     }
 }
 
-fn build_desktop_binary(project_dir: &Path, release: bool) -> Result<PathBuf> {
-    let project_dir = fs::canonicalize(project_dir).with_context(|| {
+fn build_desktop_binary(options: &PackageOptions) -> Result<PathBuf> {
+    let project_dir = fs::canonicalize(&options.project_dir).with_context(|| {
         format!(
             "failed to resolve project directory {}",
-            project_dir.display()
+            options.project_dir.display()
         )
     })?;
     let manifest_path = project_dir.join("Cargo.toml");
     let name = cargo_package_name(&project_dir).context("Cargo.toml package.name is required")?;
+    let features = read_desktop_cargo_features(
+        &project_dir,
+        options.target,
+        options.variant.as_ref().map(NativeVariant::as_str),
+    )?;
     let mut command = Command::new("cargo");
     command
         .arg("build")
@@ -1531,8 +1536,11 @@ fn build_desktop_binary(project_dir: &Path, release: bool) -> Result<PathBuf> {
         .arg("--package")
         .arg(&name)
         .current_dir(&project_dir);
-    if release {
+    if options.release {
         command.arg("--release");
+    }
+    if !features.is_empty() {
+        command.arg("--features").arg(features.join(","));
     }
     let status = command.status().context("failed to run cargo build")?;
     if !status.success() {
@@ -1547,7 +1555,7 @@ fn build_desktop_binary(project_dir: &Path, release: bool) -> Result<PathBuf> {
     let cargo_build_target = env::var_os("CARGO_BUILD_TARGET").filter(|value| !value.is_empty());
     let path = desktop_binary_output_path(
         &target_directory,
-        profile_name(release),
+        profile_name(options.release),
         &executable,
         cargo_build_target.as_deref(),
     );
@@ -1604,7 +1612,7 @@ fn create_macos_app_bundle(
     staging_dir: &Path,
     macos: &MacosPackageConfig,
 ) -> Result<PathBuf> {
-    let binary = build_desktop_binary(&options.project_dir, options.release)?;
+    let binary = build_desktop_binary(options)?;
     let executable = binary
         .file_name()
         .and_then(OsStr::to_str)
