@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] - 2026-07-24
+
+### Added
+
+- **Anchored spotlight layout** - Added a first-class `Spotlight` widget for product tours and guided onboarding. Native, Web, Static site, and SSR output share the same five-region geometry contract, including browser-side repositioning after resize and scroll.
+- **Mac App Store delivery** - Added signed PKG packaging, App Store Connect upload and processing checks, macOS build lookup, review submission, App Store screenshot preparation, and cookbook tutorials for Apple signing, notarized direct distribution, and Mac App Store releases.
+
+### Changed
+
+- **Responsive examples are retained and production-shaped** - Reworked the animation gallery, chart gallery, editor, field inspector, inbox, product examples, text lab, widget gallery, and smoke examples around concrete responsive widget components, stable identities, design tokens, semantic LiveTest selectors, and compact layouts that keep controls reachable.
+- **Desktop variants use one effective Cargo configuration** - `fission run` and desktop builds now honor variant `cargo_features` and `cargo_no_default_features` with the same overlay semantics used by packaging.
+- **Release capture uses the public LiveTest protocol** - Screenshot scenarios now serialize public selector types, honor scenario timeouts, stop failed capture applications, flatten App Store PNG alpha, and validate explicit screenshot display-type directories.
+- **Responsive and visual-fidelity documentation is broader** - Expanded Learn, Develop, Cookbook, Test and Debug, Release and Distribute, and Reference coverage for responsive layout, typed lengths, grid, containers, pressables, fonts, golden tests, package metadata, and release screenshots.
+
+### Fixed
+
+- **GPU renderer memory scales with visible work** - Vello caller buffers are sized from encoded visible content instead of retained offscreen document text, rich text is culled against active scroll clips before glyph encoding, packaged software fonts load lazily, and native/WASM image caches share a bounded 50 MB policy.
+- **Layout and slider geometry** - Wrapped and aligned controls preserve intrinsic dimensions, stretch retains explicit cross-axis sizing, flyouts clamp using rendered descendant bounds, and slider visuals, hit testing, and semantic values agree at both fixed and typed widths.
+- **Retained custom input identity** - Custom render widgets preserve stable identities across rebuilds, and timer/startup state changes schedule the rebuilds needed by editor, terminal, chart, and other interactive examples.
+- **App Store Connect mutations** - Existing localization updates omit immutable locale fields, generated artifact paths resolve without duplicated project roots, IPA and PKG flows select the correct Apple platform, and readiness checks use the matching iOS or macOS build number.
+- **Desktop package output discovery** - Desktop packaging honors Cargo target overrides, generated browser artifacts are discovered from Cargo compiler output, and macOS notifications avoid native notification APIs when an app is not running from a valid bundle.
+- **Responsive LiveTest selection** - Selector resolution prefers the responsive branch that participates in layout when hidden duplicate branches share one semantic identifier.
+
+### Migration notes
+
+- Update Fission dependencies to `0.9.2`:
+
+```toml
+fission = { version = "0.9.2", default-features = false, features = ["desktop"] }
+```
+
+- Desktop package variants should declare their complete effective `cargo_features` list. A variant list replaces the base list, matching existing package-overlay behavior, and `cargo_no_default_features` can be overridden per variant.
+- Mac App Store releases use a macOS package variant, PKG format, and `distribution.app_store.platform = "macos"`. Follow the Apple signing and Mac App Store cookbook pages for the complete setup.
+- `Spotlight` is additive and requires no application migration. Terminal applications should use a terminal-specific guided-attention treatment because cell-grid output intentionally rejects spotlight overlays.
+
 ## [0.9.1] - 2026-07-23
 
 ### Added
