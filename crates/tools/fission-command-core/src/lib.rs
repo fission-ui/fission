@@ -21,7 +21,7 @@ mod native_cargo;
 mod native_variant;
 mod splash;
 mod windows_native;
-pub use desktop_features::read_desktop_cargo_features;
+pub use desktop_features::{read_desktop_cargo_options, DesktopCargoOptions};
 pub use icons::{copy_icon_for_bundle, normalized_extension, resolve_app_icon, ResolvedIcon};
 pub use linux_native::{
     build_linux_native_modules, stage_linux_native_products, test_linux_native_modules,

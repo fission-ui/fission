@@ -22,20 +22,28 @@ struct DesktopPackageConfig {
     #[serde(default)]
     cargo_features: Vec<String>,
     #[serde(default)]
+    cargo_no_default_features: bool,
+    #[serde(default)]
     variants: BTreeMap<String, DesktopPackageVariant>,
 }
 
 #[derive(Debug, Default, Deserialize)]
 struct DesktopPackageVariant {
-    #[serde(default)]
-    cargo_features: Vec<String>,
+    cargo_features: Option<Vec<String>>,
+    cargo_no_default_features: Option<bool>,
 }
 
-pub fn read_desktop_cargo_features(
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct DesktopCargoOptions {
+    pub features: Vec<String>,
+    pub no_default_features: bool,
+}
+
+pub fn read_desktop_cargo_options(
     project_dir: &Path,
     target: Target,
     variant: Option<&str>,
-) -> Result<Vec<String>> {
+) -> Result<DesktopCargoOptions> {
     let path = project_dir.join("fission.toml");
     let data =
         fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
@@ -48,20 +56,24 @@ pub fn read_desktop_cargo_features(
         _ => None,
     };
     let Some(config) = config else {
-        return Ok(Vec::new());
+        return Ok(DesktopCargoOptions::default());
     };
 
+    let selected_variant = variant.and_then(|variant| config.variants.get(variant));
+    let configured_features = selected_variant
+        .and_then(|variant| variant.cargo_features.as_ref())
+        .unwrap_or(&config.cargo_features);
     let mut features = BTreeSet::new();
-    for feature in config.cargo_features.iter().chain(
-        variant
-            .and_then(|variant| config.variants.get(variant))
-            .into_iter()
-            .flat_map(|variant| &variant.cargo_features),
-    ) {
+    for feature in configured_features {
         validate_cargo_feature(feature)?;
         features.insert(feature.clone());
     }
-    Ok(features.into_iter().collect())
+    Ok(DesktopCargoOptions {
+        features: features.into_iter().collect(),
+        no_default_features: selected_variant
+            .and_then(|variant| variant.cargo_no_default_features)
+            .unwrap_or(config.cargo_no_default_features),
+    })
 }
 
 fn validate_cargo_feature(feature: &str) -> Result<()> {
@@ -83,7 +95,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn selected_variant_adds_deduplicated_target_features() {
+    fn selected_variant_replaces_base_features_and_default_policy() {
         let root =
             std::env::temp_dir().join(format!("fission-desktop-features-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
@@ -92,10 +104,11 @@ mod tests {
             root.join("fission.toml"),
             r#"
 [package.macos]
-cargo_features = ["shared"]
+cargo_features = ["base-only"]
 
 [package.macos.variants.app-store]
-cargo_features = ["macos-app-store", "shared"]
+cargo_features = ["macos-app-store", "shared", "shared"]
+cargo_no_default_features = true
 
 [package.windows.variants.store]
 cargo_features = ["windows-store"]
@@ -104,20 +117,30 @@ cargo_features = ["windows-store"]
         .unwrap();
 
         assert_eq!(
-            read_desktop_cargo_features(&root, Target::Macos, Some("app-store")).unwrap(),
-            vec!["macos-app-store".to_string(), "shared".to_string()]
+            read_desktop_cargo_options(&root, Target::Macos, Some("app-store")).unwrap(),
+            DesktopCargoOptions {
+                features: vec!["macos-app-store".to_string(), "shared".to_string()],
+                no_default_features: true,
+            }
         );
         assert_eq!(
-            read_desktop_cargo_features(&root, Target::Macos, None).unwrap(),
-            vec!["shared".to_string()]
+            read_desktop_cargo_options(&root, Target::Macos, None).unwrap(),
+            DesktopCargoOptions {
+                features: vec!["base-only".to_string()],
+                no_default_features: false,
+            }
         );
         assert_eq!(
-            read_desktop_cargo_features(&root, Target::Windows, Some("store")).unwrap(),
-            vec!["windows-store".to_string()]
+            read_desktop_cargo_options(&root, Target::Windows, Some("store")).unwrap(),
+            DesktopCargoOptions {
+                features: vec!["windows-store".to_string()],
+                no_default_features: false,
+            }
         );
         assert!(
-            read_desktop_cargo_features(&root, Target::Linux, Some("app-store"))
+            read_desktop_cargo_options(&root, Target::Linux, Some("app-store"))
                 .unwrap()
+                .features
                 .is_empty()
         );
         let _ = fs::remove_dir_all(&root);
@@ -141,7 +164,7 @@ cargo_features = ["safe,unsafe"]
         .unwrap();
 
         assert!(
-            read_desktop_cargo_features(&root, Target::Macos, Some("store"))
+            read_desktop_cargo_options(&root, Target::Macos, Some("store"))
                 .unwrap_err()
                 .to_string()
                 .contains("safe Cargo feature selector")

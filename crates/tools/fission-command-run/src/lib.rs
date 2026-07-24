@@ -4,7 +4,7 @@ use anyhow::{bail, Context, Result};
 use fission_command_core::{
     build_linux_native_modules, build_macos_native_modules, build_windows_native_modules,
     embed_and_sign_macos_native_modules, ensure_native_variant_target, ios_executable_name,
-    normalized_extension, read_desktop_cargo_features, read_macos_run_config_for_profile,
+    normalized_extension, read_desktop_cargo_options, read_macos_run_config_for_profile,
     read_project_config, resolve_app_icon, sign_macos_app_if_configured,
     stage_linux_native_products, stage_project_assets, stage_windows_runtime_products,
     sync_platform_config, test_linux_native_modules, test_macos_native_modules,
@@ -865,13 +865,18 @@ fn run_desktop(project: &FissionProject, options: &RunOptions, device: &Device) 
     if options.release {
         command.arg("--release");
     }
-    let features = read_desktop_cargo_features(
+    let cargo_options = read_desktop_cargo_options(
         &options.project_dir,
         device.target,
         options.variant.as_ref().map(NativeVariant::as_str),
     )?;
-    if !features.is_empty() {
-        command.arg("--features").arg(features.join(","));
+    if cargo_options.no_default_features {
+        command.arg("--no-default-features");
+    }
+    if !cargo_options.features.is_empty() {
+        command
+            .arg("--features")
+            .arg(cargo_options.features.join(","));
     }
     run_child(
         command,
@@ -1230,8 +1235,8 @@ fn build_desktop_binary(
         )
     })?;
     let package = desktop_package_for_manifest(&metadata, &manifest_path)?;
-    let features =
-        read_desktop_cargo_features(&project_dir, target, variant.map(NativeVariant::as_str))?;
+    let cargo_options =
+        read_desktop_cargo_options(&project_dir, target, variant.map(NativeVariant::as_str))?;
     let executable_name = package
         .targets
         .iter()
@@ -1261,8 +1266,13 @@ fn build_desktop_binary(
     if release {
         command.arg("--release");
     }
-    if !features.is_empty() {
-        command.arg("--features").arg(features.join(","));
+    if cargo_options.no_default_features {
+        command.arg("--no-default-features");
+    }
+    if !cargo_options.features.is_empty() {
+        command
+            .arg("--features")
+            .arg(cargo_options.features.join(","));
     }
     run_status(&mut command, "desktop build")?;
 
