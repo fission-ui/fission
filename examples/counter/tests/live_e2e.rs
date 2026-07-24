@@ -22,7 +22,7 @@ fn launch_counter(control_port: u16) -> Child {
 
 #[test]
 #[ignore]
-fn show_modal_visibly_dims_the_background() {
+fn counter_buttons_update_retained_local_state() {
     let control_port = reserve_control_port();
     let mut child = launch_counter(control_port);
     let client = LiveTestClient::connect(control_port);
@@ -39,21 +39,29 @@ fn show_modal_visibly_dims_the_background() {
     });
     std::fs::create_dir_all(&screenshot_dir).ok();
 
-    client.tap_text("Show Modal").expect("show modal");
-    client.wait(400).expect("wait after show modal");
     client
-        .assert_text_visible("Hide Modal")
-        .expect("button state should toggle after opening the modal");
+        .tap_semantic_identifier("counter.increment")
+        .expect("first increment");
+    client
+        .tap_semantic_identifier("counter.increment")
+        .expect("second increment");
+    client
+        .tap_semantic_identifier("counter.decrement")
+        .expect("decrement");
+    client.wait(200).expect("wait after counter actions");
 
-    let path = format!("{}/01_modal_visible.png", screenshot_dir);
-    client.screenshot(&path).expect("modal screenshot");
-    let img = image::open(&path).expect("open screenshot").to_rgba8();
-    let px = img.get_pixel(780, 20).0;
+    let visible_text = client.get_text().expect("read counter text");
     assert!(
-        px[0] < 220 && px[1] < 220 && px[2] < 220,
-        "opening the modal should dim the background outside the modal; sampled pixel was {:?}",
-        px
+        visible_text.iter().any(|item| item.text == "1"),
+        "expected counter value 1, found {:?}",
+        visible_text
+            .iter()
+            .map(|item| item.text.as_str())
+            .collect::<Vec<_>>()
     );
+
+    let path = format!("{}/01_counter_value.png", screenshot_dir);
+    client.screenshot(&path).expect("counter screenshot");
 
     client.quit().expect("quit");
     let _ = child.wait();

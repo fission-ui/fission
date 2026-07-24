@@ -3,28 +3,33 @@ use crate::state::GalleryState;
 use fission::charts::{Axis, BarSeries, Chart, DataValue, Dataset, Encode, Legend, LineSeries};
 use fission::core::op::Color;
 use fission::core::ui::Widget;
-use fission::core::{BuildCtxHandle, ViewHandle};
+use fission::core::ViewHandle;
 use fission::three_d::{Point3D, Primitive3D, Scene3D};
 
-pub(super) fn build_chart(
-    chart: usize,
-    ctx: BuildCtxHandle<GalleryState>,
-    view: ViewHandle<GalleryState>,
-    content_width: f32,
-    s: f32,
-) -> Widget {
-    match chart {
-        0 => dataset_demo(view, s).build_in_gallery(ctx, view, content_width),
-        1 => scene3d_demo().build_in_gallery(ctx, view, content_width),
-        2 => bar3d_scene(s).build_in_gallery(ctx, view, content_width),
-        3 => scatter3d_scene(s).build_in_gallery(ctx, view, content_width),
-        4 => surface3d_scene(s).build_in_gallery(ctx, view, content_width),
-        5 => line3d_scene(s).build_in_gallery(ctx, view, content_width),
-        6 => point_cloud_scene(s).build_in_gallery(ctx, view, content_width),
-        7 => globe_scene(s).build_in_gallery(ctx, view, content_width),
-        8 => graph3d_scene(s).build_in_gallery(ctx, view, content_width),
-        9 => terrain_scene(s).build_in_gallery(ctx, view, content_width),
-        _ => unreachable!("chart catalog and 3D/dataset builder are out of sync"),
+pub(super) struct Dataset3dChart {
+    pub chart: usize,
+    pub scale: f32,
+}
+
+impl From<Dataset3dChart> for Widget {
+    fn from(selection: Dataset3dChart) -> Self {
+        let (_, view) = fission::build::current::<GalleryState>();
+        let chart = selection.chart;
+        let s = selection.scale;
+
+        match chart {
+            0 => dataset_demo(view, s).in_gallery().into(),
+            1 => scene3d_demo().in_gallery().into(),
+            2 => bar3d_scene(s).in_gallery().into(),
+            3 => scatter3d_scene(s).in_gallery().into(),
+            4 => surface3d_scene(s).in_gallery().into(),
+            5 => line3d_scene(s).in_gallery().into(),
+            6 => point_cloud_scene(s).in_gallery().into(),
+            7 => globe_scene(s).in_gallery().into(),
+            8 => graph3d_scene(s).in_gallery().into(),
+            9 => terrain_scene(s).in_gallery().into(),
+            _ => unreachable!("chart catalog and 3D/dataset builder are out of sync"),
+        }
     }
 }
 

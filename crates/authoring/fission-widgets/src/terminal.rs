@@ -651,6 +651,14 @@ impl InternalLowerer for TerminalRenderNode {
         outer
     }
 
+    fn widget_id(&self) -> Option<WidgetId> {
+        let session_id = self.session.id();
+        Some(WidgetId::derived(
+            WidgetId::explicit("fission.terminal.session").as_u128(),
+            &[session_id as u32, (session_id >> 32) as u32],
+        ))
+    }
+
     fn stable_key(&self) -> u64 {
         self.session.id()
     }

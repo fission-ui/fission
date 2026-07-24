@@ -1,4 +1,4 @@
-use super::home_widgets::semantic_row;
+use super::home_widgets::SemanticRow;
 use super::state::DocsState;
 use fission::op::{AlignItems, Fill, FlexWrap, JustifyContent, TextAlign};
 use fission::prelude::*;
@@ -8,7 +8,7 @@ pub(crate) struct DocsFooter;
 
 impl From<DocsFooter> for Widget {
     fn from(_component: DocsFooter) -> Self {
-        let (ctx, view) = fission::build::current::<DocsState>();
+        let (_ctx, view) = fission::build::current::<DocsState>();
         let tokens = &view.env().theme.tokens;
         Container::new(Column {
             children: vec![
@@ -78,7 +78,7 @@ impl From<DocsFooter> for Widget {
                     ..Default::default()
                 }
                 .into(),
-                footer_identity(ctx, view),
+                FooterIdentity.into(),
             ],
             gap: Some(tokens.spacing.xxl),
             align_items: AlignItems::Center,
@@ -90,12 +90,17 @@ impl From<DocsFooter> for Widget {
         .into()
     }
 }
-fn footer_identity(_ctx: BuildCtxHandle<DocsState>, view: ViewHandle<DocsState>) -> Widget {
-    let tokens = &view.env().theme.tokens;
-    Container::new(
-        Column {
+
+#[derive(Clone, Debug)]
+struct FooterIdentity;
+
+impl From<FooterIdentity> for Widget {
+    fn from(_identity: FooterIdentity) -> Self {
+        let (_ctx, view) = fission::build::current::<DocsState>();
+        let tokens = &view.env().theme.tokens;
+        Container::new(Column {
             children: vec![
-                semantic_row(
+                SemanticRow::new(
                     "site-route:/",
                     vec![
                         Image::asset("/img/fission-mark.svg")
@@ -111,7 +116,8 @@ fn footer_identity(_ctx: BuildCtxHandle<DocsState>, view: ViewHandle<DocsState>)
                     FlexWrap::NoWrap,
                     AlignItems::Center,
                     JustifyContent::Center,
-                ),
+                )
+                .into(),
                 Text::new("A cross-platform, GPU-accelerated user interface framework for Rust. MIT licensed.")
                     .size(tokens.typography.body_medium_size)
                     .line_height(tokens.typography.body_medium_size * tokens.typography.line_height_normal)
@@ -157,10 +163,10 @@ fn footer_identity(_ctx: BuildCtxHandle<DocsState>, view: ViewHandle<DocsState>)
             gap: Some(tokens.spacing.m),
             align_items: AlignItems::Center,
             ..Default::default()
-        }
-    )
-    .padding([0.0, 0.0, tokens.spacing.l, 0.0])
-    .into()
+        })
+        .padding([0.0, 0.0, tokens.spacing.l, 0.0])
+        .into()
+    }
 }
 
 #[derive(Clone, Debug)]

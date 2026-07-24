@@ -1,6 +1,10 @@
 use fission::prelude::*;
 
 const FISSION_LOGO_PNG: &[u8] = include_bytes!("../../../docs/fission_logo.png");
+const CONTENT_MIN_WIDTH: f32 = 240.0;
+const CONTENT_MAX_WIDTH: f32 = 420.0;
+const IMAGE_SIZE: f32 = 144.0;
+const IMAGE_PROBE_HEIGHT: f32 = 176.0;
 
 #[cfg(target_os = "android")]
 const ANDROID_TEST_CONTROL_PORT: u16 = 48761;
@@ -23,86 +27,60 @@ struct MobileSmokeApp;
 impl From<MobileSmokeApp> for Widget {
     fn from(_component: MobileSmokeApp) -> Self {
         let (ctx, view) = fission::build::current::<SmokeState>();
+        let tokens = &view.env().theme.tokens;
         let increment = with_reducer!(ctx, Increment, on_increment);
-        let viewport = view.viewport_size();
-        let content_width = (viewport.width - 48.0).clamp(240.0, 420.0);
-        let background = Color {
-            r: 20,
-            g: 23,
-            b: 31,
-            a: 255,
-        };
-        let body = Color {
-            r: 184,
-            g: 194,
-            b: 209,
-            a: 255,
-        };
-        let accent = Color {
-            r: 145,
-            g: 224,
-            b: 196,
-            a: 255,
-        };
 
         let content = Container::new(Column {
-            gap: Some(16.0),
+            gap: Some(tokens.spacing.m),
             children: vec![
                 Text::new("Mobile smoke")
-                    .size(24.0)
-                    .color(Color::WHITE)
-                    .max_width(content_width)
+                    .size(tokens.typography.font_size_xl)
+                    .color(tokens.colors.text_primary)
                     .into(),
                 Text::new("Fission shell on mobile targets.")
-                    .size(16.0)
-                    .color(body)
-                    .max_width(content_width)
+                    .size(tokens.typography.body_large_size)
+                    .color(tokens.colors.text_secondary)
                     .into(),
                 Text::new("Image probe")
-                    .size(14.0)
-                    .color(body)
-                    .max_width(content_width)
+                    .size(tokens.typography.font_size_base)
+                    .color(tokens.colors.text_secondary)
                     .into(),
                 Container::new(
                     Image::memory(FISSION_LOGO_PNG.to_vec())
-                        .size(144.0, 144.0)
+                        .size(IMAGE_SIZE, IMAGE_SIZE)
                         .fit(fission::core::op::ImageFit::Contain)
                         .semantic_label("Fission logo image probe"),
                 )
-                .size(content_width, 176.0)
-                .padding_all(16.0)
-                .bg(Color {
-                    r: 34,
-                    g: 39,
-                    b: 52,
-                    a: 255,
-                })
-                .border(accent, 1.0)
-                .border_radius(20.0)
+                .width_length(Length::percent(100.0))
+                .height_length(Length::points(IMAGE_PROBE_HEIGHT))
+                .padding_lengths(Length::all(Length::points(tokens.spacing.m)))
+                .bg(tokens.colors.surface)
+                .border(tokens.colors.primary, 1.0)
+                .border_radius(tokens.radii.xl)
                 .into(),
                 Text::new(format!("Taps: {}", view.state().taps))
-                    .size(22.0)
-                    .color(accent)
+                    .size(tokens.typography.font_size_xl)
+                    .color(tokens.colors.primary)
                     .into(),
                 Button {
-                    width: Some(content_width),
                     on_press: Some(increment),
-                    child: Some(
-                        Text::new("Tap")
-                            .width((content_width - 96.0).max(120.0))
-                            .into(),
-                    ),
+                    child: Some(Text::new("Tap").into()),
                     ..Default::default()
                 }
+                .semantics_identifier("mobile-smoke.increment")
                 .into(),
             ],
             ..Default::default()
         })
-        .width(content_width)
+        .width_length(Length::clamp(
+            Length::points(CONTENT_MIN_WIDTH),
+            Length::percent(100.0),
+            Length::points(CONTENT_MAX_WIDTH),
+        ))
         .into();
 
         Container::new(Column {
-            gap: Some(0.0),
+            gap: Some(tokens.spacing.none),
             children: vec![
                 content,
                 Spacer {
@@ -113,9 +91,9 @@ impl From<MobileSmokeApp> for Widget {
             ],
             ..Default::default()
         })
-        .height(viewport.height.max(1.0))
-        .padding_all(24.0)
-        .bg(background)
+        .height_length(Length::vh(100.0))
+        .padding_lengths(Length::all(Length::points(tokens.spacing.l)))
+        .bg(tokens.colors.background)
         .into()
     }
 }

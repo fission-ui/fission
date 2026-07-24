@@ -46,6 +46,11 @@ href = "/docs/learn/runtime-model/"
 level = 2
 
 [[items]]
+title = "Responsive UI"
+href = "/docs/learn/responsive-ui/"
+level = 2
+
+[[items]]
 title = "State, handles, and providers"
 href = "/docs/guides/state-handles-and-providers/"
 level = 2
@@ -53,6 +58,11 @@ level = 2
 [[items]]
 title = "Rendering pipeline"
 href = "/docs/learn/rendering-pipeline/"
+level = 2
+
+[[items]]
+title = "Visual fidelity"
+href = "/docs/learn/visual-fidelity/"
 level = 2
 
 [[items]]
@@ -175,6 +185,26 @@ group = true
 [[items]]
 title = "Development workflow"
 href = "/docs/develop/workflow/"
+level = 2
+
+[[items]]
+title = "Layout primitives"
+href = "/docs/develop/layout-primitives/"
+level = 2
+
+[[items]]
+title = "Responsive shells"
+href = "/docs/develop/responsive-shells/"
+level = 2
+
+[[items]]
+title = "Design systems and fonts"
+href = "/docs/develop/design-systems-and-fonts/"
+level = 2
+
+[[items]]
+title = "Static and SSR fidelity"
+href = "/docs/develop/static-and-ssr-fidelity/"
 level = 2
 
 [[items]]
@@ -366,6 +396,21 @@ href = "/docs/test-and-debug/overview/"
 level = 2
 
 [[items]]
+title = "LiveTest API"
+href = "/docs/test-and-debug/live-test-api/"
+level = 2
+
+[[items]]
+title = "Golden image testing"
+href = "/docs/test-and-debug/golden-image-testing/"
+level = 2
+
+[[items]]
+title = "Responsive visual QA"
+href = "/docs/test-and-debug/responsive-visual-qa/"
+level = 2
+
+[[items]]
 title = "Testing and diagnostics"
 href = "/docs/guides/testing-and-diagnostics/"
 level = 2
@@ -384,6 +429,16 @@ group = true
 [[items]]
 title = "Packaging overview"
 href = "/docs/build-and-package/overview/"
+level = 2
+
+[[items]]
+title = "Store screenshots"
+href = "/docs/build-and-package/store-screenshots/"
+level = 2
+
+[[items]]
+title = "Build metadata"
+href = "/docs/build-and-package/build-metadata/"
 level = 2
 
 [[items]]
@@ -463,6 +518,21 @@ href = "/docs/release-and-distribute/overview/"
 level = 2
 
 [[items]]
+title = "App release checklist"
+href = "/docs/release-and-distribute/app-release-checklist/"
+level = 2
+
+[[items]]
+title = "CI publishing"
+href = "/docs/release-and-distribute/ci-publishing/"
+level = 2
+
+[[items]]
+title = "Local publishing"
+href = "/docs/release-and-distribute/local-publishing/"
+level = 2
+
+[[items]]
 title = "Release content"
 href = "/docs/release-and-distribute/release-content/"
 level = 2
@@ -506,6 +576,36 @@ group = true
 [[items]]
 title = "Build a counter"
 href = "/docs/cookbook/build-a-counter/"
+level = 2
+
+[[items]]
+title = "Responsive master-detail layout"
+href = "/docs/cookbook/responsive-master-detail-layout/"
+level = 2
+
+[[items]]
+title = "Responsive product grid"
+href = "/docs/cookbook/responsive-product-grid/"
+level = 2
+
+[[items]]
+title = "Custom pressable control"
+href = "/docs/cookbook/custom-pressable-control/"
+level = 2
+
+[[items]]
+title = "Package and use fonts"
+href = "/docs/cookbook/package-and-use-fonts/"
+level = 2
+
+[[items]]
+title = "Add a golden screenshot test"
+href = "/docs/cookbook/add-a-golden-screenshot-test/"
+level = 2
+
+[[items]]
+title = "Responsive static site page"
+href = "/docs/cookbook/responsive-static-site-page/"
 level = 2
 
 [[items]]

@@ -97,6 +97,9 @@ fn sidebar_scroll_reaches_lower_entries() {
     client
         .wait_for_ready(20_000)
         .expect("chart-gallery did not start");
+    client
+        .simulate_resize(1_280, 800)
+        .expect("resize to expanded layout");
     client.wait(1_500).expect("initial wait");
 
     let dir = screenshot_dir();
@@ -104,7 +107,10 @@ fn sidebar_scroll_reaches_lower_entries() {
     let after = format!("{}/02_sidebar_after_scroll.png", dir);
     client.screenshot(&before).expect("before screenshot");
 
-    for _ in 0..4 {
+    for _ in 0..10 {
+        if client.assert_text_visible("Liquidfill").is_ok() {
+            break;
+        }
         client
             .scroll(120.0, 420.0, 0.0, 180.0)
             .expect("sidebar scroll");

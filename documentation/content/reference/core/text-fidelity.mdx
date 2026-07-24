@@ -1,0 +1,20 @@
+---
+title: Text fidelity
+description: Text style, paragraph style, overflow, locale, line height, letter spacing, and rich text fidelity.
+---
+
+# Text fidelity
+
+Fission text is part of the typed rendering model. Text widgets can carry content, style, paragraph behavior, semantic labels, semantic identifiers, and selectable text configuration.
+
+| Feature | API surface |
+| --- | --- |
+| Translation keys | `TextContent::Key`, `TextContent::KeyWithFallback` |
+| Font size and weight | `Text::size`, `Text::weight`, `TextRunStyle::font_size`, `font_weight` |
+| Font family | Generated typography tokens and packaged fonts |
+| Locale | `TextRunStyle::locale`, `Env::locale` |
+| Paragraph behavior | `TextParagraphStyle`, align, overflow, direction, width basis, height behavior |
+| Rich text | `RichText`, `RichTextRun`, `TextRunStyle` |
+| Selection/context menu | Selectable text options and context menu configuration where enabled |
+
+Use i18n keys for reusable widgets and tokenized typography for production UI.

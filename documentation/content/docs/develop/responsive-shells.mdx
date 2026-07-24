@@ -1,0 +1,36 @@
+---
+title: Responsive shells
+description: Keep one shared app core while adapting the shell and layout for each Fission target.
+---
+
+# Responsive shells
+
+A multi-platform Fission app should not become nine separate applications. Keep product state, reducers, resources, services, jobs, routes, and reusable widgets in a shared core. Let each target entry point configure the shell and then run the same root component.
+
+```rust
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<AppState, _>::new(AppRoot)
+        .with_design_system::<AppDesignSystem>(DesignMode::Light)
+        .run()
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    WebApp::<AppState, _>::new(AppRoot).mount("#app").run()
+}
+```
+
+The root component handles responsive structure with `Responsive` and `Length`. The shell entry point handles host setup.
+
+## Target-aware adaptation
+
+| Target | Shared app should do | Shell should do |
+| --- | --- | --- |
+| macOS, Windows, Linux | Use desktop responsive branches and native capabilities. | Create windows, GPU renderer, tray/menu integration, accessibility bridge. |
+| Android, iOS | Use phone/tablet responsive branches and safe areas. | Own lifecycle, IME, keyboard sessions, app store packaging. |
+| Web | Use responsive app branches and web-capable capabilities. | Mount browser canvas or DOM host and bridge browser APIs. |
+| Static site | Prefer declarative responsive layout and content routes. | Lower supported layout/paint primitives to static HTML/CSS. |
+| SSR | Keep request-specific data in server resources/jobs. | Render request-time HTML and hydrate supported islands. |
+| Terminal | Use target-specific theme density and text-first layouts. | Map widgets to terminal cells and keyboard-first navigation. |
+
+Use `Responsive::container_query()` for reusable widgets mounted in unknown host regions.

@@ -6,7 +6,6 @@ edition = "2021"
 [dependencies]
 fission = { path = "../../crates/authoring/fission", default-features = false, features = ["desktop", "icons-reflection"] }
 serde = { version = "1.0", features = ["derive"] }
-lazy_static = "1.4"
 anyhow = "1.0"
 
 [dev-dependencies]

@@ -15,6 +15,36 @@ href = "/reference/core/widget-authoring-boundary/"
 level = 1
 
 [[items]]
+title = "Length"
+href = "/reference/core/length/"
+level = 1
+
+[[items]]
+title = "BoxStyle"
+href = "/reference/core/box-style/"
+level = 1
+
+[[items]]
+title = "GridTrack"
+href = "/reference/core/grid-track/"
+level = 1
+
+[[items]]
+title = "Paint and fills"
+href = "/reference/core/paint-and-fills/"
+level = 1
+
+[[items]]
+title = "Text fidelity"
+href = "/reference/core/text-fidelity/"
+level = 1
+
+[[items]]
+title = "Fonts"
+href = "/reference/core/fonts/"
+level = 1
+
+[[items]]
 title = "State system"
 href = "/reference/core/state-system/"
 level = 1
@@ -146,6 +176,16 @@ href = "/reference/core/testing-and-diagnostics/"
 level = 1
 
 [[items]]
+title = "LiveTest commands"
+href = "/reference/testing/live-test-commands/"
+level = 1
+
+[[items]]
+title = "GoldenOptions"
+href = "/reference/testing/golden-options/"
+level = 1
+
+[[items]]
 title = "Shells, targets, and tooling"
 href = "/reference/platform/targets/"
 level = 0
@@ -169,6 +209,11 @@ level = 1
 [[items]]
 title = "Testing"
 href = "/reference/platform/testing/"
+level = 1
+
+[[items]]
+title = "Visual fidelity matrix"
+href = "/reference/platform/visual-fidelity-matrix/"
 level = 1
 
 [[items]]
@@ -266,6 +311,11 @@ level = 2
 [[items]]
 title = "Container"
 href = "/reference/widgets/container/"
+level = 2
+
+[[items]]
+title = "Responsive"
+href = "/reference/widgets/responsive/"
 level = 2
 
 [[items]]
@@ -367,6 +417,11 @@ group = true
 [[items]]
 title = "Button"
 href = "/reference/widgets/button/"
+level = 2
+
+[[items]]
+title = "Pressable"
+href = "/reference/widgets/pressable/"
 level = 2
 
 [[items]]

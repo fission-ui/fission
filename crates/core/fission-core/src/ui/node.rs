@@ -429,7 +429,7 @@ impl Widget {
                     .as_ref()
                     .expect("CustomWidget lowerer must be set");
                 let child_id = lowerer.lower_dyn(cx);
-                let wrapper = cx.next_node_id();
+                let wrapper = lowerer.widget_id().unwrap_or_else(|| cx.next_node_id());
                 let mut builder = crate::lowering::InternalIrBuilder::new(
                     wrapper,
                     Op::Structural(StructuralOp::Group {
@@ -447,23 +447,7 @@ impl Widget {
                 if let Some(render_obj) = &w.render_object {
                     let holder = crate::ui::custom_render::RenderObjectHolder(render_obj.clone());
                     let erased: fission_ir::AnyRenderObject = Arc::new(holder);
-                    // Register the render object at the wrapper AND every node in
-                    // the lowered subtree so the parent-walk from any hit descendant
-                    // finds it regardless of tree depth.
-                    cx.ir.custom_render_objects.insert(node_id, erased.clone());
-                    fn register_subtree(
-                        ir: &mut fission_ir::CoreIR,
-                        node_id: fission_ir::WidgetId,
-                        erased: &fission_ir::AnyRenderObject,
-                    ) {
-                        ir.custom_render_objects.insert(node_id, erased.clone());
-                        if let Some(children) = ir.nodes.get(&node_id).map(|n| n.children.clone()) {
-                            for child_id in children {
-                                register_subtree(ir, child_id, erased);
-                            }
-                        }
-                    }
-                    register_subtree(&mut cx.ir, child_id, &erased);
+                    cx.ir.custom_render_objects.insert(node_id, erased);
                 }
 
                 node_id

@@ -1,0 +1,127 @@
+---
+title: LiveTest commands
+description: Complete reference for the /cmd test-control protocol used by Fission LiveTest.
+---
+
+# LiveTest commands
+
+The LiveTest command API is exposed by a running app when `FISSION_TEST_CONTROL_PORT` is set. Send commands to `POST /cmd` as JSON with a top-level `cmd` field.
+
+Use `/health` for readiness. It is not a `/cmd` command.
+
+```bash
+curl -s http://127.0.0.1:9876/cmd \
+  -H 'content-type: application/json' \
+  -d '{"cmd":"GetTree"}'
+```
+
+## Selector query shape
+
+Selector commands use `SelectorQuery`.
+
+```json
+{
+  "selector": {
+    "kind": "semantic_identifier",
+    "identifier": "settings.save"
+  },
+  "scope": null,
+  "index": null,
+  "include_hidden": false
+}
+```
+
+Supported selector kinds are:
+
+| Selector kind | Fields | Matches |
+| --- | --- | --- |
+| `semantic_identifier` | `identifier` | `Semantics::identifier`, the preferred stable test and automation key. |
+| `widget_id` | `widget_id` | A stable explicit widget id or raw node id. |
+| `test_id` | `test_id` | Alias for semantic identifier. |
+| `accessibility_identifier` | `identifier` | Alias for semantic identifier. |
+| `role_label` | `role`, `label` | A node with both role and accessible label. |
+| `label` | `label` | A node with the accessible label. |
+
+Use `scope` to constrain a query to a resolved ancestor, `index` to disambiguate duplicates, and `include_hidden` only when a test is intentionally inspecting hidden nodes.
+
+## Commands
+
+| Command | JSON fields | Response | Purpose |
+| --- | --- | --- | --- |
+| `Tap` | `x`, `y` | `Ok` or `Error` | Low-level coordinate tap. Prefer selector commands for app tests. |
+| `Drag` | `start_x`, `start_y`, `end_x`, `end_y`, `steps` | `Ok` or `Error` | Low-level pointer drag. |
+| `TapText` | `text` | `Ok` or `Error` | Finds visible text and taps its center. Kept for compatibility; selectors are more robust. |
+| `ResolveSelector` | `query` | `SelectorResolved` or `SelectorError` | Resolve a semantic node without activating it. |
+| `TapSelector` | `query` | `Ok` or `SelectorError` | Scrolls/resolves where supported, then taps the resolved node. |
+| `ActivateSelector` | `query` | `Ok` or `SelectorError` | Dispatches the node's default semantic action. |
+| `FocusSelector` | `query` | `Ok` or `SelectorError` | Gives focus to a focusable semantic node. |
+| `HoverSelector` | `query` | `Ok` or `SelectorError` | Moves the pointer over the resolved node. |
+| `RightClickSelector` | `query` | `Ok` or `SelectorError` | Opens context behavior for the resolved node where supported. |
+| `ScrollIntoView` | `query` | `SelectorResolved` or `SelectorError` | Scrolls the resolved target into view using the runtime scroll effect. |
+| `FillText` | `query`, `text` | `Ok` or `SelectorError` | Replaces the value of a writable text input. |
+| `ClearText` | `query` | `Ok` or `SelectorError` | Clears a writable text input. |
+| `Toggle` | `query` | `Ok` or `SelectorError` | Toggles checkbox/switch-style controls. |
+| `SelectOption` | `query` | `Ok` or `SelectorError` | Selects an option node in a select/dropdown/menu. |
+| `WaitForSelector` | `query`, `timeout_ms` | `Ok` or `SelectorError` | Waits until the selector resolves. |
+| `WaitForVisible` | `query`, `timeout_ms` | `Ok` or `SelectorError` | Waits until the selector resolves to a visible node. |
+| `WaitForEnabled` | `query`, `timeout_ms` | `Ok` or `SelectorError` | Waits until the selector resolves and is enabled. |
+| `WaitForDisabled` | `query`, `timeout_ms` | `Ok` or `SelectorError` | Waits until the selector resolves and is disabled. |
+| `WaitForValue` | `query`, `value`, `timeout_ms` | `Ok` or `SelectorError` | Waits until a node's semantic value equals `value`. |
+| `WaitForText` | `text`, `timeout_ms` | `Ok` or `Error` | Waits until visible text appears. |
+| `WaitForGone` | `query`, `timeout_ms` | `Ok` or `SelectorError` | Waits until the selector no longer resolves. |
+| `Scroll` | `x`, `y`, `dx`, `dy` | `Ok` or `Error` | Low-level wheel/scroll input at a coordinate. |
+| `ExternalFileHover` | `x`, `y`, `paths` | `Ok` or `Error` | Simulates files hovering over the app. |
+| `ExternalFileDrop` | `x`, `y`, `paths` | `Ok` or `Error` | Simulates dropping files onto the app. |
+| `ExternalFileCancel` | none | `Ok` or `Error` | Cancels a simulated external file drag. |
+| `TypeText` | `text` | `Ok` or `Error` | Types committed text into the focused control. |
+| `ImePreedit` | `text`, `cursor_start`, `cursor_end` | `Ok` or `Error` | Sends IME composition/preedit text. |
+| `ImeCommit` | `text` | `Ok` or `Error` | Commits IME text. |
+| `ImeCancel` | none | `Ok` or `Error` | Cancels active IME composition. |
+| `PressKey` | `key`, `modifiers` | `Ok` or `Error` | Sends a key press to the focused control. |
+| `Screenshot` | `path` | `Ok` or `Error` | Saves a screenshot to a path on the app host. |
+| `CaptureScreenshot` | none | `Screenshot` | Returns a PNG screenshot as base64. |
+| `PauseAnimations` | none | `Ok` or `Error` | Pauses runtime animation evaluation. |
+| `ResumeAnimations` | none | `Ok` or `Error` | Resumes runtime animation evaluation. |
+| `AdvanceClock` | `ms` | `Ok` or `Error` | Advances the deterministic test clock. |
+| `CaptureAt` | `ms` | `Screenshot` | Advances to a timestamp and returns a screenshot as base64. |
+| `WaitForIdle` | `timeout_ms`, `ignore_repeating_motion` | `Ok` or `Error` | Waits until finite work and motion settle. |
+| `GetText` | none | `Text` | Returns visible text items and logical bounds. |
+| `GetTree` | none | `Tree` | Returns the semantic tree. |
+| `Wait` | `ms` | `Ok` or `Error` | Sleeps server-side for coarse manual diagnostics. Prefer condition waits in tests. |
+| `Pump` | none | `Ok` or `Error` | Runs one runtime pump/frame. |
+| `Quit` | none | `Ok` or `Error` | Requests app shutdown. |
+| `SimulateMouseMove` | `x`, `y` | `Ok` or `Error` | Sends a lower-level mouse move event. |
+| `SimulateRightClick` | `x`, `y` | `Ok` or `Error` | Sends a lower-level right click event. |
+| `SimulateResize` | `width`, `height` | `Ok` or `Error` | Resizes the logical viewport for responsive tests. |
+
+## Semantic tree response
+
+`GetTree` returns `Tree { nodes }`. Each node includes:
+
+| Field | Meaning |
+| --- | --- |
+| `identifier` | First-class semantic identifier for tests and automation. |
+| `widget_id` | The widget id for the lowered node. |
+| `stable_node_id` | Stable test node id. |
+| `parent`, `children` | Tree relationships. |
+| `role`, `label`, `value` | Accessibility metadata. |
+| `value_present` | Whether a value exists, even when masked. |
+| `focusable`, `disabled`, `read_only`, `checked` | Interactive state. |
+| `actions` | Supported semantic actions. |
+| `text_selection`, `masked` | Text input state without leaking secrets. |
+| `scrollable_x`, `scrollable_y` | Scroll capabilities. |
+| `logical_bounds`, `visible_bounds`, `visibility` | Layout and clipping state. |
+| `x`, `y`, `width`, `height` | Compatibility logical bounds fields. |
+
+## Selector failures
+
+Selector failures return `SelectorError { failure }` with:
+
+| Field | Meaning |
+| --- | --- |
+| `kind` | `NoMatch`, `Ambiguous`, `FoundButNotVisible`, `Disabled`, `ReadOnly`, `UnsupportedAction`, `Timeout`, or `StaleFrame`. |
+| `selector` | The original `SelectorQuery`. |
+| `candidates` | Candidate nodes and rejection reasons. |
+| `message` | Human-readable failure summary. |
+
+This is the signal tests should surface when a high-level action fails. It gives enough information to distinguish wrong selectors, hidden nodes, disabled controls, stale layout, and clipping issues.

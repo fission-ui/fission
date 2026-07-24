@@ -9,6 +9,7 @@ use crate::registry::{
     ActionRegistry, ResourcePolicy, RuntimeResourceDeclaration, RuntimeResourceKind, TimerResource,
     VideoRegistration,
 };
+use crate::ui::custom_render::downcast_render_object;
 use crate::{BoxedReducer, EffectCallbackRegistry};
 use crate::{
     Clipboard, Clock, CurrentTime, ImeHandler, InputEvent, KeyCode, KeyEvent, PointerButton,
@@ -27,6 +28,10 @@ use std::sync::Arc;
 #[derive(Debug, Default, Clone)]
 pub struct TickResult {
     pub changed_motions: Vec<(WidgetId, crate::MotionPropertyId)>,
+    /// Number of timer resource actions dispatched during this tick.
+    ///
+    /// Shells use this to rebuild after timer reducers mutate application state.
+    pub resource_actions_dispatched: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -290,7 +295,11 @@ impl Runtime {
                     ir.nodes.get(&id).map(|node| &node.op),
                     Some(Op::Semantics(semantics))
                         if semantics.role == fission_ir::semantics::Role::TextInput
-                )
+                ) || ir
+                    .custom_render_objects
+                    .get(&id)
+                    .and_then(downcast_render_object)
+                    .is_some_and(|render_object| render_object.accepts_text_input())
             });
             ime_handler.set_ime_allowed(accepts_text);
         }
@@ -588,15 +597,18 @@ impl Runtime {
         let envelope: ActionEnvelope = action.into();
         self.dispatch_node(envelope, WidgetId::derived(0, &[0]))?;
 
-        self.tick_resource_timers()?;
+        let resource_actions_dispatched = self.tick_resource_timers()?;
 
         let current_time = self.clock().current_time();
         let changed_motions =
             crate::motion::tick_motion(&mut self.runtime_state.motion, current_time);
-        Ok(TickResult { changed_motions })
+        Ok(TickResult {
+            changed_motions,
+            resource_actions_dispatched,
+        })
     }
 
-    fn tick_resource_timers(&mut self) -> Result<()> {
+    fn tick_resource_timers(&mut self) -> Result<usize> {
         let now = self.clock().current_time();
         let mut ticks = Vec::new();
 
@@ -620,6 +632,7 @@ impl Runtime {
             }
         }
 
+        let dispatched = ticks.len();
         for (action, payload) in ticks {
             self.dispatch_node_with_input(
                 action,
@@ -628,7 +641,7 @@ impl Runtime {
             )?;
         }
 
-        Ok(())
+        Ok(dispatched)
     }
 
     pub fn sync_motion_declarations(

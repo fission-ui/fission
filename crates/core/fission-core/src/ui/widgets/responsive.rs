@@ -55,6 +55,25 @@ impl ResponsiveCase {
 }
 
 /// Selects a widget branch using declarative viewport or container breakpoints.
+///
+/// Prefer `Responsive` over manually reading `view.viewport_size()` when the
+/// rule is only "render this child below or above this width". Keep viewport
+/// reads for cases that also depend on app state, environment values, or
+/// measured geometry.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// Responsive::new(DesktopShell)
+///     .id(WidgetId::explicit("mail.responsive"))
+///     .case(ResponsiveCase::max_width(900.0, PhoneShell))
+///     .case(ResponsiveCase::between(900.0, 1200.0, TabletShell))
+///     .into()
+/// ```
+///
+/// Every branch is lowered, even though layout displays only the selected one.
+/// Build each branch independently rather than cloning a `Widget` value, and
+/// keep explicit widget IDs unique across the complete responsive tree.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Responsive {
     /// Optional stable identity for diagnostics and retained child identity.

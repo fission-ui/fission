@@ -1,6 +1,6 @@
 use super::home_widgets::{
-    hero_text_width, prose_width, semantic_column, semantic_row, CenteredSection, ChartImageCard,
-    Chip, CodeCard, Cta, ExampleCard, LinkCard, NavLink, Pill, SectionHeader, ShellSection,
+    hero_text_width, prose_width, CenteredSection, ChartImageCard, Chip, CodeCard, Cta,
+    ExampleCard, LinkCard, NavLink, Pill, SectionHeader, SemanticColumn, SemanticRow, ShellSection,
     StatusText, TargetRowCard,
 };
 use super::state::DocsState;
@@ -14,7 +14,7 @@ impl From<HomePageHero> for Widget {
     fn from(_component: HomePageHero) -> Self {
         let (_ctx, view) = fission::build::current::<DocsState>();
         let tokens = &view.env().theme.tokens;
-        semantic_column(
+        SemanticColumn::new(
             "site-home-hero",
             vec![
                 Pill::new("Rust application platform").into(),
@@ -97,6 +97,7 @@ impl From<HomePageHero> for Widget {
             Some(tokens.spacing.l),
             AlignItems::Center,
         )
+        .into()
     }
 }
 #[derive(Clone, Debug)]
@@ -106,7 +107,7 @@ impl From<ProofStrip> for Widget {
     fn from(_component: ProofStrip) -> Self {
         let (_ctx, view) = fission::build::current::<DocsState>();
         let tokens = &view.env().theme.tokens;
-        semantic_column(
+        SemanticColumn::new(
             "site-home-signals",
             vec![
                 SectionHeader::new(
@@ -160,6 +161,7 @@ impl From<ProofStrip> for Widget {
             Some(tokens.spacing.xl),
             AlignItems::Center,
         )
+        .into()
     }
 }
 #[derive(Clone, Debug)]
@@ -209,11 +211,11 @@ impl From<LifecycleSection> for Widget {
                     .into(),
                     Row {
                         children: vec![
-                            lifecycle_step(tokens, "01", "Start", "init, project shape, targets"),
-                            lifecycle_step(tokens, "02", "Develop", "run, devices, logs, shells"),
-                            lifecycle_step(tokens, "03", "Debug", "tests, screenshots, inspectors"),
-                            lifecycle_step(tokens, "04", "Package", "artifacts, signing, preflight"),
-                            lifecycle_step(tokens, "05", "Release", "stores, hosts, rollouts, receipts"),
+                            LifecycleStep::new("01", "Start", "init, project shape, targets").into(),
+                            LifecycleStep::new("02", "Develop", "run, devices, logs, shells").into(),
+                            LifecycleStep::new("03", "Debug", "tests, screenshots, inspectors").into(),
+                            LifecycleStep::new("04", "Package", "artifacts, signing, preflight").into(),
+                            LifecycleStep::new("05", "Release", "stores, hosts, rollouts, receipts").into(),
                         ],
                         gap: Some(tokens.spacing.s),
                         wrap: FlexWrap::Wrap,
@@ -245,27 +247,25 @@ pub(super) struct ArchitectureSection;
 
 impl From<ArchitectureSection> for Widget {
     fn from(_component: ArchitectureSection) -> Self {
-        let (ctx, view) = fission::build::current::<DocsState>();
+        let (_ctx, view) = fission::build::current::<DocsState>();
         let tokens = &view.env().theme.tokens;
         ShellSection::new(
             Column {
                 children: vec![
                     Row {
                         children: vec![
-                            boundary_panel(
-                                ctx,
-                                view,
+                            BoundaryPanel::new(
                                 "Shared across every target",
                                 "State, reducers, layout rules, semantics, rendering stages, and testable runtime behavior.",
                                 &["State and reducers", "Layout rules", "Semantics tree", "Input routing", "Rendering stages", "Testable runtime behavior"],
-                            ),
-                            boundary_panel(
-                                ctx,
-                                view,
+                            )
+                            .into(),
+                            BoundaryPanel::new(
                                 "Owned by each shell",
                                 "Native windows, browser canvas, package shape, lifecycle hooks, and host-specific integration.",
                                 &["Native windows", "Browser canvas", "Package shape", "Lifecycle hooks", "OS integration", "Capability brokering"],
-                            ),
+                            )
+                            .into(),
                         ],
                         gap: Some(tokens.spacing.l),
                         wrap: FlexWrap::Wrap,
@@ -312,7 +312,7 @@ impl From<ModelSection> for Widget {
     fn from(_component: ModelSection) -> Self {
         let (_ctx, view) = fission::build::current::<DocsState>();
         let tokens = &view.env().theme.tokens;
-        semantic_row(
+        SemanticRow::new(
             "site-home-model",
             vec![
                 Column {
@@ -337,7 +337,7 @@ impl From<ModelSection> for Widget {
                             .line_height(tokens.typography.body_large_size * tokens.typography.line_height_relaxed)
                             .color(tokens.colors.text_secondary)
                             .into(),
-                        reducer_card(tokens),
+                        ReducerCard.into(),
                         Row {
                             children: vec![
                                 Cta::new("Read the model", "/docs/learn/runtime-model/", true)
@@ -375,6 +375,7 @@ impl From<ModelSection> for Widget {
             AlignItems::Stretch,
             JustifyContent::SpaceBetween,
         )
+        .into()
     }
 }
 #[derive(Clone, Debug)]
@@ -384,7 +385,7 @@ impl From<TargetsSection> for Widget {
     fn from(_component: TargetsSection) -> Self {
         let (_ctx, view) = fission::build::current::<DocsState>();
         let tokens = &view.env().theme.tokens;
-        semantic_column(
+        SemanticColumn::new(
             "site-home-targets",
             vec![
                 SectionHeader::new(
@@ -413,6 +414,7 @@ impl From<TargetsSection> for Widget {
             Some(tokens.spacing.xl),
             AlignItems::Center,
         )
+        .into()
     }
 }
 #[derive(Clone, Debug)]
@@ -422,7 +424,7 @@ impl From<ChartsSection> for Widget {
     fn from(_component: ChartsSection) -> Self {
         let (_ctx, view) = fission::build::current::<DocsState>();
         let tokens = &view.env().theme.tokens;
-        semantic_column(
+        SemanticColumn::new(
             "site-home-charts",
             vec![
                 Row {
@@ -509,6 +511,7 @@ impl From<ChartsSection> for Widget {
             Some(tokens.spacing.xl),
             AlignItems::Stretch,
         )
+        .into()
     }
 }
 #[derive(Clone, Debug)]
@@ -588,103 +591,146 @@ impl From<FinalCta> for Widget {
         .into()
     }
 }
-fn boundary_panel(
-    _ctx: BuildCtxHandle<DocsState>,
-    view: ViewHandle<DocsState>,
+
+#[derive(Clone, Debug)]
+struct BoundaryPanel {
     kicker: &'static str,
     title: &'static str,
-    items: &[&'static str],
-) -> Widget {
-    let tokens = &view.env().theme.tokens;
-    Container::new(Column {
-        children: vec![
-            Text::new(kicker)
-                .size(tokens.typography.font_size_xs)
-                .weight(tokens.typography.font_weight_bold)
-                .color(tokens.colors.text_muted)
-                .into(),
-            Text::new(title)
-                .size(tokens.typography.heading_size)
-                .family(tokens.typography.font_family_serif.clone())
-                .line_height(tokens.typography.heading_size * tokens.typography.line_height_heading)
-                .weight(tokens.typography.font_weight_bold)
-                .color(tokens.colors.heading)
-                .into(),
-            Row {
-                children: items
-                    .iter()
-                    .map(|item| {
-                        Text::new(*item)
-                            .size(tokens.typography.font_size_sm)
-                            .color(tokens.colors.text_secondary)
-                            .into()
-                    })
-                    .collect(),
-                gap: Some(tokens.spacing.m),
-                wrap: FlexWrap::Wrap,
-                ..Default::default()
-            }
-            .into(),
-        ],
-        gap: Some(tokens.spacing.l),
-        ..Default::default()
-    })
-    .padding_all(tokens.spacing.xl)
-    .bg_fill(Fill::Solid(tokens.colors.surface))
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.xxl)
-    .flex_grow(1.0)
-    .into()
+    items: &'static [&'static str],
 }
 
-fn lifecycle_step(
-    tokens: &Tokens,
+impl BoundaryPanel {
+    fn new(kicker: &'static str, title: &'static str, items: &'static [&'static str]) -> Self {
+        Self {
+            kicker,
+            title,
+            items,
+        }
+    }
+}
+
+impl From<BoundaryPanel> for Widget {
+    fn from(panel: BoundaryPanel) -> Self {
+        let (_ctx, view) = fission::build::current::<DocsState>();
+        let tokens = &view.env().theme.tokens;
+        Container::new(Column {
+            children: vec![
+                Text::new(panel.kicker)
+                    .size(tokens.typography.font_size_xs)
+                    .weight(tokens.typography.font_weight_bold)
+                    .color(tokens.colors.text_muted)
+                    .into(),
+                Text::new(panel.title)
+                    .size(tokens.typography.heading_size)
+                    .family(tokens.typography.font_family_serif.clone())
+                    .line_height(
+                        tokens.typography.heading_size * tokens.typography.line_height_heading,
+                    )
+                    .weight(tokens.typography.font_weight_bold)
+                    .color(tokens.colors.heading)
+                    .into(),
+                Row {
+                    children: panel
+                        .items
+                        .iter()
+                        .map(|item| {
+                            Text::new(*item)
+                                .size(tokens.typography.font_size_sm)
+                                .color(tokens.colors.text_secondary)
+                                .into()
+                        })
+                        .collect(),
+                    gap: Some(tokens.spacing.m),
+                    wrap: FlexWrap::Wrap,
+                    ..Default::default()
+                }
+                .into(),
+            ],
+            gap: Some(tokens.spacing.l),
+            ..Default::default()
+        })
+        .padding_all(tokens.spacing.xl)
+        .bg_fill(Fill::Solid(tokens.colors.surface))
+        .border(tokens.colors.border, 1.0)
+        .border_radius(tokens.radii.xxl)
+        .flex_grow(1.0)
+        .into()
+    }
+}
+
+#[derive(Clone, Debug)]
+struct LifecycleStep {
     number: &'static str,
     title: &'static str,
     body: &'static str,
-) -> Widget {
-    Container::new(Column {
-        children: vec![
-            Text::new(number)
-                .size(tokens.typography.font_size_xs)
-                .family(tokens.typography.font_family_mono.clone())
-                .weight(tokens.typography.font_weight_bold)
-                .color(tokens.colors.primary)
-                .into(),
-            Text::new(title)
-                .size(tokens.typography.font_size_lg)
-                .weight(tokens.typography.font_weight_bold)
-                .color(tokens.colors.heading)
-                .into(),
-            Text::new(body)
-                .size(tokens.typography.font_size_sm)
-                .line_height(tokens.typography.font_size_sm * tokens.typography.line_height_normal)
-                .color(tokens.colors.text_secondary)
-                .into(),
-        ],
-        gap: Some(tokens.spacing.s),
-        ..Default::default()
-    })
-    .padding_all(tokens.spacing.m)
-    .bg_fill(Fill::Solid(tokens.colors.surface_raised))
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
-    .width(tokens.spacing.xxxxl * 1.85)
-    .flex_shrink(1.0)
-    .into()
 }
 
-fn reducer_card(tokens: &Tokens) -> Widget {
-    Container::new(
-        Text::new("fn reduce(state: &mut GlobalState, action: Action) {\n  match action {\n    Action::Inc => state.count += 1,\n    Action::Reset => state.count = 0,\n  }\n}")
-            .size(tokens.typography.font_size_sm)
-            .family(tokens.typography.font_family_mono.clone())
-            .line_height(tokens.typography.font_size_sm * tokens.typography.line_height_relaxed)
-            .color(tokens.colors.text_primary)
-    )
-    .padding_all(tokens.spacing.l)
-    .bg_fill(Fill::Solid(tokens.colors.surface_raised))
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.xl)
-    .into()
+impl LifecycleStep {
+    fn new(number: &'static str, title: &'static str, body: &'static str) -> Self {
+        Self {
+            number,
+            title,
+            body,
+        }
+    }
+}
+
+impl From<LifecycleStep> for Widget {
+    fn from(step: LifecycleStep) -> Self {
+        let (_ctx, view) = fission::build::current::<DocsState>();
+        let tokens = &view.env().theme.tokens;
+        Container::new(Column {
+            children: vec![
+                Text::new(step.number)
+                    .size(tokens.typography.font_size_xs)
+                    .family(tokens.typography.font_family_mono.clone())
+                    .weight(tokens.typography.font_weight_bold)
+                    .color(tokens.colors.primary)
+                    .into(),
+                Text::new(step.title)
+                    .size(tokens.typography.font_size_lg)
+                    .weight(tokens.typography.font_weight_bold)
+                    .color(tokens.colors.heading)
+                    .into(),
+                Text::new(step.body)
+                    .size(tokens.typography.font_size_sm)
+                    .line_height(
+                        tokens.typography.font_size_sm * tokens.typography.line_height_normal,
+                    )
+                    .color(tokens.colors.text_secondary)
+                    .into(),
+            ],
+            gap: Some(tokens.spacing.s),
+            ..Default::default()
+        })
+        .padding_all(tokens.spacing.m)
+        .bg_fill(Fill::Solid(tokens.colors.surface_raised))
+        .border(tokens.colors.border, 1.0)
+        .border_radius(tokens.radii.large)
+        .width(tokens.spacing.xxxxl * 1.85)
+        .flex_shrink(1.0)
+        .into()
+    }
+}
+
+#[derive(Clone, Debug)]
+struct ReducerCard;
+
+impl From<ReducerCard> for Widget {
+    fn from(_card: ReducerCard) -> Self {
+        let (_ctx, view) = fission::build::current::<DocsState>();
+        let tokens = &view.env().theme.tokens;
+        Container::new(
+            Text::new("fn reduce(state: &mut GlobalState, action: Action) {\n  match action {\n    Action::Inc => state.count += 1,\n    Action::Reset => state.count = 0,\n  }\n}")
+                .size(tokens.typography.font_size_sm)
+                .family(tokens.typography.font_family_mono.clone())
+                .line_height(tokens.typography.font_size_sm * tokens.typography.line_height_relaxed)
+                .color(tokens.colors.text_primary),
+        )
+        .padding_all(tokens.spacing.l)
+        .bg_fill(Fill::Solid(tokens.colors.surface_raised))
+        .border(tokens.colors.border, 1.0)
+        .border_radius(tokens.radii.xl)
+        .into()
+    }
 }

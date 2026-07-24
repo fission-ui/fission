@@ -1,25 +1,27 @@
 use super::GalleryBuildExt;
-use crate::state::GalleryState;
 use crate::style::{amber, blue, teal};
 use fission::charts::{Axis, BarSeries, BubbleSeries, Chart, Legend, LineSeries, VisualMap};
 use fission::core::op::Color;
 use fission::core::ui::Widget;
-use fission::core::{BuildCtxHandle, ViewHandle};
 
-pub(super) fn build_chart(
-    chart: usize,
-    ctx: BuildCtxHandle<GalleryState>,
-    view: ViewHandle<GalleryState>,
-    content_width: f32,
-    s: f32,
-) -> Widget {
-    match chart {
-        0 => horizontal_bar(s).build_in_gallery(ctx, view, content_width),
-        1 => rounded_background_bar(s).build_in_gallery(ctx, view, content_width),
-        2 => negative_bar(s).build_in_gallery(ctx, view, content_width),
-        3 => bubble_scatter(s).build_in_gallery(ctx, view, content_width),
-        4 => large_line(s).build_in_gallery(ctx, view, content_width),
-        _ => unreachable!("chart catalog and cartesian-variant builder are out of sync"),
+pub(super) struct CartesianVariantChart {
+    pub chart: usize,
+    pub scale: f32,
+}
+
+impl From<CartesianVariantChart> for Widget {
+    fn from(selection: CartesianVariantChart) -> Self {
+        let chart = selection.chart;
+        let s = selection.scale;
+
+        match chart {
+            0 => horizontal_bar(s).in_gallery().into(),
+            1 => rounded_background_bar(s).in_gallery().into(),
+            2 => negative_bar(s).in_gallery().into(),
+            3 => bubble_scatter(s).in_gallery().into(),
+            4 => large_line(s).in_gallery().into(),
+            _ => unreachable!("chart catalog and cartesian-variant builder are out of sync"),
+        }
     }
 }
 

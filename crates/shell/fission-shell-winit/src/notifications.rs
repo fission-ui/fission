@@ -603,12 +603,10 @@ fn ios_set_badge_count(count: Option<u32>) {
 fn install_macos_notification_delegate() {
     static DELEGATE: OnceLock<usize> = OnceLock::new();
 
+    let Some(center) = macos_notification_center() else {
+        return;
+    };
     unsafe {
-        let center: *mut Object =
-            msg_send![class!(UNUserNotificationCenter), currentNotificationCenter];
-        if center.is_null() {
-            return;
-        }
         let delegate = *DELEGATE.get_or_init(|| {
             let delegate: *mut Object = msg_send![macos_notification_delegate_class(), new];
             delegate as usize
@@ -617,6 +615,45 @@ fn install_macos_notification_delegate() {
             let _: () = msg_send![center, setDelegate: delegate];
         }
     }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_notification_center() -> Option<*mut Object> {
+    if !macos_has_application_bundle() {
+        return None;
+    }
+
+    unsafe {
+        let center: *mut Object =
+            msg_send![class!(UNUserNotificationCenter), currentNotificationCenter];
+        (!center.is_null()).then_some(center)
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_has_application_bundle() -> bool {
+    unsafe {
+        let bundle: *mut Object = msg_send![class!(NSBundle), mainBundle];
+        if bundle.is_null() {
+            return false;
+        }
+
+        let identifier: *mut Object = msg_send![bundle, bundleIdentifier];
+        let bundle_path: *mut Object = msg_send![bundle, bundlePath];
+        let identifier = ns_string_to_string(identifier);
+        let bundle_path = ns_string_to_string(bundle_path);
+
+        macos_bundle_supports_user_notifications(bundle_path.as_deref(), identifier.as_deref())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_bundle_supports_user_notifications(
+    bundle_path: Option<&str>,
+    bundle_identifier: Option<&str>,
+) -> bool {
+    bundle_path.is_some_and(|path| path.ends_with(".app"))
+        && bundle_identifier.is_some_and(|identifier| !identifier.trim().is_empty())
 }
 
 #[cfg(target_os = "macos")]
@@ -744,12 +781,9 @@ fn macos_request_notification_permission() -> Result<NotificationSettings, Notif
         }
     })
     .copy();
+    let center = macos_notification_center()
+        .ok_or_else(|| NotificationError::unsupported("notifications"))?;
     unsafe {
-        let center: *mut objc::runtime::Object =
-            msg_send![class!(UNUserNotificationCenter), currentNotificationCenter];
-        if center.is_null() {
-            return Err(NotificationError::unsupported("notifications"));
-        }
         let options = 1usize | 2usize | 4usize;
         let _: () = msg_send![
             center,
@@ -813,12 +847,9 @@ fn macos_notification_settings() -> Result<NotificationSettings, NotificationErr
         }
     })
     .copy();
+    let center = macos_notification_center()
+        .ok_or_else(|| NotificationError::unsupported("notifications"))?;
     unsafe {
-        let center: *mut objc::runtime::Object =
-            msg_send![class!(UNUserNotificationCenter), currentNotificationCenter];
-        if center.is_null() {
-            return Err(NotificationError::unsupported("notifications"));
-        }
         let _: () = msg_send![center, getNotificationSettingsWithCompletionHandler: &*block];
     }
     let (lock, cvar) = &*pair;
@@ -926,11 +957,8 @@ fn macos_deliver_notification(
         if notification_request.is_null() {
             return Err(NotificationError::unsupported("notification_request"));
         }
-        let center: *mut objc::runtime::Object =
-            msg_send![class!(UNUserNotificationCenter), currentNotificationCenter];
-        if center.is_null() {
-            return Err(NotificationError::unsupported("notifications"));
-        }
+        let center = macos_notification_center()
+            .ok_or_else(|| NotificationError::unsupported("notifications"))?;
         let _: () = msg_send![center, addNotificationRequest: notification_request withCompletionHandler: &*block];
     }
 
@@ -958,12 +986,10 @@ fn macos_error_description(error: *mut objc::runtime::Object) -> String {
 
 #[cfg(target_os = "macos")]
 fn macos_cancel_notification(id: &str) {
+    let Some(center) = macos_notification_center() else {
+        return;
+    };
     unsafe {
-        let center: *mut objc::runtime::Object =
-            msg_send![class!(UNUserNotificationCenter), currentNotificationCenter];
-        if center.is_null() {
-            return;
-        }
         let identifier = ns_string(id);
         let ids: *mut objc::runtime::Object =
             msg_send![class!(NSArray), arrayWithObject: identifier];
@@ -974,12 +1000,10 @@ fn macos_cancel_notification(id: &str) {
 
 #[cfg(target_os = "macos")]
 fn macos_cancel_all_notifications() {
+    let Some(center) = macos_notification_center() else {
+        return;
+    };
     unsafe {
-        let center: *mut objc::runtime::Object =
-            msg_send![class!(UNUserNotificationCenter), currentNotificationCenter];
-        if center.is_null() {
-            return;
-        }
         let _: () = msg_send![center, removeAllPendingNotificationRequests];
         let _: () = msg_send![center, removeAllDeliveredNotifications];
     }
@@ -1165,5 +1189,26 @@ mod tests {
             normalize_action_id("approve".into()),
             Some("approve".into())
         );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_notification_center_requires_an_identified_app_bundle() {
+        assert!(!macos_bundle_supports_user_notifications(
+            Some("/tmp/debug"),
+            None,
+        ));
+        assert!(!macos_bundle_supports_user_notifications(
+            Some("/Applications/Example.app"),
+            None,
+        ));
+        assert!(!macos_bundle_supports_user_notifications(
+            Some("/tmp/debug"),
+            Some("dev.fission.example"),
+        ));
+        assert!(macos_bundle_supports_user_notifications(
+            Some("/Applications/Example.app"),
+            Some("dev.fission.example"),
+        ));
     }
 }

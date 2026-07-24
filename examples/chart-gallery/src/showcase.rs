@@ -1,64 +1,50 @@
-use crate::charts::gallery::configure_chart;
 use crate::data::SIMPLE_GEOJSON;
+use crate::layout::SHOWCASE_METRIC_MIN_WIDTH;
+use crate::showcase_chart_card::ShowcaseChartCard;
+use crate::showcase_grid::ShowcaseGrid;
+use crate::showcase_metric_card::ShowcaseMetricCard;
 use crate::state::GalleryState;
 use crate::style::{amber, blue, rgb, teal};
 use fission::charts::{
     Axis, Chart, DataZoom, GraphNode, HeatmapSeries, Legend, LineSeries, MapSeries, SankeySeries,
     SunburstSeries, ThemeRiverSeries, TreemapNode, VisualMap,
 };
-use fission::core::op::Color;
-use fission::core::ui::{Column, Container, Row, Scroll, Text, Widget};
-use fission::core::{BuildCtxHandle, ViewHandle};
+use fission::core::ui::{Column, Container, Scroll, Text, Widget};
 
-pub(crate) fn build_showcase(
-    ctx: BuildCtxHandle<GalleryState>,
-    view: ViewHandle<GalleryState>,
-    content_width: f32,
-    s: f32,
-) -> Widget {
-    let two_columns = content_width >= 900.0;
-    let gap = 18.0;
-    let card_width = if two_columns {
-        ((content_width - gap) / 2.0).max(320.0)
-    } else {
-        content_width.max(340.0)
-    };
-    let metric_width = if content_width >= 960.0 {
-        ((content_width - gap * 2.0) / 3.0).max(220.0)
-    } else {
-        content_width.max(340.0)
-    };
+pub(crate) struct ChartShowcase {
+    pub scale: f32,
+}
 
-    let metric_nodes = vec![
-        metric_card(
+impl From<ChartShowcase> for Widget {
+    fn from(showcase: ChartShowcase) -> Self {
+        let (_, view) = fission::build::current::<GalleryState>();
+        let tokens = &view.env().theme.tokens;
+        let s = showcase.scale;
+
+        let metric_nodes = vec![
+        ShowcaseMetricCard::new(
             "Available now",
             "39 chart surfaces",
             "Core cartesian, radial, statistical, relationship, map, and status charts render through the native chart lowerer.",
             teal(),
-            metric_width,
         ),
-        metric_card(
+        ShowcaseMetricCard::new(
             "Data model",
             "Dataset + encode",
             "Series can read direct vectors or named dataset dimensions, so app code scales beyond one-off arrays.",
             blue(),
-            metric_width,
         ),
-        metric_card(
+        ShowcaseMetricCard::new(
             "Next",
             "WASM gallery",
             "This desktop gallery is the source surface for the future browser demo and editable chart examples.",
             amber(),
-            metric_width,
         ),
     ];
 
-    let mut children = vec![
-        chart_row(
-            vec![
-                chart_card(
-                    ctx,
-                    view,
+        let mut children: Vec<Widget> = fission::widgets![
+            ShowcaseGrid::single_column(vec![
+                ShowcaseChartCard::new(
                     "Revenue composition",
                     "Stacked area, smooth interpolation, legend, and data zoom presentation.",
                     Chart::new()
@@ -103,13 +89,9 @@ pub(crate) fn build_showcase(
                                 .smooth(view.state().smooth)
                                 .into(),
                         ]),
-                    card_width,
-                    292.0,
                     teal(),
                 ),
-                chart_card(
-                    ctx,
-                    view,
+                ShowcaseChartCard::new(
                     "Regional demand",
                     "GeoJSON-backed choropleth map, visual map coloring, and region labels.",
                     Chart::new()
@@ -123,18 +105,11 @@ pub(crate) fn build_showcase(
                                 ("East", 30.0 * s),
                             ])
                             .into()]),
-                    card_width,
-                    292.0,
                     blue(),
                 ),
-            ],
-            two_columns,
-        ),
-        chart_row(
-            vec![
-                chart_card(
-                    ctx,
-                    view,
+            ],),
+            ShowcaseGrid::single_column(vec![
+                ShowcaseChartCard::new(
                     "Product hierarchy",
                     "Sunburst layout for nested product and growth categories.",
                     Chart::new()
@@ -175,13 +150,9 @@ pub(crate) fn build_showcase(
                                 },
                             ])
                             .into()]),
-                    card_width,
-                    292.0,
                     amber(),
                 ),
-                chart_card(
-                    ctx,
-                    view,
+                ShowcaseChartCard::new(
                     "Traffic stream",
                     "Theme river bands show changing mix across ordered time buckets.",
                     Chart::new()
@@ -203,18 +174,11 @@ pub(crate) fn build_showcase(
                                 ("Apr", 18.0 * s, "Partner"),
                             ])
                             .into()]),
-                    card_width,
-                    292.0,
                     rgb(168, 85, 247),
                 ),
-            ],
-            two_columns,
-        ),
-        chart_row(
-            vec![
-                chart_card(
-                    ctx,
-                    view,
+            ],),
+            ShowcaseGrid::single_column(vec![
+                ShowcaseChartCard::new(
                     "Conversion flow",
                     "Sankey bands for source-to-target movement in a product funnel.",
                     Chart::new()
@@ -248,13 +212,9 @@ pub(crate) fn build_showcase(
                                 },
                             ])
                             .into()]),
-                    card_width,
-                    292.0,
                     rgb(244, 114, 182),
                 ),
-                chart_card(
-                    ctx,
-                    view,
+                ShowcaseChartCard::new(
                     "Operations heat",
                     "Heatmap with visual-map scale for dense categorical intensity.",
                     Chart::new()
@@ -290,129 +250,37 @@ pub(crate) fn build_showcase(
                                 (5, 3, 3.0 * s),
                             ])
                             .into()]),
-                    card_width,
-                    292.0,
                     rgb(96, 165, 250),
                 ),
-            ],
-            two_columns,
-        ),
-        chart_row(metric_nodes, content_width >= 960.0),
-    ];
+            ],),
+            ShowcaseGrid::new(metric_nodes, SHOWCASE_METRIC_MIN_WIDTH),
+        ];
 
-    children.push(
+        children.push(
         Container::new(
             Text::new("Use the sidebar to inspect the single-chart examples. The overview intentionally renders several chart families together so visual regressions are obvious.")
-                .size(13.0)
-                .color(rgb(148, 163, 184))
+                .size(tokens.typography.body_medium_size)
+                .color(tokens.colors.text_secondary)
         )
-        .padding_all(14.0)
-        .border_radius(16.0)
-        .bg(rgb(15, 23, 42))
-        .border(rgb(51, 65, 85), 1.0)
+        .padding_all(tokens.spacing.m)
+        .border_radius(tokens.radii.xl)
+        .bg(tokens.colors.surface)
+        .border(tokens.colors.border, 1.0)
         .into(),
     );
 
-    Scroll {
-        direction: fission::core::FlexDirection::Column,
-        child: Some(
-            Column {
-                children,
-                gap: Some(18.0),
-                ..Default::default()
-            }
-            .into(),
-        ),
-        show_scrollbar: true,
-        flex_grow: 1.0,
-        ..Default::default()
-    }
-    .into()
-}
-
-fn chart_card(
-    _ctx: BuildCtxHandle<GalleryState>,
-    view: ViewHandle<GalleryState>,
-    title: &str,
-    subtitle: &str,
-    chart: Chart,
-    width: f32,
-    chart_height: f32,
-    accent: Color,
-) -> Widget {
-    Container::new(Column {
-        children: vec![
-            Row {
-                children: vec![
-                    Container::new(Text::new(""))
-                        .width(8.0)
-                        .height(32.0)
-                        .border_radius(8.0)
-                        .bg(accent)
-                        .into(),
-                    Column {
-                        children: vec![
-                            Text::new(title).size(18.0).color(Color::WHITE).into(),
-                            Text::new(subtitle)
-                                .size(12.0)
-                                .color(rgb(148, 163, 184))
-                                .into(),
-                        ],
-                        gap: Some(4.0),
-                        ..Default::default()
-                    }
-                    .into(),
-                ],
-                gap: Some(10.0),
-                ..Default::default()
-            }
-            .into(),
-            configure_chart(chart, view, (width - 32.0).max(260.0), chart_height).into(),
-        ],
-        gap: Some(12.0),
-        ..Default::default()
-    })
-    .width(width)
-    .padding_all(16.0)
-    .border_radius(24.0)
-    .bg(rgb(11, 18, 32))
-    .border(rgb(51, 65, 85), 1.0)
-    .into()
-}
-
-fn metric_card(title: &str, value: &str, detail: &str, accent: Color, width: f32) -> Widget {
-    Container::new(Column {
-        children: vec![
-            Text::new(title).size(12.0).color(accent).into(),
-            Text::new(value).size(22.0).color(Color::WHITE).into(),
-            Text::new(detail)
-                .size(12.0)
-                .color(rgb(148, 163, 184))
+        Scroll {
+            direction: fission::core::FlexDirection::Column,
+            child: Some(
+                Column {
+                    children,
+                    gap: Some(tokens.spacing.l),
+                    ..Default::default()
+                }
                 .into(),
-        ],
-        gap: Some(7.0),
-        ..Default::default()
-    })
-    .width(width)
-    .padding_all(16.0)
-    .border_radius(18.0)
-    .bg(rgb(11, 18, 32))
-    .border(rgb(51, 65, 85), 1.0)
-    .into()
-}
-
-fn chart_row(children: Vec<Widget>, row: bool) -> Widget {
-    if row {
-        Row {
-            children,
-            gap: Some(18.0),
-            ..Default::default()
-        }
-        .into()
-    } else {
-        Column {
-            children,
-            gap: Some(18.0),
+            ),
+            show_scrollbar: true,
+            flex_grow: 1.0,
             ..Default::default()
         }
         .into()

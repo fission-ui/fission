@@ -1,29 +1,16 @@
+use crate::layout::{INPUT_HEIGHT, SEARCH_ACTION_HEIGHT, SEARCH_ACTION_WIDTH, SEARCH_RESULT_LIMIT};
 use crate::model::{EditorState, ExecuteSearch, OpenFile, UpdateSearchQuery};
-use fission::core::op::Color;
-use fission::core::ui::{
-    Button, ButtonContentAlign, ButtonVariant, Column, Container, Scroll, Text, TextInput, Widget,
-};
-use fission::core::{reduce_with, ActionEnvelope, FlexDirection};
+use crate::palette::{DIM_TEXT, INPUT_BG, INPUT_BORDER, PANEL_TEXT};
+use crate::search_result_item::SearchResultItem;
+use fission::prelude::*;
 use fission::widgets::{HStack, VStack};
-use serde_json;
 
 pub struct SearchPanel;
 
 impl From<SearchPanel> for Widget {
     fn from(_component: SearchPanel) -> Self {
         let (ctx, view) = fission::build::current::<EditorState>();
-        let text_color = Color {
-            r: 204,
-            g: 204,
-            b: 204,
-            a: 255,
-        };
-        let dim_color = Color {
-            r: 140,
-            g: 140,
-            b: 140,
-            a: 255,
-        };
+        let tokens = &view.env().theme.tokens;
 
         let update_query = ctx.bind(
             UpdateSearchQuery(String::new()),
@@ -42,10 +29,9 @@ impl From<SearchPanel> for Widget {
             )
             .id;
 
-        // Connected search input with Go button inside a single bordered container
         let search_row = Container::new(HStack {
-            spacing: Some(0.0),
-            children: vec![
+            spacing: Some(tokens.spacing.none),
+            children: widgets![
                 TextInput {
                     id: Some(fission::WidgetId::explicit("editor_search_query_input")),
                     value: view.state().search_query.clone(),
@@ -53,91 +39,54 @@ impl From<SearchPanel> for Widget {
                     on_change: Some(update_query),
                     borderless: true,
                     ..Default::default()
-                }
-                .into(),
+                },
                 Button {
                     variant: ButtonVariant::Ghost,
-                    child: Some(Text::new("Go").size(11.0).color(text_color).into()),
+                    child: Some(
+                        Text::new("Go")
+                            .size(tokens.typography.font_size_xs)
+                            .color(PANEL_TEXT)
+                            .into(),
+                    ),
                     on_press: Some(execute),
-                    width: Some(32.0),
-                    height: Some(28.0),
-                    padding: Some([0.0; 4]),
+                    width: Some(SEARCH_ACTION_WIDTH),
+                    height: Some(SEARCH_ACTION_HEIGHT),
+                    padding: Some([tokens.spacing.none; 4]),
                     ..Default::default()
-                }
-                .into(),
+                },
             ],
         })
-        .bg(Color {
-            r: 60,
-            g: 60,
-            b: 60,
-            a: 255,
-        })
-        .border(
-            Color {
-                r: 80,
-                g: 80,
-                b: 80,
-                a: 255,
-            },
-            1.0,
-        )
-        .border_radius(3.0)
-        .height(30.0)
+        .bg(INPUT_BG)
+        .border(INPUT_BORDER, 1.0)
+        .border_radius(tokens.radii.small)
+        .height(INPUT_HEIGHT)
         .into();
 
         let mut children = vec![search_row];
 
-        // Results
         if !view.state().search_results.is_empty() {
             children.push(
                 Text::new(format!("{} results", view.state().search_results.len()))
-                    .size(11.0)
-                    .color(dim_color)
+                    .size(tokens.typography.font_size_xs)
+                    .color(DIM_TEXT)
                     .into(),
             );
 
-            let mut result_nodes = Vec::new();
-            for result in view.state().search_results.iter().take(50) {
-                let label = format!(
-                    "{}:{}",
-                    result.path.rsplit('/').next().unwrap_or(&result.path),
-                    result.line
-                );
-                result_nodes.push(
-                    Button {
-                        variant: ButtonVariant::Ghost,
-                        content_align: ButtonContentAlign::Start,
-                        child: Some(
-                            VStack {
-                                spacing: Some(1.0),
-                                children: vec![
-                                    Text::new(label).size(12.0).color(text_color).into(),
-                                    Text::new(result.context.chars().take(60).collect::<String>())
-                                        .size(11.0)
-                                        .color(dim_color)
-                                        .into(),
-                                ],
-                            }
-                            .into(),
-                        ),
-                        on_press: Some(ActionEnvelope {
-                            id: open_id,
-                            payload: serde_json::to_vec(&OpenFile(result.path.clone())).unwrap(),
-                        }),
-                        padding: Some([4.0, 4.0, 0.0, 0.0]),
-                        ..Default::default()
-                    }
-                    .into(),
-                );
-            }
+            let result_nodes = view
+                .state()
+                .search_results
+                .iter()
+                .take(SEARCH_RESULT_LIMIT)
+                .cloned()
+                .map(|result| SearchResultItem { result, open_id }.into())
+                .collect();
 
             children.push(
                 Scroll {
                     direction: FlexDirection::Column,
                     child: Some(
                         VStack {
-                            spacing: Some(2.0),
+                            spacing: Some(tokens.spacing.xs),
                             children: result_nodes,
                         }
                         .into(),
@@ -152,20 +101,20 @@ impl From<SearchPanel> for Widget {
         } else if !view.state().search_query.is_empty() {
             children.push(
                 Text::new("No results found")
-                    .size(12.0)
-                    .color(dim_color)
+                    .size(tokens.typography.font_size_sm)
+                    .color(DIM_TEXT)
                     .into(),
             );
         }
 
         Container::new(Column {
-            gap: Some(8.0),
+            gap: Some(tokens.spacing.s),
             children,
             flex_grow: 1.0,
             justify_content: fission::core::op::JustifyContent::Start,
             ..Default::default()
         })
-        .padding_all(8.0)
+        .padding_all(tokens.spacing.s)
         .flex_grow(1.0)
         .into()
     }

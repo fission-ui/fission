@@ -1,4 +1,4 @@
-use super::home_widgets::{nav_inset, semantic_row, ExternalNavLink, SearchPill, ThemeToggle};
+use super::home_widgets::{nav_inset, ExternalNavLink, SearchPill, SemanticRow, ThemeToggle};
 use super::state::DocsState;
 use fission::op::{AlignItems, Fill, FlexWrap, JustifyContent};
 use fission::prelude::*;
@@ -190,16 +190,30 @@ impl From<HomePageNav> for Widget {
         let nav_items = NAV_ITEMS
             .iter()
             .enumerate()
-            .map(|(index, item)| nav_item(item, 0, index, tokens))
+            .map(|(index, item)| {
+                HomeNavItem {
+                    item: *item,
+                    depth: 0,
+                    index,
+                }
+                .into()
+            })
             .collect::<Vec<_>>();
         let mobile_nav_items = MOBILE_NAV_ITEMS
             .iter()
             .enumerate()
-            .map(|(index, item)| nav_item(item, 0, index, tokens))
+            .map(|(index, item)| {
+                HomeNavItem {
+                    item: *item,
+                    depth: 0,
+                    index,
+                }
+                .into()
+            })
             .collect::<Vec<_>>();
         Container::new(Row {
             children: vec![
-                semantic_row(
+                SemanticRow::new(
                     "site-route:/",
                     vec![
                         Image::asset("/img/fission-mark.svg")
@@ -215,7 +229,8 @@ impl From<HomePageNav> for Widget {
                     FlexWrap::NoWrap,
                     AlignItems::Center,
                     JustifyContent::Start,
-                ),
+                )
+                .into(),
                 Row {
                     children: mobile_nav_items,
                     gap: Some(tokens.spacing.s),
@@ -269,63 +284,84 @@ impl From<HomePageNav> for Widget {
     }
 }
 
-fn nav_item(item: &NavItem, depth: usize, index: usize, tokens: &fission::theme::Tokens) -> Widget {
-    let has_children = !item.children.is_empty();
-    let mut label_children = vec![Text::new(item.label)
-        .size(tokens.typography.label_large_size)
-        .weight(tokens.typography.font_weight_semibold)
-        .color(tokens.colors.text_link)
-        .semantics_identifier(format!("site-route:{}", item.href))
+#[derive(Clone, Copy, Debug)]
+struct HomeNavItem {
+    item: NavItem,
+    depth: usize,
+    index: usize,
+}
+
+impl From<HomeNavItem> for Widget {
+    fn from(component: HomeNavItem) -> Self {
+        let (_ctx, view) = fission::build::current::<DocsState>();
+        let tokens = &view.env().theme.tokens;
+        let has_children = !component.item.children.is_empty();
+        let mut label_children = vec![Text::new(component.item.label)
+            .size(tokens.typography.label_large_size)
+            .weight(tokens.typography.font_weight_semibold)
+            .color(tokens.colors.text_link)
+            .semantics_identifier(format!("site-route:{}", component.item.href))
+            .into()];
+        if has_children {
+            label_children.push(
+                Text::new(if component.depth == 0 { "▾" } else { "▸" })
+                    .size(tokens.typography.font_size_xs)
+                    .weight(tokens.typography.font_weight_bold)
+                    .color(tokens.colors.text_muted)
+                    .into(),
+            );
+        }
+
+        let mut children = vec![Row {
+            children: label_children,
+            gap: Some(tokens.spacing.xs),
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::Start,
+            semantics: Some(super::home_widgets::site_semantics(format!(
+                "site-nav-label:{}:{has_children}:{}",
+                component.depth, component.index
+            ))),
+            ..Default::default()
+        }
         .into()];
-    if has_children {
-        label_children.push(
-            Text::new(if depth == 0 { "▾" } else { "▸" })
-                .size(tokens.typography.font_size_xs)
-                .weight(tokens.typography.font_weight_bold)
-                .color(tokens.colors.text_muted)
+
+        if has_children {
+            children.push(
+                Column {
+                    children: component
+                        .item
+                        .children
+                        .iter()
+                        .enumerate()
+                        .map(|(index, item)| {
+                            HomeNavItem {
+                                item: *item,
+                                depth: component.depth + 1,
+                                index,
+                            }
+                            .into()
+                        })
+                        .collect(),
+                    gap: Some(tokens.spacing.xs),
+                    semantics: Some(super::home_widgets::site_semantics(format!(
+                        "site-nav-menu:{}:{}",
+                        component.depth + 1,
+                        component.item.children.len()
+                    ))),
+                    ..Default::default()
+                }
                 .into(),
-        );
-    }
+            );
+        }
 
-    let mut children = vec![Row {
-        children: label_children,
-        gap: Some(tokens.spacing.xs),
-        align_items: AlignItems::Center,
-        justify_content: JustifyContent::Start,
-        semantics: Some(super::home_widgets::site_semantics(format!(
-            "site-nav-label:{depth}:{has_children}:{index}"
-        ))),
-        ..Default::default()
+        Column {
+            children,
+            semantics: Some(super::home_widgets::site_semantics(format!(
+                "site-nav-item:{}:{has_children}:{}",
+                component.depth, component.index
+            ))),
+            ..Default::default()
+        }
+        .into()
     }
-    .into()];
-
-    if has_children {
-        children.push(
-            Column {
-                children: item
-                    .children
-                    .iter()
-                    .enumerate()
-                    .map(|(child_index, child)| nav_item(child, depth + 1, child_index, tokens))
-                    .collect(),
-                gap: Some(tokens.spacing.xs),
-                semantics: Some(super::home_widgets::site_semantics(format!(
-                    "site-nav-menu:{}:{}",
-                    depth + 1,
-                    item.children.len()
-                ))),
-                ..Default::default()
-            }
-            .into(),
-        );
-    }
-
-    Column {
-        children,
-        semantics: Some(super::home_widgets::site_semantics(format!(
-            "site-nav-item:{depth}:{has_children}:{index}"
-        ))),
-        ..Default::default()
-    }
-    .into()
 }

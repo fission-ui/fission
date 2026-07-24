@@ -39,6 +39,14 @@ pub trait InternalLower {
 pub trait InternalLowerer: Send + Sync + Debug {
     /// Lower this widget into the IR, returning the root node id.
     fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId;
+    /// Stable identity for the custom widget wrapper.
+    ///
+    /// Interactive custom render objects should return an identity that
+    /// survives rebuilds so focus and IME state remain attached to the same
+    /// logical widget.
+    fn widget_id(&self) -> Option<WidgetId> {
+        None
+    }
     /// A stable key used for structural diffing. Override to provide a
     /// content-based hash.
     fn stable_key(&self) -> u64 {

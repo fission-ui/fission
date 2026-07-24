@@ -1,0 +1,85 @@
+---
+title: Layout primitives
+description: Develop with Length, BoxStyle, GridTrack, overflow, alignment, and positioning primitives.
+---
+
+# Layout primitives
+
+The modern Fission layout surface is built around typed primitives. These are not CSS strings and they are not renderer-specific options. They are platform-neutral layout facts the runtime can lower, inspect, and test.
+
+| Primitive | Job |
+| --- | --- |
+| `Length` | Express fixed, percentage, viewport, intrinsic, and clamped sizes. |
+| `BoxStyle` | Group box sizing, margin, padding, alignment, overflow, aspect ratio, positioning, and grid placement. |
+| `GridTrack` | Define grid tracks with points, percentages, fractions, intrinsic sizes, repeat, auto-fit, and auto-fill. |
+| `Responsive` | Select one child branch from ordered viewport or container breakpoints. |
+
+## Length
+
+```rust
+const PROFILE_MIN_WIDTH: f32 = 280.0;
+const PROFILE_MAX_WIDTH: f32 = 520.0;
+
+Container::new(ProfileSummary)
+    .width_length(Length::clamp(
+        Length::points(PROFILE_MIN_WIDTH),
+        Length::percent(40.0),
+        Length::points(PROFILE_MAX_WIDTH),
+    ))
+    .max_height_length(Length::vh(80.0))
+    .into()
+```
+
+Percentages are expressed as whole percentages: `Length::percent(50.0)` means half of the containing axis.
+
+## BoxStyle
+
+```rust
+const PANEL_MAX_WIDTH: f32 = 960.0;
+
+let (_ctx, view) = fission::build::current::<SettingsState>();
+let spacing = &view.env().theme.tokens.spacing;
+
+let panel = BoxStyle::default()
+    .width(Length::percent(100.0))
+    .max_width(Length::points(PANEL_MAX_WIDTH))
+    .padding_symmetric(
+        Length::points(spacing.xl),
+        Length::points(spacing.l),
+    )
+    .margin_symmetric(Length::Auto, Length::points(spacing.none))
+    .align(BoxAlignment::Center)
+    .overflow(Overflow::Clip);
+
+Container {
+    child: Some(SettingsForm.into()),
+    box_style: panel,
+    ..Default::default()
+}
+.into()
+```
+
+Use the builder methods on `Container` for common cases, and use `BoxStyle` when a reusable component wants to pass a whole box contract around.
+
+## Grid tracks
+
+```rust
+const CARD_MIN_WIDTH: f32 = 220.0;
+
+let (_ctx, view) = fission::build::current::<CatalogState>();
+let spacing = &view.env().theme.tokens.spacing;
+
+Grid {
+    columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+        GridTrack::Points(CARD_MIN_WIDTH),
+        GridTrack::Fr(1.0),
+    ))],
+    row_gap: Some(spacing.l),
+    column_gap: Some(spacing.l),
+    children: cards,
+    ..Default::default()
+}
+.into()
+```
+
+Use `auto_fit` for responsive card grids that should collapse empty tracks. Use `auto_fill` when empty tracks should reserve space.

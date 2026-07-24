@@ -73,6 +73,10 @@ impl<'a> InternalLoweringCx<'a> {
         children: Vec<WidgetId>,
     ) -> WidgetId {
         use std::hash::{Hash, Hasher};
+        assert!(
+            !self.ir.nodes.contains_key(&node_id),
+            "duplicate WidgetId {node_id}; every lowered widget must have a unique identity"
+        );
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         op.hash(&mut hasher);
         composite.hash(&mut hasher);

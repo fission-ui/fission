@@ -1,3 +1,6 @@
+use crate::components::palette::{
+    AMBER, SURFACE, SURFACE_RAISED, TEXT_BODY, TEXT_MUTED, TEXT_PRIMARY,
+};
 use fission::prelude::*;
 use fission::site::{run_browser_island, BrowserIslandApp};
 
@@ -14,6 +17,7 @@ pub struct CartDrawerIsland;
 impl From<CartDrawerIsland> for Widget {
     fn from(_component: CartDrawerIsland) -> Self {
         let (ctx, view) = fission::build::current::<BrowserCartState>();
+        let tokens = &view.env().theme.tokens;
         let add = ctx.bind(IslandAddToCart, reduce_with!(on_island_add_to_cart));
         let count = view.state().count;
         let item_word = if count == 1 { "item" } else { "items" };
@@ -30,56 +34,70 @@ impl From<CartDrawerIsland> for Widget {
         };
 
         Container::new(Column {
-            gap: Some(14.0),
+            gap: Some(tokens.spacing.m),
             children: vec![
                 Text::new(status)
-                    .size(13.0)
-                    .line_height(18.0)
-                    .weight(800)
-                    .color(color(251, 191, 36))
+                    .size(tokens.typography.body_medium_size)
+                    .line_height(
+                        tokens.typography.body_medium_size * tokens.typography.line_height_normal,
+                    )
+                    .weight(tokens.typography.font_weight_bold)
+                    .color(AMBER)
                     .semantics_identifier("island-status:cart-drawer")
                     .into(),
                 Container::new(Column {
-                    gap: Some(6.0),
+                    gap: Some(tokens.spacing.s),
                     children: vec![
                         Text::new(line)
-                            .size(15.0)
-                            .line_height(21.0)
-                            .weight(800)
-                            .color(color(226, 232, 240))
+                            .size(tokens.typography.body_large_size)
+                            .line_height(
+                                tokens.typography.body_large_size
+                                    * tokens.typography.line_height_normal,
+                            )
+                            .weight(tokens.typography.font_weight_bold)
+                            .color(TEXT_BODY)
                             .semantics_identifier("island-cart-line")
                             .into(),
                         Text::new(format!("{count} {item_word} in the browser island cart"))
-                            .size(13.0)
-                            .line_height(18.0)
-                            .color(color(148, 163, 184))
+                            .size(tokens.typography.body_medium_size)
+                            .line_height(
+                                tokens.typography.body_medium_size
+                                    * tokens.typography.line_height_normal,
+                            )
+                            .color(TEXT_MUTED)
                             .semantics_identifier("island-cart-count")
                             .into(),
                     ],
                     ..Default::default()
                 })
-                .padding_all(14.0)
-                .border(color(251, 191, 36).with_alpha(90), 1.0)
-                .border_radius(16.0)
-                .bg(color(30, 41, 59))
+                .padding_all(tokens.spacing.m)
+                .border(AMBER.with_alpha(90), 1.0)
+                .border_radius(tokens.radii.large)
+                .bg(SURFACE_RAISED)
                 .into(),
                 Row {
-                    gap: Some(12.0),
+                    gap: Some(tokens.spacing.m),
                     children: vec![
                         Column {
-                            gap: Some(4.0),
+                            gap: Some(tokens.spacing.xs),
                             children: vec![
                                 Text::new("Island subtotal")
-                                    .size(12.0)
-                                    .line_height(16.0)
-                                    .weight(800)
-                                    .color(color(148, 163, 184))
+                                    .size(tokens.typography.font_size_sm)
+                                    .line_height(
+                                        tokens.typography.font_size_sm
+                                            * tokens.typography.line_height_normal,
+                                    )
+                                    .weight(tokens.typography.font_weight_bold)
+                                    .color(TEXT_MUTED)
                                     .into(),
                                 Text::new(format!("£{subtotal:.2}"))
-                                    .size(24.0)
-                                    .line_height(30.0)
-                                    .weight(900)
-                                    .color(color(248, 250, 252))
+                                    .size(tokens.typography.heading_size)
+                                    .line_height(
+                                        tokens.typography.heading_size
+                                            * tokens.typography.line_height_heading,
+                                    )
+                                    .weight(tokens.typography.font_weight_bold)
+                                    .color(TEXT_PRIMARY)
                                     .semantics_identifier("island-cart-total")
                                     .into(),
                             ],
@@ -94,14 +112,22 @@ impl From<CartDrawerIsland> for Widget {
                         SemanticsRegion::new(
                             Container::new(
                                 Text::new("Add Charizard")
-                                    .size(14.0)
-                                    .line_height(20.0)
-                                    .weight(900)
-                                    .color(color(15, 23, 42)),
+                                    .size(tokens.typography.body_medium_size)
+                                    .line_height(
+                                        tokens.typography.body_medium_size
+                                            * tokens.typography.line_height_normal,
+                                    )
+                                    .weight(tokens.typography.font_weight_bold)
+                                    .color(SURFACE),
                             )
-                            .padding([14.0, 14.0, 12.0, 12.0])
-                            .border_radius(999.0)
-                            .bg(color(251, 191, 36)),
+                            .padding([
+                                tokens.spacing.m,
+                                tokens.spacing.m,
+                                tokens.spacing.s,
+                                tokens.spacing.s,
+                            ])
+                            .border_radius(tokens.radii.full)
+                            .bg(AMBER),
                         )
                         .identifier("island-action:add-card")
                         .role(fission::Role::Button)
@@ -118,16 +144,16 @@ impl From<CartDrawerIsland> for Widget {
                 } else {
                     "Updated without a full page request"
                 })
-                .size(12.0)
-                .line_height(17.0)
-                .weight(700)
-                .color(color(251, 191, 36))
+                .size(tokens.typography.font_size_sm)
+                .line_height(tokens.typography.font_size_sm * tokens.typography.line_height_normal)
+                .weight(tokens.typography.font_weight_semibold)
+                .color(AMBER)
                 .semantics_identifier("island-last-event")
                 .into(),
                 Text::new(count.to_string())
-                    .size(1.0)
-                    .line_height(1.0)
-                    .color(color(24, 35, 58))
+                    .size(tokens.spacing.none)
+                    .line_height(tokens.spacing.none)
+                    .color(SURFACE_RAISED)
                     .semantics_identifier("island-cart-count-short")
                     .into(),
             ],
@@ -150,8 +176,4 @@ pub fn cart_drawer_boot(input: &str) -> String {
             CartDrawerIsland,
         )
     })
-}
-
-fn color(r: u8, g: u8, b: u8) -> Color {
-    Color { r, g, b, a: 255 }
 }

@@ -10,20 +10,23 @@ use serde::{Deserialize, Serialize};
 /// A CSS-grid-style layout container.
 ///
 /// Define column and row tracks with [`GridTrack`] values (points, fractions,
-/// percentages, or auto) and place children using [`GridItem`].
+/// percentages, intrinsic tracks, `minmax`, fixed repeat, `auto_fit`, or
+/// `auto_fill`) and place children using [`GridItem`].
 ///
 /// # Example
 ///
 /// ```rust,ignore
+/// const CARD_MIN_WIDTH: f32 = 220.0;
+///
 /// Grid {
-///     columns: vec![GridTrack::Fr(1.0), GridTrack::Fr(2.0)],
-///     rows: vec![GridTrack::Points(40.0), GridTrack::Auto],
-///     column_gap: Some(8.0),
-///     row_gap: Some(8.0),
-///     children: vec![
-///         GridItem::new(Text::new("A")).cell(1, 1).into(),
-///         GridItem::new(Text::new("B")).cell(1, 2).into(),
-///     ],
+///     columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+///         GridTrack::Points(CARD_MIN_WIDTH),
+///         GridTrack::Fr(1.0),
+///     ))],
+///     rows: vec![GridTrack::Auto],
+///     column_gap: Some(tokens.spacing.m),
+///     row_gap: Some(tokens.spacing.m),
+///     children: widgets![CardA, CardB, CardC],
 ///     ..Default::default()
 /// }
 /// ```

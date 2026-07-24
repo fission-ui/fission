@@ -163,3 +163,9 @@ After this guide, you should be able to explain where `Input, text, and environm
 | A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
 | The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
 | Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |
+
+## Responsive input layout
+
+Input-heavy screens should normally use [`Responsive`](/reference/widgets/responsive/) and [`Length`](/reference/core/length/) for layout changes. Keep `ViewHandle::viewport_size()` for cases where input behavior depends on measured geometry, IME state, safe-area insets, or product state that cannot be represented as a simple responsive case.
+
+For example, a settings form can switch from one column to two columns with `ResponsiveCase`, while an autocomplete popup may still use previous layout rectangles to anchor itself to the field. That split keeps normal responsive design declarative and reserves imperative geometry for the places that genuinely need it.

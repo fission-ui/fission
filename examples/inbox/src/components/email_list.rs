@@ -1,12 +1,13 @@
 use crate::model::{
-    Folder, InboxState, Navigate, SelectTab, SetAdvancedFiltersOpen, SetFilterMode, SetPage,
-    SetSortOption, ToggleEmailSelection, ToggleFilterDropdown, ToggleFlag, UpdateSearch,
+    Folder, InboxState, Navigate, SelectTab, SetAdvancedFiltersOpen, SetFilterMode,
+    SetMobileMenuOpen, SetPage, SetSortOption, ToggleEmailSelection, ToggleFilterDropdown,
+    ToggleFlag, UpdateSearch,
 };
 use fission::core::ui::{
     Button, ButtonContentAlign, ButtonVariant, Checkbox, Container, Row, Text, TextContent, Widget,
 };
 use fission::core::ActionEnvelope;
-use fission::core::{reduce_with, WidgetId};
+use fission::core::{reduce_with, Length, WidgetId};
 use fission::icons::material;
 use fission::theme::ComponentSize;
 use fission::widgets::{
@@ -46,10 +47,15 @@ impl From<EmailList> for Widget {
         let mut chrome_items = vec![];
 
         let folder = folder_from_route(&component.folder);
+        let compact_layout = view.viewport_size().width < 760.0;
         let compact_rows =
             view.viewport_size().height < 680.0 || view.viewport_size().width < 980.0;
         let short_viewport = view.viewport_size().height < 640.0;
-        let filters_width = (view.viewport_size().width * 0.34).clamp(240.0, 320.0);
+        let filters_width = Length::clamp(
+            Length::points(240.0),
+            Length::percent(34.0),
+            Length::points(320.0),
+        );
         let folder_label = match &folder {
             Folder::Inbox => view
                 .env()
@@ -193,19 +199,49 @@ impl From<EmailList> for Widget {
                 })
             ),
         );
+        let open_navigation = ctx.bind(
+            SetMobileMenuOpen(true),
+            reduce_with!(
+                (|state: &mut InboxState, action: SetMobileMenuOpen, _| {
+                    state.show_mobile_menu = action.0
+                })
+            ),
+        );
 
         // Header
+        let mut header_children = Vec::new();
+        if compact_layout {
+            header_children.push(
+                Button {
+                    variant: ButtonVariant::Ghost,
+                    child: Some(
+                        Icon::path("M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z")
+                            .size(20.0)
+                            .into(),
+                    ),
+                    on_press: Some(open_navigation),
+                    width: Some(36.0),
+                    height: Some(36.0),
+                    padding: Some([6.0; 4]),
+                    ..Default::default()
+                }
+                .semantics_identifier("inbox.navigation.open")
+                .into(),
+            );
+        }
+        header_children.push(Text::new(folder_label).size(20.0).into());
+        header_children.push(
+            Badge {
+                text: format!("{} {}", unread_count, t("badge.new")),
+                ..Default::default()
+            }
+            .into(),
+        );
         chrome_items.push(
             Row {
                 gap: Some(6.0),
-                children: vec![
-                    Text::new(folder_label).size(20.0).into(),
-                    Badge {
-                        text: format!("{} {}", unread_count, t("badge.new")),
-                        ..Default::default()
-                    }
-                    .into(),
-                ],
+                align_items: fission::op::AlignItems::Center,
+                children: header_children,
                 ..Default::default()
             }
             .into(),
@@ -335,7 +371,7 @@ impl From<EmailList> for Widget {
                                 .into(),
                             ],
                         })
-                        .width(filters_width)
+                        .width_length(filters_width)
                         .padding_all(14.0)
                         .bg(tokens.colors.surface)
                         .border(tokens.colors.border, 1.0)
