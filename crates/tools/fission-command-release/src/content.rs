@@ -652,7 +652,7 @@ fn run_test_control_steps(
     checks: &mut Vec<LifecycleCheck>,
 ) -> Result<()> {
     let client = Client::builder()
-        .timeout(Duration::from_secs(30))
+        .timeout(timeout.saturating_add(Duration::from_secs(5)))
         .user_agent("cargo-fission-release-content/0.1")
         .build()?;
     wait_for_test_control(&client, port, timeout)?;
