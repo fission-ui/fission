@@ -422,6 +422,33 @@ build_number = "42"
 }
 
 #[test]
+fn configured_macos_build_number_uses_macos_package_value() {
+    let dir =
+        std::env::temp_dir().join(format!("fission-macos-build-number-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(
+        dir.join("fission.toml"),
+        r#"[app]
+build = 7
+
+[package.ios]
+build_number = "41"
+
+[package.macos]
+build_number = "42"
+"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        configured_macos_build_number(&dir).unwrap(),
+        Some("42".to_string())
+    );
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn app_store_provider_build_number_prefers_artifact_manifest_build() {
     let dir = std::env::temp_dir().join(format!(
         "fission-app-store-artifact-build-{}",
@@ -462,10 +489,58 @@ build_number = "9"
     };
 
     assert_eq!(
-        app_store_build_number_for_provider(&dir, Some(&manifest)).unwrap(),
+        app_store_build_number_for_provider(&dir, Some(PackageFormat::Ipa), Some(&manifest))
+            .unwrap(),
         Some("43".to_string())
     );
     let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn app_store_artifact_kind_distinguishes_ios_and_macos_packages() {
+    let manifest = |target: &str, format: &str| ArtifactManifest {
+        schema_version: 1,
+        created_at_unix_seconds: 0,
+        project: ArtifactProject {
+            app_id: "com.example.demo".to_string(),
+            name: "Demo".to_string(),
+            build: Some(43),
+            version: Some("1.2.3".to_string()),
+        },
+        target: target.to_string(),
+        format: format.to_string(),
+        profile: "release".to_string(),
+        variant: None,
+        root_dir: "/tmp/fission-app-store".to_string(),
+        source_config: Vec::new(),
+        artifacts: Vec::new(),
+        icon_manifest: None,
+        signing: None,
+        notarization: None,
+        validation: ArtifactValidation {
+            state: "passed".to_string(),
+            checks: Vec::new(),
+        },
+    };
+
+    assert_eq!(
+        app_store_artifact_kind(&manifest("ios", "ipa")).unwrap(),
+        AppStoreArtifactKind {
+            api_platform: "IOS",
+            altool_platform: "ios",
+            extensions: &["ipa"],
+        }
+    );
+    assert_eq!(
+        app_store_artifact_kind(&manifest("macos", "pkg")).unwrap(),
+        AppStoreArtifactKind {
+            api_platform: "MAC_OS",
+            altool_platform: "macos",
+            extensions: &["pkg"],
+        }
+    );
+    assert!(app_store_artifact_kind(&manifest("macos", "ipa")).is_err());
+    assert!(app_store_artifact_kind(&manifest("ios", "pkg")).is_err());
 }
 
 #[test]

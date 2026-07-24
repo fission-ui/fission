@@ -271,7 +271,8 @@ pub(super) fn publish_app_store(
     let key_id = env_value("APP_STORE_CONNECT_KEY_ID")
         .or(cfg.key_id.clone())
         .context("distribution.app_store.key_id or APP_STORE_CONNECT_KEY_ID is required")?;
-    let ipa = primary_artifact_with_extensions(manifest, &["ipa"])?;
+    let artifact_kind = app_store_artifact_kind(manifest)?;
+    let package = primary_artifact_with_extensions(manifest, artifact_kind.extensions)?;
     let track = options
         .track
         .as_deref()
@@ -287,7 +288,7 @@ pub(super) fn publish_app_store(
             Some("https://appstoreconnect.apple.com/apps".to_string()),
             vec![format!(
                 "Would upload {} to App Store Connect with API key {key_id} for track {track}.",
-                ipa.display()
+                package.display()
             )],
         ));
     }
@@ -306,9 +307,9 @@ pub(super) fn publish_app_store(
             "altool",
             "--upload-app",
             "-f",
-            ipa.to_string_lossy().as_ref(),
+            package.to_string_lossy().as_ref(),
             "-t",
-            "ios",
+            artifact_kind.altool_platform,
             "--apiKey",
             &key_id,
             "--apiIssuer",
@@ -985,6 +986,7 @@ fn android_version_code_for_provider(
 fn app_store_build_number_state_check(
     project_dir: &Path,
     cfg: &AppStoreConfig,
+    format: Option<PackageFormat>,
     artifact_manifest: Option<&ArtifactManifest>,
 ) -> ReadinessCheck {
     if cfg
@@ -1003,27 +1005,28 @@ fn app_store_build_number_state_check(
             vec!["Set distribution.app_store.app_id or distribution.app_store.bundle_id."],
         );
     }
-    let build_number = match app_store_build_number_for_provider(project_dir, artifact_manifest) {
-        Ok(value) => value,
-        Err(error) => {
-            return check(
-                "release.app_store.build_number_available",
-                CheckSeverity::Error,
-                CheckStatus::Failed,
-                "App Store build number availability could not be checked",
-                Some(error.to_string()),
-                vec!["Fix fission.toml so the iOS build number can be read."],
-            );
-        }
-    };
+    let build_number =
+        match app_store_build_number_for_provider(project_dir, format, artifact_manifest) {
+            Ok(value) => value,
+            Err(error) => {
+                return check(
+                    "release.app_store.build_number_available",
+                    CheckSeverity::Error,
+                    CheckStatus::Failed,
+                    "App Store build number availability could not be checked",
+                    Some(error.to_string()),
+                    vec!["Fix fission.toml so the target build number can be read."],
+                );
+            }
+        };
     let Some(build_number) = build_number else {
         return check(
             "release.app_store.build_number_available",
             CheckSeverity::Error,
             CheckStatus::Missing,
-            "iOS build number is configured before App Store upload",
+            "target build number is configured before App Store upload",
             None,
-            vec!["Set [package.ios].build_number or [app].build before publishing to App Store Connect."],
+            vec!["Set the target package build number or [app].build before publishing to App Store Connect."],
         );
     };
     if !app_store_credentials_available_for_cfg(cfg) {
@@ -1085,7 +1088,7 @@ fn app_store_build_number_state_check(
             CheckStatus::Passed,
             "App Store build number has not been used",
             Some(format!("app {app_id} build {build_number}")),
-            vec!["Keep this build number for the next IPA build."],
+            vec!["Keep this build number for the next App Store package."],
         ),
         Err(error) => check(
             "release.app_store.build_number_available",
@@ -1094,7 +1097,7 @@ fn app_store_build_number_state_check(
             "App Store build number has already been used",
             Some(error.to_string()),
             vec![
-                "Run `fission release-config bump-build --target ios --yes`, rebuild the IPA, then publish again.",
+                "Run `fission release-config bump-build --target <ios|macos> --yes`, rebuild the package, then publish again.",
             ],
         ),
     }
@@ -1102,12 +1105,16 @@ fn app_store_build_number_state_check(
 
 fn app_store_build_number_for_provider(
     project_dir: &Path,
+    format: Option<PackageFormat>,
     artifact_manifest: Option<&ArtifactManifest>,
 ) -> Result<Option<String>> {
     if let Some(build) = artifact_manifest.and_then(|manifest| manifest.project.build) {
         return Ok(Some(build.to_string()));
     }
-    configured_ios_build_number(project_dir)
+    match format {
+        Some(PackageFormat::Pkg) => configured_macos_build_number(project_dir),
+        _ => configured_ios_build_number(project_dir),
+    }
 }
 
 pub(super) fn readiness_play_store(
@@ -1196,6 +1203,7 @@ pub(super) fn readiness_play_store(
 pub(super) fn readiness_app_store(
     project_dir: &Path,
     track: Option<&str>,
+    format: Option<PackageFormat>,
     artifact: Option<&Path>,
     config: &PublishManifest,
     checks: &mut Vec<ReadinessCheck>,
@@ -1257,19 +1265,29 @@ pub(super) fn readiness_app_store(
     ));
     if let Some(path) = artifact.filter(|path| path.exists()) {
         let manifest = read_artifact_manifest(path)?;
+        let artifact_kind = app_store_artifact_kind(&manifest);
         checks.push(artifact_format_check(
             "release.app_store.artifact_format",
             &manifest,
-            &["ipa"],
-            "App Store Connect binary upload requires an IPA artifact.",
+            match artifact_kind.as_ref() {
+                Ok(kind) => kind.extensions,
+                Err(_) => &["ipa", "pkg"],
+            },
+            "App Store Connect binary upload requires an iOS IPA or macOS PKG artifact.",
         ));
         checks.push(app_store_build_number_state_check(
             project_dir,
             &cfg,
+            format,
             Some(&manifest),
         ));
     } else {
-        checks.push(app_store_build_number_state_check(project_dir, &cfg, None));
+        checks.push(app_store_build_number_state_check(
+            project_dir,
+            &cfg,
+            format,
+            None,
+        ));
     }
     checks.push(check(
         "release.app_store.first_setup_manual_steps",
@@ -1280,6 +1298,33 @@ pub(super) fn readiness_app_store(
         vec!["Create the Bundle ID, certificates, provisioning profiles, App Store Connect app record, metadata, privacy, pricing, and beta groups before first automation."],
     ));
     Ok(())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct AppStoreArtifactKind {
+    pub api_platform: &'static str,
+    pub altool_platform: &'static str,
+    pub extensions: &'static [&'static str],
+}
+
+pub(super) fn app_store_artifact_kind(manifest: &ArtifactManifest) -> Result<AppStoreArtifactKind> {
+    match (manifest.target.as_str(), manifest.format.as_str()) {
+        ("ios", "ipa") => Ok(AppStoreArtifactKind {
+            api_platform: "IOS",
+            altool_platform: "ios",
+            extensions: &["ipa"],
+        }),
+        ("macos", "pkg") => Ok(AppStoreArtifactKind {
+            api_platform: "MAC_OS",
+            altool_platform: "macos",
+            extensions: &["pkg"],
+        }),
+        _ => bail!(
+            "App Store Connect accepts an iOS IPA or macOS PKG artifact, got target={} format={}",
+            manifest.target,
+            manifest.format
+        ),
+    }
 }
 
 pub(super) fn readiness_microsoft_store(
