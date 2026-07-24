@@ -549,6 +549,21 @@ href = "/docs/cookbook/package-docker-images/"
 level = 2
 
 [[items]]
+title = "Set up Apple signing"
+href = "/docs/cookbook/apple-signing-setup/"
+level = 2
+
+[[items]]
+title = "Notarise a macOS app"
+href = "/docs/cookbook/notarise-macos-direct-distribution/"
+level = 2
+
+[[items]]
+title = "Ship a macOS App Store app"
+href = "/docs/cookbook/macos-app-store-distribution/"
+level = 2
+
+[[items]]
 title = "Reference"
 href = "/reference/overview/overview/"
 level = 1
