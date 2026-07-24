@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img" aria-label="Fission atom mark">
+  <title>Fission mark</title>
+  
+  <defs>
+    <radialGradient id="nucleus" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FFD089" stop-opacity="1"></stop>
+      <stop offset="45%" stop-color="#F08820" stop-opacity="1"></stop>
+      <stop offset="100%" stop-color="#A85916" stop-opacity="0"></stop>
+    </radialGradient>
+  </defs>
+
+  
+  <g transform="rotate(30 100 100)">
+    <ellipse cx="100" cy="100" rx="78" ry="32" fill="none" stroke="#4DA6E0" stroke-width="6" stroke-linecap="round"></ellipse>
+  </g>
+
+  
+  <g transform="rotate(-30 100 100)">
+    <ellipse cx="100" cy="100" rx="78" ry="32" fill="none" stroke="#F08820" stroke-width="6" stroke-linecap="round"></ellipse>
+  </g>
+
+  
+  <circle cx="100" cy="100" r="22" fill="url(#nucleus)" opacity="0.85"></circle>
+  
+  <circle cx="100" cy="100" r="9" fill="#F08820"></circle>
+  <circle cx="97" cy="97" r="3" fill="#FFE3BB" opacity="0.9"></circle>
+</svg>

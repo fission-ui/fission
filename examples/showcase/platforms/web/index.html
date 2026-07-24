@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fission Example Showcase</title>
+    <link rel="icon" type="image/png" href="./app-icon.png" />
+    <style>
+      :root {
+        color-scheme: light dark;
+        --showcase-background: #f4f1e8;
+        --showcase-ink: #18332d;
+        --showcase-muted: #64756f;
+        --showcase-accent: #0f766e;
+        background: var(--showcase-background);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --showcase-background: #101916;
+          --showcase-ink: #e5eee9;
+          --showcase-muted: #9aaca4;
+          --showcase-accent: #5eead4;
+        }
+      }
+      html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        overscroll-behavior: none;
+        background: var(--showcase-background);
+      }
+      body, #fission-web-mount {
+        width: 100vw;
+        height: 100vh;
+      }
+      #fission-web-mount {
+        position: relative;
+        isolation: isolate;
+      }
+      .showcase-loader {
+        position: absolute;
+        inset: 0;
+        z-index: 0;
+        display: grid;
+        place-items: center;
+        background:
+          radial-gradient(circle at 72% 18%, color-mix(in srgb, var(--showcase-accent) 14%, transparent), transparent 34%),
+          var(--showcase-background);
+        color: var(--showcase-ink);
+        font: 500 15px/1.5 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      .showcase-loader__content {
+        display: grid;
+        justify-items: center;
+        gap: 14px;
+      }
+      .showcase-loader__mark {
+        width: 42px;
+        height: 42px;
+        border: 3px solid color-mix(in srgb, var(--showcase-muted) 24%, transparent);
+        border-top-color: var(--showcase-accent);
+        border-radius: 50%;
+        animation: showcase-spin 760ms linear infinite;
+      }
+      .showcase-loader__label {
+        margin: 0;
+        color: var(--showcase-muted);
+        letter-spacing: 0.01em;
+      }
+      canvas {
+        position: relative;
+        z-index: 1;
+        display: block;
+        width: 100vw;
+        height: 100vh;
+        background: var(--showcase-background);
+        border: 0;
+        outline: none;
+        user-select: none;
+        -webkit-user-drag: none;
+        touch-action: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+      canvas:focus, canvas:focus-visible {
+        outline: none;
+      }
+      @keyframes showcase-spin {
+        to {
+          transform: rotate(1turn);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .showcase-loader__mark {
+          animation-duration: 1800ms;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main id="fission-web-mount" aria-label="Fission Example Showcase">
+      <div class="showcase-loader" role="status" aria-live="polite">
+        <div class="showcase-loader__content">
+          <span class="showcase-loader__mark" aria-hidden="true"></span>
+          <p class="showcase-loader__label">Loading the Fission workbench…</p>
+        </div>
+      </div>
+    </main>
+    <script type="module" src="./bootstrap.mjs"></script>
+  </body>
+</html>

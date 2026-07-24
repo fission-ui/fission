@@ -2463,6 +2463,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "example-showcase"
+version = "0.9.2"
+dependencies = [
+ "animation-gallery",
+ "anyhow",
+ "chart-gallery",
+ "console_error_panic_hook",
+ "counter",
+ "embed-3d",
+ "embed-video",
+ "embed-webview",
+ "field-inspector",
+ "fission",
+ "fission-core",
+ "fission-design-system-codegen",
+ "fission-editor",
+ "fission-test-driver",
+ "icons_gallery",
+ "image 0.25.8",
+ "inbox",
+ "mobile-smoke",
+ "motion-memory-repro",
+ "pokemon-card-store",
+ "product-browser",
+ "serde",
+ "serde_yaml",
+ "terminal",
+ "text-lab",
+ "todo-design-system",
+ "wasm-bindgen",
+ "web-smoke",
+ "widget-gallery",
+]
+
+[[package]]
 name = "exr"
 version = "1.74.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7366,6 +7401,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_yaml"
+version = "0.9.34+deprecated"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a8b1a1a2ebf674015cc02edccce75287f1a0130d394307b36743c2f5d504b47"
+dependencies = [
+ "indexmap",
+ "itoa",
+ "ryu",
+ "serde",
+ "unsafe-libyaml",
+]
+
+[[package]]
 name = "serial2"
 version = "0.2.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8637,6 +8685,12 @@ name = "unicode-xid"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
+
+[[package]]
+name = "unsafe-libyaml"
+version = "0.2.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
 
 [[package]]
 name = "untrusted"
