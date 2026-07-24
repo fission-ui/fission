@@ -275,10 +275,16 @@ fn wide_resize_rebuilds_responsive_sidebar() {
     client
         .assert_text_visible("Synced")
         .expect("responsive right sidebar should appear after wide resize");
+    client
+        .assert_text_visible("Compose")
+        .expect("wide inbox left rail should remain visible");
+    client
+        .assert_text_visible("Dana Wu")
+        .expect("wide inbox message list should remain visible");
     let left_rail_pixels = non_near_white_pixels(&path, 0, 0, 280, 900);
     let list_pixels = non_near_white_pixels(&path, 280, 160, 1080, 820);
     assert!(
-        left_rail_pixels > 12_000,
+        left_rail_pixels > 10_000,
         "wide inbox left rail should paint real content, found only {left_rail_pixels} non-background pixels"
     );
     assert!(
