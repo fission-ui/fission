@@ -92,3 +92,50 @@ fn product_browser_displays_remote_product_images() {
     client.quit().expect("quit");
     let _ = child.wait();
 }
+
+#[test]
+#[ignore]
+fn compact_product_browser_keeps_filters_and_details_reachable() {
+    let control_port = reserve_control_port();
+    let mut child = launch_product_browser(control_port);
+    let client = LiveTestClient::connect(control_port);
+    client
+        .wait_for_ready(15_000)
+        .expect("product-browser did not start");
+    client
+        .simulate_resize(390, 844)
+        .expect("resize product-browser to phone layout");
+    client
+        .wait_for_text("Essence Mascara Lash Princess", 15_000)
+        .expect("initial products should load");
+
+    client
+        .tap_semantic_identifier("product-browser.category.compact.beauty")
+        .expect("select visible Beauty category");
+    client
+        .wait_for_text("5 products shown", 15_000)
+        .expect("Beauty products should load");
+    client
+        .tap_semantic_identifier("product-browser.product.compact.list.1")
+        .expect("open first compact product");
+
+    client
+        .assert_text_visible("Back to products")
+        .expect("compact details should expose a return action");
+    client
+        .assert_text_visible("The Essence Mascara Lash Princess")
+        .expect("compact details should expose the product description");
+
+    client
+        .tap_semantic_identifier("product-browser.compact-detail.back")
+        .expect("return to compact product results");
+    client
+        .assert_text_visible("Beauty")
+        .expect("compact filters should remain reachable after closing details");
+    client
+        .assert_text_not_visible("Back to products")
+        .expect("compact details should close");
+
+    client.quit().expect("quit");
+    let _ = child.wait();
+}

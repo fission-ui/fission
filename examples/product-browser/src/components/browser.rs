@@ -62,19 +62,11 @@ impl From<ProductBrowserApp> for Widget {
             );
         });
 
-        let compact_products = ProductRefresh {
-            snapshot: product_snapshot.clone(),
-            instance: "compact",
-            status: view.state().refresh_status,
-            pulled_extent: view.state().pulled_extent,
-            on_pull_start: pull_started.clone(),
-            on_pull_update: pull_updated.clone(),
-            on_pull_cancel: pull_canceled.clone(),
-            on_refresh: refresh_products.clone(),
-        };
-        let expanded_products = ProductRefresh {
+        let expanded = view.viewport_size().width >= EXPANDED_BREAKPOINT;
+        let instance = if expanded { "expanded" } else { "compact" };
+        let products = ProductRefresh {
             snapshot: product_snapshot,
-            instance: "expanded",
+            instance,
             status: view.state().refresh_status,
             pulled_extent: view.state().pulled_extent,
             on_pull_start: pull_started,
@@ -82,34 +74,31 @@ impl From<ProductBrowserApp> for Widget {
             on_pull_cancel: pull_canceled,
             on_refresh: refresh_products,
         };
-
-        let content: Widget = Responsive::new(ProductBrowserCompact {
-            categories: CategoryRail {
-                snapshot: category_snapshot.clone(),
-                instance: "compact",
-            },
-            products: compact_products,
-            detail: ProductDetail {
-                product: selected_product.clone(),
-                layout: ProductDetailLayout::Compact,
-            },
-        })
-        .id(WidgetId::explicit("product-browser.responsive"))
-        .case(ResponsiveCase::min_width(
-            EXPANDED_BREAKPOINT,
+        let categories = CategoryRail {
+            snapshot: category_snapshot,
+            instance,
+        };
+        let content: Widget = if expanded {
             ProductBrowserExpanded {
-                categories: CategoryRail {
-                    snapshot: category_snapshot,
-                    instance: "expanded",
-                },
-                products: expanded_products,
+                categories,
+                products,
                 detail: ProductDetail {
                     product: selected_product,
                     layout: ProductDetailLayout::Expanded,
                 },
-            },
-        ))
-        .into();
+            }
+            .into()
+        } else {
+            ProductBrowserCompact {
+                categories,
+                products,
+                detail: ProductDetail {
+                    product: selected_product,
+                    layout: ProductDetailLayout::Compact,
+                },
+            }
+            .into()
+        };
 
         Container::new(Column {
             gap: Some(tokens.spacing.l),

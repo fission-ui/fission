@@ -12,6 +12,7 @@ pub struct ProductBrowserState {
     pub query: String,
     pub selected_category: Option<String>,
     pub selected_product_id: Option<u64>,
+    pub compact_detail_open: bool,
     pub products: AsyncSnapshot<ProductPage, ApiError>,
     pub categories: AsyncSnapshot<Vec<ProductCategory>, ApiError>,
     pub product_generation: u64,
@@ -26,6 +27,7 @@ impl Default for ProductBrowserState {
             query: String::new(),
             selected_category: None,
             selected_product_id: None,
+            compact_detail_open: false,
             products: AsyncSnapshot::waiting(),
             categories: AsyncSnapshot::waiting(),
             product_generation: 0,
@@ -74,6 +76,7 @@ pub fn on_search_changed(state: &mut ProductBrowserState, query: String) {
     state.query = query;
     state.selected_category = None;
     state.selected_product_id = None;
+    state.compact_detail_open = false;
     state.refresh_status = RefreshIndicatorStatus::Inactive;
     state.pulled_extent = 0.0;
     state.restart_products();
@@ -83,6 +86,7 @@ pub fn on_search_changed(state: &mut ProductBrowserState, query: String) {
 pub fn on_category_selected(state: &mut ProductBrowserState, category: Option<String>) {
     state.selected_category = category;
     state.selected_product_id = None;
+    state.compact_detail_open = false;
     state.refresh_status = RefreshIndicatorStatus::Inactive;
     state.pulled_extent = 0.0;
     state.restart_products();
@@ -91,6 +95,12 @@ pub fn on_category_selected(state: &mut ProductBrowserState, category: Option<St
 #[fission_reducer(ProductSelected)]
 pub fn on_product_selected(state: &mut ProductBrowserState, product_id: u64) {
     state.selected_product_id = Some(product_id);
+    state.compact_detail_open = true;
+}
+
+#[fission_reducer(CloseProductDetail)]
+pub fn on_close_product_detail(state: &mut ProductBrowserState) {
+    state.compact_detail_open = false;
 }
 
 #[fission_reducer(ProductsLoaded)]

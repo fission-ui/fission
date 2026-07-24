@@ -3,6 +3,7 @@ mod browser_compact;
 mod browser_expanded;
 pub mod categories;
 mod category_entry;
+mod compact_product_detail;
 mod header;
 mod layout;
 pub mod product_card;
