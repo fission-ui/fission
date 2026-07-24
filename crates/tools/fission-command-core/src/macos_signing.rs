@@ -1,5 +1,6 @@
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
+use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -44,6 +45,8 @@ struct MacosPackageManifest {
     #[serde(flatten)]
     base: MacosPackageConfig,
     release: Option<MacosReleasePackageConfig>,
+    #[serde(default)]
+    variants: BTreeMap<String, MacosReleasePackageConfig>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
@@ -56,12 +59,15 @@ struct MacosReleasePackageConfig {
 }
 
 impl MacosPackageManifest {
-    fn effective(&self, release: bool) -> MacosPackageConfig {
+    fn effective(&self, release: bool, variant: Option<&str>) -> MacosPackageConfig {
         let mut config = self.base.clone();
         if release {
             if let Some(overlay) = &self.release {
                 overlay.apply_to(&mut config);
             }
+        }
+        if let Some(overlay) = variant.and_then(|variant| self.variants.get(variant)) {
+            overlay.apply_to(&mut config);
         }
         config
     }
@@ -99,8 +105,16 @@ pub fn read_macos_package_config_for_profile(
     project_dir: &Path,
     release: bool,
 ) -> Result<MacosPackageConfig> {
+    read_macos_package_config_for_profile_and_variant(project_dir, release, None)
+}
+
+pub fn read_macos_package_config_for_profile_and_variant(
+    project_dir: &Path,
+    release: bool,
+    variant: Option<&str>,
+) -> Result<MacosPackageConfig> {
     let manifest = read_manifest(project_dir)?;
-    Ok(package_config(manifest.package.as_ref(), release))
+    Ok(package_config(manifest.package.as_ref(), release, variant))
 }
 
 pub fn read_macos_run_config(project_dir: &Path) -> Result<MacosPackageConfig> {
@@ -116,7 +130,7 @@ pub fn read_macos_run_config_for_profile(
 
 fn run_config(manifest: &PackageManifest, release: bool) -> MacosPackageConfig {
     let run = manifest.run.as_ref().and_then(|run| run.macos.as_ref());
-    let mut config = package_config(manifest.package.as_ref(), release);
+    let mut config = package_config(manifest.package.as_ref(), release, None);
     if let Some(run) = run {
         if run.entitlements.is_some() {
             config.entitlements.clone_from(&run.entitlements);
@@ -140,10 +154,14 @@ fn read_manifest(project_dir: &Path) -> Result<PackageManifest> {
     toml::from_str(&data).with_context(|| format!("failed to parse {}", path.display()))
 }
 
-fn package_config(package: Option<&PackageRoot>, release: bool) -> MacosPackageConfig {
+fn package_config(
+    package: Option<&PackageRoot>,
+    release: bool,
+    variant: Option<&str>,
+) -> MacosPackageConfig {
     package
         .and_then(|package| package.macos.as_ref())
-        .map(|macos| macos.effective(release))
+        .map(|macos| macos.effective(release, variant))
         .unwrap_or_default()
 }
 
@@ -277,7 +295,7 @@ signing_identity = "-"
         .unwrap();
 
         assert_eq!(
-            package_config(manifest.package.as_ref(), false),
+            package_config(manifest.package.as_ref(), false, None),
             MacosPackageConfig {
                 bundle_id: Some("com.example.app".into()),
                 minimum_os: Some("14.0".into()),
@@ -320,7 +338,7 @@ notarize = true
         )
         .unwrap();
 
-        let debug = package_config(manifest.package.as_ref(), false);
+        let debug = package_config(manifest.package.as_ref(), false, None);
         assert_eq!(
             debug.entitlements.as_deref(),
             Some("platforms/macos/Development.entitlements")
@@ -330,7 +348,7 @@ notarize = true
         assert_eq!(debug.installer_identity, None);
         assert_eq!(debug.notarize, None);
 
-        let release = package_config(manifest.package.as_ref(), true);
+        let release = package_config(manifest.package.as_ref(), true, None);
         assert_eq!(
             release.entitlements.as_deref(),
             Some("platforms/macos/Release.entitlements")
@@ -354,6 +372,45 @@ notarize = true
             release_run.signing_identity.as_deref(),
             Some("Developer ID Application: Example Ltd")
         );
+    }
+
+    #[test]
+    fn package_variant_overrides_release_signing_and_notarization() {
+        let manifest: PackageManifest = toml::from_str(
+            r#"
+[package.macos]
+bundle_id = "com.example.app"
+
+[package.macos.release]
+signing_identity = "Developer ID Application: Example Ltd"
+installer_identity = "Developer ID Installer: Example Ltd"
+notarize = true
+
+[package.macos.variants.app-store]
+signing_identity = "Apple Distribution: Example Ltd"
+installer_identity = "3rd Party Mac Developer Installer: Example Ltd"
+notarize = false
+"#,
+        )
+        .unwrap();
+
+        let app_store = package_config(manifest.package.as_ref(), true, Some("app-store"));
+        assert_eq!(
+            app_store.signing_identity.as_deref(),
+            Some("Apple Distribution: Example Ltd")
+        );
+        assert_eq!(
+            app_store.installer_identity.as_deref(),
+            Some("3rd Party Mac Developer Installer: Example Ltd")
+        );
+        assert_eq!(app_store.notarize, Some(false));
+
+        let release = package_config(manifest.package.as_ref(), true, None);
+        assert_eq!(
+            release.signing_identity.as_deref(),
+            Some("Developer ID Application: Example Ltd")
+        );
+        assert_eq!(release.notarize, Some(true));
     }
 
     #[test]

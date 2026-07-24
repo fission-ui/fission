@@ -4,7 +4,7 @@ use anyhow::{bail, Context, Result};
 use fission_command_core::{
     build_linux_native_modules, build_windows_native_modules, cargo_package_name,
     embed_and_sign_macos_native_modules, ensure_native_variant_target, normalized_extension,
-    read_macos_package_config_for_profile, read_project_config, resolve_app_icon,
+    read_macos_package_config_for_profile_and_variant, read_project_config, resolve_app_icon,
     sign_macos_app_if_configured, stage_linux_native_products, stage_project_assets,
     stage_windows_runtime_products, sync_platform_config, variant_output_path,
     BuiltLinuxNativeProduct, BuiltWindowsNativeProduct, FissionProject, MacosNativeBundleMode,
@@ -362,7 +362,11 @@ fn package_macos_app(options: &PackageOptions) -> Result<ArtifactManifest> {
     let project = read_project_config(&options.project_dir)?;
     let profile = profile_name(options.release);
     let staging_dir = clean_package_dir(options)?;
-    let macos = read_macos_package_config_for_profile(&options.project_dir, options.release)?;
+    let macos = read_macos_package_config_for_profile_and_variant(
+        &options.project_dir,
+        options.release,
+        options.variant.as_ref().map(NativeVariant::as_str),
+    )?;
     let app_bundle = create_macos_app_bundle(options, &project, &staging_dir, &macos)?;
     embed_and_sign_macos_native_modules(
         &options.project_dir,
@@ -386,7 +390,11 @@ fn package_macos_pkg(options: &PackageOptions) -> Result<ArtifactManifest> {
     let profile = profile_name(options.release);
     let staging_dir = clean_package_dir(options)?;
     let app_staging = staging_dir.join("app-staging");
-    let macos = read_macos_package_config_for_profile(&options.project_dir, options.release)?;
+    let macos = read_macos_package_config_for_profile_and_variant(
+        &options.project_dir,
+        options.release,
+        options.variant.as_ref().map(NativeVariant::as_str),
+    )?;
     let app_bundle = create_macos_app_bundle(options, &project, &app_staging, &macos)?;
     embed_and_sign_macos_native_modules(
         &options.project_dir,
@@ -617,10 +625,15 @@ fn finish_artifact_manifest(
         options.target,
         options.format,
         options.release,
+        options.variant.as_ref(),
         &manifest.validation.checks,
     )?;
-    manifest.notarization =
-        package_notarization_context(&options.project_dir, options.target, options.release)?;
+    manifest.notarization = package_notarization_context(
+        &options.project_dir,
+        options.target,
+        options.release,
+        options.variant.as_ref(),
+    )?;
     let manifest_path = staging_dir.join(ARTIFACT_MANIFEST);
     fs::write(&manifest_path, serde_json::to_vec_pretty(&manifest)?).with_context(|| {
         format!(

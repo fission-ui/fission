@@ -105,6 +105,7 @@ pub(super) fn package_signing_context(
     target: Target,
     format: PackageFormat,
     release: bool,
+    variant: Option<&NativeVariant>,
     checks: &[ReadinessCheck],
 ) -> Result<Option<ArtifactSigning>> {
     if !package_format_requires_signing(format) {
@@ -131,7 +132,7 @@ pub(super) fn package_signing_context(
     };
     Ok(Some(ArtifactSigning {
         state: state.to_string(),
-        identity: package_signing_identity(project_dir, target, format, release)?,
+        identity: package_signing_identity(project_dir, target, format, release, variant)?,
         certificate_sha256: None,
     }))
 }
@@ -140,6 +141,7 @@ pub(super) fn package_notarization_context(
     project_dir: &Path,
     target: Target,
     release: bool,
+    variant: Option<&NativeVariant>,
 ) -> Result<Option<Value>> {
     if target != Target::Macos {
         return Ok(None);
@@ -147,7 +149,11 @@ pub(super) fn package_notarization_context(
     if !project_dir.join("fission.toml").exists() {
         return Ok(None);
     }
-    let macos = fission_command_core::read_macos_package_config_for_profile(project_dir, release)?;
+    let macos = fission_command_core::read_macos_package_config_for_profile_and_variant(
+        project_dir,
+        release,
+        variant.map(NativeVariant::as_str),
+    )?;
     if macos.notarize.unwrap_or(false) {
         Ok(Some(json!({
             "state": "configured",
@@ -177,13 +183,17 @@ pub(super) fn package_signing_identity(
     target: Target,
     format: PackageFormat,
     release: bool,
+    variant: Option<&NativeVariant>,
 ) -> Result<Option<String>> {
     if target == Target::Macos {
         if !project_dir.join("fission.toml").exists() {
             return Ok(None);
         }
-        let macos =
-            fission_command_core::read_macos_package_config_for_profile(project_dir, release)?;
+        let macos = fission_command_core::read_macos_package_config_for_profile_and_variant(
+            project_dir,
+            release,
+            variant.map(NativeVariant::as_str),
+        )?;
         return Ok(match format {
             PackageFormat::Pkg => macos.installer_identity.or(macos.signing_identity),
             PackageFormat::App => macos.signing_identity,

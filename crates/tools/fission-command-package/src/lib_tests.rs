@@ -282,6 +282,7 @@ keystore_alias = "upload"
         Target::Android,
         PackageFormat::Aab,
         false,
+        None,
         &[ReadinessCheck {
             id: "release.package.signature.android_aab".to_string(),
             severity: CheckSeverity::Warning,
@@ -318,23 +319,81 @@ notarize = true
     .unwrap();
 
     assert_eq!(
-        package_signing_identity(&dir, Target::Macos, PackageFormat::App, false).unwrap(),
+        package_signing_identity(&dir, Target::Macos, PackageFormat::App, false, None).unwrap(),
         None
     );
     assert_eq!(
-        package_signing_identity(&dir, Target::Macos, PackageFormat::App, true).unwrap(),
+        package_signing_identity(&dir, Target::Macos, PackageFormat::App, true, None).unwrap(),
         Some("Developer ID Application: Example Ltd".to_string())
     );
     assert_eq!(
-        package_signing_identity(&dir, Target::Macos, PackageFormat::Pkg, true).unwrap(),
+        package_signing_identity(&dir, Target::Macos, PackageFormat::Pkg, true, None).unwrap(),
         Some("Developer ID Installer: Example Ltd".to_string())
     );
-    assert!(package_notarization_context(&dir, Target::Macos, false)
-        .unwrap()
-        .is_none());
-    assert!(package_notarization_context(&dir, Target::Macos, true)
-        .unwrap()
-        .is_some());
+    assert!(
+        package_notarization_context(&dir, Target::Macos, false, None)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        package_notarization_context(&dir, Target::Macos, true, None)
+            .unwrap()
+            .is_some()
+    );
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn macos_artifact_context_uses_selected_variant_signing_overlay() {
+    let dir = unique_dir("macos-variant-signing-context");
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(
+        dir.join("fission.toml"),
+        r#"
+[package.macos]
+bundle_id = "com.example.demo"
+
+[package.macos.release]
+signing_identity = "Developer ID Application: Example Ltd"
+installer_identity = "Developer ID Installer: Example Ltd"
+notarize = true
+
+[package.macos.variants.app-store]
+signing_identity = "Apple Distribution: Example Ltd"
+installer_identity = "3rd Party Mac Developer Installer: Example Ltd"
+notarize = false
+"#,
+    )
+    .unwrap();
+    let variant = "app-store".parse::<NativeVariant>().unwrap();
+
+    assert_eq!(
+        package_signing_identity(
+            &dir,
+            Target::Macos,
+            PackageFormat::App,
+            true,
+            Some(&variant),
+        )
+        .unwrap(),
+        Some("Apple Distribution: Example Ltd".to_string())
+    );
+    assert_eq!(
+        package_signing_identity(
+            &dir,
+            Target::Macos,
+            PackageFormat::Pkg,
+            true,
+            Some(&variant),
+        )
+        .unwrap(),
+        Some("3rd Party Mac Developer Installer: Example Ltd".to_string())
+    );
+    assert!(
+        package_notarization_context(&dir, Target::Macos, true, Some(&variant))
+            .unwrap()
+            .is_none()
+    );
     fs::remove_dir_all(dir).unwrap();
 }
 
