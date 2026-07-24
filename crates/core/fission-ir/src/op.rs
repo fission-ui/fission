@@ -1235,7 +1235,7 @@ impl std::hash::Hash for LayoutOp {
                 path.hash(state);
             }
             Self::Spotlight { anchor, padding } => {
-                13.hash(state);
+                16.hash(state);
                 anchor.hash(state);
                 hash_unit(*padding, state);
             }

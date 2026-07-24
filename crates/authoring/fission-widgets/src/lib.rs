@@ -225,6 +225,9 @@ pub use popover::{Popover, PopoverMotion};
 pub mod router;
 pub use router::{Route, RouteParams, Router};
 
+pub mod spotlight;
+pub use spotlight::Spotlight;
+
 use fission_core::{
     internal::{InternalIrBuilder, InternalLowerer, InternalLoweringCx},
     op::StructuralOp,
@@ -377,52 +380,6 @@ pub fn flyout(anchor: WidgetId, content: Widget) -> Widget {
     fission_core::internal::custom_render_widget(fission_core::CustomWidget {
         debug_tag: "Flyout".into(),
         lowerer: Some(Arc::new(FlyoutLowerer { anchor, content })),
-        render_object: None,
-    })
-}
-
-// Spotlight (anchor-relative inverse overlay) convenience
-#[derive(Debug)]
-struct SpotlightLowerer {
-    anchor: WidgetId,
-    padding: f32,
-    children: [Widget; 5],
-}
-
-impl InternalLowerer for SpotlightLowerer {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
-        let children = self
-            .children
-            .iter()
-            .map(|child| fission_core::internal::lower_widget(child, cx))
-            .collect::<Vec<_>>();
-        let mut builder = InternalIrBuilder::new(
-            cx.next_node_id(),
-            Op::Layout(fission_core::LayoutOp::Spotlight {
-                anchor: self.anchor,
-                padding: self.padding,
-            }),
-        );
-        for child in children {
-            builder.add_child(child);
-        }
-        builder.build(cx)
-    }
-}
-
-/// Lays out an inverse overlay around `anchor`, leaving its padded bounds visible.
-///
-/// `children` must be ordered as top, bottom, left, right, and focus ring. This
-/// helper owns only geometry; callers choose paint, interaction, portal layer,
-/// and accessibility semantics.
-pub fn spotlight(anchor: WidgetId, padding: f32, children: [Widget; 5]) -> Widget {
-    fission_core::internal::custom_render_widget(fission_core::CustomWidget {
-        debug_tag: "Spotlight".into(),
-        lowerer: Some(Arc::new(SpotlightLowerer {
-            anchor,
-            padding,
-            children,
-        })),
         render_object: None,
     })
 }
