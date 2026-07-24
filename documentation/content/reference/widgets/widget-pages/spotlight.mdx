@@ -1,0 +1,84 @@
+---
+title: Spotlight
+description: Lay out an inverse onboarding overlay around an existing widget.
+slug: /widgets/spotlight
+---
+# Spotlight
+
+`Spotlight` is the low-level geometry widget for product tours and contextual onboarding. It divides the overlay viewport into five regions around an already-laid-out anchor: top shade, bottom shade, left shade, right shade, and a focus-ring region over the revealed target.
+
+Use it when a tour needs to dim everything except one stable widget. `Spotlight` does not invent a tour state machine, copy, callout placement, dismissal behavior, or accessibility semantics. Those responsibilities stay in a named application component so the product flow remains explicit and testable.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+pub struct OnboardingSpotlight {
+    pub anchor: WidgetId,
+}
+
+impl From<OnboardingSpotlight> for Widget {
+    fn from(spotlight: OnboardingSpotlight) -> Self {
+        let (_ctx, view) = fission::build::current::<AppState>();
+        let tokens = &view.env().theme.tokens;
+        let shade = tokens.colors.background.with_alpha(220);
+
+        Spotlight {
+            anchor: spotlight.anchor,
+            padding: tokens.spacing.s,
+            children: [
+                Container::new(Spacer::default()).bg(shade).into(),
+                Container::new(Spacer::default()).bg(shade).into(),
+                Container::new(Spacer::default()).bg(shade).into(),
+                Container::new(Spacer::default()).bg(shade).into(),
+                Container::new(Spacer::default())
+                    .border(
+                        tokens.colors.focus_ring,
+                        tokens.spacing.xs / 2.0,
+                    )
+                    .border_radius(tokens.radii.medium)
+                    .into(),
+            ],
+        }
+        .into()
+    }
+}
+```
+
+Register the resulting widget in an overlay portal whose bounds cover the viewport. Give the real anchor a stable explicit `WidgetId`, then pass the lowered anchor node id in the same way as other anchored overlays.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `anchor` | `WidgetId` | The already-laid-out node to reveal. | The anchor must exist in the current frame. |
+| `padding` | `f32` | Extra reveal space around the anchor. | Non-finite values become zero and negative values are clamped to zero. Prefer a design-system spacing token. |
+| `children` | `[Widget; 5]` | The five overlay regions. | Order is top, bottom, left, right, then focus ring. The fixed-size array prevents incomplete overlays. |
+
+## Runtime behavior
+
+After normal layout, Fission resolves the anchor's visible rectangle, accounts for scroll offsets, expands it by `padding`, and clamps the result to the overlay bounds. The four shade children receive the remaining rectangles and the fifth child receives the revealed rectangle itself.
+
+If the anchor is absent or outside usable bounds, the top region covers the overlay and the other regions collapse. That avoids exposing an arbitrary hole while a routed or responsive target is unavailable.
+
+Native, Web, Static site, and SSR output use the same five-region contract. Static and SSR pages use Fission's site enhancement script to keep the regions aligned after resize or scroll. Terminal output rejects `Spotlight` because a terminal cell grid cannot preserve the overlay geometry.
+
+## Accessibility and interaction
+
+`Spotlight` is deliberately geometry-only. A visual focus ring is not an accessibility announcement.
+
+Put the tour explanation and its controls in a semantic region with an appropriate label, expose semantic identifiers on actions such as Next and Dismiss, and keep keyboard focus inside the callout when the step is modal. Do not make the four shade regions independently focusable unless they perform a real action.
+
+## Production checklist
+
+- Use a stable anchor id rather than a list index or generated frame-local value.
+- Keep the current tour step in local state unless distant screens or persistence need to observe it.
+- Render user-facing tour copy through i18n keys.
+- Test a target near every viewport edge, inside a scroll region, and across responsive branches.
+- Use LiveTest selectors to activate the target and assert the callout semantics without relying on coordinates.
+- Verify reduced-motion and disabled-motion policy if the surrounding tour animates between steps.
+
+## Related
+
+[`Portal`](/reference/widgets/portal), [`FocusScope`](/reference/widgets/focus-scope), [`flyout`](/reference/widgets/flyout), and [`ZStack`](/reference/widgets/z-stack).

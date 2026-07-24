@@ -581,6 +581,11 @@ href = "/reference/widgets/portal/"
 level = 2
 
 [[items]]
+title = "Spotlight"
+href = "/reference/widgets/spotlight/"
+level = 2
+
+[[items]]
 title = "Route"
 href = "/reference/widgets/route/"
 level = 2
