@@ -1,8 +1,9 @@
 use fission_core::env::{Env, RuntimeState};
 use fission_core::internal::{build_layout_tree, InternalLoweringCx};
 use fission_core::ui::widgets::text::{InlineWidgetSpan, RichTextChild, RichTextSpan};
-use fission_core::ui::{Checkbox, Radio, RichText, Spacer, Widget};
-use fission_ir::{CoreIR, LayoutOp, Op, WidgetId};
+use fission_core::ui::{Checkbox, Container, Radio, RichText, Row, Slider, Spacer, Text, Widget};
+use fission_ir::op::Length;
+use fission_ir::{CoreIR, LayoutOp, Op, Role, WidgetId};
 use fission_layout::{
     LayoutEngine, LayoutSize, RichTextInlineBox, RichTextLayoutInfo, TextMeasurer,
 };
@@ -112,6 +113,14 @@ fn layout_from_widget_with_measurer(
     node: Widget,
     measurer: Arc<dyn TextMeasurer>,
 ) -> (CoreIR, fission_layout::LayoutSnapshot) {
+    layout_from_widget_at_size(node, measurer, LayoutSize::new(200.0, 200.0))
+}
+
+fn layout_from_widget_at_size(
+    node: Widget,
+    measurer: Arc<dyn TextMeasurer>,
+    viewport: LayoutSize,
+) -> (CoreIR, fission_layout::LayoutSnapshot) {
     let env = Env::default();
     let runtime_state = RuntimeState::default();
     let measurer_ref = measurer.clone();
@@ -124,12 +133,7 @@ fn layout_from_widget_with_measurer(
     let mut engine = LayoutEngine::new().with_measurer(measurer);
     engine.rebuild(&input_nodes).unwrap();
     let snapshot = engine
-        .compute_layout(
-            &input_nodes,
-            root_id,
-            LayoutSize::new(200.0, 200.0),
-            &|_| 0.0,
-        )
+        .compute_layout(&input_nodes, root_id, viewport, &|_| 0.0)
         .unwrap();
     (cx.ir, snapshot)
 }
@@ -267,4 +271,93 @@ fn rich_text_inline_widget_uses_layout_inline_box_positions() {
     assert!(approx_eq(inline_rect.y(), 6.0));
     assert!(approx_eq(inline_rect.width(), 18.0));
     assert!(approx_eq(inline_rect.height(), 10.0));
+}
+
+#[test]
+fn slider_semantics_and_track_fill_the_declared_width() {
+    let slider_id = WidgetId::explicit("alignment.slider");
+    let slider = Container::new(Row {
+        children: vec![Container::new(Slider {
+            id: Some(slider_id),
+            value: 0.5,
+            ..Default::default()
+        })
+        .width(160.0)
+        .into()],
+        ..Default::default()
+    })
+    .width(200.0)
+    .height(40.0);
+    let (ir, snapshot) = layout_from_widget_at_size(
+        slider.into(),
+        Arc::new(SimpleMeasurer),
+        LayoutSize::new(800.0, 200.0),
+    );
+
+    let semantics = ir.nodes.get(&slider_id).expect("slider semantics node");
+    assert!(matches!(
+        semantics.op,
+        Op::Semantics(ref semantics) if semantics.role == Role::Slider
+    ));
+    let slider_rect = snapshot
+        .get_node_geometry(slider_id)
+        .expect("slider geometry")
+        .rect;
+    let visual_id = *semantics.children.first().expect("slider visual root");
+    let visual_rect = snapshot
+        .get_node_geometry(visual_id)
+        .expect("slider visual geometry")
+        .rect;
+
+    assert!(
+        approx_eq(slider_rect.width(), 160.0),
+        "slider should fill its 160 point container: {slider_rect:?}"
+    );
+    assert!(
+        approx_eq(visual_rect.width(), 160.0) && approx_eq(visual_rect.height(), 16.0),
+        "slider visual should fill the track width at thumb height: {visual_rect:?}"
+    );
+}
+
+#[test]
+fn slider_semantics_fill_a_clamped_typed_width_inside_a_row() {
+    let slider_id = WidgetId::explicit("alignment.typed-slider");
+    let slider = Container::new(Row {
+        children: vec![
+            Text::new("Slider:").into(),
+            Container::new(Slider {
+                id: Some(slider_id),
+                value: 0.5,
+                ..Default::default()
+            })
+            .width_length(Length::clamp(
+                Length::points(220.0),
+                Length::percent(100.0),
+                Length::points(420.0),
+            ))
+            .into(),
+            Text::new("50").into(),
+        ],
+        ..Default::default()
+    })
+    .width(800.0)
+    .height(40.0);
+    let (ir, snapshot) = layout_from_widget_at_size(
+        slider.into(),
+        Arc::new(SimpleMeasurer),
+        LayoutSize::new(800.0, 200.0),
+    );
+
+    assert!(matches!(
+        ir.nodes.get(&slider_id).map(|node| &node.op),
+        Some(Op::Semantics(semantics)) if semantics.role == Role::Slider
+    ));
+    let slider_rect = snapshot
+        .get_node_geometry(slider_id)
+        .expect("typed slider geometry")
+        .rect;
+    assert!(
+        approx_eq(slider_rect.width(), 420.0),
+        "slider should fill the clamped typed width: {slider_rect:?}"
+    );
 }

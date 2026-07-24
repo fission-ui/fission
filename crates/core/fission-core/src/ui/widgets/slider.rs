@@ -48,7 +48,7 @@ pub struct Slider {
     /// Visual thumb diameter in layout points. Defaults to `16.0`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thumb_size: Option<f32>,
-    /// Optional track fill. Defaults to the active theme border colour.
+    /// Optional track fill. Defaults to the active theme's strong border colour.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub track_fill: Option<Fill>,
     /// Optional thumb fill. Defaults to the active theme primary colour.
@@ -97,6 +97,7 @@ impl InternalLower for Slider {
         let pct = ((self.value - self.min) / range).clamp(0.0, 1.0) * 100.0;
 
         let layout_id = cx.next_node_id();
+        let stack_id = cx.next_node_id();
 
         let track_layer = {
             let p_y = (control_height - track_height) / 2.0;
@@ -123,7 +124,7 @@ impl InternalLower for Slider {
                     fill: Some(
                         self.track_fill
                             .clone()
-                            .unwrap_or(Fill::Solid(tokens.colors.border)),
+                            .unwrap_or(Fill::Solid(tokens.colors.border_strong)),
                     ),
                     stroke: None,
                     corner_radius: track_height / 2.0,
@@ -248,15 +249,33 @@ impl InternalLower for Slider {
             grid.build(cx)
         };
 
-        cx.push_scope(layout_id);
+        cx.push_scope(stack_id);
         let track_wrapped = wrap_zstack_child(cx, track_layer);
         let thumb_wrapped = wrap_zstack_child(cx, thumb_layer);
         cx.pop_scope();
 
-        let mut zstack = InternalIrBuilder::new(layout_id, Op::Layout(LayoutOp::ZStack));
+        let mut zstack = InternalIrBuilder::new(stack_id, Op::Layout(LayoutOp::ZStack));
         zstack.add_child(track_wrapped);
         zstack.add_child(thumb_wrapped);
         zstack.build(cx);
+
+        let mut layout = InternalIrBuilder::new(
+            layout_id,
+            Op::Layout(LayoutOp::Box {
+                width: None,
+                height: Some(control_height),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 1.0,
+                flex_shrink: 1.0,
+                aspect_ratio: None,
+            }),
+        );
+        layout.add_child(stack_id);
+        layout.build(cx);
 
         cx.pop_scope();
 
