@@ -498,6 +498,38 @@ pub(super) fn configured_ios_build_number(project_dir: &Path) -> Result<Option<S
         .or_else(|| active_release_build(&value).map(|value| value.to_string())))
 }
 
+pub(super) fn configured_macos_build_number(project_dir: &Path) -> Result<Option<String>> {
+    let path = project_dir.join("fission.toml");
+    let text = match fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(error).with_context(|| format!("failed to read {}", path.display()))
+        }
+    };
+    let value: toml::Value = text
+        .parse()
+        .with_context(|| format!("failed to parse {}", path.display()))?;
+    Ok(value
+        .get("package")
+        .and_then(|package| package.get("macos"))
+        .and_then(|macos| macos.get("build_number"))
+        .and_then(|value| {
+            value
+                .as_str()
+                .map(str::to_string)
+                .or_else(|| value.as_integer().map(|value| value.to_string()))
+        })
+        .or_else(|| {
+            value
+                .get("app")
+                .and_then(|app| app.get("build"))
+                .and_then(toml::Value::as_integer)
+                .map(|value| value.to_string())
+        })
+        .or_else(|| active_release_build(&value).map(|value| value.to_string())))
+}
+
 pub(super) fn active_release_build(value: &toml::Value) -> Option<i64> {
     let active = value
         .get("release")

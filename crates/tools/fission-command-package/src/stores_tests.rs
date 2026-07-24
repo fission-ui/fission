@@ -561,58 +561,41 @@ build_number = "9"
     };
 
     assert_eq!(
-        app_store_build_number_for_provider(&dir, Some(PackageFormat::Ipa), Some(&manifest))
-            .unwrap(),
+        app_store_build_number_for_provider(&dir, AppStorePlatform::Ios, Some(&manifest),).unwrap(),
         Some("43".to_string())
     );
     let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
-fn app_store_artifact_kind_distinguishes_ios_and_macos_packages() {
-    let manifest = |target: &str, format: &str| ArtifactManifest {
-        schema_version: 1,
-        created_at_unix_seconds: 0,
-        project: ArtifactProject {
-            app_id: "com.example.demo".to_string(),
-            name: "Demo".to_string(),
-            build: Some(43),
-            version: Some("1.2.3".to_string()),
-        },
-        target: target.to_string(),
-        format: format.to_string(),
-        profile: "release".to_string(),
-        variant: None,
-        root_dir: "/tmp/fission-app-store".to_string(),
-        source_config: Vec::new(),
-        artifacts: Vec::new(),
-        icon_manifest: None,
-        signing: None,
-        notarization: None,
-        validation: ArtifactValidation {
-            state: "passed".to_string(),
-            checks: Vec::new(),
-        },
-    };
-
+fn app_store_readiness_infers_platform_from_requested_format() {
     assert_eq!(
-        app_store_artifact_kind(&manifest("ios", "ipa")).unwrap(),
-        AppStoreArtifactKind {
-            api_platform: "IOS",
-            altool_platform: "ios",
-            extensions: &["ipa"],
-        }
+        app_store_platform_for_readiness(
+            &AppStoreConfig::default(),
+            Some(PackageFormat::Ipa),
+            None,
+        )
+        .unwrap(),
+        AppStorePlatform::Ios
     );
     assert_eq!(
-        app_store_artifact_kind(&manifest("macos", "pkg")).unwrap(),
-        AppStoreArtifactKind {
-            api_platform: "MAC_OS",
-            altool_platform: "macos",
-            extensions: &["pkg"],
-        }
+        app_store_platform_for_readiness(
+            &AppStoreConfig::default(),
+            Some(PackageFormat::Pkg),
+            None,
+        )
+        .unwrap(),
+        AppStorePlatform::Macos
     );
-    assert!(app_store_artifact_kind(&manifest("macos", "ipa")).is_err());
-    assert!(app_store_artifact_kind(&manifest("ios", "pkg")).is_err());
+    assert!(app_store_platform_for_readiness(
+        &AppStoreConfig {
+            platform: Some("macos".to_string()),
+            ..Default::default()
+        },
+        Some(PackageFormat::Ipa),
+        None,
+    )
+    .is_err());
 }
 
 #[test]

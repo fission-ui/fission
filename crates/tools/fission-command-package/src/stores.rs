@@ -1060,6 +1060,7 @@ fn android_version_code_for_provider(
 fn app_store_build_number_state_check(
     project_dir: &Path,
     cfg: &AppStoreConfig,
+    format: Option<PackageFormat>,
     artifact_manifest: Option<&ArtifactManifest>,
 ) -> ReadinessCheck {
     if cfg
@@ -1078,19 +1079,33 @@ fn app_store_build_number_state_check(
             vec!["Set distribution.app_store.app_id or distribution.app_store.bundle_id."],
         );
     }
-    let build_number = match app_store_build_number_for_provider(project_dir, artifact_manifest) {
-        Ok(value) => value,
+    let platform = match app_store_platform_for_readiness(cfg, format, artifact_manifest) {
+        Ok(platform) => platform,
         Err(error) => {
             return check(
                 "release.app_store.build_number_available",
                 CheckSeverity::Error,
                 CheckStatus::Failed,
-                "App Store build number availability could not be checked",
+                "App Store target platform could not be resolved",
                 Some(error.to_string()),
-                vec!["Fix fission.toml so the iOS build number can be read."],
+                vec!["Use --format ipa or --format pkg, or set distribution.app_store.platform."],
             );
         }
     };
+    let build_number =
+        match app_store_build_number_for_provider(project_dir, platform, artifact_manifest) {
+            Ok(value) => value,
+            Err(error) => {
+                return check(
+                    "release.app_store.build_number_available",
+                    CheckSeverity::Error,
+                    CheckStatus::Failed,
+                    "App Store build number availability could not be checked",
+                    Some(error.to_string()),
+                    vec!["Fix fission.toml so the target build number can be read."],
+                );
+            }
+        };
     let Some(build_number) = build_number else {
         return check(
             "release.app_store.build_number_available",
@@ -1177,12 +1192,49 @@ fn app_store_build_number_state_check(
 
 fn app_store_build_number_for_provider(
     project_dir: &Path,
+    platform: AppStorePlatform,
     artifact_manifest: Option<&ArtifactManifest>,
 ) -> Result<Option<String>> {
     if let Some(build) = artifact_manifest.and_then(|manifest| manifest.project.build) {
         return Ok(Some(build.to_string()));
     }
-    configured_ios_build_number(project_dir)
+    match platform {
+        AppStorePlatform::Ios => configured_ios_build_number(project_dir),
+        AppStorePlatform::Macos => configured_macos_build_number(project_dir),
+    }
+}
+
+fn app_store_platform_for_readiness(
+    cfg: &AppStoreConfig,
+    format: Option<PackageFormat>,
+    artifact_manifest: Option<&ArtifactManifest>,
+) -> Result<AppStorePlatform> {
+    if let Some(manifest) = artifact_manifest {
+        return app_store_platform_for_manifest(cfg, manifest);
+    }
+    let Some(format) = format else {
+        return app_store_platform(cfg);
+    };
+    let inferred = match format {
+        PackageFormat::Ipa => AppStorePlatform::Ios,
+        PackageFormat::Pkg => AppStorePlatform::Macos,
+        other => bail!(
+            "App Store distribution requires --format ipa or --format pkg, got {}",
+            other.as_str()
+        ),
+    };
+    if cfg.platform.is_none() {
+        return Ok(inferred);
+    }
+    let configured = app_store_platform(cfg)?;
+    if configured != inferred {
+        bail!(
+            "distribution.app_store.platform `{}` does not match package format `{}`",
+            configured.target(),
+            format.as_str()
+        );
+    }
+    Ok(configured)
 }
 
 pub(super) fn readiness_play_store(
@@ -1271,6 +1323,7 @@ pub(super) fn readiness_play_store(
 pub(super) fn readiness_app_store(
     project_dir: &Path,
     track: Option<&str>,
+    format: Option<PackageFormat>,
     artifact: Option<&Path>,
     config: &PublishManifest,
     checks: &mut Vec<ReadinessCheck>,
@@ -1361,10 +1414,16 @@ pub(super) fn readiness_app_store(
         checks.push(app_store_build_number_state_check(
             project_dir,
             &cfg,
+            format,
             Some(&manifest),
         ));
     } else {
-        checks.push(app_store_build_number_state_check(project_dir, &cfg, None));
+        checks.push(app_store_build_number_state_check(
+            project_dir,
+            &cfg,
+            format,
+            None,
+        ));
     }
     checks.push(check(
         "release.app_store.first_setup_manual_steps",
