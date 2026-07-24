@@ -353,7 +353,7 @@ fn macos_app_store_package_uses_productbuild_component_archive() {
         ..Default::default()
     };
 
-    let (builder, arguments) = package::macos_pkg_builder_command(app, pkg, &config).unwrap();
+    let (builder, arguments) = package::macos_pkg_builder_command(app, pkg, None, &config).unwrap();
 
     assert_eq!(builder, "productbuild");
     assert_eq!(
@@ -368,6 +368,54 @@ fn macos_app_store_package_uses_productbuild_component_archive() {
         ]
         .map(std::ffi::OsString::from)
     );
+}
+
+#[test]
+fn macos_developer_id_package_uses_a_non_relocatable_component_root() {
+    let app = Path::new("/tmp/app-staging/Developer Defence.app");
+    let pkg = Path::new("/tmp/Developer-Defence.pkg");
+    let component_plist = Path::new("/tmp/components.plist");
+    let config = fission_command_core::MacosPackageConfig {
+        installer_identity: Some("Developer ID Installer: Example Ltd".to_string()),
+        ..Default::default()
+    };
+
+    let (builder, arguments) =
+        package::macos_pkg_builder_command(app, pkg, Some(component_plist), &config).unwrap();
+
+    assert_eq!(builder, "pkgbuild");
+    assert_eq!(
+        arguments,
+        [
+            "--root",
+            "/tmp/app-staging",
+            "--install-location",
+            "/Applications",
+            "--component-plist",
+            "/tmp/components.plist",
+            "--sign",
+            "Developer ID Installer: Example Ltd",
+            "/tmp/Developer-Defence.pkg",
+        ]
+        .map(std::ffi::OsString::from)
+    );
+}
+
+#[test]
+fn macos_component_plist_disables_bundle_relocation() {
+    let dir = unique_dir("macos-component-plist");
+    let app = dir.join("app-staging/Developer & Defence.app");
+    fs::create_dir_all(&app).unwrap();
+
+    let component_plist = package::write_macos_component_plist(&dir, &app).unwrap();
+    let contents = fs::read_to_string(component_plist).unwrap();
+
+    assert!(contents.contains("<string>Developer &amp; Defence.app</string>"));
+    assert!(contents.contains("<key>BundleIsRelocatable</key>\n    <false/>"));
+    assert!(contents.contains("<key>BundleIsVersionChecked</key>\n    <false/>"));
+    assert!(contents.contains("<key>BundleHasStrictIdentifier</key>\n    <true/>"));
+    assert!(contents.contains("<key>BundleOverwriteAction</key>\n    <string>upgrade</string>"));
+    fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]

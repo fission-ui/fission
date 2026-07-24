@@ -413,7 +413,13 @@ fn package_macos_pkg(options: &PackageOptions) -> Result<ArtifactManifest> {
         sanitize_file_stem(&project.app.name),
         version
     ));
-    let (pkg_builder, pkg_arguments) = macos_pkg_builder_command(&app_bundle, &pkg_path, &macos)?;
+    let component_plist = if macos.pkg_builder.as_deref().unwrap_or("pkgbuild") == "pkgbuild" {
+        Some(write_macos_component_plist(&staging_dir, &app_bundle)?)
+    } else {
+        None
+    };
+    let (pkg_builder, pkg_arguments) =
+        macos_pkg_builder_command(&app_bundle, &pkg_path, component_plist.as_deref(), &macos)?;
     if find_in_path(pkg_builder).is_none() {
         bail!(
             "{pkg_builder} was not found; install Xcode command line tools to create macOS .pkg packages"
@@ -425,6 +431,14 @@ fn package_macos_pkg(options: &PackageOptions) -> Result<ArtifactManifest> {
         .with_context(|| format!("failed to run {pkg_builder}"))?;
     if !status.success() {
         bail!("{pkg_builder} failed with {status}");
+    }
+    if let Some(component_plist) = component_plist {
+        fs::remove_file(&component_plist).with_context(|| {
+            format!(
+                "failed to remove macOS component property list {}",
+                component_plist.display()
+            )
+        })?;
     }
     notarize_macos_artifact_if_configured(&pkg_path, &macos)?;
     fs::remove_dir_all(&app_staging).ok();
@@ -1796,15 +1810,23 @@ fn pkgbuild_signing_args(macos: &MacosPackageConfig) -> Vec<String> {
 pub(super) fn macos_pkg_builder_command(
     app_bundle: &Path,
     pkg_path: &Path,
+    component_plist: Option<&Path>,
     macos: &MacosPackageConfig,
 ) -> Result<(&'static str, Vec<OsString>)> {
     match macos.pkg_builder.as_deref().unwrap_or("pkgbuild") {
         "pkgbuild" => {
+            let component_root = app_bundle
+                .parent()
+                .context("macOS app bundle must have a component root")?;
+            let component_plist =
+                component_plist.context("pkgbuild requires a macOS component property list")?;
             let mut args = vec![
-                OsString::from("--component"),
-                app_bundle.as_os_str().to_owned(),
+                OsString::from("--root"),
+                component_root.as_os_str().to_owned(),
                 OsString::from("--install-location"),
                 OsString::from("/Applications"),
+                OsString::from("--component-plist"),
+                component_plist.as_os_str().to_owned(),
             ];
             args.extend(pkgbuild_signing_args(macos).into_iter().map(OsString::from));
             args.push(pkg_path.as_os_str().to_owned());
@@ -1828,6 +1850,46 @@ pub(super) fn macos_pkg_builder_command(
             bail!("package.macos pkg_builder must be `pkgbuild` or `productbuild`, got `{other}`")
         }
     }
+}
+
+pub(super) fn write_macos_component_plist(
+    staging_dir: &Path,
+    app_bundle: &Path,
+) -> Result<PathBuf> {
+    let bundle_name = app_bundle
+        .file_name()
+        .and_then(OsStr::to_str)
+        .context("macOS app bundle name must be valid UTF-8")?;
+    let component_plist = staging_dir.join("components.plist");
+    let contents = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<array>
+  <dict>
+    <key>RootRelativeBundlePath</key>
+    <string>{}</string>
+    <key>BundleIsRelocatable</key>
+    <false/>
+    <key>BundleIsVersionChecked</key>
+    <false/>
+    <key>BundleHasStrictIdentifier</key>
+    <true/>
+    <key>BundleOverwriteAction</key>
+    <string>upgrade</string>
+  </dict>
+</array>
+</plist>
+"#,
+        escape_xml(bundle_name)
+    );
+    fs::write(&component_plist, contents).with_context(|| {
+        format!(
+            "failed to write macOS component property list {}",
+            component_plist.display()
+        )
+    })?;
+    Ok(component_plist)
 }
 
 fn write_linux_run(
