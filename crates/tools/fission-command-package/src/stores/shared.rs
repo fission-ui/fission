@@ -694,7 +694,9 @@ pub(super) fn ensure_app_store_build_number_unused(
     build_number: &str,
 ) -> Result<()> {
     let url = format!(
-        "{APP_STORE_API}/v1/apps/{app_id}/builds?filter[version]={build_number}&limit=1&fields[builds]=version,processingState,uploadedDate"
+        "{APP_STORE_API}/v1/builds?filter[app]={}&filter[version]={}&limit=1&fields[builds]=version,processingState,uploadedDate",
+        encode_query_component(app_id),
+        encode_query_component(build_number)
     );
     let response = client
         .get(url)
@@ -704,7 +706,7 @@ pub(super) fn ensure_app_store_build_number_unused(
     let value = json_response(response, "App Store Connect build-number preflight")?;
     if app_store_builds_contain_build_number(&value, build_number) {
         bail!(
-            "App Store Connect build number {build_number} already exists for app {app_id}. Increment [package.ios].build_number or [app].build, rebuild the IPA, then publish again."
+            "App Store Connect build number {build_number} already exists for app {app_id}. Increment the target build number or [app].build, rebuild the App Store artifact, then publish again."
         );
     }
     Ok(())
@@ -722,6 +724,18 @@ pub(super) fn app_store_builds_contain_build_number(value: &Value, build_number:
                 .and_then(Value::as_str)
                 .is_some_and(|candidate| candidate == build_number)
         })
+}
+
+pub(super) fn encode_query_component(value: &str) -> String {
+    let mut out = String::new();
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
 }
 
 pub(super) fn microsoft_store_access_token(

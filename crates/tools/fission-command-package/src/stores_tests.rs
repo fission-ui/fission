@@ -469,6 +469,43 @@ build_number = "9"
 }
 
 #[test]
+fn app_store_target_spec_accepts_macos_pkg_artifacts() {
+    let manifest = ArtifactManifest {
+        schema_version: 1,
+        created_at_unix_seconds: 0,
+        project: ArtifactProject {
+            app_id: "com.example.demo".to_string(),
+            name: "Demo".to_string(),
+            build: Some(43),
+            version: Some("1.2.3".to_string()),
+        },
+        target: "macos".to_string(),
+        format: "pkg".to_string(),
+        profile: "release".to_string(),
+        variant: Some("app-store".to_string()),
+        root_dir: "/tmp/fission-macos-pkg".to_string(),
+        source_config: Vec::new(),
+        artifacts: Vec::new(),
+        icon_manifest: None,
+        signing: None,
+        notarization: None,
+        validation: ArtifactValidation {
+            state: "passed".to_string(),
+            checks: Vec::new(),
+        },
+    };
+
+    assert_eq!(
+        app_store_target_spec(&manifest).unwrap(),
+        AppStoreTargetSpec {
+            upload_platform: "macos",
+            api_platform: "MAC_OS",
+            artifact_extensions: &["pkg"],
+        }
+    );
+}
+
+#[test]
 fn microsoft_store_package_version_uses_artifact_manifest_release() {
     let manifest = ArtifactManifest {
         schema_version: 1,

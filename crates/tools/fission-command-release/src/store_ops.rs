@@ -1160,7 +1160,8 @@ fn resolve_app_store_beta_build(
 
 fn app_store_builds_url(app_id: &str, build_number: Option<&str>) -> String {
     let mut url = format!(
-        "{APP_STORE_API}/v1/apps/{app_id}/builds?limit=10&sort=-uploadedDate&fields[builds]=version,uploadedDate,processingState,expired,minOsVersion,usesNonExemptEncryption"
+        "{APP_STORE_API}/v1/builds?filter[app]={}&limit=10&sort=-uploadedDate&fields[builds]=version,uploadedDate,processingState,expired,minOsVersion,usesNonExemptEncryption",
+        encode_query_component(app_id)
     );
     if let Some(build_number) = build_number.filter(|value| !value.trim().is_empty()) {
         url.push_str("&filter[version]=");
@@ -1851,7 +1852,8 @@ groups = ["qa@example.com"]
     #[test]
     fn app_store_build_lookup_filters_artifact_build() {
         let url = app_store_builds_url("app-123", Some("42"));
-        assert!(url.contains("/v1/apps/app-123/builds?"));
+        assert!(url.contains("/v1/builds?"));
+        assert!(url.contains("filter[app]=app-123"));
         assert!(url.contains("filter[version]=42"));
         assert!(url.contains("sort=-uploadedDate"));
     }

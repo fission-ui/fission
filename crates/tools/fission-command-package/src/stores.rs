@@ -28,6 +28,31 @@ const APP_STORE_API: &str = "https://api.appstoreconnect.apple.com";
 const MICROSOFT_STORE_SCOPE: &str = "https://api.store.microsoft.com/.default";
 const MICROSOFT_STORE_MSIX_TYPES: &[&str] = &["msix", "msixupload"];
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct AppStoreTargetSpec {
+    upload_platform: &'static str,
+    api_platform: &'static str,
+    artifact_extensions: &'static [&'static str],
+}
+
+fn app_store_target_spec(manifest: &ArtifactManifest) -> Result<AppStoreTargetSpec> {
+    match manifest.target.as_str() {
+        "ios" => Ok(AppStoreTargetSpec {
+            upload_platform: "ios",
+            api_platform: "IOS",
+            artifact_extensions: &["ipa"],
+        }),
+        "macos" => Ok(AppStoreTargetSpec {
+            upload_platform: "macos",
+            api_platform: "MAC_OS",
+            artifact_extensions: &["pkg"],
+        }),
+        target => bail!(
+            "App Store Connect distribution supports iOS IPA and macOS PKG artifacts, not target {target}"
+        ),
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct GoogleServiceAccount {
     client_email: String,
@@ -271,7 +296,8 @@ pub(super) fn publish_app_store(
     let key_id = env_value("APP_STORE_CONNECT_KEY_ID")
         .or(cfg.key_id.clone())
         .context("distribution.app_store.key_id or APP_STORE_CONNECT_KEY_ID is required")?;
-    let ipa = primary_artifact_with_extensions(manifest, &["ipa"])?;
+    let target_spec = app_store_target_spec(manifest)?;
+    let app_artifact = primary_artifact_with_extensions(manifest, target_spec.artifact_extensions)?;
     let track = options
         .track
         .as_deref()
@@ -287,7 +313,7 @@ pub(super) fn publish_app_store(
             Some("https://appstoreconnect.apple.com/apps".to_string()),
             vec![format!(
                 "Would upload {} to App Store Connect with API key {key_id} for track {track}.",
-                ipa.display()
+                app_artifact.display()
             )],
         ));
     }
@@ -306,9 +332,9 @@ pub(super) fn publish_app_store(
             "altool",
             "--upload-app",
             "-f",
-            ipa.to_string_lossy().as_ref(),
+            app_artifact.to_string_lossy().as_ref(),
             "-t",
-            "ios",
+            target_spec.upload_platform,
             "--apiKey",
             &key_id,
             "--apiIssuer",
@@ -1021,9 +1047,9 @@ fn app_store_build_number_state_check(
             "release.app_store.build_number_available",
             CheckSeverity::Error,
             CheckStatus::Missing,
-            "iOS build number is configured before App Store upload",
+            "build number is configured before App Store upload",
             None,
-            vec!["Set [package.ios].build_number or [app].build before publishing to App Store Connect."],
+            vec!["Set the target build number or [app].build before publishing to App Store Connect."],
         );
     };
     if !app_store_credentials_available_for_cfg(cfg) {
@@ -1085,7 +1111,7 @@ fn app_store_build_number_state_check(
             CheckStatus::Passed,
             "App Store build number has not been used",
             Some(format!("app {app_id} build {build_number}")),
-            vec!["Keep this build number for the next IPA build."],
+            vec!["Keep this build number for the next App Store build."],
         ),
         Err(error) => check(
             "release.app_store.build_number_available",
@@ -1094,7 +1120,7 @@ fn app_store_build_number_state_check(
             "App Store build number has already been used",
             Some(error.to_string()),
             vec![
-                "Run `fission release-config bump-build --target ios --yes`, rebuild the IPA, then publish again.",
+                "Bump the target build number, rebuild the App Store artifact, then publish again.",
             ],
         ),
     }
@@ -1235,7 +1261,7 @@ pub(super) fn readiness_app_store(
     checks.push(check_tool(
         "release.app_store.xcrun_available",
         "xcrun",
-        "Install Xcode and select it with xcode-select before uploading IPA files.",
+        "Install Xcode and select it with xcode-select before uploading IPA or macOS PKG files.",
     ));
     let selected_track = track
         .or(cfg.default_track.as_deref())
@@ -1257,12 +1283,32 @@ pub(super) fn readiness_app_store(
     ));
     if let Some(path) = artifact.filter(|path| path.exists()) {
         let manifest = read_artifact_manifest(path)?;
-        checks.push(artifact_format_check(
-            "release.app_store.artifact_format",
-            &manifest,
-            &["ipa"],
-            "App Store Connect binary upload requires an IPA artifact.",
-        ));
+        match app_store_target_spec(&manifest) {
+            Ok(target_spec) => {
+                checks.push(check(
+                    "release.app_store.target_supported",
+                    CheckSeverity::Error,
+                    CheckStatus::Passed,
+                    "App Store artifact target is supported",
+                    Some(manifest.target.clone()),
+                    vec!["Use an iOS IPA or macOS PKG artifact."],
+                ));
+                checks.push(artifact_format_check(
+                    "release.app_store.artifact_format",
+                    &manifest,
+                    target_spec.artifact_extensions,
+                    "Use an iOS IPA or macOS PKG artifact matching the manifest target.",
+                ));
+            }
+            Err(error) => checks.push(check(
+                "release.app_store.target_supported",
+                CheckSeverity::Error,
+                CheckStatus::Failed,
+                "App Store artifact target is supported",
+                Some(error.to_string()),
+                vec!["Use an iOS IPA or macOS PKG artifact."],
+            )),
+        }
         checks.push(app_store_build_number_state_check(
             project_dir,
             &cfg,
