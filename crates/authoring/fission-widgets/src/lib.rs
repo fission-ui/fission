@@ -214,7 +214,7 @@ pub mod link;
 pub use link::Link;
 
 pub mod markdown;
-pub use markdown::MarkdownViewer;
+pub use markdown::{MarkdownContent, MarkdownViewer};
 
 pub mod pagination;
 pub use pagination::Pagination;
