@@ -7,7 +7,7 @@ use fission_ir::semantics::MouseCursor;
 use fission_ir::WidgetId;
 use fission_layout::{LayoutPoint, LayoutSize};
 use fission_text_engine::{EditTransaction, TextBuffer, TextEdit};
-use fission_theme::Theme;
+use fission_theme::{DesignMode, Theme};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -101,6 +101,11 @@ impl RouteLocation {
 #[derive(Clone)]
 pub struct Env {
     pub theme: Theme,
+    /// Current light/dark appearance reported by the host platform.
+    ///
+    /// Applications that offer a "System" preference can select their generated
+    /// design-system theme from this value during environment synchronization.
+    pub system_theme_mode: DesignMode,
     pub i18n: I18nRegistry,
     pub locale: Locale,
     pub window: WindowEnv,
@@ -114,6 +119,7 @@ impl Default for Env {
     fn default() -> Self {
         Self {
             theme: Theme::default(),
+            system_theme_mode: DesignMode::Light,
             i18n: I18nRegistry::new(),
             locale: Locale::default(),
             window: WindowEnv::default(),
@@ -129,6 +135,7 @@ impl std::fmt::Debug for Env {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Env")
             .field("theme", &self.theme)
+            .field("system_theme_mode", &self.system_theme_mode)
             .field("locale", &self.locale)
             .field("window", &self.window)
             .field("current_route", &self.current_route)
@@ -142,6 +149,7 @@ impl Env {
     pub fn new(measurer: Arc<dyn fission_layout::TextMeasurer>) -> Self {
         Self {
             theme: Theme::default(),
+            system_theme_mode: DesignMode::Light,
             i18n: I18nRegistry::new(),
             locale: Locale::default(),
             window: WindowEnv::default(),
@@ -842,4 +850,14 @@ pub enum VideoStatus {
     Buffering,
     Ended,
     Error,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn environment_exposes_a_safe_light_system_theme_default() {
+        assert_eq!(Env::default().system_theme_mode, DesignMode::Light);
+    }
 }
