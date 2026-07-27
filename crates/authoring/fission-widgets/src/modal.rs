@@ -359,18 +359,16 @@ impl From<Modal> for Widget {
             );
         }
 
-        let mut modal_card_builder = Container::new(VStack {
-            spacing: Some(16.0),
-            children: vec![
-                // Header
-                HStack {
-                    spacing: Some(8.0),
-                    children: header_children,
-                }
-                .into(),
-                // Content
-                this.content.clone(),
-                // Footer Actions
+        let mut card_children = vec![
+            HStack {
+                spacing: Some(8.0),
+                children: header_children,
+            }
+            .into(),
+            this.content.clone(),
+        ];
+        if !action_buttons.is_empty() {
+            card_children.push(
                 HStack {
                     spacing: Some(8.0),
                     children: vec![fission_core::ui::widgets::spacer::Spacer {
@@ -383,7 +381,12 @@ impl From<Modal> for Widget {
                     .collect(),
                 }
                 .into(),
-            ],
+            );
+        }
+
+        let mut modal_card_builder = Container::new(VStack {
+            spacing: Some(16.0),
+            children: card_children,
         })
         .bg_fill(
             container_style
@@ -400,11 +403,15 @@ impl From<Modal> for Widget {
             }
         }
 
-        let mut modal_card: Widget = modal_card_builder
-            .width(dialog_width)
-            .height_length(Length::fit_content(None))
-            .padding_all(24.0)
-            .into();
+        let mut modal_card: Widget = fission_core::ui::SemanticsRegion::new(
+            modal_card_builder
+                .width(dialog_width)
+                .height_length(Length::fit_content(None))
+                .padding_all(24.0),
+        )
+        .identifier("fission-modal-surface")
+        .role(fission_ir::Role::Generic)
+        .into();
         if let Some(plan) = &motion_plan {
             modal_card = Presence {
                 id: slot_id(this.id, SLOT_SURFACE),
