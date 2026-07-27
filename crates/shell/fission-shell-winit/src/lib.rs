@@ -7500,6 +7500,25 @@ where
                                                     SurfaceAcquireRecovery::Reconfigure => {
                                                         let device_handle = &render_cx.devices
                                                             [render_state.surface.dev_id];
+                                                        let physical_size = window.inner_size();
+                                                        if physical_size.width > 0
+                                                            && physical_size.height > 0
+                                                        {
+                                                            render_state.surface.config.width =
+                                                                physical_size.width;
+                                                            render_state.surface.config.height =
+                                                                physical_size.height;
+                                                        }
+                                                        let capabilities = render_state
+                                                            .surface
+                                                            .surface
+                                                            .get_capabilities(
+                                                                device_handle.adapter(),
+                                                            );
+                                                        render_state.surface.config.alpha_mode =
+                                                            preferred_surface_alpha_mode(
+                                                                &capabilities.alpha_modes,
+                                                            );
                                                         render_state.surface.surface.configure(
                                                             &device_handle.device,
                                                             &render_state.surface.config,
