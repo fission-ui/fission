@@ -577,18 +577,7 @@ fn create_render_state<'w>(
         eprintln!("wgpu uncaptured error: {error}");
     }));
     let surface_caps = surface.surface.get_capabilities(device_handle.adapter());
-    surface.config.alpha_mode = surface_caps
-        .alpha_modes
-        .iter()
-        .copied()
-        .find(|mode| *mode == wgpu::CompositeAlphaMode::PostMultiplied)
-        .unwrap_or_else(|| {
-            surface_caps
-                .alpha_modes
-                .first()
-                .copied()
-                .unwrap_or(wgpu::CompositeAlphaMode::Opaque)
-        });
+    surface.config.alpha_mode = preferred_surface_alpha_mode(&surface_caps.alpha_modes);
     surface
         .surface
         .configure(&device_handle.device, &surface.config);
@@ -863,6 +852,29 @@ fn adapter_labels(adapter: &wgpu::Adapter) -> (Option<String>, Option<String>) {
     (backend, adapter)
 }
 
+fn preferred_surface_alpha_mode(
+    supported: &[wgpu::CompositeAlphaMode],
+) -> wgpu::CompositeAlphaMode {
+    supported
+        .iter()
+        .copied()
+        .find(|mode| *mode == wgpu::CompositeAlphaMode::PostMultiplied)
+        .or_else(|| {
+            supported
+                .iter()
+                .copied()
+                .find(|mode| *mode == wgpu::CompositeAlphaMode::PreMultiplied)
+        })
+        .or_else(|| {
+            supported
+                .iter()
+                .copied()
+                .find(|mode| *mode == wgpu::CompositeAlphaMode::Opaque)
+        })
+        .or_else(|| supported.first().copied())
+        .unwrap_or(wgpu::CompositeAlphaMode::Opaque)
+}
+
 #[cfg(target_arch = "wasm32")]
 async fn create_webgpu_presenter(
     canvas: HtmlCanvasElement,
@@ -888,18 +900,7 @@ async fn create_webgpu_presenter(
 
     let device_handle = &render_cx.devices[surface.dev_id];
     let surface_caps = surface.surface.get_capabilities(device_handle.adapter());
-    surface.config.alpha_mode = surface_caps
-        .alpha_modes
-        .iter()
-        .copied()
-        .find(|mode| *mode == wgpu::CompositeAlphaMode::PostMultiplied)
-        .unwrap_or_else(|| {
-            surface_caps
-                .alpha_modes
-                .first()
-                .copied()
-                .unwrap_or(wgpu::CompositeAlphaMode::Opaque)
-        });
+    surface.config.alpha_mode = preferred_surface_alpha_mode(&surface_caps.alpha_modes);
     surface
         .surface
         .configure(&device_handle.device, &surface.config);
@@ -6904,8 +6905,6 @@ where
                                     );
                                     let device_handle =
                                         &render_cx.devices[render_state.surface.dev_id];
-                                    render_state.surface.config.alpha_mode =
-                                        wgpu::CompositeAlphaMode::PostMultiplied;
                                     render_state.surface.surface.configure(
                                         &device_handle.device,
                                         &render_state.surface.config,
@@ -7219,12 +7218,6 @@ where
                                                     let device_handle =
                                                         &presenter.render_cx.devices
                                                             [presenter.render_state.surface.dev_id];
-                                                    presenter
-                                                        .render_state
-                                                        .surface
-                                                        .config
-                                                        .alpha_mode =
-                                                        wgpu::CompositeAlphaMode::PostMultiplied;
                                                     presenter
                                                         .render_state
                                                         .surface
@@ -8732,11 +8725,12 @@ mod tests {
         layout_size_to_image_dimensions, logical_viewport_to_physical_size,
         logical_viewport_to_render_target_size, native_window_size_for_logical_viewport,
         normalize_scale_factor, normalize_winit_scroll_delta, physical_position_to_layout_point,
-        physical_size_to_layout_size, rect_visible_in_scroll_ancestors,
-        repeating_animation_redraw_interval, resize_is_unsettled, resolve_build_viewport,
-        resolve_selector_record, sync_tracked_target_texture_size_to_surface,
-        texture_plans_fit_device_limits, visual_rect_for_node, window_insets_from_safe_area_frames,
-        LiveResizeController, WindowViewportState,
+        physical_size_to_layout_size, preferred_surface_alpha_mode,
+        rect_visible_in_scroll_ancestors, repeating_animation_redraw_interval, resize_is_unsettled,
+        resolve_build_viewport, resolve_selector_record,
+        sync_tracked_target_texture_size_to_surface, texture_plans_fit_device_limits,
+        visual_rect_for_node, window_insets_from_safe_area_frames, LiveResizeController,
+        WindowViewportState,
     };
     use crate::pipeline::CompositorTexturePlan;
     use crate::InvalidationSet;
@@ -8750,6 +8744,31 @@ mod tests {
     use winit::dpi::{PhysicalPosition, PhysicalSize};
     use winit::event::MouseScrollDelta;
     use winit::window::CursorIcon;
+
+    #[test]
+    fn surface_alpha_mode_always_comes_from_the_supported_set() {
+        use super::wgpu::CompositeAlphaMode::{Inherit, Opaque, PostMultiplied, PreMultiplied};
+
+        assert_eq!(
+            preferred_surface_alpha_mode(&[Opaque, Inherit]),
+            Opaque,
+            "opaque is the preferred portable fallback"
+        );
+        assert_eq!(
+            preferred_surface_alpha_mode(&[Inherit]),
+            Inherit,
+            "the first advertised mode is used when preferred modes are absent"
+        );
+        assert_eq!(
+            preferred_surface_alpha_mode(&[Opaque, PreMultiplied]),
+            PreMultiplied
+        );
+        assert_eq!(
+            preferred_surface_alpha_mode(&[Opaque, PostMultiplied]),
+            PostMultiplied
+        );
+        assert_eq!(preferred_surface_alpha_mode(&[]), Opaque);
+    }
 
     #[test]
     fn semantic_cursor_icons_map_to_winit_icons() {
