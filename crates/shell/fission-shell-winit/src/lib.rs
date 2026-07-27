@@ -5568,6 +5568,10 @@ where
                             resize_needs_settled_frame,
                             live_resize.is_live(Instant::now()),
                         );
+                        // A capture reads the complete retained target texture. Force every
+                        // compositor layer to repaint so the image cannot contain only the
+                        // regions damaged by the preceding interaction.
+                        invalidations.mark_paint();
                         window.request_redraw();
                     }
                     TestEvent::CaptureScreenshot { response_tx } => {
@@ -5584,6 +5588,7 @@ where
                             resize_needs_settled_frame,
                             live_resize.is_live(Instant::now()),
                         );
+                        invalidations.mark_paint();
                         window.request_redraw();
                     }
                     TestEvent::PauseAnimations { response_tx } => {
@@ -5632,6 +5637,7 @@ where
                             resize_needs_settled_frame,
                             live_resize.is_live(Instant::now()),
                         );
+                        invalidations.mark_paint();
                         window.request_redraw();
                     }
                     TestEvent::MotionStatus { response_tx } => {
