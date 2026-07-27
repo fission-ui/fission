@@ -875,6 +875,25 @@ fn preferred_surface_alpha_mode(
         .unwrap_or(wgpu::CompositeAlphaMode::Opaque)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SurfaceAcquireRecovery {
+    Reconfigure,
+    Retry,
+    Exit,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn surface_acquire_recovery(error: &wgpu::SurfaceError) -> SurfaceAcquireRecovery {
+    match error {
+        wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated => {
+            SurfaceAcquireRecovery::Reconfigure
+        }
+        wgpu::SurfaceError::Timeout | wgpu::SurfaceError::Other => SurfaceAcquireRecovery::Retry,
+        wgpu::SurfaceError::OutOfMemory => SurfaceAcquireRecovery::Exit,
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 async fn create_webgpu_presenter(
     canvas: HtmlCanvasElement,
@@ -7470,11 +7489,52 @@ where
                                     {
                                         let render_state =
                                             render_state.as_mut().expect("render state");
-                                        let surface_texture = render_state
+                                        let surface_texture = match render_state
                                             .surface
                                             .surface
                                             .get_current_texture()
-                                            .expect("failed to get texture");
+                                        {
+                                            Ok(texture) => texture,
+                                            Err(error) => {
+                                                match surface_acquire_recovery(&error) {
+                                                    SurfaceAcquireRecovery::Reconfigure => {
+                                                        let device_handle = &render_cx.devices
+                                                            [render_state.surface.dev_id];
+                                                        render_state.surface.surface.configure(
+                                                            &device_handle.device,
+                                                            &render_state.surface.config,
+                                                        );
+                                                        eprintln!(
+                                                                "render surface became {error}; reconfigured and retrying"
+                                                            );
+                                                    }
+                                                    SurfaceAcquireRecovery::Retry => {
+                                                        eprintln!(
+                                                                "render surface acquisition was {error}; retrying"
+                                                            );
+                                                    }
+                                                    SurfaceAcquireRecovery::Exit => {
+                                                        eprintln!(
+                                                                "render surface ran out of memory; exiting"
+                                                            );
+                                                        elwt.exit();
+                                                        diag::end_frame(diag::FrameStats::default());
+                                                        return;
+                                                    }
+                                                }
+                                                request_redraw_logged(
+                                                    &window,
+                                                    elwt,
+                                                    &mut last_redraw_at,
+                                                    min_frame,
+                                                    &mut redraw_pending,
+                                                    &mut frame_trace,
+                                                    "surface_acquire_recovery",
+                                                );
+                                                diag::end_frame(diag::FrameStats::default());
+                                                return;
+                                            }
+                                        };
                                         let device_handle =
                                             &render_cx.devices[render_state.surface.dev_id];
 
@@ -8727,10 +8787,10 @@ mod tests {
         normalize_scale_factor, normalize_winit_scroll_delta, physical_position_to_layout_point,
         physical_size_to_layout_size, preferred_surface_alpha_mode,
         rect_visible_in_scroll_ancestors, repeating_animation_redraw_interval, resize_is_unsettled,
-        resolve_build_viewport, resolve_selector_record,
+        resolve_build_viewport, resolve_selector_record, surface_acquire_recovery,
         sync_tracked_target_texture_size_to_surface, texture_plans_fit_device_limits,
         visual_rect_for_node, window_insets_from_safe_area_frames, LiveResizeController,
-        WindowViewportState,
+        SurfaceAcquireRecovery, WindowViewportState,
     };
     use crate::pipeline::CompositorTexturePlan;
     use crate::InvalidationSet;
@@ -8768,6 +8828,32 @@ mod tests {
             PostMultiplied
         );
         assert_eq!(preferred_surface_alpha_mode(&[]), Opaque);
+    }
+
+    #[test]
+    fn recoverable_surface_acquisition_errors_never_crash_the_app() {
+        use super::wgpu::SurfaceError;
+
+        assert_eq!(
+            surface_acquire_recovery(&SurfaceError::Lost),
+            SurfaceAcquireRecovery::Reconfigure
+        );
+        assert_eq!(
+            surface_acquire_recovery(&SurfaceError::Outdated),
+            SurfaceAcquireRecovery::Reconfigure
+        );
+        assert_eq!(
+            surface_acquire_recovery(&SurfaceError::Timeout),
+            SurfaceAcquireRecovery::Retry
+        );
+        assert_eq!(
+            surface_acquire_recovery(&SurfaceError::Other),
+            SurfaceAcquireRecovery::Retry
+        );
+        assert_eq!(
+            surface_acquire_recovery(&SurfaceError::OutOfMemory),
+            SurfaceAcquireRecovery::Exit
+        );
     }
 
     #[test]
