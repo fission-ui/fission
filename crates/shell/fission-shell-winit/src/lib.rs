@@ -7500,7 +7500,27 @@ where
                                                     SurfaceAcquireRecovery::Reconfigure => {
                                                         let device_handle = &render_cx.devices
                                                             [render_state.surface.dev_id];
-                                                        let physical_size = window.inner_size();
+                                                        // A failed frame must discard any synthetic
+                                                        // or otherwise stale pending viewport. If it
+                                                        // remains pending, the next frame immediately
+                                                        // configures the surface back to the rejected
+                                                        // dimensions and enters a retry loop.
+                                                        let recovered_viewport =
+                                                            WindowViewportState::from_window(
+                                                                window,
+                                                            );
+                                                        #[cfg(not(target_os = "android"))]
+                                                        {
+                                                            window_viewport = recovered_viewport;
+                                                        }
+                                                        #[cfg(target_os = "android")]
+                                                        {
+                                                            window_viewport =
+                                                                Some(recovered_viewport);
+                                                        }
+                                                        pending_resize = Some(recovered_viewport);
+                                                        let physical_size =
+                                                            recovered_viewport.physical_size;
                                                         if physical_size.width > 0
                                                             && physical_size.height > 0
                                                         {
