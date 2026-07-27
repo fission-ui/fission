@@ -284,7 +284,9 @@ impl<'a> MarkdownRenderer<'a> {
                     image_block = Some(MarkdownImageBlock {
                         node_ref: nested_ref,
                         image,
-                        link_destination: Some(link.destination_str(self.source).to_string()),
+                        link_destination: safe_link_destination(
+                            link.destination_str(self.source).as_ref(),
+                        ),
                     });
                 }
                 image_block
@@ -690,10 +692,15 @@ impl<'a> MarkdownRenderer<'a> {
         style: &InlineStyle,
         runs: &mut Vec<RichTextRun>,
     ) {
+        let Some(destination) = safe_link_destination(link.destination_str(self.source).as_ref())
+        else {
+            self.push_children_inline(node_ref, style, runs);
+            return;
+        };
         let mut link_style = style.clone();
         link_style.color = self.palette.text_link;
         link_style.underline = true;
-        link_style.link_destination = Some(link.destination_str(self.source).to_string());
+        link_style.link_destination = Some(destination);
         self.push_children_inline(node_ref, &link_style, runs);
     }
 
@@ -795,6 +802,21 @@ impl<'a> MarkdownRenderer<'a> {
                 }
             }
         }
+    }
+}
+
+fn safe_link_destination(destination: &str) -> Option<String> {
+    let destination = destination.trim();
+    if destination.is_empty() || destination.chars().any(char::is_control) {
+        return None;
+    }
+
+    let scheme = destination
+        .split_once(':')
+        .map(|(scheme, _)| scheme.to_ascii_lowercase());
+    match scheme.as_deref() {
+        None | Some("http" | "https" | "mailto") => Some(destination.to_string()),
+        Some(_) => None,
     }
 }
 
