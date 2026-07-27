@@ -3053,6 +3053,10 @@ impl LayoutEngine {
             LayoutOp::StyledBox { style, .. } => style.width.as_ref(),
             _ => None,
         };
+        let intrinsic_box_height = match &node.op {
+            LayoutOp::StyledBox { style, .. } => style.height.as_ref(),
+            _ => None,
+        };
 
         let mut content_size;
         let size = match layout_op {
@@ -3117,6 +3121,15 @@ impl LayoutEngine {
                 if matches!(intrinsic_box_width, Some(Length::MaxContent)) {
                     base_child_constraints.min_w = 0.0;
                     base_child_constraints.max_w = f32::INFINITY;
+                }
+                // `fit-content` must measure the child's natural block-axis
+                // extent before the result is clamped to the available box.
+                // Passing the finite viewport maximum into a column allows
+                // stretch-aware descendants to report the whole viewport,
+                // making short dialogs and popovers viewport-height.
+                if matches!(intrinsic_box_height, Some(Length::FitContent(_))) {
+                    base_child_constraints.min_h = 0.0;
+                    base_child_constraints.max_h = f32::INFINITY;
                 }
                 if box_alignment != fission_ir::op::BoxAlignment::Stretch {
                     base_child_constraints.min_w = 0.0;
