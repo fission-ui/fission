@@ -1,5 +1,5 @@
-use fission_core::ui::{Container, Text, Widget};
-use fission_core::{reduce_with, GlobalState, ReducerContext};
+use fission_core::ui::{Container, SemanticsRegion, Text, Widget};
+use fission_core::{GlobalState, ReducerContext, Role, reduce_with};
 use fission_test::TestHarness;
 use fission_widgets::{NumberInput, SplitDirection, SplitView};
 
@@ -274,4 +274,61 @@ fn test_modal_close_button_dismiss() {
 
     let state = h.runtime.get_app_state::<State>().unwrap();
     assert!(!state.modal_open, "Modal should be closed via close button");
+}
+
+#[test]
+fn test_modal_content_keeps_its_intrinsic_height() {
+    use fission_widgets::Modal;
+
+    const VIEWPORT_HEIGHT: f32 = 600.0;
+
+    #[derive(Clone)]
+    struct IntrinsicModalTest;
+
+    impl From<IntrinsicModalTest> for Widget {
+        fn from(_component: IntrinsicModalTest) -> Self {
+            Modal {
+                id: fission_core::WidgetId::explicit("intrinsic_modal"),
+                title: "Required action".into(),
+                content: SemanticsRegion::new(Text::new("A short explanation"))
+                    .identifier("intrinsic-modal-content")
+                    .role(Role::Dialog)
+                    .into(),
+                is_open: true,
+                on_dismiss: None,
+                actions: vec![],
+                width: Some(420.0),
+                motion: None,
+            }
+            .into()
+        }
+    }
+
+    let mut harness = TestHarness::new(State::default()).with_root_widget(IntrinsicModalTest);
+    harness.pump().unwrap();
+
+    let ir = harness.last_ir.as_ref().unwrap();
+    let snapshot = harness.last_snapshot.as_ref().unwrap();
+    let content_id = ir
+        .nodes
+        .iter()
+        .find_map(|(id, node)| match &node.op {
+            fission_ir::Op::Semantics(semantics)
+                if semantics.identifier.as_deref() == Some("intrinsic-modal-content") =>
+            {
+                Some(*id)
+            }
+            _ => None,
+        })
+        .expect("modal content semantics were not rendered");
+    let content = snapshot
+        .get_node_rect(content_id)
+        .expect("modal content was not laid out");
+
+    assert!(
+        content.height() < VIEWPORT_HEIGHT / 2.0,
+        "short modal content should keep an intrinsic height, got {} in a {}px viewport",
+        content.height(),
+        VIEWPORT_HEIGHT,
+    );
 }
