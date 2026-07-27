@@ -1,15 +1,21 @@
 use crate::NativeVariant;
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
+#[cfg(any(target_os = "macos", test))]
+use sha1::{Digest as _, Sha1};
+#[cfg(any(target_os = "macos", test))]
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+#[cfg(any(target_os = "macos", test))]
+use std::time::SystemTime;
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct MacosPackageConfig {
     pub bundle_id: Option<String>,
+    pub team_id: Option<String>,
     pub minimum_os: Option<String>,
     pub application_category: Option<String>,
     pub entitlements: Option<String>,
@@ -210,6 +216,7 @@ pub fn sign_macos_app_if_configured(
         );
     }
     if let Some(profile) = profile {
+        validate_macos_provisioning_profile(project_dir, macos, identity.expect("validated"))?;
         embed_macos_provisioning_profile(project_dir, app_bundle, profile)?;
     }
     remove_macos_bundle_extended_attributes(app_bundle)?;
@@ -235,6 +242,216 @@ pub fn sign_macos_app_if_configured(
         .context("failed to verify macOS code signature")?;
     if !verify.success() {
         bail!("codesign verification failed with {verify}");
+    }
+    Ok(())
+}
+
+#[cfg(any(target_os = "macos", test))]
+#[derive(Debug, Deserialize)]
+struct DecodedMacosProvisioningProfile {
+    #[serde(rename = "TeamIdentifier")]
+    team_identifiers: Vec<String>,
+    #[serde(rename = "DeveloperCertificates")]
+    developer_certificates: Vec<plist::Value>,
+    #[serde(rename = "ProvisionedDevices", default)]
+    provisioned_devices: Vec<String>,
+    #[serde(rename = "ExpirationDate")]
+    expiration_date: plist::Date,
+    #[serde(rename = "Entitlements")]
+    entitlements: BTreeMap<String, plist::Value>,
+}
+
+#[cfg(target_os = "macos")]
+fn validate_macos_provisioning_profile(
+    project_dir: &Path,
+    macos: &MacosPackageConfig,
+    signing_identity: &str,
+) -> Result<()> {
+    let profile = macos
+        .provisioning_profile
+        .as_deref()
+        .expect("profile validation is called only when configured");
+    let profile_path = resolve_project_path(project_dir, profile);
+    if !profile_path.is_file() {
+        bail!(
+            "macOS provisioning profile does not exist or is not a file: {}",
+            profile_path.display()
+        );
+    }
+    let decoded = Command::new("security")
+        .args(["cms", "-D", "-i"])
+        .arg(&profile_path)
+        .output()
+        .context("failed to decode the macOS provisioning profile with `security cms`")?;
+    if !decoded.status.success() {
+        bail!(
+            "macOS provisioning profile could not be verified by `security cms`: {}",
+            String::from_utf8_lossy(&decoded.stderr).trim()
+        );
+    }
+    let profile: DecodedMacosProvisioningProfile = plist::from_bytes(&decoded.stdout)
+        .context("failed to parse decoded provisioning profile")?;
+    let identity = resolve_codesigning_identity(signing_identity)?;
+    let host_udid = current_macos_provisioning_udid()?;
+    validate_macos_profile_bindings(&profile, macos, &identity, host_udid.as_deref())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn validate_macos_provisioning_profile(
+    _project_dir: &Path,
+    _macos: &MacosPackageConfig,
+    _signing_identity: &str,
+) -> Result<()> {
+    Ok(())
+}
+
+#[cfg(any(target_os = "macos", test))]
+#[derive(Debug, Eq, PartialEq)]
+struct ResolvedCodesigningIdentity {
+    certificate_sha1: String,
+    display_name: String,
+}
+
+#[cfg(target_os = "macos")]
+fn resolve_codesigning_identity(requested: &str) -> Result<ResolvedCodesigningIdentity> {
+    let output = Command::new("security")
+        .args(["find-identity", "-v", "-p", "codesigning"])
+        .output()
+        .context("failed to query macOS code-signing identities")?;
+    if !output.status.success() {
+        bail!("macOS code-signing identities could not be queried");
+    }
+    let mut matches = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(parse_codesigning_identity)
+        .filter(|identity| {
+            identity.certificate_sha1.eq_ignore_ascii_case(requested)
+                || identity.display_name == requested
+                || identity.display_name.contains(requested)
+        })
+        .collect::<Vec<_>>();
+    if matches.len() != 1 {
+        bail!(
+            "macOS signing identity `{requested}` resolved to {} valid identities; configure one unambiguous certificate name or SHA-1 fingerprint",
+            matches.len()
+        );
+    }
+    Ok(matches.remove(0))
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn parse_codesigning_identity(line: &str) -> Option<ResolvedCodesigningIdentity> {
+    let trimmed = line.trim();
+    let (_, after_index) = trimmed.split_once(')')?;
+    let (fingerprint, quoted_name) = after_index.trim().split_once(' ')?;
+    let display_name = quoted_name.strip_prefix('"')?.strip_suffix('"')?;
+    if fingerprint.len() != 40
+        || !fingerprint.bytes().all(|byte| byte.is_ascii_hexdigit())
+        || display_name.is_empty()
+    {
+        return None;
+    }
+    Some(ResolvedCodesigningIdentity {
+        certificate_sha1: fingerprint.to_ascii_uppercase(),
+        display_name: display_name.to_owned(),
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn current_macos_provisioning_udid() -> Result<Option<String>> {
+    let output = Command::new("system_profiler")
+        .arg("SPHardwareDataType")
+        .output()
+        .context("failed to query this Mac's Provisioning UDID")?;
+    if !output.status.success() {
+        bail!("this Mac's Provisioning UDID could not be queried");
+    }
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("Provisioning UDID:"))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned))
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn validate_macos_profile_bindings(
+    profile: &DecodedMacosProvisioningProfile,
+    macos: &MacosPackageConfig,
+    identity: &ResolvedCodesigningIdentity,
+    host_udid: Option<&str>,
+) -> Result<()> {
+    if SystemTime::from(profile.expiration_date) <= SystemTime::now() {
+        bail!("macOS provisioning profile has expired");
+    }
+    let bundle_id = macos
+        .bundle_id
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .context("macOS provisioning profile validation requires package.macos.bundle_id")?;
+    let profile_team = profile
+        .team_identifiers
+        .first()
+        .filter(|value| !value.trim().is_empty())
+        .context("macOS provisioning profile has no TeamIdentifier")?;
+    if profile
+        .team_identifiers
+        .iter()
+        .any(|team| team != profile_team)
+    {
+        bail!("macOS provisioning profile contains conflicting team identifiers");
+    }
+    if let Some(configured_team) = macos
+        .team_id
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        if configured_team != profile_team {
+            bail!(
+                "macOS provisioning profile team `{profile_team}` does not match configured team `{configured_team}`"
+            );
+        }
+    }
+    let application_identifier = profile
+        .entitlements
+        .get("com.apple.application-identifier")
+        .and_then(plist::Value::as_string)
+        .context("macOS provisioning profile has no application identifier entitlement")?;
+    let expected_application_identifier = format!("{profile_team}.{bundle_id}");
+    let application_matches = application_identifier == expected_application_identifier
+        || application_identifier
+            .strip_suffix('*')
+            .is_some_and(|prefix| expected_application_identifier.starts_with(prefix));
+    if !application_matches {
+        bail!(
+            "macOS provisioning profile application identifier `{application_identifier}` does not authorize `{expected_application_identifier}`"
+        );
+    }
+    let identity_in_profile = profile
+        .developer_certificates
+        .iter()
+        .filter_map(plist::Value::as_data)
+        .any(|certificate| format!("{:X}", Sha1::digest(certificate)) == identity.certificate_sha1);
+    if !identity_in_profile {
+        bail!(
+            "macOS provisioning profile does not include signing certificate `{}` ({})",
+            identity.display_name,
+            identity.certificate_sha1
+        );
+    }
+    if !profile.provisioned_devices.is_empty() {
+        let host_udid = host_udid.context(
+            "macOS development provisioning profile is device-bound but this Mac's Provisioning UDID is unavailable",
+        )?;
+        if !profile
+            .provisioned_devices
+            .iter()
+            .any(|device| device == host_udid)
+        {
+            bail!(
+                "macOS development provisioning profile does not include this Mac's Provisioning UDID `{host_udid}`"
+            );
+        }
     }
     Ok(())
 }
@@ -353,6 +570,7 @@ fn resolve_project_path(project_dir: &Path, path: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
     fn parses_macos_package_signing_configuration() {
@@ -400,6 +618,109 @@ signing_identity = "-"
             Some("profiles/Developer-Local.provisionprofile")
         );
         assert_eq!(run.signing_identity.as_deref(), Some("-"));
+    }
+
+    #[test]
+    fn parses_codesigning_identity_output() {
+        assert_eq!(
+            parse_codesigning_identity(
+                r#"  1) A678CDF82B5E6D0031FB0690F74FD365C01FE43D "Apple Development: Example (TEAM123)""#,
+            ),
+            Some(ResolvedCodesigningIdentity {
+                certificate_sha1: "A678CDF82B5E6D0031FB0690F74FD365C01FE43D".into(),
+                display_name: "Apple Development: Example (TEAM123)".into(),
+            })
+        );
+        assert!(parse_codesigning_identity("0 valid identities found").is_none());
+    }
+
+    #[test]
+    fn provisioning_profile_parses_apple_certificate_data_values() {
+        let decoded: DecodedMacosProvisioningProfile = plist::from_bytes(
+            br#"<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+<key>TeamIdentifier</key><array><string>TEAM123</string></array>
+<key>DeveloperCertificates</key><array><data>Y2VydGlmaWNhdGU=</data></array>
+<key>ExpirationDate</key><date>2030-01-01T00:00:00Z</date>
+<key>Entitlements</key><dict>
+<key>com.apple.application-identifier</key><string>TEAM123.com.example.app</string>
+</dict>
+</dict></plist>"#,
+        )
+        .expect("Apple profile data should deserialize");
+
+        assert_eq!(
+            decoded.developer_certificates[0].as_data(),
+            Some(b"certificate".as_slice())
+        );
+    }
+
+    #[test]
+    fn profile_bindings_require_bundle_team_certificate_and_device() {
+        let certificate = b"certificate-der".to_vec();
+        let identity = ResolvedCodesigningIdentity {
+            certificate_sha1: format!("{:X}", Sha1::digest(&certificate)),
+            display_name: "Apple Development: Example (TEAM123)".into(),
+        };
+        let mut profile = DecodedMacosProvisioningProfile {
+            team_identifiers: vec!["TEAM123".into()],
+            developer_certificates: vec![plist::Value::Data(certificate)],
+            provisioned_devices: vec!["MAC-UDID".into()],
+            expiration_date: (SystemTime::now() + Duration::from_secs(3_600)).into(),
+            entitlements: BTreeMap::from([(
+                "com.apple.application-identifier".into(),
+                plist::Value::String("TEAM123.com.example.app".into()),
+            )]),
+        };
+        let config = MacosPackageConfig {
+            bundle_id: Some("com.example.app".into()),
+            team_id: Some("TEAM123".into()),
+            ..Default::default()
+        };
+
+        validate_macos_profile_bindings(&profile, &config, &identity, Some("MAC-UDID")).unwrap();
+
+        let error =
+            validate_macos_profile_bindings(&profile, &config, &identity, Some("OTHER-MAC"))
+                .unwrap_err();
+        assert!(error.to_string().contains("Provisioning UDID"));
+
+        profile.entitlements.insert(
+            "com.apple.application-identifier".into(),
+            plist::Value::String("TEAM123.com.other.app".into()),
+        );
+        let error = validate_macos_profile_bindings(&profile, &config, &identity, Some("MAC-UDID"))
+            .unwrap_err();
+        assert!(error.to_string().contains("does not authorize"));
+    }
+
+    #[test]
+    fn profile_bindings_reject_a_certificate_not_embedded_in_the_profile() {
+        let profile = DecodedMacosProvisioningProfile {
+            team_identifiers: vec!["TEAM123".into()],
+            developer_certificates: vec![plist::Value::Data(b"different-certificate".to_vec())],
+            provisioned_devices: Vec::new(),
+            expiration_date: (SystemTime::now() + Duration::from_secs(3_600)).into(),
+            entitlements: BTreeMap::from([(
+                "com.apple.application-identifier".into(),
+                plist::Value::String("TEAM123.com.example.app".into()),
+            )]),
+        };
+        let identity = ResolvedCodesigningIdentity {
+            certificate_sha1: format!("{:X}", Sha1::digest(b"selected-certificate")),
+            display_name: "Apple Development: Example (TEAM123)".into(),
+        };
+        let config = MacosPackageConfig {
+            bundle_id: Some("com.example.app".into()),
+            team_id: Some("TEAM123".into()),
+            ..Default::default()
+        };
+
+        let error =
+            validate_macos_profile_bindings(&profile, &config, &identity, None).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("does not include signing certificate"));
     }
 
     #[test]

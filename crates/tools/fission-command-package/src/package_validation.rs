@@ -527,6 +527,16 @@ fn package_signature_checks(
             "Android AAB jar signature verifies",
             "Configure Android upload signing and regenerate the AAB.",
         )],
+        PackageFormat::Msix if env_flag("WINDOWS_SKIP_SIGNING") => vec![check(
+            "release.package.signature.windows_msix",
+            CheckSeverity::Warning,
+            CheckStatus::Skipped,
+            "Windows MSIX signature verification is intentionally skipped",
+            Some("WINDOWS_SKIP_SIGNING=1; Microsoft Store will sign the package after certification".to_string()),
+            vec![
+                "Use unsigned MSIX output only for Microsoft Store submission; sign packages distributed through other channels.",
+            ],
+        )],
         PackageFormat::Msix => vec![verify_with_tool(
             "release.package.signature.windows_msix",
             "signtool",
@@ -694,6 +704,17 @@ fn package_static_load_smoke_check(
             "Re-run static packaging and inspect index.html if the static load-smoke check fails.",
         ],
     )
+}
+
+fn env_flag(name: &str) -> bool {
+    env::var(name)
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes"
+            )
+        })
+        .unwrap_or(false)
 }
 
 fn verify_with_tool(

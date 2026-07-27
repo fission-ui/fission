@@ -382,6 +382,7 @@ impl<S: GlobalState> ActiveTray<S> {
     }
 
     pub(crate) fn build(config: TrayConfig<S>) -> Result<Self> {
+        initialise_native_tray_runtime()?;
         let icon = load_icon(&config.icon)?;
         let tray_menu = fallback_tray_menu(&config);
         let (menu, actions_by_menu_id) = native_menu_from_tray_menu(&tray_menu)?;
@@ -465,6 +466,16 @@ impl<S: GlobalState> ActiveTray<S> {
             }
         }
     }
+}
+
+#[cfg(target_os = "linux")]
+fn initialise_native_tray_runtime() -> Result<()> {
+    gtk::init().context("failed to initialise GTK for the Fission tray")
+}
+
+#[cfg(not(target_os = "linux"))]
+fn initialise_native_tray_runtime() -> Result<()> {
+    Ok(())
 }
 
 pub(crate) fn install_event_forwarders(
