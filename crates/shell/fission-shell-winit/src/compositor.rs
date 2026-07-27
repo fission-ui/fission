@@ -272,6 +272,13 @@ impl TextureLayerCompositor {
     ) -> Result<CompositorFrameStats> {
         self.frame_index = self.frame_index.saturating_add(1);
         let live_keys = self.sync_plans(plans);
+        if force_full_redraw {
+            for layer in self.layers.values_mut() {
+                if layer.has_texture {
+                    layer.local_dirty = true;
+                }
+            }
+        }
         let (pruned_damage, removed_layers) = self.prune(&live_keys);
 
         let mut stats = CompositorFrameStats::default();
