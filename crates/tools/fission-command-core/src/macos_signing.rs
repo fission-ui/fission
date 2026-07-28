@@ -3,7 +3,6 @@ use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 #[cfg(any(target_os = "macos", test))]
 use sha1::{Digest as _, Sha1};
-#[cfg(any(target_os = "macos", test))]
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs;
@@ -321,15 +320,8 @@ fn resolve_codesigning_identity(requested: &str) -> Result<ResolvedCodesigningId
     if !output.status.success() {
         bail!("macOS code-signing identities could not be queried");
     }
-    let mut matches = String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .filter_map(parse_codesigning_identity)
-        .filter(|identity| {
-            identity.certificate_sha1.eq_ignore_ascii_case(requested)
-                || identity.display_name == requested
-                || identity.display_name.contains(requested)
-        })
-        .collect::<Vec<_>>();
+    let mut matches =
+        matching_codesigning_identities(&String::from_utf8_lossy(&output.stdout), requested);
     if matches.len() != 1 {
         bail!(
             "macOS signing identity `{requested}` resolved to {} valid identities; configure one unambiguous certificate name or SHA-1 fingerprint",
@@ -355,6 +347,29 @@ fn parse_codesigning_identity(line: &str) -> Option<ResolvedCodesigningIdentity>
         certificate_sha1: fingerprint.to_ascii_uppercase(),
         display_name: display_name.to_owned(),
     })
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn matching_codesigning_identities(
+    output: &str,
+    requested: &str,
+) -> Vec<ResolvedCodesigningIdentity> {
+    let mut matches = Vec::new();
+    for identity in output.lines().filter_map(parse_codesigning_identity) {
+        let is_match = identity.certificate_sha1.eq_ignore_ascii_case(requested)
+            || identity.display_name == requested
+            || identity.display_name.contains(requested);
+        let certificate_already_matched =
+            matches.iter().any(|matched: &ResolvedCodesigningIdentity| {
+                matched
+                    .certificate_sha1
+                    .eq_ignore_ascii_case(&identity.certificate_sha1)
+            });
+        if is_match && !certificate_already_matched {
+            matches.push(identity);
+        }
+    }
+    matches
 }
 
 #[cfg(target_os = "macos")]
@@ -632,6 +647,24 @@ signing_identity = "-"
             })
         );
         assert!(parse_codesigning_identity("0 valid identities found").is_none());
+    }
+
+    #[test]
+    fn duplicate_keychain_results_are_one_codesigning_identity() {
+        let output = r#"
+  1) 00112233445566778899AABBCCDDEEFF00112233 "Developer ID Application: Example (TEAM123)"
+  2) 00112233445566778899AABBCCDDEEFF00112233 "Developer ID Application: Example Duplicate Label (TEAM123)"
+  3) FFEEDDCCBBAA99887766554433221100FFEEDDCC "Apple Development: Example (TEAM123)"
+     3 valid identities found
+"#;
+
+        assert_eq!(
+            matching_codesigning_identities(output, "00112233445566778899AABBCCDDEEFF00112233"),
+            vec![ResolvedCodesigningIdentity {
+                certificate_sha1: "00112233445566778899AABBCCDDEEFF00112233".into(),
+                display_name: "Developer ID Application: Example (TEAM123)".into(),
+            }]
+        );
     }
 
     #[test]
