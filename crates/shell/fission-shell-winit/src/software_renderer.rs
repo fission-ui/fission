@@ -1,10 +1,12 @@
 use anyhow::{anyhow, Result};
 use fission_ir::op::{HttpHeader, ImageAlignment, ImageRequest, ImageSource};
+use fission_layout::{LineMetric, TextMeasurer};
 use fission_render::{
     image_cache_store::ImageCacheStore, surface_placeholder_color, Color as RenderColor,
     DisplayList, DisplayOp, Fill, ImageFit, LineCap, LineJoin, RenderScene, Stroke, TextRun,
 };
 use fontdue::layout::{CoordinateSystem, Layout, LayoutSettings, TextStyle as FontdueTextStyle};
+use std::borrow::Cow;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -439,6 +441,65 @@ fn wrap_max_width(bounds_width: f32, font_size: f32, wrap: bool) -> Option<f32> 
     Some(bounds_width.ceil() + font_size * 0.5)
 }
 
+fn pipeline_wrap_breaks(
+    measurer: Option<&dyn TextMeasurer>,
+    text: &str,
+    font_size: f32,
+    bounds_width: f32,
+    wrap: bool,
+) -> Option<Vec<usize>> {
+    if !wrap || bounds_width <= 0.0 {
+        return None;
+    }
+    let measurer = measurer?;
+    let lines = measurer.get_line_metrics(text, font_size, Some(bounds_width));
+    if lines.is_empty() {
+        return None;
+    }
+    Some(soft_wrap_breaks(text, &lines))
+}
+
+fn soft_wrap_breaks(text: &str, lines: &[LineMetric]) -> Vec<usize> {
+    lines
+        .windows(2)
+        .filter_map(|pair| {
+            let end = pair[0].end_index.min(text.len());
+            let next_start = pair[1].start_index.min(text.len());
+            if !text.is_char_boundary(end) || !text.is_char_boundary(next_start) {
+                return None;
+            }
+            let gap_start = end.min(next_start);
+            let gap_end = end.max(next_start);
+            let already_broken = text[..end].ends_with('\r')
+                || text[..end].ends_with('\n')
+                || text[end..].starts_with('\r')
+                || text[end..].starts_with('\n')
+                || text[gap_start..gap_end]
+                    .chars()
+                    .any(|character| matches!(character, '\r' | '\n'));
+            (!already_broken).then_some(end)
+        })
+        .collect()
+}
+
+fn insert_soft_wraps<'a>(text: &'a str, breaks: &[usize]) -> Cow<'a, str> {
+    if breaks.is_empty() {
+        return Cow::Borrowed(text);
+    }
+    let mut wrapped = String::with_capacity(text.len() + breaks.len());
+    let mut cursor = 0;
+    for &break_at in breaks {
+        if break_at < cursor || break_at > text.len() || !text.is_char_boundary(break_at) {
+            continue;
+        }
+        wrapped.push_str(&text[cursor..break_at]);
+        wrapped.push('\n');
+        cursor = break_at;
+    }
+    wrapped.push_str(&text[cursor..]);
+    Cow::Owned(wrapped)
+}
+
 fn cached_image(request: &ImageRequest) -> Option<Arc<Pixmap>> {
     let key = request.stable_cache_key();
     if let Some(entry) = image_cache().get(&key) {
@@ -641,6 +702,29 @@ mod image_tests {
     use std::net::TcpListener;
     use std::time::{Duration, Instant};
 
+    struct SingleLineMeasurer;
+
+    impl TextMeasurer for SingleLineMeasurer {
+        fn measure(&self, text: &str, font_size: f32, _available_width: Option<f32>) -> (f32, f32) {
+            (text.len() as f32 * font_size, font_size * 1.2)
+        }
+
+        fn get_line_metrics(
+            &self,
+            text: &str,
+            font_size: f32,
+            _available_width: Option<f32>,
+        ) -> Vec<LineMetric> {
+            vec![LineMetric {
+                start_index: 0,
+                end_index: text.len(),
+                baseline: font_size,
+                height: font_size * 1.2,
+                width: text.len() as f32 * font_size,
+            }]
+        }
+    }
+
     #[test]
     fn normalized_gradient_point_maps_to_painted_bounds() {
         let point = normalized_fill_point(
@@ -648,6 +732,179 @@ mod image_tests {
             (0.25, 0.75),
         );
         assert_eq!(point, Point::from_xy(70.0, 115.0));
+    }
+
+    #[test]
+    fn software_text_does_not_rewrap_pipeline_single_line_layouts() {
+        let bounds = fission_render::LayoutRect::new(0.0, 0.0, 24.0, 24.0);
+        let mut display_list =
+            DisplayList::new(fission_render::LayoutRect::new(0.0, 0.0, 260.0, 80.0));
+        display_list.push(DisplayOp::DrawText {
+            text: "Secure local storage required".into(),
+            position: bounds.origin,
+            size: 20.0,
+            color: RenderColor {
+                r: 20,
+                g: 40,
+                b: 60,
+                a: 255,
+            },
+            bounds,
+            node_id: None,
+            underline: false,
+            wrap: true,
+            caret_index: None,
+            caret_color: None,
+            caret_width: None,
+            caret_height: None,
+            caret_radius: None,
+            paragraph_style: None,
+        });
+
+        let pixels = SoftwareRenderer::render_with_text_measurer(
+            &RenderScene::from_display_list(display_list),
+            260,
+            80,
+            RenderColor {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 0,
+            },
+            1.0,
+            Arc::new(SingleLineMeasurer),
+        )
+        .expect("render pipeline-shaped single line");
+        let row_has_ink = |y: usize| {
+            pixels[y * 260 * 4..(y + 1) * 260 * 4]
+                .chunks_exact(4)
+                .any(|pixel| pixel[3] > 0)
+        };
+
+        assert!(
+            (0..24).any(|y| row_has_ink(y)),
+            "the first line should be painted"
+        );
+        assert!(
+            !(30..80).any(|y| row_has_ink(y)),
+            "fontdue must not add lines below the pipeline's one-line bounds"
+        );
+    }
+
+    #[test]
+    fn software_rich_text_does_not_rewrap_pipeline_single_line_layouts() {
+        let bounds = fission_render::LayoutRect::new(0.0, 0.0, 24.0, 20.0);
+        let mut display_list =
+            DisplayList::new(fission_render::LayoutRect::new(0.0, 0.0, 220.0, 70.0));
+        display_list.push(DisplayOp::DrawRichText {
+            runs: vec![TextRun {
+                text: "Enable secure storage".into(),
+                style: fission_render::TextStyle {
+                    font_size: 14.0,
+                    color: RenderColor {
+                        r: 20,
+                        g: 40,
+                        b: 60,
+                        a: 255,
+                    },
+                    underline: false,
+                    font_family: None,
+                    locale: None,
+                    font_weight: 600,
+                    font_style: fission_ir::op::FontStyle::Normal,
+                    line_height: None,
+                    letter_spacing: 0.0,
+                    background_color: None,
+                },
+            }],
+            position: bounds.origin,
+            bounds,
+            node_id: None,
+            wrap: true,
+            caret_index: None,
+            caret_color: None,
+            caret_width: None,
+            caret_height: None,
+            caret_radius: None,
+            paragraph_style: None,
+            annotations: Vec::new(),
+        });
+
+        let pixels = SoftwareRenderer::render_with_text_measurer(
+            &RenderScene::from_display_list(display_list),
+            220,
+            70,
+            RenderColor {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 0,
+            },
+            1.0,
+            Arc::new(SingleLineMeasurer),
+        )
+        .expect("render pipeline-shaped rich-text line");
+        let row_has_ink = |y: usize| {
+            pixels[y * 220 * 4..(y + 1) * 220 * 4]
+                .chunks_exact(4)
+                .any(|pixel| pixel[3] > 0)
+        };
+
+        assert!((0..20).any(|y| row_has_ink(y)));
+        assert!(
+            !(26..70).any(|y| row_has_ink(y)),
+            "fontdue must not rewrap a pipeline-shaped rich-text label"
+        );
+    }
+
+    #[test]
+    fn scaled_svg_keeps_its_display_list_origin() {
+        let bounds = fission_render::LayoutRect::new(10.0, 12.0, 20.0, 20.0);
+        let mut display_list =
+            DisplayList::new(fission_render::LayoutRect::new(0.0, 0.0, 64.0, 64.0));
+        display_list.push(DisplayOp::Save);
+        display_list.push(DisplayOp::Translate(fission_render::LayoutPoint::new(
+            5.0, 7.0,
+        )));
+        display_list.push(DisplayOp::DrawSvg {
+            content: r#"<svg viewBox="0 0 10 10"><rect x="0" y="0" width="10" height="10"/></svg>"#
+                .into(),
+            fill: Some(Fill::Solid(RenderColor {
+                r: 255,
+                g: 0,
+                b: 0,
+                a: 255,
+            })),
+            stroke: None,
+            bounds,
+            node_id: None,
+        });
+        display_list.push(DisplayOp::Restore);
+
+        let pixels = SoftwareRenderer::render(
+            &RenderScene::from_display_list(display_list),
+            64,
+            64,
+            RenderColor {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 0,
+            },
+            1.0,
+        )
+        .expect("render translated and scaled SVG");
+        let pixel_at = |x: usize, y: usize| {
+            let offset = (y * 64 + x) * 4;
+            &pixels[offset..offset + 4]
+        };
+
+        assert_eq!(pixel_at(16, 20), &[255, 0, 0, 255]);
+        assert_eq!(
+            pixel_at(40, 45),
+            &[0, 0, 0, 0],
+            "the SVG origin must not be scaled a second time"
+        );
     }
 
     fn tiny_png() -> Vec<u8> {
@@ -1050,6 +1307,7 @@ pub struct SoftwareRenderer {
     width: u32,
     height: u32,
     scale_factor: f32,
+    text_measurer: Option<Arc<dyn TextMeasurer>>,
     surfaces: Vec<Pixmap>,
     states: Vec<DrawState>,
 }
@@ -1060,6 +1318,7 @@ impl SoftwareRenderer {
         height: u32,
         background: RenderColor,
         scale_factor: f32,
+        text_measurer: Option<Arc<dyn TextMeasurer>>,
     ) -> Result<Self> {
         let mut root = Pixmap::new(width.max(1), height.max(1))
             .ok_or_else(|| anyhow!("failed to allocate software render target"))?;
@@ -1068,6 +1327,7 @@ impl SoftwareRenderer {
             width: width.max(1),
             height: height.max(1),
             scale_factor: normalized_scale_factor(scale_factor),
+            text_measurer,
             surfaces: vec![root],
             states: vec![DrawState {
                 transform: Transform::identity(),
@@ -1085,8 +1345,49 @@ impl SoftwareRenderer {
         background: RenderColor,
         scale_factor: f32,
     ) -> Result<Vec<u8>> {
-        let mut renderer =
-            Self::new_with_scale(width.max(1), height.max(1), background, scale_factor)?;
+        Self::render_with_optional_text_measurer(
+            scene,
+            width,
+            height,
+            background,
+            scale_factor,
+            None,
+        )
+    }
+
+    pub fn render_with_text_measurer(
+        scene: &RenderScene,
+        width: u32,
+        height: u32,
+        background: RenderColor,
+        scale_factor: f32,
+        text_measurer: Arc<dyn TextMeasurer>,
+    ) -> Result<Vec<u8>> {
+        Self::render_with_optional_text_measurer(
+            scene,
+            width,
+            height,
+            background,
+            scale_factor,
+            Some(text_measurer),
+        )
+    }
+
+    fn render_with_optional_text_measurer(
+        scene: &RenderScene,
+        width: u32,
+        height: u32,
+        background: RenderColor,
+        scale_factor: f32,
+        text_measurer: Option<Arc<dyn TextMeasurer>>,
+    ) -> Result<Vec<u8>> {
+        let mut renderer = Self::new_with_scale(
+            width.max(1),
+            height.max(1),
+            background,
+            scale_factor,
+            text_measurer,
+        )?;
         let display_list = scene.flatten();
         renderer.render_ops(&display_list)?;
         Ok(renderer.finish())
@@ -1235,14 +1536,14 @@ impl SoftwareRenderer {
                 } => self.draw_backdrop_filter(*rect, *filter, *corner_radius)?,
                 DisplayOp::Translate(point) => {
                     let state = self.current_state_mut();
-                    state.transform = state.transform.post_translate(point.x, point.y);
+                    state.transform = state.transform.pre_translate(point.x, point.y);
                 }
                 DisplayOp::Transform(matrix) => {
                     let transform = Transform::from_row(
                         matrix[0], matrix[1], matrix[4], matrix[5], matrix[12], matrix[13],
                     );
                     let state = self.current_state_mut();
-                    state.transform = state.transform.post_concat(transform);
+                    state.transform = state.transform.pre_concat(transform);
                 }
                 DisplayOp::CachedScene { list, .. } => self.render_ops(list)?,
                 DisplayOp::DrawRect {
@@ -1442,14 +1743,29 @@ impl SoftwareRenderer {
     ) -> Result<()> {
         let font = default_font();
         let fonts = [font];
+        let pipeline_breaks = pipeline_wrap_breaks(
+            self.text_measurer.as_deref(),
+            text,
+            size,
+            bounds.width(),
+            wrap,
+        );
+        let layout_text = pipeline_breaks
+            .as_deref()
+            .map(|breaks| insert_soft_wraps(text, breaks))
+            .unwrap_or(Cow::Borrowed(text));
         let mut layout = Layout::new(CoordinateSystem::PositiveYDown);
         layout.reset(&LayoutSettings {
             x: position.x,
             y: position.y,
-            max_width: wrap_max_width(bounds.width(), size, wrap),
+            max_width: if pipeline_breaks.is_some() {
+                None
+            } else {
+                wrap_max_width(bounds.width(), size, wrap)
+            },
             ..LayoutSettings::default()
         });
-        layout.append(&fonts, &FontdueTextStyle::new(text, size, 0));
+        layout.append(&fonts, &FontdueTextStyle::new(&layout_text, size, 0));
         self.draw_glyphs(&layout, |_, _| color)?;
         if underline {
             self.draw_layout_underlines(&layout, color, size)?;
@@ -1481,22 +1797,51 @@ impl SoftwareRenderer {
                 None => default_font(),
             })
             .collect::<Vec<_>>();
+        let full_text = runs.iter().map(|run| run.text.as_str()).collect::<String>();
+        let base_size = runs.first().map(|run| run.style.font_size).unwrap_or(14.0);
+        let pipeline_breaks = pipeline_wrap_breaks(
+            self.text_measurer.as_deref(),
+            &full_text,
+            base_size,
+            bounds.width(),
+            wrap,
+        );
+        let mut break_cursor = 0;
+        let mut text_cursor = 0;
         let mut layout = Layout::new(CoordinateSystem::PositiveYDown);
         layout.reset(&LayoutSettings {
             x: position.x,
             y: position.y,
-            max_width: wrap_max_width(
-                bounds.width(),
-                runs.first().map(|run| run.style.font_size).unwrap_or(14.0),
-                wrap,
-            ),
+            max_width: if pipeline_breaks.is_some() {
+                None
+            } else {
+                wrap_max_width(bounds.width(), base_size, wrap)
+            },
             ..LayoutSettings::default()
         });
         for (font_index, run) in runs.iter().enumerate() {
+            let run_start = text_cursor;
+            let run_end = run_start + run.text.len();
+            let rendered_text = if let Some(breaks) = pipeline_breaks.as_deref() {
+                while break_cursor < breaks.len() && breaks[break_cursor] < run_start {
+                    break_cursor += 1;
+                }
+                let first_break = break_cursor;
+                while break_cursor < breaks.len() && breaks[break_cursor] <= run_end {
+                    break_cursor += 1;
+                }
+                let local_breaks = breaks[first_break..break_cursor]
+                    .iter()
+                    .map(|break_at| break_at - run_start)
+                    .collect::<Vec<_>>();
+                insert_soft_wraps(&run.text, &local_breaks)
+            } else {
+                Cow::Borrowed(run.text.as_str())
+            };
             layout.append(
                 &fonts,
                 &fontdue::layout::TextStyle::with_user_data(
-                    &run.text,
+                    &rendered_text,
                     run.style.font_size,
                     font_index,
                     (
@@ -1506,6 +1851,7 @@ impl SoftwareRenderer {
                     ),
                 ),
             );
+            text_cursor = run_end;
         }
         self.draw_glyphs(&layout, |glyph, (color, _underline, bg)| {
             if bg.is_some() {
@@ -1677,8 +2023,8 @@ impl SoftwareRenderer {
         let transform = self.device_transform(
             self.current_state()
                 .transform
-                .post_translate(dx, dy)
-                .post_scale(scale_x, scale_y),
+                .pre_translate(dx, dy)
+                .pre_scale(scale_x, scale_y),
         );
         self.with_temporary_clip_rect(rect, |this| {
             let clip = this.current_clip().cloned();
@@ -1715,7 +2061,7 @@ impl SoftwareRenderer {
         let transform = self.device_transform(
             self.current_state()
                 .transform
-                .post_translate(bounds.origin.x, bounds.origin.y),
+                .pre_translate(bounds.origin.x, bounds.origin.y),
         );
         let clip = self.current_clip().cloned();
         let surface = self.current_surface_mut();
@@ -1768,8 +2114,8 @@ impl SoftwareRenderer {
         let transform = self.device_transform(
             self.current_state()
                 .transform
-                .post_translate(dx, dy)
-                .post_scale(scale, scale),
+                .pre_translate(dx, dy)
+                .pre_scale(scale, scale),
         );
         let clip = self.current_clip().cloned();
         let surface = self.current_surface_mut();
