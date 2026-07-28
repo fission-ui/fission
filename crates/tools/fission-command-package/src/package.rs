@@ -110,7 +110,8 @@ impl DockerPackageConfig {
 #[path = "package_validation.rs"]
 mod package_validation;
 use package_validation::{
-    manifest_validation_state, package_artifact_checks, prepare_package_validation_inputs,
+    ensure_macos_app_store_private_api_safe, manifest_validation_state, package_artifact_checks,
+    prepare_package_validation_inputs,
 };
 
 pub(super) fn package_artifact(options: &PackageOptions) -> Result<ArtifactManifest> {
@@ -377,6 +378,7 @@ fn package_macos_app(options: &PackageOptions) -> Result<ArtifactManifest> {
         MacosNativeBundleMode::Package,
         options.release,
     )?;
+    ensure_macos_app_store_private_api_safe(options, &app_bundle)?;
     sign_macos_app_if_configured(&options.project_dir, &app_bundle, &macos)?;
     notarize_macos_artifact_if_configured(&app_bundle, &macos)?;
     println!("{}", app_bundle.display());
@@ -405,6 +407,7 @@ fn package_macos_pkg(options: &PackageOptions) -> Result<ArtifactManifest> {
         MacosNativeBundleMode::Package,
         options.release,
     )?;
+    ensure_macos_app_store_private_api_safe(options, &app_bundle)?;
     sign_macos_app_if_configured(&options.project_dir, &app_bundle, &macos)?;
     notarize_macos_artifact_if_configured(&app_bundle, &macos)?;
     let version = resolved_package_version(&options.project_dir, options.target)?;

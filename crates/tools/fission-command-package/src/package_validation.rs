@@ -1,5 +1,24 @@
 use super::*;
 use serde::{Deserialize, Serialize};
+use std::io::{ErrorKind, Read};
+
+const MACH_O_MAGICS: [[u8; 4]; 8] = [
+    [0xfe, 0xed, 0xfa, 0xce],
+    [0xce, 0xfa, 0xed, 0xfe],
+    [0xfe, 0xed, 0xfa, 0xcf],
+    [0xcf, 0xfa, 0xed, 0xfe],
+    [0xca, 0xfe, 0xba, 0xbe],
+    [0xbe, 0xba, 0xfe, 0xca],
+    [0xca, 0xfe, 0xba, 0xbf],
+    [0xbf, 0xba, 0xfe, 0xca],
+];
+const APP_STORE_FORBIDDEN_PRIVATE_APIS: [(&str, &[u8]); 2] = [
+    ("_CGSMainConnectionID", b"_CGSMainConnectionID"),
+    (
+        "_CGSSetWindowBackgroundBlurRadius",
+        b"_CGSSetWindowBackgroundBlurRadius",
+    ),
+];
 
 #[derive(Debug, Deserialize)]
 struct InstallSmokeReceipt {
@@ -13,6 +32,95 @@ struct InstallSmokeCheckOutcome {
     id: String,
     status: String,
     details: Option<String>,
+}
+
+pub(super) fn ensure_macos_app_store_private_api_safe(
+    options: &PackageOptions,
+    app_bundle: &Path,
+) -> Result<()> {
+    if options.target != Target::Macos
+        || options.variant.as_ref().map(NativeVariant::as_str) != Some("app-store")
+    {
+        return Ok(());
+    }
+
+    let mut mach_o_count = 0;
+    let mut violations = Vec::new();
+    inspect_mach_o_private_apis(app_bundle, &mut mach_o_count, &mut violations)?;
+    if !violations.is_empty() {
+        bail!(
+            "macOS App Store preflight rejected private Apple API references in {}: {}. Remove the references (including any dependency feature that enables private Apple APIs) before signing or upload.",
+            app_bundle.display(),
+            violations.join(", ")
+        );
+    }
+    if mach_o_count == 0 {
+        bail!(
+            "macOS App Store preflight found no Mach-O files in {}; the app bundle is incomplete",
+            app_bundle.display()
+        );
+    }
+    Ok(())
+}
+
+fn inspect_mach_o_private_apis(
+    path: &Path,
+    mach_o_count: &mut usize,
+    violations: &mut Vec<String>,
+) -> Result<()> {
+    for entry in fs::read_dir(path)
+        .with_context(|| format!("failed to inspect macOS app bundle {}", path.display()))?
+    {
+        let entry =
+            entry.with_context(|| format!("failed to inspect entry under {}", path.display()))?;
+        let file_type = entry.file_type().with_context(|| {
+            format!(
+                "failed to inspect macOS app bundle entry {}",
+                entry.path().display()
+            )
+        })?;
+        if file_type.is_dir() {
+            inspect_mach_o_private_apis(&entry.path(), mach_o_count, violations)?;
+        } else if file_type.is_file() {
+            inspect_mach_o_file(&entry.path(), mach_o_count, violations)?;
+        }
+    }
+    Ok(())
+}
+
+fn inspect_mach_o_file(
+    path: &Path,
+    mach_o_count: &mut usize,
+    violations: &mut Vec<String>,
+) -> Result<()> {
+    let mut file = fs::File::open(path)
+        .with_context(|| format!("failed to inspect packaged file {}", path.display()))?;
+    let mut magic = [0_u8; 4];
+    match file.read_exact(&mut magic) {
+        Ok(()) => {}
+        Err(error) if error.kind() == ErrorKind::UnexpectedEof => return Ok(()),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("failed to read packaged file {}", path.display()))
+        }
+    }
+    if !MACH_O_MAGICS.contains(&magic) {
+        return Ok(());
+    }
+
+    *mach_o_count += 1;
+    let mut contents = magic.to_vec();
+    file.read_to_end(&mut contents)
+        .with_context(|| format!("failed to read Mach-O file {}", path.display()))?;
+    for (name, symbol) in APP_STORE_FORBIDDEN_PRIVATE_APIS {
+        if contents
+            .windows(symbol.len())
+            .any(|candidate| candidate == symbol)
+        {
+            violations.push(format!("{} ({name})", path.display()));
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn prepare_package_validation_inputs(
