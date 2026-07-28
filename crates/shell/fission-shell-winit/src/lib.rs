@@ -734,8 +734,15 @@ fn create_native_main_renderer(
     height: u32,
     scale_factor: f64,
 ) -> anyhow::Result<(MainRenderer, RendererReport)> {
-    let (backend, adapter) = adapter_labels(device_handle.adapter());
-    if matches!(request, RendererRequest::NativeSoftware) {
+    let adapter_info = device_handle.adapter().get_info();
+    let (backend, adapter) = adapter_labels_from_info(&adapter_info);
+    let auto_software_adapter = should_auto_select_native_software(
+        request,
+        cfg!(target_os = "windows"),
+        adapter_info.device_type,
+        &adapter_info.name,
+    );
+    if matches!(request, RendererRequest::NativeSoftware) || auto_software_adapter {
         return Ok((
             MainRenderer::Software,
             RendererReport::new(
@@ -743,7 +750,14 @@ fn create_native_main_renderer(
                 request,
                 backend,
                 adapter,
-                Some("forced_by_renderer_request".to_string()),
+                Some(
+                    if auto_software_adapter {
+                        "windows_software_adapter"
+                    } else {
+                        "forced_by_renderer_request"
+                    }
+                    .to_string(),
+                ),
                 width,
                 height,
                 scale_factor,
@@ -845,10 +859,31 @@ fn create_vello_main_renderer(
     })
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn should_auto_select_native_software(
+    request: RendererRequest,
+    windows: bool,
+    device_type: wgpu::DeviceType,
+    adapter_name: &str,
+) -> bool {
+    if request != RendererRequest::Auto || !windows {
+        return false;
+    }
+    let adapter_name = adapter_name.trim().to_ascii_lowercase();
+    device_type == wgpu::DeviceType::Cpu
+        || adapter_name.contains("warp")
+        || adapter_name.contains("microsoft basic render driver")
+}
+
+#[cfg(target_arch = "wasm32")]
 fn adapter_labels(adapter: &wgpu::Adapter) -> (Option<String>, Option<String>) {
     let info = adapter.get_info();
+    adapter_labels_from_info(&info)
+}
+
+fn adapter_labels_from_info(info: &wgpu::AdapterInfo) -> (Option<String>, Option<String>) {
     let backend = Some(format!("{:?}", info.backend));
-    let adapter = (!info.name.trim().is_empty()).then_some(info.name);
+    let adapter = (!info.name.trim().is_empty()).then_some(info.name.clone());
     (backend, adapter)
 }
 
@@ -7198,19 +7233,23 @@ where
                                                     .expect(
                                                     "retained render scene missing before render",
                                                 );
-                                                let rgba = SoftwareRenderer::render(
-                                                    retained_scene,
-                                                    render_target_size.0,
-                                                    render_target_size.1,
-                                                    fission_render::Color {
-                                                        r: env.theme.tokens.colors.background.r,
-                                                        g: env.theme.tokens.colors.background.g,
-                                                        b: env.theme.tokens.colors.background.b,
-                                                        a: env.theme.tokens.colors.background.a,
-                                                    },
-                                                    scale_factor as f32,
-                                                )
-                                                .expect("failed to rasterize software web frame");
+                                                let rgba =
+                                                    SoftwareRenderer::render_with_text_measurer(
+                                                        retained_scene,
+                                                        render_target_size.0,
+                                                        render_target_size.1,
+                                                        fission_render::Color {
+                                                            r: env.theme.tokens.colors.background.r,
+                                                            g: env.theme.tokens.colors.background.g,
+                                                            b: env.theme.tokens.colors.background.b,
+                                                            a: env.theme.tokens.colors.background.a,
+                                                        },
+                                                        scale_factor as f32,
+                                                        measurer.clone(),
+                                                    )
+                                                    .expect(
+                                                        "failed to rasterize software web frame",
+                                                    );
 
                                                 if let Err(err) = presenter.present(
                                                     &rgba,
@@ -7718,19 +7757,21 @@ where
                                                     .expect(
                                                     "retained render scene missing before render",
                                                 );
-                                                let rgba = SoftwareRenderer::render(
-                                                    retained_scene,
-                                                    render_target_size.0,
-                                                    render_target_size.1,
-                                                    fission_render::Color {
-                                                        r: env.theme.tokens.colors.background.r,
-                                                        g: env.theme.tokens.colors.background.g,
-                                                        b: env.theme.tokens.colors.background.b,
-                                                        a: env.theme.tokens.colors.background.a,
-                                                    },
-                                                    scale_factor as f32,
-                                                )
-                                                .expect("failed to rasterize software frame");
+                                                let rgba =
+                                                    SoftwareRenderer::render_with_text_measurer(
+                                                        retained_scene,
+                                                        render_target_size.0,
+                                                        render_target_size.1,
+                                                        fission_render::Color {
+                                                            r: env.theme.tokens.colors.background.r,
+                                                            g: env.theme.tokens.colors.background.g,
+                                                            b: env.theme.tokens.colors.background.b,
+                                                            a: env.theme.tokens.colors.background.a,
+                                                        },
+                                                        scale_factor as f32,
+                                                        measurer.clone(),
+                                                    )
+                                                    .expect("failed to rasterize software frame");
                                                 device_handle.queue.write_texture(
                                                     wgpu::TexelCopyTextureInfo {
                                                         texture: &render_state
@@ -8832,12 +8873,13 @@ mod tests {
         normalize_scale_factor, normalize_winit_scroll_delta, physical_position_to_layout_point,
         physical_size_to_layout_size, preferred_surface_alpha_mode,
         rect_visible_in_scroll_ancestors, repeating_animation_redraw_interval, resize_is_unsettled,
-        resolve_build_viewport, resolve_selector_record, surface_acquire_recovery,
-        sync_tracked_target_texture_size_to_surface, texture_plans_fit_device_limits,
-        visual_rect_for_node, window_insets_from_safe_area_frames, LiveResizeController,
-        SurfaceAcquireRecovery, WindowViewportState,
+        resolve_build_viewport, resolve_selector_record, should_auto_select_native_software,
+        surface_acquire_recovery, sync_tracked_target_texture_size_to_surface,
+        texture_plans_fit_device_limits, visual_rect_for_node, window_insets_from_safe_area_frames,
+        LiveResizeController, SurfaceAcquireRecovery, WindowViewportState,
     };
     use crate::pipeline::CompositorTexturePlan;
+    use crate::renderer_diagnostics::RendererRequest;
     use crate::InvalidationSet;
     use fission_core::{ActiveMotion, MotionEasing, MotionStateMap, MotionValue, ScrollStateMap};
     use fission_core::{DeepLinkConfig, MotionPropertyId, WidgetId};
@@ -8873,6 +8915,66 @@ mod tests {
             PostMultiplied
         );
         assert_eq!(preferred_surface_alpha_mode(&[]), Opaque);
+    }
+
+    #[test]
+    fn windows_auto_uses_software_for_cpu_and_warp_adapters() {
+        use super::wgpu::DeviceType::{Cpu, IntegratedGpu};
+
+        assert!(should_auto_select_native_software(
+            RendererRequest::Auto,
+            true,
+            Cpu,
+            "Microsoft Basic Render Driver"
+        ));
+        assert!(should_auto_select_native_software(
+            RendererRequest::Auto,
+            true,
+            IntegratedGpu,
+            "Microsoft Direct3D12 (WARP)"
+        ));
+        assert!(should_auto_select_native_software(
+            RendererRequest::Auto,
+            true,
+            IntegratedGpu,
+            "Microsoft Basic Render Driver"
+        ));
+    }
+
+    #[test]
+    fn native_software_auto_selection_preserves_platform_hardware_and_explicit_choices() {
+        use super::wgpu::DeviceType::{Cpu, IntegratedGpu};
+
+        assert!(!should_auto_select_native_software(
+            RendererRequest::Auto,
+            false,
+            Cpu,
+            "Microsoft Basic Render Driver"
+        ));
+        assert!(!should_auto_select_native_software(
+            RendererRequest::Auto,
+            true,
+            IntegratedGpu,
+            "Qualcomm Adreno X1"
+        ));
+        assert!(!should_auto_select_native_software(
+            RendererRequest::NativeVelloGpu,
+            true,
+            Cpu,
+            "Microsoft Basic Render Driver"
+        ));
+        assert!(!should_auto_select_native_software(
+            RendererRequest::NativeVelloCpu,
+            true,
+            Cpu,
+            "Microsoft Basic Render Driver"
+        ));
+        assert!(!should_auto_select_native_software(
+            RendererRequest::NativeSoftware,
+            true,
+            Cpu,
+            "Microsoft Basic Render Driver"
+        ));
     }
 
     #[test]
