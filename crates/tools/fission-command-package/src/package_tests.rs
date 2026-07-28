@@ -1,5 +1,6 @@
 use super::package_validation::{
-    package_artifact_checks, package_install_smoke_check, prepare_package_validation_inputs,
+    ensure_macos_app_store_private_api_safe, package_artifact_checks, package_install_smoke_check,
+    prepare_package_validation_inputs,
 };
 use super::*;
 use fission_command_core::AppConfig;
@@ -40,6 +41,70 @@ fn macos_info_plist_includes_capability_usage_descriptions() {
     assert!(plist.contains("NSMicrophoneUsageDescription"));
     assert!(plist.contains("<key>CFBundleShortVersionString</key>\n  <string>1.2.3</string>"));
     assert!(plist.contains("<key>CFBundleVersion</key>\n  <string>42</string>"));
+}
+
+#[test]
+fn macos_app_store_preflight_checks_every_mach_o_for_private_apple_apis() {
+    let root = std::env::temp_dir().join(format!(
+        "fission-macos-private-api-preflight-{}",
+        std::process::id()
+    ));
+    let app = root.join("Demo.app");
+    let executable = app.join("Contents/MacOS/Demo");
+    let framework = app.join("Contents/Frameworks/Private.framework/Private");
+    let resources = app.join("Contents/Resources");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(executable.parent().unwrap()).unwrap();
+    fs::create_dir_all(framework.parent().unwrap()).unwrap();
+    fs::create_dir_all(&resources).unwrap();
+
+    let mut main_binary = vec![0xcf, 0xfa, 0xed, 0xfe];
+    main_binary.extend_from_slice(b"binary data _CGSMainConnectionID");
+    fs::write(&executable, main_binary).unwrap();
+    let mut framework_binary = vec![0xca, 0xfe, 0xba, 0xbe];
+    framework_binary.extend_from_slice(b"binary data _CGSSetWindowBackgroundBlurRadius");
+    fs::write(&framework, framework_binary).unwrap();
+    fs::write(
+        resources.join("readme.txt"),
+        b"_CGSMainConnectionID is harmless in a non-Mach-O resource",
+    )
+    .unwrap();
+
+    let default_options = PackageOptions {
+        project_dir: root.clone(),
+        target: Target::Macos,
+        format: PackageFormat::App,
+        release: true,
+        variant: None,
+        json: false,
+    };
+    ensure_macos_app_store_private_api_safe(&default_options, &app).unwrap();
+
+    let app_store_options = PackageOptions {
+        variant: Some("app-store".parse().unwrap()),
+        ..default_options
+    };
+    let error = ensure_macos_app_store_private_api_safe(&app_store_options, &app)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("_CGSMainConnectionID"));
+    assert!(error.contains(executable.to_string_lossy().as_ref()));
+    assert!(error.contains("_CGSSetWindowBackgroundBlurRadius"));
+    assert!(error.contains(framework.to_string_lossy().as_ref()));
+
+    fs::write(
+        &executable,
+        [vec![0xcf, 0xfa, 0xed, 0xfe], b"clean".to_vec()].concat(),
+    )
+    .unwrap();
+    fs::write(
+        &framework,
+        [vec![0xca, 0xfe, 0xba, 0xbe], b"clean".to_vec()].concat(),
+    )
+    .unwrap();
+    ensure_macos_app_store_private_api_safe(&app_store_options, &app).unwrap();
+
+    let _ = fs::remove_dir_all(root);
 }
 
 #[test]
