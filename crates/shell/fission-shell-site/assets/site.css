@@ -12,8 +12,30 @@ a:hover { text-decoration: underline; }
 img, svg { max-width: 100%; }
 .fission-site-root { min-height: 100vh; }
 .fission-site-node { min-width: 0; }
+/* Browsers ignore `justify-content: stretch` on a row flexbox. Native Fission
+   stretches a Container child only while its width and max-width are automatic,
+   so the renderer emits this class solely for that same lowering shape. */
+.fission-site-box-stretch-auto-width > .fission-site-node {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+}
+figure.fission-site-semantics {
+  margin: 0;
+}
+h1.fission-site-semantics,
+h2.fission-site-semantics,
+h3.fission-site-semantics,
+h4.fission-site-semantics,
+h5.fission-site-semantics,
+h6.fission-site-semantics {
+  margin: 0;
+  font: inherit;
+  color: inherit;
+}
 .fission-site-route-link,
-.fission-site-heading-link {
+.fission-site-heading-link,
+.fission-site-general-link {
   display: inline-flex;
   max-width: 100%;
   color: inherit;
@@ -23,11 +45,13 @@ img, svg { max-width: 100%; }
   cursor: pointer;
 }
 .fission-site-route-link:hover,
-.fission-site-heading-link:hover {
+.fission-site-heading-link:hover,
+.fission-site-general-link:hover {
   text-decoration: none;
 }
 .fission-site-route-link > .fission-site-node,
-.fission-site-heading-link > .fission-site-node {
+.fission-site-heading-link > .fission-site-node,
+.fission-site-general-link > .fission-site-node {
   flex: 1 1 auto;
 }
 .fission-site-positioned > .fission-site-node,

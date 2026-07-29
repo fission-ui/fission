@@ -26,6 +26,25 @@ fission site build --project-dir documentation --release
 
 This is a shell, not a separate website framework. Custom pages are written as normal Fission widgets. Content pages are rendered through Fission templates. The static shell visits the resulting Fission node tree and emits semantic HTML instead of opening an OS window or canvas.
 
+Site-specific semantic regions can select native HTML landmarks and anchors
+without changing how the same widget tree renders in native shells:
+
+| Semantics identifier | Site-shell output |
+| --- | --- |
+| `site-header` | `<header>` |
+| `site-main` | `<main>` |
+| `site-navigation` | `<nav>` |
+| `site-footer` | `<footer>` |
+| `site-aside` | `<aside>` |
+| `site-link:#details` | An ordinary `<a href="#details">` |
+| `site-section:features` | `<section id="features">` |
+| `site-anchor:details` | `<div id="details">` |
+| `site-heading-1:top` through `site-heading-6:*` | The matching heading with an `id` |
+
+Use these identifiers on `SemanticsRegion` widgets only when the region has
+the corresponding document meaning. Other shells continue to consume the
+ordinary Fission semantics and layout nodes.
+
 ## Documentation
 
 See the static site guide at [fission.rs](https://fission.rs/docs/guides/static-sites/). The source for the live documentation site is in the repository `documentation` project.
