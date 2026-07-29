@@ -906,6 +906,52 @@ impl HtmlRenderer<'_> {
         ))
     }
 
+    fn stretches_auto_width_content_child(&self, node: &CoreNode) -> bool {
+        if self.parent_uses_intrinsic_inline_sizing(node) {
+            return false;
+        }
+
+        let mut content_children = node
+            .children
+            .iter()
+            .filter_map(|child_id| self.ir.nodes.get(child_id))
+            .filter(|child| !is_coalesced_paint_child(child));
+        let Some(child) = content_children.next() else {
+            return false;
+        };
+
+        content_children.next().is_none() && !site_node_has_explicit_width(child)
+    }
+
+    fn parent_uses_intrinsic_inline_sizing(&self, node: &CoreNode) -> bool {
+        let Some(parent) = node
+            .parent
+            .and_then(|parent_id| self.ir.nodes.get(&parent_id))
+        else {
+            return false;
+        };
+        let Op::Semantics(semantics) = &parent.op else {
+            return false;
+        };
+
+        matches!(semantics.role, Role::Button | Role::Link | Role::MenuItem)
+            || semantics
+                .actions
+                .entries
+                .iter()
+                .any(|entry| entry.trigger == ActionTrigger::Default)
+            || semantics.identifier.as_deref().is_some_and(|identifier| {
+                identifier.starts_with("site-link:")
+                    || identifier.starts_with("site-route:")
+                    || identifier.starts_with("site-heading:")
+                    || identifier.starts_with("markdown-link:")
+                    || matches!(
+                        identifier,
+                        "site-theme-toggle" | "site-search-trigger" | "site-sidebar-toggle"
+                    )
+            })
+    }
+
     fn class_name(&mut self, base: &str, style: Vec<String>) -> String {
         if let Some(generated) = self.styles.class_for(style) {
             format!("{base} {generated}")
@@ -1338,7 +1384,15 @@ impl HtmlRenderer<'_> {
                     push_grid_placement(&mut style, "grid-column-end", grid.col_end);
                 }
                 push_flex_item(&mut style, *flex_grow, *flex_shrink);
-                self.render_element("div", node, "fission-site-node fission-site-box", style)
+                let stretches_auto_width_child = box_style.alignment
+                    == fission_ir::op::BoxAlignment::Stretch
+                    && self.stretches_auto_width_content_child(node);
+                let class_name = if stretches_auto_width_child {
+                    "fission-site-node fission-site-box fission-site-box-stretch-auto-width"
+                } else {
+                    "fission-site-node fission-site-box"
+                };
+                self.render_element("div", node, class_name, style)
             }
             LayoutOp::Flex {
                 direction,
@@ -1470,7 +1524,7 @@ impl HtmlRenderer<'_> {
                     }
                 };
                 Ok(format!(
-                    "<div class=\"fission-site-node {root_class}\"{container_style} data-fission-node=\"{}\">{children}</div>",
+                    "<div class=\"fission-site-node fission-site-responsive {root_class}\"{container_style} data-fission-node=\"{}\">{children}</div>",
                     node.id
                 ))
             }
@@ -1882,6 +1936,14 @@ impl HtmlRenderer<'_> {
                     target,
                     semantics.label.as_deref(),
                     "fission-site-route-link",
+                );
+            }
+            if let Some(target) = identifier.strip_prefix("site-link:") {
+                return self.render_semantic_link(
+                    node,
+                    target,
+                    semantics.label.as_deref(),
+                    "fission-site-general-link",
                 );
             }
             if let Some(anchor) = identifier.strip_prefix("site-heading:") {
@@ -2344,11 +2406,15 @@ impl HtmlRenderer<'_> {
         if let Some(label) = label {
             attrs.push_str(&format!(" aria-label=\"{}\"", escape_attr(label)));
         }
+        let (tag, anchor) = site_semantic_element(identifier);
+        if let Some(anchor) = anchor {
+            attrs.push_str(&format!(" id=\"{}\"", escape_attr(anchor)));
+        }
         attrs.push_str(&site_semantic_data_attrs(identifier));
         let children = self.render_children(&node.children, &HashSet::new())?;
         Ok(format!(
-            "<div class=\"fission-site-node fission-site-semantics {class_name}\"{attrs} data-fission-node=\"{}\">{children}</div>",
-            node.id
+            "<{tag} class=\"fission-site-node fission-site-semantics {class_name}\"{attrs} data-fission-node=\"{}\">{children}</{tag}>",
+            node.id,
         ))
     }
 
@@ -2445,24 +2511,28 @@ impl HtmlRenderer<'_> {
             let Some(child) = self.ir.nodes.get(child_id) else {
                 continue;
             };
-            if let Op::Paint(PaintOp::DrawRect {
+            if !is_coalesced_paint_child(child) {
+                continue;
+            }
+            let Op::Paint(PaintOp::DrawRect {
                 fill,
                 stroke,
                 corner_radius,
                 shadow,
             }) = &child.op
-            {
-                if let Some(shadow) = shadow {
-                    shadows.push(self.box_shadow_css(shadow));
-                }
-                style.extend(self.draw_rect_style(
-                    fill.as_ref(),
-                    stroke.as_ref(),
-                    *corner_radius,
-                    None,
-                ));
-                skip.insert(*child_id);
+            else {
+                unreachable!("coalesced site paint children are rectangles");
+            };
+            if let Some(shadow) = shadow {
+                shadows.push(self.box_shadow_css(shadow));
             }
+            style.extend(self.draw_rect_style(
+                fill.as_ref(),
+                stroke.as_ref(),
+                *corner_radius,
+                None,
+            ));
+            skip.insert(*child_id);
         }
         if !shadows.is_empty() {
             style.push(format!("box-shadow:{}", shadows.join(",")));
@@ -2711,6 +2781,65 @@ fn site_semantic_class(identifier: &str) -> String {
         })
         .collect::<String>();
     format!("fission-{suffix}")
+}
+
+fn site_semantic_element(identifier: &str) -> (&'static str, Option<&str>) {
+    match identifier {
+        "site-header" => return ("header", None),
+        "site-main" => return ("main", None),
+        "site-navigation" => return ("nav", None),
+        "site-footer" => return ("footer", None),
+        "site-aside" => return ("aside", None),
+        _ => {}
+    }
+    if let Some(anchor) = identifier
+        .strip_prefix("site-section:")
+        .filter(|anchor| !anchor.is_empty())
+    {
+        return ("section", Some(anchor));
+    }
+    if let Some(anchor) = identifier
+        .strip_prefix("site-anchor:")
+        .filter(|anchor| !anchor.is_empty())
+    {
+        return ("div", Some(anchor));
+    }
+    for (prefix, tag) in [
+        ("site-heading-1:", "h1"),
+        ("site-heading-2:", "h2"),
+        ("site-heading-3:", "h3"),
+        ("site-heading-4:", "h4"),
+        ("site-heading-5:", "h5"),
+        ("site-heading-6:", "h6"),
+    ] {
+        if let Some(anchor) = identifier
+            .strip_prefix(prefix)
+            .filter(|anchor| !anchor.is_empty())
+        {
+            return (tag, Some(anchor));
+        }
+    }
+    ("div", None)
+}
+
+fn site_node_has_explicit_width(node: &CoreNode) -> bool {
+    match &node.op {
+        Op::Layout(LayoutOp::Box {
+            width, max_width, ..
+        })
+        | Op::Layout(LayoutOp::Scroll {
+            width, max_width, ..
+        }) => width.is_some() || max_width.is_some(),
+        Op::Layout(LayoutOp::StyledBox { style, .. }) => {
+            style.width.is_some() || style.max_width.is_some()
+        }
+        Op::Layout(LayoutOp::Embed { width, .. }) => width.is_some(),
+        _ => false,
+    }
+}
+
+fn is_coalesced_paint_child(node: &CoreNode) -> bool {
+    matches!(node.op, Op::Paint(PaintOp::DrawRect { .. }))
 }
 
 fn static_form_label(field: &StaticFormField, control: String) -> String {
@@ -4382,5 +4511,310 @@ mod tests {
             later_case < first_case,
             "the first case must be emitted last so equal-specificity CSS wins"
         );
+    }
+
+    #[test]
+    fn site_shell_sizes_stretched_container_query_children() {
+        let root = WidgetId::explicit("stretch-box");
+        let responsive = WidgetId::explicit("responsive");
+        let fallback = WidgetId::explicit("fallback");
+        let background = WidgetId::explicit("background");
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            fallback,
+            Op::Structural(fission_ir::StructuralOp::Group { stable_hash: 1 }),
+            Vec::new(),
+        );
+        ir.add_node(
+            responsive,
+            Op::Layout(LayoutOp::Responsive {
+                query: fission_ir::op::ResponsiveQuery::Container,
+                cases: Vec::new(),
+            }),
+            vec![fallback],
+        );
+        ir.add_node(
+            background,
+            Op::Paint(PaintOp::DrawRect {
+                fill: None,
+                stroke: None,
+                corner_radius: 0.0,
+                shadow: None,
+            }),
+            Vec::new(),
+        );
+        ir.add_node(
+            root,
+            Op::Layout(LayoutOp::StyledBox {
+                style: fission_ir::op::BoxStyle {
+                    alignment: fission_ir::op::BoxAlignment::Stretch,
+                    ..Default::default()
+                },
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+            }),
+            vec![responsive, background],
+        );
+        ir.set_root(root);
+
+        let rendered = render_ir_to_html(&ir, &HtmlRenderOptions::default()).unwrap();
+
+        assert!(rendered
+            .html
+            .contains("fission-site-box-stretch-auto-width"));
+        assert!(rendered.html.contains("fission-site-responsive"));
+        assert!(rendered.html.contains("container-type:inline-size"));
+        assert!(crate::site_base_css()
+            .contains(".fission-site-box-stretch-auto-width > .fission-site-node"));
+    }
+
+    #[test]
+    fn site_shell_preserves_explicit_width_on_stretch_children() {
+        let root = WidgetId::explicit("stretch-box-static");
+        let child = WidgetId::explicit("explicit-child");
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            child,
+            Op::Layout(LayoutOp::Box {
+                width: Some(240.0),
+                height: Some(80.0),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+                aspect_ratio: None,
+            }),
+            Vec::new(),
+        );
+        ir.add_node(
+            root,
+            Op::Layout(LayoutOp::StyledBox {
+                style: fission_ir::op::BoxStyle {
+                    alignment: fission_ir::op::BoxAlignment::Stretch,
+                    ..Default::default()
+                },
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+            }),
+            vec![child],
+        );
+        ir.set_root(root);
+
+        let rendered = render_ir_to_html(&ir, &HtmlRenderOptions::default()).unwrap();
+
+        assert!(!rendered
+            .html
+            .contains("fission-site-box-stretch-auto-width"));
+        assert!(rendered.css.contains("width:240px"));
+    }
+
+    #[test]
+    fn site_shell_stretches_auto_width_grid_children() {
+        let root = WidgetId::explicit("stretch-box-grid");
+        let child = WidgetId::explicit("auto-grid");
+        let background = WidgetId::explicit("grid-background");
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            child,
+            Op::Layout(LayoutOp::Grid {
+                columns: vec![fission_ir::op::GridTrack::Fr(1.0)],
+                rows: Vec::new(),
+                column_gap: None,
+                row_gap: None,
+                padding: [0.0; 4],
+            }),
+            Vec::new(),
+        );
+        ir.add_node(
+            background,
+            Op::Paint(PaintOp::DrawRect {
+                fill: None,
+                stroke: None,
+                corner_radius: 0.0,
+                shadow: None,
+            }),
+            Vec::new(),
+        );
+        ir.add_node(
+            root,
+            Op::Layout(LayoutOp::StyledBox {
+                style: fission_ir::op::BoxStyle {
+                    alignment: fission_ir::op::BoxAlignment::Stretch,
+                    ..Default::default()
+                },
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+            }),
+            vec![child, background],
+        );
+        ir.set_root(root);
+
+        let rendered = render_ir_to_html(&ir, &HtmlRenderOptions::default()).unwrap();
+
+        assert!(rendered
+            .html
+            .contains("fission-site-box-stretch-auto-width"));
+    }
+
+    #[test]
+    fn site_shell_preserves_intrinsic_width_inside_links() {
+        let link = WidgetId::explicit("site-link");
+        let container = WidgetId::explicit("link-container");
+        let child = WidgetId::explicit("link-label");
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            child,
+            Op::Paint(PaintOp::DrawText {
+                text: "Open details".into(),
+                size: 16.0,
+                color: Color::BLACK,
+                underline: false,
+                wrap: true,
+                caret_index: None,
+                caret_color: None,
+                caret_width: None,
+                caret_height: None,
+                caret_radius: None,
+                paragraph_style: None,
+            }),
+            Vec::new(),
+        );
+        ir.add_node(
+            container,
+            Op::Layout(LayoutOp::StyledBox {
+                style: fission_ir::op::BoxStyle {
+                    alignment: fission_ir::op::BoxAlignment::Stretch,
+                    ..Default::default()
+                },
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+            }),
+            vec![child],
+        );
+        ir.add_node(
+            link,
+            Op::Semantics(Semantics {
+                role: Role::Link,
+                identifier: Some("site-link:#details".into()),
+                ..Default::default()
+            }),
+            vec![container],
+        );
+        ir.set_root(link);
+
+        let rendered = render_ir_to_html(&ir, &HtmlRenderOptions::default()).unwrap();
+
+        assert!(rendered.html.contains("href=\"#details\""));
+        assert!(!rendered
+            .html
+            .contains("fission-site-box-stretch-auto-width"));
+    }
+
+    #[test]
+    fn site_semantics_emit_native_landmarks_headings_and_anchors() {
+        let root = WidgetId::explicit("root");
+        let heading_text = WidgetId::explicit("semantic-heading-text");
+        let identifiers = [
+            "site-header",
+            "site-main",
+            "site-navigation",
+            "site-section:features",
+            "site-heading-2:page-title",
+            "site-anchor:details",
+            "site-footer",
+        ];
+        let mut ir = CoreIR::new();
+        let mut semantic_nodes = Vec::new();
+        let node_ids = [
+            "semantic-header",
+            "semantic-main",
+            "semantic-navigation",
+            "semantic-section",
+            "semantic-heading",
+            "semantic-anchor",
+            "semantic-footer",
+        ];
+        ir.add_node(
+            heading_text,
+            Op::Paint(PaintOp::DrawText {
+                text: "Page heading".into(),
+                size: 24.0,
+                color: Color::BLACK,
+                underline: false,
+                wrap: true,
+                caret_index: None,
+                caret_color: None,
+                caret_width: None,
+                caret_height: None,
+                caret_radius: None,
+                paragraph_style: None,
+            }),
+            Vec::new(),
+        );
+        for (identifier, node_id) in identifiers.into_iter().zip(node_ids) {
+            let id = WidgetId::explicit(node_id);
+            let node_children = if identifier == "site-heading-2:page-title" {
+                vec![heading_text]
+            } else {
+                Vec::new()
+            };
+            ir.add_node(
+                id,
+                Op::Semantics(Semantics {
+                    role: Role::Generic,
+                    identifier: Some(identifier.to_string()),
+                    ..Default::default()
+                }),
+                node_children,
+            );
+            semantic_nodes.push(id);
+        }
+        ir.add_node(
+            root,
+            Op::Structural(fission_ir::StructuralOp::Group { stable_hash: 1 }),
+            semantic_nodes,
+        );
+        ir.set_root(root);
+
+        let rendered = render_ir_to_html(&ir, &HtmlRenderOptions::default()).unwrap();
+
+        assert!(rendered.html.contains("<header "));
+        assert!(rendered.html.contains("<main "));
+        assert!(rendered.html.contains("<nav "));
+        assert!(rendered.html.contains("<section "));
+        assert!(rendered.html.contains("id=\"features\""));
+        assert!(rendered.html.contains("<h2 "));
+        assert!(rendered.html.contains("id=\"page-title\""));
+        assert!(rendered.html.contains("Page heading"));
+        assert!(rendered.html.contains("id=\"details\""));
+        assert!(rendered.html.contains("<footer "));
+        assert!(crate::site_base_css().contains("h2.fission-site-semantics"));
+    }
+
+    #[test]
+    fn site_link_semantics_emit_an_ordinary_anchor() {
+        let root = WidgetId::explicit("site-link");
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            root,
+            Op::Semantics(Semantics {
+                role: Role::Link,
+                identifier: Some("site-link:#details".into()),
+                label: Some("View details".into()),
+                ..Default::default()
+            }),
+            Vec::new(),
+        );
+        ir.set_root(root);
+
+        let rendered = render_ir_to_html(&ir, &HtmlRenderOptions::default()).unwrap();
+
+        assert!(rendered.html.contains("<a "));
+        assert!(rendered.html.contains("href=\"#details\""));
+        assert!(rendered.html.contains("aria-label=\"View details\""));
+        assert!(!rendered.html.contains("<form"));
     }
 }
