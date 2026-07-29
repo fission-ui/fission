@@ -1964,9 +1964,11 @@ impl HtmlRenderer<'_> {
             }
             if identifier == "site-theme-toggle" {
                 let children = self.render_children(&node.children, &HashSet::new())?;
+                let label = semantics.label.as_deref().unwrap_or("Toggle color theme");
                 return Ok(format!(
-                    "<button class=\"fission-site-node fission-site-theme-toggle\" type=\"button\" aria-label=\"Toggle color theme\" data-fission-theme-toggle data-fission-node=\"{}\">{children}</button>",
-                    node.id
+                    "<button class=\"fission-site-node fission-site-theme-toggle\" type=\"button\" aria-label=\"{}\" data-fission-theme-toggle data-fission-node=\"{}\">{children}</button>",
+                    escape_attr(label),
+                    node.id,
                 ));
             }
             if identifier == "site-search-trigger" {

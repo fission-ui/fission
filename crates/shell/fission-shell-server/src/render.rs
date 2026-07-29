@@ -1499,10 +1499,10 @@ mod tests {
         CacheError, CacheTag, InvalidationReport, MokaCache, ProgressiveWorker, RevalidationPolicy,
         WasmIsland, WebRouteMode,
     };
-    use fission_core::ui::{Button, Text, TextContent};
+    use fission_core::ui::{Button, SemanticsRegion, Text, TextContent};
     use fission_core::{
         Action, ActionId, GlobalState, Handler, JobRef, JobResource, JobSpec, ReducerContext,
-        ResourceKey, Widget, WidgetId,
+        ResourceKey, Role, Widget, WidgetId,
     };
     use fission_i18n::TranslationBundle;
     use serde::{Deserialize, Serialize};
@@ -1530,6 +1530,20 @@ mod tests {
         fn from(component: TestPage) -> Self {
             let (_ctx, _view) = fission_core::build::current::<TestState>();
             Text::new(component.0).into()
+        }
+    }
+
+    #[derive(Clone)]
+    struct ThemeTogglePage;
+
+    impl From<ThemeTogglePage> for Widget {
+        fn from(_: ThemeTogglePage) -> Self {
+            let (_ctx, _view) = fission_core::build::current::<TestState>();
+            SemanticsRegion::new(Text::new("Cambiar tema"))
+                .identifier("site-theme-toggle")
+                .label("Cambiar el tema de color")
+                .role(Role::Button)
+                .into()
         }
     }
 
@@ -2602,6 +2616,26 @@ same_site = "none"
         assert!(html.contains(r#"<html lang="en" data-theme="dark">"#));
         assert!(html.contains("var k='fission-site-theme'"));
         assert!(html.contains("[data-fission-theme-toggle]"));
+    }
+
+    #[test]
+    fn server_renderer_uses_the_theme_toggle_semantics_label() {
+        let renderer = ServerRenderer::new(
+            FissionServerApp::new("Test")
+                .light_dark_themes(
+                    fission_theme::Theme::default(),
+                    fission_theme::Theme::dark(),
+                    DesignMode::Light,
+                )
+                .server_route_widget::<TestState, _>("/", "Home", None, ThemeTogglePage),
+        );
+
+        let html = renderer
+            .handle(ServerRequest::get("/"))
+            .unwrap()
+            .body_string();
+
+        assert!(html.contains(r#"aria-label="Cambiar el tema de color""#));
     }
 
     #[test]
