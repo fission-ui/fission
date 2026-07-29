@@ -12,7 +12,7 @@ use fission_core::{
 };
 use fission_i18n::{I18nRegistry, Locale, TranslationBundle};
 use fission_layout::LayoutSize;
-use fission_theme::Theme;
+use fission_theme::{DesignMode, Theme};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU16, Ordering};
@@ -164,6 +164,10 @@ pub struct FissionServerApp {
     pub(crate) project_dir: std::path::PathBuf,
     pub(crate) theme: Theme,
     pub(crate) env: Env,
+    pub(crate) light_theme: Option<Theme>,
+    pub(crate) dark_theme: Option<Theme>,
+    pub(crate) default_theme_mode: Option<DesignMode>,
+    pub(crate) theme_switching: bool,
     pub(crate) request_env_sync: Option<Arc<RequestEnvSync>>,
     pub(crate) locale_resolver: Option<Arc<RequestLocaleResolver>>,
     pub(crate) default_locale: Locale,
@@ -182,6 +186,10 @@ impl FissionServerApp {
             project_dir: std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
             theme: Theme::default(),
             env: Env::default(),
+            light_theme: None,
+            dark_theme: None,
+            default_theme_mode: None,
+            theme_switching: false,
             request_env_sync: None,
             locale_resolver: None,
             default_locale: Locale::from("en"),
@@ -208,6 +216,29 @@ impl FissionServerApp {
     pub fn with_env(mut self, env: Env) -> Self {
         self.env = env;
         self.env.theme = self.theme.clone();
+        self
+    }
+
+    /// Configures light and dark themes for browser-side theme switching.
+    ///
+    /// SSR renders the selected default mode initially, emits both theme
+    /// variable sets in `/site.css`, and lets the standard Fission site
+    /// enhancement script persist user changes in local storage.
+    pub fn light_dark_themes(
+        mut self,
+        light: Theme,
+        dark: Theme,
+        default_mode: DesignMode,
+    ) -> Self {
+        self.theme = match default_mode {
+            DesignMode::Light => light.clone(),
+            DesignMode::Dark => dark.clone(),
+        };
+        self.env.theme = self.theme.clone();
+        self.light_theme = Some(light);
+        self.dark_theme = Some(dark);
+        self.default_theme_mode = Some(default_mode);
+        self.theme_switching = true;
         self
     }
 

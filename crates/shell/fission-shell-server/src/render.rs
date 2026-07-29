@@ -21,6 +21,7 @@ use fission_shell_site::{
     render_ir_to_html_with_styles, site_base_css, site_enhancement_js, theme_variables_css,
     CssVariableMap, HtmlRenderOptions, StyleRegistry,
 };
+use fission_theme::DesignMode;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -543,6 +544,8 @@ impl ServerRenderer {
             stylesheet_href: "/site.css".to_string(),
             current_route_path: route_path.clone(),
             css_variables: CssVariableMap::from_theme(&env.theme),
+            default_theme_mode: self.app.default_theme_mode,
+            theme_switching: self.app.theme_switching,
             server_action_post_path: Some("/__fission/action".to_string()),
             server_action_tokens: action_tokens,
             structured_data: route.route.structured_data.clone(),
@@ -598,7 +601,21 @@ impl ServerRenderer {
             "\n.fission-browser-action{cursor:pointer;user-select:none;display:inline-flex;align-items:center;justify-content:center;}\n.fission-browser-action:focus-visible{outline:3px solid rgba(96,165,250,.85);outline-offset:3px;}\n",
         );
         css.push('\n');
-        css.push_str(&theme_variables_css(":root", &self.app.theme));
+        if self.app.theme_switching {
+            let default_selector = match self.app.default_theme_mode.unwrap_or(DesignMode::Light) {
+                DesignMode::Light => ":root,[data-theme=\"light\"]",
+                DesignMode::Dark => ":root,[data-theme=\"dark\"]",
+            };
+            css.push_str(&theme_variables_css(default_selector, &self.app.theme));
+            if let Some(light) = &self.app.light_theme {
+                css.push_str(&theme_variables_css("[data-theme=\"light\"]", light));
+            }
+            if let Some(dark) = &self.app.dark_theme {
+                css.push_str(&theme_variables_css("[data-theme=\"dark\"]", dark));
+            }
+        } else {
+            css.push_str(&theme_variables_css(":root", &self.app.theme));
+        }
         let styles = self
             .style_cache
             .read()
@@ -2543,6 +2560,48 @@ same_site = "none"
         let runtime = runtime.body_string();
         assert!(runtime.contains("fission_bridge_alloc"));
         assert!(runtime.contains("fission-site-text-run"));
+    }
+
+    #[test]
+    fn server_renderer_emits_switchable_light_dark_theme_css() {
+        let light = fission_theme::Theme::default();
+        let dark = fission_theme::Theme::dark();
+        let renderer = ServerRenderer::new(
+            FissionServerApp::new("Test")
+                .light_dark_themes(light.clone(), dark.clone(), DesignMode::Dark)
+                .server_route_widget::<TestState, _>("/", "Home", None, TestPage("Theme page")),
+        );
+
+        let css = renderer
+            .handle(ServerRequest::get("/site.css"))
+            .unwrap()
+            .body_string();
+
+        assert!(css.contains(&theme_variables_css(":root,[data-theme=\"dark\"]", &dark)));
+        assert!(css.contains(&theme_variables_css("[data-theme=\"light\"]", &light)));
+        assert!(css.contains(&theme_variables_css("[data-theme=\"dark\"]", &dark)));
+    }
+
+    #[test]
+    fn server_renderer_enables_theme_switching_document_contract() {
+        let renderer = ServerRenderer::new(
+            FissionServerApp::new("Test")
+                .light_dark_themes(
+                    fission_theme::Theme::default(),
+                    fission_theme::Theme::dark(),
+                    DesignMode::Dark,
+                )
+                .server_route_widget::<TestState, _>("/", "Home", None, TestPage("Theme page")),
+        );
+
+        let html = renderer
+            .handle(ServerRequest::get("/"))
+            .unwrap()
+            .body_string();
+
+        assert!(html.contains(r#"<html lang="en" data-theme="dark">"#));
+        assert!(html.contains("var k='fission-site-theme'"));
+        assert!(html.contains("[data-fission-theme-toggle]"));
     }
 
     #[test]
