@@ -166,7 +166,11 @@ impl SitePageElement {
         self
     }
 
-    pub(crate) fn applies_to(&self, route_path: &str) -> bool {
+    /// Returns whether this element applies to the supplied normalized route.
+    ///
+    /// The server shell uses the same filter contract as static-site builds so
+    /// document-level integrations behave consistently across both targets.
+    pub fn applies_to(&self, route_path: &str) -> bool {
         self.filters.is_empty() || self.filters.iter().any(|filter| filter.matches(route_path))
     }
 }

@@ -9,7 +9,7 @@ use fission_ir::op::{
     decode_inline_widget_marker, AlignItems, BoxShadow, Color, CompositeScalar, EmbedKind, Fill,
     FlexDirection, FlexWrap, FontStyle, GridPlacement, GridTrack, ImageAlignment, ImageFit,
     ImageSource, JustifyContent, LayoutOp, Length, LineCap, LineJoin, Op, Overflow, PaintOp,
-    Stroke, TextAlign, TextOverflow, TextRun,
+    RichTextAnnotation, Stroke, TextAlign, TextOverflow, TextRun,
 };
 use fission_ir::{semantics::ActionTrigger, CoreIR, CoreNode, Role, Semantics, WidgetId};
 use fission_theme::{DesignMode, PackagedFont, PackagedFontStyle, Theme};
@@ -884,7 +884,19 @@ impl HtmlRenderer<'_> {
         tag: &str,
         node: &CoreNode,
         class_name: &str,
+        style: Vec<String>,
+    ) -> Result<String> {
+        self.render_element_with_attrs(tag, node, node.id, class_name, style, "")
+    }
+
+    fn render_element_with_attrs(
+        &mut self,
+        tag: &str,
+        node: &CoreNode,
+        rendered_node_id: WidgetId,
+        class_name: &str,
         mut style: Vec<String>,
+        attrs: &str,
     ) -> Result<String> {
         let mut skip = HashSet::new();
         style.extend(self.coalesced_paint_style(node, &mut skip)?);
@@ -900,9 +912,8 @@ impl HtmlRenderer<'_> {
         };
         let class_name = self.class_name(&class_name, style);
         Ok(format!(
-            "<{tag} class=\"{}\" data-fission-node=\"{}\">{children}</{tag}>",
+            "<{tag} class=\"{}\"{attrs} data-fission-node=\"{rendered_node_id}\">{children}</{tag}>",
             escape_attr(&class_name),
-            node.id
         ))
     }
 
@@ -944,6 +955,7 @@ impl HtmlRenderer<'_> {
                 identifier.starts_with("site-link:")
                     || identifier.starts_with("site-route:")
                     || identifier.starts_with("site-heading:")
+                    || identifier.starts_with("site-client-action:")
                     || identifier.starts_with("markdown-link:")
                     || matches!(
                         identifier,
@@ -1404,23 +1416,22 @@ impl HtmlRenderer<'_> {
                 align_items,
                 justify_content,
             } => {
-                let mut style = vec![
-                    "display:flex".to_string(),
-                    format!("flex-direction:{}", flex_direction(*direction)),
-                    format!("flex-wrap:{}", flex_wrap(*wrap)),
-                    format!("align-items:{}", align_items_css(*align_items)),
-                    format!("justify-content:{}", justify_content_css(*justify_content)),
-                ];
-                if let Some(gap) = gap {
-                    style.push(format!("gap:{}px", px(*gap)));
-                }
-                push_padding(&mut style, *padding);
-                push_flex_item(&mut style, *flex_grow, *flex_shrink);
-                let class_name = match direction {
-                    FlexDirection::Column => "fission-site-node fission-site-column",
-                    FlexDirection::Row => "fission-site-node fission-site-row",
-                };
-                self.render_element("div", node, class_name, style)
+                let (layout_class, style) = flex_layout_style(
+                    *direction,
+                    *wrap,
+                    *flex_grow,
+                    *flex_shrink,
+                    *padding,
+                    *gap,
+                    *align_items,
+                    *justify_content,
+                );
+                self.render_element(
+                    "div",
+                    node,
+                    &format!("fission-site-node {layout_class}"),
+                    style,
+                )
             }
             LayoutOp::Grid {
                 columns,
@@ -1429,20 +1440,7 @@ impl HtmlRenderer<'_> {
                 row_gap,
                 padding,
             } => {
-                let mut style = vec!["display:grid".to_string()];
-                if !columns.is_empty() {
-                    style.push(format!("grid-template-columns:{}", grid_tracks(columns)));
-                }
-                if !rows.is_empty() {
-                    style.push(format!("grid-template-rows:{}", grid_tracks(rows)));
-                }
-                if let Some(gap) = column_gap {
-                    style.push(format!("column-gap:{}px", px(*gap)));
-                }
-                if let Some(gap) = row_gap {
-                    style.push(format!("row-gap:{}px", px(*gap)));
-                }
-                push_padding(&mut style, *padding);
+                let style = grid_layout_style(columns, rows, *column_gap, *row_gap, *padding);
                 self.render_element("div", node, "fission-site-node fission-site-grid", style)
             }
             LayoutOp::GridItem {
@@ -1854,14 +1852,11 @@ impl HtmlRenderer<'_> {
                     if *wrap { "pre-wrap" } else { "pre" }
                 ));
                 push_paragraph_style(&mut style, paragraph_style.as_ref());
-                let mut content = String::new();
-                for run in runs {
-                    if decode_inline_widget_marker(run.style.font_family.as_deref()).is_some() {
-                        continue;
-                    }
-                    content.push_str(&self.render_text_run(run));
-                }
-                content.push_str(&self.render_children(&node.children, &HashSet::new())?);
+                let annotations = self
+                    .rich_text_annotations(node.id)
+                    .map(|annotations| annotations.to_vec())
+                    .unwrap_or_default();
+                let content = self.render_rich_text_runs(node, runs, &annotations)?;
                 let class_name = self.class_name("fission-site-rich-text", style);
                 Ok(format!(
                     "<span class=\"{}\" data-fission-node=\"{}\">{content}</span>",
@@ -1955,6 +1950,9 @@ impl HtmlRenderer<'_> {
                 );
             }
             if let Some(target) = identifier.strip_prefix("markdown-link:") {
+                if self.subtree_has_rich_text_annotation(node, identifier) {
+                    return self.render_children(&node.children, &HashSet::new());
+                }
                 return self.render_semantic_link(
                     node,
                     target,
@@ -1982,6 +1980,24 @@ impl HtmlRenderer<'_> {
                 let children = self.render_children(&node.children, &HashSet::new())?;
                 return Ok(format!(
                     "<button class=\"fission-site-node fission-site-sidebar-toggle\" type=\"button\" aria-label=\"Open documentation navigation\" aria-expanded=\"false\" data-fission-sidebar-toggle data-fission-node=\"{}\">{children}</button>",
+                    node.id
+                ));
+            }
+            if let Some(action) = identifier.strip_prefix("site-client-action:") {
+                let children = self.render_children(&node.children, &HashSet::new())?;
+                let mut attrs = format!(
+                    " data-fission-client-action=\"{}\" data-fission-semantics=\"{}\"",
+                    escape_attr(action),
+                    escape_attr(identifier)
+                );
+                if let Some(value) = semantics.label.as_deref() {
+                    attrs.push_str(&format!(" aria-label=\"{}\"", escape_attr(value)));
+                }
+                if semantics.disabled {
+                    attrs.push_str(" disabled");
+                }
+                return Ok(format!(
+                    "<button class=\"fission-site-node fission-site-semantics fission-site-client-action\" type=\"button\"{attrs} data-fission-node=\"{}\">{children}</button>",
                     node.id
                 ));
             }
@@ -2056,11 +2072,42 @@ impl HtmlRenderer<'_> {
         if tag == "button" {
             attrs.push_str(" type=\"button\" disabled");
         }
+        if tag == "ul" {
+            if let Some(html) = self.render_transparent_list_layout(node, &attrs)? {
+                return Ok(html);
+            }
+        }
         let children = self.render_children(&node.children, &HashSet::new())?;
         Ok(format!(
             "<{tag} class=\"fission-site-node fission-site-semantics\"{attrs} data-fission-node=\"{}\">{children}</{tag}>",
             node.id
         ))
+    }
+
+    fn render_transparent_list_layout(
+        &mut self,
+        node: &CoreNode,
+        attrs: &str,
+    ) -> Result<Option<String>> {
+        let [layout_id] = node.children.as_slice() else {
+            return Ok(None);
+        };
+        let Some(layout_node) = self.ir.nodes.get(layout_id) else {
+            return Ok(None);
+        };
+        let Op::Layout(layout) = &layout_node.op else {
+            return Ok(None);
+        };
+        let Some((layout_class, style)) = transparent_list_layout_style(layout) else {
+            return Ok(None);
+        };
+
+        // Flex and grid nodes only arrange the list payload here. Apply their
+        // presentation to the semantic element so <li> nodes remain direct
+        // children of <ul>; semantic descendants still render normally.
+        let class_name = format!("fission-site-node fission-site-semantics {layout_class}");
+        self.render_element_with_attrs("ul", layout_node, node.id, &class_name, style, attrs)
+            .map(Some)
     }
 
     fn render_native_control_semantics(
@@ -2250,9 +2297,25 @@ impl HtmlRenderer<'_> {
     }
 
     fn render_markdown_table(&mut self, node: &CoreNode) -> Result<String> {
-        let children = self.render_semantic_payload_children(node)?;
+        let mut header_rows = String::new();
+        let mut body_rows = String::new();
+        for child in self.semantic_payload_children(node) {
+            let rendered = self.render_node(child)?;
+            if self.semantic_identifier(child).is_some_and(|identifier| {
+                identifier
+                    .strip_prefix("markdown-table-row:")
+                    .is_some_and(|kind| kind == "header")
+            }) {
+                header_rows.push_str(&rendered);
+            } else {
+                body_rows.push_str(&rendered);
+            }
+        }
+        let header = (!header_rows.is_empty())
+            .then(|| format!("<thead>{header_rows}</thead>"))
+            .unwrap_or_default();
         Ok(format!(
-            "<div class=\"fission-site-markdown-table-wrap\" data-fission-node=\"{}\"><table class=\"fission-site-markdown-table\"><tbody>{children}</tbody></table></div>",
+            "<div class=\"fission-site-markdown-table-wrap\" data-fission-node=\"{}\"><table class=\"fission-site-markdown-table\">{header}<tbody>{body_rows}</tbody></table></div>",
             node.id
         ))
     }
@@ -2437,6 +2500,44 @@ impl HtmlRenderer<'_> {
         node.children.clone()
     }
 
+    fn semantic_identifier(&self, node_id: WidgetId) -> Option<&str> {
+        let node = self.ir.nodes.get(&node_id)?;
+        let Op::Semantics(semantics) = &node.op else {
+            return None;
+        };
+        semantics.identifier.as_deref()
+    }
+
+    fn rich_text_annotations(&self, node_id: WidgetId) -> Option<&[RichTextAnnotation]> {
+        self.ir
+            .custom_render_objects
+            .get(&node_id)?
+            .downcast_ref::<Vec<RichTextAnnotation>>()
+            .map(Vec::as_slice)
+    }
+
+    fn subtree_has_rich_text_annotation(&self, node: &CoreNode, identifier: &str) -> bool {
+        let mut pending = node.children.clone();
+        while let Some(node_id) = pending.pop() {
+            let Some(descendant) = self.ir.nodes.get(&node_id) else {
+                continue;
+            };
+            if matches!(descendant.op, Op::Paint(PaintOp::DrawRichText { .. }))
+                && self
+                    .rich_text_annotations(node_id)
+                    .is_some_and(|annotations| {
+                        annotations.iter().any(|annotation| {
+                            annotation.semantics_identifier.as_deref() == Some(identifier)
+                        })
+                    })
+            {
+                return true;
+            }
+            pending.extend(descendant.children.iter().copied());
+        }
+        false
+    }
+
     fn render_semantic_link(
         &mut self,
         node: &CoreNode,
@@ -2444,14 +2545,10 @@ impl HtmlRenderer<'_> {
         label: Option<&str>,
         link_class: &str,
     ) -> Result<String> {
-        let mut attrs = format!(" href=\"{}\"", escape_attr(&self.resolve_link_href(target)));
+        let mut attrs = self.link_destination_attrs(target);
         if let Some(label) = label {
             attrs.push_str(&format!(" aria-label=\"{}\"", escape_attr(label)));
         }
-        attrs.push_str(&format!(
-            " data-fission-current-route=\"{}\"",
-            escape_attr(&self.options.current_route_path)
-        ));
         let children = self.render_children(&node.children, &HashSet::new())?;
         Ok(format!(
             "<a class=\"fission-site-node fission-site-link {link_class}\"{attrs} data-fission-node=\"{}\">{children}</a>",
@@ -2459,10 +2556,24 @@ impl HtmlRenderer<'_> {
         ))
     }
 
+    fn link_destination_attrs(&self, target: &str) -> String {
+        let mut attrs = format!(" href=\"{}\"", escape_attr(&self.resolve_link_href(target)));
+        if is_external_web_link(target) {
+            attrs.push_str(" rel=\"noopener noreferrer\"");
+        }
+        attrs.push_str(&format!(
+            " data-fission-current-route=\"{}\"",
+            escape_attr(&self.options.current_route_path)
+        ));
+        if site_link_is_current_page(target, &self.options.current_route_path) {
+            attrs.push_str(" aria-current=\"page\"");
+        }
+        attrs
+    }
+
     fn resolve_link_href(&self, target: &str) -> String {
         if target.starts_with('#')
-            || target.starts_with("http://")
-            || target.starts_with("https://")
+            || is_external_web_link(target)
             || target.starts_with("mailto:")
             || target.starts_with("tel:")
         {
@@ -2623,6 +2734,114 @@ impl HtmlRenderer<'_> {
             escape_attr(&class_name),
             escape_text(&run.text)
         )
+    }
+
+    fn render_rich_text_runs(
+        &mut self,
+        node: &CoreNode,
+        runs: &[TextRun],
+        annotations: &[RichTextAnnotation],
+    ) -> Result<String> {
+        let mut content = String::new();
+        let mut rendered_inline_children = HashSet::new();
+        let mut run_start = 0usize;
+        for run in runs {
+            let run_end = run_start.saturating_add(run.text.len());
+            if run.text.is_empty() {
+                if let Some(marker) = decode_inline_widget_marker(run.style.font_family.as_deref())
+                {
+                    if let Ok(child_index) = usize::try_from(marker.id) {
+                        if let Some(child_id) = node.children.get(child_index) {
+                            if rendered_inline_children.insert(*child_id) {
+                                content.push_str(&self.render_node(*child_id)?);
+                            }
+                        }
+                    }
+                    run_start = run_end;
+                    continue;
+                }
+            }
+            let mut boundaries = vec![run_start, run_end];
+            for annotation in annotations {
+                let start = annotation.range.start.max(run_start).min(run_end);
+                let end = annotation.range.end.max(run_start).min(run_end);
+                let relative_start = start.saturating_sub(run_start);
+                let relative_end = end.saturating_sub(run_start);
+                if start < end && run.text.is_char_boundary(relative_start) {
+                    boundaries.push(start);
+                }
+                if start < end && run.text.is_char_boundary(relative_end) {
+                    boundaries.push(end);
+                }
+            }
+            boundaries.sort_unstable();
+            boundaries.dedup();
+
+            for bounds in boundaries.windows(2) {
+                let segment_start = bounds[0];
+                let segment_end = bounds[1];
+                if segment_start == segment_end {
+                    continue;
+                }
+                let relative_start = segment_start - run_start;
+                let relative_end = segment_end - run_start;
+                let mut segment = run.clone();
+                segment.text = run.text[relative_start..relative_end].to_string();
+                let mut rendered = self.render_text_run(&segment);
+                let mut segment_annotations = annotations
+                    .iter()
+                    .filter(|annotation| {
+                        annotation.range.start <= segment_start
+                            && annotation.range.end >= segment_end
+                    })
+                    .collect::<Vec<_>>();
+                segment_annotations.sort_by_key(|annotation| {
+                    annotation.range.end.saturating_sub(annotation.range.start)
+                });
+                for annotation in segment_annotations {
+                    rendered = self.render_rich_text_annotation(rendered, annotation);
+                }
+                content.push_str(&rendered);
+            }
+            run_start = run_end;
+        }
+        for child_id in &node.children {
+            if rendered_inline_children.insert(*child_id) {
+                content.push_str(&self.render_node(*child_id)?);
+            }
+        }
+        Ok(content)
+    }
+
+    fn render_rich_text_annotation(
+        &self,
+        content: String,
+        annotation: &RichTextAnnotation,
+    ) -> String {
+        let mut attrs = String::new();
+        if let Some(label) = annotation.semantics_label.as_deref() {
+            attrs.push_str(&format!(" aria-label=\"{}\"", escape_attr(label)));
+        }
+        if let Some(identifier) = annotation.semantics_identifier.as_deref() {
+            attrs.push_str(&format!(
+                " data-fission-semantics=\"{}\"",
+                escape_attr(identifier)
+            ));
+            if let Some(target) = identifier.strip_prefix("markdown-link:") {
+                let link_attrs = self.link_destination_attrs(target);
+                return format!(
+                    "<a class=\"fission-site-link fission-site-markdown-link\"{link_attrs}{attrs}>{content}</a>",
+                );
+            }
+        }
+        if annotation.spell_out.unwrap_or(false) {
+            attrs.push_str(" role=\"text\"");
+        }
+        if attrs.is_empty() {
+            content
+        } else {
+            format!("<span{attrs}>{content}</span>")
+        }
     }
 
     fn fill_css(&self, fill: &Fill) -> String {
@@ -2792,6 +3011,7 @@ fn site_semantic_element(identifier: &str) -> (&'static str, Option<&str>) {
         "site-navigation" => return ("nav", None),
         "site-footer" => return ("footer", None),
         "site-aside" => return ("aside", None),
+        "site-address" => return ("address", None),
         _ => {}
     }
     if let Some(anchor) = identifier
@@ -2822,6 +3042,40 @@ fn site_semantic_element(identifier: &str) -> (&'static str, Option<&str>) {
         }
     }
     ("div", None)
+}
+
+fn site_link_is_current_page(target: &str, current_route_path: &str) -> bool {
+    if target.starts_with('#')
+        || target.starts_with("mailto:")
+        || target.starts_with("tel:")
+        || is_external_web_link(target)
+    {
+        return false;
+    }
+    let target = target.split(['?', '#']).next().unwrap_or(target);
+    if !target.starts_with('/') {
+        return false;
+    }
+    normalize_route_for_comparison(target) == normalize_route_for_comparison(current_route_path)
+}
+
+fn is_external_web_link(target: &str) -> bool {
+    if target.starts_with("//") {
+        return true;
+    }
+    target.split_once(':').is_some_and(|(scheme, _)| {
+        scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https")
+    })
+}
+
+fn normalize_route_for_comparison(path: &str) -> &str {
+    let path = path.split(['?', '#']).next().unwrap_or(path);
+    let trimmed = path.trim_end_matches('/');
+    if trimmed.is_empty() {
+        "/"
+    } else {
+        trimmed
+    }
 }
 
 fn site_node_has_explicit_width(node: &CoreNode) -> bool {
@@ -3359,6 +3613,94 @@ fn grid_track(track: &GridTrack) -> String {
     }
 }
 
+fn transparent_list_layout_style(layout: &LayoutOp) -> Option<(&'static str, Vec<String>)> {
+    match layout {
+        LayoutOp::Flex {
+            direction,
+            wrap,
+            flex_grow,
+            flex_shrink,
+            padding,
+            gap,
+            align_items,
+            justify_content,
+        } => Some(flex_layout_style(
+            *direction,
+            *wrap,
+            *flex_grow,
+            *flex_shrink,
+            *padding,
+            *gap,
+            *align_items,
+            *justify_content,
+        )),
+        LayoutOp::Grid {
+            columns,
+            rows,
+            column_gap,
+            row_gap,
+            padding,
+        } => Some((
+            "fission-site-grid",
+            grid_layout_style(columns, rows, *column_gap, *row_gap, *padding),
+        )),
+        _ => None,
+    }
+}
+
+fn flex_layout_style(
+    direction: FlexDirection,
+    wrap: FlexWrap,
+    flex_grow: f32,
+    flex_shrink: f32,
+    padding: [f32; 4],
+    gap: Option<f32>,
+    align_items: AlignItems,
+    justify_content: JustifyContent,
+) -> (&'static str, Vec<String>) {
+    let mut style = vec![
+        "display:flex".to_string(),
+        format!("flex-direction:{}", flex_direction(direction)),
+        format!("flex-wrap:{}", flex_wrap(wrap)),
+        format!("align-items:{}", align_items_css(align_items)),
+        format!("justify-content:{}", justify_content_css(justify_content)),
+    ];
+    if let Some(gap) = gap {
+        style.push(format!("gap:{}px", px(gap)));
+    }
+    push_padding(&mut style, padding);
+    push_flex_item(&mut style, flex_grow, flex_shrink);
+    let class_name = match direction {
+        FlexDirection::Column => "fission-site-column",
+        FlexDirection::Row => "fission-site-row",
+    };
+    (class_name, style)
+}
+
+fn grid_layout_style(
+    columns: &[GridTrack],
+    rows: &[GridTrack],
+    column_gap: Option<f32>,
+    row_gap: Option<f32>,
+    padding: [f32; 4],
+) -> Vec<String> {
+    let mut style = vec!["display:grid".to_string()];
+    if !columns.is_empty() {
+        style.push(format!("grid-template-columns:{}", grid_tracks(columns)));
+    }
+    if !rows.is_empty() {
+        style.push(format!("grid-template-rows:{}", grid_tracks(rows)));
+    }
+    if let Some(gap) = column_gap {
+        style.push(format!("column-gap:{}px", px(gap)));
+    }
+    if let Some(gap) = row_gap {
+        style.push(format!("row-gap:{}px", px(gap)));
+    }
+    push_padding(&mut style, padding);
+    style
+}
+
 fn flex_direction(direction: FlexDirection) -> &'static str {
     match direction {
         FlexDirection::Row => "row",
@@ -3516,10 +3858,15 @@ fn escape_attr(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fission_core::internal::BuildCtx;
+    use fission_core::ui::widgets::text::{RichTextChild, RichTextSpan, WidgetSpan};
+    use fission_core::ui::{Column, Grid, RichText, SemanticsRegion, Text, Widget};
+    use fission_core::{build, Env, RuntimeState, View};
     use fission_ir::{
         ActionEntry, ActionSet, CompositeScalar, CompositeStyle, CoreIR, CoreNode, Op, Semantics,
         WidgetId,
     };
+    use fission_widgets::MarkdownContent;
 
     static TEST_FONT: [PackagedFont; 1] = [PackagedFont {
         family: "Test Sans",
@@ -3532,6 +3879,40 @@ mod tests {
             value: 612.0,
         }],
     }];
+
+    fn render_test_widget(widget: impl Into<Widget>) -> RenderedHtml {
+        let widget = widget.into();
+        let env = Env::default();
+        let runtime = RuntimeState::default();
+        let mut lowering =
+            fission_core::internal::InternalLoweringCx::new(&env, &runtime, None, None);
+        let root = fission_core::internal::lower_widget(&widget, &mut lowering);
+        lowering.ir.set_root(root);
+        render_ir_to_html(&lowering.ir, &HtmlRenderOptions::default()).unwrap()
+    }
+
+    fn render_test_component(build_widget: impl FnOnce() -> Widget) -> RenderedHtml {
+        let env = Env::default();
+        let runtime = RuntimeState::default();
+        let state = ();
+        let view = View::new(&state, &runtime, &env, None);
+        let mut ctx = BuildCtx::<()>::new();
+        let widget = build::enter(&mut ctx, &view, build_widget);
+        render_test_widget(widget)
+    }
+
+    fn generic_list_item(label: &str) -> Widget {
+        SemanticsRegion::new(Text::new(label))
+            .role(Role::ListItem)
+            .into()
+    }
+
+    fn rendered_list_parts(html: &str) -> (&str, &str) {
+        let (_, list) = html.split_once("<ul").expect("rendered list element");
+        let (opening, after_opening) = list.split_once('>').expect("list opening tag");
+        let (contents, _) = after_opening.split_once("</ul>").expect("list closing tag");
+        (opening, contents)
+    }
 
     #[test]
     fn spotlight_layout_emits_browser_geometry_metadata() {
@@ -4282,6 +4663,17 @@ mod tests {
             relative_href_for_route("/docs/learn/quickstart/", "/"),
             "../../../"
         );
+        assert!(site_link_is_current_page("/support", "/support/"));
+        assert!(site_link_is_current_page(
+            "/support?source=footer",
+            "/support/?source=navigation"
+        ));
+        assert!(site_link_is_current_page("/", "/"));
+        assert!(!site_link_is_current_page("#support", "/support"));
+        assert!(!site_link_is_current_page(
+            "https://example.test/support",
+            "/support"
+        ));
     }
 
     #[test]
@@ -4464,6 +4856,239 @@ mod tests {
         assert!(rendered
             .html
             .contains("data-fission-action-payload=\"dead\""));
+    }
+
+    #[test]
+    fn semantic_list_absorbs_column_layout_for_direct_list_items() {
+        let rendered = render_test_widget(
+            SemanticsRegion::new(Column {
+                gap: Some(8.0),
+                children: vec![
+                    generic_list_item("First item"),
+                    generic_list_item("Second item"),
+                ],
+                ..Default::default()
+            })
+            .identifier("sample-list")
+            .label("Sample items")
+            .role(Role::List),
+        );
+
+        let (opening, contents) = rendered_list_parts(&rendered.html);
+        assert!(opening.contains("fission-site-column"));
+        assert!(opening.contains("data-fission-semantics=\"sample-list\""));
+        assert!(opening.contains("aria-label=\"Sample items\""));
+        assert!(contents.starts_with("<li "));
+        assert_eq!(contents.matches("<li ").count(), 2);
+        assert!(contents.contains("</li><li "));
+        assert!(!contents.starts_with("<div"));
+        assert!(rendered.css.contains("display:flex"));
+        assert!(rendered.css.contains("gap:8px"));
+    }
+
+    #[test]
+    fn semantic_list_absorbs_grid_layout_for_direct_list_items() {
+        let rendered = render_test_widget(
+            SemanticsRegion::new(Grid {
+                columns: vec![GridTrack::Fr(1.0), GridTrack::Fr(1.0)],
+                column_gap: Some(12.0),
+                children: vec![
+                    generic_list_item("First result"),
+                    generic_list_item("Second result"),
+                ],
+                ..Default::default()
+            })
+            .role(Role::List),
+        );
+
+        let (opening, contents) = rendered_list_parts(&rendered.html);
+        assert!(opening.contains("fission-site-grid"));
+        assert!(contents.starts_with("<li "));
+        assert_eq!(contents.matches("<li ").count(), 2);
+        assert!(contents.contains("</li><li "));
+        assert!(!contents.starts_with("<div"));
+        assert!(rendered.css.contains("display:grid"));
+        assert!(rendered.css.contains("grid-template-columns:1fr 1fr"));
+        assert!(rendered.css.contains("column-gap:12px"));
+    }
+
+    #[test]
+    fn semantic_list_preserves_layout_inside_meaningful_list_item() {
+        let nested_item = SemanticsRegion::new(Column {
+            children: vec![Text::new("Nested item detail").into()],
+            ..Default::default()
+        })
+        .identifier("nested-item")
+        .role(Role::ListItem);
+        let rendered = render_test_widget(
+            SemanticsRegion::new(Column {
+                children: vec![nested_item.into()],
+                ..Default::default()
+            })
+            .role(Role::List),
+        );
+
+        let (_, contents) = rendered_list_parts(&rendered.html);
+        assert!(contents.starts_with("<li "));
+        assert!(contents.contains("data-fission-semantics=\"nested-item\""));
+        let (_, item_contents) = contents.split_once('>').expect("list item opening tag");
+        assert!(item_contents.starts_with("<div "));
+        assert!(item_contents.contains("fission-site-column"));
+    }
+
+    #[test]
+    fn markdown_table_separates_header_and_body_rows() {
+        let rendered = render_test_component(|| {
+            MarkdownContent::new("| Package | Status |\n| --- | --- |\n| example | Ready |").into()
+        });
+
+        assert!(rendered.html.contains("<table "));
+        assert!(rendered.html.contains("<thead><tr "));
+        assert!(rendered.html.contains("<th "));
+        assert!(rendered.html.contains("</thead><tbody><tr "));
+        assert!(rendered.html.contains("<td "));
+    }
+
+    #[test]
+    fn markdown_rich_text_preserves_inline_links_and_emphasis() {
+        let rendered = render_test_component(|| {
+            MarkdownContent::new(
+                "Read the [support guide](/support) and **keep this visible** with `sample-code`.",
+            )
+            .into()
+        });
+
+        assert!(rendered
+            .body_html
+            .contains("class=\"fission-site-link fission-site-markdown-link\""));
+        assert!(rendered.html.contains("href=\"support\""));
+        assert_eq!(
+            rendered
+                .body_html
+                .matches("class=\"fission-site-link fission-site-markdown-link\"")
+                .count(),
+            1
+        );
+        let (_, link_and_after) = rendered
+            .body_html
+            .split_once("class=\"fission-site-link fission-site-markdown-link\"")
+            .expect("inline Markdown link");
+        let (_, link_content) = link_and_after
+            .split_once('>')
+            .expect("inline Markdown link opening tag");
+        let (link_content, _) = link_content
+            .split_once("</a>")
+            .expect("inline Markdown link closing tag");
+        assert!(link_content.contains("support guide"));
+        assert!(!link_content.contains("Read the"));
+        assert!(!link_content.contains("keep this visible"));
+        assert!(rendered.css.contains("font-weight:700"));
+        assert!(rendered.html.contains("sample-code"));
+        assert!(rendered.css.contains("background:"));
+    }
+
+    #[test]
+    fn external_markdown_links_preserve_targets_and_add_safe_relationships() {
+        let rendered = render_test_component(|| {
+            MarkdownContent::new(
+                "Visit the [reference](HTTPS://example.com/docs) or its [mirror](//cdn.example.com/docs).",
+            )
+            .into()
+        });
+
+        assert!(rendered
+            .body_html
+            .contains("href=\"HTTPS://example.com/docs\" rel=\"noopener noreferrer\""));
+        assert!(rendered
+            .body_html
+            .contains("href=\"//cdn.example.com/docs\" rel=\"noopener noreferrer\""));
+        assert!(!rendered.body_html.contains("target=\"_blank\""));
+    }
+
+    #[test]
+    fn rich_text_annotations_keep_inline_widgets_in_text_order() {
+        let rendered = render_test_widget(RichText::from_span(
+            RichTextSpan::new("Before ")
+                .semantics_identifier("markdown-link:/guide")
+                .children(vec![
+                    RichTextChild::from(WidgetSpan::new(Text::new("badge"), 40.0, 16.0)),
+                    RichTextChild::from(RichTextSpan::new(" after").weight(700)),
+                ]),
+        ));
+
+        let before = rendered
+            .body_html
+            .find("Before ")
+            .expect("text before marker");
+        let badge = rendered
+            .body_html
+            .find("badge")
+            .expect("inline widget marker payload");
+        let after = rendered
+            .body_html
+            .find(" after")
+            .expect("text after marker");
+        assert!(before < badge);
+        assert!(badge < after);
+        assert_eq!(rendered.body_html.matches("href=\"guide\"").count(), 2);
+    }
+
+    #[test]
+    fn nested_rich_text_annotations_keep_parent_semantics_outermost() {
+        let rendered = render_test_widget(RichText::from_span(
+            RichTextSpan::new("")
+                .semantics_label("Read documentation")
+                .children([
+                    RichTextSpan::new("documentation").semantics_identifier("markdown-link:/docs")
+                ]),
+        ));
+
+        assert!(rendered.body_html.contains(
+            "<span aria-label=\"Read documentation\"><a class=\"fission-site-link fission-site-markdown-link\" href=\"docs\""
+        ));
+    }
+
+    #[test]
+    fn client_action_semantics_render_generic_site_button() {
+        let rendered = render_test_widget(
+            SemanticsRegion::new(Text::new("Open preferences"))
+                .identifier("site-client-action:open-preferences")
+                .label("Open preferences")
+                .role(Role::Generic),
+        );
+
+        assert!(rendered.html.contains("<button "));
+        assert!(rendered
+            .html
+            .contains("data-fission-client-action=\"open-preferences\""));
+        assert!(rendered
+            .html
+            .contains("data-fission-semantics=\"site-client-action:open-preferences\""));
+        assert!(rendered.html.contains("aria-label=\"Open preferences\""));
+        assert!(!rendered.html.contains(" disabled"));
+    }
+
+    #[test]
+    fn site_address_and_current_page_link_use_native_html_semantics() {
+        let rendered = render_test_widget(Column {
+            children: vec![
+                SemanticsRegion::new(Text::new("Example Company"))
+                    .identifier("site-address")
+                    .role(Role::Generic)
+                    .into(),
+                SemanticsRegion::new(Text::new("Home"))
+                    .identifier("site-link:/")
+                    .role(Role::Link)
+                    .into(),
+            ],
+            ..Default::default()
+        });
+
+        assert!(rendered.html.contains("<address "));
+        assert!(rendered
+            .html
+            .contains("data-fission-semantics=\"site-address\""));
+        assert!(rendered.html.contains("aria-current=\"page\""));
     }
 
     #[test]

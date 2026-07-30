@@ -12,6 +12,7 @@ use fission_core::{
 };
 use fission_i18n::{I18nRegistry, Locale, TranslationBundle};
 use fission_layout::LayoutSize;
+use fission_shell_site::SitePageElement;
 use fission_theme::{DesignMode, Theme};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -26,6 +27,10 @@ type RequestEnvSync =
     dyn for<'a> Fn(&ServerEnvContext<'a>, &mut Env) -> Result<()> + Send + Sync + 'static;
 type RequestLocaleResolver =
     dyn for<'a> Fn(&ServerEnvContext<'a>) -> Result<Locale> + Send + Sync + 'static;
+type RequestDocumentMetadataResolver = dyn for<'a> Fn(&ServerRenderContext<'a>, &WebRoute) -> Result<ServerDocumentMetadata>
+    + Send
+    + Sync
+    + 'static;
 type InitialStateLoader<S> =
     dyn for<'a> Fn(&ServerRenderContext<'a>) -> Result<S> + Send + Sync + 'static;
 type HttpHandler =
@@ -88,6 +93,22 @@ pub struct ServerHttpContext<'a> {
     pub project_dir: &'a Path,
     pub request: &'a ServerRequest,
     pub session: &'a ServerSession,
+}
+
+/// Request-specific browser and social metadata for one rendered route.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ServerDocumentMetadata {
+    pub title: String,
+    pub description: Option<String>,
+}
+
+impl ServerDocumentMetadata {
+    pub fn new(title: impl Into<String>, description: impl Into<Option<String>>) -> Self {
+        Self {
+            title: title.into(),
+            description: description.into(),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -170,6 +191,7 @@ pub struct FissionServerApp {
     pub(crate) theme_switching: bool,
     pub(crate) request_env_sync: Option<Arc<RequestEnvSync>>,
     pub(crate) locale_resolver: Option<Arc<RequestLocaleResolver>>,
+    pub(crate) document_metadata_resolver: Option<Arc<RequestDocumentMetadataResolver>>,
     pub(crate) default_locale: Locale,
     pub(crate) jobs: ServerJobRegistry,
     pub(crate) routes: Vec<ServerRouteEntry>,
@@ -177,6 +199,7 @@ pub struct FissionServerApp {
     pub(crate) cache_invalidation_endpoints: Vec<CacheInvalidationEndpoint>,
     pub(crate) static_mounts: Vec<StaticMount>,
     pub(crate) user_css: Vec<String>,
+    pub(crate) page_elements: Vec<SitePageElement>,
 }
 
 impl FissionServerApp {
@@ -192,6 +215,7 @@ impl FissionServerApp {
             theme_switching: false,
             request_env_sync: None,
             locale_resolver: None,
+            document_metadata_resolver: None,
             default_locale: Locale::from("en"),
             jobs: ServerJobRegistry::new(),
             routes: Vec::new(),
@@ -199,6 +223,7 @@ impl FissionServerApp {
             cache_invalidation_endpoints: Vec::new(),
             static_mounts: Vec::new(),
             user_css: Vec::new(),
+            page_elements: Vec::new(),
         }
     }
 
@@ -267,6 +292,22 @@ impl FissionServerApp {
         self
     }
 
+    /// Resolves request-specific document metadata after locale and environment
+    /// selection.
+    ///
+    /// Use this for localized browser titles and descriptions. It does not
+    /// change route matching or the route inventory's canonical default title.
+    pub fn document_metadata<F>(mut self, resolver: F) -> Self
+    where
+        F: for<'a> Fn(&ServerRenderContext<'a>, &WebRoute) -> Result<ServerDocumentMetadata>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.document_metadata_resolver = Some(Arc::new(resolver));
+        self
+    }
+
     pub fn with_request_env<F>(mut self, sync: F) -> Self
     where
         F: for<'a> Fn(&ServerEnvContext<'a>, &mut Env) -> Result<()> + Send + Sync + 'static,
@@ -283,6 +324,26 @@ impl FissionServerApp {
     pub fn user_css(mut self, css: impl Into<String>) -> Self {
         self.user_css.push(css.into());
         self
+    }
+
+    /// Adds trusted document-level markup to matching server-rendered routes.
+    ///
+    /// This is the SSR counterpart to `FissionSite::page_element` and is
+    /// intended for host-owned concerns such as consent managers, verification
+    /// tags, preloads, and deferred scripts that do not have widget semantics.
+    pub fn page_element(mut self, element: SitePageElement) -> Self {
+        self.page_elements.push(element);
+        self
+    }
+
+    /// Adds trusted markup near the end of `<head>` on every rendered route.
+    pub fn head_html(self, html: impl Into<String>) -> Self {
+        self.page_element(SitePageElement::head(html))
+    }
+
+    /// Adds trusted markup near the end of `<body>` on every rendered route.
+    pub fn body_end_html(self, html: impl Into<String>) -> Self {
+        self.page_element(SitePageElement::body_end(html))
     }
 
     pub fn http_handler<F>(

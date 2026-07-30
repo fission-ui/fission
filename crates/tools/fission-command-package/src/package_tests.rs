@@ -62,6 +62,34 @@ fn desktop_binary_output_path_honours_cargo_build_target() {
 }
 
 #[test]
+fn release_desktop_builds_require_the_existing_lockfile() {
+    let project_dir = Path::new("/workspace/example");
+    let manifest_path = project_dir.join("Cargo.toml");
+    let release = desktop_cargo_build_command(
+        project_dir,
+        &manifest_path,
+        "example",
+        true,
+        &["billing".to_string()],
+        true,
+    );
+    let release_args = release
+        .get_args()
+        .map(|argument| argument.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    assert!(release_args.iter().any(|argument| argument == "--release"));
+    assert!(release_args.iter().any(|argument| argument == "--locked"));
+
+    let debug =
+        desktop_cargo_build_command(project_dir, &manifest_path, "example", false, &[], false);
+    let debug_args = debug
+        .get_args()
+        .map(|argument| argument.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    assert!(!debug_args.iter().any(|argument| argument == "--locked"));
+}
+
+#[test]
 fn server_dockerfile_builds_workspace_package_and_artifacts() {
     let dockerfile = render_server_dockerfile(
         "debian:bookworm-slim",
