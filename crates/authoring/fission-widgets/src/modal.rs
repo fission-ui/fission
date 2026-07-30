@@ -5,7 +5,7 @@ use crate::motion_support::{
 use crate::stack::{HStack, VStack};
 use crate::Icon;
 use fission_core::motion::{MotionTrack, Presence};
-use fission_core::op::Color;
+use fission_core::op::{Color, Length};
 use fission_core::ui::{
     Align, Button, ButtonVariant, Container, GestureDetector, Text, Widget, ZStack,
 };
@@ -335,31 +335,37 @@ impl From<Modal> for Widget {
             );
         }
 
+        let mut header_children = vec![
+            Text::new(this.title.clone()).size(20.0).into(),
+            fission_core::ui::widgets::spacer::Spacer {
+                flex_grow: 1.0,
+                ..Default::default()
+            }
+            .into(),
+        ];
+        if let Some(on_dismiss) = this.on_dismiss.clone() {
+            header_children.push(
+                Button {
+                    variant: ButtonVariant::Ghost,
+                    child: Some(
+                        Icon::svg(fission_icons::material::navigation::close::regular())
+                            .size(20.0)
+                            .into(),
+                    ),
+                    on_press: Some(on_dismiss),
+                    ..Default::default()
+                }
+                .into(),
+            );
+        }
+
         let mut modal_card_builder = Container::new(VStack {
             spacing: Some(16.0),
             children: vec![
                 // Header
                 HStack {
                     spacing: Some(8.0),
-                    children: vec![
-                        Text::new(this.title.clone()).size(20.0).into(),
-                        fission_core::ui::widgets::spacer::Spacer {
-                            flex_grow: 1.0,
-                            ..Default::default()
-                        }
-                        .into(),
-                        Button {
-                            variant: ButtonVariant::Ghost,
-                            child: Some(
-                                Icon::svg(fission_icons::material::navigation::close::regular())
-                                    .size(20.0)
-                                    .into(),
-                            ),
-                            on_press: this.on_dismiss.clone(),
-                            ..Default::default()
-                        }
-                        .into(),
-                    ],
+                    children: header_children,
                 }
                 .into(),
                 // Content
@@ -396,6 +402,7 @@ impl From<Modal> for Widget {
 
         let mut modal_card: Widget = modal_card_builder
             .width(dialog_width)
+            .height_length(Length::fit_content(None))
             .padding_all(24.0)
             .into();
         if let Some(plan) = &motion_plan {
