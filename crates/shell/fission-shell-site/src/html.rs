@@ -884,7 +884,19 @@ impl HtmlRenderer<'_> {
         tag: &str,
         node: &CoreNode,
         class_name: &str,
+        style: Vec<String>,
+    ) -> Result<String> {
+        self.render_element_with_attrs(tag, node, node.id, class_name, style, "")
+    }
+
+    fn render_element_with_attrs(
+        &mut self,
+        tag: &str,
+        node: &CoreNode,
+        rendered_node_id: WidgetId,
+        class_name: &str,
         mut style: Vec<String>,
+        attrs: &str,
     ) -> Result<String> {
         let mut skip = HashSet::new();
         style.extend(self.coalesced_paint_style(node, &mut skip)?);
@@ -900,9 +912,8 @@ impl HtmlRenderer<'_> {
         };
         let class_name = self.class_name(&class_name, style);
         Ok(format!(
-            "<{tag} class=\"{}\" data-fission-node=\"{}\">{children}</{tag}>",
+            "<{tag} class=\"{}\"{attrs} data-fission-node=\"{rendered_node_id}\">{children}</{tag}>",
             escape_attr(&class_name),
-            node.id
         ))
     }
 
@@ -1404,23 +1415,22 @@ impl HtmlRenderer<'_> {
                 align_items,
                 justify_content,
             } => {
-                let mut style = vec![
-                    "display:flex".to_string(),
-                    format!("flex-direction:{}", flex_direction(*direction)),
-                    format!("flex-wrap:{}", flex_wrap(*wrap)),
-                    format!("align-items:{}", align_items_css(*align_items)),
-                    format!("justify-content:{}", justify_content_css(*justify_content)),
-                ];
-                if let Some(gap) = gap {
-                    style.push(format!("gap:{}px", px(*gap)));
-                }
-                push_padding(&mut style, *padding);
-                push_flex_item(&mut style, *flex_grow, *flex_shrink);
-                let class_name = match direction {
-                    FlexDirection::Column => "fission-site-node fission-site-column",
-                    FlexDirection::Row => "fission-site-node fission-site-row",
-                };
-                self.render_element("div", node, class_name, style)
+                let (layout_class, style) = flex_layout_style(
+                    *direction,
+                    *wrap,
+                    *flex_grow,
+                    *flex_shrink,
+                    *padding,
+                    *gap,
+                    *align_items,
+                    *justify_content,
+                );
+                self.render_element(
+                    "div",
+                    node,
+                    &format!("fission-site-node {layout_class}"),
+                    style,
+                )
             }
             LayoutOp::Grid {
                 columns,
@@ -1429,20 +1439,7 @@ impl HtmlRenderer<'_> {
                 row_gap,
                 padding,
             } => {
-                let mut style = vec!["display:grid".to_string()];
-                if !columns.is_empty() {
-                    style.push(format!("grid-template-columns:{}", grid_tracks(columns)));
-                }
-                if !rows.is_empty() {
-                    style.push(format!("grid-template-rows:{}", grid_tracks(rows)));
-                }
-                if let Some(gap) = column_gap {
-                    style.push(format!("column-gap:{}px", px(*gap)));
-                }
-                if let Some(gap) = row_gap {
-                    style.push(format!("row-gap:{}px", px(*gap)));
-                }
-                push_padding(&mut style, *padding);
+                let style = grid_layout_style(columns, rows, *column_gap, *row_gap, *padding);
                 self.render_element("div", node, "fission-site-node fission-site-grid", style)
             }
             LayoutOp::GridItem {
@@ -2056,11 +2053,42 @@ impl HtmlRenderer<'_> {
         if tag == "button" {
             attrs.push_str(" type=\"button\" disabled");
         }
+        if tag == "ul" {
+            if let Some(html) = self.render_transparent_list_layout(node, &attrs)? {
+                return Ok(html);
+            }
+        }
         let children = self.render_children(&node.children, &HashSet::new())?;
         Ok(format!(
             "<{tag} class=\"fission-site-node fission-site-semantics\"{attrs} data-fission-node=\"{}\">{children}</{tag}>",
             node.id
         ))
+    }
+
+    fn render_transparent_list_layout(
+        &mut self,
+        node: &CoreNode,
+        attrs: &str,
+    ) -> Result<Option<String>> {
+        let [layout_id] = node.children.as_slice() else {
+            return Ok(None);
+        };
+        let Some(layout_node) = self.ir.nodes.get(layout_id) else {
+            return Ok(None);
+        };
+        let Op::Layout(layout) = &layout_node.op else {
+            return Ok(None);
+        };
+        let Some((layout_class, style)) = transparent_list_layout_style(layout) else {
+            return Ok(None);
+        };
+
+        // Flex and grid nodes only arrange the list payload here. Apply their
+        // presentation to the semantic element so <li> nodes remain direct
+        // children of <ul>; semantic descendants still render normally.
+        let class_name = format!("fission-site-node fission-site-semantics {layout_class}");
+        self.render_element_with_attrs("ul", layout_node, node.id, &class_name, style, attrs)
+            .map(Some)
     }
 
     fn render_native_control_semantics(
@@ -3359,6 +3387,94 @@ fn grid_track(track: &GridTrack) -> String {
     }
 }
 
+fn transparent_list_layout_style(layout: &LayoutOp) -> Option<(&'static str, Vec<String>)> {
+    match layout {
+        LayoutOp::Flex {
+            direction,
+            wrap,
+            flex_grow,
+            flex_shrink,
+            padding,
+            gap,
+            align_items,
+            justify_content,
+        } => Some(flex_layout_style(
+            *direction,
+            *wrap,
+            *flex_grow,
+            *flex_shrink,
+            *padding,
+            *gap,
+            *align_items,
+            *justify_content,
+        )),
+        LayoutOp::Grid {
+            columns,
+            rows,
+            column_gap,
+            row_gap,
+            padding,
+        } => Some((
+            "fission-site-grid",
+            grid_layout_style(columns, rows, *column_gap, *row_gap, *padding),
+        )),
+        _ => None,
+    }
+}
+
+fn flex_layout_style(
+    direction: FlexDirection,
+    wrap: FlexWrap,
+    flex_grow: f32,
+    flex_shrink: f32,
+    padding: [f32; 4],
+    gap: Option<f32>,
+    align_items: AlignItems,
+    justify_content: JustifyContent,
+) -> (&'static str, Vec<String>) {
+    let mut style = vec![
+        "display:flex".to_string(),
+        format!("flex-direction:{}", flex_direction(direction)),
+        format!("flex-wrap:{}", flex_wrap(wrap)),
+        format!("align-items:{}", align_items_css(align_items)),
+        format!("justify-content:{}", justify_content_css(justify_content)),
+    ];
+    if let Some(gap) = gap {
+        style.push(format!("gap:{}px", px(gap)));
+    }
+    push_padding(&mut style, padding);
+    push_flex_item(&mut style, flex_grow, flex_shrink);
+    let class_name = match direction {
+        FlexDirection::Column => "fission-site-column",
+        FlexDirection::Row => "fission-site-row",
+    };
+    (class_name, style)
+}
+
+fn grid_layout_style(
+    columns: &[GridTrack],
+    rows: &[GridTrack],
+    column_gap: Option<f32>,
+    row_gap: Option<f32>,
+    padding: [f32; 4],
+) -> Vec<String> {
+    let mut style = vec!["display:grid".to_string()];
+    if !columns.is_empty() {
+        style.push(format!("grid-template-columns:{}", grid_tracks(columns)));
+    }
+    if !rows.is_empty() {
+        style.push(format!("grid-template-rows:{}", grid_tracks(rows)));
+    }
+    if let Some(gap) = column_gap {
+        style.push(format!("column-gap:{}px", px(gap)));
+    }
+    if let Some(gap) = row_gap {
+        style.push(format!("row-gap:{}px", px(gap)));
+    }
+    push_padding(&mut style, padding);
+    style
+}
+
 fn flex_direction(direction: FlexDirection) -> &'static str {
     match direction {
         FlexDirection::Row => "row",
@@ -3516,6 +3632,8 @@ fn escape_attr(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fission_core::ui::{Column, Grid, SemanticsRegion, Text, Widget};
+    use fission_core::{Env, RuntimeState};
     use fission_ir::{
         ActionEntry, ActionSet, CompositeScalar, CompositeStyle, CoreIR, CoreNode, Op, Semantics,
         WidgetId,
@@ -3532,6 +3650,30 @@ mod tests {
             value: 612.0,
         }],
     }];
+
+    fn render_test_widget(widget: impl Into<Widget>) -> RenderedHtml {
+        let widget = widget.into();
+        let env = Env::default();
+        let runtime = RuntimeState::default();
+        let mut lowering =
+            fission_core::internal::InternalLoweringCx::new(&env, &runtime, None, None);
+        let root = fission_core::internal::lower_widget(&widget, &mut lowering);
+        lowering.ir.set_root(root);
+        render_ir_to_html(&lowering.ir, &HtmlRenderOptions::default()).unwrap()
+    }
+
+    fn generic_list_item(label: &str) -> Widget {
+        SemanticsRegion::new(Text::new(label))
+            .role(Role::ListItem)
+            .into()
+    }
+
+    fn rendered_list_parts(html: &str) -> (&str, &str) {
+        let (_, list) = html.split_once("<ul").expect("rendered list element");
+        let (opening, after_opening) = list.split_once('>').expect("list opening tag");
+        let (contents, _) = after_opening.split_once("</ul>").expect("list closing tag");
+        (opening, contents)
+    }
 
     #[test]
     fn spotlight_layout_emits_browser_geometry_metadata() {
@@ -4464,6 +4606,84 @@ mod tests {
         assert!(rendered
             .html
             .contains("data-fission-action-payload=\"dead\""));
+    }
+
+    #[test]
+    fn semantic_list_absorbs_column_layout_for_direct_list_items() {
+        let rendered = render_test_widget(
+            SemanticsRegion::new(Column {
+                gap: Some(8.0),
+                children: vec![
+                    generic_list_item("First item"),
+                    generic_list_item("Second item"),
+                ],
+                ..Default::default()
+            })
+            .identifier("sample-list")
+            .label("Sample items")
+            .role(Role::List),
+        );
+
+        let (opening, contents) = rendered_list_parts(&rendered.html);
+        assert!(opening.contains("fission-site-column"));
+        assert!(opening.contains("data-fission-semantics=\"sample-list\""));
+        assert!(opening.contains("aria-label=\"Sample items\""));
+        assert!(contents.starts_with("<li "));
+        assert_eq!(contents.matches("<li ").count(), 2);
+        assert!(contents.contains("</li><li "));
+        assert!(!contents.starts_with("<div"));
+        assert!(rendered.css.contains("display:flex"));
+        assert!(rendered.css.contains("gap:8px"));
+    }
+
+    #[test]
+    fn semantic_list_absorbs_grid_layout_for_direct_list_items() {
+        let rendered = render_test_widget(
+            SemanticsRegion::new(Grid {
+                columns: vec![GridTrack::Fr(1.0), GridTrack::Fr(1.0)],
+                column_gap: Some(12.0),
+                children: vec![
+                    generic_list_item("First result"),
+                    generic_list_item("Second result"),
+                ],
+                ..Default::default()
+            })
+            .role(Role::List),
+        );
+
+        let (opening, contents) = rendered_list_parts(&rendered.html);
+        assert!(opening.contains("fission-site-grid"));
+        assert!(contents.starts_with("<li "));
+        assert_eq!(contents.matches("<li ").count(), 2);
+        assert!(contents.contains("</li><li "));
+        assert!(!contents.starts_with("<div"));
+        assert!(rendered.css.contains("display:grid"));
+        assert!(rendered.css.contains("grid-template-columns:1fr 1fr"));
+        assert!(rendered.css.contains("column-gap:12px"));
+    }
+
+    #[test]
+    fn semantic_list_preserves_layout_inside_meaningful_list_item() {
+        let nested_item = SemanticsRegion::new(Column {
+            children: vec![Text::new("Nested item detail").into()],
+            ..Default::default()
+        })
+        .identifier("nested-item")
+        .role(Role::ListItem);
+        let rendered = render_test_widget(
+            SemanticsRegion::new(Column {
+                children: vec![nested_item.into()],
+                ..Default::default()
+            })
+            .role(Role::List),
+        );
+
+        let (_, contents) = rendered_list_parts(&rendered.html);
+        assert!(contents.starts_with("<li "));
+        assert!(contents.contains("data-fission-semantics=\"nested-item\""));
+        let (_, item_contents) = contents.split_once('>').expect("list item opening tag");
+        assert!(item_contents.starts_with("<div "));
+        assert!(item_contents.contains("fission-site-column"));
     }
 
     #[test]
