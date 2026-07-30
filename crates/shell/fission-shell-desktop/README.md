@@ -31,6 +31,7 @@ use fission_shell_desktop::DesktopApp;
 
 DesktopApp::new(MyRootWidget)
     .with_title("My App")
+    .with_initial_maximized(true)
     .with_state_init(|state| {
         state.counter = 42;
     })
@@ -65,6 +66,7 @@ DesktopApp::new(MyRootWidget)
 | Method | Purpose |
 |--------|---------|
 | `with_title(title)` | Set the window title. |
+| `with_initial_maximized(maximized)` | Opt in to starting the native window maximized. The default remains `false`. |
 | `with_state_init(f)` | Mutate the initial `S` state before the first frame. Keep this synchronous and cheap. |
 | `with_startup_action(action)` | Dispatch one action after the runtime is ready. Use this to kick off startup jobs or services without blocking first paint. |
 | `with_async(f)` | Register typed async jobs, services, and capability handlers on the shell-owned async host. |

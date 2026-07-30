@@ -161,17 +161,59 @@ struct ActiveServiceHandle {
     runtime: RunningServiceHandle,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(any(test, target_os = "windows"))]
+fn windows_wide(value: &str) -> Result<Vec<u16>, String> {
+    if value.encode_utf16().any(|unit| unit == 0) {
+        return Err("Windows shell arguments cannot contain NUL characters".into());
+    }
+
+    Ok(value.encode_utf16().chain(std::iter::once(0)).collect())
+}
+
+#[cfg(any(test, target_os = "windows"))]
+fn windows_shell_execute_succeeded(status: usize) -> bool {
+    status > 32
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
+fn open_host_url(url: &str, _in_app: bool) -> Result<(), String> {
+    use ::windows::{
+        core::PCWSTR,
+        Win32::{
+            Foundation::HWND,
+            UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL},
+        },
+    };
+
+    let operation = windows_wide("open")?;
+    let target = windows_wide(url)?;
+    // SAFETY: `operation` and `target` remain alive for the duration of the call
+    // and are explicitly NUL-terminated. The optional parameters are null.
+    let outcome = unsafe {
+        ShellExecuteW(
+            HWND::default(),
+            PCWSTR(operation.as_ptr()),
+            PCWSTR(target.as_ptr()),
+            PCWSTR::null(),
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    let status = outcome.0 as usize;
+    if windows_shell_execute_succeeded(status) {
+        Ok(())
+    } else {
+        Err(format!(
+            "Windows could not open the requested URL (ShellExecuteW status {status})"
+        ))
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "windows")))]
 fn open_host_url(url: &str, _in_app: bool) -> Result<(), String> {
     if cfg!(target_os = "macos") {
         std::process::Command::new("open")
             .arg(url)
-            .spawn()
-            .map(|_| ())
-            .map_err(|error| error.to_string())
-    } else if cfg!(target_os = "windows") {
-        std::process::Command::new("cmd")
-            .args(["/C", "start", url])
             .spawn()
             .map(|_| ())
             .map_err(|error| error.to_string())
@@ -1169,6 +1211,7 @@ fn web_bool_global(name: &str) -> bool {
 #[cfg(target_os = "android")]
 fn build_window(
     title: &str,
+    initial_maximized: bool,
     background_test_mode: bool,
     target: &EventLoopWindowTarget,
     _web_mount_selector: Option<&str>,
@@ -1178,6 +1221,7 @@ fn build_window(
         .map(|monitor| monitor.scale_factor());
     let window_attributes = build_window_attributes(
         title,
+        initial_maximized,
         background_test_mode,
         false,
         _web_mount_selector,
@@ -1191,6 +1235,7 @@ fn build_window(
 #[cfg(not(target_os = "android"))]
 fn build_window_before_run(
     title: &str,
+    initial_maximized: bool,
     background_test_mode: bool,
     tray_skip_taskbar: bool,
     event_loop: &EventLoop<TestEvent>,
@@ -1198,6 +1243,7 @@ fn build_window_before_run(
 ) -> anyhow::Result<Arc<Window>> {
     let window_attributes = build_window_attributes(
         title,
+        initial_maximized,
         background_test_mode,
         tray_skip_taskbar,
         _web_mount_selector,
@@ -1213,12 +1259,15 @@ fn build_window_before_run(
 
 fn build_window_attributes(
     title: &str,
+    initial_maximized: bool,
     background_test_mode: bool,
     tray_skip_taskbar: bool,
     _web_mount_selector: Option<&str>,
     _reported_scale_factor: Option<f64>,
 ) -> anyhow::Result<WindowAttributes> {
-    let mut window_attributes = WindowAttributes::default().with_title(title);
+    let mut window_attributes = WindowAttributes::default()
+        .with_title(title)
+        .with_maximized(initial_maximized);
     #[cfg(target_os = "ios")]
     {
         // Winit leaves UIView.contentScaleFactor at UIKit's default unless the
@@ -4025,6 +4074,7 @@ where
     key_handler: Option<KeyHandler<S>>,
     frame_hook: Option<FrameHook<S>>,
     title: String,
+    initial_maximized: bool,
     web_mount_selector: Option<String>,
     test_control_port: Option<u16>,
     /// Channel pair for receiving completed background effect results.
@@ -4093,6 +4143,7 @@ where
             key_handler: None,
             frame_hook: None,
             title: "Fission".into(),
+            initial_maximized: false,
             web_mount_selector: None,
             test_control_port: None,
             effect_result_tx,
@@ -4126,6 +4177,15 @@ where
     pub fn with_title(mut self, title: impl Into<String>) -> Self {
         self.title = title.into();
         self.env.window.title = fission_core::WindowTitle::plain(self.title.clone());
+        self
+    }
+
+    /// Requests that the native window start maximized.
+    ///
+    /// This is opt-in and defaults to `false`. The desktop window manager may
+    /// choose whether to honor the request.
+    pub fn with_initial_maximized(mut self, maximized: bool) -> Self {
+        self.initial_maximized = maximized;
         self
     }
 
@@ -4570,6 +4630,7 @@ where
         #[cfg(feature = "tray")]
         let tray_config = self.tray_config.clone();
         let window_title = self.title.clone();
+        let initial_maximized = self.initial_maximized;
         let web_mount_selector = self.web_mount_selector;
         let ime_handler = Arc::new(DesktopImeHandler::default());
         self.runtime = self.runtime.with_ime_handler(ime_handler.clone());
@@ -4577,6 +4638,7 @@ where
         #[cfg(not(target_os = "android"))]
         let platform_window = build_window_before_run(
             &window_title,
+            initial_maximized,
             background_test_mode,
             tray_skip_taskbar,
             &event_loop,
@@ -5869,6 +5931,7 @@ where
                     if platform_window.is_none() {
                         match build_window(
                             &window_title,
+                            initial_maximized,
                             background_test_mode,
                             elwt,
                             web_mount_selector.as_deref(),
@@ -8866,9 +8929,9 @@ fn native_window_size_for_logical_viewport(size: LayoutSize) -> winit::dpi::Logi
 #[cfg(test)]
 mod tests {
     use super::{
-        animation_redraw_interval, clamp_copy_extent_to_texture, collect_semantic_records,
-        collect_startup_deep_links_from, cursor_icon_for, downscale_rgba_box,
-        layout_size_to_image_dimensions, logical_viewport_to_physical_size,
+        animation_redraw_interval, build_window_attributes, clamp_copy_extent_to_texture,
+        collect_semantic_records, collect_startup_deep_links_from, cursor_icon_for,
+        downscale_rgba_box, layout_size_to_image_dimensions, logical_viewport_to_physical_size,
         logical_viewport_to_render_target_size, native_window_size_for_logical_viewport,
         normalize_scale_factor, normalize_winit_scroll_delta, physical_position_to_layout_point,
         physical_size_to_layout_size, preferred_surface_alpha_mode,
@@ -8876,7 +8939,8 @@ mod tests {
         resolve_build_viewport, resolve_selector_record, should_auto_select_native_software,
         surface_acquire_recovery, sync_tracked_target_texture_size_to_surface,
         texture_plans_fit_device_limits, visual_rect_for_node, window_insets_from_safe_area_frames,
-        LiveResizeController, SurfaceAcquireRecovery, WindowViewportState,
+        windows_shell_execute_succeeded, windows_wide, LiveResizeController,
+        SurfaceAcquireRecovery, WindowViewportState,
     };
     use crate::pipeline::CompositorTexturePlan;
     use crate::renderer_diagnostics::RendererRequest;
@@ -8891,6 +8955,37 @@ mod tests {
     use winit::dpi::{PhysicalPosition, PhysicalSize};
     use winit::event::MouseScrollDelta;
     use winit::window::CursorIcon;
+
+    #[test]
+    fn initial_window_maximization_is_opt_in() {
+        let default_attributes =
+            build_window_attributes("Fission", false, false, false, None, None).unwrap();
+        let maximized_attributes =
+            build_window_attributes("Fission", true, false, false, None, None).unwrap();
+
+        assert!(!default_attributes.maximized);
+        assert!(maximized_attributes.maximized);
+    }
+
+    #[test]
+    fn windows_shell_arguments_are_utf16_nul_terminated() {
+        let value = "https://example.com/projects/café";
+        let encoded = windows_wide(value).expect("valid shell argument");
+
+        assert_eq!(encoded.last(), Some(&0));
+        assert_eq!(
+            &encoded[..encoded.len() - 1],
+            value.encode_utf16().collect::<Vec<_>>()
+        );
+        assert!(windows_wide("https://example.com/\0truncated").is_err());
+    }
+
+    #[test]
+    fn windows_shell_execute_status_uses_documented_success_boundary() {
+        assert!(!windows_shell_execute_succeeded(0));
+        assert!(!windows_shell_execute_succeeded(32));
+        assert!(windows_shell_execute_succeeded(33));
+    }
 
     #[test]
     fn surface_alpha_mode_always_comes_from_the_supported_set() {
