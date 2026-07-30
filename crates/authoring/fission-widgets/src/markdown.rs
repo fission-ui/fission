@@ -26,6 +26,38 @@ pub struct MarkdownViewer {
     pub show_scrollbar: bool,
 }
 
+/// Parses Markdown into ordinary Fission content without creating a scroll
+/// viewport.
+///
+/// Use this when the surrounding page already owns scrolling. It renders the
+/// same safe native Markdown nodes as [`MarkdownViewer`] while allowing the
+/// document to participate in the parent's intrinsic layout.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct MarkdownContent {
+    pub markdown: String,
+}
+
+impl MarkdownContent {
+    pub fn new(markdown: impl Into<String>) -> Self {
+        Self {
+            markdown: markdown.into(),
+        }
+    }
+}
+
+impl From<MarkdownContent> for Widget {
+    fn from(component: MarkdownContent) -> Self {
+        let (_, view) = fission_core::build::current::<()>();
+        let parser = Parser::with_extensions(
+            parser::Options::default(),
+            parser::gfm(parser::GfmOptions::default()),
+        );
+        let mut reader = BasicReader::new(&component.markdown);
+        let (arena, document_ref) = parser.parse(&mut reader);
+        MarkdownRenderer::new(&component.markdown, &arena, view).document(document_ref)
+    }
+}
+
 impl Default for MarkdownViewer {
     fn default() -> Self {
         Self {
@@ -46,19 +78,10 @@ impl MarkdownViewer {
 
 impl From<MarkdownViewer> for Widget {
     fn from(component: MarkdownViewer) -> Self {
-        let (_, view) = fission_core::build::current::<()>();
         let this = &component;
 
-        let parser = Parser::with_extensions(
-            parser::Options::default(),
-            parser::gfm(parser::GfmOptions::default()),
-        );
-        let mut reader = BasicReader::new(&this.markdown);
-        let (arena, document_ref) = parser.parse(&mut reader);
-        let renderer = MarkdownRenderer::new(&this.markdown, &arena, view);
-
         Scroll {
-            child: Some(renderer.document(document_ref)),
+            child: Some(MarkdownContent::new(this.markdown.clone()).into()),
             direction: FlexDirection::Column,
             show_scrollbar: this.show_scrollbar,
             flex_grow: 1.0,

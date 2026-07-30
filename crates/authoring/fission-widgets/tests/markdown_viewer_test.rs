@@ -2,7 +2,7 @@ use fission_core::internal::BuildCtx;
 use fission_core::{build, Env, GlobalState, RuntimeState, View, Widget};
 use fission_ir::op::{ImageSource, PaintOp};
 use fission_ir::Op;
-use fission_widgets::MarkdownViewer;
+use fission_widgets::{MarkdownContent, MarkdownViewer};
 
 #[derive(Default, Debug, Clone)]
 struct State;
@@ -26,6 +26,28 @@ fn scroll_content(node: Widget) -> Widget {
         .as_ref()
         .expect("MarkdownViewer scroll content")
         .clone()
+}
+
+fn build_markdown_content(markdown: &str) -> Widget {
+    let env = Env::default();
+    let runtime = RuntimeState::default();
+    let state = State;
+    let view = View::new(&state, &runtime, &env, None);
+    let mut ctx = BuildCtx::<State>::new();
+
+    build::enter(&mut ctx, &view, || MarkdownContent::new(markdown).into())
+}
+
+#[test]
+fn markdown_content_participates_in_parent_scrolling_without_nested_scroll() {
+    let content = build_markdown_content("# Title\n\nBody\n");
+    assert!(
+        fission_core::internal::widget_as_scroll(&content).is_none(),
+        "MarkdownContent must not create an independent scroll viewport"
+    );
+    let column = fission_core::internal::widget_as_column(&content)
+        .expect("MarkdownContent should render its document column directly");
+    assert_eq!(column.children.len(), 2);
 }
 
 #[test]
