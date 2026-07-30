@@ -31,7 +31,7 @@ use winit::{
     event_loop::{
         ActiveEventLoop as EventLoopWindowTarget, ControlFlow, EventLoop, EventLoopProxy,
     },
-    window::{CursorIcon, Window, WindowAttributes, WindowId},
+    window::{CursorIcon, Theme as WindowTheme, Window, WindowAttributes, WindowId},
 };
 
 use fission_core::env::{VideoStatus, WindowInsets};
@@ -6617,6 +6617,16 @@ where
                                 "scale_factor_changed",
                             );
                         }
+                        WindowEvent::ThemeChanged(theme) => {
+                            env.system_theme_mode = match theme {
+                                WindowTheme::Light => fission_theme::DesignMode::Light,
+                                WindowTheme::Dark => fission_theme::DesignMode::Dark,
+                            };
+                            invalidations.mark_build();
+                            frame_trace.note_redraw_reason("system_theme_changed");
+                            window.request_redraw();
+                            redraw_pending = true;
+                        }
                         WindowEvent::RedrawRequested => {
                             if debug_android_events {
                                 eprintln!("[android-events] redraw_requested");
@@ -6942,6 +6952,10 @@ where
                             env.viewport_size = build_viewport;
                             env.window_insets =
                                 window_safe_area_insets(window, viewport_state.scale_factor);
+                            env.system_theme_mode = match window.theme() {
+                                Some(WindowTheme::Dark) => fission_theme::DesignMode::Dark,
+                                Some(WindowTheme::Light) | None => fission_theme::DesignMode::Light,
+                            };
 
                             if let Some(sync) = &self.sync_env {
                                 let state = runtime.get_global_state::<S>().unwrap();
