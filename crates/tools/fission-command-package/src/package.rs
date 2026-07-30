@@ -1558,23 +1558,14 @@ fn build_desktop_binary_with_cargo_options(
     })?;
     let manifest_path = project_dir.join("Cargo.toml");
     let name = cargo_package_name(&project_dir).context("Cargo.toml package.name is required")?;
-    let mut command = Command::new("cargo");
-    command
-        .arg("build")
-        .arg("--manifest-path")
-        .arg(&manifest_path)
-        .arg("--package")
-        .arg(&name)
-        .current_dir(&project_dir);
-    if release {
-        command.arg("--release");
-    }
-    if cargo_no_default_features {
-        command.arg("--no-default-features");
-    }
-    if !cargo_features.is_empty() {
-        command.arg("--features").arg(cargo_features.join(","));
-    }
+    let mut command = desktop_cargo_build_command(
+        &project_dir,
+        &manifest_path,
+        &name,
+        release,
+        cargo_features,
+        cargo_no_default_features,
+    );
     let status = command.status().context("failed to run cargo build")?;
     if !status.success() {
         bail!("desktop build failed with {status}");
@@ -1596,6 +1587,34 @@ fn build_desktop_binary_with_cargo_options(
         bail!("expected built binary at {}", path.display());
     }
     Ok(path)
+}
+
+fn desktop_cargo_build_command(
+    project_dir: &Path,
+    manifest_path: &Path,
+    name: &str,
+    release: bool,
+    cargo_features: &[String],
+    cargo_no_default_features: bool,
+) -> Command {
+    let mut command = Command::new("cargo");
+    command
+        .arg("build")
+        .arg("--manifest-path")
+        .arg(&manifest_path)
+        .arg("--package")
+        .arg(&name)
+        .current_dir(&project_dir);
+    if release {
+        command.arg("--release").arg("--locked");
+    }
+    if cargo_no_default_features {
+        command.arg("--no-default-features");
+    }
+    if !cargo_features.is_empty() {
+        command.arg("--features").arg(cargo_features.join(","));
+    }
+    command
 }
 
 fn desktop_binary_output_path(
