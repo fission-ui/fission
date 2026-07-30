@@ -1,5 +1,5 @@
 use fission_core::ui::{Container, SemanticsRegion, Text, Widget};
-use fission_core::{GlobalState, ReducerContext, Role, reduce_with};
+use fission_core::{reduce_with, GlobalState, ReducerContext, Role};
 use fission_test::TestHarness;
 use fission_widgets::{NumberInput, SplitDirection, SplitView};
 
@@ -309,26 +309,38 @@ fn test_modal_content_keeps_its_intrinsic_height() {
 
     let ir = harness.last_ir.as_ref().unwrap();
     let snapshot = harness.last_snapshot.as_ref().unwrap();
-    let content_id = ir
-        .nodes
-        .iter()
-        .find_map(|(id, node)| match &node.op {
-            fission_ir::Op::Semantics(semantics)
-                if semantics.identifier.as_deref() == Some("intrinsic-modal-content") =>
-            {
-                Some(*id)
-            }
-            _ => None,
-        })
-        .expect("modal content semantics were not rendered");
+    let (content_id, surface_id) =
+        ir.nodes
+            .iter()
+            .fold((None, None), |(content, surface), (id, node)| {
+                let fission_ir::Op::Semantics(semantics) = &node.op else {
+                    return (content, surface);
+                };
+                match semantics.identifier.as_deref() {
+                    Some("intrinsic-modal-content") => (Some(*id), surface),
+                    Some("fission-modal-surface") => (content, Some(*id)),
+                    _ => (content, surface),
+                }
+            });
+    let content_id = content_id.expect("modal content semantics were not rendered");
+    let surface_id = surface_id.expect("modal surface semantics were not rendered");
     let content = snapshot
         .get_node_rect(content_id)
         .expect("modal content was not laid out");
+    let surface = snapshot
+        .get_node_rect(surface_id)
+        .expect("modal surface was not laid out");
 
     assert!(
         content.height() < VIEWPORT_HEIGHT / 2.0,
         "short modal content should keep an intrinsic height, got {} in a {}px viewport",
         content.height(),
+        VIEWPORT_HEIGHT,
+    );
+    assert!(
+        surface.height() < VIEWPORT_HEIGHT / 2.0,
+        "short modal surface should keep an intrinsic height, got {} in a {}px viewport",
+        surface.height(),
         VIEWPORT_HEIGHT,
     );
 }

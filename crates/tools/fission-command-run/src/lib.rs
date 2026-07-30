@@ -12,8 +12,10 @@ use fission_command_core::{
     MacosPackageConfig, NativeVariant, PlatformCapability, Target,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::hash_map::DefaultHasher;
 use std::env;
 use std::fs::{self, File, OpenOptions};
+use std::hash::{Hash, Hasher};
 use std::io::{self, IsTerminal, Read, Seek, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
@@ -1357,7 +1359,7 @@ fn package_macos_run_app(
     let profile = if release { "release" } else { "debug" };
     let app_name = macos_display_name(&project.app.name);
     let app_bundle = variant_output_path(
-        project_dir.join(".fission/run/macos").join(profile),
+        macos_run_staging_root(&project_dir, project, profile),
         variant,
     )
     .join(format!("{app_name}.app"));
@@ -1412,6 +1414,23 @@ fn package_macos_run_app(
     sign_macos_app_if_configured(&project_dir, &app_bundle, &macos)?;
 
     Ok(MacosRunApp { bundle: app_bundle })
+}
+
+fn macos_run_staging_root(project_dir: &Path, project: &FissionProject, profile: &str) -> PathBuf {
+    let mut project_hash = DefaultHasher::new();
+    project_dir.hash(&mut project_hash);
+    let project_key = format!(
+        "{}-{:016x}",
+        sanitize_file_stem(&project.app.app_id),
+        project_hash.finish()
+    );
+
+    env::temp_dir()
+        .join("fission")
+        .join("run")
+        .join("macos")
+        .join(project_key)
+        .join(profile)
 }
 
 fn package_linux_run_app(
@@ -2254,6 +2273,20 @@ mod tests {
 
         assert!(plist.contains("<string>com.example.packaged</string>"));
         assert!(plist.contains("<key>LSMinimumSystemVersion</key>\n  <string>14.0</string>"));
+    }
+
+    #[test]
+    fn macos_run_bundle_is_staged_outside_the_project_volume() {
+        let project_dir = Path::new("/Volumes/My Shared Files/projects/example");
+
+        let staging = macos_run_staging_root(project_dir, &project(), "debug");
+
+        assert!(staging.starts_with(env::temp_dir()));
+        assert!(!staging.starts_with(project_dir));
+        assert!(staging.ends_with("debug"));
+        assert!(staging
+            .to_string_lossy()
+            .contains("com.fission.examples.fieldinspector"));
     }
 
     #[test]

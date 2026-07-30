@@ -480,6 +480,75 @@ fn custom_packager_receives_selected_variant() {
 }
 
 #[test]
+fn desktop_package_builds_use_selected_variant_cargo_options() {
+    let root = std::env::temp_dir().join(format!(
+        "fission-package-desktop-cargo-variant-{}",
+        std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    fs::write(
+        root.join("fission.toml"),
+        r#"
+[package.windows]
+cargo_features = ["windows-base"]
+
+[package.windows.variants.billing]
+cargo_features = ["shared", "billing", "shared"]
+cargo_no_default_features = true
+
+[package.linux]
+cargo_features = ["linux-base"]
+cargo_no_default_features = true
+
+[package.linux.variants.billing]
+cargo_features = ["linux-billing"]
+cargo_no_default_features = false
+"#,
+    )
+    .unwrap();
+    let billing: fission_command_core::NativeVariant = "billing".parse().unwrap();
+
+    let windows = desktop_package_cargo_options(&PackageOptions {
+        project_dir: root.clone(),
+        target: Target::Windows,
+        format: PackageFormat::Exe,
+        release: true,
+        variant: Some(billing.clone()),
+        json: false,
+    })
+    .unwrap();
+    assert_eq!(windows.features, ["billing", "shared"]);
+    assert!(windows.no_default_features);
+
+    let linux = desktop_package_cargo_options(&PackageOptions {
+        project_dir: root.clone(),
+        target: Target::Linux,
+        format: PackageFormat::Run,
+        release: true,
+        variant: Some(billing),
+        json: false,
+    })
+    .unwrap();
+    assert_eq!(linux.features, ["linux-billing"]);
+    assert!(!linux.no_default_features);
+
+    let windows_base = desktop_package_cargo_options(&PackageOptions {
+        project_dir: root.clone(),
+        target: Target::Windows,
+        format: PackageFormat::Exe,
+        release: true,
+        variant: None,
+        json: false,
+    })
+    .unwrap();
+    assert_eq!(windows_base.features, ["windows-base"]);
+    assert!(!windows_base.no_default_features);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn linux_native_manifest_records_staged_product_digest() {
     let root = std::env::temp_dir().join(format!(
         "fission-linux-native-manifest-{}",

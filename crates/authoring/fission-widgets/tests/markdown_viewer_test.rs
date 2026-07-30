@@ -103,6 +103,65 @@ fn renders_common_markdown_blocks_to_fission_nodes() {
 }
 
 #[test]
+fn disables_unsafe_link_schemes_without_hiding_link_text() {
+    let node = build_markdown_content(
+        "[safe](https://example.com) [relative](./details) [unsafe](javascript:alert(1))\n",
+    );
+    let column = fission_core::internal::widget_as_column(&node)
+        .expect("expected MarkdownContent to render a Column");
+    let paragraph = fission_core::internal::widget_as_rich_text(&column.children[0])
+        .expect("expected paragraph to render as RichText");
+
+    let safe = paragraph
+        .runs
+        .iter()
+        .find(|run| run.text == "safe")
+        .expect("safe link text");
+    assert!(safe.style.underline);
+
+    let relative = paragraph
+        .runs
+        .iter()
+        .find(|run| run.text == "relative")
+        .expect("relative link text");
+    assert!(relative.style.underline);
+
+    let unsafe_link = paragraph
+        .runs
+        .iter()
+        .find(|run| run.text.contains("unsafe"))
+        .expect("unsafe link text remains visible");
+    assert!(!unsafe_link.style.underline);
+    assert!(unsafe_link.semantics_identifier.is_none());
+}
+
+#[test]
+fn disables_unsafe_link_wrappers_around_images() {
+    let node = build_markdown_content(
+        "[![Screenshot](https://cdn.example.com/image.png)](javascript:alert(1))\n",
+    );
+    let ir = fission_core::internal::lower_widget_to_ir(&node);
+
+    assert!(ir.nodes.values().any(|node| matches!(
+        &node.op,
+        Op::Paint(PaintOp::DrawImage { request, .. })
+            if matches!(
+                &request.source,
+                ImageSource::Network { url, .. }
+                    if url == "https://cdn.example.com/image.png"
+            )
+    )));
+    assert!(!ir.nodes.values().any(|node| matches!(
+        &node.op,
+        Op::Semantics(semantics)
+            if semantics
+                .identifier
+                .as_deref()
+                .is_some_and(|identifier| identifier.starts_with("markdown-link:javascript:"))
+    )));
+}
+
+#[test]
 fn renders_gfm_table_as_rows_and_cells() {
     let node = build_markdown("| Name | Value |\n| --- | --- |\n| A | 1 |\n");
     let content = scroll_content(node);
