@@ -139,6 +139,17 @@ where
         self
     }
 
+    /// Configures the explicit AppUserModelID used by unpackaged Windows apps.
+    ///
+    /// Packaged Windows apps continue to use their package identity. Ordinary
+    /// desktop installers must assign the same value to the app's Start Menu
+    /// shortcut as `System.AppUserModel.ID`. This setting has no effect on
+    /// non-Windows targets.
+    pub fn with_windows_app_user_model_id(mut self, app_user_model_id: impl Into<String>) -> Self {
+        self.inner = self.inner.with_windows_app_user_model_id(app_user_model_id);
+        self
+    }
+
     pub fn with_nfc_host<H>(mut self, host: H) -> Self
     where
         H: NfcHost,

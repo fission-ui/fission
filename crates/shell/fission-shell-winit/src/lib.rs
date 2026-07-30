@@ -4271,6 +4271,35 @@ where
         self
     }
 
+    /// Configures the explicit AppUserModelID used by unpackaged Windows apps.
+    ///
+    /// Packaged Windows apps continue to use their package identity. For an
+    /// ordinary desktop installer, this value must also be assigned to the
+    /// app's Start Menu shortcut as `System.AppUserModel.ID`. Windows limits
+    /// AppUserModelIDs to 128 characters and does not allow spaces.
+    ///
+    /// This setting has no effect on non-Windows targets.
+    pub fn with_windows_app_user_model_id(self, app_user_model_id: impl Into<String>) -> Self {
+        #[cfg(target_os = "windows")]
+        {
+            let mut app = self;
+            notifications::register_notification_capabilities(
+                &mut app.async_registry,
+                Arc::new(
+                    notifications::native_notification_host_with_windows_app_user_model_id(
+                        app_user_model_id,
+                    ),
+                ),
+            );
+            app
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = app_user_model_id;
+            self
+        }
+    }
+
     /// Registers the host implementation used for NFC effects.
     ///
     /// `host` owns scanning, writing, emulation, and cancellation. Install a
