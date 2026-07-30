@@ -47,7 +47,14 @@ impl MarkdownContent {
 
 impl From<MarkdownContent> for Widget {
     fn from(component: MarkdownContent) -> Self {
-        render_markdown_content(&component.markdown)
+        let (_, view) = fission_core::build::current::<()>();
+        let parser = Parser::with_extensions(
+            parser::Options::default(),
+            parser::gfm(parser::GfmOptions::default()),
+        );
+        let mut reader = BasicReader::new(&component.markdown);
+        let (arena, document_ref) = parser.parse(&mut reader);
+        MarkdownRenderer::new(&component.markdown, &arena, view).document(document_ref)
     }
 }
 
@@ -74,7 +81,7 @@ impl From<MarkdownViewer> for Widget {
         let this = &component;
 
         Scroll {
-            child: Some(render_markdown_content(&this.markdown)),
+            child: Some(MarkdownContent::new(this.markdown.clone()).into()),
             direction: FlexDirection::Column,
             show_scrollbar: this.show_scrollbar,
             flex_grow: 1.0,
@@ -82,17 +89,6 @@ impl From<MarkdownViewer> for Widget {
         }
         .into()
     }
-}
-
-fn render_markdown_content(markdown: &str) -> Widget {
-    let (_, view) = fission_core::build::current::<()>();
-    let parser = Parser::with_extensions(
-        parser::Options::default(),
-        parser::gfm(parser::GfmOptions::default()),
-    );
-    let mut reader = BasicReader::new(markdown);
-    let (arena, document_ref) = parser.parse(&mut reader);
-    MarkdownRenderer::new(markdown, &arena, view).document(document_ref)
 }
 
 #[derive(Clone, Copy)]
