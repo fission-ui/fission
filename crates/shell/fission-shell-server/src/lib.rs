@@ -24,8 +24,8 @@ pub use adapters::actix_adapter;
 pub use adapters::axum_adapter;
 pub use adapters::hyper_adapter;
 pub use app::{
-    FissionServerApp, ServerEnvContext, ServerHttpContext, ServerRenderContext, ServerRouteParams,
-    StaticMount,
+    FissionServerApp, ServerDocumentMetadata, ServerEnvContext, ServerHttpContext,
+    ServerRenderContext, ServerRouteParams, StaticMount,
 };
 pub use artifacts::{
     BrowserArtifactBuild, BrowserArtifactBuildOptions, BrowserArtifactKind, BrowserArtifactPlan,
@@ -42,6 +42,7 @@ pub use config::{
     ServerHttpConfig, ServerIslandConfig, ServerIslandPreload, ServerRuntimeConfig, ServerSameSite,
     ServerSessionConfig, ServerSessionProvider, ServerWorkerBridge,
 };
+pub use fission_shell_site::{SitePageElement, SitePageElementFilter, SitePageElementPlacement};
 pub use jobs::{ServerJobCtx, ServerJobError, ServerJobRegistry};
 pub use protocol::{
     AriaPoliteness, BrowserBridgeOutput, BrowserEventBinding, BrowserEventKind, DomBatch, DomOp,

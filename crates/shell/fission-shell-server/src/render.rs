@@ -19,7 +19,7 @@ use fission_ir::{semantics::ActionTrigger, CoreIR, Op};
 use fission_layout::LayoutSize;
 use fission_shell_site::{
     render_ir_to_html_with_styles, site_base_css, site_enhancement_js, theme_variables_css,
-    CssVariableMap, HtmlRenderOptions, StyleRegistry,
+    CssVariableMap, HtmlRenderOptions, SitePageElement, SitePageElementPlacement, StyleRegistry,
 };
 use fission_theme::DesignMode;
 use serde::{Deserialize, Serialize};
@@ -518,11 +518,29 @@ impl ServerRenderer {
         lowering.ir.set_root(root);
 
         let mut styles = StyleRegistry::default();
-        let mut head_end_html = Vec::new();
+        let head_start_html = server_page_elements_for_route(
+            &self.app.page_elements,
+            &route_path,
+            SitePageElementPlacement::HeadStart,
+        );
+        let mut head_end_html = server_page_elements_for_route(
+            &self.app.page_elements,
+            &route_path,
+            SitePageElementPlacement::HeadEnd,
+        );
         if matches!(self.islands_config.preload, ServerIslandPreload::Route) {
             head_end_html.extend(browser_artifact_preload_links(&route.route));
         }
-        let mut body_end_html = Vec::new();
+        let body_start_html = server_page_elements_for_route(
+            &self.app.page_elements,
+            &route_path,
+            SitePageElementPlacement::BodyStart,
+        );
+        let mut body_end_html = server_page_elements_for_route(
+            &self.app.page_elements,
+            &route_path,
+            SitePageElementPlacement::BodyEnd,
+        );
         if !route.route.workers.is_empty() || !route.route.islands.is_empty() {
             body_end_html.push(route_manifest_script(&route.route)?);
             body_end_html.push(server_browser_runtime_script());
@@ -534,10 +552,18 @@ impl ServerRenderer {
             Duration::from_secs(10 * 60),
         )?;
         let server_action_count = action_tokens.len();
+        let document_metadata = if let Some(resolver) = &self.app.document_metadata_resolver {
+            resolver(&ctx, &route.route)?
+        } else {
+            crate::ServerDocumentMetadata::new(
+                route.route.title.clone(),
+                route.route.description.clone(),
+            )
+        };
         let render_options = HtmlRenderOptions {
             lang: env.locale.0.clone(),
-            document_title: route.route.title.clone(),
-            description: route.route.description.clone(),
+            document_title: document_metadata.title,
+            description: document_metadata.description,
             canonical_url: self.canonical_url_for_route(&route_path, request),
             site_name: Some(self.app.project_name.clone()),
             favicon_href: None,
@@ -558,7 +584,9 @@ impl ServerRenderer {
                 .into_iter()
                 .map(|registration| (registration.node_id, registration))
                 .collect(),
+            head_start_html,
             head_end_html,
+            body_start_html,
             body_end_html,
             ..Default::default()
         };
@@ -993,6 +1021,18 @@ impl ServerRenderer {
         }
         CacheKey::new(key)
     }
+}
+
+fn server_page_elements_for_route(
+    elements: &[SitePageElement],
+    route_path: &str,
+    placement: SitePageElementPlacement,
+) -> Vec<String> {
+    elements
+        .iter()
+        .filter(|element| element.placement == placement && element.applies_to(route_path))
+        .map(|element| element.html.clone())
+        .collect()
 }
 
 fn cache_build_id() -> String {
@@ -1842,6 +1882,46 @@ mod tests {
     }
 
     #[test]
+    fn document_metadata_resolver_uses_the_request_locale() {
+        let app = FissionServerApp::new("Test")
+            .with_env(translated_env())
+            .with_request_env(|ctx, env| {
+                if ctx.route_path.starts_with("/fr") {
+                    env.locale = "fr".into();
+                }
+                Ok(())
+            })
+            .document_metadata(|ctx, route| {
+                let title = ctx
+                    .env()
+                    .i18n
+                    .get(&ctx.env().locale, &route.title)
+                    .unwrap_or(&route.title)
+                    .to_string();
+                Ok(crate::ServerDocumentMetadata::new(
+                    title,
+                    Some(format!("{} description", ctx.env().locale.0)),
+                ))
+            })
+            .route_widget::<TestState, _>(
+                "/fr",
+                "page.title",
+                None,
+                WebRouteMode::Server(Default::default()),
+                KeyPage("page.title"),
+            );
+        let renderer = ServerRenderer::new(app);
+
+        let body = renderer
+            .handle(ServerRequest::get("/fr"))
+            .unwrap()
+            .body_string();
+
+        assert!(body.contains("<title>Bonjour SSR</title>"));
+        assert!(body.contains("content=\"fr description\""));
+    }
+
+    #[test]
     fn server_app_registers_i18n_bundle_and_default_locale() {
         let app = FissionServerApp::new("Test")
             .translation_bundle(TranslationBundle {
@@ -2654,6 +2734,57 @@ same_site = "none"
         let css = css.body_string();
         assert!(css.contains(".fission-site-root"));
         assert!(css.contains(".demo-hook{animation:demo 1s linear infinite;}"));
+    }
+
+    #[test]
+    fn server_renderer_applies_document_elements_with_static_site_filters() {
+        let renderer = ServerRenderer::new(
+            FissionServerApp::new("Test")
+                .page_element(SitePageElement::new(
+                    SitePageElementPlacement::HeadStart,
+                    "<meta name=\"global-head-start\" content=\"yes\">",
+                ))
+                .page_element(
+                    SitePageElement::head("<meta name=\"home-head-end\" content=\"yes\">")
+                        .only_route("/"),
+                )
+                .page_element(
+                    SitePageElement::new(
+                        SitePageElementPlacement::BodyStart,
+                        "<div data-home-body-start></div>",
+                    )
+                    .only_route("/"),
+                )
+                .page_element(
+                    SitePageElement::body_end("<script>window.catalogReady=true;</script>")
+                        .only_route("/catalog"),
+                )
+                .server_route_widget::<TestState, _>("/", "Home", None, TestPage("Home page"))
+                .server_route_widget::<TestState, _>(
+                    "/catalog",
+                    "Catalog",
+                    None,
+                    TestPage("Catalog page"),
+                ),
+        );
+
+        let home = renderer
+            .handle(ServerRequest::get("/"))
+            .unwrap()
+            .body_string();
+        assert!(home.contains("global-head-start"));
+        assert!(home.contains("home-head-end"));
+        assert!(home.contains("data-home-body-start"));
+        assert!(!home.contains("window.catalogReady"));
+
+        let catalog = renderer
+            .handle(ServerRequest::get("/catalog"))
+            .unwrap()
+            .body_string();
+        assert!(catalog.contains("global-head-start"));
+        assert!(!catalog.contains("home-head-end"));
+        assert!(!catalog.contains("data-home-body-start"));
+        assert!(catalog.contains("window.catalogReady"));
     }
 
     #[test]
