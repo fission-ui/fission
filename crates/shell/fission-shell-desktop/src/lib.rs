@@ -66,6 +66,15 @@ where
         self
     }
 
+    /// Requests that the native desktop window start maximized.
+    ///
+    /// This is opt-in and defaults to `false`. The desktop window manager may
+    /// choose whether to honor the request.
+    pub fn with_initial_maximized(mut self, maximized: bool) -> Self {
+        self.inner = self.inner.with_initial_maximized(maximized);
+        self
+    }
+
     pub fn with_test_control_port(mut self, port: u16) -> Self {
         self.inner = self.inner.with_test_control_port(port);
         self

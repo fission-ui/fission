@@ -43,6 +43,21 @@ Desktop, web, and mobile are runtime shells: they keep the app running in a host
 
 Those differences are host differences, not app-model differences. The same state, reducers, selectors, widgets, design system, and environment model stay at the center.
 
+## Native desktop window startup
+
+Desktop windows use the platform's normal initial window state by default. An
+app that should open maximized can opt in without changing other Fission apps:
+
+```rust
+DesktopApp::<AppState, _>::new(App)
+    .with_title("Project overview")
+    .with_initial_maximized(true)
+    .run()
+```
+
+The desktop window manager receives this as an initial-state request and may
+apply platform policy when deciding how the window is presented.
+
 ## Desktop tray switcher policy
 
 Desktop tray apps should behave like tray apps by default. When you configure `DesktopApp::with_tray(...)`, Fission now defaults `TrayConfig::app_switcher_policy` to `TrayAppSwitcherPolicy::Hidden`. That is a breaking default: on macOS the app uses an accessory activation policy, on Windows the window asks winit to skip the taskbar, and on Linux the behavior is best-effort because window managers do not expose one portable switcher contract through winit.
