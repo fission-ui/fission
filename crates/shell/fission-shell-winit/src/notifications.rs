@@ -28,6 +28,23 @@ use std::process::Command;
 use std::sync::Arc;
 #[cfg(target_os = "macos")]
 use std::sync::{Condvar, Mutex, OnceLock};
+#[cfg(target_os = "windows")]
+use windows::{
+    core::{HSTRING, PCWSTR},
+    Data::Xml::Dom::XmlDocument,
+    Win32::{
+        Foundation::{APPMODEL_ERROR_NO_PACKAGE, ERROR_INSUFFICIENT_BUFFER, ERROR_SUCCESS},
+        Storage::Packaging::Appx::GetCurrentApplicationUserModelId,
+        System::{
+            Com::CoTaskMemFree,
+            WinRT::{RoInitialize, RoUninitialize, RO_INIT_MULTITHREADED},
+        },
+        UI::Shell::{
+            GetCurrentProcessExplicitAppUserModelID, SetCurrentProcessExplicitAppUserModelID,
+        },
+    },
+    UI::Notifications::{ToastNotification, ToastNotificationManager, ToastNotifier},
+};
 
 #[cfg(target_os = "ios")]
 #[link(name = "UIKit", kind = "framework")]
@@ -264,21 +281,35 @@ impl NotificationHost for MemoryNotificationHost {
 }
 
 #[derive(Debug, Default)]
-pub struct NativeNotificationHost;
+pub struct NativeNotificationHost {
+    #[cfg(target_os = "windows")]
+    windows_app_user_model_id: Option<String>,
+}
 
 pub(crate) fn native_notification_host() -> impl NotificationHost {
-    NativeNotificationHost
+    NativeNotificationHost::default()
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn native_notification_host_with_windows_app_user_model_id(
+    app_user_model_id: impl Into<String>,
+) -> impl NotificationHost {
+    let app_user_model_id = app_user_model_id.into();
+    prepare_windows_app_user_model_id(&app_user_model_id);
+    NativeNotificationHost {
+        windows_app_user_model_id: Some(app_user_model_id),
+    }
 }
 
 impl NativeNotificationHost {
-    #[cfg(any(test, not(target_os = "macos")))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     fn supported() -> bool {
         cfg!(target_os = "ios")
             || cfg!(target_os = "macos")
             || (cfg!(target_os = "linux") && command_exists("notify-send"))
     }
 
-    #[cfg(any(test, not(target_os = "macos")))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     fn native_settings() -> NotificationSettings {
         if Self::supported() {
             NotificationSettings {
@@ -331,7 +362,11 @@ impl NativeNotificationHost {
             }
 
             if cfg!(target_os = "windows") {
-                return Err(NotificationError::unsupported("show_windows_toast"));
+                #[cfg(target_os = "windows")]
+                {
+                    windows_show_notification(request, self.windows_app_user_model_id.as_deref())?;
+                    return Ok(());
+                }
             }
 
             Err(NotificationError::unsupported("show"))
@@ -348,7 +383,11 @@ impl NotificationHost for NativeNotificationHost {
         {
             macos_request_notification_permission()
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "windows")]
+        {
+            windows_notification_settings(self.windows_app_user_model_id.as_deref())
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         {
             #[cfg(target_os = "ios")]
             ios_register_local_notifications();
@@ -361,7 +400,11 @@ impl NotificationHost for NativeNotificationHost {
         {
             macos_notification_settings()
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "windows")]
+        {
+            windows_notification_settings(self.windows_app_user_model_id.as_deref())
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         {
             Ok(Self::native_settings())
         }
@@ -434,7 +477,7 @@ impl NotificationHost for NativeNotificationHost {
                 let request = request.clone();
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_millis(ms));
-                    let host = NativeNotificationHost;
+                    let host = NativeNotificationHost::default();
                     let _ = host.show_now(&request);
                 });
                 Ok(NotificationReceipt {
@@ -470,7 +513,7 @@ impl NotificationHost for NativeNotificationHost {
                 let request = request.clone();
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_millis(ms.saturating_sub(now_ms)));
-                    let host = NativeNotificationHost;
+                    let host = NativeNotificationHost::default();
                     let _ = host.show_now(&request);
                 });
                 Ok(NotificationReceipt {
@@ -488,7 +531,11 @@ impl NotificationHost for NativeNotificationHost {
             macos_cancel_notification(&request.id.0);
             Ok(())
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "windows")]
+        {
+            windows_cancel_notification(&request.id.0, self.windows_app_user_model_id.as_deref())
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         {
             let _ = request;
             Err(NotificationError::unsupported("cancel"))
@@ -501,7 +548,11 @@ impl NotificationHost for NativeNotificationHost {
             macos_cancel_all_notifications();
             Ok(())
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "windows")]
+        {
+            windows_cancel_all_notifications(self.windows_app_user_model_id.as_deref())
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         {
             Err(NotificationError::unsupported("cancel_all"))
         }
@@ -535,6 +586,369 @@ impl NotificationHost for NativeNotificationHost {
     fn unregister_push(&self) -> Result<(), NotificationError> {
         Err(NotificationError::unsupported("unregister_push"))
     }
+}
+
+#[cfg(target_os = "windows")]
+const WINDOWS_APP_USER_MODEL_ID_ENV: &str = "FISSION_WINDOWS_APP_USER_MODEL_ID";
+#[cfg(target_os = "windows")]
+const WINDOWS_TOAST_GROUP: &str = "fission";
+
+#[cfg(any(test, target_os = "windows"))]
+fn windows_toast_tag(id: &str) -> String {
+    // Windows toast tags are limited to 16 characters. FNV-1a gives cancellation
+    // a deterministic, process-independent tag without exposing or truncating
+    // the caller's logical notification id.
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in id.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{hash:016x}")
+}
+
+#[cfg(any(test, target_os = "windows"))]
+fn windows_toast_xml(request: &NotificationRequest) -> String {
+    let mut text = String::new();
+    text.push_str("<text>");
+    text.push_str(&escape_notification_xml(&request.title));
+    text.push_str("</text>");
+    if let Some(subtitle) = request.subtitle.as_deref() {
+        text.push_str("<text>");
+        text.push_str(&escape_notification_xml(subtitle));
+        text.push_str("</text>");
+    }
+    text.push_str("<text>");
+    text.push_str(&escape_notification_xml(&request.body));
+    text.push_str("</text>");
+
+    let audio = match &request.sound {
+        fission_core::NotificationSound::Silent => r#"<audio silent="true"/>"#.to_string(),
+        fission_core::NotificationSound::Named(sound) => {
+            format!(r#"<audio src="{}"/>"#, escape_notification_xml(sound))
+        }
+        fission_core::NotificationSound::Default => String::new(),
+    };
+
+    format!(
+        r#"<toast><visual><binding template="ToastGeneric">{text}</binding></visual>{audio}</toast>"#
+    )
+}
+
+#[cfg(any(test, target_os = "windows"))]
+fn escape_notification_xml(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&apos;"),
+            _ => escaped.push(character),
+        }
+    }
+    escaped
+}
+
+#[cfg(any(test, target_os = "windows"))]
+fn windows_settings_from_code(code: i32) -> NotificationSettings {
+    let permission = if code == 0 {
+        NotificationPermission::Granted
+    } else {
+        NotificationPermission::Denied
+    };
+    let enabled = matches!(permission, NotificationPermission::Granted);
+    NotificationSettings {
+        permission,
+        alerts: enabled,
+        badge: false,
+        sound: enabled,
+        scheduling: false,
+        push: false,
+    }
+}
+
+#[cfg(target_os = "windows")]
+struct WindowsRuntimeGuard {
+    uninitialize: bool,
+}
+
+#[cfg(target_os = "windows")]
+impl WindowsRuntimeGuard {
+    fn initialize() -> Result<Self, NotificationError> {
+        match unsafe { RoInitialize(RO_INIT_MULTITHREADED) } {
+            Ok(()) => Ok(Self { uninitialize: true }),
+            // RPC_E_CHANGED_MODE means this thread was already initialized as
+            // an STA. WinRT remains available and must not be uninitialized by us.
+            Err(error) if error.code().0 as u32 == 0x80010106 => Ok(Self {
+                uninitialize: false,
+            }),
+            Err(error) => Err(windows_notification_error(
+                "windows_runtime_unavailable",
+                error,
+            )),
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for WindowsRuntimeGuard {
+    fn drop(&mut self) {
+        if self.uninitialize {
+            unsafe { RoUninitialize() };
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+enum WindowsToastIdentity {
+    Packaged,
+    AppUserModelId(HSTRING),
+}
+
+#[cfg(target_os = "windows")]
+struct WindowsToastContext {
+    notifier: ToastNotifier,
+    identity: WindowsToastIdentity,
+    _runtime: WindowsRuntimeGuard,
+}
+
+#[cfg(target_os = "windows")]
+fn windows_toast_context(
+    configured_app_user_model_id: Option<&str>,
+) -> Result<WindowsToastContext, NotificationError> {
+    let runtime = WindowsRuntimeGuard::initialize()?;
+
+    if windows_process_has_package_identity()? {
+        let notifier = ToastNotificationManager::CreateToastNotifier().map_err(|error| {
+            windows_identity_error(
+                "Windows could not create a toast notifier from the app package identity",
+                error,
+            )
+        })?;
+        return Ok(WindowsToastContext {
+            notifier,
+            identity: WindowsToastIdentity::Packaged,
+            _runtime: runtime,
+        });
+    }
+
+    if let Some(app_user_model_id) =
+        configured_windows_app_user_model_id(configured_app_user_model_id)?
+    {
+        let app_user_model_id = HSTRING::from(app_user_model_id);
+        let notifier = ToastNotificationManager::CreateToastNotifierWithId(&app_user_model_id)
+            .map_err(|error| {
+                windows_identity_error(
+                    "Windows could not create a toast notifier for the configured AppUserModelID",
+                    error,
+                )
+            })?;
+        return Ok(WindowsToastContext {
+            notifier,
+            identity: WindowsToastIdentity::AppUserModelId(app_user_model_id),
+            _runtime: runtime,
+        });
+    }
+
+    Err(NotificationError::new(
+        "windows_app_identity_missing",
+        format!(
+            "Windows local notifications require package identity or an explicit AppUserModelID. \
+             Configure one with WinitApp::with_windows_app_user_model_id, set \
+             {WINDOWS_APP_USER_MODEL_ID_ENV}, or set the current process AppUserModelID. \
+             Ordinary desktop installers must also create a matching Start Menu shortcut."
+        ),
+    ))
+}
+
+#[cfg(target_os = "windows")]
+fn windows_process_has_package_identity() -> Result<bool, NotificationError> {
+    let mut length = 0u32;
+    let status =
+        unsafe { GetCurrentApplicationUserModelId(&mut length, windows::core::PWSTR::null()) };
+    match status {
+        ERROR_INSUFFICIENT_BUFFER | ERROR_SUCCESS => Ok(true),
+        APPMODEL_ERROR_NO_PACKAGE => Ok(false),
+        error => Err(NotificationError::new(
+            "windows_app_identity_unavailable",
+            format!(
+                "Windows could not determine whether this process has package identity \
+                 (Win32 error {})",
+                error.0
+            ),
+        )),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn prepare_windows_app_user_model_id(app_user_model_id: &str) {
+    // The process-level ID should be assigned before the first window is
+    // created. Preserve package-owned identity when this same binary runs from
+    // an MSIX package; the configured ID is only the unpackaged fallback.
+    if matches!(windows_process_has_package_identity(), Ok(false)) {
+        let _ = configure_windows_app_user_model_id(app_user_model_id);
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn configured_windows_app_user_model_id(
+    configured: Option<&str>,
+) -> Result<Option<String>, NotificationError> {
+    if let Some(value) = configured {
+        return configure_windows_app_user_model_id(value).map(Some);
+    }
+
+    if let Some(value) = std::env::var_os(WINDOWS_APP_USER_MODEL_ID_ENV) {
+        let value = value.into_string().map_err(|_| {
+            NotificationError::new(
+                "windows_app_user_model_id_invalid",
+                format!("{WINDOWS_APP_USER_MODEL_ID_ENV} must contain valid Unicode"),
+            )
+        })?;
+        return configure_windows_app_user_model_id(&value).map(Some);
+    }
+
+    let value = match unsafe { GetCurrentProcessExplicitAppUserModelID() } {
+        Ok(value) => value,
+        Err(_) => return Ok(None),
+    };
+    let result = unsafe { value.to_string() }.ok();
+    unsafe { CoTaskMemFree(Some(value.as_ptr().cast())) };
+    result
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| configure_windows_app_user_model_id(&value))
+        .transpose()
+}
+
+#[cfg(target_os = "windows")]
+fn configure_windows_app_user_model_id(value: &str) -> Result<String, NotificationError> {
+    let value = validate_windows_app_user_model_id(value)?;
+    let wide = value
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    unsafe {
+        SetCurrentProcessExplicitAppUserModelID(PCWSTR::from_raw(wide.as_ptr())).map_err(
+            |error| windows_notification_error("windows_app_user_model_id_invalid", error),
+        )?;
+    }
+    Ok(value)
+}
+
+#[cfg(any(test, target_os = "windows"))]
+fn validate_windows_app_user_model_id(value: &str) -> Result<String, NotificationError> {
+    if value.is_empty()
+        || value.encode_utf16().count() > 128
+        || value.chars().any(char::is_whitespace)
+    {
+        return Err(NotificationError::new(
+            "windows_app_user_model_id_invalid",
+            "a Windows AppUserModelID must contain 1 to 128 characters and cannot contain spaces",
+        ));
+    }
+    Ok(value.to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn windows_notification_settings(
+    configured_app_user_model_id: Option<&str>,
+) -> Result<NotificationSettings, NotificationError> {
+    let context = match windows_toast_context(configured_app_user_model_id) {
+        Ok(context) => context,
+        Err(error) if error.code == "windows_app_identity_missing" => {
+            return Ok(NotificationSettings {
+                permission: NotificationPermission::Unsupported,
+                ..Default::default()
+            });
+        }
+        Err(error) => return Err(error),
+    };
+    let setting = context
+        .notifier
+        .Setting()
+        .map_err(|error| windows_notification_error("windows_settings_unavailable", error))?;
+    Ok(windows_settings_from_code(setting.0))
+}
+
+#[cfg(target_os = "windows")]
+fn windows_show_notification(
+    request: &NotificationRequest,
+    configured_app_user_model_id: Option<&str>,
+) -> Result<(), NotificationError> {
+    let context = windows_toast_context(configured_app_user_model_id)?;
+    let document = XmlDocument::new()
+        .map_err(|error| windows_notification_error("windows_toast_content_invalid", error))?;
+    document
+        .LoadXml(&HSTRING::from(windows_toast_xml(request)))
+        .map_err(|error| windows_notification_error("windows_toast_content_invalid", error))?;
+    let toast = ToastNotification::CreateToastNotification(&document)
+        .map_err(|error| windows_notification_error("windows_toast_unavailable", error))?;
+    toast
+        .SetTag(&HSTRING::from(windows_toast_tag(&request.id.0)))
+        .map_err(|error| windows_notification_error("windows_toast_unavailable", error))?;
+    toast
+        .SetGroup(&HSTRING::from(WINDOWS_TOAST_GROUP))
+        .map_err(|error| windows_notification_error("windows_toast_unavailable", error))?;
+    context
+        .notifier
+        .Show(&toast)
+        .map_err(|error| windows_notification_error("windows_toast_delivery_failed", error))
+}
+
+#[cfg(target_os = "windows")]
+fn windows_cancel_notification(
+    id: &str,
+    configured_app_user_model_id: Option<&str>,
+) -> Result<(), NotificationError> {
+    let context = windows_toast_context(configured_app_user_model_id)?;
+    let history = ToastNotificationManager::History()
+        .map_err(|error| windows_notification_error("windows_toast_history_unavailable", error))?;
+    let tag = HSTRING::from(windows_toast_tag(id));
+    let group = HSTRING::from(WINDOWS_TOAST_GROUP);
+    match context.identity {
+        WindowsToastIdentity::Packaged => history.RemoveGroupedTag(&tag, &group),
+        WindowsToastIdentity::AppUserModelId(app_user_model_id) => {
+            history.RemoveGroupedTagWithId(&tag, &group, &app_user_model_id)
+        }
+    }
+    .map_err(|error| windows_notification_error("windows_toast_cancel_failed", error))
+}
+
+#[cfg(target_os = "windows")]
+fn windows_cancel_all_notifications(
+    configured_app_user_model_id: Option<&str>,
+) -> Result<(), NotificationError> {
+    let context = windows_toast_context(configured_app_user_model_id)?;
+    let history = ToastNotificationManager::History()
+        .map_err(|error| windows_notification_error("windows_toast_history_unavailable", error))?;
+    match context.identity {
+        WindowsToastIdentity::Packaged => history.Clear(),
+        WindowsToastIdentity::AppUserModelId(app_user_model_id) => {
+            history.ClearWithId(&app_user_model_id)
+        }
+    }
+    .map_err(|error| windows_notification_error("windows_toast_cancel_failed", error))
+}
+
+#[cfg(target_os = "windows")]
+fn windows_identity_error(context: &str, error: windows::core::Error) -> NotificationError {
+    NotificationError::new(
+        "windows_app_identity_missing",
+        format!(
+            "{context}: {error}. Packaged apps must have package identity. Ordinary desktop apps \
+             must set {WINDOWS_APP_USER_MODEL_ID_ENV} (or set the current process AppUserModelID) \
+             and install a Start Menu shortcut whose System.AppUserModel.ID matches it."
+        ),
+    )
+}
+
+#[cfg(target_os = "windows")]
+fn windows_notification_error(code: &str, error: windows::core::Error) -> NotificationError {
+    NotificationError::new(
+        code,
+        format!("{error} (HRESULT {:#010x})", error.code().0 as u32),
+    )
 }
 
 #[cfg(target_os = "ios")]
@@ -1161,6 +1575,7 @@ mod tests {
         assert!(receipt.delivered);
     }
 
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     #[test]
     fn native_host_settings_are_honest_about_support() {
         let settings = NativeNotificationHost::native_settings();
@@ -1172,6 +1587,81 @@ mod tests {
             assert_eq!(settings.permission, NotificationPermission::Unsupported);
             assert!(!settings.alerts);
         }
+    }
+
+    #[test]
+    fn windows_toast_tags_are_stable_and_fit_the_platform_limit() {
+        assert_eq!(
+            windows_toast_tag("build-finished"),
+            windows_toast_tag("build-finished")
+        );
+        assert_ne!(
+            windows_toast_tag("build-finished"),
+            windows_toast_tag("deploy-finished")
+        );
+        assert_eq!(windows_toast_tag("build-finished").len(), 16);
+    }
+
+    #[test]
+    fn windows_toast_xml_escapes_visible_content_and_sound() {
+        let xml = windows_toast_xml(&NotificationRequest {
+            title: "Build & test".into(),
+            body: "Ready <now>".into(),
+            subtitle: Some(r#"Branch "main""#.into()),
+            sound: fission_core::NotificationSound::Named(
+                "ms-winsoundevent:Notification.Default".into(),
+            ),
+            ..Default::default()
+        });
+        assert!(xml.contains("<text>Build &amp; test</text>"));
+        assert!(xml.contains("<text>Branch &quot;main&quot;</text>"));
+        assert!(xml.contains("<text>Ready &lt;now&gt;</text>"));
+        assert!(
+            xml.contains(r#"<audio src="ms-winsoundevent:Notification.Default"/>"#),
+            "{xml}"
+        );
+    }
+
+    #[test]
+    fn windows_notification_settings_do_not_claim_unsupported_features() {
+        let enabled = windows_settings_from_code(0);
+        assert_eq!(enabled.permission, NotificationPermission::Granted);
+        assert!(enabled.alerts);
+        assert!(enabled.sound);
+        assert!(!enabled.badge);
+        assert!(!enabled.scheduling);
+        assert!(!enabled.push);
+
+        let disabled = windows_settings_from_code(2);
+        assert_eq!(disabled.permission, NotificationPermission::Denied);
+        assert!(!disabled.alerts);
+        assert!(!disabled.sound);
+    }
+
+    #[test]
+    fn windows_app_user_model_id_enforces_platform_shape() {
+        assert_eq!(
+            validate_windows_app_user_model_id("ExampleCompany.ExampleApp").unwrap(),
+            "ExampleCompany.ExampleApp"
+        );
+        assert_eq!(
+            validate_windows_app_user_model_id("Example Company.ExampleApp")
+                .unwrap_err()
+                .code,
+            "windows_app_user_model_id_invalid"
+        );
+        assert_eq!(
+            validate_windows_app_user_model_id(" ExampleCompany.ExampleApp")
+                .unwrap_err()
+                .code,
+            "windows_app_user_model_id_invalid"
+        );
+        assert_eq!(
+            validate_windows_app_user_model_id(&"a".repeat(129))
+                .unwrap_err()
+                .code,
+            "windows_app_user_model_id_invalid"
+        );
     }
 
     #[cfg(target_os = "macos")]

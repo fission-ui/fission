@@ -2428,6 +2428,9 @@ fn scaffold_target_with_policy(
                     "Run `fission package --target windows --format msi --release --project-dir .` or `./platforms/windows/package-msi.ps1` to create an MSI package with WiX.",
                     "Set `WINDOWS_CERTIFICATE`, `WINDOWS_CERTIFICATE_BASE64`, or `WINDOWS_CERTIFICATE_THUMBPRINT` plus `WINDOWS_CERTIFICATE_PASSWORD` where needed; never commit certificate files or passwords.",
                     "Edit `[package.windows]` in `fission.toml` for Store package identity, publisher identity, package version, and installer preference.",
+                    "For an unpackaged NSIS app, build the architecture-matched shortcut helper with `./platforms/windows/build-shortcut-aumid-helper.ps1 -Architecture x64` (or `arm64`) and include `platforms/windows/fission-shortcut-aumid.nsh`. Embed the helper once, then apply one stable AppUserModelID to every Start Menu shortcut after `CreateShortCut`.",
+                    "Pass that exact AppUserModelID to `DesktopApp::with_windows_app_user_model_id`; package identity remains authoritative for MSIX, so the explicit value is only the unpackaged fallback.",
+                    "Sign the compiled shortcut helper before embedding it in a signed installer. The helper deliberately fails installation if it cannot persist the shortcut identity.",
                     "The generated MSIX manifest stages the desktop executable as a full-trust Windows app and copies `assets/app-icon.png` into the package asset set by default.",
                 ],
             )
@@ -2647,6 +2650,21 @@ fn scaffold_windows_bundle(
     write_file_with_policy(
         &root.join("platforms/windows/package-msi.ps1"),
         &render_windows_msi_package_script(project, &executable),
+        write_policy,
+    )?;
+    write_file_with_policy(
+        &root.join("platforms/windows/shortcut-aumid-helper.cpp"),
+        render_windows_shortcut_aumid_helper_source(),
+        write_policy,
+    )?;
+    write_file_with_policy(
+        &root.join("platforms/windows/build-shortcut-aumid-helper.ps1"),
+        render_windows_shortcut_aumid_helper_build_script(),
+        write_policy,
+    )?;
+    write_file_with_policy(
+        &root.join("platforms/windows/fission-shortcut-aumid.nsh"),
+        render_windows_shortcut_aumid_nsis_include(),
         write_policy,
     )?;
     Ok(())
@@ -2937,6 +2955,271 @@ Write-Output $MsiPath
         .replace("__MANUFACTURER__", manufacturer)
         .replace("__UPGRADE_CODE__", &upgrade_code)
         .replace("__EXECUTABLE__", executable)
+}
+
+fn render_windows_shortcut_aumid_helper_source() -> &'static str {
+    r#"#include <windows.h>
+
+#include <cwchar>
+#include <cwctype>
+#include <cstdio>
+
+#include <propkey.h>
+#include <propvarutil.h>
+#include <shobjidl.h>
+#include <wrl/client.h>
+
+namespace {
+
+using Microsoft::WRL::ComPtr;
+
+bool IsValidAppUserModelId(const wchar_t* app_user_model_id) {
+  if (app_user_model_id == nullptr) {
+    return false;
+  }
+
+  const size_t length = std::wcslen(app_user_model_id);
+  if (length == 0 || length > 128) {
+    return false;
+  }
+
+  for (size_t index = 0; index < length; ++index) {
+    if (std::iswspace(app_user_model_id[index]) != 0) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+int ReportFailure(const wchar_t* operation, HRESULT result) {
+  std::fwprintf(
+      stderr,
+      L"%ls failed (HRESULT 0x%08lX).\n",
+      operation,
+      static_cast<unsigned long>(result));
+  return 1;
+}
+
+}  // namespace
+
+int wmain(int argc, wchar_t** argv) {
+  if (argc != 3) {
+    std::fwprintf(
+        stderr,
+        L"Usage: fission-shortcut-aumid.exe <shortcut.lnk> <app-user-model-id>\n");
+    return 2;
+  }
+
+  const wchar_t* shortcut_path = argv[1];
+  const wchar_t* app_user_model_id = argv[2];
+  if (!IsValidAppUserModelId(app_user_model_id)) {
+    std::fwprintf(
+        stderr,
+        L"The AppUserModelID must contain 1-128 UTF-16 code units and no whitespace.\n");
+    return 3;
+  }
+
+  const HRESULT initialize_result =
+      CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+  const bool should_uninitialize = SUCCEEDED(initialize_result);
+  if (FAILED(initialize_result) && initialize_result != RPC_E_CHANGED_MODE) {
+    return ReportFailure(L"CoInitializeEx", initialize_result);
+  }
+
+  int exit_code = 0;
+  ComPtr<IShellLinkW> shell_link;
+  HRESULT result = CoCreateInstance(
+      CLSID_ShellLink,
+      nullptr,
+      CLSCTX_INPROC_SERVER,
+      IID_PPV_ARGS(&shell_link));
+  if (FAILED(result)) {
+    exit_code = ReportFailure(L"CoCreateInstance(CLSID_ShellLink)", result);
+    goto finish;
+  }
+
+  {
+    ComPtr<IPersistFile> persist_file;
+    result = shell_link.As(&persist_file);
+    if (FAILED(result)) {
+      exit_code = ReportFailure(L"QueryInterface(IPersistFile)", result);
+      goto finish;
+    }
+
+    result = persist_file->Load(shortcut_path, STGM_READWRITE);
+    if (FAILED(result)) {
+      exit_code = ReportFailure(L"IPersistFile::Load", result);
+      goto finish;
+    }
+
+    ComPtr<IPropertyStore> property_store;
+    result = shell_link.As(&property_store);
+    if (FAILED(result)) {
+      exit_code = ReportFailure(L"QueryInterface(IPropertyStore)", result);
+      goto finish;
+    }
+
+    PROPVARIANT app_id_value;
+    PropVariantInit(&app_id_value);
+    result = InitPropVariantFromString(app_user_model_id, &app_id_value);
+    if (SUCCEEDED(result)) {
+      result = property_store->SetValue(PKEY_AppUserModel_ID, app_id_value);
+    }
+    if (SUCCEEDED(result)) {
+      result = property_store->Commit();
+    }
+    PropVariantClear(&app_id_value);
+    if (FAILED(result)) {
+      exit_code = ReportFailure(L"IPropertyStore::SetValue/Commit", result);
+      goto finish;
+    }
+
+    result = persist_file->Save(shortcut_path, TRUE);
+    if (FAILED(result)) {
+      exit_code = ReportFailure(L"IPersistFile::Save", result);
+      goto finish;
+    }
+  }
+
+finish:
+  if (should_uninitialize) {
+    CoUninitialize();
+  }
+  return exit_code;
+}
+"#
+}
+
+fn render_windows_shortcut_aumid_helper_build_script() -> &'static str {
+    r#"[CmdletBinding()]
+param(
+  [ValidateSet("x64", "arm64")]
+  [string] $Architecture = $(if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "x64" })
+)
+
+$ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
+
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ProjectDir = Resolve-Path (Join-Path $ScriptDir "..\..")
+$SourcePath = Join-Path $ScriptDir "shortcut-aumid-helper.cpp"
+$OutputDirectory = Join-Path $ProjectDir "target\fission\windows\shortcut-aumid\$Architecture"
+$OutputPath = Join-Path $OutputDirectory "fission-shortcut-aumid.exe"
+$ObjectPath = Join-Path $OutputDirectory "fission-shortcut-aumid.obj"
+
+if (-not (Test-Path $SourcePath -PathType Leaf)) {
+  throw "The shortcut AUMID helper source was not found at $SourcePath."
+}
+
+$VsWhere = Get-Command vswhere.exe -ErrorAction SilentlyContinue
+if (-not $VsWhere -and ${env:ProgramFiles(x86)}) {
+  $BundledVsWhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+  if (Test-Path $BundledVsWhere -PathType Leaf) {
+    $VsWhere = Get-Item $BundledVsWhere
+  }
+}
+if (-not $VsWhere) {
+  throw "vswhere.exe was not found. Install Visual Studio Build Tools with the target C++ toolchain."
+}
+$VsWherePath = if ($VsWhere -is [System.IO.FileInfo]) {
+  $VsWhere.FullName
+} else {
+  $VsWhere.Source
+}
+
+$RequiredComponent = if ($Architecture -eq "arm64") {
+  "Microsoft.VisualStudio.Component.VC.Tools.ARM64"
+} else {
+  "Microsoft.VisualStudio.Component.VC.Tools.x86.x64"
+}
+$Installation = & $VsWherePath -latest -products * -requires $RequiredComponent -property installationPath
+if (-not $Installation) {
+  throw "Visual Studio Build Tools with component $RequiredComponent were not found for $Architecture."
+}
+$VsDevCmd = Join-Path $Installation "Common7\Tools\VsDevCmd.bat"
+if (-not (Test-Path $VsDevCmd -PathType Leaf)) {
+  throw "VsDevCmd.bat was not found at $VsDevCmd."
+}
+
+$DeveloperCommand = "call `"$VsDevCmd`" -no_logo -arch=$Architecture -host_arch=amd64 && set"
+$EnvironmentLines = & $env:ComSpec /d /c $DeveloperCommand
+if ($LASTEXITCODE -ne 0) {
+  throw "Visual Studio failed to initialize the $Architecture C++ build environment."
+}
+foreach ($Line in $EnvironmentLines) {
+  $Separator = $Line.IndexOf("=")
+  if ($Separator -gt 0) {
+    $Name = $Line.Substring(0, $Separator)
+    $Value = $Line.Substring($Separator + 1)
+    [Environment]::SetEnvironmentVariable($Name, $Value, "Process")
+  }
+}
+
+$Compiler = Get-Command cl.exe -ErrorAction SilentlyContinue
+if (-not $Compiler) {
+  throw "cl.exe was not available after initializing the $Architecture C++ build environment."
+}
+
+New-Item -ItemType Directory -Force $OutputDirectory | Out-Null
+$CompileArguments = @(
+  "/nologo",
+  "/EHsc",
+  "/MT",
+  "/DUNICODE",
+  "/D_UNICODE",
+  "/Fo$ObjectPath",
+  "/Fe$OutputPath",
+  $SourcePath,
+  "/link",
+  "ole32.lib",
+  "shell32.lib",
+  "propsys.lib"
+)
+& $Compiler.Source @CompileArguments | Out-Host
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path $OutputPath -PathType Leaf)) {
+  throw "The $Architecture shortcut AUMID helper build failed."
+}
+
+Write-Output $OutputPath
+"#
+}
+
+fn render_windows_shortcut_aumid_nsis_include() -> &'static str {
+    r#"!ifndef FISSION_SHORTCUT_AUMID_NSH
+!define FISSION_SHORTCUT_AUMID_NSH
+
+!include "LogicLib.nsh"
+
+; Embed the architecture-matched helper once in an installer section.
+!macro FissionEmbedShortcutAppUserModelIdHelper HELPER_PATH
+  InitPluginsDir
+  File "/oname=$PLUGINSDIR\fission-shortcut-aumid.exe" "${HELPER_PATH}"
+!macroend
+
+; Apply the same stable AppUserModelID passed to
+; WinitApp::with_windows_app_user_model_id or
+; DesktopApp::with_windows_app_user_model_id. Call this after CreateShortCut.
+!macro FissionSetShortcutAppUserModelId SHORTCUT_PATH APP_USER_MODEL_ID
+  Push $0
+  Push $1
+  nsExec::ExecToStack /TIMEOUT=30000 '"$PLUGINSDIR\fission-shortcut-aumid.exe" "${SHORTCUT_PATH}" "${APP_USER_MODEL_ID}"'
+  Pop $0
+  Pop $1
+  ${If} $0 != 0
+    DetailPrint "Failed to apply AppUserModelID to ${SHORTCUT_PATH}: exit=$0 output=$1"
+    MessageBox MB_ICONSTOP|MB_OK "Windows notification identity setup failed. The installation cannot continue."
+    Pop $1
+    Pop $0
+    SetErrors
+    Abort
+  ${EndIf}
+  Pop $1
+  Pop $0
+!macroend
+
+!endif
+"#
 }
 
 fn sanitize_file_stem(value: &str) -> String {
@@ -5817,6 +6100,60 @@ publisher = "CN=Example & Co"
         assert!(error
             .to_string()
             .contains("Windows package version `1.2.beta` must be numeric"));
+    }
+
+    #[test]
+    fn windows_scaffold_includes_opt_in_nsis_shortcut_identity_support() {
+        let dir = unique_dir("windows-shortcut-aumid-scaffold");
+        let project = FissionProject {
+            app: AppConfig {
+                name: "Example App".to_string(),
+                app_id: "com.example.app".to_string(),
+                splash: None,
+            },
+            targets: BTreeSet::from([Target::Windows]),
+            capabilities: BTreeSet::new(),
+            native: NativeConfig::default(),
+        };
+
+        scaffold_windows_bundle(&dir, &project, WritePolicy::Overwrite).unwrap();
+
+        let source =
+            fs::read_to_string(dir.join("platforms/windows/shortcut-aumid-helper.cpp")).unwrap();
+        assert!(source.contains("PKEY_AppUserModel_ID"));
+        assert!(source.contains("length > 128"));
+        assert!(source.contains("std::iswspace"));
+
+        let build =
+            fs::read_to_string(dir.join("platforms/windows/build-shortcut-aumid-helper.ps1"))
+                .unwrap();
+        assert!(build.contains(r#"[ValidateSet("x64", "arm64")]"#));
+        assert!(build.contains("/MT"));
+        assert!(build.contains("Microsoft.VisualStudio.Component.VC.Tools.ARM64"));
+        assert!(build.contains("propsys.lib"));
+
+        let nsis =
+            fs::read_to_string(dir.join("platforms/windows/fission-shortcut-aumid.nsh")).unwrap();
+        assert!(nsis.contains("nsExec::ExecToStack"));
+        assert!(nsis.contains("FissionEmbedShortcutAppUserModelIdHelper"));
+        assert!(nsis.contains("FissionSetShortcutAppUserModelId"));
+        assert!(nsis.contains("Abort"));
+        assert!(!nsis.contains("WinShell"));
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn windows_shortcut_identity_support_is_opt_in() {
+        let source = render_windows_shortcut_aumid_helper_source();
+        let build = render_windows_shortcut_aumid_helper_build_script();
+        let nsis = render_windows_shortcut_aumid_nsis_include();
+
+        assert!(source.contains("argv[2]"));
+        assert!(build.contains("$Architecture"));
+        assert!(nsis.contains("APP_USER_MODEL_ID"));
+        assert!(!nsis.contains("APP_USER_MODEL_ID ="));
+        assert!(!nsis.contains("!define FISSION_APP_USER_MODEL_ID"));
     }
 
     #[test]
