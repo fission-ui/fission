@@ -21,6 +21,8 @@ use winit::platform::android::{activity::AndroidApp, EventLoopBuilderExtAndroid}
 use winit::platform::ios::WindowAttributesExtIOS;
 #[cfg(target_os = "macos")]
 use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
+#[cfg(target_os = "linux")]
+use winit::platform::wayland::ActiveEventLoopExtWayland;
 #[cfg(target_arch = "wasm32")]
 use winit::platform::web::{EventLoopExtWebSys, WindowAttributesExtWebSys, WindowExtWebSys};
 #[cfg(target_os = "windows")]
@@ -604,6 +606,7 @@ fn create_render_state<'w>(
     render_cx: &mut RenderContext,
     window: Arc<Window>,
     viewport: WindowViewportState,
+    linux_wayland: bool,
 ) -> anyhow::Result<RenderState<'w>> {
     let mut surface = block_on(render_cx.create_surface(
         window.clone(),
@@ -619,6 +622,8 @@ fn create_render_state<'w>(
         eprintln!("wgpu uncaptured error: {error}");
     }));
     let surface_caps = surface.surface.get_capabilities(device_handle.adapter());
+    surface.config.present_mode =
+        preferred_native_present_mode(&surface_caps.present_modes, linux_wayland);
     surface.config.alpha_mode = preferred_surface_alpha_mode(&surface_caps.alpha_modes);
     surface
         .surface
@@ -666,10 +671,25 @@ fn create_render_state<'w>(
     })
 }
 
+fn preferred_native_present_mode(
+    supported: &[wgpu::PresentMode],
+    linux_wayland: bool,
+) -> wgpu::PresentMode {
+    if linux_wayland && supported.contains(&wgpu::PresentMode::Mailbox) {
+        // FIFO presentation may synchronously wait for compositor dispatch on
+        // Wayland, starving the event loop that must service that dispatch.
+        // Mailbox remains tear-free while allowing presentation to return.
+        wgpu::PresentMode::Mailbox
+    } else {
+        wgpu::PresentMode::AutoVsync
+    }
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn present_startup_clear_frame(
     render_state: &mut RenderState<'_>,
     render_cx: &RenderContext,
+    window: &Window,
     clear_color: wgpu::Color,
 ) -> anyhow::Result<()> {
     let surface_texture = render_state
@@ -705,8 +725,58 @@ fn present_startup_clear_frame(
         });
     }
     device_handle.queue.submit(Some(encoder.finish()));
-    surface_texture.present();
+    // The startup clear is deliberately skipped on Linux Wayland, so the
+    // normal winit presentation coordination remains required here.
+    present_native_surface_frame(window, surface_texture, false);
     Ok(())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn present_native_surface_frame(
+    window: &Window,
+    surface_texture: wgpu::SurfaceTexture,
+    linux_wayland: bool,
+) {
+    present_frame_with_winit_coordination(
+        linux_wayland,
+        || window.pre_present_notify(),
+        || surface_texture.present(),
+    );
+}
+
+fn present_frame_with_winit_coordination(
+    linux_wayland: bool,
+    pre_present_notify: impl FnOnce(),
+    commit_surface_frame: impl FnOnce(),
+) {
+    // `pre_present_notify` is required for winit's native presentation
+    // coordination on supported targets. On Linux Wayland it installs a frame
+    // callback that can indefinitely suppress the next RedrawRequested event
+    // on software/composited WSI paths. Fission already schedules bounded
+    // redraws, so preserve the immediate redraw behavior that winit documents
+    // for applications which omit this optional hint on Wayland.
+    if !linux_wayland {
+        pre_present_notify();
+    }
+    commit_surface_frame();
+}
+
+fn should_present_startup_clear_frame(linux_wayland: bool) -> bool {
+    // A Wayland presentation can wait for compositor dispatch. Doing that
+    // synchronously from `Event::Resumed` prevents the event loop from
+    // servicing the dispatch it is waiting for. The normal first redraw is
+    // already requested and presents the authored frame instead.
+    !linux_wayland
+}
+
+#[cfg(target_os = "linux")]
+fn is_linux_wayland_event_loop(event_loop: &EventLoopWindowTarget) -> bool {
+    event_loop.is_wayland()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn is_linux_wayland_event_loop(_event_loop: &EventLoopWindowTarget) -> bool {
+    false
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -6003,14 +6073,20 @@ where
                                 &mut render_cx,
                                 render_window,
                                 current_viewport,
+                                is_linux_wayland_event_loop(elwt),
                             ) {
                                 Ok(mut state) => {
-                                    if let Err(err) = present_startup_clear_frame(
-                                        &mut state,
-                                        &render_cx,
-                                        theme_background_wgpu_color(&env),
+                                    if should_present_startup_clear_frame(
+                                        is_linux_wayland_event_loop(elwt),
                                     ) {
-                                        eprintln!("startup clear frame failed: {err}");
+                                        if let Err(err) = present_startup_clear_frame(
+                                            &mut state,
+                                            &render_cx,
+                                            window,
+                                            theme_background_wgpu_color(&env),
+                                        ) {
+                                            eprintln!("startup clear frame failed: {err}");
+                                        }
                                     }
                                     render_state = Some(state);
                                 }
@@ -7024,6 +7100,7 @@ where
                                         &mut render_cx,
                                         render_window,
                                         viewport_state,
+                                        is_linux_wayland_event_loop(elwt),
                                     ) {
                                         Ok(state) => {
                                             render_state = Some(state);
@@ -7987,7 +8064,11 @@ where
                                             }
                                         }
 
-                                        surface_texture.present();
+                                        present_native_surface_frame(
+                                            window,
+                                            surface_texture,
+                                            is_linux_wayland_event_loop(elwt),
+                                        );
                                         pending_resize = None;
                                         if resize_settled {
                                             resize_needs_settled_frame = false;
@@ -8957,19 +9038,21 @@ fn native_window_size_for_logical_viewport(size: LayoutSize) -> winit::dpi::Logi
 
 #[cfg(test)]
 mod tests {
+    use super::wgpu::PresentMode;
     use super::{
         animation_redraw_interval, build_window_attributes, clamp_copy_extent_to_texture,
         collect_semantic_records, collect_startup_deep_links_from, cursor_icon_for,
         downscale_rgba_box, layout_size_to_image_dimensions, logical_viewport_to_physical_size,
         logical_viewport_to_render_target_size, native_window_size_for_logical_viewport,
         normalize_scale_factor, normalize_winit_scroll_delta, physical_position_to_layout_point,
-        physical_size_to_layout_size, preferred_surface_alpha_mode,
-        rect_visible_in_scroll_ancestors, repeating_animation_redraw_interval, resize_is_unsettled,
-        resolve_build_viewport, resolve_selector_record, should_auto_select_native_software,
-        surface_acquire_recovery, sync_tracked_target_texture_size_to_surface,
-        texture_plans_fit_device_limits, visual_rect_for_node, window_insets_from_safe_area_frames,
-        windows_shell_execute_succeeded, windows_wide, LiveResizeController,
-        SurfaceAcquireRecovery, WindowViewportState,
+        physical_size_to_layout_size, preferred_native_present_mode, preferred_surface_alpha_mode,
+        present_frame_with_winit_coordination, rect_visible_in_scroll_ancestors,
+        repeating_animation_redraw_interval, resize_is_unsettled, resolve_build_viewport,
+        resolve_selector_record, should_auto_select_native_software,
+        should_present_startup_clear_frame, surface_acquire_recovery,
+        sync_tracked_target_texture_size_to_surface, texture_plans_fit_device_limits,
+        visual_rect_for_node, window_insets_from_safe_area_frames, windows_shell_execute_succeeded,
+        windows_wide, LiveResizeController, SurfaceAcquireRecovery, WindowViewportState,
     };
     use crate::pipeline::CompositorTexturePlan;
     use crate::renderer_diagnostics::RendererRequest;
@@ -8979,6 +9062,7 @@ mod tests {
     use fission_ir::semantics::MouseCursor;
     use fission_ir::{CoreIR, FlexDirection, LayoutOp, Op, Role, Semantics};
     use fission_layout::{LayoutNodeGeometry, LayoutRect, LayoutSize, LayoutSnapshot};
+    use std::cell::RefCell;
     use std::collections::HashMap;
     use std::time::Duration;
     use winit::dpi::{PhysicalPosition, PhysicalSize};
@@ -9651,6 +9735,63 @@ mod tests {
         let rounded =
             layout_size_to_image_dimensions(fission_layout::LayoutSize::new(999.6, 700.4));
         assert_eq!(rounded, (1000, 700));
+    }
+
+    #[test]
+    fn linux_wayland_defers_startup_clear_to_the_first_redraw() {
+        assert!(!should_present_startup_clear_frame(true));
+        assert!(should_present_startup_clear_frame(false));
+    }
+
+    #[test]
+    fn linux_wayland_uses_mailbox_only_when_the_surface_supports_it() {
+        let supported = [
+            PresentMode::Fifo,
+            PresentMode::Mailbox,
+            PresentMode::Immediate,
+        ];
+
+        assert_eq!(
+            preferred_native_present_mode(&supported, true),
+            PresentMode::Mailbox
+        );
+        assert_eq!(
+            preferred_native_present_mode(&supported, false),
+            PresentMode::AutoVsync
+        );
+        assert_eq!(
+            preferred_native_present_mode(&[PresentMode::Fifo], true),
+            PresentMode::AutoVsync
+        );
+    }
+
+    #[test]
+    fn non_wayland_native_surface_presentation_notifies_winit_before_commit() {
+        let operations = RefCell::new(Vec::new());
+
+        present_frame_with_winit_coordination(
+            false,
+            || operations.borrow_mut().push("pre_present_notify"),
+            || operations.borrow_mut().push("commit_surface_frame"),
+        );
+
+        assert_eq!(
+            operations.into_inner(),
+            vec!["pre_present_notify", "commit_surface_frame"]
+        );
+    }
+
+    #[test]
+    fn linux_wayland_surface_presentation_does_not_install_a_frame_callback() {
+        let operations = RefCell::new(Vec::new());
+
+        present_frame_with_winit_coordination(
+            true,
+            || operations.borrow_mut().push("pre_present_notify"),
+            || operations.borrow_mut().push("commit_surface_frame"),
+        );
+
+        assert_eq!(operations.into_inner(), vec!["commit_surface_frame"]);
     }
 
     #[test]
