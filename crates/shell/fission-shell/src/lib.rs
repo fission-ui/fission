@@ -59,6 +59,13 @@ pub struct NativeSurfaceFrame {
     pub rect: LayoutRect,
     /// Extension-defined payload from `EmbedKind::Custom`.
     pub payload: Vec<u8>,
+    /// The portion of [`rect`](Self::rect) that is actually visible after
+    /// ancestor clipping (scroll viewports, `Clip` nodes, `clip_to_bounds`).
+    ///
+    /// `None` means the full `rect` is visible (no ancestor clip applies).
+    /// When present, handlers should constrain their platform view to this
+    /// sub-rectangle.
+    pub visible_rect: Option<LayoutRect>,
 }
 
 /// A platform window made available to native-surface extensions.
@@ -93,13 +100,35 @@ impl NativeSurfaceHost {
 /// [`present_surfaces`](NativeSurfaceHandler::present_surfaces). The shell is
 /// intentionally unaware of individual extension types. A custom surface is
 /// delivered to the first registered handler that claims it.
+///
+/// # Lifecycle
+///
+/// 1. [`attach_host`](Self::attach_host) — called when the platform window is
+///    ready. On mobile, the host may be destroyed and recreated across
+///    suspend/resume cycles.
+/// 2. [`present_surfaces`](Self::present_surfaces) — called every frame with
+///    the set of visible surfaces.
+/// 3. [`detach_host`](Self::detach_host) — called before the native window is
+///    dropped (e.g. `Event::Suspended` on Android). Handlers must release any
+///    platform views associated with the previous host. A subsequent
+///    `attach_host` may follow if the host is recreated.
 pub trait NativeSurfaceHandler {
     /// Returns whether this handler owns a custom embed payload.
     fn handles_payload(&self, payload: &[u8]) -> bool;
 
-    /// Supplies a ready platform window. This may be called again after a
-    /// mobile host is recreated.
+    /// Supplies a ready platform window.
+    ///
+    /// On mobile platforms the host may be destroyed and recreated across
+    /// suspend/resume cycles. When that happens, [`detach_host`](Self::detach_host)
+    /// is called first, then `attach_host` is called again with the new window.
     fn attach_host(&mut self, host: NativeSurfaceHost);
+
+    /// Notifies the handler that the platform window is about to be destroyed.
+    ///
+    /// Handlers must release any platform views or resources associated with
+    /// the previous [`NativeSurfaceHost`]. A subsequent [`attach_host`](Self::attach_host)
+    /// call may follow if the host is recreated (e.g. after an Android resume).
+    fn detach_host(&mut self);
 
     /// Presents every visible surface claimed by this handler for the frame.
     ///

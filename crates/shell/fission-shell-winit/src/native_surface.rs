@@ -20,6 +20,12 @@ impl NativeSurfaceRegistry {
         }
     }
 
+    pub(crate) fn detach_host(&mut self) {
+        for handler in &mut self.handlers {
+            handler.detach_host();
+        }
+    }
+
     pub(crate) fn present_surfaces(&mut self, frames: &[NativeSurfaceFrame]) {
         let mut claimed = vec![false; frames.len()];
         for handler in &mut self.handlers {
@@ -50,6 +56,7 @@ mod tests {
     struct RecordingHandler {
         prefix: &'static [u8],
         frames: Arc<Mutex<Vec<NativeSurfaceFrame>>>,
+        detach_count: Arc<Mutex<u32>>,
     }
 
     impl NativeSurfaceHandler for RecordingHandler {
@@ -58,6 +65,10 @@ mod tests {
         }
 
         fn attach_host(&mut self, _host: NativeSurfaceHost) {}
+
+        fn detach_host(&mut self) {
+            *self.detach_count.lock().unwrap() += 1;
+        }
 
         fn present_surfaces(&mut self, frames: &[NativeSurfaceFrame]) {
             *self.frames.lock().unwrap() = frames.to_vec();
@@ -71,6 +82,7 @@ mod tests {
         registry.register(RecordingHandler {
             prefix: b"maps:",
             frames: received.clone(),
+            detach_count: Arc::new(Mutex::new(0)),
         });
 
         registry.present_surfaces(&[
@@ -78,11 +90,13 @@ mod tests {
                 widget_id: WidgetId::from_u128(1),
                 rect: LayoutRect::new(0.0, 0.0, 1.0, 1.0),
                 payload: b"maps:payload".to_vec(),
+                visible_rect: None,
             },
             NativeSurfaceFrame {
                 widget_id: WidgetId::from_u128(2),
                 rect: LayoutRect::new(0.0, 0.0, 1.0, 1.0),
                 payload: b"other:payload".to_vec(),
+                visible_rect: None,
             },
         ]);
 
@@ -97,6 +111,7 @@ mod tests {
         registry.register(RecordingHandler {
             prefix: b"maps:",
             frames: Arc::new(Mutex::new(Vec::new())),
+            detach_count: Arc::new(Mutex::new(0)),
         });
         registry.attach_host(NativeSurfaceHost::from_raw_window_handle(
             RawWindowHandle::Web(raw_window_handle::WebWindowHandle::new(0)),
@@ -111,19 +126,40 @@ mod tests {
         registry.register(RecordingHandler {
             prefix: b"maps:",
             frames: first.clone(),
+            detach_count: Arc::new(Mutex::new(0)),
         });
         registry.register(RecordingHandler {
             prefix: b"maps:",
             frames: second.clone(),
+            detach_count: Arc::new(Mutex::new(0)),
         });
 
         registry.present_surfaces(&[NativeSurfaceFrame {
             widget_id: WidgetId::from_u128(1),
             rect: LayoutRect::new(0.0, 0.0, 1.0, 1.0),
             payload: b"maps:payload".to_vec(),
+            visible_rect: None,
         }]);
 
         assert_eq!(first.lock().unwrap().len(), 1);
         assert!(second.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn detach_host_notifies_all_handlers() {
+        let detach_count = Arc::new(Mutex::new(0u32));
+        let mut registry = NativeSurfaceRegistry::default();
+        registry.register(RecordingHandler {
+            prefix: b"maps:",
+            frames: Arc::new(Mutex::new(Vec::new())),
+            detach_count: detach_count.clone(),
+        });
+
+        registry.attach_host(NativeSurfaceHost::from_raw_window_handle(
+            RawWindowHandle::Web(raw_window_handle::WebWindowHandle::new(0)),
+        ));
+        registry.detach_host();
+
+        assert_eq!(*detach_count.lock().unwrap(), 1);
     }
 }

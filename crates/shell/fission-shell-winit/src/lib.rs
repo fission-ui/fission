@@ -5907,6 +5907,7 @@ where
                     }
                     #[cfg(target_os = "android")]
                     {
+                        native_surface_handlers.detach_host();
                         ime_handler.set_window(None);
                         platform_window = None;
                         window_viewport = None;
