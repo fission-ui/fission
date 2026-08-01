@@ -190,6 +190,7 @@ impl From<CrateHeroContent> for Widget {
                     .color(tokens.colors.text_secondary)
                     .max_width(700.0)
                     .into(),
+                CrateSearchBox.into(),
                 Text::new(format!("{} indexed crates", hero.crate_count))
                     .size(tokens.typography.font_size_sm)
                     .weight(tokens.typography.font_weight_bold)
@@ -201,6 +202,48 @@ impl From<CrateHeroContent> for Widget {
             ..Default::default()
         })
         .width_length(Length::percent(100.0))
+        .into()
+    }
+}
+
+#[derive(Clone, Debug)]
+struct CrateSearchBox;
+
+impl From<CrateSearchBox> for Widget {
+    fn from(_search: CrateSearchBox) -> Widget {
+        let (_ctx, view) = fission::build::current::<DocsState>();
+        let tokens = &view.env().theme.tokens;
+
+        Container::new(Row {
+            children: vec![
+                Text::new("⌕")
+                    .size(20.0)
+                    .color(tokens.colors.primary)
+                    .into(),
+                Text::new("Search Fission crates")
+                    .size(17.0)
+                    .color(tokens.colors.text_muted)
+                    .flex_grow(1.0)
+                    .into(),
+                Container::new(Text::new("⌘ K").size(12.0).color(tokens.colors.text_muted))
+                    .padding_all(tokens.spacing.s)
+                    .bg(tokens.colors.primary_subtle)
+                    .border(tokens.colors.border, 1.0)
+                    .border_radius(tokens.radii.small)
+                    .into(),
+            ],
+            gap: Some(tokens.spacing.m),
+            align_items: AlignItems::Center,
+            semantics: Some(site_semantics("crate-searchbox")),
+            ..Default::default()
+        })
+        .width_length(Length::percent(100.0))
+        .max_width(650.0)
+        .min_height_length(Length::points(64.0))
+        .padding_lengths(Length::all(Length::points(tokens.spacing.m)))
+        .bg(tokens.colors.surface)
+        .border(tokens.colors.primary, 2.0)
+        .border_radius(tokens.radii.large)
         .into()
     }
 }

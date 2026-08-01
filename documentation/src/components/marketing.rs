@@ -1,6 +1,6 @@
 use super::home_nav::HomePageNav;
 use super::home_widgets::{
-    content_width, page_fill, Cta, NavLink, Pill, SemanticColumn, SemanticRow,
+    content_width, page_fill, site_semantics, Cta, NavLink, Pill, SemanticColumn, SemanticRow,
 };
 use super::state::DocsState;
 use fission::op::{AlignItems, Fill, FlexWrap, JustifyContent};
@@ -639,18 +639,7 @@ impl From<MarketingHero> for Widget {
             AlignItems::Center,
             JustifyContent::SpaceBetween,
         ))
-        .padding_all(tokens.spacing.xxl)
-        .bg_fill(Fill::LinearGradient {
-            start: (0.0, 0.0),
-            end: (1.0, 1.0),
-            stops: vec![
-                (0.0, tokens.colors.surface.with_alpha(245)),
-                (0.52, tokens.colors.surface_sunken.with_alpha(238)),
-                (1.0, tokens.colors.primary_subtle.with_alpha(180)),
-            ],
-        })
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.xxl)
+        .padding([tokens.spacing.xxl, 0.0, tokens.spacing.xxl, 0.0])
         .into()
     }
 }
@@ -683,6 +672,7 @@ impl From<ProductNavStrip> for Widget {
             wrap: FlexWrap::Wrap,
             justify_content: JustifyContent::Center,
             align_items: AlignItems::Center,
+            semantics: Some(site_semantics("site-product-nav-strip")),
             ..Default::default()
         })
         .padding_all(tokens.spacing.m)
