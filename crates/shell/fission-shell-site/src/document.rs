@@ -378,7 +378,7 @@ impl DocumentationPage<'_> {
         let mut children = vec![
             Container::new(Column {
                 children: vec![
-                    Text::new("Blog")
+                    Text::new("Notes from every surface.")
                         .size(tokens.typography.heading1_size)
                         .family(tokens.typography.font_family_serif.clone())
                         .weight(tokens.typography.font_weight_bold)
@@ -389,7 +389,7 @@ impl DocumentationPage<'_> {
                         .color(tokens.colors.heading)
                         .semantics_identifier("site-blog-index-title")
                         .into(),
-                    Text::new("Technical essays, release notes, and product updates for building with Fission.")
+                    Text::new("Engineering stories, release notes, and practical guides for building production Rust applications.")
                         .size(tokens.typography.body_large_size)
                         .line_height(
                             tokens.typography.body_large_size
