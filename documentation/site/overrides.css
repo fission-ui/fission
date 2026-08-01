@@ -980,7 +980,7 @@ pre,
 
 .fission-site-blog-index-title .fission-site-text-run {
   color: var(--atlas-ink) !important;
-  font-size: clamp(3.6rem, 8vw, 6.2rem) !important;
+  font-size: clamp(3.1rem, 6.2vw, 5rem) !important;
   line-height: 0.94 !important;
   letter-spacing: -0.065em !important;
 }
@@ -1447,6 +1447,283 @@ pre,
   }
 }
 
+/* Final homepage refinements and documentation template override. */
+[data-fission-semantics^="site-atlas-target:"] {
+  border: 0 !important;
+  background: color-mix(in srgb, var(--atlas-blue) 4%, var(--atlas-surface)) !important;
+  box-shadow: none !important;
+}
+
+[data-fission-semantics^="site-atlas-target:"]:hover {
+  background: color-mix(in srgb, var(--atlas-blue) 9%, var(--atlas-surface)) !important;
+  box-shadow: none !important;
+}
+
+[data-fission-semantics^="site-home-card-index:"] {
+  display: block;
+  width: max-content;
+  padding: 0 0 0.65rem;
+  border-bottom: 2px solid color-mix(in srgb, var(--atlas-blue) 65%, var(--atlas-violet));
+  background: transparent !important;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.fission-site-home-signals > .fission-site-column > .fission-site-row:last-child,
+.fission-site-home-model > .fission-site-row > .fission-site-row {
+  align-items: stretch !important;
+}
+
+.fission-site-home-signals > .fission-site-column > .fission-site-row:last-child > .fission-site-box,
+.fission-site-home-model > .fission-site-row > .fission-site-row > .fission-site-box {
+  height: 100% !important;
+}
+
+.fission-site-home-signals > .fission-site-column > .fission-site-row:last-child > .fission-site-box > .fission-site-column,
+.fission-site-home-model > .fission-site-row > .fission-site-row > .fission-site-box > .fission-site-column {
+  box-sizing: border-box;
+  height: 100% !important;
+}
+
+.fission-site-home-model .fission-site-code-block {
+  margin: 0;
+  background: #111126 !important;
+}
+
+.fission-site-home-header [data-fission-semantics="site-route:/"],
+.fission-site-footer [data-fission-semantics="site-route:/"] {
+  gap: 0 !important;
+}
+
+.fission-site-doc-header > .fission-site-row > .fission-site-row:has(.fission-site-img) {
+  gap: 0 !important;
+}
+
+.fission-site-doc-header > .fission-site-row > .fission-site-row:has(.fission-site-img) .fission-site-text-run {
+  font-size: 0 !important;
+}
+
+.fission-site-doc-header > .fission-site-row > .fission-site-row:has(.fission-site-img) .fission-site-text-run::after {
+  content: "ission";
+  color: var(--atlas-ink);
+  font: 700 1.05rem "Space Grotesk", sans-serif;
+}
+
+/* The generated content template is deliberately restyled to the product site's
+   editorial grid: compact navigation, generous reading column, quiet page rail. */
+.fission-site-doc-header {
+  position: sticky;
+  z-index: 900;
+  top: 0;
+  border-bottom: 1px solid var(--atlas-line) !important;
+  background: color-mix(in srgb, var(--atlas-surface) 91%, transparent) !important;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--atlas-line) 55%, transparent);
+  backdrop-filter: blur(18px);
+}
+
+.fission-site-doc-layout {
+  width: min(100%, 90rem) !important;
+  padding: 2.8rem clamp(1.5rem, 3vw, 2.4rem) 7rem !important;
+}
+
+.fission-site-doc-layout > .fission-site-row {
+  grid-template-columns: minmax(13rem, 15.5rem) minmax(0, 47.5rem) minmax(9.5rem, 12rem) !important;
+  gap: clamp(2.25rem, 4.5vw, 4.1rem) !important;
+}
+
+.fission-site-doc-sidebar {
+  padding-right: 1.6rem !important;
+  border-right: 1px solid var(--atlas-line);
+}
+
+.fission-site-doc-sidebar > .fission-site-column > .fission-site-box {
+  width: 100% !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.fission-site-doc-sidebar .fission-site-sidebar-item {
+  margin: 0.05rem 0;
+  padding: 0 !important;
+}
+
+.fission-site-doc-sidebar .fission-site-sidebar-item > .fission-site-column > .fission-site-box {
+  width: 100% !important;
+  padding: 0.5rem 0.65rem !important;
+  border-radius: 0.55rem !important;
+  background: transparent !important;
+}
+
+.fission-site-doc-sidebar [data-fission-site-sidebar-group="true"] {
+  margin-top: 1.35rem;
+}
+
+.fission-site-doc-sidebar [data-fission-site-sidebar-group="true"] .fission-site-text-run {
+  color: var(--atlas-faint) !important;
+  font-size: 0.72rem !important;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.fission-site-doc-sidebar [data-fission-site-sidebar-active="true"] > .fission-site-column > .fission-site-box {
+  background: var(--atlas-surface-2) !important;
+}
+
+.fission-site-doc-sidebar [data-fission-site-sidebar-active="true"]::before {
+  position: absolute;
+  top: 0.35rem;
+  bottom: 0.35rem;
+  left: -1.65rem;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--atlas-gradient);
+  content: "";
+}
+
+.fission-site-doc-main h1,
+.fission-site-doc-main h1 .fission-site-text-run {
+  max-width: 45rem;
+  font-size: clamp(3rem, 5.2vw, 4.15rem) !important;
+  line-height: 1.04 !important;
+  letter-spacing: -0.052em !important;
+}
+
+.fission-site-doc-main > .fission-site-column > .fission-site-box > .fission-site-column > .fission-site-box:nth-child(2) .fission-site-text-run {
+  font-size: 1.18rem;
+  line-height: 1.65;
+}
+
+.fission-site-doc-main p,
+.fission-site-doc-main li {
+  font-size: 1.03rem !important;
+  line-height: 1.78 !important;
+}
+
+.fission-site-doc-toc {
+  padding-left: 1.25rem !important;
+  border-left: 1px solid var(--atlas-line);
+  background: transparent !important;
+}
+
+.fission-site-doc-toc > .fission-site-column > .fission-site-box {
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.fission-site-doc-toc .fission-site-text-run {
+  font-size: 0.78rem !important;
+  line-height: 1.45 !important;
+}
+
+.fission-site-code-block {
+  position: relative;
+  margin: 1.75rem 0;
+  padding: 1.45rem 1.55rem !important;
+  border: 1px solid color-mix(in srgb, white 10%, transparent) !important;
+  border-radius: 1rem !important;
+  background: #111126 !important;
+  box-shadow: 0 16px 40px rgba(17, 17, 38, 0.14);
+}
+
+.fission-site-code-block code,
+.fission-site-code-block .hljs {
+  padding: 0 !important;
+  background: transparent !important;
+  color: #e7e5f5;
+  font-size: 0.86rem;
+  line-height: 1.72;
+}
+
+@media (max-width: 64rem) {
+  .fission-site-doc-layout > .fission-site-row {
+    grid-template-columns: minmax(12rem, 14rem) minmax(0, 1fr) !important;
+    gap: 2.25rem !important;
+  }
+
+  .fission-site-doc-toc {
+    display: none !important;
+  }
+}
+
+@media (max-width: 45rem) {
+  .fission-site-doc-header .fission-site-sidebar-toggle {
+    width: 2.4rem !important;
+    min-width: 2.4rem !important;
+    height: 2.4rem !important;
+    padding: 0 !important;
+    font-size: 0;
+    place-items: center;
+  }
+
+  .fission-site-doc-header .fission-site-sidebar-toggle::before {
+    content: "☰";
+    font-size: 1rem;
+  }
+
+  .fission-site-doc-header .fission-site-sidebar-toggle > * {
+    display: none !important;
+  }
+
+  .fission-site-doc-header > .fission-site-row > .fission-site-row:has(.fission-site-img) .fission-site-route-link {
+    display: block !important;
+  }
+
+  .fission-site-home-header [data-fission-semantics="site-route:/"] .fission-site-img,
+  .fission-site-footer [data-fission-semantics="site-route:/"] .fission-site-img {
+    width: 1.75rem !important;
+    height: 1.75rem !important;
+  }
+
+  .fission-site-box:has(> [data-fission-semantics="site-home-final-cta"]) {
+    box-sizing: border-box;
+    width: calc(100% - 2rem) !important;
+    padding: 2.5rem 1.25rem !important;
+  }
+
+  [data-fission-semantics="site-home-final-cta"] {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  [data-fission-semantics="site-home-final-cta"] > .fission-site-row {
+    width: 100% !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+
+  [data-fission-semantics="site-home-final-cta"] .fission-site-markdown-link,
+  [data-fission-semantics="site-home-final-cta"] .fission-site-route-link {
+    justify-content: center;
+    text-align: center;
+  }
+
+  .fission-site-doc-layout {
+    box-sizing: border-box;
+    width: 100% !important;
+    padding: 2.5rem 1.25rem 5rem !important;
+  }
+
+  .fission-site-doc-main h1,
+  .fission-site-doc-main h1 .fission-site-text-run {
+    font-size: clamp(2.55rem, 12vw, 3.3rem) !important;
+  }
+
+  .fission-site-doc-main p,
+  .fission-site-doc-main li {
+    font-size: 0.98rem !important;
+    line-height: 1.72 !important;
+  }
+
+  .fission-site-code-block {
+    margin-inline: -0.25rem;
+    padding: 1.15rem !important;
+    border-radius: 0.8rem !important;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
@@ -1459,5 +1736,392 @@ pre,
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+  }
+}
+
+/* Homepage art direction: a short, product-led story rather than a card catalogue. */
+.fission-site-home-hero {
+  box-sizing: border-box;
+  min-height: 44rem;
+  padding: clamp(5rem, 9vw, 8rem) clamp(1.5rem, 5vw, 4.5rem) !important;
+}
+
+.fission-site-home-hero > .fission-site-row {
+  gap: clamp(2.5rem, 6vw, 6rem) !important;
+}
+
+.fission-site-home-hero-title .fission-site-text-run {
+  font-size: clamp(4rem, 7vw, 6.5rem) !important;
+  line-height: 0.96 !important;
+  letter-spacing: -0.055em !important;
+}
+
+.fission-site-platform-atlas .fission-site-img {
+  filter: brightness(0) invert(1);
+}
+
+.fission-site-home-signals,
+.fission-site-home-charts,
+.fission-site-home-model {
+  box-sizing: border-box;
+  width: 100% !important;
+  max-width: none !important;
+  padding: clamp(5.5rem, 9vw, 8rem) max(clamp(1.5rem, 5vw, 4.5rem), calc((100vw - 81rem) / 2)) !important;
+}
+
+.fission-site-home-signals {
+  border-block: 1px solid var(--atlas-line);
+  background: color-mix(in srgb, var(--atlas-surface-2) 70%, transparent);
+}
+
+.fission-site-home-signals > .fission-site-column > .fission-site-row:last-child {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: clamp(1rem, 2vw, 1.75rem) !important;
+  width: 100% !important;
+}
+
+.fission-site-home-signals > .fission-site-column > .fission-site-row:last-child > .fission-site-box {
+  width: 100% !important;
+  min-width: 0 !important;
+}
+
+.fission-site-home-charts {
+  background:
+    radial-gradient(circle at 82% 18%, color-mix(in srgb, var(--atlas-violet) 12%, transparent), transparent 28rem),
+    var(--atlas-surface);
+}
+
+.fission-site-home-charts > .fission-site-column > .fission-site-row:last-child {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(1rem, 2.25vw, 2rem) !important;
+  width: 100% !important;
+}
+
+.fission-site-home-charts > .fission-site-column > .fission-site-row:last-child > .fission-site-box {
+  width: 100% !important;
+  min-width: 0 !important;
+}
+
+.fission-site-home-charts .fission-site-img {
+  width: 100% !important;
+  height: clamp(10rem, 16vw, 14rem) !important;
+  object-fit: contain;
+}
+
+.fission-site-home-model {
+  border: 0;
+  border-block: 1px solid var(--atlas-line);
+  border-radius: 0;
+  background:
+    linear-gradient(120deg, color-mix(in srgb, var(--atlas-blue) 8%, var(--atlas-surface-2)), var(--atlas-surface));
+  box-shadow: none;
+}
+
+.fission-site-home-model > .fission-site-row {
+  display: grid !important;
+  grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr);
+  gap: clamp(2.5rem, 7vw, 6rem) !important;
+  width: 100% !important;
+}
+
+.fission-site-home-model > .fission-site-row > .fission-site-row {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem !important;
+  width: 100% !important;
+}
+
+.fission-site-home-model > .fission-site-row > .fission-site-row > .fission-site-box {
+  width: 100% !important;
+  min-width: 0 !important;
+}
+
+.fission-site-box:has(> [data-fission-semantics="site-home-final-cta"]) {
+  width: min(calc(100% - 3rem), 81rem) !important;
+  margin: clamp(4rem, 8vw, 7rem) auto !important;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--atlas-blue) 22%, var(--atlas-line));
+  border-radius: 2rem;
+  box-shadow: var(--atlas-shadow);
+}
+
+[data-fission-semantics="site-home-final-cta"] {
+  max-width: 54rem;
+  margin-inline: auto;
+}
+
+@media (max-width: 64rem) {
+  .fission-site-home-signals > .fission-site-column > .fission-site-row:last-child {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .fission-site-home-charts > .fission-site-column > .fission-site-row:last-child,
+  .fission-site-home-model > .fission-site-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 45rem) {
+  .fission-site-home-hero {
+    padding: 3.75rem 0 4.5rem !important;
+  }
+
+  .fission-site-home-hero > .fission-site-row {
+    box-sizing: border-box;
+    width: 100% !important;
+    padding-inline: 1.25rem !important;
+  }
+
+  .fission-site-home-hero > .fission-site-row > .fission-site-box,
+  .fission-site-home-hero > .fission-site-row > .fission-site-box > .fission-site-column,
+  .fission-site-home-hero-title {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+
+  .fission-site-home-hero > .fission-site-row > .fission-site-box:first-child {
+    width: calc(100% - 1.25rem) !important;
+    transform: translateX(1.25rem);
+  }
+
+  .fission-site-home-hero > .fission-site-column > .fission-site-column:first-child {
+    box-sizing: border-box;
+    width: 100% !important;
+    min-width: 0 !important;
+    padding-inline: 1.25rem !important;
+  }
+
+  .fission-site-home-hero-title .fission-site-text-run {
+    font-size: clamp(3.15rem, 15vw, 4.25rem) !important;
+    line-height: 0.98 !important;
+    letter-spacing: -0.05em !important;
+  }
+
+  .fission-site-home-signals,
+  .fission-site-home-charts,
+  .fission-site-home-model {
+    padding: 4.5rem 1.25rem !important;
+  }
+
+  .fission-site-home-signals > .fission-site-column > .fission-site-row:last-child,
+  .fission-site-home-charts > .fission-site-column > .fission-site-row:last-child,
+  .fission-site-home-model > .fission-site-row > .fission-site-row {
+    grid-template-columns: 1fr;
+  }
+
+  .fission-site-box:has(> [data-fission-semantics="site-home-final-cta"]) {
+    width: calc(100% - 2rem) !important;
+    margin-block: 3.5rem !important;
+    border-radius: 1.35rem;
+  }
+}
+
+/* Documentation polish, sequential reading, and the final blog composition. */
+.fission-site-markdown-table-wrap {
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+.fission-site-markdown-table {
+  border: 0 !important;
+  border-collapse: collapse !important;
+  background: transparent !important;
+}
+
+.fission-site-markdown-table-cell,
+.fission-site-markdown-table th,
+.fission-site-markdown-table td {
+  padding: 0.85rem 1rem !important;
+  border: 0 !important;
+  border-right: 1px solid var(--atlas-line) !important;
+  background: transparent !important;
+}
+
+.fission-site-markdown-table-cell:last-child,
+.fission-site-markdown-table th:last-child,
+.fission-site-markdown-table td:last-child {
+  border-right: 0 !important;
+}
+
+.fission-site-markdown-table-cell *,
+.fission-site-markdown-table th *,
+.fission-site-markdown-table td * {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.fission-site-markdown-table thead {
+  border-bottom: 2px solid var(--atlas-line-strong);
+}
+
+.fission-site-doc-layout {
+  min-height: 0 !important;
+}
+
+.fission-site-doc-adjacent-pages {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem !important;
+  width: 100% !important;
+  margin-top: 4.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--atlas-line);
+}
+
+.fission-site-doc-adjacent-pages > .fission-site-box {
+  width: 100% !important;
+  min-width: 0 !important;
+  border: 0 !important;
+  border-radius: 0.85rem !important;
+  background: color-mix(in srgb, var(--atlas-surface-2) 64%, transparent) !important;
+}
+
+.fission-site-doc-adjacent-pages > .fission-site-box:only-child:last-child {
+  grid-column: 2;
+}
+
+.fission-site-theme-toggle {
+  display: grid !important;
+  width: 2.6rem !important;
+  min-width: 2.6rem !important;
+  height: 2.6rem !important;
+  padding: 0 !important;
+  place-items: center;
+}
+
+[data-fission-semantics="site-theme-icon:light"] {
+  display: none !important;
+}
+
+[data-theme="dark"] [data-fission-semantics="site-theme-icon:dark"] {
+  display: none !important;
+}
+
+[data-theme="dark"] [data-fission-semantics="site-theme-icon:light"] {
+  display: flex !important;
+}
+
+.fission-site-locale-switcher select {
+  min-height: 2.6rem;
+  padding: 0.55rem 2rem 0.55rem 0.75rem;
+  border: 1px solid var(--atlas-line);
+  border-radius: 999px;
+  background: var(--atlas-surface);
+  color: var(--atlas-blue);
+  font: 650 0.78rem "Space Grotesk", sans-serif;
+}
+
+.fission-site-sidebar-item[data-fission-site-sidebar-has-children="true"]::after {
+  content: none !important;
+}
+
+.fission-site-blog-layout {
+  min-height: 0;
+  padding-top: clamp(3.5rem, 7vw, 6rem) !important;
+}
+
+.fission-site-blog-index > .fission-site-column {
+  gap: clamp(3rem, 6vw, 5rem) !important;
+}
+
+.fission-site-blog-index > .fission-site-column > .fission-site-box,
+.fission-site-blog-post-list > .fission-site-column > .fission-site-box {
+  width: 100% !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.fission-site-blog-featured-card {
+  box-sizing: border-box;
+  width: 100% !important;
+  min-height: 22rem;
+  margin: 1.25rem 0 0 !important;
+  padding: clamp(2rem, 5vw, 4rem) !important;
+}
+
+.fission-site-box:has(> .fission-site-blog-featured-card) {
+  width: 100% !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.fission-site-blog-post-list > .fission-site-column {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.25rem !important;
+  align-items: stretch;
+}
+
+.fission-site-blog-card {
+  box-sizing: border-box;
+  height: 100% !important;
+  min-height: 20rem;
+  padding: 1.5rem !important;
+  border: 1px solid var(--atlas-line) !important;
+  border-top: 3px solid color-mix(in srgb, var(--atlas-blue) 68%, var(--atlas-violet)) !important;
+  border-radius: 1rem !important;
+  background: var(--atlas-surface) !important;
+  box-shadow: var(--atlas-shadow-sm);
+}
+
+.fission-site-blog-card > .fission-site-column {
+  height: 100% !important;
+}
+
+@media (max-width: 64rem) {
+  .fission-site-blog-post-list > .fission-site-column {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 45rem) {
+  .fission-site-doc-adjacent-pages {
+    grid-template-columns: 1fr;
+  }
+
+  .fission-site-doc-adjacent-pages > .fission-site-box:only-child:last-child {
+    grid-column: 1;
+  }
+
+  .fission-site-locale-switcher select {
+    width: 3.25rem;
+    padding-right: 0.4rem;
+    padding-left: 0.4rem;
+    font-size: 0.7rem;
+  }
+
+  .fission-site-blog-layout {
+    width: 100% !important;
+    padding: 3rem 1.15rem 5rem !important;
+  }
+
+  .fission-site-blog-index-title .fission-site-text-run {
+    font-size: clamp(2.85rem, 14vw, 3.75rem) !important;
+  }
+
+  .fission-site-blog-featured-card {
+    min-height: 0;
+    padding: 1.5rem !important;
+  }
+
+  .fission-site-blog-post-list > .fission-site-column {
+    grid-template-columns: 1fr;
+    gap: 1rem !important;
+  }
+
+  .fission-site-blog-card {
+    min-height: 0;
   }
 }

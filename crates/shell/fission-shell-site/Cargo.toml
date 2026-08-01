@@ -19,6 +19,7 @@ anyhow = "1.0"
 base64 = "0.22"
 fission-core = { path = "../../core/fission-core", version = "0.9.2" }
 fission-ir = { path = "../../core/fission-ir", version = "0.9.2" }
+fission-icons = { path = "../../authoring/fission-icons", version = "0.9.2" }
 fission-layout = { path = "../../core/fission-layout", version = "0.9.2" }
 fission-theme = { path = "../../core/fission-theme", version = "0.9.2" }
 fission-widgets = { path = "../../authoring/fission-widgets", version = "0.9.2", default-features = false }

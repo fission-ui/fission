@@ -1,4 +1,5 @@
-use super::home_widgets::{nav_inset, ExternalNavLink, SearchPill, SemanticRow, ThemeToggle};
+use super::brand_logo::BrandLogo;
+use super::home_widgets::{nav_inset, ExternalNavLink, SearchPill, ThemeToggle};
 use super::state::DocsState;
 use fission::op::{AlignItems, Fill, FlexWrap, JustifyContent};
 use fission::prelude::*;
@@ -191,24 +192,7 @@ impl From<HomePageNav> for Widget {
             .collect::<Vec<_>>();
         Container::new(Row {
             children: vec![
-                SemanticRow::new(
-                    "site-route:/",
-                    vec![
-                        Image::asset("/img/fission-mark.svg")
-                            .size(tokens.spacing.l, tokens.spacing.l)
-                            .into(),
-                        Text::new("Fission")
-                            .size(tokens.typography.font_size_lg)
-                            .weight(tokens.typography.font_weight_bold)
-                            .color(tokens.colors.heading)
-                            .into(),
-                    ],
-                    Some(tokens.spacing.s),
-                    FlexWrap::NoWrap,
-                    AlignItems::Center,
-                    JustifyContent::Start,
-                )
-                .into(),
+                BrandLogo::new(tokens.spacing.l).into(),
                 Row {
                     children: mobile_nav_items,
                     gap: Some(tokens.spacing.s),
@@ -234,6 +218,9 @@ impl From<HomePageNav> for Widget {
                         ExternalNavLink::new("GitHub", "https://github.com/fission-ui/fission")
                             .into(),
                         ThemeToggle.into(),
+                        // Re-enable once Spanish covers enough routes for switching here
+                        // to retain the visitor's current destination.
+                        // super::home_widgets::LocaleSwitcher.into(),
                         SearchPill.into(),
                     ],
                     gap: Some(tokens.spacing.m),
@@ -282,11 +269,14 @@ impl From<HomeNavItem> for Widget {
             .into()];
         if has_children {
             label_children.push(
-                Text::new(if component.depth == 0 { "▾" } else { "▸" })
-                    .size(tokens.typography.font_size_xs)
-                    .weight(tokens.typography.font_weight_bold)
-                    .color(tokens.colors.text_muted)
-                    .into(),
+                Icon::svg(if component.depth == 0 {
+                    material::navigation::expand_more::regular()
+                } else {
+                    material::navigation::chevron_right::regular()
+                })
+                .size(tokens.typography.font_size_base)
+                .color(tokens.colors.text_muted)
+                .into(),
             );
         }
 

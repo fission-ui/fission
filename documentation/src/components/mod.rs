@@ -1,3 +1,4 @@
+mod brand_logo;
 mod crates;
 mod example_showcase;
 mod footer;

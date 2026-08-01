@@ -1,4 +1,5 @@
-use super::home_widgets::{site_semantics, SemanticRow};
+use super::brand_logo::BrandLogo;
+use super::home_widgets::site_semantics;
 use super::state::DocsState;
 use fission::op::{AlignItems, Fill, FlexWrap, JustifyContent, TextAlign};
 use fission::prelude::*;
@@ -89,24 +90,7 @@ impl From<FooterIdentity> for Widget {
         let tokens = &view.env().theme.tokens;
         Container::new(Column {
             children: vec![
-                SemanticRow::new(
-                    "site-route:/",
-                    vec![
-                        Image::asset("/img/fission-mark.svg")
-                            .size(tokens.spacing.l, tokens.spacing.l)
-                        .into(),
-                        Text::new("Fission")
-                            .size(tokens.typography.font_size_lg)
-                            .weight(tokens.typography.font_weight_bold)
-                            .color(tokens.colors.heading)
-                            .into(),
-                    ],
-                    Some(tokens.spacing.s),
-                    FlexWrap::NoWrap,
-                    AlignItems::Center,
-                    JustifyContent::Center,
-                )
-                .into(),
+                BrandLogo::new(tokens.spacing.l).centered().into(),
                 Text::new("One Rust application model for native, mobile, web, terminal, static, and server-rendered products. MIT licensed.")
                     .size(tokens.typography.body_medium_size)
                     .line_height(tokens.typography.body_medium_size * tokens.typography.line_height_normal)

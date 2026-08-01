@@ -1,3 +1,4 @@
+use super::brand_logo::BrandLogo;
 use super::home_widgets::{page_fill, SemanticRow};
 use super::state::DocsState;
 use fission::op::{AlignItems, FlexWrap, JustifyContent};
@@ -31,23 +32,7 @@ impl From<LocalizedNav> for Widget {
         Container::new(SemanticRow::new(
             "site-home-header",
             vec![
-                SemanticRow::new(
-                    "site-route:/es/",
-                    vec![
-                        Image::asset("/img/fission-mark.svg")
-                            .size(28.0, 34.0)
-                            .into(),
-                        Text::new("Fission")
-                            .size(24.0)
-                            .weight(tokens.typography.font_weight_bold)
-                            .into(),
-                    ],
-                    Some(tokens.spacing.s),
-                    FlexWrap::NoWrap,
-                    AlignItems::Center,
-                    JustifyContent::Start,
-                )
-                .into(),
+                BrandLogo::new(28.0).route("/es/").into(),
                 Row {
                     children: vec![
                         LocalizedLink::new("site.nav.platform", "/es/").into(),
