@@ -1,4 +1,85 @@
 /* Documentation-specific polish layered after generated Fission styles. */
+:root {
+  --atlas-blue: #3157e8;
+  --atlas-violet: #7954ee;
+  --fs-color-primary: #3157e8;
+  --fs-color-primary-hover: #2747c7;
+  --fs-color-primary-subtle: #f4f1ff;
+  --fs-color-secondary: #7954ee;
+  --fs-color-text-link: #3157e8;
+  --fs-color-focus-ring: #7954ee;
+  --fs-color-background: #fbfbfe;
+  --fs-color-surface-sunken: #f4f1ff;
+  --fs-color-heading: #111126;
+  --fs-color-text-primary: #111126;
+  --fs-color-text-secondary: #68677c;
+  --fs-color-text-muted: #767489;
+  --fs-color-border: #dedbed;
+  --fs-color-border-strong: #c9c5dd;
+}
+
+[data-theme="dark"] {
+  --fs-color-primary: #7890ff;
+  --fs-color-primary-hover: #91a4ff;
+  --fs-color-primary-subtle: #191633;
+  --fs-color-secondary: #a688ff;
+  --fs-color-text-link: #7890ff;
+  --fs-color-focus-ring: #a688ff;
+  --fs-color-background: #0b0b18;
+  --fs-color-surface: #121224;
+  --fs-color-surface-raised: #17172a;
+  --fs-color-surface-sunken: #191633;
+  --fs-color-heading: #f4f2ff;
+  --fs-color-text-primary: #f4f2ff;
+  --fs-color-text-secondary: #aaa8bd;
+  --fs-color-text-muted: #858298;
+  --fs-color-border: #2e2b47;
+  --fs-color-border-strong: #45415f;
+}
+
+body {
+  letter-spacing: -0.01em;
+}
+
+.fission-site-home-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  backdrop-filter: blur(18px);
+  border-bottom: 1px solid var(--fs-color-border);
+}
+
+.fission-site-home-hero,
+.fission-site-crate-directory-hero {
+  padding-top: clamp(3rem, 7vw, 6rem);
+  padding-bottom: clamp(3rem, 6vw, 5rem);
+}
+
+.fission-site-home-hero-title .fission-site-text-run {
+  letter-spacing: -0.055em;
+}
+
+.fission-site-crate-card {
+  border-top: 4px solid var(--atlas-violet) !important;
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.fission-site-crate-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 16px 45px rgba(43, 31, 98, 0.1);
+}
+
+.fission-site-crate-platform-legend {
+  box-shadow: 0 16px 45px rgba(43, 31, 98, 0.08);
+}
+
+@media (max-width: 760px) {
+  .fission-site-home-hero-title .fission-site-text-run {
+    font-size: clamp(3rem, 13vw, 3.6rem) !important;
+    line-height: 1 !important;
+  }
+}
+
 .fission-site-theme-toggle {
   cursor: pointer;
   border: 1px solid color-mix(in srgb, var(--fs-color-border) 72%, transparent);

@@ -1,0 +1,14 @@
+{
+  "site.nav.platform": "Plataforma",
+  "site.nav.docs": "Documentación",
+  "site.nav.crates": "Crates",
+  "site.nav.blog": "Blog",
+  "site.hero.eyebrow": "Plataforma de aplicaciones Rust",
+  "site.hero.title": "Un modelo.\nTodas las plataformas.",
+  "site.hero.body": "Crea, prueba, empaqueta y publica aplicaciones de producción en Rust: desde ventanas nativas y dispositivos móviles hasta la web, el terminal y el servidor.",
+  "site.hero.start": "Empieza a crear →",
+  "site.hero.crates": "Explorar crates",
+  "crates.eyebrow": "Registro de la comunidad",
+  "crates.title": "Crates para cada plataforma.",
+  "crates.body": "Descubre bibliotecas creadas directamente sobre Fission. El directorio se actualiza desde crates.io cada seis horas."
+}

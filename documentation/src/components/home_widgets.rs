@@ -396,11 +396,13 @@ impl From<Cta> for Widget {
         .into()
     }
 }
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub(super) struct StatusText {
     label: &'static str,
 }
 
+#[allow(dead_code)]
 impl StatusText {
     pub(super) fn new(label: &'static str) -> Self {
         Self { label }
@@ -451,12 +453,14 @@ impl From<Pill> for Widget {
         .into()
     }
 }
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub(super) struct CodeCard {
     label: &'static str,
     command: &'static str,
 }
 
+#[allow(dead_code)]
 impl CodeCard {
     pub(super) fn new(label: &'static str, command: &'static str) -> Self {
         Self { label, command }
@@ -897,6 +901,7 @@ pub(super) fn page_fill(tokens: &Tokens) -> Fill {
     }
 }
 
+#[allow(dead_code)]
 pub(super) fn hero_text_width(tokens: &Tokens) -> f32 {
     tokens.spacing.xxxxl * 8.25
 }

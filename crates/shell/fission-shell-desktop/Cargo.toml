@@ -8,6 +8,11 @@ repository = "https://github.com/fission-ui/fission"
 homepage = "https://fission.rs"
 documentation = "https://fission.rs"
 description = "Desktop shell wrapper for Fission applications"
+categories = ["gui", "rendering"]
+keywords = ["fission", "desktop", "windows", "macos", "linux"]
+
+[package.metadata.fission]
+platforms = ["linux", "macos", "windows"]
 readme = "README.md"
 [features]
 default = []

@@ -5,6 +5,11 @@ edition = "2021"
 license = "MIT"
 repository = "https://github.com/fission-ui/fission"
 description = "Layout engine primitives for Fission widget trees"
+categories = ["gui", "rendering"]
+keywords = ["fission", "layout", "ui-framework", "widgets", "cross-platform"]
+
+[package.metadata.fission]
+platforms = ["android", "ios", "linux", "macos", "windows", "web", "terminal", "static-site", "ssr"]
 
 homepage = "https://fission.rs"
 documentation = "https://fission.rs"

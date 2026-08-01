@@ -2,7 +2,36 @@
 name = "fission-documentation"
 version = "0.9.2"
 edition = "2021"
+default-run = "fission-documentation"
+
+[features]
+crate-indexer = [
+    "dep:ammonia",
+    "dep:chrono",
+    "dep:comrak",
+    "dep:flate2",
+    "dep:html2md",
+    "dep:reqwest",
+    "dep:tar",
+    "dep:toml",
+]
+
+[[bin]]
+name = "update-crate-index"
+path = "src/bin/update-crate-index.rs"
+required-features = ["crate-indexer"]
 
 [dependencies]
+ammonia = { version = "4", optional = true }
 anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock"], optional = true }
+comrak = { version = "0.53", default-features = false, optional = true }
 fission = { path = "../crates/authoring/fission", default-features = false, features = ["site"] }
+flate2 = { version = "1", optional = true }
+html2md = { version = "0.2", optional = true }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"], optional = true }
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tar = { version = "0.4", optional = true }
+toml = { version = "0.8", optional = true }

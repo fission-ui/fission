@@ -5,6 +5,11 @@ edition = "2021"
 license = "MIT"
 repository = "https://github.com/fission-ui/fission"
 description = "Mobile shell wrapper for Android and iOS Fission applications"
+categories = ["gui", "rendering"]
+keywords = ["fission", "mobile", "android", "ios", "cross-platform"]
+
+[package.metadata.fission]
+platforms = ["android", "ios"]
 
 homepage = "https://fission.rs"
 documentation = "https://fission.rs"

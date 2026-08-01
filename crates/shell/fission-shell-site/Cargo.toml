@@ -5,6 +5,11 @@ edition = "2021"
 license = "MIT"
 repository = "https://github.com/fission-ui/fission"
 description = "Static site shell for lowering Fission widget trees and content routes to HTML"
+categories = ["web-programming", "template-engine"]
+keywords = ["fission", "static-site", "html", "web", "ssg"]
+
+[package.metadata.fission]
+platforms = ["static-site"]
 
 homepage = "https://fission.rs"
 documentation = "https://fission.rs"

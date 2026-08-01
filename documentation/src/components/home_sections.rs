@@ -1,7 +1,6 @@
 use super::home_widgets::{
-    hero_text_width, prose_width, CenteredSection, ChartImageCard, Chip, CodeCard, Cta,
-    ExampleCard, LinkCard, NavLink, Pill, SectionHeader, SemanticColumn, SemanticRow, ShellSection,
-    StatusText, TargetRowCard,
+    CenteredSection, ChartImageCard, Chip, Cta, ExampleCard, LinkCard, NavLink, Pill,
+    SectionHeader, SemanticColumn, SemanticRow, ShellSection, TargetRowCard,
 };
 use super::state::DocsState;
 use fission::op::{AlignItems, Fill, FlexWrap, JustifyContent, TextAlign};
@@ -12,91 +11,195 @@ pub(super) struct HomePageHero;
 
 impl From<HomePageHero> for Widget {
     fn from(_component: HomePageHero) -> Self {
+        Responsive::new(HomeHeroDesktop)
+            .id(WidgetId::explicit("home.hero.responsive"))
+            .case(ResponsiveCase::max_width(760.0, HomeHeroPhone))
+            .into()
+    }
+}
+
+#[derive(Clone, Debug)]
+struct HomeHeroDesktop;
+
+impl From<HomeHeroDesktop> for Widget {
+    fn from(_component: HomeHeroDesktop) -> Self {
+        let (_ctx, view) = fission::build::current::<DocsState>();
+        let tokens = &view.env().theme.tokens;
+        SemanticRow::new(
+            "site-home-hero",
+            vec![
+                Container::new(HomeHeroCopy { compact: false })
+                    .flex_grow(1.0)
+                    .into(),
+                Container::new(PlatformAtlas)
+                    .width_length(Length::clamp(
+                        Length::points(360.0),
+                        Length::percent(44.0),
+                        Length::points(560.0),
+                    ))
+                    .flex_shrink(1.0)
+                    .into(),
+            ],
+            Some(tokens.spacing.xxxl),
+            FlexWrap::NoWrap,
+            AlignItems::Center,
+            JustifyContent::SpaceBetween,
+        )
+        .into()
+    }
+}
+
+#[derive(Clone, Debug)]
+struct HomeHeroPhone;
+
+impl From<HomeHeroPhone> for Widget {
+    fn from(_component: HomeHeroPhone) -> Self {
         let (_ctx, view) = fission::build::current::<DocsState>();
         let tokens = &view.env().theme.tokens;
         SemanticColumn::new(
             "site-home-hero",
-            vec![
-                Pill::new("Rust application platform").into(),
-                Text::new("Build, test, package, and release production apps in Rust.")
-                    .size(tokens.typography.display_md_size)
-                    .family(tokens.typography.font_family_serif.clone())
-                    .line_height(
-                        tokens.typography.display_md_size * tokens.typography.line_height_display,
-                    )
+            vec![HomeHeroCopy { compact: true }.into(), PlatformAtlas.into()],
+            Some(tokens.spacing.xxl),
+            AlignItems::Stretch,
+        )
+        .into()
+    }
+}
+
+#[derive(Clone, Debug)]
+struct HomeHeroCopy {
+    compact: bool,
+}
+
+impl From<HomeHeroCopy> for Widget {
+    fn from(copy: HomeHeroCopy) -> Widget {
+        let (_ctx, view) = fission::build::current::<DocsState>();
+        let tokens = &view.env().theme.tokens;
+        Column {
+            children: vec![
+                Text::new("RUST APPLICATION PLATFORM")
+                    .size(tokens.typography.font_size_sm)
+                    .weight(tokens.typography.font_weight_bold)
+                    .color(tokens.colors.primary)
+                    .into(),
+                Text::new("One model.\nEvery surface.")
+                    .size(if copy.compact { 50.0 } else { 76.0 })
+                    .line_height(if copy.compact { 52.0 } else { 75.0 })
                     .weight(tokens.typography.font_weight_bold)
                     .color(tokens.colors.heading)
-                    .width(hero_text_width(tokens))
-                    .max_width(hero_text_width(tokens))
-                    .text_align(TextAlign::Center)
+                    .max_width(650.0)
                     .semantics_identifier("site-home-hero-title")
-                    .flex_shrink(1.0)
                     .into(),
-                Text::new("Fission is a full application platform for macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR targets, with one shared app model and lifecycle tooling around it.")
-                    .size(tokens.typography.font_size_lg)
-                    .line_height(tokens.typography.font_size_lg * tokens.typography.line_height_relaxed)
+                Text::new("Build, test, package, and release production apps in Rust—from native windows and mobile devices to the web, terminal, and server.")
+                    .size(if copy.compact { 17.0 } else { 20.0 })
+                    .line_height(if copy.compact { 28.0 } else { 32.0 })
                     .color(tokens.colors.text_secondary)
-                    .width(prose_width(tokens))
-                    .max_width(prose_width(tokens))
-                    .text_align(TextAlign::Center)
-                    .flex_shrink(1.0)
-                    .into(),
-                Text::new("Write product state as plain Rust data, render with widgets, run through target shells, then use the CLI for devices, tests, preflight checks, packages, signing, release content, and distribution.")
-                    .size(tokens.typography.body_large_size)
-                    .line_height(tokens.typography.body_large_size * tokens.typography.line_height_relaxed)
-                    .color(tokens.colors.text_muted)
-                    .width(prose_width(tokens))
-                    .max_width(prose_width(tokens))
-                    .text_align(TextAlign::Center)
-                    .flex_shrink(1.0)
+                    .max_width(650.0)
                     .into(),
                 Row {
                     children: vec![
-                        Cta::new("Start building ->", "/docs/learn/quickstart/", true)
-                            .into(),
-                        Cta::new("Explore platform", "/product/overview/", false)
-                            .into(),
-                        NavLink::new("Release workflow ->", "/docs/release-and-distribute/overview/")
-                            .into(),
+                        Cta::new("Start building  →", "/docs/learn/quickstart/", true).into(),
+                        Cta::new("Explore crates", "/crates/", false).into(),
                     ],
                     gap: Some(tokens.spacing.m),
                     wrap: FlexWrap::Wrap,
-                    justify_content: JustifyContent::Center,
                     ..Default::default()
-                }
-                .into(),
+                }.into(),
+            ],
+            gap: Some(tokens.spacing.l),
+            ..Default::default()
+        }.into()
+    }
+}
+
+#[derive(Clone, Debug)]
+struct PlatformAtlas;
+
+impl From<PlatformAtlas> for Widget {
+    fn from(_atlas: PlatformAtlas) -> Widget {
+        let (_ctx, view) = fission::build::current::<DocsState>();
+        let tokens = &view.env().theme.tokens;
+        Container::new(Column {
+            children: vec![
                 Row {
                     children: vec![
-                        CodeCard::new("Create an app", "fission init my-app").into(),
-                        CodeCard::new("Run on a target", "fission run --project-dir my-app")
-                            .into(),
-                        CodeCard::new("Check release readiness", "fission readiness release --target windows --format msix --provider microsoft-store").into(),
+                        AtlasTarget::new("Android", "A").into(),
+                        AtlasTarget::new("Web", "◎").into(),
+                        AtlasTarget::new("iOS", "●").into(),
                     ],
                     gap: Some(tokens.spacing.m),
-                    wrap: FlexWrap::Wrap,
-                    justify_content: JustifyContent::Center,
+                    justify_content: JustifyContent::SpaceBetween,
                     ..Default::default()
                 }
                 .into(),
+                Container::new(Image::asset("/img/fission-mark.svg").size(92.0, 108.0))
+                    .padding_lengths(Length::all(Length::points(tokens.spacing.xl)))
+                    .bg(tokens.colors.primary)
+                    .border_radius(tokens.radii.xl)
+                    .into(),
                 Row {
                     children: vec![
-                        StatusText::new("Desktop").into(),
-                        StatusText::new("Web/WASM").into(),
-                        StatusText::new("Android + iOS").into(),
-                        StatusText::new("Terminal").into(),
-                        StatusText::new("Static site").into(),
-                        StatusText::new("SSR").into(),
+                        AtlasTarget::new("Linux", "L").into(),
+                        AtlasTarget::new("macOS", "M").into(),
+                        AtlasTarget::new("Windows", "⊞").into(),
                     ],
-                    gap: Some(tokens.spacing.l),
-                    wrap: FlexWrap::Wrap,
-                    justify_content: JustifyContent::Center,
+                    gap: Some(tokens.spacing.m),
+                    justify_content: JustifyContent::SpaceBetween,
                     ..Default::default()
                 }
                 .into(),
             ],
-            Some(tokens.spacing.l),
-            AlignItems::Center,
-        )
+            gap: Some(tokens.spacing.l),
+            align_items: AlignItems::Center,
+            ..Default::default()
+        })
+        .width_length(Length::percent(100.0))
+        .padding_lengths(Length::all(Length::points(tokens.spacing.xl)))
+        .bg(tokens.colors.primary_subtle)
+        .border(tokens.colors.border, 1.0)
+        .border_radius(tokens.radii.xl)
+        .min_height_length(Length::points(410.0))
+        .into()
+    }
+}
+
+#[derive(Clone, Debug)]
+struct AtlasTarget {
+    label: &'static str,
+    glyph: &'static str,
+}
+
+impl AtlasTarget {
+    fn new(label: &'static str, glyph: &'static str) -> Self {
+        Self { label, glyph }
+    }
+}
+
+impl From<AtlasTarget> for Widget {
+    fn from(target: AtlasTarget) -> Widget {
+        let (_ctx, view) = fission::build::current::<DocsState>();
+        let tokens = &view.env().theme.tokens;
+        Container::new(Column {
+            children: vec![
+                Text::new(target.glyph)
+                    .size(20.0)
+                    .weight(tokens.typography.font_weight_bold)
+                    .color(tokens.colors.primary)
+                    .into(),
+                Text::new(target.label)
+                    .size(11.0)
+                    .color(tokens.colors.text_muted)
+                    .into(),
+            ],
+            gap: Some(tokens.spacing.xs),
+            align_items: AlignItems::Center,
+            ..Default::default()
+        })
+        .width_length(Length::points(104.0))
+        .padding_lengths(Length::all(Length::points(tokens.spacing.m)))
+        .bg(tokens.colors.surface)
+        .border(tokens.colors.border, 1.0)
+        .border_radius(tokens.radii.large)
         .into()
     }
 }

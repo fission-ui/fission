@@ -44,7 +44,7 @@ workflow = "publish-website.yml"
 production_branch = "main"
 
 [[site.nav]]
-title = "Product"
+title = "Platform"
 href = "/product/overview/"
 
 [[site.nav.children]]
@@ -88,28 +88,16 @@ title = "Blog"
 href = "/blog/"
 
 [[site.nav]]
-title = "Setup"
-href = "/docs/learn/quickstart/"
-
-[[site.nav]]
-title = "Learn"
+title = "Docs"
 href = "/docs/learn/overview/"
 
 [[site.nav]]
-title = "Example Showcase"
-href = "/example-showcase/"
+title = "Crates"
+href = "/crates/"
 
 [[site.nav]]
-title = "Build"
-href = "/docs/build-and-package/overview/"
-
-[[site.nav]]
-title = "Test"
-href = "/docs/test-and-debug/overview/"
-
-[[site.nav]]
-title = "Publish"
-href = "/docs/release-and-distribute/overview/"
+title = "Blog"
+href = "/blog/"
 
 [[site.routes]]
 kind = "content"

@@ -65,86 +65,36 @@ const PRODUCT_CHILDREN: &[NavItem] = &[
 
 const NAV_ITEMS: &[NavItem] = &[
     NavItem {
-        label: "Product",
+        label: "Platform",
         href: "/product/overview/",
         children: PRODUCT_CHILDREN,
     },
     NavItem {
-        label: "Setup",
-        href: "/docs/learn/quickstart/",
-        children: &[],
-    },
-    NavItem {
-        label: "Learn",
+        label: "Docs",
         href: "/docs/learn/overview/",
+        children: MOBILE_MENU_CHILDREN,
+    },
+    NavItem {
+        label: "Crates",
+        href: "/crates/",
         children: &[],
     },
     NavItem {
-        label: "Example Showcase",
-        href: "/example-showcase/",
-        children: &[],
-    },
-    NavItem {
-        label: "Build",
-        href: "/docs/build-and-package/overview/",
-        children: &[],
-    },
-    NavItem {
-        label: "Test",
-        href: "/docs/test-and-debug/overview/",
-        children: &[],
-    },
-    NavItem {
-        label: "Publish",
-        href: "/docs/release-and-distribute/overview/",
+        label: "Blog",
+        href: "/blog/",
         children: &[],
     },
 ];
 
 const MOBILE_MENU_CHILDREN: &[NavItem] = &[
     NavItem {
-        label: "Platform overview",
+        label: "Platform",
         href: "/product/overview/",
         children: &[],
     },
     NavItem {
-        label: "Cross-platform apps",
-        href: "/product/cross-platform-apps/",
-        children: &[],
-    },
-    NavItem {
-        label: "Static sites",
-        href: "/product/static-sites/",
-        children: &[],
-    },
-    NavItem {
-        label: "Server-rendered sites",
-        href: "/product/server-rendered-sites/",
-        children: &[],
-    },
-    NavItem {
-        label: "Terminal apps",
-        href: "/product/terminal-apps/",
-        children: &[],
-    },
-    NavItem {
-        label: "Charts",
-        href: "/product/charts/",
-        children: &[],
-    },
-    NavItem {
-        label: "Production lifecycle",
-        href: "/product/production-lifecycle/",
-        children: &[],
-    },
-    NavItem {
-        label: "Developer tools",
-        href: "/product/developer-tools/",
-        children: &[],
-    },
-    NavItem {
-        label: "Design systems",
-        href: "/product/design-systems/",
+        label: "Crates",
+        href: "/crates/",
         children: &[],
     },
     NavItem {

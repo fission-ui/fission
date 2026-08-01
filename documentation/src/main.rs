@@ -1,8 +1,12 @@
 mod charts;
 mod components;
+mod registry;
 
 use anyhow::Result;
-use components::{DocsFooter, DocsState, MarketingPageKind, ProductMarketingPage, RoutedHomePage};
+use components::{
+    CrateDetailPage, CrateDirectoryPage, DocsFooter, DocsState, LocalizedLandingPage,
+    MarketingPageKind, ProductMarketingPage, RoutedHomePage,
+};
 use fission::prelude::*;
 use fission::site::{build_from_cli, FissionSite};
 
@@ -11,8 +15,20 @@ fn main() -> Result<()> {
 }
 
 fn site_app() -> FissionSite {
-    FissionSite::new()
-        .light_dark_themes(Theme::default(), Theme::dark(), DesignMode::Dark)
+    let registry_path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("data/fission-crates.sqlite3");
+    let registry = registry::load_registry(&registry_path).unwrap_or_else(|error| {
+        eprintln!("crate registry unavailable: {error:#}");
+        Vec::new()
+    });
+    let mut env = Env::default();
+    env.i18n
+        .add_bundle(load_bundle("en-GB", include_str!("../i18n/en-GB.json")));
+    env.i18n
+        .add_bundle(load_bundle("es-ES", include_str!("../i18n/es-ES.json")));
+    let mut site = FissionSite::new()
+        .with_env(env)
+        .light_dark_themes(Theme::default(), Theme::dark(), DesignMode::Light)
         .route_widget::<DocsState, _>(
             "/",
             "Fission",
@@ -21,6 +37,12 @@ fn site_app() -> FissionSite {
                     .to_string(),
             ),
             RoutedHomePage::new("/"),
+        )
+        .route_widget::<DocsState, _>(
+            "/es/",
+            "Fission",
+            Some("Crea aplicaciones Rust para todas las plataformas.".to_string()),
+            LocalizedLandingPage,
         )
         .route_widget::<DocsState, _>(
             "/product/overview/",
@@ -76,9 +98,36 @@ fn site_app() -> FissionSite {
             Some("Native Fission charts for dashboards, analytics, finance, maps, networks, dynamic data, and 3D-ready visuals.".to_string()),
             ProductMarketingPage::new(MarketingPageKind::Charts),
         )
+        .route_widget::<DocsState, _>(
+            "/crates/",
+            "Fission crates",
+            Some("Libraries and tools built directly on the Fission framework.".to_string()),
+            CrateDirectoryPage::new(registry.clone()),
+        )
+        .route_widget::<DocsState, _>(
+            "/es/crates/",
+            "Crates de Fission",
+            Some("Bibliotecas y herramientas creadas directamente sobre Fission.".to_string()),
+            CrateDirectoryPage::new(registry.clone()),
+        )
         .footer_widget::<DocsState, _>(DocsFooter)
         .user_css(include_str!("../site/overrides.css"))
-        .content_transform(charts::expand_documentation_mdx)
+        .content_transform(charts::expand_documentation_mdx);
+    for item in registry {
+        let path = format!("/crates/{}/", item.name);
+        let title = format!("{} — Fission crates", item.name);
+        let description = Some(item.description.clone());
+        site =
+            site.route_widget::<DocsState, _>(path, title, description, CrateDetailPage::new(item));
+    }
+    site
+}
+
+fn load_bundle(locale: &str, json: &str) -> fission::i18n::TranslationBundle {
+    fission::i18n::TranslationBundle {
+        locale: locale.into(),
+        messages: serde_json::from_str(json).expect("valid checked-in translation bundle"),
+    }
 }
 
 #[cfg(test)]
