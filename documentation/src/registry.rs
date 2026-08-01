@@ -12,7 +12,7 @@ pub const PLATFORMS: &[(&str, &str)] = &[
     ("Web", "web"),
     ("Terminal", "terminal"),
     ("Static site", "static-site"),
-    ("SSR", "ssr"),
+    ("Server-rendered", "ssr"),
 ];
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]

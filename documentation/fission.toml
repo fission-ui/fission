@@ -20,6 +20,7 @@ description = "Build, test, package, and release production Rust apps across mac
 logo = "/img/fission-mark.svg"
 favicon = "/img/fission-mark.svg"
 asset_dirs = ["static"]
+css_files = ["site/overrides.css"]
 
 [site.code_highlighting]
 enabled = true
@@ -30,6 +31,11 @@ enabled = true
 [[site.elements]]
 placement = "head-end"
 file = "site/google-analytics.html"
+
+[[site.elements]]
+placement = "body-end"
+file = "site/crates-enhancement.html"
+route_prefixes = ["/crates/", "/es/crates/"]
 
 [distribution.github_pages.production]
 owner = "fission-ui"
@@ -42,6 +48,30 @@ custom_domain = "fission.rs"
 enforce_https = true
 workflow = "publish-website.yml"
 production_branch = "main"
+
+[[site.nav]]
+title = "Menu"
+href = "/"
+
+[[site.nav.children]]
+title = "Platform"
+href = "/product/overview/"
+
+[[site.nav.children]]
+title = "Documentation"
+href = "/docs/learn/overview/"
+
+[[site.nav.children]]
+title = "Crates"
+href = "/crates/"
+
+[[site.nav.children]]
+title = "Example showcase"
+href = "/example-showcase/"
+
+[[site.nav.children]]
+title = "Blog"
+href = "/blog/"
 
 [[site.nav]]
 title = "Platform"
@@ -83,13 +113,33 @@ href = "/product/developer-tools/"
 title = "Design systems"
 href = "/product/design-systems/"
 
-[[site.nav.children]]
-title = "Blog"
-href = "/blog/"
-
 [[site.nav]]
 title = "Docs"
 href = "/docs/learn/overview/"
+
+[[site.nav.children]]
+title = "Quickstart"
+href = "/docs/learn/quickstart/"
+
+[[site.nav.children]]
+title = "Learn Fission"
+href = "/docs/learn/overview/"
+
+[[site.nav.children]]
+title = "Guides"
+href = "/docs/guides/layout-and-widgets/"
+
+[[site.nav.children]]
+title = "Cookbook"
+href = "/docs/cookbook/add-platform-targets/"
+
+[[site.nav.children]]
+title = "API reference"
+href = "/reference/overview/overview/"
+
+[[site.nav.children]]
+title = "Example showcase"
+href = "/example-showcase/"
 
 [[site.nav]]
 title = "Crates"

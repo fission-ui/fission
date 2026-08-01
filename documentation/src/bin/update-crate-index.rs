@@ -2,8 +2,7 @@
 #[allow(dead_code)]
 mod registry;
 
-use anyhow::{anyhow, Context, Result};
-use chrono::{Duration, Utc};
+use anyhow::{anyhow, Result};
 use flate2::read::GzDecoder;
 use registry::PLATFORMS;
 use reqwest::blocking::Client;
@@ -15,6 +14,8 @@ use std::fs;
 use std::io::Read;
 use std::path::PathBuf;
 use tar::Archive;
+
+const DISCOVERY_KEYWORD: &str = "fission-framework";
 
 const OFFICIAL_CRATES: &[&str] = &[
     "fission",
@@ -60,7 +61,6 @@ struct SearchMeta {
 #[derive(Debug, Deserialize)]
 struct SearchCrate {
     id: String,
-    updated_at: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -106,6 +106,12 @@ struct PackagedCrate {
     readme_markdown: String,
 }
 
+#[derive(Debug, Eq, PartialEq)]
+enum IngestOutcome {
+    Indexed(String),
+    Skipped,
+}
+
 fn main() -> Result<()> {
     let database = env::args()
         .nth(1)
@@ -115,22 +121,29 @@ fn main() -> Result<()> {
         fs::create_dir_all(parent)?;
     }
 
-    let database_exists = database.exists();
-    let connection = Connection::open(&database)?;
+    let mut connection = Connection::open(&database)?;
     migrate(&connection)?;
     let client = Client::builder()
         .user_agent("fission.rs crate indexer (https://fission.rs/crates)")
         .build()?;
-    let lookback_hours = env::var("FISSION_CRATE_INDEX_LOOKBACK_HOURS")
-        .ok()
-        .and_then(|value| value.parse::<i64>().ok())
-        .unwrap_or(if database_exists { 48 } else { 24 * 365 * 20 });
-    let cutoff = Utc::now() - Duration::hours(lookback_hours);
-
-    for candidate in discover_candidates(&client, cutoff)? {
-        if let Err(error) = ingest_crate(&client, &connection, &candidate) {
-            eprintln!("skipping {}: {error:#}", candidate.id);
+    let mut indexed = BTreeSet::new();
+    let mut refresh_complete = true;
+    for candidate in discover_candidates(&client)? {
+        match ingest_crate(&client, &connection, &candidate) {
+            Ok(IngestOutcome::Indexed(name)) => {
+                indexed.insert(name);
+            }
+            Ok(IngestOutcome::Skipped) => {}
+            Err(error) => {
+                refresh_complete = false;
+                eprintln!("failed to refresh {}: {error:#}", candidate.id);
+            }
         }
+    }
+
+    match prune_stale_records(&mut connection, &indexed, refresh_complete)? {
+        Some(removed) => println!("removed {removed} stale crate(s)"),
+        None => eprintln!("crate refresh incomplete; stale indexed records were retained"),
     }
 
     connection.execute_batch("PRAGMA optimize;")?;
@@ -159,14 +172,15 @@ fn migrate(connection: &Connection) -> Result<()> {
     Ok(())
 }
 
-fn discover_candidates(client: &Client, cutoff: chrono::DateTime<Utc>) -> Result<Vec<SearchCrate>> {
+fn discover_candidates(client: &Client) -> Result<Vec<SearchCrate>> {
     let mut page = 1;
     let mut candidates = Vec::new();
+    let mut seen = BTreeSet::new();
     loop {
         let response = client
             .get("https://crates.io/api/v1/crates")
             .query(&[
-                ("keyword", "fission"),
+                ("keyword", DISCOVERY_KEYWORD),
                 ("sort", "recent-updates"),
                 ("per_page", "100"),
                 ("page", &page.to_string()),
@@ -174,18 +188,12 @@ fn discover_candidates(client: &Client, cutoff: chrono::DateTime<Utc>) -> Result
             .send()?
             .error_for_status()?
             .json::<SearchResponse>()?;
-        let mut reached_cutoff = false;
         for candidate in response.crates {
-            let updated = chrono::DateTime::parse_from_rfc3339(&candidate.updated_at)
-                .with_context(|| format!("parse update time for {}", candidate.id))?
-                .with_timezone(&Utc);
-            if updated < cutoff {
-                reached_cutoff = true;
-            } else {
+            if seen.insert(candidate.id.clone()) {
                 candidates.push(candidate);
             }
         }
-        if reached_cutoff || response.meta.next_page.is_none() {
+        if response.meta.next_page.is_none() {
             break;
         }
         page += 1;
@@ -193,35 +201,46 @@ fn discover_candidates(client: &Client, cutoff: chrono::DateTime<Utc>) -> Result
     Ok(candidates)
 }
 
-fn ingest_crate(client: &Client, connection: &Connection, candidate: &SearchCrate) -> Result<()> {
+fn ingest_crate(
+    client: &Client,
+    connection: &Connection,
+    candidate: &SearchCrate,
+) -> Result<IngestOutcome> {
     let response = client
         .get(format!("https://crates.io/api/v1/crates/{}", candidate.id))
         .send()?
         .error_for_status()?
         .json::<CrateResponse>()?;
-    let version = response
+    let Some(version) = response
         .versions
         .iter()
         .find(|version| version.num == response.crate_data.max_version && !version.yanked)
         .or_else(|| response.versions.iter().find(|version| !version.yanked))
-        .ok_or_else(|| anyhow!("no non-yanked release"))?;
+    else {
+        println!("skipped {}: no non-yanked release", candidate.id);
+        return Ok(IngestOutcome::Skipped);
+    };
     let packaged = download_package(client, &candidate.id, &version.num)?;
 
     if !OFFICIAL_CRATES.contains(&candidate.id.as_str())
         && !has_official_dependency(&packaged.manifest)
     {
-        return Err(anyhow!("no direct dependency on an official Fission crate"));
+        println!(
+            "skipped {}: no direct dependency on an official Fission crate",
+            candidate.id
+        );
+        return Ok(IngestOutcome::Skipped);
     }
 
-    let platforms = declared_platforms(&packaged.manifest)?;
-    let rendered_readme =
-        comrak::markdown_to_html(&packaged.readme_markdown, &comrak::Options::default());
-    let readme_markdown = html2md::parse_html(&ammonia::clean(&rendered_readme));
     let keywords = response
         .keywords
         .into_iter()
         .map(|keyword| keyword.keyword)
         .collect::<Vec<_>>();
+    let platforms = declared_platforms(&packaged.manifest, &keywords)?;
+    let rendered_readme =
+        comrak::markdown_to_html(&packaged.readme_markdown, &comrak::Options::default());
+    let readme_markdown = html2md::parse_html(&ammonia::clean(&rendered_readme));
     let categories = response
         .categories
         .into_iter()
@@ -262,7 +281,34 @@ fn ingest_crate(client: &Client, connection: &Connection, candidate: &SearchCrat
         ],
     )?;
     println!("indexed {} {}", candidate.id, version.num);
-    Ok(())
+    Ok(IngestOutcome::Indexed(candidate.id.clone()))
+}
+
+fn prune_stale_records(
+    connection: &mut Connection,
+    indexed: &BTreeSet<String>,
+    refresh_complete: bool,
+) -> Result<Option<usize>> {
+    if !refresh_complete {
+        return Ok(None);
+    }
+
+    let transaction = connection.transaction()?;
+    let existing = {
+        let mut statement = transaction.prepare("SELECT name FROM crates")?;
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows
+    };
+    let mut removed = 0;
+    for name in existing {
+        if !indexed.contains(&name) {
+            removed += transaction.execute("DELETE FROM crates WHERE name = ?1", params![name])?;
+        }
+    }
+    transaction.commit()?;
+    Ok(Some(removed))
 }
 
 fn download_package(client: &Client, name: &str, version: &str) -> Result<PackagedCrate> {
@@ -342,7 +388,7 @@ fn dependency_tables(
     tables.into_iter()
 }
 
-fn declared_platforms(manifest: &toml::Value) -> Result<Vec<String>> {
+fn declared_platforms(manifest: &toml::Value, keywords: &[String]) -> Result<Vec<String>> {
     let values = manifest
         .get("package")
         .and_then(|package| package.get("metadata"))
@@ -351,20 +397,46 @@ fn declared_platforms(manifest: &toml::Value) -> Result<Vec<String>> {
         .and_then(toml::Value::as_array)
         .cloned()
         .unwrap_or_default();
-    let allowed = PLATFORMS.iter().map(|(_, id)| *id).collect::<BTreeSet<_>>();
-    let mut platforms = Vec::new();
-    for value in values {
-        let platform = value
-            .as_str()
-            .ok_or_else(|| anyhow!("package.metadata.fission.platforms must contain strings"))?;
-        if !allowed.contains(platform) {
-            return Err(anyhow!("unknown Fission platform `{platform}`"));
+    let mut platforms = BTreeSet::new();
+    if values.is_empty() {
+        for keyword in keywords {
+            if let Some(platform) = platform_from_keyword(keyword) {
+                platforms.insert(platform.to_string());
+            }
         }
-        if !platforms.iter().any(|existing| existing == platform) {
-            platforms.push(platform.to_string());
+    } else {
+        let allowed = PLATFORMS.iter().map(|(_, id)| *id).collect::<BTreeSet<_>>();
+        for value in values {
+            let platform = value.as_str().ok_or_else(|| {
+                anyhow!("package.metadata.fission.platforms must contain strings")
+            })?;
+            let normalized = platform_from_keyword(platform).unwrap_or(platform);
+            if !allowed.contains(normalized) {
+                return Err(anyhow!("unknown Fission platform `{platform}`"));
+            }
+            platforms.insert(normalized.to_string());
         }
     }
-    Ok(platforms)
+
+    Ok(PLATFORMS
+        .iter()
+        .filter_map(|(_, id)| platforms.contains(*id).then(|| (*id).to_string()))
+        .collect())
+}
+
+fn platform_from_keyword(keyword: &str) -> Option<&'static str> {
+    match keyword.trim().to_ascii_lowercase().as_str() {
+        "android" => Some("android"),
+        "ios" => Some("ios"),
+        "linux" => Some("linux"),
+        "macos" => Some("macos"),
+        "web" => Some("web"),
+        "windows" => Some("windows"),
+        "static-site" => Some("static-site"),
+        "server-rendered-pages" | "ssr" => Some("ssr"),
+        "terminal" => Some("terminal"),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -395,6 +467,162 @@ platforms = ["web", "ssr"]
 "#,
         )
         .unwrap();
-        assert_eq!(declared_platforms(&manifest).unwrap(), ["web", "ssr"]);
+        assert_eq!(declared_platforms(&manifest, &[]).unwrap(), ["web", "ssr"]);
+    }
+
+    #[test]
+    fn falls_back_to_normalized_platform_keywords() {
+        let manifest: toml::Value = toml::from_str(
+            r#"[package]
+name = "demo"
+"#,
+        )
+        .unwrap();
+        let keywords = [
+            "terminal",
+            "ssr",
+            "server-rendered-pages",
+            "ANDROID",
+            "ios",
+            "linux",
+            "macos",
+            "web",
+            "windows",
+            "static-site",
+            "not-a-platform",
+        ]
+        .map(str::to_string);
+
+        assert_eq!(
+            declared_platforms(&manifest, &keywords).unwrap(),
+            [
+                "android",
+                "ios",
+                "linux",
+                "macos",
+                "windows",
+                "web",
+                "terminal",
+                "static-site",
+                "ssr",
+            ]
+        );
+    }
+
+    #[test]
+    fn declared_platforms_take_precedence_over_keywords() {
+        let manifest: toml::Value = toml::from_str(
+            r#"[package]
+name = "demo"
+[package.metadata.fission]
+platforms = ["web"]
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            declared_platforms(&manifest, &["android".to_string()]).unwrap(),
+            ["web"]
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_declared_platforms() {
+        let manifest: toml::Value = toml::from_str(
+            r#"[package]
+name = "demo"
+[package.metadata.fission]
+platforms = ["browser"]
+"#,
+        )
+        .unwrap();
+
+        assert!(declared_platforms(&manifest, &[]).is_err());
+    }
+
+    #[test]
+    fn normalizes_server_rendered_metadata_alias() {
+        let manifest: toml::Value = toml::from_str(
+            r#"[package]
+name = "demo"
+[package.metadata.fission]
+platforms = ["server-rendered-pages"]
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(declared_platforms(&manifest, &[]).unwrap(), ["ssr"]);
+    }
+
+    #[test]
+    fn prunes_only_records_missing_from_a_complete_refresh() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        for name in ["keep", "stale"] {
+            connection
+                .execute(
+                    "INSERT INTO crates (
+                        name, version, description, downloads, updated_at, repository,
+                        documentation, license, platforms, keywords, categories, versions,
+                        readme_markdown
+                     ) VALUES (?1, '1.0.0', '', 0, '', NULL, NULL, NULL, '[]', '[]', '[]', '[]', '')",
+                    params![name],
+                )
+                .unwrap();
+        }
+        let indexed = ["keep".to_string()].into_iter().collect();
+
+        assert_eq!(
+            prune_stale_records(&mut connection, &indexed, true).unwrap(),
+            Some(1)
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM crates WHERE name = 'keep'",
+                    [],
+                    |row| { row.get::<_, i64>(0) }
+                )
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM crates WHERE name = 'stale'",
+                    [],
+                    |row| { row.get::<_, i64>(0) }
+                )
+                .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn retains_stale_records_after_an_incomplete_refresh() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+        connection
+            .execute(
+                "INSERT INTO crates (
+                    name, version, description, downloads, updated_at, repository,
+                    documentation, license, platforms, keywords, categories, versions,
+                    readme_markdown
+                 ) VALUES ('stale', '1.0.0', '', 0, '', NULL, NULL, NULL, '[]', '[]', '[]', '[]', '')",
+                [],
+            )
+            .unwrap();
+
+        assert_eq!(
+            prune_stale_records(&mut connection, &BTreeSet::new(), false).unwrap(),
+            None
+        );
+        assert_eq!(
+            connection
+                .query_row("SELECT COUNT(*) FROM crates", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
     }
 }

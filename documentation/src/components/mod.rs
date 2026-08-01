@@ -1,4 +1,5 @@
 mod crates;
+mod example_showcase;
 mod footer;
 mod home;
 mod home_nav;
@@ -9,6 +10,7 @@ mod marketing;
 mod state;
 
 pub(crate) use crates::{CrateDetailPage, CrateDirectoryPage};
+pub(crate) use example_showcase::ExampleShowcasePage;
 pub(crate) use footer::DocsFooter;
 pub(crate) use home::RoutedHomePage;
 pub(crate) use localized::LocalizedLandingPage;
