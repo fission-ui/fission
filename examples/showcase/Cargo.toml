@@ -41,3 +41,6 @@ fission-design-system-codegen = { path = "../../crates/tools/fission-design-syst
 [dev-dependencies]
 fission-test-driver = { path = "../../crates/tools/fission-test-driver" }
 image = "0.25"
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
