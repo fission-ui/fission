@@ -56,9 +56,37 @@ const PRODUCT_CHILDREN: &[NavItem] = &[
         href: "/product/design-systems/",
         children: &[],
     },
+];
+
+const DOCS_CHILDREN: &[NavItem] = &[
     NavItem {
-        label: "Blog",
-        href: "/blog/",
+        label: "Quickstart",
+        href: "/docs/learn/quickstart/",
+        children: &[],
+    },
+    NavItem {
+        label: "Learn Fission",
+        href: "/docs/learn/overview/",
+        children: &[],
+    },
+    NavItem {
+        label: "Guides",
+        href: "/docs/guides/layout-and-widgets/",
+        children: &[],
+    },
+    NavItem {
+        label: "Cookbook",
+        href: "/docs/cookbook/add-platform-targets/",
+        children: &[],
+    },
+    NavItem {
+        label: "API reference",
+        href: "/reference/overview/overview/",
+        children: &[],
+    },
+    NavItem {
+        label: "Example showcase",
+        href: "/example-showcase/",
         children: &[],
     },
 ];
@@ -72,7 +100,7 @@ const NAV_ITEMS: &[NavItem] = &[
     NavItem {
         label: "Docs",
         href: "/docs/learn/overview/",
-        children: MOBILE_MENU_CHILDREN,
+        children: DOCS_CHILDREN,
     },
     NavItem {
         label: "Crates",
@@ -93,23 +121,23 @@ const MOBILE_MENU_CHILDREN: &[NavItem] = &[
         children: &[],
     },
     NavItem {
-        label: "Crates",
-        href: "/crates/",
+        label: "Documentation",
+        href: "/docs/learn/overview/",
         children: &[],
     },
     NavItem {
-        label: "Blog",
-        href: "/blog/",
-        children: &[],
-    },
-    NavItem {
-        label: "Setup",
+        label: "Quickstart",
         href: "/docs/learn/quickstart/",
         children: &[],
     },
     NavItem {
-        label: "Learn",
-        href: "/docs/learn/overview/",
+        label: "API reference",
+        href: "/reference/overview/overview/",
+        children: &[],
+    },
+    NavItem {
+        label: "Crates",
+        href: "/crates/",
         children: &[],
     },
     NavItem {
@@ -118,18 +146,8 @@ const MOBILE_MENU_CHILDREN: &[NavItem] = &[
         children: &[],
     },
     NavItem {
-        label: "Build",
-        href: "/docs/build-and-package/overview/",
-        children: &[],
-    },
-    NavItem {
-        label: "Test",
-        href: "/docs/test-and-debug/overview/",
-        children: &[],
-    },
-    NavItem {
-        label: "Publish",
-        href: "/docs/release-and-distribute/overview/",
+        label: "Blog",
+        href: "/blog/",
         children: &[],
     },
 ];
