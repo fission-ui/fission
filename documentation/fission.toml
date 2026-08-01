@@ -96,6 +96,10 @@ title = "Learn"
 href = "/docs/learn/overview/"
 
 [[site.nav]]
+title = "Example Showcase"
+href = "/example-showcase/"
+
+[[site.nav]]
 title = "Build"
 href = "/docs/build-and-package/overview/"
 

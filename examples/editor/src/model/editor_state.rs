@@ -14,15 +14,23 @@ impl EditorState {
     }
 
     pub fn ensure_terminal_session(&mut self) {
-        if self.terminal_session.is_some() {
+        #[cfg(target_arch = "wasm32")]
+        {
             return;
         }
-        self.terminal_session = TerminalSession::spawn(TerminalLaunchConfig {
-            cwd: Some(self.root_path.clone()),
-            program: std::env::var("SHELL").ok(),
-            ..Default::default()
-        })
-        .ok();
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if self.terminal_session.is_some() {
+                return;
+            }
+            self.terminal_session = TerminalSession::spawn(TerminalLaunchConfig {
+                cwd: Some(self.root_path.clone()),
+                program: std::env::var("SHELL").ok(),
+                ..Default::default()
+            })
+            .ok();
+        }
     }
 
     pub fn open_file(&mut self, path: String) {

@@ -80,6 +80,11 @@ const NAV_ITEMS: &[NavItem] = &[
         children: &[],
     },
     NavItem {
+        label: "Example Showcase",
+        href: "/example-showcase/",
+        children: &[],
+    },
+    NavItem {
         label: "Build",
         href: "/docs/build-and-package/overview/",
         children: &[],
@@ -155,6 +160,11 @@ const MOBILE_MENU_CHILDREN: &[NavItem] = &[
     NavItem {
         label: "Learn",
         href: "/docs/learn/overview/",
+        children: &[],
+    },
+    NavItem {
+        label: "Example Showcase",
+        href: "/example-showcase/",
         children: &[],
     },
     NavItem {

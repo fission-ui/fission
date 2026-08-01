@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 #[derive(Clone)]
-pub(crate) struct EditorApp;
+pub struct EditorApp;
 
 impl From<EditorApp> for Widget {
     fn from(_component: EditorApp) -> Self {

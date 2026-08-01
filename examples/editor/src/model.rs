@@ -1,11 +1,27 @@
 use fission::core::{GlobalState, JobRef, JobSpec};
 use fission::prelude::fission_action;
+#[cfg(not(target_arch = "wasm32"))]
 use fission::widgets::{TerminalLaunchConfig, TerminalSession};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+
+#[cfg(target_arch = "wasm32")]
+#[derive(Debug)]
+pub struct TerminalSession;
+
+#[cfg(target_arch = "wasm32")]
+impl TerminalSession {
+    pub(crate) fn take_dirty(&self) -> bool {
+        false
+    }
+
+    pub(crate) fn title(&self) -> String {
+        "Terminal unavailable in a browser".into()
+    }
+}
 
 // ---------------------------------------------------------------------------
 // LspHandle — thread-safe wrapper around LspClient

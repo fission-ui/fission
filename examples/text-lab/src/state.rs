@@ -2,7 +2,7 @@ use fission::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub(crate) struct TextLabState {
+pub struct TextLabState {
     pub single_line: String,
     pub multiline: String,
     pub inline_combobox: String,

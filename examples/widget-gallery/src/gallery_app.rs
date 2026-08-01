@@ -14,7 +14,7 @@ use fission::widgets::{Center, Spacer, VStack};
 const GALLERY_MAX_WIDTH: f32 = 1040.0;
 
 #[derive(Clone)]
-pub(crate) struct GalleryApp;
+pub struct GalleryApp;
 
 impl From<GalleryApp> for Widget {
     fn from(_app: GalleryApp) -> Self {
