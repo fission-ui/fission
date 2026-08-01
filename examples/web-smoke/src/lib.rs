@@ -1,13 +1,15 @@
 pub mod app;
 
+#[cfg(any(not(target_arch = "wasm32"), feature = "standalone-entry"))]
 use anyhow::Result;
-use app::{CounterApp, CounterState};
+pub use app::{CounterApp, CounterState};
+#[cfg(any(not(target_arch = "wasm32"), feature = "standalone-entry"))]
 use fission::prelude::*;
 
 #[cfg(target_os = "android")]
 const ANDROID_TEST_CONTROL_PORT: u16 = 48761;
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "standalone-entry"))]
 fn web_app() -> WebApp<CounterState, CounterApp> {
     WebApp::<CounterState, _>::new(CounterApp)
         .with_title("Fission Web Smoke")
@@ -40,7 +42,7 @@ fn android_main(app_handle: AndroidApp) {
     let _ = mobile_app().run_with_android_app(app_handle);
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "standalone-entry"))]
 #[wasm_bindgen::prelude::wasm_bindgen(start)]
 pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
     console_error_panic_hook::set_once();

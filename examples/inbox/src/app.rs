@@ -15,7 +15,7 @@ use fission::widgets::{
 const MOBILE_DRAWER_WIDTH: f32 = 280.0;
 
 #[derive(Clone)]
-pub(crate) struct InboxApp;
+pub struct InboxApp;
 
 impl From<InboxApp> for Widget {
     fn from(_component: InboxApp) -> Self {

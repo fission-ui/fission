@@ -7,6 +7,10 @@ edition = "2021"
 name = "web_smoke"
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = ["standalone-entry"]
+standalone-entry = []
+
 [dependencies]
 anyhow = "1.0"
 fission = { path = "../../crates/authoring/fission", default-features = false, features = ["desktop", "web", "android", "ios"] }

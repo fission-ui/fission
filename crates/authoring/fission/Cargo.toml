@@ -5,6 +5,11 @@ edition = "2021"
 license = "MIT"
 repository = "https://github.com/fission-ui/fission"
 description = "Production-focused Rust application framework for macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR targets"
+categories = ["gui", "rendering", "visualization", "wasm", "web-programming"]
+keywords = ["fission", "ui-framework", "gpu-accelerated", "cross-platform", "vello"]
+
+[package.metadata.fission]
+platforms = ["android", "ios", "linux", "macos", "windows", "web", "terminal", "static-site", "ssr"]
 
 homepage = "https://fission.rs"
 documentation = "https://fission.rs"

@@ -5,6 +5,11 @@ edition = "2021"
 license = "MIT"
 repository = "https://github.com/fission-ui/fission"
 description = "Headless and runtime testing helpers for Fission applications"
+categories = ["development-tools::testing", "gui"]
+keywords = ["fission", "testing", "headless", "ui-testing", "cross-platform"]
+
+[package.metadata.fission]
+platforms = ["linux", "macos", "windows"]
 
 homepage = "https://fission.rs"
 documentation = "https://fission.rs"

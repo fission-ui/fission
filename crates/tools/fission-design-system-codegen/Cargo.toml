@@ -5,6 +5,11 @@ edition = "2021"
 license = "MIT"
 repository = "https://github.com/fission-ui/fission"
 description = "Build-time Design System Package code generation for Fission themes"
+categories = ["development-tools::build-utils", "gui"]
+keywords = ["fission", "design-system", "codegen", "design-tokens", "dsp"]
+
+[package.metadata.fission]
+platforms = ["linux", "macos", "windows"]
 
 homepage = "https://fission.rs"
 documentation = "https://fission.rs"

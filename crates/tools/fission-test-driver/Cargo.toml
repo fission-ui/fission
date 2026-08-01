@@ -5,6 +5,11 @@ edition = "2021"
 license = "MIT"
 repository = "https://github.com/fission-ui/fission"
 description = "Live app testing client and protocol helpers for Fission shells"
+categories = ["development-tools::testing", "gui"]
+keywords = ["fission", "testing", "test-driver", "ui-testing", "cross-platform"]
+
+[package.metadata.fission]
+platforms = ["linux", "macos", "windows"]
 
 homepage = "https://fission.rs"
 documentation = "https://fission.rs"

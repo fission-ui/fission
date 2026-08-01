@@ -879,7 +879,7 @@ fn render_custom_routes(
 ) -> Result<Vec<ContentRoute>> {
     let mut routes = Vec::new();
     for route in &site.custom_routes {
-        let env = site_env_for_route(options, site);
+        let env = site_env_for_route(options, site, &route.path);
         let ctx = SiteRenderContext {
             project_dir: &options.project_dir,
             route_path: &route.path,
@@ -964,7 +964,7 @@ fn render_route(
         return Ok(rendered.clone());
     }
     let runtime = RuntimeState::default();
-    let env = site_env_for_route(options, site);
+    let env = site_env_for_route(options, site, &route.path);
     let state = SitePageState;
     let view = View::new(&state, &runtime, &env, None);
     let mut build_ctx = BuildCtx::<SitePageState>::new();
@@ -1004,11 +1004,15 @@ fn render_route(
     )
 }
 
-fn site_env_for_route(options: &SiteBuildOptions, site: &FissionSite) -> Env {
+fn site_env_for_route(options: &SiteBuildOptions, site: &FissionSite, route_path: &str) -> Env {
     let mut env = site.env.clone();
     env.theme = site.theme.clone();
     env.viewport_size = LayoutSize::new(1280.0, 900.0);
-    env.locale = options.default_locale.as_str().into();
+    env.locale = if route_path == "/es" || route_path.starts_with("/es/") {
+        "es-ES".into()
+    } else {
+        options.default_locale.as_str().into()
+    };
     env
 }
 

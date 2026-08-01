@@ -5,6 +5,11 @@ edition = "2021"
 license = "MIT"
 repository = "https://github.com/fission-ui/fission"
 description = "Core runtime, state, actions, effects, resources, input, and UI model for Fission"
+categories = ["gui", "rendering"]
+keywords = ["fission", "ui-framework", "runtime", "state-management", "cross-platform"]
+
+[package.metadata.fission]
+platforms = ["android", "ios", "linux", "macos", "windows", "web", "terminal", "static-site", "ssr"]
 
 homepage = "https://fission.rs"
 documentation = "https://fission.rs"

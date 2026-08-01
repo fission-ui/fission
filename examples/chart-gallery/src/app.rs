@@ -16,7 +16,7 @@ use fission::charts::ChartInteractionEvent;
 use fission::prelude::*;
 
 #[derive(Clone)]
-pub(crate) struct GalleryApp;
+pub struct GalleryApp;
 
 impl From<GalleryApp> for Widget {
     fn from(_app: GalleryApp) -> Self {
