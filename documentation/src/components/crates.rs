@@ -1,4 +1,5 @@
 use super::home_nav::HomePageNav;
+use super::home_sections::PlatformAtlas;
 use super::home_widgets::{page_fill, site_semantics, SemanticRow};
 use super::localized::LocalizedNav;
 use super::state::DocsState;
@@ -91,7 +92,41 @@ struct CrateHeroDesktop {
 
 impl From<CrateHeroDesktop> for Widget {
     fn from(hero: CrateHeroDesktop) -> Widget {
-        CrateHeroContent::new(hero.crate_count, false).into()
+        let (_ctx, view) = fission::build::current::<DocsState>();
+        let tokens = &view.env().theme.tokens;
+        Container::new(SemanticRow::new(
+            "crate-directory-hero",
+            vec![
+                Container::new(CrateHeroContent::new(hero.crate_count, false))
+                    .flex_grow(1.0)
+                    .flex_shrink(1.0)
+                    .into(),
+                Container::new(PlatformAtlas)
+                    .width_length(Length::clamp(
+                        Length::points(360.0),
+                        Length::percent(42.0),
+                        Length::points(520.0),
+                    ))
+                    .flex_shrink(1.0)
+                    .into(),
+            ],
+            Some(tokens.spacing.xxxl),
+            FlexWrap::NoWrap,
+            AlignItems::Center,
+            JustifyContent::SpaceBetween,
+        ))
+        .width_length(Length::clamp(
+            Length::points(280.0),
+            Length::percent(100.0),
+            Length::points(1400.0),
+        ))
+        .padding_lengths([
+            Length::points(tokens.spacing.xxxl),
+            Length::points(tokens.spacing.xl),
+            Length::points(tokens.spacing.xxl),
+            Length::points(tokens.spacing.xl),
+        ])
+        .into()
     }
 }
 
@@ -102,7 +137,17 @@ struct CrateHeroPhone {
 
 impl From<CrateHeroPhone> for Widget {
     fn from(hero: CrateHeroPhone) -> Widget {
-        CrateHeroContent::new(hero.crate_count, true).into()
+        let (_ctx, view) = fission::build::current::<DocsState>();
+        let tokens = &view.env().theme.tokens;
+        Container::new(CrateHeroContent::new(hero.crate_count, true))
+            .width_length(Length::percent(100.0))
+            .padding_lengths([
+                Length::points(tokens.spacing.xl),
+                Length::points(tokens.spacing.l),
+                Length::points(tokens.spacing.xxxl),
+                Length::points(tokens.spacing.l),
+            ])
+            .into()
     }
 }
 
@@ -152,29 +197,10 @@ impl From<CrateHeroContent> for Widget {
                     .into(),
             ],
             gap: Some(tokens.spacing.m),
-            semantics: Some(site_semantics("crate-directory-hero")),
+            semantics: Some(site_semantics("crate-directory-copy")),
             ..Default::default()
         })
-        .width_length(Length::clamp(
-            Length::points(280.0),
-            Length::percent(100.0),
-            Length::points(1304.0),
-        ))
-        .padding_lengths(if hero.compact {
-            [
-                Length::points(tokens.spacing.xl),
-                Length::points(tokens.spacing.l),
-                Length::points(tokens.spacing.xxl),
-                Length::points(tokens.spacing.l),
-            ]
-        } else {
-            [
-                Length::points(tokens.spacing.xxxl),
-                Length::points(tokens.spacing.xl),
-                Length::points(tokens.spacing.xxxl),
-                Length::points(tokens.spacing.xl),
-            ]
-        })
+        .width_length(Length::percent(100.0))
         .into()
     }
 }
@@ -236,6 +262,7 @@ impl From<CrateResults> for Widget {
                 ],
                 gap: Some(tokens.spacing.m),
                 align_items: AlignItems::Center,
+                semantics: Some(site_semantics("crate-results")),
                 ..Default::default()
             })
             .padding_all(tokens.spacing.xxxl)

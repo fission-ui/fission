@@ -113,7 +113,7 @@ impl From<HomeHeroCopy> for Widget {
 }
 
 #[derive(Clone, Debug)]
-struct PlatformAtlas;
+pub(super) struct PlatformAtlas;
 
 impl From<PlatformAtlas> for Widget {
     fn from(_atlas: PlatformAtlas) -> Widget {
@@ -151,6 +151,7 @@ impl From<PlatformAtlas> for Widget {
             ],
             gap: Some(tokens.spacing.l),
             align_items: AlignItems::Center,
+            semantics: Some(super::home_widgets::site_semantics("site-platform-atlas")),
             ..Default::default()
         })
         .width_length(Length::percent(100.0))
@@ -193,6 +194,10 @@ impl From<AtlasTarget> for Widget {
             ],
             gap: Some(tokens.spacing.xs),
             align_items: AlignItems::Center,
+            semantics: Some(super::home_widgets::site_semantics(format!(
+                "site-atlas-target:{}",
+                target.label.to_lowercase()
+            ))),
             ..Default::default()
         })
         .width_length(Length::points(104.0))
