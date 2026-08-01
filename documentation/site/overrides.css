@@ -714,6 +714,26 @@ body,
   color: white !important;
 }
 
+.fission-site-product-hero-ctas > .fission-site-row > .fission-site-box {
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.fission-site-product-hero-ctas > .fission-site-row > .fission-site-box:first-child .fission-site-link {
+  background: var(--prototype-blue) !important;
+  border-color: var(--prototype-blue) !important;
+  color: white !important;
+}
+
+.fission-site-product-hero-ctas > .fission-site-row > .fission-site-box:nth-child(2) .fission-site-link {
+  background: var(--prototype-surface) !important;
+  border-color: var(--prototype-line) !important;
+  color: var(--prototype-ink) !important;
+}
+
 .fission-site-product-feature-showcase,
 .fission-site-product-proof {
   border-color: var(--prototype-line) !important;
@@ -1111,5 +1131,250 @@ body,
   .fission-site-doc-main h1,
   .fission-site-doc-main h1 .fission-site-text-run {
     font-size: 44px !important;
+  }
+}
+
+/* Prototype composition lock. These rules intentionally remove generated
+   presentation wrappers so the retained widget tree renders as the supplied
+   page compositions, rather than as cards nested inside the prototype. */
+.fission-site-box:has(> .fission-site-home-header),
+.fission-site-box:has(> .fission-site-product-page),
+.fission-site-box:has(> .fission-site-blog-layout),
+.fission-site-box:has(> .fission-site-doc-layout),
+.fission-site-box:has(> [data-fission-semantics="crate-directory-page"]) {
+  width: 100% !important;
+  max-width: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.fission-site-home-header,
+.fission-site-doc-header {
+  width: 100% !important;
+  max-width: none !important;
+  padding: 0 !important;
+}
+
+.fission-site-home-header > .fission-site-row,
+.fission-site-doc-header > .fission-site-row {
+  width: min(100%, 1400px) !important;
+  max-width: 1400px !important;
+  padding-inline: 40px !important;
+}
+
+/* Recreate the prototype wordmark instead of mixing its layout with the old
+   atom mark. */
+.fission-site-home-header .fission-site-img,
+.fission-site-doc-header .fission-site-img {
+  display: none !important;
+}
+
+.fission-site-home-header .fission-site-box:has(> .fission-site-img),
+.fission-site-doc-header .fission-site-box:has(> .fission-site-img) {
+  position: relative !important;
+  display: block !important;
+  width: 28px !important;
+  min-width: 28px !important;
+  height: 34px !important;
+  background: linear-gradient(155deg, var(--prototype-violet), var(--prototype-blue)) !important;
+  clip-path: polygon(0 0, 78% 10%, 58% 34%, 18% 29%, 18% 39%, 72% 45%, 52% 68%, 0 59%, 0 70%, 62% 78%, 43% 100%, 0 88%);
+}
+
+.fission-site-home-header .fission-site-main-nav,
+.fission-site-doc-header .fission-site-doc-nav {
+  gap: 36px !important;
+}
+
+.fission-site-home-header .fission-site-home-actions,
+.fission-site-doc-header .fission-site-home-actions {
+  gap: 8px !important;
+}
+
+/* Product pages follow the same open hero composition as the prototype home
+   page. The product-specific matrix remains the visual half of the grid. */
+.fission-site-product-page {
+  width: min(100%, 1400px) !important;
+  max-width: 1400px !important;
+  padding: 0 48px 110px !important;
+}
+
+.fission-site-product-page > .fission-site-column {
+  gap: 0 !important;
+}
+
+.fission-site-product-hero {
+  min-height: 618px !important;
+  padding: 70px 20px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.fission-site-box:has(> .fission-site-product-hero) {
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+[data-fission-semantics="site-product-nav-strip"] {
+  display: none !important;
+}
+
+.fission-site-box:has(> [data-fission-semantics="site-product-nav-strip"]) {
+  display: none !important;
+}
+
+.fission-site-product-feature-showcase,
+.fission-site-product-detail-showcase,
+.fission-site-product-workflow,
+.fission-site-product-proof {
+  margin-inline: -48px !important;
+  padding: 100px max(48px, calc((100vw - 1304px) / 2)) !important;
+  border: 0 !important;
+  border-block: 1px solid var(--prototype-line) !important;
+  border-radius: 0 !important;
+  background: var(--prototype-surface-2) !important;
+  box-shadow: none !important;
+}
+
+/* Crate search and tray match the prototype controls exactly. */
+[data-fission-semantics="crate-searchbox"] {
+  height: 64px !important;
+  margin-top: 12px !important;
+  padding: 0 18px !important;
+  border: 2px solid var(--prototype-blue) !important;
+  border-radius: 16px !important;
+  background: var(--prototype-surface) !important;
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--prototype-blue) 10%, transparent) !important;
+}
+
+.fission-site-box:has(> [data-fission-semantics="crate-searchbox"]) {
+  display: contents !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+[data-fission-semantics="crate-searchbox"] > .fission-site-row > .fission-site-box:last-child {
+  flex: 0 0 auto !important;
+  width: auto !important;
+  min-width: 42px !important;
+  padding: 5px 8px !important;
+}
+
+[data-fission-semantics="crate-platform-legend"] {
+  padding: 14px !important;
+  border-radius: 24px !important;
+}
+
+.fission-site-box:has(> [data-fission-semantics="crate-platform-legend"]) {
+  display: contents !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+[data-fission-semantics="crate-platform-legend"] > .fission-site-row > .fission-site-box {
+  min-height: 88px !important;
+  border-radius: 14px !important;
+}
+
+/* The blog feature is one card in the prototype. Discard both generated
+   wrapper surfaces and let the semantic card own the presentation. */
+.fission-site-box:has(> .fission-site-blog-featured-card) {
+  display: contents !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.fission-site-blog-featured-card {
+  min-height: 402px !important;
+  margin: 75px 0 !important;
+  padding: 26px !important;
+  overflow: hidden !important;
+  border-radius: 28px !important;
+  background: var(--prototype-surface) !important;
+}
+
+.fission-site-blog-featured-card::before {
+  margin: 0 65px 0 0 !important;
+}
+
+/* Documentation is the supplied navigation/article/TOC grid, without the
+   legacy page container adding a fourth visual layer. */
+.fission-site-doc-layout > .fission-site-row {
+  width: 100% !important;
+  grid-template-columns: 250px minmax(0, 760px) 190px !important;
+  gap: 65px !important;
+}
+
+.fission-site-doc-main > .fission-site-column,
+.fission-site-doc-sidebar > .fission-site-column {
+  background: transparent !important;
+}
+
+@media (max-width: 1000px) {
+  .fission-site-home-header > .fission-site-row,
+  .fission-site-doc-header > .fission-site-row {
+    padding-inline: 22px !important;
+  }
+
+  .fission-site-product-page {
+    padding-inline: 24px !important;
+  }
+
+  .fission-site-product-hero {
+    min-height: 0 !important;
+    padding: 55px 0 !important;
+  }
+
+  .fission-site-product-feature-showcase,
+  .fission-site-product-detail-showcase,
+  .fission-site-product-workflow,
+  .fission-site-product-proof {
+    margin-inline: -24px !important;
+    padding: 70px 24px !important;
+  }
+
+  .fission-site-doc-layout > .fission-site-row {
+    grid-template-columns: 220px minmax(0, 1fr) !important;
+    gap: 35px !important;
+  }
+}
+
+@media (max-width: 650px) {
+  .fission-site-product-page {
+    width: 100% !important;
+    padding-inline: 18px !important;
+  }
+
+  .fission-site-product-hero {
+    padding: 45px 0 !important;
+  }
+
+  .fission-site-product-hero > .fission-site-row {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 28px !important;
+  }
+
+  .fission-site-blog-featured-card {
+    padding: 14px !important;
+  }
+
+  .fission-site-blog-featured-card::before {
+    margin: 0 0 28px !important;
+  }
+
+  .fission-site-doc-layout > .fission-site-row {
+    display: block !important;
   }
 }
