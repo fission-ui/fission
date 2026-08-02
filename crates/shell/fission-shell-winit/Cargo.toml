@@ -5,15 +5,15 @@ edition = "2021"
 description = "Shared winit shell runtime for desktop and mobile Fission hosts"
 categories = ["gui", "rendering"]
 keywords = ["fission", "winit", "cross-platform", "desktop", "mobile"]
-
-[package.metadata.fission]
-platforms = ["android", "ios", "linux", "macos", "windows", "web"]
-
 license = "MIT"
 repository = "https://github.com/fission-ui/fission"
 homepage = "https://fission.rs"
 documentation = "https://fission.rs"
 readme = "README.md"
+
+[package.metadata.fission]
+platforms = ["android", "ios", "linux", "macos", "windows", "web"]
+
 [features]
 default = []
 tray = ["dep:tray-icon", "dep:gtk"]
