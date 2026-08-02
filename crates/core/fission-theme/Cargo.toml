@@ -7,9 +7,6 @@ repository = "https://github.com/fission-ui/fission"
 description = "Design tokens, Design System Package codegen output, and component themes for Fission"
 categories = ["gui"]
 keywords = ["fission", "design-system", "theming", "design-tokens", "ui-framework"]
-
-[package.metadata.fission]
-platforms = ["android", "ios", "linux", "macos", "windows", "web", "terminal", "static-site", "ssr"]
 include = [
     "src/**/*",
     "design/**/*",
@@ -22,6 +19,9 @@ include = [
     "fonts/Inter/static/Inter_24pt-Bold.ttf",
     "fonts/Noto_Sans/static/NotoSans-Regular.ttf",
 ]
+
+[package.metadata.fission]
+platforms = ["android", "ios", "linux", "macos", "windows", "web", "terminal", "static-site", "ssr"]
 
 homepage = "https://fission.rs"
 documentation = "https://fission.rs"
