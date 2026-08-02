@@ -5,6 +5,11 @@ edition = "2021"
 license = "MIT"
 repository = "https://github.com/fission-ui/fission"
 description = "Prototype WGPU 2D renderer backend for Fission display lists"
+categories = ["rendering", "graphics", "gui"]
+keywords = ["fission", "wgpu", "gpu-accelerated", "rendering", "cross-platform"]
+
+[package.metadata.fission]
+platforms = ["android", "ios", "linux", "macos", "windows", "web"]
 homepage = "https://fission.rs"
 documentation = "https://fission.rs"
 

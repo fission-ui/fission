@@ -1,9 +1,6 @@
 use super::home_nav::HomePageNav;
-use super::home_sections::{
-    ArchitectureSection, ChartsSection, ExamplesSection, FinalCta, HomePageHero, LifecycleSection,
-    ModelSection, ProofStrip, TargetsSection,
-};
-use super::home_widgets::{content_width, page_fill};
+use super::home_sections::{ChartsSection, FinalCta, HomePageHero, ModelSection, ProofStrip};
+use super::home_widgets::page_fill;
 use super::state::DocsState;
 use fission::op::{AlignItems, JustifyContent};
 use fission::prelude::*;
@@ -50,20 +47,16 @@ impl From<HomePage> for Widget {
                         children: vec![
                             HomePageHero.into(),
                             ProofStrip.into(),
-                            LifecycleSection.into(),
-                            ArchitectureSection.into(),
                             ChartsSection.into(),
                             ModelSection.into(),
-                            TargetsSection.into(),
-                            ExamplesSection.into(),
                             FinalCta.into(),
                         ],
-                        gap: Some(tokens.spacing.xxxl),
+                        gap: Some(0.0),
                         align_items: AlignItems::Center,
                         ..Default::default()
                     })
-                    .width(content_width(tokens))
-                    .padding([0.0, 0.0, tokens.spacing.xxl, tokens.spacing.xxxxl])
+                    .width_length(Length::percent(100.0))
+                    .padding([0.0, 0.0, tokens.spacing.xxl, 0.0])
                     .into()],
                     justify_content: JustifyContent::Center,
                     ..Default::default()

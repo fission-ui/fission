@@ -298,6 +298,17 @@
   }
 
   function boot(){
+    document.querySelectorAll('[data-fission-locale-switcher]').forEach(function(select){
+      var spanish=location.pathname==='/es'||location.pathname.indexOf('/es/')===0;
+      select.value=spanish?'es':'en';
+      select.addEventListener('change',function(){
+        if(select.value==='es'){
+          location.href=location.pathname.indexOf('/crates/')===0?'/es/crates/':'/es/';
+        }else{
+          location.href=location.pathname.indexOf('/es/crates/')===0?'/crates/':'/';
+        }
+      });
+    });
     initTabs(document);
     initSpotlights(document);
     document.querySelectorAll('.fission-site-doc-sidebar').forEach(initSidebar);

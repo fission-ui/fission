@@ -3,6 +3,11 @@ name = "fission-shell-winit"
 version = "0.9.2"
 edition = "2021"
 description = "Shared winit shell runtime for desktop and mobile Fission hosts"
+categories = ["gui", "rendering"]
+keywords = ["fission", "winit", "cross-platform", "desktop", "mobile"]
+
+[package.metadata.fission]
+platforms = ["android", "ios", "linux", "macos", "windows", "web"]
 
 license = "MIT"
 repository = "https://github.com/fission-ui/fission"

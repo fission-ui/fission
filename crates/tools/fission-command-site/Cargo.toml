@@ -5,6 +5,11 @@ edition = "2021"
 license = "MIT"
 repository = "https://github.com/fission-ui/fission"
 description = "Static site command implementation for the fission command"
+categories = ["command-line-utilities", "web-programming"]
+keywords = ["fission", "static-site", "ssg", "web", "cli"]
+
+[package.metadata.fission]
+platforms = ["linux", "macos", "windows"]
 
 homepage = "https://fission.rs"
 documentation = "https://fission.rs"

@@ -5,6 +5,11 @@ edition = "2021"
 license = "MIT"
 repository = "https://github.com/fission-ui/fission"
 description = "Web and WebAssembly shell wrapper for Fission applications"
+categories = ["wasm", "web-programming", "gui", "rendering"]
+keywords = ["fission", "wasm", "web", "ui-framework", "gpu-accelerated"]
+
+[package.metadata.fission]
+platforms = ["web"]
 
 homepage = "https://fission.rs"
 documentation = "https://fission.rs"

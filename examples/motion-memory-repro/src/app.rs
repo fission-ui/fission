@@ -7,7 +7,7 @@ use fission::motion::{fade, slide_y, Motion, MotionTrack};
 use fission::prelude::*;
 
 #[derive(Clone)]
-pub(crate) struct MotionMemoryReproApp {
+pub struct MotionMemoryReproApp {
     scenario: ReproScenario,
     rows: usize,
     row_height: f32,
@@ -16,7 +16,7 @@ pub(crate) struct MotionMemoryReproApp {
 }
 
 impl MotionMemoryReproApp {
-    pub(crate) fn from_env() -> anyhow::Result<Self> {
+    pub fn from_env() -> anyhow::Result<Self> {
         let scenario = ReproScenario::from_env();
         let rows = std::env::var("FISSION_REPRO_ROWS")
             .ok()

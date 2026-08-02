@@ -8,6 +8,11 @@ repository = "https://github.com/fission-ui/fission"
 homepage = "https://fission.rs"
 documentation = "https://fission.rs"
 description = "Native chart widgets and data visualization primitives for Fission applications"
+categories = ["gui", "rendering", "visualization"]
+keywords = ["fission", "charts", "data-visualization", "gpu-accelerated", "ui-framework"]
+
+[package.metadata.fission]
+platforms = ["android", "ios", "linux", "macos", "windows", "web", "static-site", "ssr"]
 readme = "README.md"
 [dependencies]
 chrono = "0.4.44"

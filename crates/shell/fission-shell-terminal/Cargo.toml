@@ -5,6 +5,11 @@ edition = "2021"
 license = "MIT"
 repository = "https://github.com/fission-ui/fission"
 description = "Terminal shell backend for rendering Fission applications in terminal cells"
+categories = ["command-line-interface", "gui", "rendering"]
+keywords = ["fission", "terminal", "tui", "ui-framework", "cross-platform"]
+
+[package.metadata.fission]
+platforms = ["linux", "macos", "windows", "terminal"]
 
 homepage = "https://fission.rs"
 documentation = "https://fission.rs"

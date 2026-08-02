@@ -1,8 +1,10 @@
 use fission_core::op::{AlignItems, Fill, FlexWrap, JustifyContent};
-use fission_core::ui::{Column, Container, Image, Row, Text};
+use fission_core::ui::{Column, Container, Icon, Image, Row, Text};
 use fission_core::{GlobalState, ViewHandle, Widget};
+use fission_icons::material;
 use fission_ir::{Role, Semantics};
 use fission_theme::Tokens;
+use fission_widgets::Center;
 use fission_widgets::MarkdownViewer;
 use std::path::PathBuf;
 
@@ -109,6 +111,9 @@ impl DocumentationPage<'_> {
         }
         if self.theme_switching {
             children.push(theme_toggle(tokens));
+            // Re-enable when the translated documentation corpus is substantial enough
+            // for switching locale here to preserve the reader's current destination.
+            // children.push(locale_switcher(tokens));
         }
         if self.search_enabled {
             children.push(search_trigger(tokens));
@@ -347,6 +352,9 @@ impl DocumentationPage<'_> {
                 show_scrollbar: false,
             };
             children.push(markdown.into());
+            if let Some(pager) = self.content_adjacent_pages(tokens) {
+                children.push(pager);
+            }
         }
 
         Column {
@@ -378,7 +386,7 @@ impl DocumentationPage<'_> {
         let mut children = vec![
             Container::new(Column {
                 children: vec![
-                    Text::new("Blog")
+                    Text::new("Notes from every surface.")
                         .size(tokens.typography.heading1_size)
                         .family(tokens.typography.font_family_serif.clone())
                         .weight(tokens.typography.font_weight_bold)
@@ -389,7 +397,7 @@ impl DocumentationPage<'_> {
                         .color(tokens.colors.heading)
                         .semantics_identifier("site-blog-index-title")
                         .into(),
-                    Text::new("Technical essays, release notes, and product updates for building with Fission.")
+                    Text::new("Engineering stories, release notes, and practical guides for building production Rust applications.")
                         .size(tokens.typography.body_large_size)
                         .line_height(
                             tokens.typography.body_large_size
@@ -739,7 +747,7 @@ impl DocumentationPage<'_> {
         );
         for (title, href) in items {
             children.push(
-                Text::new("›")
+                Icon::svg(material::navigation::chevron_right::regular())
                     .size(tokens.typography.font_size_sm)
                     .color(tokens.colors.text_muted)
                     .into(),
@@ -757,6 +765,59 @@ impl DocumentationPage<'_> {
                 children,
                 gap: Some(tokens.spacing.s),
                 align_items: AlignItems::Center,
+                ..Default::default()
+            }
+            .into(),
+        )
+    }
+
+    fn content_adjacent_pages(&self, tokens: &Tokens) -> Option<Widget> {
+        let prefix = section_prefix(&self.route.path);
+        let mut routes = Vec::<&ContentRoute>::new();
+        for item in &self.route.sidebar {
+            if item.group || item.level < 2 || routes.iter().any(|route| route.path == item.href) {
+                continue;
+            }
+            if let Some(route) = self.all_routes.iter().find(|route| route.path == item.href) {
+                routes.push(route);
+            }
+        }
+        let mut remaining = self
+            .all_routes
+            .iter()
+            .filter(|route| {
+                route.path.starts_with(prefix)
+                    && route.rendered.is_none()
+                    && !routes.iter().any(|listed| listed.path == route.path)
+            })
+            .collect::<Vec<_>>();
+        remaining.sort_by(|left, right| left.path.cmp(&right.path));
+        routes.extend(remaining);
+
+        let index = routes
+            .iter()
+            .position(|route| route.path == self.route.path)?;
+        let previous = index.checked_sub(1).map(|idx| routes[idx]);
+        let next = routes.get(index + 1).copied();
+        if previous.is_none() && next.is_none() {
+            return None;
+        }
+
+        let mut children = Vec::new();
+        if let Some(route) = previous {
+            children.push(content_adjacent_link(false, route, tokens));
+        }
+        if let Some(route) = next {
+            children.push(content_adjacent_link(true, route, tokens));
+        }
+        Some(
+            Row {
+                children,
+                gap: Some(tokens.spacing.m),
+                wrap: FlexWrap::Wrap,
+                align_items: AlignItems::Stretch,
+                justify_content: JustifyContent::SpaceBetween,
+                semantics: Some(site_semantics("site-doc-adjacent-pages")),
                 ..Default::default()
             }
             .into(),
@@ -814,11 +875,14 @@ fn nav_item(link: &SiteNavLink, depth: usize, index: usize, tokens: &Tokens) -> 
     let mut label_children = vec![nav_link(&link.title, &link.href, tokens)];
     if has_children {
         label_children.push(
-            Text::new(if depth == 0 { "▾" } else { "▸" })
-                .size(tokens.typography.font_size_xs)
-                .weight(tokens.typography.font_weight_bold)
-                .color(tokens.colors.text_muted)
-                .into(),
+            Icon::svg(if depth == 0 {
+                material::navigation::expand_more::regular()
+            } else {
+                material::navigation::chevron_right::regular()
+            })
+            .size(tokens.typography.font_size_base)
+            .color(tokens.colors.text_muted)
+            .into(),
         );
     }
 
@@ -897,6 +961,57 @@ fn adjacent_post_link(label: &str, route: &ContentRoute, tokens: &Tokens) -> Wid
     .bg_fill(Fill::Solid(tokens.colors.surface))
     .border(tokens.colors.border, 1.0)
     .border_radius(tokens.radii.medium)
+    .flex_grow(1.0)
+    .into()
+}
+
+fn content_adjacent_link(next: bool, route: &ContentRoute, tokens: &Tokens) -> Widget {
+    let icon = Icon::svg(if next {
+        material::navigation::arrow_forward::regular()
+    } else {
+        material::navigation::arrow_back::regular()
+    })
+    .size(tokens.spacing.m)
+    .color(tokens.colors.primary)
+    .into();
+    let copy = Column {
+        children: vec![
+            Text::new(if next { "Next" } else { "Previous" })
+                .size(tokens.typography.font_size_sm)
+                .color(tokens.colors.text_muted)
+                .into(),
+            Text::new(route.title.clone())
+                .size(tokens.typography.font_size_base)
+                .weight(tokens.typography.font_weight_bold)
+                .color(tokens.colors.text_link)
+                .semantics_identifier(format!("site-route:{}", route.path))
+                .into(),
+        ],
+        gap: Some(tokens.spacing.xs),
+        align_items: if next {
+            AlignItems::End
+        } else {
+            AlignItems::Start
+        },
+        ..Default::default()
+    }
+    .into();
+    Container::new(Row {
+        children: if next {
+            vec![copy, icon]
+        } else {
+            vec![icon, copy]
+        },
+        gap: Some(tokens.spacing.m),
+        align_items: AlignItems::Center,
+        justify_content: if next {
+            JustifyContent::End
+        } else {
+            JustifyContent::Start
+        },
+        ..Default::default()
+    })
+    .padding_all(tokens.spacing.l)
     .flex_grow(1.0)
     .into()
 }
@@ -1081,12 +1196,61 @@ fn nav_menu(items: &[SiteNavLink], depth: usize, tokens: &Tokens) -> Widget {
 }
 
 fn theme_toggle(tokens: &Tokens) -> Widget {
-    Text::new("Theme")
-        .size(tokens.typography.label_large_size)
-        .weight(tokens.typography.font_weight_semibold)
-        .color(tokens.colors.text_link)
-        .semantics_identifier("site-theme-toggle")
-        .into()
+    Row {
+        children: vec![
+            Column {
+                children: vec![Center {
+                    child: Icon::svg(material::device::dark_mode::regular())
+                        .size(tokens.spacing.m)
+                        .color(tokens.colors.text_link)
+                        .into(),
+                }
+                .into()],
+                semantics: Some(site_semantics("site-theme-icon:dark")),
+                ..Default::default()
+            }
+            .into(),
+            Column {
+                children: vec![Center {
+                    child: Icon::svg(material::device::light_mode::regular())
+                        .size(tokens.spacing.m)
+                        .color(tokens.colors.text_link)
+                        .into(),
+                }
+                .into()],
+                semantics: Some(site_semantics("site-theme-icon:light")),
+                ..Default::default()
+            }
+            .into(),
+        ],
+        align_items: AlignItems::Center,
+        justify_content: JustifyContent::Center,
+        semantics: Some(site_semantics("site-theme-toggle")),
+        ..Default::default()
+    }
+    .into()
+}
+
+#[allow(dead_code)]
+fn locale_switcher(tokens: &Tokens) -> Widget {
+    Row {
+        children: vec![
+            Text::new("EN")
+                .size(tokens.typography.label_large_size)
+                .weight(tokens.typography.font_weight_semibold)
+                .color(tokens.colors.text_link)
+                .into(),
+            Icon::svg(material::navigation::expand_more::regular())
+                .size(tokens.typography.font_size_base)
+                .color(tokens.colors.text_muted)
+                .into(),
+        ],
+        gap: Some(tokens.spacing.xs),
+        align_items: AlignItems::Center,
+        semantics: Some(site_semantics("site-locale-switcher")),
+        ..Default::default()
+    }
+    .into()
 }
 
 fn search_trigger(tokens: &Tokens) -> Widget {

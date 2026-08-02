@@ -5,6 +5,11 @@ edition = "2021"
 license = "MIT"
 repository = "https://github.com/fission-ui/fission"
 description = "The fission command for project setup, running, testing, packaging, sites, and releases"
+categories = ["command-line-utilities", "development-tools", "development-tools::cargo-plugins"]
+keywords = ["fission", "cargo", "cli", "cross-platform", "ui-framework"]
+
+[package.metadata.fission]
+platforms = ["linux", "macos", "windows"]
 
 homepage = "https://fission.rs"
 documentation = "https://fission.rs"

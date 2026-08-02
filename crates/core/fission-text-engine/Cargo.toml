@@ -8,6 +8,11 @@ repository = "https://github.com/fission-ui/fission"
 homepage = "https://fission.rs"
 documentation = "https://fission.rs"
 description = "Text shaping, editing, and measurement primitives for Fission"
+categories = ["gui", "text-processing"]
+keywords = ["fission", "text-editor", "text-layout", "ui-framework", "cross-platform"]
+
+[package.metadata.fission]
+platforms = ["android", "ios", "linux", "macos", "windows", "web", "terminal", "static-site", "ssr"]
 readme = "README.md"
 [dependencies]
 ropey = "1.6"

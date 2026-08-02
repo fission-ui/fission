@@ -5,6 +5,11 @@ edition = "2021"
 license = "MIT"
 repository = "https://github.com/fission-ui/fission"
 description = "Static site shell for lowering Fission widget trees and content routes to HTML"
+categories = ["web-programming", "template-engine"]
+keywords = ["fission", "static-site", "html", "web", "ssg"]
+
+[package.metadata.fission]
+platforms = ["static-site"]
 
 homepage = "https://fission.rs"
 documentation = "https://fission.rs"
@@ -14,6 +19,7 @@ anyhow = "1.0"
 base64 = "0.22"
 fission-core = { path = "../../core/fission-core", version = "0.9.2" }
 fission-ir = { path = "../../core/fission-ir", version = "0.9.2" }
+fission-icons = { path = "../../authoring/fission-icons", version = "0.9.2" }
 fission-layout = { path = "../../core/fission-layout", version = "0.9.2" }
 fission-theme = { path = "../../core/fission-theme", version = "0.9.2" }
 fission-widgets = { path = "../../authoring/fission-widgets", version = "0.9.2", default-features = false }

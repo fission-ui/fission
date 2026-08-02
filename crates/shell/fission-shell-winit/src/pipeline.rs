@@ -15,7 +15,7 @@ use fission_render::{
     embed_surface_id, BoxShadow, Color as RenderColor, DisplayList, DisplayOp, Fill, LayerClip,
     RenderLayer, RenderNode, RenderScene, Renderer, Stroke,
 };
-use fission_shell::VideoSurfaceFrame;
+use fission_shell::{NativeSurfaceFrame, VideoSurfaceFrame};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
@@ -174,7 +174,8 @@ pub struct Pipeline {
     pub last_scroll_offsets: HashMap<WidgetId, u32>,
     pub video_surfaces: Vec<VideoSurfaceFrame>,
     pub web_surfaces: Vec<WebSurfaceFrame>,
-    pub scene_3d_surfaces: Vec<(WidgetId, LayoutRect, Vec<u8>)>,
+    /// Opaque custom embeds available to registered native-surface handlers.
+    pub native_surfaces: Vec<NativeSurfaceFrame>,
     pub last_viewport: Option<LayoutRect>,
     pub layout_invariant_violation_count: u32,
     pub layout_full_rebuild_count: u32,
@@ -210,7 +211,7 @@ impl Pipeline {
             last_scroll_offsets: HashMap::new(),
             video_surfaces: Vec::new(),
             web_surfaces: Vec::new(),
-            scene_3d_surfaces: Vec::new(),
+            native_surfaces: Vec::new(),
             last_viewport: None,
             layout_invariant_violation_count: 0,
             layout_full_rebuild_count: 0,
@@ -418,8 +419,9 @@ impl Pipeline {
 
         self.video_surfaces.clear();
         self.web_surfaces.clear();
-        self.scene_3d_surfaces.clear();
+        self.native_surfaces.clear();
         if let Some(root) = ir.root {
+            let mut paint_order = 0;
             collect_video_surfaces(
                 root,
                 ir,
@@ -427,10 +429,15 @@ impl Pipeline {
                 video_map,
                 web_map,
                 scroll_map,
+                animation_map,
                 LayoutPoint::ZERO,
+                render_viewport,
+                None,
+                1.0,
+                &mut paint_order,
                 &mut self.video_surfaces,
                 &mut self.web_surfaces,
-                &mut self.scene_3d_surfaces,
+                &mut self.native_surfaces,
             );
         }
         stats.video_surfaces = self.video_surfaces.len();
@@ -1798,6 +1805,10 @@ fn push_video_surface(
     video_surfaces: &mut Vec<VideoSurfaceFrame>,
     widget_id: WidgetId,
     rect: LayoutRect,
+    visible_rect: LayoutRect,
+    transform: Option<[f32; 16]>,
+    opacity: f32,
+    paint_order: u32,
     video_map: &VideoStateMap,
 ) {
     if let Some(state) = video_map.states.get(&widget_id) {
@@ -1806,6 +1817,10 @@ fn push_video_surface(
             widget_id,
             surface_id,
             rect,
+            visible_rect,
+            transform,
+            opacity,
+            paint_order,
         });
     }
 }
@@ -1814,6 +1829,10 @@ fn push_web_surface(
     web_surfaces: &mut Vec<WebSurfaceFrame>,
     widget_id: WidgetId,
     rect: LayoutRect,
+    visible_rect: LayoutRect,
+    transform: Option<[f32; 16]>,
+    opacity: f32,
+    paint_order: u32,
     web_map: &WebStateMap,
 ) {
     if let Some(state) = web_map.states.get(&widget_id) {
@@ -1823,9 +1842,52 @@ fn push_web_surface(
                 url: state.url.clone(),
                 user_agent: state.user_agent.clone(),
                 rect,
+                visible_rect,
+                transform,
+                opacity,
+                paint_order,
             });
         }
     }
+}
+
+/// Computes the intersection of two rectangles, returning `None` when they do
+/// not overlap at all.
+fn intersect_rects(a: LayoutRect, b: LayoutRect) -> Option<LayoutRect> {
+    let x = a.x().max(b.x());
+    let y = a.y().max(b.y());
+    let right = a.right().min(b.right());
+    let bottom = a.bottom().min(b.bottom());
+    if right > x && bottom > y {
+        Some(LayoutRect::new(x, y, right - x, bottom - y))
+    } else {
+        None
+    }
+}
+
+fn transform_rect_bounds(rect: LayoutRect, transform: Option<[f32; 16]>) -> LayoutRect {
+    let Some(matrix) = transform else {
+        return rect;
+    };
+    let points = [
+        (rect.x(), rect.y()),
+        (rect.right(), rect.y()),
+        (rect.right(), rect.bottom()),
+        (rect.x(), rect.bottom()),
+    ];
+    let mut min_x = f32::INFINITY;
+    let mut min_y = f32::INFINITY;
+    let mut max_x = f32::NEG_INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+    for (x, y) in points {
+        let transformed_x = matrix[0] * x + matrix[4] * y + matrix[12];
+        let transformed_y = matrix[1] * x + matrix[5] * y + matrix[13];
+        min_x = min_x.min(transformed_x);
+        min_y = min_y.min(transformed_y);
+        max_x = max_x.max(transformed_x);
+        max_y = max_y.max(transformed_y);
+    }
+    LayoutRect::new(min_x, min_y, max_x - min_x, max_y - min_y)
 }
 
 fn collect_video_surfaces(
@@ -1835,10 +1897,15 @@ fn collect_video_surfaces(
     video_map: &VideoStateMap,
     web_map: &WebStateMap,
     scroll_map: &ScrollStateMap,
+    animation_map: &MotionStateMap,
     accumulated_offset: LayoutPoint,
+    accumulated_clip: LayoutRect,
+    accumulated_transform: Option<[f32; 16]>,
+    accumulated_opacity: f32,
+    paint_order: &mut u32,
     video_surfaces: &mut Vec<VideoSurfaceFrame>,
     web_surfaces: &mut Vec<WebSurfaceFrame>,
-    scene_3d_surfaces: &mut Vec<(WidgetId, LayoutRect, Vec<u8>)>,
+    native_surfaces: &mut Vec<NativeSurfaceFrame>,
 ) {
     let mut visited = HashSet::new();
     collect_video_surfaces_with_visited(
@@ -1848,10 +1915,15 @@ fn collect_video_surfaces(
         video_map,
         web_map,
         scroll_map,
+        animation_map,
         accumulated_offset,
+        accumulated_clip,
+        accumulated_transform,
+        accumulated_opacity,
+        paint_order,
         video_surfaces,
         web_surfaces,
-        scene_3d_surfaces,
+        native_surfaces,
         &mut visited,
     );
 }
@@ -1863,10 +1935,15 @@ fn collect_video_surfaces_with_visited(
     video_map: &VideoStateMap,
     web_map: &WebStateMap,
     scroll_map: &ScrollStateMap,
+    animation_map: &MotionStateMap,
     accumulated_offset: LayoutPoint,
+    accumulated_clip: LayoutRect,
+    accumulated_transform: Option<[f32; 16]>,
+    accumulated_opacity: f32,
+    paint_order: &mut u32,
     video_surfaces: &mut Vec<VideoSurfaceFrame>,
     web_surfaces: &mut Vec<WebSurfaceFrame>,
-    scene_3d_surfaces: &mut Vec<(WidgetId, LayoutRect, Vec<u8>)>,
+    native_surfaces: &mut Vec<NativeSurfaceFrame>,
     visited: &mut HashSet<WidgetId>,
 ) {
     if !visited.insert(node_id) {
@@ -1874,6 +1951,38 @@ fn collect_video_surfaces_with_visited(
     }
     if let (Some(node), Some(geom)) = (ir.nodes.get(&node_id), snapshot.nodes.get(&node_id)) {
         let mut child_offset = accumulated_offset;
+        let mut child_clip = accumulated_clip;
+        let translated_node_rect = translate_rect(geom.rect, accumulated_offset);
+        let node_transform = compose_dynamic_layer_transform(
+            &TransformBinding {
+                layer_path: Vec::new(),
+                rect: translated_node_rect,
+                layout_transform: match &node.op {
+                    Op::Layout(LayoutOp::Transform { transform }) => Some(*transform),
+                    _ => None,
+                },
+                scroll: None,
+                translate_x: node.composite.translate_x.clone(),
+                translate_y: node.composite.translate_y.clone(),
+                scale: node.composite.scale.clone(),
+                rotation: node.composite.rotation.clone(),
+            },
+            scroll_map,
+            animation_map,
+        );
+        let effective_transform = match node_transform {
+            Some(transform) => append_transform(accumulated_transform, transform),
+            None => accumulated_transform,
+        };
+        let node_opacity = node
+            .composite
+            .opacity
+            .as_ref()
+            .map(|opacity| resolve_scalar_value(opacity, animation_map, MotionPropertyId::Opacity))
+            .unwrap_or(1.0);
+        let effective_opacity = (accumulated_opacity * node_opacity).clamp(0.0, 1.0);
+
+        // Scroll nodes shift children and clip to the scroll viewport.
         if let Op::Layout(LayoutOp::Scroll { direction, .. }) = &node.op {
             let offset = scroll_map.get_offset(node_id);
             child_offset = match direction {
@@ -1884,6 +1993,35 @@ fn collect_video_surfaces_with_visited(
                     LayoutPoint::new(accumulated_offset.x, accumulated_offset.y - offset)
                 }
             };
+            let viewport_rect = transform_rect_bounds(translated_node_rect, effective_transform);
+            child_clip = intersect_rects(child_clip, viewport_rect).unwrap_or(LayoutRect::new(
+                viewport_rect.x(),
+                viewport_rect.y(),
+                0.0,
+                0.0,
+            ));
+        }
+
+        // Clip nodes restrict children to their bounds.
+        if matches!(&node.op, Op::Layout(LayoutOp::Clip { .. })) {
+            let clip_rect = transform_rect_bounds(translated_node_rect, effective_transform);
+            child_clip = intersect_rects(child_clip, clip_rect).unwrap_or(LayoutRect::new(
+                clip_rect.x(),
+                clip_rect.y(),
+                0.0,
+                0.0,
+            ));
+        }
+
+        // clip_to_bounds restricts children to this node's bounds.
+        if node.composite.clip_to_bounds {
+            let bounds_rect = transform_rect_bounds(translated_node_rect, effective_transform);
+            child_clip = intersect_rects(child_clip, bounds_rect).unwrap_or(LayoutRect::new(
+                bounds_rect.x(),
+                bounds_rect.y(),
+                0.0,
+                0.0,
+            ));
         }
 
         if let Op::Layout(LayoutOp::Embed {
@@ -1892,24 +2030,70 @@ fn collect_video_surfaces_with_visited(
             ..
         }) = &node.op
         {
-            let translated_rect = translate_rect(geom.rect, accumulated_offset);
-            push_video_surface(video_surfaces, *widget_id, translated_rect, video_map);
+            let translated_rect = transform_rect_bounds(translated_node_rect, effective_transform);
+            if effective_opacity > 0.0 {
+                if let Some(visible_rect) = intersect_rects(translated_rect, accumulated_clip) {
+                    let order = *paint_order;
+                    *paint_order += 1;
+                    push_video_surface(
+                        video_surfaces,
+                        *widget_id,
+                        translated_rect,
+                        visible_rect,
+                        effective_transform,
+                        effective_opacity,
+                        order,
+                        video_map,
+                    );
+                }
+            }
         } else if let Op::Layout(LayoutOp::Embed {
             kind: EmbedKind::Web,
             widget_id,
             ..
         }) = &node.op
         {
-            let translated_rect = translate_rect(geom.rect, accumulated_offset);
-            push_web_surface(web_surfaces, *widget_id, translated_rect, web_map);
+            let translated_rect = transform_rect_bounds(translated_node_rect, effective_transform);
+            if effective_opacity > 0.0 {
+                if let Some(visible_rect) = intersect_rects(translated_rect, accumulated_clip) {
+                    let order = *paint_order;
+                    *paint_order += 1;
+                    push_web_surface(
+                        web_surfaces,
+                        *widget_id,
+                        translated_rect,
+                        visible_rect,
+                        effective_transform,
+                        effective_opacity,
+                        order,
+                        web_map,
+                    );
+                }
+            }
         } else if let Op::Layout(LayoutOp::Embed {
             kind: EmbedKind::Custom(payload),
             widget_id,
             ..
         }) = &node.op
         {
-            let translated_rect = translate_rect(geom.rect, accumulated_offset);
-            scene_3d_surfaces.push((*widget_id, translated_rect, payload.clone()));
+            let translated_rect = transform_rect_bounds(translated_node_rect, effective_transform);
+            if effective_opacity > 0.0 {
+                if let Some(visible) = intersect_rects(translated_rect, accumulated_clip) {
+                    let order = *paint_order;
+                    *paint_order += 1;
+                    native_surfaces.push(NativeSurfaceFrame {
+                        widget_id: *widget_id,
+                        rect: translated_rect,
+                        payload: payload.clone(),
+                        visible_rect: visible,
+                        transform: effective_transform,
+                        opacity: effective_opacity,
+                        paint_order: order,
+                    });
+                }
+            }
+            // Fully clipped — omit entirely. The handler will receive an
+            // empty slice via `present_surfaces`, which already means "hide."
         }
 
         for child in &node.children {
@@ -1920,10 +2104,15 @@ fn collect_video_surfaces_with_visited(
                 video_map,
                 web_map,
                 scroll_map,
+                animation_map,
                 child_offset,
+                child_clip,
+                effective_transform,
+                effective_opacity,
+                paint_order,
                 video_surfaces,
                 web_surfaces,
-                scene_3d_surfaces,
+                native_surfaces,
                 visited,
             );
         }
@@ -2415,8 +2604,11 @@ fn translate_rect(rect: LayoutRect, offset: LayoutPoint) -> LayoutRect {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_local_paint_list, scroll_offsets_changed, InvalidationSet, Pipeline};
-    use fission_core::env::Env;
+    use super::{
+        build_local_paint_list, scroll_offsets_changed, translation_matrix, InvalidationSet,
+        Pipeline,
+    };
+    use fission_core::env::{Env, VideoState, VideoStateMap, WebState, WebStateMap};
     use fission_core::MotionPropertyId;
     use fission_core::ScrollStateMap;
     use fission_ir::op::{
@@ -2786,6 +2978,61 @@ mod tests {
             }
             other => panic!("expected surface display op, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn custom_embeds_flow_into_native_surfaces() {
+        let node_id = WidgetId::derived(15, &[0]);
+        let widget_id = WidgetId::explicit("custom.surface");
+        let payload = vec![0x4d, 0x41, 0x50, 0x01];
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            node_id,
+            Op::Layout(LayoutOp::Embed {
+                kind: EmbedKind::Custom(payload.clone()),
+                widget_id,
+                width: Some(320.0),
+                height: Some(180.0),
+            }),
+            vec![],
+        );
+        ir.set_root(node_id);
+
+        let mut pipeline = Pipeline::new();
+        let mut layout_engine = LayoutEngine::new();
+        let scroll = ScrollStateMap::default();
+        pipeline.replace_ir(ir, &Env::default());
+        pipeline
+            .ensure_layout(
+                LayoutRect::new(0.0, 0.0, 320.0, 240.0),
+                &mut layout_engine,
+                &scroll,
+            )
+            .unwrap();
+        pipeline
+            .prepare_current(
+                LayoutSize::new(320.0, 240.0),
+                LayoutSize::new(320.0, 240.0),
+                false,
+                &scroll,
+                &Default::default(),
+                &Default::default(),
+                &Default::default(),
+            )
+            .unwrap();
+
+        assert_eq!(
+            pipeline.native_surfaces,
+            vec![fission_shell::NativeSurfaceFrame {
+                widget_id,
+                rect: LayoutRect::new(0.0, 0.0, 320.0, 180.0),
+                payload,
+                visible_rect: LayoutRect::new(0.0, 0.0, 320.0, 180.0),
+                transform: None,
+                opacity: 1.0,
+                paint_order: 0,
+            }]
+        );
     }
 
     #[test]
@@ -3647,5 +3894,326 @@ mod tests {
             rail_count > 0,
             "expected an overflow rail for the scroll node"
         );
+    }
+
+    #[test]
+    fn custom_embed_fully_outside_scroll_viewport_is_omitted() {
+        // Scroll container 200px tall with a 100px custom embed placed at
+        // y=250 inside the content. With scroll offset 0 the embed sits
+        // below the visible viewport and should be omitted entirely.
+        let scroll_id = WidgetId::derived(20, &[0]);
+        let embed_id = WidgetId::derived(20, &[1]);
+        let widget_id = WidgetId::explicit("custom.offscreen");
+        let payload = vec![0xAA, 0xBB];
+
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            embed_id,
+            Op::Layout(LayoutOp::Embed {
+                kind: EmbedKind::Custom(payload.clone()),
+                widget_id,
+                width: Some(100.0),
+                height: Some(100.0),
+            }),
+            vec![],
+        );
+        ir.add_node(
+            scroll_id,
+            Op::Layout(LayoutOp::Scroll {
+                direction: fission_ir::FlexDirection::Column,
+                show_scrollbar: false,
+                width: Some(200.0),
+                height: Some(200.0),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+            }),
+            vec![embed_id],
+        );
+        ir.set_root(scroll_id);
+
+        let mut pipeline = Pipeline::new();
+        let mut layout_engine = LayoutEngine::new();
+        let scroll = ScrollStateMap::default(); // offset 0
+        pipeline.replace_ir(ir, &Env::default());
+        pipeline
+            .ensure_layout(
+                LayoutRect::new(0.0, 0.0, 400.0, 400.0),
+                &mut layout_engine,
+                &scroll,
+            )
+            .unwrap();
+        pipeline
+            .prepare_current(
+                LayoutSize::new(400.0, 400.0),
+                LayoutSize::new(400.0, 400.0),
+                false,
+                &scroll,
+                &Default::default(),
+                &Default::default(),
+                &Default::default(),
+            )
+            .unwrap();
+
+        // The embed fits inside the scroll viewport (content starts at y=0,
+        // embed is 100px tall, scroll viewport is 200px tall) so it should
+        // be visible. Now scroll the content so the embed is fully off-screen.
+        let mut scrolled = ScrollStateMap::default();
+        scrolled.set_offset(scroll_id, 300.0); // scrolled 300px down — embed at y=-300, off-screen
+
+        // Re-run pipeline with the scroll offset.
+        pipeline.clear_render_caches();
+        pipeline
+            .prepare_current(
+                LayoutSize::new(400.0, 400.0),
+                LayoutSize::new(400.0, 400.0),
+                false,
+                &scrolled,
+                &Default::default(),
+                &Default::default(),
+                &Default::default(),
+            )
+            .unwrap();
+
+        assert!(
+            pipeline.native_surfaces.is_empty(),
+            "expected custom embed to be omitted when scrolled fully outside viewport, got {:?}",
+            pipeline.native_surfaces,
+        );
+    }
+
+    #[test]
+    fn custom_embed_partially_clipped_gets_intersected_visible_rect() {
+        // Scroll container 200×200, child embed 100×100 at layout y=0.
+        // Scroll offset 50 shifts the child up by 50px, so only the bottom
+        // 50px of the embed remains inside the scroll viewport. The
+        // visible_rect should reflect the intersection.
+        let scroll_id = WidgetId::derived(22, &[0]);
+        let embed_id = WidgetId::derived(22, &[1]);
+        let widget_id = WidgetId::explicit("custom.partial");
+        let payload = vec![0xCC, 0xDD];
+
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            embed_id,
+            Op::Layout(LayoutOp::Embed {
+                kind: EmbedKind::Custom(payload.clone()),
+                widget_id,
+                width: Some(100.0),
+                height: Some(100.0),
+            }),
+            vec![],
+        );
+        ir.add_node(
+            scroll_id,
+            Op::Layout(LayoutOp::Scroll {
+                direction: fission_ir::FlexDirection::Column,
+                show_scrollbar: false,
+                width: Some(200.0),
+                height: Some(200.0),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+            }),
+            vec![embed_id],
+        );
+        ir.set_root(scroll_id);
+
+        let mut pipeline = Pipeline::new();
+        let mut layout_engine = LayoutEngine::new();
+        let scroll = ScrollStateMap::default();
+        pipeline.replace_ir(ir, &Env::default());
+        pipeline
+            .ensure_layout(
+                LayoutRect::new(0.0, 0.0, 400.0, 400.0),
+                &mut layout_engine,
+                &scroll,
+            )
+            .unwrap();
+
+        // Scroll by 50 — the embed starts at y=0, so after offset it's at
+        // y = -50 in the scroll viewport coordinate space. The viewport
+        // runs from y=0 to y=200, so only the bottom 50px of the embed
+        // (from y=0 to y=50 in viewport coords) is visible.
+        let mut scrolled = ScrollStateMap::default();
+        scrolled.set_offset(scroll_id, 50.0);
+
+        pipeline.clear_render_caches();
+        pipeline
+            .prepare_current(
+                LayoutSize::new(400.0, 400.0),
+                LayoutSize::new(400.0, 400.0),
+                false,
+                &scrolled,
+                &Default::default(),
+                &Default::default(),
+                &Default::default(),
+            )
+            .unwrap();
+
+        assert_eq!(pipeline.native_surfaces.len(), 1);
+        let surface = &pipeline.native_surfaces[0];
+        // The embed's translated rect is shifted up by the scroll offset.
+        let visible = surface.visible_rect;
+        // The visible portion is the intersection of the embed rect and the
+        // scroll viewport. The exact values depend on how the layout engine
+        // positions the child, but the visible height must be less than 100.
+        assert!(
+            visible.height() < 100.0,
+            "visible height ({}) should be less than the full embed height (100)",
+            visible.height(),
+        );
+        assert!(
+            visible.height() > 0.0,
+            "visible height should be positive (embed is partially visible)",
+        );
+    }
+
+    #[test]
+    fn built_in_native_surfaces_follow_scroll_visibility() {
+        let scroll_id = WidgetId::derived(23, &[0]);
+        let video_id = WidgetId::derived(23, &[1]);
+        let web_id = WidgetId::derived(23, &[2]);
+        let video_widget = WidgetId::explicit("video.scrolled");
+        let web_widget = WidgetId::explicit("web.scrolled");
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            video_id,
+            Op::Layout(LayoutOp::Embed {
+                kind: EmbedKind::Video,
+                widget_id: video_widget,
+                width: Some(100.0),
+                height: Some(100.0),
+            }),
+            vec![],
+        );
+        ir.add_node(
+            web_id,
+            Op::Layout(LayoutOp::Embed {
+                kind: EmbedKind::Web,
+                widget_id: web_widget,
+                width: Some(100.0),
+                height: Some(100.0),
+            }),
+            vec![],
+        );
+        ir.add_node(
+            scroll_id,
+            Op::Layout(LayoutOp::Scroll {
+                direction: fission_ir::FlexDirection::Column,
+                show_scrollbar: false,
+                width: Some(200.0),
+                height: Some(200.0),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+            }),
+            vec![video_id, web_id],
+        );
+        ir.set_root(scroll_id);
+
+        let mut videos = VideoStateMap::default();
+        videos.states.insert(video_widget, VideoState::default());
+        let mut webs = WebStateMap::default();
+        webs.states.insert(
+            web_widget,
+            WebState {
+                url: "https://example.invalid".into(),
+                ..Default::default()
+            },
+        );
+        let mut pipeline = Pipeline::new();
+        let mut layout_engine = LayoutEngine::new();
+        pipeline.replace_ir(ir, &Env::default());
+        pipeline
+            .ensure_layout(
+                LayoutRect::new(0.0, 0.0, 400.0, 400.0),
+                &mut layout_engine,
+                &ScrollStateMap::default(),
+            )
+            .unwrap();
+
+        let mut scrolled = ScrollStateMap::default();
+        scrolled.set_offset(scroll_id, 300.0);
+        pipeline
+            .prepare_current(
+                LayoutSize::new(400.0, 400.0),
+                LayoutSize::new(400.0, 400.0),
+                false,
+                &scrolled,
+                &Default::default(),
+                &videos,
+                &webs,
+            )
+            .unwrap();
+
+        assert!(pipeline.video_surfaces.is_empty());
+        assert!(pipeline.web_surfaces.is_empty());
+    }
+
+    #[test]
+    fn custom_surface_reports_ancestor_transform_and_opacity() {
+        let root_id = WidgetId::derived(24, &[0]);
+        let embed_id = WidgetId::derived(24, &[1]);
+        let widget_id = WidgetId::explicit("custom.transformed");
+        let transform = translation_matrix(40.0, 25.0);
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            embed_id,
+            Op::Layout(LayoutOp::Embed {
+                kind: EmbedKind::Custom(vec![1]),
+                widget_id,
+                width: Some(100.0),
+                height: Some(50.0),
+            }),
+            vec![],
+        );
+        ir.add_node(
+            root_id,
+            Op::Layout(LayoutOp::Transform { transform }),
+            vec![embed_id],
+        );
+        ir.nodes.get_mut(&root_id).unwrap().composite.opacity = Some(CompositeScalar::new(0.5));
+        ir.set_root(root_id);
+
+        let mut pipeline = Pipeline::new();
+        let mut layout_engine = LayoutEngine::new();
+        pipeline.replace_ir(ir, &Env::default());
+        pipeline
+            .ensure_layout(
+                LayoutRect::new(0.0, 0.0, 400.0, 400.0),
+                &mut layout_engine,
+                &ScrollStateMap::default(),
+            )
+            .unwrap();
+        pipeline
+            .prepare_current(
+                LayoutSize::new(400.0, 400.0),
+                LayoutSize::new(400.0, 400.0),
+                false,
+                &Default::default(),
+                &Default::default(),
+                &Default::default(),
+                &Default::default(),
+            )
+            .unwrap();
+
+        let surface = &pipeline.native_surfaces[0];
+        assert_eq!(surface.transform, Some(transform));
+        assert!((surface.rect.x() - 40.0).abs() < 0.01);
+        assert!((surface.rect.y() - 25.0).abs() < 0.01);
+        assert!((surface.opacity - 0.5).abs() < 0.001);
     }
 }

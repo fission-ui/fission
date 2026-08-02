@@ -1,0 +1,372 @@
+<style>
+  .fission-crates-enhanced-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.25rem;
+  }
+
+  .fission-crates-enhanced-grid > * {
+    min-width: 0;
+  }
+
+  [data-fission-semantics="crate-results"] .fission-site-responsive[hidden] {
+    display: none !important;
+  }
+
+  .fission-crate-filter-button,
+  .fission-crate-copy-button {
+    appearance: none;
+    min-height: 2.35rem;
+    border: 1px solid var(--atlas-line, currentColor);
+    border-radius: 0.65rem;
+    background: var(--atlas-surface, transparent);
+    color: var(--atlas-muted, inherit);
+    cursor: pointer;
+    font: 650 0.78rem "Space Grotesk", system-ui, sans-serif;
+  }
+
+  .fission-crate-filter-button {
+    padding: 0.45rem 0.75rem;
+  }
+
+  .fission-crate-filter-button:hover,
+  .fission-crate-filter-button[data-active="true"] {
+    border-color: var(--atlas-blue, currentColor);
+    background: var(--atlas-surface-2, transparent);
+    color: var(--atlas-blue, inherit);
+  }
+
+  .fission-crate-filter-button:focus-visible,
+  .fission-crate-copy-button:focus-visible,
+  .fission-crate-sort:focus-visible,
+  .fission-crate-search-input:focus-visible {
+    outline: 3px solid var(--atlas-violet, currentColor);
+    outline-offset: 3px;
+  }
+
+  .fission-crate-copy-button {
+    padding: 0.45rem 0.8rem;
+    color: var(--atlas-blue, inherit);
+  }
+
+  .fission-crate-empty-state {
+    grid-column: 1 / -1;
+  }
+
+  @media (max-width: 67.5rem) {
+    .fission-crates-enhanced-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
+  @media (max-width: 45rem) {
+    .fission-crate-results-toolbar {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    .fission-crate-sort {
+      width: 100%;
+    }
+  }
+</style>
+
+<script>
+  (() => {
+    "use strict";
+
+    const SEMANTICS = "data-fission-semantics";
+    const isSpanish = document.documentElement.lang.toLowerCase().startsWith("es");
+    const messages = isSpanish
+      ? {
+          copy: "Copiar",
+          copied: "Copiado",
+          copyFailed: "Error al copiar",
+          empty: "Ningún crate coincide con la búsqueda y las plataformas seleccionadas.",
+          mostDownloaded: "Más descargados",
+          nameSort: "Nombre: A–Z",
+          recentlyUpdated: "Actualizados recientemente",
+          searchLabel: "Buscar crates de Fission",
+          sortLabel: "Ordenar crates",
+        }
+      : {
+          copy: "Copy",
+          copied: "Copied",
+          copyFailed: "Copy failed",
+          empty: "No crates match this search and platform combination.",
+          mostDownloaded: "Most downloaded",
+          nameSort: "Name: A–Z",
+          recentlyUpdated: "Recently updated",
+          searchLabel: "Search Fission crates",
+          sortLabel: "Sort crates",
+        };
+
+    const crateCountLabel = (visible, total) => {
+      if (visible === total) return `${total} ${total === 1 ? "crate" : "crates"}`;
+      return isSpanish
+        ? `${visible} de ${total} crates`
+        : `${visible} of ${total} crates`;
+    };
+
+    const semanticValue = (element) => element?.getAttribute(SEMANTICS) || "";
+    const semanticSuffix = (element, prefix) => semanticValue(element).slice(prefix.length);
+
+    const normalize = (value) =>
+      String(value || "")
+        .normalize("NFKD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLocaleLowerCase()
+        .trim();
+
+    const closestCardShell = (card) => {
+      const box = card.closest(".fission-site-box");
+      return box && box.querySelector(`[${SEMANTICS}^="crate-card:"]`) === card ? box : card;
+    };
+
+    const upgradePlatformFilters = (root, onChange) => {
+      const selected = new Set();
+      root.querySelectorAll(`[${SEMANTICS}^="crate-platform-filter:"]`).forEach((host) => {
+        const platform = semanticSuffix(host, "crate-platform-filter:");
+        if (!platform) return;
+
+        const existingShell = host.closest(".fission-site-box");
+        const replaceTarget = existingShell && existingShell !== root ? existingShell : host;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "fission-crate-filter-button";
+        button.setAttribute(SEMANTICS, `crate-platform-filter:${platform}`);
+        button.dataset.platform = platform;
+        button.dataset.active = "false";
+        button.setAttribute("aria-pressed", "false");
+        button.textContent = host.textContent.trim();
+        button.addEventListener("click", () => {
+          if (selected.has(platform)) selected.delete(platform);
+          else selected.add(platform);
+          const active = selected.has(platform);
+          button.dataset.active = String(active);
+          button.setAttribute("aria-pressed", String(active));
+          onChange(selected);
+        });
+        replaceTarget.replaceWith(button);
+      });
+      return selected;
+    };
+
+    const upgradeSortControl = (root, onChange) => {
+      const host = root.querySelector(`[${SEMANTICS}="crate-sort"]`);
+      if (!host) return null;
+
+      const select = document.createElement("select");
+      select.className = "fission-crate-sort";
+      select.setAttribute(SEMANTICS, "crate-sort");
+      select.setAttribute("aria-label", messages.sortLabel);
+      [
+        ["updated", messages.recentlyUpdated],
+        ["downloads", messages.mostDownloaded],
+        ["name", messages.nameSort],
+      ].forEach(([value, label]) => select.add(new Option(label, value)));
+      select.addEventListener("change", () => onChange(select.value));
+      host.replaceWith(select);
+      return select;
+    };
+
+    const initDirectory = (root) => {
+      if (root.dataset.cratesEnhanced === "true") return;
+      root.dataset.cratesEnhanced = "true";
+
+      const results = root.querySelector(`[${SEMANTICS}="crate-results"]`);
+      if (!results) return;
+
+      const searchInputs = Array.from(
+        root.querySelectorAll(`[${SEMANTICS}="crate-search-input"]`),
+      ).flatMap((host) =>
+        host.matches("input, textarea")
+          ? [host]
+          : Array.from(host.querySelectorAll("input, textarea")),
+      );
+      searchInputs.forEach((input) => {
+        input.classList.add("fission-crate-search-input");
+        input.setAttribute("aria-label", messages.searchLabel);
+        input.setAttribute("autocomplete", "off");
+        input.setAttribute("spellcheck", "false");
+      });
+
+      const countNode = results.querySelector(`[${SEMANTICS}="crate-results-count"]`);
+      const toolbar = results.querySelector(`[${SEMANTICS}="crate-results-toolbar"]`);
+      toolbar?.classList.add("fission-crate-results-toolbar");
+      const allCardNodes = Array.from(
+        results.querySelectorAll(`[${SEMANTICS}^="crate-card:"]`),
+      );
+      const responsiveHosts = new Set(
+        allCardNodes.map((card) => card.closest(".fission-site-responsive")).filter(Boolean),
+      );
+      const uniqueCards = new Map();
+      allCardNodes.forEach((card) => {
+        const name = semanticSuffix(card, "crate-card:");
+        if (!name || uniqueCards.has(name)) return;
+        const platformsNode = card.querySelector(`[${SEMANTICS}^="crate-card-platforms:"]`);
+        const downloadsNode = card.querySelector(`[${SEMANTICS}^="crate-card-downloads:"]`);
+        const updatedNode = card.querySelector(`[${SEMANTICS}^="crate-card-updated:"]`);
+        uniqueCards.set(name, {
+          card,
+          shell: closestCardShell(card),
+          name,
+          searchableText: normalize(card.textContent),
+          platforms: new Set(
+            semanticSuffix(platformsNode, "crate-card-platforms:")
+              .split(",")
+              .map((platform) => platform.trim())
+              .filter(Boolean),
+          ),
+          downloads: Number(semanticSuffix(downloadsNode, "crate-card-downloads:")) || 0,
+          updated: Date.parse(semanticSuffix(updatedNode, "crate-card-updated:")) || 0,
+        });
+      });
+
+      const cards = Array.from(uniqueCards.values());
+      if (!cards.length) return;
+
+      const grid = document.createElement("div");
+      grid.className = "fission-crates-enhanced-grid";
+      grid.setAttribute("aria-live", "polite");
+      cards.forEach(({ shell }) => grid.append(shell));
+      responsiveHosts.forEach((host) => {
+        host.hidden = true;
+      });
+      const selectedShells = new Set(cards.map(({ shell }) => shell));
+      allCardNodes.forEach((card) => {
+        const shell = closestCardShell(card);
+        if (!selectedShells.has(shell)) shell.hidden = true;
+      });
+      results.append(grid);
+
+      const emptyState = document.createElement("p");
+      emptyState.className = "fission-crate-empty-state";
+      emptyState.textContent = messages.empty;
+      emptyState.hidden = true;
+      grid.append(emptyState);
+
+      const state = {
+        query: "",
+        platforms: new Set(),
+        sort: "updated",
+      };
+
+      const apply = () => {
+        const visible = cards.filter(({ searchableText, platforms }) => {
+          const matchesQuery = !state.query || searchableText.includes(state.query);
+          const matchesPlatforms = Array.from(state.platforms).every((platform) =>
+            platforms.has(platform),
+          );
+          return matchesQuery && matchesPlatforms;
+        });
+
+        cards.sort((left, right) => {
+          if (state.sort === "downloads") return right.downloads - left.downloads;
+          if (state.sort === "name") return left.name.localeCompare(right.name);
+          return right.updated - left.updated || left.name.localeCompare(right.name);
+        });
+        cards.forEach(({ shell }) => grid.insertBefore(shell, emptyState));
+        const visibleCards = new Set(visible);
+        cards.forEach((entry) => {
+          entry.shell.hidden = !visibleCards.has(entry);
+        });
+
+        emptyState.hidden = visible.length !== 0;
+        if (countNode) {
+          countNode.textContent = crateCountLabel(visible.length, cards.length);
+        }
+      };
+
+      state.platforms = upgradePlatformFilters(root, (platforms) => {
+        state.platforms = new Set(platforms);
+        apply();
+      });
+      upgradeSortControl(results, (sort) => {
+        state.sort = sort;
+        apply();
+      });
+      searchInputs.forEach((input) => input.addEventListener("input", () => {
+        state.query = normalize(input.value);
+        searchInputs.forEach((peer) => {
+          if (peer !== input) peer.value = input.value;
+        });
+        apply();
+      }));
+
+      const visibleSearchInput = () =>
+        searchInputs.find((input) => !input.closest("[hidden]") && input.offsetParent !== null)
+        || searchInputs[0];
+
+      document.addEventListener("keydown", (event) => {
+        const searchInput = visibleSearchInput();
+        const editable = event.target?.matches?.("input, textarea, select, [contenteditable='true']");
+        if (event.key === "/" && !editable && searchInput) {
+          event.preventDefault();
+          searchInput.focus();
+        } else if (event.key === "Escape" && searchInputs.includes(document.activeElement)) {
+          searchInputs.forEach((input) => { input.value = ""; });
+          state.query = "";
+          document.activeElement.blur();
+          apply();
+        }
+      });
+
+      apply();
+    };
+
+    const copyText = async (value) => {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(value);
+        return;
+      }
+      const textarea = document.createElement("textarea");
+      textarea.value = value;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.append(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      textarea.remove();
+    };
+
+    const initInstallCopy = (root) => {
+      const commandHost = root.querySelector(`[${SEMANTICS}^="crate-install-command:"]`);
+      const copyHost = root.querySelector(`[${SEMANTICS}="crate-copy-install"]`);
+      if (!commandHost || !copyHost) return;
+
+      const replaceTarget = copyHost.closest(".fission-site-text") || copyHost;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "fission-crate-copy-button";
+      button.setAttribute(SEMANTICS, "crate-copy-install");
+      button.textContent = messages.copy;
+      button.addEventListener("click", async () => {
+        const label = button.textContent;
+        try {
+          await copyText(commandHost.textContent.trim());
+          button.textContent = messages.copied;
+        } catch (_error) {
+          button.textContent = messages.copyFailed;
+        }
+        window.setTimeout(() => {
+          button.textContent = label;
+        }, 1600);
+      });
+      replaceTarget.replaceWith(button);
+    };
+
+    const init = () => {
+      document
+        .querySelectorAll(`[${SEMANTICS}="crate-directory-page"]`)
+        .forEach(initDirectory);
+      document
+        .querySelectorAll(`[${SEMANTICS}="crate-detail-page"]`)
+        .forEach(initInstallCopy);
+    };
+
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
+    else init();
+  })();
+</script>

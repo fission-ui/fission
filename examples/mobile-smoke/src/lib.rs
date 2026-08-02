@@ -10,7 +10,7 @@ const IMAGE_PROBE_HEIGHT: f32 = 176.0;
 const ANDROID_TEST_CONTROL_PORT: u16 = 48761;
 
 #[derive(Default, Debug, Clone, PartialEq)]
-struct SmokeState {
+pub struct SmokeState {
     taps: u32,
 }
 
@@ -22,7 +22,7 @@ fn on_increment(state: &mut SmokeState) {
 }
 
 #[derive(Clone)]
-struct MobileSmokeApp;
+pub struct MobileSmokeApp;
 
 impl From<MobileSmokeApp> for Widget {
     fn from(_component: MobileSmokeApp) -> Self {
@@ -105,7 +105,7 @@ fn mobile_app() -> MobileApp<SmokeState, MobileSmokeApp> {
     app
 }
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
 pub fn run_desktop() -> anyhow::Result<()> {
     DesktopApp::<SmokeState, _>::new(MobileSmokeApp).run()
 }

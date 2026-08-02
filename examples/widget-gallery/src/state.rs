@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct GalleryState {
+pub struct GalleryState {
     pub slider_value: f32,
     pub colour_value: Color,
     pub colour_variant: usize,

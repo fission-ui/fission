@@ -5,6 +5,11 @@ edition = "2021"
 license = "MIT"
 repository = "https://github.com/fission-ui/fission"
 description = "Shared shell runtime contracts for hosting Fission applications"
+categories = ["gui", "rendering"]
+keywords = ["fission", "ui-framework", "cross-platform", "runtime", "shell"]
+
+[package.metadata.fission]
+platforms = ["android", "ios", "linux", "macos", "windows", "web", "terminal", "static-site", "ssr"]
 
 homepage = "https://fission.rs"
 documentation = "https://fission.rs"
@@ -16,6 +21,7 @@ fission-render = { path = "../../rendering/fission-render", version = "0.9.2" } 
 serde = { version = "1.0", features = ["derive"] }
 anyhow = "1.0"
 serde_json = "1.0"
+raw-window-handle = "0.6"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "time", "sync"] }

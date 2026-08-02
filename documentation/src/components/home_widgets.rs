@@ -302,11 +302,50 @@ impl From<ThemeToggle> for Widget {
     fn from(_component: ThemeToggle) -> Self {
         let (_ctx, view) = fission::build::current::<DocsState>();
         let tokens = &view.env().theme.tokens;
-        Text::new("Theme")
-            .size(tokens.typography.label_large_size)
-            .weight(tokens.typography.font_weight_semibold)
-            .color(tokens.colors.text_link)
-            .semantics_identifier("site-theme-toggle")
+        Row {
+            children: vec![
+                Column {
+                    children: vec![Center {
+                        child: Icon::svg(material::device::dark_mode::regular())
+                            .size(tokens.spacing.m)
+                            .color(tokens.colors.text_link)
+                            .into(),
+                    }
+                    .into()],
+                    semantics: Some(site_semantics("site-theme-icon:dark")),
+                    ..Default::default()
+                }
+                .into(),
+                Column {
+                    children: vec![Center {
+                        child: Icon::svg(material::device::light_mode::regular())
+                            .size(tokens.spacing.m)
+                            .color(tokens.colors.text_link)
+                            .into(),
+                    }
+                    .into()],
+                    semantics: Some(site_semantics("site-theme-icon:light")),
+                    ..Default::default()
+                }
+                .into(),
+            ],
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::Center,
+            semantics: Some(site_semantics("site-theme-toggle")),
+            ..Default::default()
+        }
+        .into()
+    }
+}
+
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+pub(super) struct LocaleSwitcher;
+
+impl From<LocaleSwitcher> for Widget {
+    fn from(_component: LocaleSwitcher) -> Self {
+        Text::new("Language")
+            .semantics_identifier("site-locale-switcher")
             .into()
     }
 }
@@ -396,11 +435,13 @@ impl From<Cta> for Widget {
         .into()
     }
 }
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub(super) struct StatusText {
     label: &'static str,
 }
 
+#[allow(dead_code)]
 impl StatusText {
     pub(super) fn new(label: &'static str) -> Self {
         Self { label }
@@ -451,12 +492,14 @@ impl From<Pill> for Widget {
         .into()
     }
 }
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub(super) struct CodeCard {
     label: &'static str,
     command: &'static str,
 }
 
+#[allow(dead_code)]
 impl CodeCard {
     pub(super) fn new(label: &'static str, command: &'static str) -> Self {
         Self { label, command }
@@ -539,16 +582,15 @@ impl From<LinkCard> for Widget {
         let tokens = &view.env().theme.tokens;
         Card::new(
             vec![
-                Container::new(
-                    Text::new(component.eyebrow)
-                        .size(tokens.typography.font_size_xs)
-                        .weight(tokens.typography.font_weight_bold)
-                        .color(tokens.colors.primary),
-                )
-                .padding_all(tokens.spacing.s)
-                .bg_fill(Fill::Solid(tokens.colors.primary_subtle))
-                .border_radius(tokens.radii.medium)
-                .into(),
+                Text::new(component.eyebrow)
+                    .size(tokens.typography.font_size_xs)
+                    .weight(tokens.typography.font_weight_bold)
+                    .color(tokens.colors.primary)
+                    .semantics_identifier(format!(
+                        "site-home-card-index:{}",
+                        component.eyebrow.to_lowercase()
+                    ))
+                    .into(),
                 Text::new(component.title)
                     .size(tokens.typography.font_size_lg)
                     .weight(tokens.typography.font_weight_bold)
@@ -682,7 +724,7 @@ impl From<ChartImageCard> for Widget {
         let mut image_children = vec![Image::asset(component.image)
             .size(
                 chart_tile_width(tokens) - tokens.spacing.l,
-                tokens.spacing.xxxxl * 1.15,
+                tokens.spacing.xxxxl * 2.2,
             )
             .into()];
         if let Some(badge) = component.badge {
@@ -897,6 +939,7 @@ pub(super) fn page_fill(tokens: &Tokens) -> Fill {
     }
 }
 
+#[allow(dead_code)]
 pub(super) fn hero_text_width(tokens: &Tokens) -> f32 {
     tokens.spacing.xxxxl * 8.25
 }
@@ -926,5 +969,5 @@ pub(super) fn nav_inset(tokens: &Tokens) -> f32 {
 }
 
 fn chart_tile_width(tokens: &Tokens) -> f32 {
-    tokens.spacing.xxxxl * 2.05
+    tokens.spacing.xxxxl * 3.5
 }

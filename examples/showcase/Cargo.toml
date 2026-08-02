@@ -1,0 +1,46 @@
+[package]
+name = "example-showcase"
+version = "0.9.2"
+edition = "2021"
+
+[lib]
+name = "example_showcase"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+anyhow = "1.0"
+animation-gallery-example = { package = "animation-gallery", path = "../animation-gallery" }
+chart-gallery-example = { package = "chart-gallery", path = "../chart-gallery" }
+console_error_panic_hook = "0.1"
+counter-example = { package = "counter", path = "../counter" }
+editor-example = { package = "fission-editor", path = "../editor" }
+embed-3d-example = { package = "embed-3d", path = "../embed-3d" }
+embed-video-example = { package = "embed-video", path = "../embed-video" }
+embed-webview-example = { package = "embed-webview", path = "../embed-webview" }
+field-inspector-example = { package = "field-inspector", path = "../field-inspector", default-features = false }
+fission = { path = "../../crates/authoring/fission", default-features = false, features = ["desktop", "web"] }
+fission-core = { path = "../../crates/core/fission-core" }
+icons-gallery-example = { package = "icons_gallery", path = "../icons_gallery" }
+inbox-example = { package = "inbox", path = "../inbox" }
+mobile-smoke-example = { package = "mobile-smoke", path = "../mobile-smoke" }
+motion-memory-repro-example = { package = "motion-memory-repro", path = "../motion-memory-repro" }
+pokemon-card-store-example = { package = "pokemon-card-store", path = "../pokemon-card-store", default-features = false, features = ["browser"] }
+product-browser-example = { package = "product-browser", path = "../product-browser" }
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+terminal-example = { package = "terminal", path = "../terminal" }
+text-lab-example = { package = "text-lab", path = "../text-lab" }
+todo-design-system-example = { package = "todo-design-system", path = "../todo-design-system" }
+wasm-bindgen = "0.2"
+web-smoke-example = { package = "web-smoke", path = "../web-smoke", default-features = false }
+widget-gallery-example = { package = "widget-gallery", path = "../widget-gallery" }
+
+[build-dependencies]
+fission-design-system-codegen = { path = "../../crates/tools/fission-design-system-codegen" }
+
+[dev-dependencies]
+fission-test-driver = { path = "../../crates/tools/fission-test-driver" }
+image = "0.25"
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false

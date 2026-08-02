@@ -1,7 +1,10 @@
 use crate::routes;
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
 use fission::core::action::ShellRouteChanged;
 use fission::prelude::*;
-use fission::{GlobalState, ReducerContext};
+use fission::GlobalState;
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+use fission::ReducerContext;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -184,6 +187,7 @@ pub fn scrub_timeline(state: &mut AnimationGalleryState, value: u16) {
     state.playing = false;
 }
 
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
 pub fn on_shell_route_changed(
     state: &mut AnimationGalleryState,
     action: ShellRouteChanged,

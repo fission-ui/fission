@@ -1,4 +1,5 @@
-use super::home_widgets::SemanticRow;
+use super::brand_logo::BrandLogo;
+use super::home_widgets::site_semantics;
 use super::state::DocsState;
 use fission::op::{AlignItems, Fill, FlexWrap, JustifyContent, TextAlign};
 use fission::prelude::*;
@@ -15,58 +16,46 @@ impl From<DocsFooter> for Widget {
                 Row {
                     children: vec![
                         FooterColumn::new(
-                            "Setup",
+                            "Platform",
                             &[
-                                ("Quickstart", "/docs/learn/quickstart/"),
-                                ("Add targets", "/docs/cookbook/add-platform-targets/"),
-                                ("Project structure", "/docs/guides/app-structure/"),
-                            ],
-                        )
-                        .into(),
-                        FooterColumn::new(
-                            "Learn",
-                            &[
-                                ("Overview", "/docs/learn/overview/"),
-                                ("Runtime model", "/docs/learn/runtime-model/"),
-                                ("Widgets", "/docs/guides/layout-and-widgets/"),
-                                ("Design systems", "/docs/guides/design-system/"),
-                                ("Charts", "/docs/charts/overview/"),
+                                ("Overview", "/product/overview/"),
+                                ("Cross-platform apps", "/product/cross-platform-apps/"),
+                                ("Static sites", "/product/static-sites/"),
+                                ("Server-rendered sites", "/product/server-rendered-sites/"),
+                                ("Terminal apps", "/product/terminal-apps/"),
                             ],
                         )
                         .into(),
                         FooterColumn::new(
                             "Build",
                             &[
-                                (
-                                    "Platform shells",
-                                    "/docs/guides/platform-shells-cli-and-testing/",
-                                ),
-                                ("Terminal", "/docs/guides/terminal-user-interfaces/"),
-                                ("Static sites", "/docs/guides/static-sites/"),
-                                ("Server sites", "/docs/guides/server-sites/"),
-                                ("Packaging", "/docs/build-and-package/overview/"),
+                                ("Quickstart", "/docs/learn/quickstart/"),
+                                ("Documentation", "/docs/learn/overview/"),
+                                ("Guides", "/docs/guides/layout-and-widgets/"),
+                                ("Cookbook", "/docs/cookbook/add-platform-targets/"),
+                                ("Examples", "/example-showcase/"),
                             ],
                         )
                         .into(),
                         FooterColumn::new(
-                            "Test",
+                            "Explore",
                             &[
-                                ("Testing lifecycle", "/docs/test-and-debug/overview/"),
-                                ("Diagnostics", "/docs/guides/testing-and-diagnostics/"),
-                                ("Live UI test", "/docs/cookbook/write-a-live-ui-test/"),
+                                ("Crate atlas", "/crates/"),
+                                ("API reference", "/reference/overview/overview/"),
+                                ("Charts", "/product/charts/"),
+                                ("Design systems", "/product/design-systems/"),
+                                ("Blog", "/blog/"),
                             ],
                         )
                         .into(),
                         FooterColumn::new(
-                            "Publish",
+                            "Ship",
                             &[
-                                ("Release overview", "/docs/release-and-distribute/overview/"),
-                                (
-                                    "Lifecycle details",
-                                    "/docs/release-and-distribute/post-build-lifecycle/",
-                                ),
-                                ("CLI reference", "/reference/cli/overview/"),
-                                ("Examples", "/docs/learn/examples-and-targets/"),
+                                ("Production lifecycle", "/product/production-lifecycle/"),
+                                ("Build and package", "/docs/build-and-package/overview/"),
+                                ("Test and debug", "/docs/test-and-debug/overview/"),
+                                ("Release", "/docs/release-and-distribute/overview/"),
+                                ("Developer tools", "/product/developer-tools/"),
                             ],
                         )
                         .into(),
@@ -82,6 +71,7 @@ impl From<DocsFooter> for Widget {
             ],
             gap: Some(tokens.spacing.xxl),
             align_items: AlignItems::Center,
+            semantics: Some(site_semantics("site-footer")),
             ..Default::default()
         })
         .padding_all(tokens.spacing.xxxxl)
@@ -100,25 +90,8 @@ impl From<FooterIdentity> for Widget {
         let tokens = &view.env().theme.tokens;
         Container::new(Column {
             children: vec![
-                SemanticRow::new(
-                    "site-route:/",
-                    vec![
-                        Image::asset("/img/fission-mark.svg")
-                            .size(tokens.spacing.l, tokens.spacing.l)
-                        .into(),
-                        Text::new("Fission")
-                            .size(tokens.typography.font_size_lg)
-                            .weight(tokens.typography.font_weight_bold)
-                            .color(tokens.colors.heading)
-                            .into(),
-                    ],
-                    Some(tokens.spacing.s),
-                    FlexWrap::NoWrap,
-                    AlignItems::Center,
-                    JustifyContent::Center,
-                )
-                .into(),
-                Text::new("A cross-platform, GPU-accelerated user interface framework for Rust. MIT licensed.")
+                BrandLogo::new(tokens.spacing.l).centered().into(),
+                Text::new("One Rust application model for native, mobile, web, terminal, static, and server-rendered products. MIT licensed.")
                     .size(tokens.typography.body_medium_size)
                     .line_height(tokens.typography.body_medium_size * tokens.typography.line_height_normal)
                     .color(tokens.colors.text_secondary)
@@ -203,7 +176,7 @@ impl From<FooterColumn> for Widget {
             gap: Some(tokens.spacing.s),
             ..Default::default()
         })
-        .width(tokens.spacing.xxxxl * 1.75)
+        .width(190.0)
         .flex_shrink(1.0)
         .into()
     }

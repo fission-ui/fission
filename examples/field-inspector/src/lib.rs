@@ -3,17 +3,21 @@ pub mod components;
 pub mod data;
 pub mod model;
 
-use api::{collect_stream_bytes, fetch_weather, STREAM_BYTES_JOB, WEATHER_JOB};
-use components::app::FieldInspectorApp;
+pub use api::{collect_stream_bytes, fetch_weather, STREAM_BYTES_JOB, WEATHER_JOB};
+pub use components::app::FieldInspectorApp;
+#[cfg(any(not(target_arch = "wasm32"), feature = "standalone-entry"))]
 use fission::prelude::*;
+pub use model::FieldInspectorState;
+#[cfg(any(not(target_arch = "wasm32"), feature = "standalone-entry"))]
 use model::{
     on_capability_failed, on_capability_succeeded, on_deep_link_received,
-    on_notification_response_received, CapabilityProviderMode, FieldInspectorState,
+    on_notification_response_received, CapabilityProviderMode,
 };
 
 #[cfg(target_os = "android")]
 const ANDROID_TEST_CONTROL_PORT: u16 = 48761;
 
+#[cfg(any(not(target_arch = "wasm32"), feature = "standalone-entry"))]
 macro_rules! configure_field_inspector_app {
     ($app:expr) => {{
         let demo_hosts = field_inspector_demo_hosts();
@@ -61,6 +65,7 @@ macro_rules! configure_field_inspector_app {
     }};
 }
 
+#[cfg(any(not(target_arch = "wasm32"), feature = "standalone-entry"))]
 fn field_inspector_demo_hosts() -> bool {
     std::env::var("FISSION_FIELD_INSPECTOR_DEMO_HOSTS")
         .map(|value| {
@@ -72,6 +77,7 @@ fn field_inspector_demo_hosts() -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(any(not(target_arch = "wasm32"), feature = "standalone-entry"))]
 fn demo_nfc_tag() -> NfcTag {
     NfcTag {
         id: Some(vec![0xF1, 0x04, 0x8A]),
@@ -81,6 +87,7 @@ fn demo_nfc_tag() -> NfcTag {
     }
 }
 
+#[cfg(any(not(target_arch = "wasm32"), feature = "standalone-entry"))]
 fn demo_barcode_results() -> BarcodeScanResults {
     BarcodeScanResults {
         items: vec![BarcodeScanResult {
@@ -93,6 +100,7 @@ fn demo_barcode_results() -> BarcodeScanResults {
     }
 }
 
+#[cfg(any(not(target_arch = "wasm32"), feature = "standalone-entry"))]
 fn demo_position() -> GeolocationPosition {
     GeolocationPosition {
         latitude: 51.5074,
@@ -106,6 +114,7 @@ fn demo_position() -> GeolocationPosition {
     }
 }
 
+#[cfg(any(not(target_arch = "wasm32"), feature = "standalone-entry"))]
 fn callback_reducers() -> fission::core::ActionRegistry<FieldInspectorState> {
     let mut registry = fission::core::ActionRegistry::new();
     registry.register(reduce_with!(on_capability_succeeded));
@@ -143,7 +152,7 @@ fn android_main(app_handle: AndroidApp) {
     let _ = mobile_app().run_with_android_app(app_handle);
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "standalone-entry"))]
 fn web_app() -> WebApp<FieldInspectorState, FieldInspectorApp> {
     let mut app =
         configure_field_inspector_app!(WebApp::<FieldInspectorState, _>::new(FieldInspectorApp))
@@ -152,7 +161,7 @@ fn web_app() -> WebApp<FieldInspectorState, FieldInspectorApp> {
     app
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "standalone-entry"))]
 #[wasm_bindgen::prelude::wasm_bindgen(start)]
 pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
     console_error_panic_hook::set_once();

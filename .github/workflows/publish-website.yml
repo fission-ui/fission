@@ -1,6 +1,8 @@
 name: Publish website
 
 on:
+  schedule:
+    - cron: '17 */6 * * *'
   push:
     branches:
       - main
@@ -8,13 +10,14 @@ on:
       - 'documentation/**'
       - 'crates/**'
       - 'examples/chart-gallery/**'
+      - 'examples/showcase/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/publish-website.yml'
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -35,15 +38,30 @@ jobs:
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
 
       - name: Cache Rust build output
         uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --version 0.13.1 --locked
 
       - name: Install Linux native build dependencies
         run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev pkg-config
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
+
+      - name: Restore accumulated crate index
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p documentation/data
+          gh release download crate-index --pattern fission-crates.sqlite3 --dir documentation/data || true
+
+      - name: Refresh Fission crate index
+        run: cargo run -p fission-documentation --features crate-indexer --bin update-crate-index -- documentation/data/fission-crates.sqlite3
 
       - name: Verify static site dependency boundary
         run: |
@@ -59,6 +77,18 @@ jobs:
       - name: Check static site routes
         run: cargo run -p cargo-fission --bin fission -- site check --project-dir documentation --release
 
+      - name: Build Example Showcase for Web
+        run: cargo run -p cargo-fission --bin fission -- build --target web --project-dir examples/showcase --release
+
+      - name: Stage Example Showcase as a site asset
+        run: |
+          showcase_out="documentation/static/example-showcase"
+          mkdir -p "$showcase_out"
+          cp examples/showcase/platforms/web/index.html "$showcase_out/index.html"
+          cp examples/showcase/platforms/web/bootstrap.mjs "$showcase_out/bootstrap.mjs"
+          cp examples/showcase/platforms/web/app-icon.png "$showcase_out/app-icon.png"
+          cp -R examples/showcase/platforms/web/pkg "$showcase_out/pkg"
+
       - name: Package static site
         run: cargo run -p cargo-fission --bin fission -- package --project-dir documentation --target site --format static --release
 
@@ -73,7 +103,19 @@ jobs:
           test -f documentation/target/fission/release/static-site/static/search/docs.json
           test -f documentation/target/fission/release/static-site/static/img/fission-mark.svg
           test -f documentation/target/fission/release/static-site/static/img/charts/line-gradient-area.png
+          test -f documentation/target/fission/release/static-site/static/example-showcase/index.html
+          test -f documentation/target/fission/release/static-site/static/example-showcase/bootstrap.mjs
+          test -f documentation/target/fission/release/static-site/static/example-showcase/pkg/example_showcase.js
+          test -f documentation/target/fission/release/static-site/static/example-showcase/pkg/example_showcase_bg.wasm
           test -f documentation/target/fission/release/static-site/static/artifact-manifest.json
+          test -f documentation/target/fission/release/static-site/static/crates/index.html
+
+      - name: Replace accumulated crate index asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view crate-index >/dev/null 2>&1 || gh release create crate-index --title "Fission crate index" --notes "Internal database used to generate fission.rs/crates."
+          gh release upload crate-index documentation/data/fission-crates.sqlite3 --clobber
 
       - name: Upload static site artifact
         uses: actions/upload-pages-artifact@v3

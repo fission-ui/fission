@@ -1969,6 +1969,12 @@ impl HtmlRenderer<'_> {
                     node.id,
                 ));
             }
+            if identifier == "site-locale-switcher" {
+                return Ok(format!(
+                    "<label class=\"fission-site-locale-switcher\" aria-label=\"Language\"><select data-fission-locale-switcher data-fission-node=\"{}\"><option value=\"en\">English</option><option value=\"es\">Español</option></select></label>",
+                    node.id
+                ));
+            }
             if identifier == "site-search-trigger" {
                 let children = self.render_children(&node.children, &HashSet::new())?;
                 return Ok(format!(
