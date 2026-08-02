@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-08-02
+
+### Added
+
+- **Generic native-surface extensions** - Desktop and mobile applications can register handlers for opaque custom embed payloads. The shell supplies a lifetime-bound native host, stable widget identity, transformed geometry, effective clipping, opacity, and paint order while keeping extension-specific types out of the shared runtime.
+- **Native Windows notifications** - Windows applications can configure App User Model identity and deliver native toast notifications with stable tags, escaped content, sound policy, and honest capability reporting.
+- **Unified crate and example directory** - The documentation site now includes a generated Fission crate index backed by validated crates.io metadata, an interactive example showcase, redesigned documentation and blog layouts, and one responsive visual language across the public site.
+- **System appearance and initial window policy** - Desktop applications can follow the host light/dark preference, configure initial maximization, and use the shell's public URL-opening path.
+- **Localized server document integrations** - Static and server-rendered document shells can provide localized integrations and theme-aware site chrome without duplicating page composition.
+
+### Changed
+
+- **Native presentation carries complete frame context** - Video, web, 3D, and custom native surfaces now share scroll visibility, ancestor clipping, accumulated transforms and opacity, and stable paint order. Fully clipped native surfaces are omitted rather than bleeding over surrounding Fission content.
+- **Desktop feature resolution is consistent** - Development, packaging, and release builds resolve desktop variant features through the same locked Cargo configuration.
+- **Documentation is a representative Fission product site** - The home, docs, blog, crate directory, and example pages were rebuilt as retained Fission widgets with responsive layouts, reusable branding, syntax highlighting, sequential documentation navigation, and accessible theme controls.
+- **Custom host lifetimes are explicit** - Native-surface handlers receive a lifetime-bound `WindowHandle` and a complete attach, present, detach lifecycle, including Android suspend/resume and normal event-loop exit.
+
+### Fixed
+
+- **Linux Wayland presentation stalls** - Wayland defers the eager startup clear, uses `Mailbox` only when the surface advertises it, and avoids installing the frame callback that could indefinitely suppress later redraws on affected software/composited WSI paths.
+- **Surface loss and software-render fidelity** - Native rendering recovers from transient acquisition errors, refreshes stale surface configuration, preserves supported alpha modes, repaints complete captures, and aligns software output with display layout.
+- **Modal and Markdown sizing** - Modal surfaces retain intrinsic height and Markdown composition no longer introduces an unwanted nested scrolling region.
+- **Desktop and Store packaging** - Variant feature locks, macOS private-API checks, package artifact discovery, release paths, and screenshot validation now agree across development and release workflows.
+- **Native surface lifecycle and clipping** - Handlers are detached before a host is destroyed, built-in and extension surfaces remain synchronized while scrolling, and partially visible surfaces receive their effective visible bounds.
+
+### Migration notes
+
+- Update Fission dependencies to `0.10.0`:
+
+```toml
+fission = { version = "0.10.0", default-features = false, features = ["desktop"] }
+```
+
+- Implementations that construct `VideoSurfaceFrame` values directly must also provide `visible_rect`, `transform`, `opacity`, and `paint_order`. Most applications only consume the built-in video widget and require no source change.
+- Native extensions should implement `NativeSurfaceHandler`, release host-owned platform resources in `detach_host`, and use `visible_rect` when clipping native child views.
+- The release is versioned as `0.10.0` because the `VideoSurfaceFrame` shape is a public API compatibility change under Fission's pre-1.0 SemVer policy.
+
 ## [0.9.2] - 2026-07-24
 
 ### Added

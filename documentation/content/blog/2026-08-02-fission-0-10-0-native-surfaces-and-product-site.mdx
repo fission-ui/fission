@@ -1,0 +1,84 @@
+---
+title: Fission 0.10.0: native surfaces, reliable presentation, and a unified product site
+authors:
+  - fission
+tags:
+  - release
+  - native-ui
+  - wayland
+  - windows
+  - documentation
+  - cross-platform
+categories:
+  - Releases
+---
+
+Fission 0.10.0 makes native platform content a first-class extension point and turns the public website into a representative Fission product application. It also hardens the presentation and packaging paths that sit between a retained widget tree and a shipped desktop or mobile application.
+
+This is a minor release because the public `VideoSurfaceFrame` contract now carries the presentation information required to keep native content synchronized with the Fission scene. Most applications use the built-in video widget and need only update their dependency. Custom video backends that construct frame values directly have a small migration described below.
+
+## One native-surface contract
+
+Fission already had platform-specific video and web presentation, while 3D custom embeds travelled through a separate path. That split made new native integrations unnecessarily shell-aware and allowed surface behavior to diverge.
+
+Applications can now register a `NativeSurfaceHandler` with the desktop or mobile shell. Custom widgets emit an opaque payload through `EmbedKind::Custom`; the shell routes each frame to the first handler that claims the payload. The shared runtime does not need to know whether the extension hosts a map, camera preview, document viewer, media surface, or another platform component.
+
+The contract includes the information a retained cross-platform surface actually needs:
+
+- a stable widget identity;
+- transformed axis-aligned bounds and the accumulated transform;
+- effective visible bounds after viewport, scroll, clip, and `clip_to_bounds` intersections;
+- accumulated opacity and stable paint order;
+- a lifetime-bound native window handle;
+- explicit attach, present, and detach lifecycle events.
+
+Video, web, 3D, and custom surfaces use the same collection semantics. A surface that scrolls out of a clipped viewport is omitted, a partially visible surface receives its visible rectangle, and a transformed or faded ancestor is reflected in the frame instead of leaving the native view detached from surrounding content.
+
+Android handlers are detached before the native host is destroyed during suspension and can attach to the recreated host after resume. Normal event-loop exit detaches handlers as well. The host exposes a lifetime-bound `WindowHandle` rather than an owned raw handle, making the native window lifetime explicit in extension code.
+
+## Wayland presentation remains responsive
+
+Some Linux Wayland software and composited WSI paths could display their first frame and then stop receiving useful redraw progress. Two pieces of otherwise reasonable presentation behavior interacted badly: an eager startup clear could block before the event loop serviced compositor dispatch, and winit's Wayland frame callback could suppress subsequent redraw delivery when that callback was not returned.
+
+Fission now defers the startup clear to the first authored redraw on Wayland, omits that optional Wayland callback hint, and selects `Mailbox` only when the surface advertises support. Other native targets retain their normal notify-before-commit path, and Wayland surfaces without `Mailbox` retain the supported `AutoVsync` fallback.
+
+The broader native renderer also recovers from transient surface acquisition failures, refreshes stale configuration, preserves advertised alpha modes, and produces complete screenshot captures. Software rendering follows the same display layout more closely, which matters both for constrained hosts and for deterministic testing.
+
+## Windows notifications and desktop policy
+
+Windows applications can now use native toast notifications with an explicit App User Model identity, stable platform-sized tags, safely escaped visible content, and configurable sound. Capability reporting remains conservative when the host cannot provide the native behavior.
+
+Desktop startup policy is broader too. Applications can opt into initial maximization, follow the host system appearance, and use the shell's public URL-opening path. Development, packaging, and release builds resolve desktop variant Cargo features through the same locked configuration, reducing the chance that a Store-specific build differs from the application developers tested.
+
+## A Fission site for the Fission ecosystem
+
+The documentation site now uses one visual and information architecture across the home page, documentation, blog, crate directory, and interactive examples. The production implementation is retained Fission composition rather than a disconnected static mockup.
+
+The new crate directory refreshes validated Fission-related crates from crates.io into a build-time SQLite index, then generates ordinary static pages. Crates opt into discovery through metadata and are required to depend directly on a Fission framework crate. Browsers receive static HTML rather than downloading or executing SQLite.
+
+The example showcase exposes reusable application roots from the repository examples and presents them through responsive product pages. Documentation tables, sequential previous/next navigation, syntax highlighting, theme controls, branding, mobile spacing, and blog layouts share the same site shell.
+
+## Validation
+
+The native-surface changes are covered by routing, lifecycle, clipping, scrolling, transform, opacity, and built-in video/web regressions. Before merge, the updated shell passed the complete Linux unit suite and GitHub's Android package, iOS simulator/device compile, Web/WASM, and CLI platform matrices.
+
+The Wayland change was additionally exercised on native ARM64 KDE Wayland with llvmpipe/Vulkan through repeated semantic reads, redraw pumps, screenshot captures, and navigation loops without a presentation stall.
+
+## Migration notes
+
+Update Fission dependencies to 0.10.0:
+
+```toml
+fission = { version = "0.10.0", default-features = false, features = ["desktop"] }
+```
+
+Ordinary applications using Fission's built-in video, web, and 3D widgets do not need a source migration.
+
+Custom `VideoBackend` implementations that construct `VideoSurfaceFrame` values must populate four new fields: `visible_rect`, `transform`, `opacity`, and `paint_order`. Native extension crates should implement `NativeSurfaceHandler`, release platform resources in `detach_host`, and constrain child views to each frame's `visible_rect`.
+
+Relevant pull requests:
+
+- [#142: generic native surface handlers](https://github.com/fission-ui/fission/pull/142)
+- [#156: responsive Linux Wayland presentation](https://github.com/fission-ui/fission/pull/156)
+- [#154: native Windows notifications](https://github.com/fission-ui/fission/pull/154)
+- [#157: Fission crate directory](https://github.com/fission-ui/fission/pull/157)

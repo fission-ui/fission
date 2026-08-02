@@ -3,8 +3,8 @@ use fission_core::env::{
     SelectableTextStateMap, TextEditStateMap,
 };
 use fission_core::event::{
-    ImeEvent, InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent, MOD_CTRL, MOD_SHIFT,
-    MOD_SUPER,
+    ImeEvent, InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent, MOD_ALT, MOD_CTRL,
+    MOD_SHIFT, MOD_SUPER,
 };
 use fission_core::input::text::TextInputController;
 use fission_core::input::{ControllerContext, InputController};
@@ -45,6 +45,22 @@ impl Clipboard for MockClipboard {
     }
     fn set_text(&self, text: &str) {
         *self.text.lock().unwrap() = text.to_string();
+    }
+}
+
+fn primary_shortcut_modifier() -> u8 {
+    if cfg!(any(target_os = "macos", target_os = "ios")) {
+        MOD_SUPER
+    } else {
+        MOD_CTRL
+    }
+}
+
+fn word_navigation_modifier() -> u8 {
+    if cfg!(any(target_os = "macos", target_os = "ios")) {
+        MOD_ALT
+    } else {
+        MOD_CTRL
     }
 }
 
@@ -1122,7 +1138,7 @@ fn test_text_input_copy_paste() {
         );
         let event = InputEvent::Keyboard(KeyEvent::Down {
             key_code: KeyCode::Char('c'),
-            modifiers: 8,
+            modifiers: primary_shortcut_modifier(),
         });
         assert!(controller.handle_event(&mut ctx, &event));
         assert_eq!(clipboard.get_text().as_deref(), Some("Select"));
@@ -1144,7 +1160,7 @@ fn test_text_input_copy_paste() {
         );
         let event = InputEvent::Keyboard(KeyEvent::Down {
             key_code: KeyCode::Char('v'),
-            modifiers: 8,
+            modifiers: primary_shortcut_modifier(),
         });
         assert!(controller.handle_event(&mut ctx, &event));
 
@@ -1260,8 +1276,8 @@ fn test_word_navigation() {
         );
         let event = InputEvent::Keyboard(KeyEvent::Down {
             key_code: KeyCode::Left,
-            modifiers: 2,
-        }); // Alt
+            modifiers: word_navigation_modifier(),
+        });
         assert!(controller.handle_event(&mut ctx, &event));
         let st = ctx.text_edit.get(node_id).unwrap();
         assert_eq!(st.caret, 12);
@@ -1281,7 +1297,7 @@ fn test_word_navigation() {
         );
         let event = InputEvent::Keyboard(KeyEvent::Down {
             key_code: KeyCode::Left,
-            modifiers: 2,
+            modifiers: word_navigation_modifier(),
         });
         assert!(controller.handle_event(&mut ctx, &event));
         let st = ctx.text_edit.get(node_id).unwrap();
@@ -1322,7 +1338,7 @@ fn test_word_navigation_skips_non_word_segments() {
         );
         let event = InputEvent::Keyboard(KeyEvent::Down {
             key_code: KeyCode::Left,
-            modifiers: 2,
+            modifiers: word_navigation_modifier(),
         });
         assert!(controller.handle_event(&mut ctx, &event));
         let st = ctx.text_edit.get(node_id).unwrap();
@@ -2550,7 +2566,7 @@ fn test_undo_controller_capacity_limits_history_depth() {
 
     let undo = InputEvent::Keyboard(KeyEvent::Down {
         key_code: KeyCode::Char('z'),
-        modifiers: MOD_SUPER,
+        modifiers: primary_shortcut_modifier(),
     });
     assert!(controller.handle_event(&mut ctx, &undo));
     assert_eq!(

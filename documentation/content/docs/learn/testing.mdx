@@ -128,7 +128,7 @@ client.wait_for_ready(15_000)?;
 Prefer semantic selectors over coordinates. Coordinates are still useful for low-level input bugs, but product tests should name the UI element they intend to use.
 
 ```rust
-client.fill_text_semantic_identifier("todo.title", "Publish 0.9.2")?;
+client.fill_text_semantic_identifier("todo.title", "Publish 0.10.0")?;
 client.tap_semantic_identifier("todo.add")?;
 client.wait_for_visible(
     SelectorQuery::semantic_identifier("todo.row.0"),

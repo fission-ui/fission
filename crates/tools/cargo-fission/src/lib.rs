@@ -1517,7 +1517,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-fission = { version = "0.9.2", default-features = false, features = ["desktop"] }
+fission = { version = "0.10.0", default-features = false, features = ["desktop"] }
 "#,
         )
         .unwrap();
@@ -1544,7 +1544,7 @@ edition = "2021"
 anyhow = "1"
 
 [dependencies.fission]
-version = "0.9.2"
+version = "0.10.0"
 default-features = true
 features = ["desktop"]
 "#,
