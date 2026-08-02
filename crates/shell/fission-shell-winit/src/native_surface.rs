@@ -4,6 +4,7 @@ use fission_shell::{NativeSurfaceFrame, NativeSurfaceHandler, NativeSurfaceHost}
 #[derive(Default)]
 pub(crate) struct NativeSurfaceRegistry {
     handlers: Vec<Box<dyn NativeSurfaceHandler>>,
+    host_attached: bool,
 }
 
 impl NativeSurfaceRegistry {
@@ -14,16 +15,21 @@ impl NativeSurfaceRegistry {
         self.handlers.push(Box::new(handler));
     }
 
-    pub(crate) fn attach_host(&mut self, host: NativeSurfaceHost) {
+    pub(crate) fn attach_host(&mut self, host: NativeSurfaceHost<'_>) {
         for handler in &mut self.handlers {
             handler.attach_host(host);
         }
+        self.host_attached = true;
     }
 
     pub(crate) fn detach_host(&mut self) {
+        if !self.host_attached {
+            return;
+        }
         for handler in &mut self.handlers {
             handler.detach_host();
         }
+        self.host_attached = false;
     }
 
     pub(crate) fn present_surfaces(&mut self, frames: &[NativeSurfaceFrame]) {
@@ -50,7 +56,7 @@ mod tests {
     use fission_ir::WidgetId;
     use fission_render::LayoutRect;
     use fission_shell::{NativeSurfaceFrame, NativeSurfaceHandler, NativeSurfaceHost};
-    use raw_window_handle::RawWindowHandle;
+    use raw_window_handle::{RawWindowHandle, WindowHandle};
     use std::sync::{Arc, Mutex};
 
     struct RecordingHandler {
@@ -64,7 +70,7 @@ mod tests {
             payload.starts_with(self.prefix)
         }
 
-        fn attach_host(&mut self, _host: NativeSurfaceHost) {}
+        fn attach_host(&mut self, _host: NativeSurfaceHost<'_>) {}
 
         fn detach_host(&mut self) {
             *self.detach_count.lock().unwrap() += 1;
@@ -90,13 +96,19 @@ mod tests {
                 widget_id: WidgetId::from_u128(1),
                 rect: LayoutRect::new(0.0, 0.0, 1.0, 1.0),
                 payload: b"maps:payload".to_vec(),
-                visible_rect: None,
+                visible_rect: LayoutRect::new(0.0, 0.0, 1.0, 1.0),
+                transform: None,
+                opacity: 1.0,
+                paint_order: 0,
             },
             NativeSurfaceFrame {
                 widget_id: WidgetId::from_u128(2),
                 rect: LayoutRect::new(0.0, 0.0, 1.0, 1.0),
                 payload: b"other:payload".to_vec(),
-                visible_rect: None,
+                visible_rect: LayoutRect::new(0.0, 0.0, 1.0, 1.0),
+                transform: None,
+                opacity: 1.0,
+                paint_order: 1,
             },
         ]);
 
@@ -113,9 +125,9 @@ mod tests {
             frames: Arc::new(Mutex::new(Vec::new())),
             detach_count: Arc::new(Mutex::new(0)),
         });
-        registry.attach_host(NativeSurfaceHost::from_raw_window_handle(
-            RawWindowHandle::Web(raw_window_handle::WebWindowHandle::new(0)),
-        ));
+        let raw = RawWindowHandle::Web(raw_window_handle::WebWindowHandle::new(0));
+        let handle = unsafe { WindowHandle::borrow_raw(raw) };
+        registry.attach_host(NativeSurfaceHost::from_window_handle(handle));
     }
 
     #[test]
@@ -138,7 +150,10 @@ mod tests {
             widget_id: WidgetId::from_u128(1),
             rect: LayoutRect::new(0.0, 0.0, 1.0, 1.0),
             payload: b"maps:payload".to_vec(),
-            visible_rect: None,
+            visible_rect: LayoutRect::new(0.0, 0.0, 1.0, 1.0),
+            transform: None,
+            opacity: 1.0,
+            paint_order: 0,
         }]);
 
         assert_eq!(first.lock().unwrap().len(), 1);
@@ -155,9 +170,9 @@ mod tests {
             detach_count: detach_count.clone(),
         });
 
-        registry.attach_host(NativeSurfaceHost::from_raw_window_handle(
-            RawWindowHandle::Web(raw_window_handle::WebWindowHandle::new(0)),
-        ));
+        let raw = RawWindowHandle::Web(raw_window_handle::WebWindowHandle::new(0));
+        let handle = unsafe { WindowHandle::borrow_raw(raw) };
+        registry.attach_host(NativeSurfaceHost::from_window_handle(handle));
         registry.detach_host();
 
         assert_eq!(*detach_count.lock().unwrap(), 1);

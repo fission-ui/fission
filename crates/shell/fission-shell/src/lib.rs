@@ -1,7 +1,7 @@
 use fission_core::ui::VideoAudioOptions;
 use fission_ir::WidgetId;
 use fission_render::LayoutRect;
-use raw_window_handle::RawWindowHandle;
+use raw_window_handle::WindowHandle;
 use serde::{Deserialize, Serialize};
 
 pub mod async_host;
@@ -19,6 +19,16 @@ pub struct VideoSurfaceFrame {
     pub widget_id: WidgetId,
     pub surface_id: u64,
     pub rect: LayoutRect,
+    /// Visible axis-aligned portion after viewport and ancestor clipping.
+    pub visible_rect: LayoutRect,
+    /// Accumulated Fission presentation transform that produced `rect`.
+    /// `rect` is the transformed axis-aligned bounds; handlers can inspect this
+    /// matrix when they support rotation or other non-axis-aligned fidelity.
+    pub transform: Option<[f32; 16]>,
+    /// Accumulated ancestor opacity.
+    pub opacity: f32,
+    /// Stable paint-order position within the current frame.
+    pub paint_order: u32,
 }
 
 pub trait VideoBackend: Send + Sync {
@@ -62,32 +72,39 @@ pub struct NativeSurfaceFrame {
     /// The portion of [`rect`](Self::rect) that is actually visible after
     /// ancestor clipping (scroll viewports, `Clip` nodes, `clip_to_bounds`).
     ///
-    /// `None` means the full `rect` is visible (no ancestor clip applies).
-    /// When present, handlers should constrain their platform view to this
-    /// sub-rectangle.
-    pub visible_rect: Option<LayoutRect>,
+    /// Handlers should constrain their platform view to this sub-rectangle.
+    pub visible_rect: LayoutRect,
+    /// Accumulated Fission presentation transform that produced `rect`.
+    /// `rect` is the transformed axis-aligned bounds; handlers can inspect this
+    /// matrix when they support rotation or other non-axis-aligned fidelity.
+    pub transform: Option<[f32; 16]>,
+    /// Accumulated ancestor opacity.
+    pub opacity: f32,
+    /// Stable paint-order position within the current frame.
+    pub paint_order: u32,
 }
 
 /// A platform window made available to native-surface extensions.
 ///
-/// This deliberately exposes only a raw handle, keeping the shared shell
-/// contract independent of a particular windowing implementation.
+/// This deliberately exposes only a lifetime-bound window handle, keeping the
+/// shared shell contract independent of a particular windowing implementation
+/// without allowing the host wrapper itself to outlive the native window.
 #[derive(Debug, Clone, Copy)]
-pub struct NativeSurfaceHost {
-    raw_window_handle: RawWindowHandle,
+pub struct NativeSurfaceHost<'a> {
+    window_handle: WindowHandle<'a>,
 }
 
-impl NativeSurfaceHost {
+impl<'a> NativeSurfaceHost<'a> {
     /// Constructs a host wrapper for a platform window.
     ///
     /// Shell implementations call this after their native window is ready.
-    pub fn from_raw_window_handle(raw_window_handle: RawWindowHandle) -> Self {
-        Self { raw_window_handle }
+    pub fn from_window_handle(window_handle: WindowHandle<'a>) -> Self {
+        Self { window_handle }
     }
 
-    /// Returns the underlying platform window handle.
-    pub fn raw_window_handle(&self) -> RawWindowHandle {
-        self.raw_window_handle
+    /// Returns the lifetime-bound platform window handle.
+    pub fn window_handle(&self) -> WindowHandle<'a> {
+        self.window_handle
     }
 }
 
@@ -121,7 +138,7 @@ pub trait NativeSurfaceHandler {
     /// On mobile platforms the host may be destroyed and recreated across
     /// suspend/resume cycles. When that happens, [`detach_host`](Self::detach_host)
     /// is called first, then `attach_host` is called again with the new window.
-    fn attach_host(&mut self, host: NativeSurfaceHost);
+    fn attach_host(&mut self, host: NativeSurfaceHost<'_>);
 
     /// Notifies the handler that the platform window is about to be destroyed.
     ///

@@ -1158,9 +1158,9 @@ fn build_window_before_run(
     ))
 }
 
-fn native_surface_host(window: &Window) -> Option<NativeSurfaceHost> {
+fn native_surface_host(window: &Window) -> Option<NativeSurfaceHost<'_>> {
     let handle = window.window_handle().ok()?;
-    Some(NativeSurfaceHost::from_raw_window_handle(handle.as_raw()))
+    Some(NativeSurfaceHost::from_window_handle(handle))
 }
 
 fn build_window_attributes(
@@ -5919,6 +5919,9 @@ where
                         active_primary_touch = None;
                         touch_positions.clear();
                     }
+                }
+                Event::LoopExiting => {
+                    native_surface_handlers.detach_host();
                 }
                 // ═══════════════════════════════════════════════════════
                 // UserEvent — injected by test control server via proxy
