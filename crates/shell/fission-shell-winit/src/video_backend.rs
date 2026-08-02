@@ -268,7 +268,7 @@ mod mac {
                 let entry = layer_map
                     .entry(widget_id)
                     .or_insert_with(|| VideoLayer::new(widget_id, &player, ctx));
-                entry.update(&player, ctx, frame.rect);
+                entry.update(&player, ctx, frame);
             }
         }
     }
@@ -394,12 +394,14 @@ mod mac {
             }
         }
 
-        fn update(&mut self, player: &RetainedId, ctx: &LayerContext, rect: LayoutRect) {
+        fn update(&mut self, player: &RetainedId, ctx: &LayerContext, frame: &VideoSurfaceFrame) {
             unsafe {
                 let layer_id = self.layer.as_id();
                 let () = msg_send![layer_id, setContentsScale: ctx.scale_factor];
                 let () = msg_send![layer_id, setPlayer: player.as_id()];
-                let cg_rect = cg_rect_from_layout(rect, ctx);
+                let () = msg_send![layer_id, setOpacity: frame.opacity];
+                let () = msg_send![layer_id, setZPosition: frame.paint_order as f64];
+                let cg_rect = cg_rect_from_layout(frame.rect, ctx);
                 let view_id = self.view.as_id();
                 let () = msg_send![view_id, setFrame: cg_rect];
                 let () = msg_send![
@@ -892,7 +894,7 @@ mod ios {
                 let entry = layer_map
                     .entry(widget_id)
                     .or_insert_with(|| VideoLayer::new(&player, ctx));
-                entry.update(&player, ctx, frame.rect);
+                entry.update(&player, ctx, frame);
             }
         }
     }
@@ -1017,16 +1019,18 @@ mod ios {
             }
         }
 
-        fn update(&mut self, player: &RetainedId, ctx: &LayerContext, rect: LayoutRect) {
+        fn update(&mut self, player: &RetainedId, ctx: &LayerContext, frame: &VideoSurfaceFrame) {
             unsafe {
                 let view = self.view.as_id();
                 let layer = self.layer.as_id();
-                let frame = cg_rect_from_layout(rect);
-                let () = msg_send![view, setFrame: frame];
+                let view_frame = cg_rect_from_layout(frame.rect);
+                let () = msg_send![view, setFrame: view_frame];
                 let bounds: CGRect = msg_send![view, bounds];
                 let () = msg_send![layer, setFrame: bounds];
                 let () = msg_send![layer, setContentsScale: ctx.scale_factor];
                 let () = msg_send![layer, setPlayer: player.as_id()];
+                let () = msg_send![layer, setOpacity: frame.opacity];
+                let () = msg_send![layer, setZPosition: frame.paint_order as f64];
                 let () = msg_send![ctx.parent_view, addSubview: view];
             }
         }
@@ -2875,6 +2879,19 @@ mod web {
         let _ = style.set_property("top", &format!("{}px", frame.rect.origin.y));
         let _ = style.set_property("width", &format!("{}px", frame.rect.size.width));
         let _ = style.set_property("height", &format!("{}px", frame.rect.size.height));
+        let top = (frame.visible_rect.y() - frame.rect.y()).max(0.0);
+        let right = (frame.rect.right() - frame.visible_rect.right()).max(0.0);
+        let bottom = (frame.rect.bottom() - frame.visible_rect.bottom()).max(0.0);
+        let left = (frame.visible_rect.x() - frame.rect.x()).max(0.0);
+        let _ = style.set_property(
+            "clip-path",
+            &format!("inset({top}px {right}px {bottom}px {left}px)"),
+        );
+        let _ = style.set_property("opacity", &frame.opacity.to_string());
+        let _ = style.set_property(
+            "z-index",
+            &(2_000_000_000u32 + frame.paint_order).to_string(),
+        );
     }
 
     fn document() -> Document {

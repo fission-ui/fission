@@ -58,12 +58,13 @@ use fission_render_vello::{
 use fission_shell::async_host::{
     AsyncMessage, AsyncRegistry, RunningServiceHandle, ServiceControlMessage,
 };
-use fission_shell::{VideoEvent, VideoPlayer};
+use fission_shell::{NativeSurfaceHandler, NativeSurfaceHost, VideoEvent, VideoPlayer};
 use fission_theme::fonts;
 use fontique::{
     Blob, Collection, CollectionOptions, FontInfoOverride, FontStyle as FontiqueStyle, FontWeight,
     SourceCache,
 };
+use raw_window_handle::HasWindowHandle;
 use read_fonts::types::Tag;
 
 use fission_test_driver::TestEvent;
@@ -96,6 +97,8 @@ use renderer_diagnostics::{emit_renderer_report, RendererReport, RendererRequest
 mod software_fonts;
 mod software_renderer;
 use software_renderer::SoftwareRenderer;
+mod native_surface;
+use native_surface::NativeSurfaceRegistry;
 mod video_backend;
 use video_backend::create_video_backend;
 mod web_backend;
@@ -1255,6 +1258,11 @@ fn build_window_before_run(
             .create_window(window_attributes)
             .map_err(|e| anyhow::anyhow!("Window build error: {}", e))?,
     ))
+}
+
+fn native_surface_host(window: &Window) -> Option<NativeSurfaceHost<'_>> {
+    let handle = window.window_handle().ok()?;
+    Some(NativeSurfaceHost::from_window_handle(handle))
 }
 
 fn build_window_attributes(
@@ -4073,6 +4081,7 @@ where
     sync_env: Option<Arc<dyn Fn(&S, &mut Env) + Send + Sync>>,
     key_handler: Option<KeyHandler<S>>,
     frame_hook: Option<FrameHook<S>>,
+    native_surface_handlers: NativeSurfaceRegistry,
     title: String,
     initial_maximized: bool,
     web_mount_selector: Option<String>,
@@ -4142,6 +4151,7 @@ where
             sync_env: None,
             key_handler: None,
             frame_hook: None,
+            native_surface_handlers: NativeSurfaceRegistry::default(),
             title: "Fission".into(),
             initial_maximized: false,
             web_mount_selector: None,
@@ -4247,6 +4257,16 @@ where
         F: Fn(&mut S) -> bool + Send + Sync + 'static,
     {
         self.frame_hook = Some(Arc::new(f));
+        self
+    }
+
+    /// Registers an extension that presents opaque `EmbedKind::Custom`
+    /// surfaces in this native host.
+    pub fn with_native_surface_handler<H>(mut self, handler: H) -> Self
+    where
+        H: NativeSurfaceHandler + 'static,
+    {
+        self.native_surface_handlers.register(handler);
         self
     }
 
@@ -4725,6 +4745,7 @@ where
         env.window.title = fission_core::WindowTitle::plain(window_title.clone());
         let mut applied_window_title = window_title.clone();
         let mut pipeline = self.pipeline;
+        let mut native_surface_handlers = self.native_surface_handlers;
         let measurer = self.measurer;
         let effect_result_tx = self.effect_result_tx;
         let effect_result_rx = self.effect_result_rx;
@@ -5980,6 +6001,9 @@ where
                     let Some(window) = platform_window.active_window() else {
                         return;
                     };
+                    if let Some(host) = native_surface_host(window) {
+                        native_surface_handlers.attach_host(host);
+                    }
                     accessibility_bridge.ensure_adapter(elwt, window);
                     if accessibility::window_must_start_hidden() && !background_test_mode {
                         window.set_visible(true);
@@ -6050,6 +6074,7 @@ where
                     }
                     #[cfg(target_os = "android")]
                     {
+                        native_surface_handlers.detach_host();
                         ime_handler.set_window(None);
                         platform_window = None;
                         window_viewport = None;
@@ -6061,6 +6086,9 @@ where
                         active_primary_touch = None;
                         touch_positions.clear();
                     }
+                }
+                Event::LoopExiting => {
+                    native_surface_handlers.detach_host();
                 }
                 // ═══════════════════════════════════════════════════════
                 // UserEvent — injected by test control server via proxy
@@ -6193,6 +6221,7 @@ where
                     video_backend.present_surfaces(&surfaces);
                     let web_surfaces = pipeline.web_surfaces.clone();
                     web_backend.present_surfaces(&web_surfaces);
+                    native_surface_handlers.present_surfaces(&pipeline.native_surfaces);
 
                     // Video Logic - Process Player Events and Sync State
                     for (widget_id, active_player) in players.iter_mut() {
@@ -7892,15 +7921,15 @@ where
 
                                         #[cfg(feature = "three-d")]
                                         {
-                                            for (_, rect, payload) in &pipeline.scene_3d_surfaces {
+                                            for surface in &pipeline.native_surfaces {
                                                 if let Ok(primitives) = bincode::deserialize::<
                                                     Vec<fission_3d::Primitive3D>,
                                                 >(
-                                                    payload
+                                                    &surface.payload
                                                 ) {
                                                     let scene3d = fission_3d::Scene3D {
-                                                        width: Some(rect.size.width),
-                                                        height: Some(rect.size.height),
+                                                        width: Some(surface.rect.size.width),
+                                                        height: Some(surface.rect.size.height),
                                                         primitives,
                                                     };
                                                     let scale = scale_factor as f32;
@@ -7910,10 +7939,11 @@ where
                                                         &render_state.surface.target_view,
                                                         &scene3d,
                                                         fission_3d::render::Scene3DViewport {
-                                                            x: rect.origin.x * scale,
-                                                            y: rect.origin.y * scale,
-                                                            width: rect.size.width * scale,
-                                                            height: rect.size.height * scale,
+                                                            x: surface.rect.origin.x * scale,
+                                                            y: surface.rect.origin.y * scale,
+                                                            width: surface.rect.size.width * scale,
+                                                            height: surface.rect.size.height
+                                                                * scale,
                                                         },
                                                     );
                                                 }

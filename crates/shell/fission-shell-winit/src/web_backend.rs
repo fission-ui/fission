@@ -10,6 +10,11 @@ pub struct WebSurfaceFrame {
     pub url: String,
     pub user_agent: Option<String>,
     pub rect: LayoutRect,
+    pub visible_rect: LayoutRect,
+    /// Transform that produced the axis-aligned `rect` bounds.
+    pub transform: Option<[f32; 16]>,
+    pub opacity: f32,
+    pub paint_order: u32,
 }
 
 #[cfg(target_os = "macos")]
@@ -183,7 +188,8 @@ mod mac {
                 let () = msg_send![web_view.as_id(), setWantsLayer: YES];
                 let web_layer: id = msg_send![web_view.as_id(), layer];
                 if web_layer != nil {
-                    let () = msg_send![web_layer, setZPosition: 2.0f64];
+                    let () = msg_send![web_layer, setZPosition: frame.paint_order as f64];
+                    let () = msg_send![web_layer, setOpacity: frame.opacity];
                 }
                 let () = msg_send![web_view.as_id(), setAllowsBackForwardNavigationGestures: YES];
                 let () = msg_send![
@@ -209,6 +215,11 @@ mod mac {
                 let cg_rect = cg_rect_from_layout(frame.rect, ctx.bounds_height);
                 let () = msg_send![web_view, setFrame: cg_rect];
                 let () = msg_send![web_view, setHidden: false];
+                let web_layer: id = msg_send![web_view, layer];
+                if web_layer != nil {
+                    let () = msg_send![web_layer, setZPosition: frame.paint_order as f64];
+                    let () = msg_send![web_layer, setOpacity: frame.opacity];
+                }
                 let () = msg_send![
                     ctx.parent_view,
                     addSubview: web_view
@@ -300,6 +311,10 @@ mod tests {
             url: "https://example.invalid".to_string(),
             user_agent: Some("fission-test".to_string()),
             rect: LayoutRect::new(0.0, 0.0, 320.0, 180.0),
+            visible_rect: LayoutRect::new(0.0, 0.0, 320.0, 180.0),
+            transform: None,
+            opacity: 1.0,
+            paint_order: 0,
         }]);
         backend.present_surfaces(&[]);
     }
