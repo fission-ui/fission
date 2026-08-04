@@ -15,12 +15,20 @@ use std::io::Read;
 use std::path::PathBuf;
 use tar::Archive;
 
-const DISCOVERY_KEYWORD: &str = "fission-framework";
+const DISCOVERY_KEYWORD: &str = "fission";
 
 const OFFICIAL_CRATES: &[&str] = &[
+    "cargo-fission",
     "fission",
     "fission-3d",
     "fission-charts",
+    "fission-command-core",
+    "fission-command-package",
+    "fission-command-release",
+    "fission-command-run",
+    "fission-command-server",
+    "fission-command-site",
+    "fission-command-ui",
     "fission-core",
     "fission-design-system-codegen",
     "fission-diagnostics",
@@ -198,6 +206,11 @@ fn discover_candidates(client: &Client) -> Result<Vec<SearchCrate>> {
         }
         page += 1;
     }
+    if candidates.is_empty() {
+        return Err(anyhow!(
+            "crates.io returned no crates for the `{DISCOVERY_KEYWORD}` keyword"
+        ));
+    }
     Ok(candidates)
 }
 
@@ -222,9 +235,7 @@ fn ingest_crate(
     };
     let packaged = download_package(client, &candidate.id, &version.num)?;
 
-    if !OFFICIAL_CRATES.contains(&candidate.id.as_str())
-        && !has_official_dependency(&packaged.manifest)
-    {
+    if !qualifies_for_index(&candidate.id, &packaged.manifest) {
         println!(
             "skipped {}: no direct dependency on an official Fission crate",
             candidate.id
@@ -365,6 +376,10 @@ fn has_official_dependency(manifest: &toml::Value) -> bool {
     })
 }
 
+fn qualifies_for_index(name: &str, manifest: &toml::Value) -> bool {
+    OFFICIAL_CRATES.contains(&name) || has_official_dependency(manifest)
+}
+
 fn dependency_tables(
     manifest: &toml::Value,
 ) -> impl Iterator<Item = &toml::map::Map<String, toml::Value>> {
@@ -442,6 +457,27 @@ fn platform_from_keyword(keyword: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn discovers_crates_using_the_fission_keyword() {
+        assert_eq!(DISCOVERY_KEYWORD, "fission");
+    }
+
+    #[test]
+    fn first_party_crates_do_not_need_a_fission_dependency() {
+        let manifest: toml::Value = toml::from_str(
+            r#"[package]
+name = "standalone"
+version = "1.0.0"
+"#,
+        )
+        .unwrap();
+
+        assert!(qualifies_for_index("fission-core", &manifest));
+        assert!(qualifies_for_index("cargo-fission", &manifest));
+        assert!(qualifies_for_index("fission-command-core", &manifest));
+        assert!(!qualifies_for_index("unrelated-crate", &manifest));
+    }
 
     #[test]
     fn accepts_renamed_build_dependency() {
