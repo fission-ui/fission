@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1] - 2026-08-10
+
+### Added
+
+- **Shared Static site and SSR document configuration** - Both HTML shells now use one `DocumentShellConfig` for themes, environments, generated design systems, packaged fonts, favicons, syntax highlighting, custom CSS, and route-filtered document elements.
+- **Aligned shell APIs** - SSR gains design-system fonts, favicon links, conditional code highlighting, and retained footers. Static site gains i18n bundles, generic locale resolution, localized metadata, build-time route state, custom JSON-LD, portals, and browser surface registrations.
+
+### Fixed
+
+- **Static locale selection** - Markdown and MDX `locale` front matter now controls translation and document metadata. Static generation no longer contains a documentation-site-specific `/es` path rule.
+- **SSR document assets** - Packaged design-system fonts are emitted into SSR route stylesheets and configured favicons are linked explicitly from rendered documents.
+
+### Migration notes
+
+- Update Fission dependencies to `0.10.1`. Existing Static site and SSR builders remain source-compatible; the new APIs are additive.
+
+```toml
+fission = { version = "0.10.1", default-features = false, features = ["site", "server"] }
+```
+
 ## [0.10.0] - 2026-08-02
 
 ### Added
