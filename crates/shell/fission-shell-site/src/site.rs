@@ -1,8 +1,9 @@
 use crate::build::{build_site, check_site, list_site_routes, SiteBuildOptions};
 use anyhow::{bail, Context, Result};
 use fission_core::internal::BuildCtx;
-use fission_core::registry::VideoRegistration;
-use fission_core::{Env, GlobalState, MotionDeclaration, RuntimeState, View, Widget};
+use fission_core::registry::{VideoRegistration, WebRegistration};
+use fission_core::{Env, GlobalState, MotionDeclaration, RuntimeState, View, Widget, WidgetId};
+use fission_i18n::{I18nRegistry, Locale, TranslationBundle};
 use fission_theme::{DesignMode, DesignSystem, PackagedFont, Theme};
 use std::fs;
 use std::io::{self, BufRead, Write};
@@ -14,11 +15,19 @@ pub type ContentTransform = dyn Fn(&str, &Path, &Path) -> Result<String> + Send 
 
 type RouteRenderer =
     dyn for<'a> Fn(&SiteRenderContext<'a>) -> Result<SiteRouteRender> + Send + Sync + 'static;
+type LocaleResolver =
+    dyn for<'a> Fn(&SiteLocaleContext<'a>) -> Result<Locale> + Send + Sync + 'static;
+type DocumentMetadataResolver = dyn for<'a> Fn(&SiteRenderContext<'a>, &crate::DocumentMetadata) -> Result<crate::DocumentMetadata>
+    + Send
+    + Sync
+    + 'static;
 
 pub(crate) struct SiteRouteRender {
     pub widget: Widget,
     pub motion_declarations: Vec<MotionDeclaration>,
     pub video_registrations: Vec<VideoRegistration>,
+    pub web_registrations: Vec<WebRegistration>,
+    pub portals: Vec<(Option<WidgetId>, Widget)>,
 }
 
 /// Position where raw static-site page markup is inserted.
@@ -180,6 +189,7 @@ pub struct CustomRoute {
     pub path: String,
     pub title: String,
     pub description: Option<String>,
+    pub structured_data: Vec<String>,
     pub(crate) render: Arc<RouteRenderer>,
 }
 
@@ -192,6 +202,16 @@ pub struct SiteRenderContext<'a> {
     pub(crate) env: &'a Env,
 }
 
+/// Build-time context used to select a locale for a static route.
+#[derive(Clone, Debug)]
+pub struct SiteLocaleContext<'a> {
+    pub project_dir: &'a Path,
+    pub route_path: &'a str,
+    pub theme: &'a Theme,
+    pub default_locale: &'a str,
+    pub declared_locale: Option<&'a str>,
+}
+
 impl<'a> SiteRenderContext<'a> {
     pub fn env(&self) -> &'a Env {
         self.env
@@ -202,16 +222,11 @@ impl<'a> SiteRenderContext<'a> {
 pub struct FissionSite {
     pub(crate) custom_routes: Vec<CustomRoute>,
     pub(crate) content_transform: Option<Arc<ContentTransform>>,
-    pub(crate) theme: Theme,
-    pub(crate) env: Env,
-    pub(crate) light_theme: Option<Theme>,
-    pub(crate) dark_theme: Option<Theme>,
-    pub(crate) default_theme_mode: Option<DesignMode>,
-    pub(crate) theme_switching: bool,
-    pub(crate) user_css: Vec<String>,
+    pub(crate) document: crate::DocumentShellConfig,
+    pub(crate) default_locale: Option<Locale>,
+    pub(crate) locale_resolver: Option<Arc<LocaleResolver>>,
+    pub(crate) document_metadata_resolver: Option<Arc<DocumentMetadataResolver>>,
     pub(crate) footer: Option<Arc<RouteRenderer>>,
-    pub(crate) page_elements: Vec<SitePageElement>,
-    pub(crate) font_faces: &'static [PackagedFont],
 }
 
 impl Default for FissionSite {
@@ -219,16 +234,11 @@ impl Default for FissionSite {
         Self {
             custom_routes: Vec::new(),
             content_transform: None,
-            theme: Theme::default(),
-            env: Env::default(),
-            light_theme: None,
-            dark_theme: None,
-            default_theme_mode: None,
-            theme_switching: false,
-            user_css: Vec::new(),
+            document: crate::DocumentShellConfig::new(),
+            default_locale: None,
+            locale_resolver: None,
+            document_metadata_resolver: None,
             footer: None,
-            page_elements: Vec::new(),
-            font_faces: &[],
         }
     }
 }
@@ -239,28 +249,63 @@ impl FissionSite {
     }
 
     pub fn theme(mut self, theme: Theme) -> Self {
-        self.env.theme = theme.clone();
-        self.theme = theme;
+        self.document = self.document.with_theme(theme);
         self
     }
 
     /// Uses a generated design system's theme and packaged font faces.
     pub fn with_design_system<D: DesignSystem>(mut self, mode: DesignMode) -> Self {
-        self.theme = D::theme(mode);
-        self.env.theme = self.theme.clone();
-        self.font_faces = D::font_faces();
+        self.document = self.document.with_design_system::<D>(mode);
         self
     }
 
     /// Registers packaged font faces for every generated route.
     pub fn with_fonts(mut self, fonts: &'static [PackagedFont]) -> Self {
-        self.font_faces = fonts;
+        self.document = self.document.with_fonts(fonts);
         self
     }
 
     pub fn with_env(mut self, env: Env) -> Self {
-        self.env = env;
-        self.env.theme = self.theme.clone();
+        self.document = self.document.with_env(env);
+        self
+    }
+
+    pub fn i18n(mut self, i18n: I18nRegistry) -> Self {
+        self.document = self.document.with_i18n(i18n);
+        self
+    }
+
+    pub fn translation_bundle(mut self, bundle: TranslationBundle) -> Self {
+        self.document = self.document.with_translation_bundle(bundle);
+        self
+    }
+
+    pub fn default_locale(mut self, locale: impl Into<Locale>) -> Self {
+        self.default_locale = Some(locale.into());
+        self
+    }
+
+    /// Resolves a build-time locale for every generated route.
+    pub fn locale_resolver<F>(mut self, resolver: F) -> Self
+    where
+        F: for<'a> Fn(&SiteLocaleContext<'a>) -> Result<Locale> + Send + Sync + 'static,
+    {
+        self.locale_resolver = Some(Arc::new(resolver));
+        self
+    }
+
+    /// Resolves route metadata after locale and environment selection.
+    pub fn document_metadata<F>(mut self, resolver: F) -> Self
+    where
+        F: for<'a> Fn(
+                &SiteRenderContext<'a>,
+                &crate::DocumentMetadata,
+            ) -> Result<crate::DocumentMetadata>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.document_metadata_resolver = Some(Arc::new(resolver));
         self
     }
 
@@ -270,20 +315,14 @@ impl FissionSite {
         dark: Theme,
         default_mode: DesignMode,
     ) -> Self {
-        self.theme = match default_mode {
-            DesignMode::Light => light.clone(),
-            DesignMode::Dark => dark.clone(),
-        };
-        self.env.theme = self.theme.clone();
-        self.light_theme = Some(light);
-        self.dark_theme = Some(dark);
-        self.default_theme_mode = Some(default_mode);
-        self.theme_switching = true;
+        self.document = self
+            .document
+            .with_light_dark_themes(light, dark, default_mode);
         self
     }
 
     pub fn user_css(mut self, css: impl Into<String>) -> Self {
-        self.user_css.push(css.into());
+        self.document = self.document.with_user_css(css);
         self
     }
 
@@ -295,7 +334,19 @@ impl FissionSite {
     /// every page or a filtered route set. The HTML is trusted raw markup and is
     /// not escaped by the renderer.
     pub fn page_element(mut self, element: SitePageElement) -> Self {
-        self.page_elements.push(element);
+        self.document = self.document.with_page_element(element);
+        self
+    }
+
+    /// Configures the favicon links emitted into every generated document.
+    pub fn favicon(mut self, href: impl Into<String>) -> Self {
+        self.document = self.document.with_favicon(href);
+        self
+    }
+
+    /// Configures conditional syntax-highlighting assets for generated pages.
+    pub fn code_highlighting(mut self, options: crate::CodeHighlightingOptions) -> Self {
+        self.document = self.document.with_code_highlighting(options);
         self
     }
 
@@ -318,7 +369,7 @@ impl FissionSite {
     }
 
     pub fn route_widget<S, W>(
-        mut self,
+        self,
         path: impl Into<String>,
         title: impl Into<String>,
         description: impl Into<Option<String>>,
@@ -328,14 +379,32 @@ impl FissionSite {
         S: GlobalState + Default + 'static,
         W: Clone + Into<Widget> + Send + Sync + 'static,
     {
+        self.route_widget_with_state(path, title, description, widget, |_| Ok(S::default()))
+    }
+
+    /// Registers a static route whose state is prepared from its build context.
+    pub fn route_widget_with_state<S, W, F>(
+        mut self,
+        path: impl Into<String>,
+        title: impl Into<String>,
+        description: impl Into<Option<String>>,
+        widget: W,
+        initial_state: F,
+    ) -> Self
+    where
+        S: GlobalState + 'static,
+        W: Clone + Into<Widget> + Send + Sync + 'static,
+        F: for<'a> Fn(&SiteRenderContext<'a>) -> Result<S> + Send + Sync + 'static,
+    {
         let widget = Arc::new(widget);
         self.custom_routes.push(CustomRoute {
             path: normalize_site_path(&path.into()),
             title: title.into(),
             description: description.into(),
+            structured_data: Vec::new(),
             render: Arc::new(move |ctx| {
                 let runtime = RuntimeState::default();
-                let state = S::default();
+                let state = initial_state(ctx)?;
                 let view = View::new(&state, &runtime, ctx.env(), None);
                 let mut build_ctx = BuildCtx::<S>::new();
                 let widget = fission_core::build::enter(&mut build_ctx, &view, || {
@@ -345,9 +414,27 @@ impl FissionSite {
                     widget,
                     motion_declarations: build_ctx.take_motion_declarations(),
                     video_registrations: build_ctx.take_video_registrations(),
+                    web_registrations: build_ctx.take_web_registrations(),
+                    portals: build_ctx.take_portals(),
                 })
             }),
         });
+        self
+    }
+
+    /// Attaches JSON-LD documents to one custom static route.
+    pub fn with_route_structured_data<I, D>(mut self, path: impl Into<String>, data: I) -> Self
+    where
+        I: IntoIterator<Item = D>,
+        D: Into<String>,
+    {
+        let path = normalize_site_path(&path.into());
+        let serialized = data.into_iter().map(Into::into).collect::<Vec<_>>();
+        for route in &mut self.custom_routes {
+            if route.path == path {
+                route.structured_data = serialized.clone();
+            }
+        }
         self
     }
 
@@ -386,6 +473,8 @@ where
         widget,
         motion_declarations: build_ctx.take_motion_declarations(),
         video_registrations: build_ctx.take_video_registrations(),
+        web_registrations: build_ctx.take_web_registrations(),
+        portals: build_ctx.take_portals(),
     })
 }
 

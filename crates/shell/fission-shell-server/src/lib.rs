@@ -42,7 +42,10 @@ pub use config::{
     ServerHttpConfig, ServerIslandConfig, ServerIslandPreload, ServerRuntimeConfig, ServerSameSite,
     ServerSessionConfig, ServerSessionProvider, ServerWorkerBridge,
 };
-pub use fission_shell_site::{SitePageElement, SitePageElementFilter, SitePageElementPlacement};
+pub use fission_shell_site::{
+    CodeHighlightingOptions, DocumentMetadata, DocumentShellConfig, SitePageElement,
+    SitePageElementFilter, SitePageElementPlacement,
+};
 pub use jobs::{ServerJobCtx, ServerJobError, ServerJobRegistry};
 pub use protocol::{
     AriaPoliteness, BrowserBridgeOutput, BrowserEventBinding, BrowserEventKind, DomBatch, DomOp,

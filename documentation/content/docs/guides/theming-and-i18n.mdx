@@ -305,7 +305,12 @@ FissionServerApp::new("Docs")
     });
 ```
 
-For a static site, call `FissionSite::with_env(create_env()?)`. The static-site shell seeds `env.locale` from `site.default_locale` while rendering. The server shell seeds `env.locale` from `server.default_locale` or `.default_locale(...)`, then runs `.locale_resolver(...)` and `.with_request_env(...)`, so request-owned choices such as locale from a route prefix, cookie, session, or header can override the default.
+Static site and SSR expose the same bundle and default-locale conveniences:
+`with_env(...)`, `i18n(...)`, `translation_bundle(...)`, and
+`default_locale(...)`. Both also expose `locale_resolver(...)`. Static site runs
+the resolver at build time after applying page `locale` front matter; SSR runs
+it per request before `.with_request_env(...)`, so route parameters, headers,
+cookies, or sessions can override the request locale.
 
 This example has two separate jobs.
 

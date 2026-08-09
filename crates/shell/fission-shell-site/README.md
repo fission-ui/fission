@@ -21,6 +21,12 @@ fission site build --project-dir documentation --release
 - HTML generation from Fission nodes, plus generated CSS derived from widget styles and design-system values.
 - Optional code highlighting, client-side search index generation, favicons, sitemap, robots output, canonical URLs, JSON-LD, and route-filtered page element injection.
 - Link checking and production build validation used by `fission site check`.
+- Shared document configuration with SSR for design systems, packaged fonts,
+  themes, favicons, syntax highlighting, CSS, and route-filtered page elements.
+
+Static routes can also select locales and metadata at build time, load route
+state from `SiteRenderContext`, attach JSON-LD, and append a retained Fission
+footer across the site.
 
 ## Design notes
 

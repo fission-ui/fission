@@ -7,6 +7,31 @@ description: Understand how Fission responsive layout, paint, fonts, and interac
 
 Static site and SSR targets share the same authored widget tree as native targets, but they do not have every native runtime capability. The right model is progressive fidelity: use typed Fission primitives, let the site shell lower what can be represented in HTML/CSS, and keep interactive host work explicit.
 
+They also share `DocumentShellConfig`, so document presentation does not drift
+based on when a page is rendered. `FissionSite` and `FissionServerApp` expose
+the same APIs for themes, generated design systems, packaged fonts, favicons,
+syntax highlighting, custom CSS, route-filtered page elements, head markup,
+body-end markup, structured data, and retained footers.
+
+```rust
+let site = FissionSite::new()
+    .with_design_system::<ProductDesignSystem>(DesignMode::Light)
+    .favicon("/assets/icon.svg")
+    .head_html("<meta name=\"product\" content=\"catalog\">")
+    .footer_widget::<AppState, _>(ProductFooter);
+
+let server = FissionServerApp::new("Product")
+    .with_design_system::<ProductDesignSystem>(DesignMode::Light)
+    .favicon("/assets/icon.svg")
+    .head_html("<meta name=\"product\" content=\"catalog\">")
+    .footer_widget::<AppState, _>(ProductFooter);
+```
+
+Locale and metadata selection follow the same sequence on both targets: seed
+the environment, select a locale, then resolve document metadata with the
+locale-aware render context. Static site performs that work at build time and
+honours `locale` front matter; SSR performs it for each request.
+
 ## What lowers well
 
 | Fission primitive | Static site | SSR |
@@ -21,6 +46,12 @@ Static site and SSR targets share the same authored widget tree as native target
 
 ## What needs care
 
-Portals, animations, jobs, services, and capabilities still need a runtime. Static output can describe the initial state; it cannot perform user-triggered host work without a client runtime or island.
+Animations, jobs, services, and capabilities still need a runtime. Static
+output can describe the initial state and now preserves portals and browser
+surface registrations, but it cannot perform user-triggered host work without
+a client runtime or island. SSR additionally owns request-only behavior such as
+sessions, signed actions, cache policy, response status, dynamic parameters,
+workers, and islands. Static site uniquely owns content discovery, generated
+search files, redirects, sitemap/robots output, and link checking.
 
 Prefer declarative layout primitives for pages that must statically render well. Use imperative viewport logic only when the result can still be evaluated by the target shell.

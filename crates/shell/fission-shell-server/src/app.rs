@@ -12,8 +12,10 @@ use fission_core::{
 };
 use fission_i18n::{I18nRegistry, Locale, TranslationBundle};
 use fission_layout::LayoutSize;
-use fission_shell_site::SitePageElement;
-use fission_theme::{DesignMode, Theme};
+use fission_shell_site::{
+    CodeHighlightingOptions, DocumentMetadata, DocumentShellConfig, SitePageElement,
+};
+use fission_theme::{DesignMode, DesignSystem, PackagedFont, Theme};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU16, Ordering};
@@ -96,20 +98,7 @@ pub struct ServerHttpContext<'a> {
 }
 
 /// Request-specific browser and social metadata for one rendered route.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ServerDocumentMetadata {
-    pub title: String,
-    pub description: Option<String>,
-}
-
-impl ServerDocumentMetadata {
-    pub fn new(title: impl Into<String>, description: impl Into<Option<String>>) -> Self {
-        Self {
-            title: title.into(),
-            description: description.into(),
-        }
-    }
-}
+pub type ServerDocumentMetadata = DocumentMetadata;
 
 #[derive(Clone)]
 pub(crate) struct ServerRouteEntry {
@@ -183,23 +172,17 @@ pub struct StaticMount {
 pub struct FissionServerApp {
     pub(crate) project_name: String,
     pub(crate) project_dir: std::path::PathBuf,
-    pub(crate) theme: Theme,
-    pub(crate) env: Env,
-    pub(crate) light_theme: Option<Theme>,
-    pub(crate) dark_theme: Option<Theme>,
-    pub(crate) default_theme_mode: Option<DesignMode>,
-    pub(crate) theme_switching: bool,
+    pub(crate) document: DocumentShellConfig,
     pub(crate) request_env_sync: Option<Arc<RequestEnvSync>>,
     pub(crate) locale_resolver: Option<Arc<RequestLocaleResolver>>,
     pub(crate) document_metadata_resolver: Option<Arc<RequestDocumentMetadataResolver>>,
+    pub(crate) footer: Option<Arc<RouteRenderer>>,
     pub(crate) default_locale: Locale,
     pub(crate) jobs: ServerJobRegistry,
     pub(crate) routes: Vec<ServerRouteEntry>,
     pub(crate) http_handlers: Vec<ServerHttpHandlerEntry>,
     pub(crate) cache_invalidation_endpoints: Vec<CacheInvalidationEndpoint>,
     pub(crate) static_mounts: Vec<StaticMount>,
-    pub(crate) user_css: Vec<String>,
-    pub(crate) page_elements: Vec<SitePageElement>,
 }
 
 impl FissionServerApp {
@@ -207,23 +190,17 @@ impl FissionServerApp {
         Self {
             project_name: project_name.into(),
             project_dir: std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
-            theme: Theme::default(),
-            env: Env::default(),
-            light_theme: None,
-            dark_theme: None,
-            default_theme_mode: None,
-            theme_switching: false,
+            document: DocumentShellConfig::new(),
             request_env_sync: None,
             locale_resolver: None,
             document_metadata_resolver: None,
+            footer: None,
             default_locale: Locale::from("en"),
             jobs: ServerJobRegistry::new(),
             routes: Vec::new(),
             http_handlers: Vec::new(),
             cache_invalidation_endpoints: Vec::new(),
             static_mounts: Vec::new(),
-            user_css: Vec::new(),
-            page_elements: Vec::new(),
         }
     }
 
@@ -233,14 +210,24 @@ impl FissionServerApp {
     }
 
     pub fn theme(mut self, theme: Theme) -> Self {
-        self.env.theme = theme.clone();
-        self.theme = theme;
+        self.document = self.document.with_theme(theme);
+        self
+    }
+
+    /// Uses a generated design system's theme and packaged font faces.
+    pub fn with_design_system<D: DesignSystem>(mut self, mode: DesignMode) -> Self {
+        self.document = self.document.with_design_system::<D>(mode);
+        self
+    }
+
+    /// Registers packaged font faces for every server-rendered route.
+    pub fn with_fonts(mut self, fonts: &'static [PackagedFont]) -> Self {
+        self.document = self.document.with_fonts(fonts);
         self
     }
 
     pub fn with_env(mut self, env: Env) -> Self {
-        self.env = env;
-        self.env.theme = self.theme.clone();
+        self.document = self.document.with_env(env);
         self
     }
 
@@ -255,31 +242,27 @@ impl FissionServerApp {
         dark: Theme,
         default_mode: DesignMode,
     ) -> Self {
-        self.theme = match default_mode {
-            DesignMode::Light => light.clone(),
-            DesignMode::Dark => dark.clone(),
-        };
-        self.env.theme = self.theme.clone();
-        self.light_theme = Some(light);
-        self.dark_theme = Some(dark);
-        self.default_theme_mode = Some(default_mode);
-        self.theme_switching = true;
+        self.document = self
+            .document
+            .with_light_dark_themes(light, dark, default_mode);
         self
     }
 
     pub fn i18n(mut self, i18n: I18nRegistry) -> Self {
-        self.env.i18n = i18n;
+        self.document = self.document.with_i18n(i18n);
         self
     }
 
     pub fn translation_bundle(mut self, bundle: TranslationBundle) -> Self {
-        self.env.i18n.add_bundle(bundle);
+        self.document = self.document.with_translation_bundle(bundle);
         self
     }
 
     pub fn default_locale(mut self, locale: impl Into<Locale>) -> Self {
         let locale = locale.into();
-        self.env.locale = locale.clone();
+        let mut env = self.document.env().clone();
+        env.locale = locale.clone();
+        self.document = self.document.with_env(env);
         self.default_locale = locale;
         self
     }
@@ -322,7 +305,7 @@ impl FissionServerApp {
     }
 
     pub fn user_css(mut self, css: impl Into<String>) -> Self {
-        self.user_css.push(css.into());
+        self.document = self.document.with_user_css(css);
         self
     }
 
@@ -332,7 +315,19 @@ impl FissionServerApp {
     /// intended for host-owned concerns such as consent managers, verification
     /// tags, preloads, and deferred scripts that do not have widget semantics.
     pub fn page_element(mut self, element: SitePageElement) -> Self {
-        self.page_elements.push(element);
+        self.document = self.document.with_page_element(element);
+        self
+    }
+
+    /// Configures the favicon links emitted into every rendered document.
+    pub fn favicon(mut self, href: impl Into<String>) -> Self {
+        self.document = self.document.with_favicon(href);
+        self
+    }
+
+    /// Configures conditional syntax-highlighting assets for rendered pages.
+    pub fn code_highlighting(mut self, options: CodeHighlightingOptions) -> Self {
+        self.document = self.document.with_code_highlighting(options);
         self
     }
 
@@ -344,6 +339,19 @@ impl FissionServerApp {
     /// Adds trusted markup near the end of `<body>` on every rendered route.
     pub fn body_end_html(self, html: impl Into<String>) -> Self {
         self.page_element(SitePageElement::body_end(html))
+    }
+
+    /// Appends a retained Fission footer to every server-rendered route.
+    pub fn footer_widget<S, W>(mut self, widget: W) -> Self
+    where
+        S: GlobalState + Default + 'static,
+        W: Clone + Into<Widget> + Send + Sync + 'static,
+    {
+        let widget = Arc::new(widget);
+        self.footer = Some(Arc::new(move |ctx| {
+            render_widget_node::<S, W>(widget.as_ref(), ctx, S::default())
+        }));
+        self
     }
 
     pub fn http_handler<F>(
@@ -620,7 +628,7 @@ impl FissionServerApp {
     }
 
     pub(crate) fn env_for_context(&self, ctx: &ServerEnvContext<'_>) -> Result<Env> {
-        let mut env = self.env.clone();
+        let mut env = self.document.env().clone();
         env.theme = ctx.theme.clone();
         env.viewport_size = ctx.viewport_size;
         env.locale = ctx.default_locale.into();

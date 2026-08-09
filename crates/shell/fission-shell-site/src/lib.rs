@@ -8,6 +8,7 @@
 mod browser_island;
 mod build;
 mod document;
+mod document_config;
 mod front_matter;
 mod html;
 mod search;
@@ -21,11 +22,12 @@ pub use build::{
     SiteContentRouteConfig, SiteRouteReport,
 };
 pub use document::SiteNavLink;
+pub use document_config::{DocumentMetadata, DocumentShellConfig};
 pub use html::{
     render_ir_to_html, render_ir_to_html_with_styles, theme_variables_css, CodeHighlightingOptions,
     CssVariableMap, HtmlRenderOptions, RenderedHtml, StyleRegistry,
 };
 pub use site::{
-    build_from_cli, ContentTransform, CustomRoute, FissionSite, SitePageElement,
+    build_from_cli, ContentTransform, CustomRoute, FissionSite, SiteLocaleContext, SitePageElement,
     SitePageElementFilter, SitePageElementPlacement, SiteRenderContext,
 };

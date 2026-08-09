@@ -9,6 +9,11 @@ islands. It is the shell used by `fission server` and by server-rendered Fission
 apps that need static pages, revalidated pages, private session pages, and small
 browser-side enhancements without switching to a separate web component model.
 
+SSR uses the same document-shell configuration as Static site output. Both
+targets support generated design systems and packaged fonts, light/dark themes,
+favicons, conditional syntax highlighting, custom CSS, route-filtered head/body
+elements, JSON-LD, localized metadata, and retained Fission footers.
+
 Most applications should depend on the public `fission` facade with the
 `server` feature instead of depending on this crate directly:
 

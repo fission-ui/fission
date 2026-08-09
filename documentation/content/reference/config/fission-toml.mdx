@@ -408,6 +408,7 @@ Markdown and MDX files may start with front matter. The static-site shell reads 
 | --- | --- | --- | --- | --- |
 | `title` | string | No | File stem converted to title case | Page title used in headings, browser metadata, search, sidebars, and blog lists. |
 | `description` | string | No | none | Page summary used in SEO metadata, search excerpts, and generated blog landing entries. |
+| `locale` | string | No | `[site].default_locale` | Locale used to resolve translated text and emit the document `lang` and `og:locale` metadata for this page. `lang` and `language` are accepted aliases. |
 | `authors` | array of strings | No | `[]` | Author identifiers for blog and release posts. |
 | `tags` | array of strings | No | `[]` | Topic labels used by the generated blog landing page, blog sidebar taxonomy, and article chips. |
 | `categories` | array of strings | No | `[]` | Higher-level group labels used by the generated blog landing page, blog sidebar taxonomy, and article chips. |

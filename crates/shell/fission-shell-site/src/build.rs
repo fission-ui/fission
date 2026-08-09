@@ -15,9 +15,9 @@ use crate::tabs::expand_mdx_tabs;
 use anyhow::{bail, Context, Result};
 use fission_core::internal::BuildCtx;
 use fission_core::internal::InternalLoweringCx;
-use fission_core::registry::VideoRegistration;
-use fission_core::ui::Column;
-use fission_core::{Env, MotionDeclaration, RuntimeState, View, Widget};
+use fission_core::registry::{VideoRegistration, WebRegistration};
+use fission_core::ui::{Column, Overlay, ZStack};
+use fission_core::{Env, MotionDeclaration, RuntimeState, View, Widget, WidgetId};
 use fission_layout::LayoutSize;
 use fission_theme::DesignMode;
 use serde::Deserialize;
@@ -310,6 +310,7 @@ pub fn list_site_routes(
             path: route.path.clone(),
             title: route.title.clone(),
             description: route.description.clone(),
+            locale: None,
             body: String::new(),
             headings: Vec::new(),
             sidebar: Vec::new(),
@@ -353,7 +354,11 @@ fn write_site_css(
     css.push_str(&site_theme_css(site));
     css.push('\n');
     css.push_str(&styles.to_css());
-    for user_css in options.user_css.iter().chain(site.user_css.iter()) {
+    for user_css in options
+        .user_css
+        .iter()
+        .chain(site.document.user_css().iter())
+    {
         css.push('\n');
         css.push_str(user_css);
         css.push('\n');
@@ -454,20 +459,27 @@ fn write_search_assets_if_needed(
 
 fn site_theme_css(site: &FissionSite) -> String {
     let mut css = String::new();
-    if site.theme_switching {
-        let default_selector = match site.default_theme_mode.unwrap_or(DesignMode::Light) {
+    if site.document.theme_switching() {
+        let default_selector = match site
+            .document
+            .default_theme_mode()
+            .unwrap_or(DesignMode::Light)
+        {
             DesignMode::Light => ":root,[data-theme=\"light\"]",
             DesignMode::Dark => ":root,[data-theme=\"dark\"]",
         };
-        css.push_str(&theme_variables_css(default_selector, &site.theme));
-        if let Some(light) = &site.light_theme {
+        css.push_str(&theme_variables_css(
+            default_selector,
+            site.document.theme(),
+        ));
+        if let Some(light) = site.document.light_theme() {
             css.push_str(&theme_variables_css("[data-theme=\"light\"]", light));
         }
-        if let Some(dark) = &site.dark_theme {
+        if let Some(dark) = site.document.dark_theme() {
             css.push_str(&theme_variables_css("[data-theme=\"dark\"]", dark));
         }
     } else {
-        css.push_str(&theme_variables_css(":root", &site.theme));
+        css.push_str(&theme_variables_css(":root", site.document.theme()));
     }
     css
 }
@@ -498,6 +510,22 @@ fn append_footer(node: Widget, footer: Option<Widget>) -> Widget {
     Column {
         children: vec![node, footer],
         ..Default::default()
+    }
+    .into()
+}
+
+fn compose_portals(node: Widget, portals: Vec<(Option<WidgetId>, Widget)>) -> Widget {
+    if portals.is_empty() {
+        return node;
+    }
+    Overlay {
+        id: None,
+        content: node,
+        overlay: ZStack {
+            id: None,
+            children: portals.into_iter().map(|(_, portal)| portal).collect(),
+        }
+        .into(),
     }
     .into()
 }
@@ -575,6 +603,7 @@ fn load_content_routes(
                 path: normalize_site_path(&route_path),
                 title,
                 description: front.description,
+                locale: front.locale,
                 headings: extract_page_links(&body),
                 sidebar: sidebar.clone(),
                 tags: front.tags,
@@ -623,6 +652,7 @@ fn add_generated_blog_routes(
                 description: Some(
                     "Technical posts, release notes, and product updates from Fission.".to_string(),
                 ),
+                locale: None,
                 headings: extract_page_links(&body),
                 sidebar: sidebar.clone(),
                 tags: Vec::new(),
@@ -654,6 +684,7 @@ fn add_generated_blog_taxonomy_routes(
             path,
             title: format!("{category} posts"),
             description: Some(format!("Posts filed under the {category} category.")),
+            locale: None,
             headings: extract_page_links(&body),
             sidebar: sidebar.to_vec(),
             tags: Vec::new(),
@@ -679,6 +710,7 @@ fn add_generated_blog_taxonomy_routes(
             path,
             title: format!("#{tag} posts"),
             description: Some(format!("Posts tagged #{tag}.")),
+            locale: None,
             headings: extract_page_links(&body),
             sidebar: sidebar.to_vec(),
             tags: vec![tag.clone()],
@@ -879,7 +911,7 @@ fn render_custom_routes(
 ) -> Result<Vec<ContentRoute>> {
     let mut routes = Vec::new();
     for route in &site.custom_routes {
-        let env = site_env_for_route(options, site, &route.path);
+        let env = site_env_for_route(options, site, &route.path, None)?;
         let ctx = SiteRenderContext {
             project_dir: &options.project_dir,
             route_path: &route.path,
@@ -898,7 +930,10 @@ fn render_custom_routes(
             rendered
                 .video_registrations
                 .extend(footer.video_registrations);
+            rendered.web_registrations.extend(footer.web_registrations);
+            rendered.portals.extend(footer.portals);
         }
+        let node = compose_portals(node, rendered.portals);
         let html = render_node_to_html(
             node,
             &route.title,
@@ -913,11 +948,14 @@ fn render_custom_routes(
             styles,
             rendered.motion_declarations,
             rendered.video_registrations,
+            rendered.web_registrations,
+            route.structured_data.clone(),
         )?;
         routes.push(ContentRoute {
             path: route.path.clone(),
             title: route.title.clone(),
             description: route.description.clone(),
+            locale: None,
             body: String::new(),
             headings: Vec::new(),
             sidebar: Vec::new(),
@@ -964,7 +1002,7 @@ fn render_route(
         return Ok(rendered.clone());
     }
     let runtime = RuntimeState::default();
-    let env = site_env_for_route(options, site, &route.path);
+    let env = site_env_for_route(options, site, &route.path, route.locale.as_deref())?;
     let state = SitePageState;
     let view = View::new(&state, &runtime, &env, None);
     let mut build_ctx = BuildCtx::<SitePageState>::new();
@@ -972,7 +1010,7 @@ fn render_route(
         site_title: &options.site_title,
         site_logo: options.site_logo.as_deref(),
         site_nav: &options.site_nav,
-        theme_switching: site.theme_switching,
+        theme_switching: site.document.theme_switching(),
         search_enabled: options.search.enabled,
         route,
         all_routes: routes,
@@ -983,10 +1021,15 @@ fn render_route(
     let node = append_footer(page_node, footer_widget);
     let mut motion_declarations = build_ctx.take_motion_declarations();
     let mut video_registrations = build_ctx.take_video_registrations();
+    let mut web_registrations = build_ctx.take_web_registrations();
+    let mut portals = build_ctx.take_portals();
     if let Some(footer) = footer {
         motion_declarations.extend(footer.motion_declarations);
         video_registrations.extend(footer.video_registrations);
+        web_registrations.extend(footer.web_registrations);
+        portals.extend(footer.portals);
     }
+    let node = compose_portals(node, portals);
     render_node_to_html(
         node,
         &format!("{} | {}", route.title, options.site_title),
@@ -1001,19 +1044,36 @@ fn render_route(
         styles,
         motion_declarations,
         video_registrations,
+        web_registrations,
+        Vec::new(),
     )
 }
 
-fn site_env_for_route(options: &SiteBuildOptions, site: &FissionSite, route_path: &str) -> Env {
-    let mut env = site.env.clone();
-    env.theme = site.theme.clone();
+fn site_env_for_route(
+    options: &SiteBuildOptions,
+    site: &FissionSite,
+    route_path: &str,
+    declared_locale: Option<&str>,
+) -> Result<Env> {
+    let mut env = site.document.env().clone();
+    env.theme = site.document.theme().clone();
     env.viewport_size = LayoutSize::new(1280.0, 900.0);
-    env.locale = if route_path == "/es" || route_path.starts_with("/es/") {
-        "es-ES".into()
-    } else {
-        options.default_locale.as_str().into()
-    };
-    env
+    let default_locale = site
+        .default_locale
+        .as_ref()
+        .map(|locale| locale.0.as_str())
+        .unwrap_or(options.default_locale.as_str());
+    env.locale = declared_locale.unwrap_or(default_locale).into();
+    if let Some(resolve_locale) = &site.locale_resolver {
+        env.locale = resolve_locale(&crate::SiteLocaleContext {
+            project_dir: &options.project_dir,
+            route_path,
+            theme: &env.theme,
+            default_locale,
+            declared_locale,
+        })?;
+    }
+    Ok(env)
 }
 
 fn render_node_to_html(
@@ -1027,38 +1087,68 @@ fn render_node_to_html(
     styles: &mut StyleRegistry,
     motion_declarations: Vec<MotionDeclaration>,
     video_registrations: Vec<VideoRegistration>,
+    web_registrations: Vec<WebRegistration>,
+    route_structured_data: Vec<String>,
 ) -> Result<String> {
     let runtime = RuntimeState::default();
     let mut lowering = InternalLoweringCx::new(env, &runtime, None, None);
     let root = fission_core::internal::lower_widget(&node, &mut lowering);
     lowering.ir.set_root(root);
 
+    let defaults = crate::DocumentMetadata::new(title, description.clone());
+    let metadata = if let Some(resolve_metadata) = &site.document_metadata_resolver {
+        resolve_metadata(
+            &SiteRenderContext {
+                project_dir: &options.project_dir,
+                route_path,
+                theme: &env.theme,
+                default_locale: site
+                    .default_locale
+                    .as_ref()
+                    .map(|locale| locale.0.as_str())
+                    .unwrap_or(options.default_locale.as_str()),
+                env,
+            },
+            &defaults,
+        )?
+    } else {
+        defaults
+    };
+
     let render_options = HtmlRenderOptions {
         lang: env.locale.0.clone(),
-        document_title: title.to_string(),
-        description: description.clone(),
+        document_title: metadata.title.clone(),
+        description: metadata.description.clone(),
         canonical_url: canonical_url_for_route(options, route_path),
         site_name: Some(options.site_title.clone()),
-        favicon_href: options
-            .site_favicon
-            .as_deref()
+        favicon_href: site
+            .document
+            .favicon_href()
+            .or(options.site_favicon.as_deref())
             .map(|href| page_asset_href_for_route(route_path, href)),
         stylesheet_href: stylesheet_href_for_route(route_path),
         current_route_path: route_path.to_string(),
-        css_variables: CssVariableMap::from_theme(&site.theme),
-        default_theme_mode: site.default_theme_mode,
-        theme_switching: site.theme_switching,
-        code_highlighting: options.code_highlighting.clone(),
+        css_variables: CssVariableMap::from_theme(site.document.theme()),
+        default_theme_mode: site.document.default_theme_mode(),
+        theme_switching: site.document.theme_switching(),
+        code_highlighting: site
+            .document
+            .code_highlighting()
+            .cloned()
+            .unwrap_or_else(|| options.code_highlighting.clone()),
         search_script_href: options
             .search
             .enabled
             .then(|| search_script_href_for_route(route_path, &options.search.output_path)),
         structured_data: structured_data_for_route(
             options,
-            title,
-            description.as_deref(),
+            &metadata.title,
+            metadata.description.as_deref(),
             route_path,
-        ),
+        )
+        .into_iter()
+        .chain(route_structured_data)
+        .collect(),
         head_start_html: page_elements_for_route(
             options,
             site,
@@ -1088,7 +1178,11 @@ fn render_node_to_html(
             .into_iter()
             .map(|registration| (registration.node_id, registration))
             .collect(),
-        font_faces: site.font_faces,
+        web_registrations: web_registrations
+            .into_iter()
+            .map(|registration| (registration.node_id, registration))
+            .collect(),
+        font_faces: site.document.font_faces(),
         ..Default::default()
     };
     Ok(render_ir_to_html_with_styles(&lowering.ir, &render_options, styles)?.html)
@@ -1358,7 +1452,7 @@ fn page_elements_for_route(
     options
         .page_elements
         .iter()
-        .chain(site.page_elements.iter())
+        .chain(site.document.page_elements().iter())
         .filter(|element| element.placement == placement && element.applies_to(route_path))
         .map(|element| element.html.clone())
         .collect()
@@ -1699,6 +1793,20 @@ mod tests {
     struct TestState;
     impl GlobalState for TestState {}
 
+    #[derive(Debug)]
+    struct RouteState(String);
+    impl GlobalState for RouteState {}
+
+    #[derive(Clone)]
+    struct RouteStatePage;
+
+    impl From<RouteStatePage> for Widget {
+        fn from(_: RouteStatePage) -> Self {
+            let (_, view) = fission_core::build::current::<RouteState>();
+            Text::new(view.state().0.clone()).into()
+        }
+    }
+
     #[derive(Clone)]
     struct KeyPage(&'static str);
 
@@ -1721,6 +1829,17 @@ mod tests {
                 .autoplay(true)
                 .loop_playback(true)
                 .into()
+        }
+    }
+
+    #[derive(Clone)]
+    struct PortalPage;
+
+    impl From<PortalPage> for Widget {
+        fn from(_: PortalPage) -> Self {
+            let (ctx, _) = fission_core::build::current::<TestState>();
+            ctx.register_portal(Text::new("Static portal overlay").into());
+            Text::new("Static portal root").into()
         }
     }
 
@@ -1885,6 +2004,78 @@ mod tests {
     }
 
     #[test]
+    fn content_front_matter_selects_locale_without_path_conventions() {
+        let temp = std::env::temp_dir().join(format!(
+            "fission-site-front-locale-test-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(temp.join("content")).unwrap();
+        fs::write(
+            temp.join("content/catalog.md"),
+            "---\ntitle: Catalog\nlocale: es-ES\n---\n# Catalog",
+        )
+        .unwrap();
+        let options = SiteBuildOptions::for_project(&temp, "Test site");
+
+        build_site(&options, &FissionSite::new()).unwrap();
+        let html = fs::read_to_string(temp.join("target/fission/site/content/catalog/index.html"))
+            .unwrap();
+
+        assert!(html.contains("lang=\"es-ES\""));
+        assert!(html.contains("property=\"og:locale\" content=\"es_ES\""));
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn custom_routes_support_build_state_localized_metadata_and_structured_data() {
+        let temp = std::env::temp_dir().join(format!(
+            "fission-site-route-parity-test-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(temp.join("content")).unwrap();
+        let mut options = SiteBuildOptions::for_project(&temp, "Test site");
+        options.content_routes = Vec::new();
+        let site = FissionSite::new()
+            .default_locale("en")
+            .locale_resolver(|ctx| {
+                Ok(if ctx.route_path == "/catalog/" {
+                    "fr".into()
+                } else {
+                    ctx.default_locale.into()
+                })
+            })
+            .document_metadata(|ctx, defaults| {
+                Ok(crate::DocumentMetadata::new(
+                    format!("{} ({})", defaults.title, ctx.env().locale.0),
+                    defaults.description.clone(),
+                ))
+            })
+            .route_widget_with_state::<RouteState, _, _>(
+                "/catalog/",
+                "Catalog",
+                None,
+                RouteStatePage,
+                |ctx| Ok(RouteState(format!("built {}", ctx.route_path))),
+            )
+            .with_route_structured_data("/catalog/", [r#"{"@type":"CollectionPage"}"#]);
+
+        build_site(&options, &site).unwrap();
+        let html = fs::read_to_string(temp.join("target/fission/site/catalog/index.html")).unwrap();
+
+        assert!(html.contains("built /catalog/"));
+        assert!(html.contains("lang=\"fr\""));
+        assert!(html.contains("<title>Catalog (fr)</title>"));
+        assert!(html.contains("CollectionPage"));
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
     fn custom_site_routes_render_video_as_html_video() {
         let temp = std::env::temp_dir().join(format!(
             "fission-site-video-test-{}",
@@ -1906,6 +2097,28 @@ mod tests {
         assert!(html.contains("src=\"https://example.com/demo.mp4\""));
         assert!(html.contains("autoplay muted"));
         assert!(html.contains("loop"));
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn custom_site_routes_preserve_registered_portals() {
+        let temp = std::env::temp_dir().join(format!(
+            "fission-site-portal-test-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(temp.join("content")).unwrap();
+        let mut options = SiteBuildOptions::for_project(&temp, "Test site");
+        options.content_routes = Vec::new();
+        let site = FissionSite::new().route_widget::<TestState, _>("/", "Portal", None, PortalPage);
+
+        build_site(&options, &site).unwrap();
+        let html = fs::read_to_string(temp.join("target/fission/site/index.html")).unwrap();
+
+        assert!(html.contains("Static portal root"));
+        assert!(html.contains("Static portal overlay"));
         let _ = fs::remove_dir_all(temp);
     }
 

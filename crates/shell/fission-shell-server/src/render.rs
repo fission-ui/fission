@@ -11,7 +11,7 @@ use crate::{
 };
 use anyhow::{anyhow, Context, Result};
 use fission_core::internal::InternalLoweringCx;
-use fission_core::ui::{Overlay, ZStack};
+use fission_core::ui::{Column, Overlay, ZStack};
 use fission_core::{
     ActionEnvelope, ActionId, Env, RuntimeResourceDeclaration, RuntimeState, Widget,
 };
@@ -494,14 +494,7 @@ impl ServerRenderer {
             env: &env,
             response_status: &response_status,
         };
-        let ServerRenderedNode {
-            mut node,
-            resources,
-            motion_declarations,
-            video_registrations,
-            web_registrations,
-            portals,
-        } = if tokio::runtime::Handle::try_current().is_ok() {
+        let mut rendered = if tokio::runtime::Handle::try_current().is_ok() {
             std::thread::scope(|scope| {
                 scope
                     .spawn(|| (route.render)(&ctx))
@@ -511,6 +504,36 @@ impl ServerRenderer {
         } else {
             (route.render)(&ctx)
         }?;
+        if let Some(render_footer) = &self.app.footer {
+            let footer = if tokio::runtime::Handle::try_current().is_ok() {
+                std::thread::scope(|scope| {
+                    scope
+                        .spawn(|| render_footer(&ctx))
+                        .join()
+                        .map_err(|_| anyhow!("server footer renderer panicked"))?
+                })
+            } else {
+                render_footer(&ctx)
+            }?;
+            rendered.node = append_server_footer(rendered.node, footer.node);
+            rendered.resources.extend(footer.resources);
+            rendered
+                .motion_declarations
+                .extend(footer.motion_declarations);
+            rendered
+                .video_registrations
+                .extend(footer.video_registrations);
+            rendered.web_registrations.extend(footer.web_registrations);
+            rendered.portals.extend(footer.portals);
+        }
+        let ServerRenderedNode {
+            mut node,
+            resources,
+            motion_declarations,
+            video_registrations,
+            web_registrations,
+            portals,
+        } = rendered;
         node = compose_server_portals(node, portals);
         let runtime = RuntimeState::default();
         let mut lowering = InternalLoweringCx::new(&env, &runtime, None, None);
@@ -519,12 +542,12 @@ impl ServerRenderer {
 
         let mut styles = StyleRegistry::default();
         let head_start_html = server_page_elements_for_route(
-            &self.app.page_elements,
+            self.app.document.page_elements(),
             &route_path,
             SitePageElementPlacement::HeadStart,
         );
         let mut head_end_html = server_page_elements_for_route(
-            &self.app.page_elements,
+            self.app.document.page_elements(),
             &route_path,
             SitePageElementPlacement::HeadEnd,
         );
@@ -532,12 +555,12 @@ impl ServerRenderer {
             head_end_html.extend(browser_artifact_preload_links(&route.route));
         }
         let body_start_html = server_page_elements_for_route(
-            &self.app.page_elements,
+            self.app.document.page_elements(),
             &route_path,
             SitePageElementPlacement::BodyStart,
         );
         let mut body_end_html = server_page_elements_for_route(
-            &self.app.page_elements,
+            self.app.document.page_elements(),
             &route_path,
             SitePageElementPlacement::BodyEnd,
         );
@@ -566,12 +589,18 @@ impl ServerRenderer {
             description: document_metadata.description,
             canonical_url: self.canonical_url_for_route(&route_path, request),
             site_name: Some(self.app.project_name.clone()),
-            favicon_href: None,
+            favicon_href: self.app.document.favicon_href().map(str::to_string),
             stylesheet_href: "/site.css".to_string(),
             current_route_path: route_path.clone(),
             css_variables: CssVariableMap::from_theme(&env.theme),
-            default_theme_mode: self.app.default_theme_mode,
-            theme_switching: self.app.theme_switching,
+            default_theme_mode: self.app.document.default_theme_mode(),
+            theme_switching: self.app.document.theme_switching(),
+            code_highlighting: self
+                .app
+                .document
+                .code_highlighting()
+                .cloned()
+                .unwrap_or_default(),
             server_action_post_path: Some("/__fission/action".to_string()),
             server_action_tokens: action_tokens,
             structured_data: route.route.structured_data.clone(),
@@ -584,6 +613,7 @@ impl ServerRenderer {
                 .into_iter()
                 .map(|registration| (registration.node_id, registration))
                 .collect(),
+            font_faces: self.app.document.font_faces(),
             head_start_html,
             head_end_html,
             body_start_html,
@@ -629,20 +659,28 @@ impl ServerRenderer {
             "\n.fission-browser-action{cursor:pointer;user-select:none;display:inline-flex;align-items:center;justify-content:center;}\n.fission-browser-action:focus-visible{outline:3px solid rgba(96,165,250,.85);outline-offset:3px;}\n",
         );
         css.push('\n');
-        if self.app.theme_switching {
-            let default_selector = match self.app.default_theme_mode.unwrap_or(DesignMode::Light) {
+        if self.app.document.theme_switching() {
+            let default_selector = match self
+                .app
+                .document
+                .default_theme_mode()
+                .unwrap_or(DesignMode::Light)
+            {
                 DesignMode::Light => ":root,[data-theme=\"light\"]",
                 DesignMode::Dark => ":root,[data-theme=\"dark\"]",
             };
-            css.push_str(&theme_variables_css(default_selector, &self.app.theme));
-            if let Some(light) = &self.app.light_theme {
+            css.push_str(&theme_variables_css(
+                default_selector,
+                self.app.document.theme(),
+            ));
+            if let Some(light) = self.app.document.light_theme() {
                 css.push_str(&theme_variables_css("[data-theme=\"light\"]", light));
             }
-            if let Some(dark) = &self.app.dark_theme {
+            if let Some(dark) = self.app.document.dark_theme() {
                 css.push_str(&theme_variables_css("[data-theme=\"dark\"]", dark));
             }
         } else {
-            css.push_str(&theme_variables_css(":root", &self.app.theme));
+            css.push_str(&theme_variables_css(":root", self.app.document.theme()));
         }
         let styles = self
             .style_cache
@@ -652,7 +690,7 @@ impl ServerRenderer {
             css.push('\n');
             css.push_str(style);
         }
-        for user_css in &self.app.user_css {
+        for user_css in self.app.document.user_css() {
             css.push('\n');
             css.push_str(user_css);
         }
@@ -961,7 +999,7 @@ impl ServerRenderer {
         let ctx = ServerEnvContext {
             project_dir: &self.app.project_dir,
             route_path: &route_match.path,
-            theme: &self.app.theme,
+            theme: self.app.document.theme(),
             viewport_size: self.viewport_size,
             jobs: &self.jobs,
             request,
@@ -1520,6 +1558,15 @@ fn compose_server_portals(
     .into()
 }
 
+fn append_server_footer(node: Widget, footer: Widget) -> Widget {
+    Column {
+        children: vec![node, footer],
+        flex_grow: 1.0,
+        ..Default::default()
+    }
+    .into()
+}
+
 fn server_browser_runtime_script() -> String {
     "<script defer src=\"/server-runtime.js\"></script>".to_string()
 }
@@ -1545,6 +1592,8 @@ mod tests {
         ResourceKey, Role, Widget, WidgetId,
     };
     use fission_i18n::TranslationBundle;
+    use fission_theme::{PackagedFont, PackagedFontStyle};
+    use fission_widgets::MarkdownViewer;
     use serde::{Deserialize, Serialize};
     use std::collections::HashMap;
     use std::fs;
@@ -1607,6 +1656,28 @@ mod tests {
             Text::new(TextContent::Key(component.0.to_string())).into()
         }
     }
+
+    #[derive(Clone)]
+    struct CodePage;
+
+    impl From<CodePage> for Widget {
+        fn from(_: CodePage) -> Self {
+            MarkdownViewer {
+                markdown: "```rust\nlet answer = 42;\n```".to_string(),
+                show_scrollbar: false,
+            }
+            .into()
+        }
+    }
+
+    const TEST_FONT: [PackagedFont; 1] = [PackagedFont {
+        family: "Parity Sans",
+        weight: 400,
+        style: PackagedFontStyle::Normal,
+        format: "woff2",
+        data: b"font-bytes",
+        axes: &[],
+    }];
 
     #[derive(Clone)]
     struct PathPage;
@@ -1789,8 +1860,8 @@ mod tests {
     }
 
     fn default_render_env(renderer: &ServerRenderer) -> Env {
-        let mut env = renderer.app.env.clone();
-        env.theme = renderer.app.theme.clone();
+        let mut env = renderer.app.document.env().clone();
+        env.theme = renderer.app.document.theme().clone();
         env.locale = renderer.default_locale.as_str().into();
         env
     }
@@ -2785,6 +2856,33 @@ same_site = "none"
         assert!(!catalog.contains("home-head-end"));
         assert!(!catalog.contains("data-home-body-start"));
         assert!(catalog.contains("window.catalogReady"));
+    }
+
+    #[test]
+    fn server_renderer_matches_static_document_assets_and_footer() {
+        let renderer = ServerRenderer::new(
+            FissionServerApp::new("Test")
+                .with_fonts(&TEST_FONT)
+                .favicon("/assets/icon.svg")
+                .code_highlighting(fission_shell_site::CodeHighlightingOptions {
+                    enabled: true,
+                    ..Default::default()
+                })
+                .footer_widget::<TestState, _>(TestPage("Shared footer"))
+                .server_route_widget::<TestState, _>("/", "Home", None, CodePage),
+        );
+
+        let html = renderer
+            .handle(ServerRequest::get("/"))
+            .unwrap()
+            .body_string();
+
+        assert!(html.contains("Shared footer"));
+        assert!(html.contains("rel=\"icon\" href=\"/assets/icon.svg\""));
+        assert!(html.contains("highlight.js/11.11.1/highlight.min.js"));
+        let rendered = renderer.render_route("/").unwrap();
+        assert!(rendered.css.contains("font-family:'Parity Sans'"));
+        assert!(rendered.css.contains("data:font/woff2;base64,"));
     }
 
     #[test]

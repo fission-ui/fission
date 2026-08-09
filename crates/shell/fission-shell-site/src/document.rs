@@ -13,6 +13,7 @@ pub(crate) struct ContentRoute {
     pub path: String,
     pub title: String,
     pub description: Option<String>,
+    pub locale: Option<String>,
     pub body: String,
     pub headings: Vec<HeadingLink>,
     pub sidebar: Vec<SidebarLink>,
