@@ -33,9 +33,10 @@ pub struct VideoSurfaceFrame {
 
 /// Presentation semantics implemented by a native or DOM child-view adapter.
 ///
-/// The conservative default is unavailable. Adapters must opt into every
-/// semantic they actually preserve so shells can reject a frame before its 2D
-/// target is presented instead of silently desynchronizing external content.
+/// The compatibility baseline supports only a visible, axis-aligned, opaque
+/// child surface. Adapters must opt into every additional semantic they
+/// actually preserve so shells can reject a frame before its 2D target is
+/// presented instead of silently desynchronizing external content.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PlatformSurfaceCapabilities {
     pub available: bool,
@@ -52,6 +53,15 @@ impl PlatformSurfaceCapabilities {
         paint_order: false,
     };
 
+    /// Source-compatible baseline for adapters written before capability
+    /// reporting was introduced.
+    pub const BASIC: Self = Self {
+        available: true,
+        rectangular_clip: false,
+        opacity: false,
+        paint_order: false,
+    };
+
     pub const FULL: Self = Self {
         available: true,
         rectangular_clip: true,
@@ -63,10 +73,10 @@ impl PlatformSurfaceCapabilities {
 pub trait VideoBackend: Send + Sync {
     /// Reports which retained placement semantics this backend can present.
     ///
-    /// The default is deliberately unavailable for existing third-party
-    /// backends until they make an explicit, truthful declaration.
+    /// Existing third-party backends retain basic axis-aligned presentation;
+    /// richer semantics require an explicit, truthful declaration.
     fn surface_capabilities(&self) -> PlatformSurfaceCapabilities {
-        PlatformSurfaceCapabilities::UNAVAILABLE
+        PlatformSurfaceCapabilities::BASIC
     }
 
     /// Updates the logical-to-physical scale used by pixel-based child-view
@@ -176,10 +186,11 @@ pub trait NativeSurfaceHandler {
 
     /// Reports placement semantics supported for a claimed payload.
     ///
-    /// The safe default is unavailable. A handler that creates a platform view
-    /// must explicitly advertise every retained semantic it preserves.
+    /// The compatibility default permits only basic axis-aligned placement. A
+    /// handler must explicitly advertise every richer retained semantic it
+    /// preserves.
     fn surface_capabilities(&self, _payload: &[u8]) -> PlatformSurfaceCapabilities {
-        PlatformSurfaceCapabilities::UNAVAILABLE
+        PlatformSurfaceCapabilities::BASIC
     }
 
     /// Supplies a ready platform window.
@@ -201,4 +212,39 @@ pub trait NativeSurfaceHandler {
     /// An empty slice means the handler should hide or detach its active
     /// surfaces for this host.
     fn present_surfaces(&mut self, frames: &[NativeSurfaceFrame]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        NativeSurfaceFrame, NativeSurfaceHandler, NativeSurfaceHost, PlatformSurfaceCapabilities,
+    };
+
+    struct LegacyNativeSurfaceHandler;
+
+    impl NativeSurfaceHandler for LegacyNativeSurfaceHandler {
+        fn handles_payload(&self, _payload: &[u8]) -> bool {
+            true
+        }
+
+        fn attach_host(&mut self, _host: NativeSurfaceHost<'_>) {}
+
+        fn detach_host(&mut self) {}
+
+        fn present_surfaces(&mut self, _frames: &[NativeSurfaceFrame]) {}
+    }
+
+    #[test]
+    fn legacy_native_surface_handlers_keep_basic_presentation() {
+        let handler = LegacyNativeSurfaceHandler;
+
+        assert_eq!(
+            handler.surface_capabilities(b"legacy"),
+            PlatformSurfaceCapabilities::BASIC
+        );
+        assert!(PlatformSurfaceCapabilities::BASIC.available);
+        assert!(!PlatformSurfaceCapabilities::BASIC.rectangular_clip);
+        assert!(!PlatformSurfaceCapabilities::BASIC.opacity);
+        assert!(!PlatformSurfaceCapabilities::BASIC.paint_order);
+    }
 }
