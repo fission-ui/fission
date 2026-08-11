@@ -1,0 +1,25 @@
+[package]
+name = "fission-render-skia"
+version = "0.10.1"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/fission-ui/fission"
+description = "Direct Skia renderer integration for Fission"
+categories = ["rendering", "graphics", "gui"]
+keywords = ["fission", "skia", "rendering", "gpu-accelerated", "cross-platform"]
+homepage = "https://fission.rs"
+documentation = "https://fission.rs"
+readme = "README.md"
+
+[package.metadata.fission]
+platforms = ["android", "ios", "linux", "macos", "windows"]
+
+[features]
+default = ["skia-prebuilt"]
+skia-prebuilt = ["fission-skia-sys/skia-prebuilt"]
+skia-build-from-source = ["fission-skia-sys/skia-build-from-source"]
+test-shim = ["fission-skia-sys/test-shim"]
+
+[dependencies]
+fission-render = { path = "../fission-render", version = "0.10.1" }
+fission-skia-sys = { path = "../fission-skia-sys", version = "0.10.1", default-features = false }
