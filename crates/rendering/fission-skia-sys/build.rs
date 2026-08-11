@@ -156,6 +156,18 @@ fn main() {
     let prebuilt = env::var_os("CARGO_FEATURE_SKIA_PREBUILT").is_some();
     let source = env::var_os("CARGO_FEATURE_SKIA_BUILD_FROM_SOURCE").is_some();
     let test_shim = env::var_os("CARGO_FEATURE_TEST_SHIM").is_some();
+    let target = env::var("TARGET").expect("Cargo must set TARGET");
+    if target.starts_with("wasm32") {
+        if !prebuilt || source || test_shim {
+            panic!(
+                "the wasm32 CanvasKit transport requires the skia-prebuilt profile only; native \
+                 source and test-shim build modes cannot be linked into browser Wasm"
+            );
+        }
+        println!("cargo:rustc-check-cfg=cfg(fission_skia_canvaskit)");
+        println!("cargo:rustc-cfg=fission_skia_canvaskit");
+        return;
+    }
     if [prebuilt, source, test_shim]
         .into_iter()
         .filter(|enabled| *enabled)
@@ -167,16 +179,6 @@ fn main() {
              skia-build-from-source, or test-shim"
         );
     }
-    if env::var("TARGET")
-        .expect("Cargo must set TARGET")
-        .starts_with("wasm32")
-    {
-        panic!(
-            "the native fission-skia-sys ABI does not target wasm32; CanvasKit uses \
-             the separately versioned Web transport"
-        );
-    }
-
     if prebuilt {
         configure_prebuilt();
     } else if source {

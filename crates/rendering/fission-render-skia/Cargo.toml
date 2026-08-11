@@ -12,7 +12,7 @@ documentation = "https://fission.rs"
 readme = "README.md"
 
 [package.metadata.fission]
-platforms = ["android", "ios", "linux", "macos", "windows"]
+platforms = ["android", "ios", "linux", "macos", "web", "windows"]
 
 [features]
 default = ["skia-prebuilt"]

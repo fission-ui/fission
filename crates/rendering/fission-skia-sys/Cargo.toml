@@ -14,7 +14,7 @@ links = "fission_skia"
 build = "build.rs"
 
 [package.metadata.fission]
-platforms = ["android", "ios", "linux", "macos", "windows"]
+platforms = ["android", "ios", "linux", "macos", "web", "windows"]
 
 [features]
 default = ["skia-prebuilt"]
