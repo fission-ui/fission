@@ -7,10 +7,11 @@ use fission_render::capabilities::{
 ///
 /// Rectangle and path claims include every current Fission fill, stroke,
 /// rounded-corner, dash, cap, join, and box-shadow variant. `CachedScene` is a
-/// correctness-neutral cache hint and is recursively lowered. Opacity layers,
-/// text, images, SVG, filters, and external surfaces remain unclaimed. Text is
-/// enabled only by [`crate::SkiaRasterProfile`], which can prove that layout
-/// and paint share one draw-data registry.
+/// correctness-neutral cache hint and is recursively lowered. Opacity uses a
+/// native isolated save-layer so overlapping children receive group alpha
+/// exactly once. Text is enabled only by [`crate::SkiaRasterProfile`], which
+/// can prove that layout and paint share one draw-data registry. Images, SVG,
+/// filters, and external surfaces remain unclaimed.
 pub fn skia_raster_capabilities() -> GraphicsCapabilities {
     raster_capabilities(false)
 }
@@ -32,6 +33,7 @@ fn raster_capabilities(paragraph_paint: bool) -> GraphicsCapabilities {
         DisplayOpKind::Restore,
         DisplayOpKind::ClipRect,
         DisplayOpKind::ClipRoundedRect,
+        DisplayOpKind::OpacityLayer,
         DisplayOpKind::Translate,
         DisplayOpKind::Transform,
         DisplayOpKind::CachedScene,
@@ -75,6 +77,7 @@ mod tests {
         assert!(capabilities.supports_display_op(DisplayOpKind::Restore));
         assert!(capabilities.supports_display_op(DisplayOpKind::ClipRect));
         assert!(capabilities.supports_display_op(DisplayOpKind::ClipRoundedRect));
+        assert!(capabilities.supports_display_op(DisplayOpKind::OpacityLayer));
         assert!(capabilities.supports_display_op(DisplayOpKind::Translate));
         assert!(capabilities.supports_display_op(DisplayOpKind::Transform));
         assert!(capabilities.supports_display_op(DisplayOpKind::CachedScene));

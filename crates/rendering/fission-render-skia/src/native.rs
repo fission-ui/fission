@@ -59,6 +59,10 @@ impl SkiaApi for NativeSkiaApi {
                     RasterCommand::Clear(color) => FrameOp::Clear(native_color(*color)),
                     RasterCommand::Save => FrameOp::Save,
                     RasterCommand::Restore => FrameOp::Restore,
+                    RasterCommand::OpacityLayer { bounds, alpha } => FrameOp::OpacityLayer {
+                        bounds: native_rect(*bounds),
+                        alpha: *alpha,
+                    },
                     RasterCommand::ClipRect { rect } => FrameOp::ClipRect {
                         rect: native_rect(*rect),
                     },

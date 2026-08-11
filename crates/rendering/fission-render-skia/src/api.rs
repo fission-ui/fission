@@ -188,6 +188,12 @@ pub(crate) enum RasterCommand {
     Clear(RasterColor),
     Save,
     Restore,
+    /// Begins an isolated group. A later `Restore` composites the complete
+    /// group once with `alpha` and restores the prior canvas state.
+    OpacityLayer {
+        bounds: RasterRect,
+        alpha: f32,
+    },
     ClipRect {
         rect: RasterRect,
     },

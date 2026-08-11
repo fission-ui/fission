@@ -74,17 +74,17 @@ fn compile_scene_inner(
         scale_factor,
         commands: vec![RasterCommand::Clear(srgb_color(clear_color))],
         source_operations: 0,
-        save_depth: 0,
+        save_scopes: Vec::new(),
+        root_opacity_layers: 0,
         paragraphs,
     };
     for (root_index, root) in scene.roots.iter().enumerate() {
         compiler.compile_node(root, root_index, &mut Vec::new(), None)?;
     }
-    if compiler.save_depth != 0 {
+    let remaining_saves = compiler.remaining_native_saves();
+    if remaining_saves != 0 {
         return Err(CompileError::new(
-            CompileErrorKind::UnbalancedSaveRestore {
-                remaining_saves: compiler.save_depth,
-            },
+            CompileErrorKind::UnbalancedSaveRestore { remaining_saves },
             CompileProvenance::default(),
         ));
     }
@@ -104,7 +104,12 @@ struct Compiler {
     scale_factor: f32,
     commands: Vec<RasterCommand>,
     source_operations: u64,
-    save_depth: usize,
+    /// Each logical `Save` owns every isolated opacity group opened before its
+    /// matching `Restore`, mirroring Fission's display-list semantics.
+    save_scopes: Vec<usize>,
+    /// Explicit opacity groups are valid at the display-list root and are
+    /// closed together by the next `Restore`, as in the existing renderers.
+    root_opacity_layers: usize,
     paragraphs: Option<ParagraphCompilation>,
 }
 
@@ -126,13 +131,9 @@ impl Compiler {
             ),
             RenderNode::Layer(layer) => {
                 let node_id = layer.node_id.or(inherited_node_id);
-                if layer.style.opacity.to_bits() != 1.0_f32.to_bits() {
-                    return Err(CompileError::new(
-                        CompileErrorKind::UnsupportedOperation(DisplayOpKind::OpacityLayer),
-                        CompileProvenance::layer(root_index, node_path, node_id, "opacity"),
-                    ));
-                }
-                let needs_save = layer.style.clip.is_some() || layer.style.transform.is_some();
+                let has_opacity = layer.style.opacity.to_bits() != 1.0_f32.to_bits();
+                let needs_save =
+                    layer.style.clip.is_some() || layer.style.transform.is_some() || has_opacity;
                 if needs_save {
                     self.push_save();
                 }
@@ -140,6 +141,11 @@ impl Compiler {
                     let provenance =
                         CompileProvenance::layer(root_index, node_path, node_id, "clip");
                     self.compile_layer_clip(clip, provenance)?;
+                }
+                if has_opacity {
+                    let provenance =
+                        CompileProvenance::layer(root_index, node_path, node_id, "opacity");
+                    self.push_opacity_layer(layer.bounds, layer.style.opacity, &provenance)?;
                 }
                 if let Some(matrix) = layer.style.transform.as_ref() {
                     let provenance =
@@ -225,6 +231,9 @@ impl Compiler {
         match operation {
             DisplayOp::Save => self.push_save(),
             DisplayOp::Restore => self.push_restore(provenance)?,
+            DisplayOp::OpacityLayer { alpha, bounds } => {
+                self.push_opacity_layer(*bounds, *alpha, &provenance)?
+            }
             DisplayOp::ClipRect(rect) => self.commands.push(RasterCommand::ClipRect {
                 rect: self.rect(*rect, &provenance)?,
             }),
@@ -396,17 +405,63 @@ impl Compiler {
     }
 
     fn push_save(&mut self) {
-        self.save_depth = self.save_depth.saturating_add(1);
+        self.save_scopes.push(0);
         self.commands.push(RasterCommand::Save);
     }
 
     fn push_restore(&mut self, provenance: CompileProvenance) -> Result<(), CompileError> {
-        self.save_depth = self
-            .save_depth
-            .checked_sub(1)
-            .ok_or_else(|| CompileError::new(CompileErrorKind::RestoreWithoutSave, provenance))?;
-        self.commands.push(RasterCommand::Restore);
+        if let Some(opacity_layers) = self.save_scopes.pop() {
+            self.commands.extend(std::iter::repeat_n(
+                RasterCommand::Restore,
+                opacity_layers.saturating_add(1),
+            ));
+            return Ok(());
+        }
+        if self.root_opacity_layers != 0 {
+            self.commands.extend(std::iter::repeat_n(
+                RasterCommand::Restore,
+                self.root_opacity_layers,
+            ));
+            self.root_opacity_layers = 0;
+            return Ok(());
+        }
+        Err(CompileError::new(
+            CompileErrorKind::RestoreWithoutSave,
+            provenance,
+        ))
+    }
+
+    fn push_opacity_layer(
+        &mut self,
+        bounds: LayoutRect,
+        alpha: f32,
+        provenance: &CompileProvenance,
+    ) -> Result<(), CompileError> {
+        if !alpha.is_finite() || !(0.0..=1.0).contains(&alpha) {
+            return Err(CompileError::new(
+                CompileErrorKind::InvalidOpacity,
+                provenance.clone(),
+            ));
+        }
+        let bounds = self.rect(bounds, provenance)?;
+        self.commands
+            .push(RasterCommand::OpacityLayer { bounds, alpha });
+        if let Some(opacity_layers) = self.save_scopes.last_mut() {
+            *opacity_layers = opacity_layers.saturating_add(1);
+        } else {
+            self.root_opacity_layers = self.root_opacity_layers.saturating_add(1);
+        }
         Ok(())
+    }
+
+    fn remaining_native_saves(&self) -> usize {
+        self.root_opacity_layers.saturating_add(
+            self.save_scopes
+                .iter()
+                .fold(self.save_scopes.len(), |total, opacity_layers| {
+                    total.saturating_add(*opacity_layers)
+                }),
+        )
     }
 
     fn draw_rect(
@@ -803,6 +858,7 @@ pub(crate) enum CompileErrorKind {
     MissingParagraphBinding { node_id: fission_ir::WidgetId },
     InvalidParagraphDrawData(String),
     InvalidParagraphCaret(String),
+    InvalidOpacity,
     UnsupportedTransform,
     InvalidPaint(String),
     InvalidPath(String),
@@ -837,6 +893,9 @@ impl fmt::Display for CompileError {
             CompileErrorKind::InvalidParagraphCaret(message) => {
                 write!(formatter, "the Skia paragraph caret is invalid: {message}")?
             }
+            CompileErrorKind::InvalidOpacity => {
+                formatter.write_str("the Skia opacity must be finite and in 0..=1")?
+            }
             CompileErrorKind::UnsupportedTransform => formatter.write_str(
                 "the Skia raster profile supports only finite two-dimensional affine transforms",
             )?,
@@ -854,7 +913,7 @@ impl fmt::Display for CompileError {
             }
             CompileErrorKind::UnbalancedSaveRestore { remaining_saves } => write!(
                 formatter,
-                "the display list leaves {remaining_saves} save operation(s) unrestored"
+                "the display list leaves {remaining_saves} save/layer operation(s) unrestored"
             )?,
         }
         if let Some(root_index) = self.provenance.root_index {
@@ -1110,18 +1169,89 @@ mod tests {
     }
 
     #[test]
-    fn near_opaque_layers_are_rejected_until_opacity_is_implemented() {
-        let mut layer = fission_render::RenderLayer::new(LayoutRect::new(0.0, 0.0, 4.0, 4.0));
+    fn render_layer_opacity_is_isolated_after_clip_and_before_transform() {
+        let bounds = LayoutRect::new(1.0, 2.0, 4.0, 5.0);
+        let mut layer = fission_render::RenderLayer::new(bounds);
+        layer.style.clip = Some(LayerClip::Rect(LayoutRect::new(0.0, 1.0, 8.0, 7.0)));
         layer.style.opacity = 0.9995;
-        let mut scene = RenderScene::new(LayoutRect::new(0.0, 0.0, 4.0, 4.0));
+        let mut transform = [0.0; 16];
+        transform[0] = 1.0;
+        transform[5] = 1.0;
+        transform[10] = 1.0;
+        transform[12] = 3.0;
+        transform[13] = 4.0;
+        transform[15] = 1.0;
+        layer.style.transform = Some(transform);
+        let mut child = DisplayList::new(bounds);
+        child.push(DisplayOp::DrawRect {
+            rect: bounds,
+            fill: Some(Fill::Solid(red())),
+            stroke: None,
+            corner_radius: 0.0,
+            shadow: None,
+            bounds,
+            node_id: None,
+        });
+        layer.children.push(RenderNode::Paint(child));
+        let mut scene = RenderScene::new(bounds);
         scene.roots.push(RenderNode::Layer(layer));
 
-        let error = compile_scene(&scene, 1.0, red()).unwrap_err();
+        let compiled = compile_scene(&scene, 2.0, red()).unwrap();
 
-        assert_eq!(
-            error.kind,
-            CompileErrorKind::UnsupportedOperation(DisplayOpKind::OpacityLayer)
-        );
-        assert_eq!(error.provenance.layer_property, Some("opacity"));
+        assert!(matches!(compiled.frame.commands[1], RasterCommand::Save));
+        assert!(matches!(
+            compiled.frame.commands[2],
+            RasterCommand::ClipRect { .. }
+        ));
+        assert!(matches!(
+            compiled.frame.commands[3],
+            RasterCommand::OpacityLayer {
+                bounds: RasterRect {
+                    left: 2.0,
+                    top: 4.0,
+                    right: 10.0,
+                    bottom: 14.0,
+                },
+                alpha: 0.9995,
+            }
+        ));
+        assert!(matches!(
+            compiled.frame.commands[4],
+            RasterCommand::ConcatAffine(RasterAffine {
+                translate_x: 6.0,
+                translate_y: 8.0,
+                ..
+            })
+        ));
+        assert!(matches!(
+            compiled.frame.commands[5],
+            RasterCommand::FillRect { .. }
+        ));
+        assert!(matches!(compiled.frame.commands[6], RasterCommand::Restore));
+        assert!(matches!(compiled.frame.commands[7], RasterCommand::Restore));
+    }
+
+    #[test]
+    fn display_list_opacity_closes_before_its_saved_clip_scope() {
+        let bounds = LayoutRect::new(2.0, 3.0, 4.0, 5.0);
+        let mut list = DisplayList::new(bounds);
+        list.push(DisplayOp::Save);
+        list.push(DisplayOp::ClipRect(LayoutRect::new(1.0, 1.0, 8.0, 8.0)));
+        list.push(DisplayOp::OpacityLayer { alpha: 0.5, bounds });
+        list.push(DisplayOp::Restore);
+
+        let compiled = compile_scene(&RenderScene::from_display_list(list), 2.0, red()).unwrap();
+
+        assert!(matches!(compiled.frame.commands[1], RasterCommand::Save));
+        assert!(matches!(
+            compiled.frame.commands[2],
+            RasterCommand::ClipRect { .. }
+        ));
+        assert!(matches!(
+            compiled.frame.commands[3],
+            RasterCommand::OpacityLayer { alpha: 0.5, .. }
+        ));
+        assert!(matches!(compiled.frame.commands[4], RasterCommand::Restore));
+        assert!(matches!(compiled.frame.commands[5], RasterCommand::Restore));
     }
 }
