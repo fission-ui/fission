@@ -320,8 +320,8 @@ pub(super) fn create_render_state<'w>(
     window: Arc<Window>,
     viewport: WindowViewportState,
     linux_wayland: bool,
+    request: RendererRequest,
 ) -> anyhow::Result<RenderState<'w>> {
-    let request = native_renderer_request()?;
     let mut surface = block_on(render_cx.create_surface(
         window.clone(),
         viewport.physical_size.width,

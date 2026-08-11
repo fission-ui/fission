@@ -101,6 +101,8 @@ where
     pub(super) render_cx: RenderContext,
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) presenter: WinitPresenter<'static>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(super) renderer_request: RendererRequest,
     #[cfg(target_arch = "wasm32")]
     pub(super) web_renderer: Option<WebRenderer>,
     #[cfg(target_arch = "wasm32")]

@@ -287,6 +287,7 @@ where
                     render_window,
                     viewport_state,
                     is_linux_wayland_event_loop(elwt),
+                    self.renderer_request,
                 ) {
                     Ok(state) => {
                         self.presenter.attach(state);

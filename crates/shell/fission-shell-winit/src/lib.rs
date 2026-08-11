@@ -51,7 +51,7 @@ use fission_core::{ActionInput, CapabilityInvocationPayload, Effect};
 use fission_diagnostics::prelude as diag;
 use fission_ir::semantics::{ActionTrigger, MouseCursor, Role, Semantics};
 use fission_ir::{CoreIR, Op, WidgetId};
-use fission_layout::{LayoutEngine, LayoutSize};
+use fission_layout::{LayoutEngine, LayoutSize, ParagraphEngine, ParagraphResultStore};
 use fission_render::{LayoutPoint, LayoutRect, Renderer as _};
 use fission_render_vello::parley::FontContext;
 use fission_render_vello::{
@@ -190,6 +190,22 @@ use run_loop::RunLoop;
 #[cfg(test)]
 mod tests;
 
+#[cfg(not(target_arch = "wasm32"))]
+fn paragraph_engine_for_native_renderer(
+    request: RendererRequest,
+    vello: Arc<VelloTextMeasurer>,
+) -> Arc<dyn ParagraphEngine> {
+    if request == RendererRequest::NativeSkiaRaster {
+        #[cfg(feature = "skia")]
+        {
+            return Arc::new(fission_render_skia::SkiaParagraphEngine::default());
+        }
+        #[cfg(not(feature = "skia"))]
+        unreachable!("native renderer validation rejects Skia when its feature is disabled");
+    }
+    vello
+}
+
 impl<S, W> WinitApp<S, W>
 where
     S: GlobalState + Default,
@@ -205,6 +221,18 @@ where
             diag::DiagEventKind::FrameStart { root: None },
         );
         diag::init_from_env();
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let renderer_request = native_renderer_request()?;
+        #[cfg(not(target_arch = "wasm32"))]
+        let paragraph_engine =
+            paragraph_engine_for_native_renderer(renderer_request, self.measurer.clone());
+        #[cfg(target_arch = "wasm32")]
+        let paragraph_engine: Arc<dyn ParagraphEngine> = self.measurer.clone();
+        let paragraph_store = Arc::new(ParagraphResultStore::new(paragraph_engine));
+        self.layout_engine
+            .set_paragraph_store(paragraph_store.clone());
+        self.runtime.set_paragraph_store(paragraph_store);
 
         // Build event loop with TestEvent as the user event type.
         // This allows the test control server to inject events via EventLoopProxy.
@@ -491,6 +519,8 @@ where
             render_cx,
             #[cfg(not(target_arch = "wasm32"))]
             presenter,
+            #[cfg(not(target_arch = "wasm32"))]
+            renderer_request,
             #[cfg(target_arch = "wasm32")]
             web_renderer,
             #[cfg(target_arch = "wasm32")]
