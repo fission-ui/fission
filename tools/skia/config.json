@@ -1,0 +1,306 @@
+{
+  "schema_version": 1,
+  "source": {
+    "repository": "https://skia.googlesource.com/skia.git",
+    "revision": "cf5c36972b73698eb3939cda147ea47152670312",
+    "upstream_tag_hint": "canvaskit/0.41.0",
+    "milestone_hint": 148,
+    "qualification": "unqualified",
+    "license_file": "LICENSE"
+  },
+  "bridge": {
+    "abi_version": 2,
+    "header": "include/fission_skia.h",
+    "unix_library": "lib/fission_skia_bridge.a",
+    "windows_library": "lib/fission_skia_bridge.lib"
+  },
+  "artifact": {
+    "schema_version": 1,
+    "archive_format": "tar.gz",
+    "build_metadata": "metadata/build.json",
+    "licenses_directory": "licenses"
+  },
+  "common_native_gn_args": {
+    "is_component_build": false,
+    "is_debug": false,
+    "is_official_build": true,
+    "skia_disable_tracing": true,
+    "skia_enable_pdf": false,
+    "skia_enable_skparagraph": true,
+    "skia_enable_skshaper": true,
+    "skia_enable_svg": true,
+    "skia_enable_tools": false,
+    "skia_use_client_icu": false,
+    "skia_use_dng_sdk": false,
+    "skia_use_system_expat": false,
+    "skia_use_harfbuzz": true,
+    "skia_use_icu": true,
+    "skia_use_lua": false,
+    "skia_use_perfetto": false,
+    "skia_use_system_freetype2": false,
+    "skia_use_system_harfbuzz": false,
+    "skia_use_system_icu": false,
+    "skia_use_system_libjpeg_turbo": false,
+    "skia_use_system_libpng": false,
+    "skia_use_system_libwebp": false,
+    "skia_use_system_zlib": false
+  },
+  "profiles": {
+    "native-raster": {
+      "kind": "native",
+      "status": "foundation",
+      "qualified": false,
+      "build_recipe": "available",
+      "description": "CPU raster with paragraph, codecs, SVG, and no GPU backend.",
+      "required_licenses": [
+        "cpu-features",
+        "expat",
+        "fission",
+        "freetype",
+        "harfbuzz",
+        "icu",
+        "libjpeg-turbo",
+        "libpng",
+        "libwebp",
+        "skia",
+        "wuffs",
+        "zlib"
+      ],
+      "upstream_libraries": ["skia", "skparagraph", "skshaper", "skunicode", "svg"],
+      "features": {
+        "gpu": "none",
+        "raster_fallback": true,
+        "paragraph": true,
+        "unicode": "icu",
+        "svg": "native-svgdom",
+        "pdf": false,
+        "codecs": ["jpeg", "png", "webp"]
+      },
+      "gn_args": {
+        "skia_enable_ganesh": false,
+        "skia_enable_graphite": false,
+        "skia_use_dawn": false,
+        "skia_use_direct3d": false,
+        "skia_use_gl": false,
+        "skia_use_metal": false,
+        "skia_use_vulkan": false
+      },
+      "ninja_targets": [
+        "skia",
+        "modules/skparagraph:skparagraph",
+        "modules/skshaper:skshaper",
+        "modules/skunicode:skunicode",
+        "modules/svg:svg"
+      ]
+    },
+    "native-ganesh": {
+      "kind": "native",
+      "status": "planned",
+      "qualified": false,
+      "build_recipe": "pending-platform-integration",
+      "description": "Ganesh using the selected native GPU API plus raster fallback.",
+      "required_licenses": ["fission", "skia"],
+      "features": {
+        "gpu": "ganesh-platform-native",
+        "raster_fallback": true,
+        "paragraph": true,
+        "unicode": "icu",
+        "svg": "native-svgdom",
+        "pdf": false,
+        "codecs": ["jpeg", "png", "webp"]
+      }
+    },
+    "native-graphite-qualification": {
+      "kind": "native",
+      "status": "planned",
+      "qualified": false,
+      "build_recipe": "pending-platform-integration",
+      "description": "Graphite qualification profile; never selected as a fallback.",
+      "required_licenses": ["fission", "skia"],
+      "features": {
+        "gpu": "graphite-qualification",
+        "raster_fallback": true,
+        "paragraph": true,
+        "unicode": "icu",
+        "svg": "native-svgdom",
+        "pdf": false,
+        "codecs": ["jpeg", "png", "webp"]
+      }
+    },
+    "canvaskit-production": {
+      "kind": "canvaskit",
+      "status": "planned",
+      "qualified": false,
+      "build_recipe": "pending-web-bridge",
+      "description": "CanvasKit WebGL production profile with optimized CPU fallback.",
+      "required_licenses": ["fission", "skia"],
+      "features": {
+        "gpu": "webgl",
+        "raster_fallback": true,
+        "paragraph": true,
+        "unicode": "icu",
+        "svg": "backend-neutral-lowering-until-svgdom-is-proven",
+        "pdf": false,
+        "codecs": ["jpeg", "png", "webp"]
+      },
+      "layout": [
+        "manifest.json",
+        "web/canvaskit.js",
+        "web/canvaskit.wasm",
+        "web/fission_skia_web.js",
+        "licenses/"
+      ]
+    },
+    "canvaskit-software-qualification": {
+      "kind": "canvaskit",
+      "status": "planned",
+      "qualified": false,
+      "build_recipe": "pending-web-bridge",
+      "description": "CanvasKit CPU-only qualification profile.",
+      "required_licenses": ["fission", "skia"],
+      "features": {
+        "gpu": "none",
+        "raster_fallback": true,
+        "paragraph": true,
+        "unicode": "icu",
+        "svg": "backend-neutral-lowering-until-svgdom-is-proven",
+        "pdf": false,
+        "codecs": ["jpeg", "png", "webp"]
+      },
+      "layout": [
+        "manifest.json",
+        "web/canvaskit.js",
+        "web/canvaskit.wasm",
+        "web/fission_skia_web.js",
+        "licenses/"
+      ]
+    }
+  },
+  "targets": {
+    "x86_64-unknown-linux-gnu": {
+      "platform": "Linux",
+      "kind": "native",
+      "status": "planned",
+      "gn_args": {"target_cpu": "x64", "target_os": "linux"},
+      "allowed_gn_overrides": [],
+      "deployment_fields": ["libc", "libc_version", "cxx_runtime"]
+    },
+    "aarch64-unknown-linux-gnu": {
+      "platform": "Linux",
+      "kind": "native",
+      "status": "planned",
+      "gn_args": {"target_cpu": "arm64", "target_os": "linux"},
+      "allowed_gn_overrides": [],
+      "deployment_fields": ["libc", "libc_version", "cxx_runtime"]
+    },
+    "x86_64-unknown-linux-musl": {
+      "platform": "Linux",
+      "kind": "native",
+      "status": "planned",
+      "gn_args": {"target_cpu": "x64", "target_os": "linux"},
+      "allowed_gn_overrides": [],
+      "deployment_fields": ["libc", "libc_version", "cxx_runtime"]
+    },
+    "x86_64-apple-darwin": {
+      "platform": "macOS",
+      "kind": "native",
+      "status": "planned",
+      "gn_args": {"target_cpu": "x64", "target_os": "mac"},
+      "allowed_gn_overrides": [],
+      "deployment_fields": ["minimum_macos", "sdk", "cxx_runtime"]
+    },
+    "aarch64-apple-darwin": {
+      "platform": "macOS",
+      "kind": "native",
+      "status": "planned",
+      "gn_args": {"target_cpu": "arm64", "target_os": "mac"},
+      "allowed_gn_overrides": [],
+      "deployment_fields": ["minimum_macos", "sdk", "cxx_runtime"]
+    },
+    "x86_64-pc-windows-msvc": {
+      "platform": "Windows",
+      "kind": "native",
+      "status": "planned",
+      "gn_args": {"target_cpu": "x64", "target_os": "win"},
+      "allowed_gn_overrides": [],
+      "deployment_fields": ["minimum_windows", "windows_sdk", "msvc_runtime"]
+    },
+    "aarch64-pc-windows-msvc": {
+      "platform": "Windows",
+      "kind": "native",
+      "status": "planned",
+      "gn_args": {"target_cpu": "arm64", "target_os": "win"},
+      "allowed_gn_overrides": [],
+      "deployment_fields": ["minimum_windows", "windows_sdk", "msvc_runtime"]
+    },
+    "aarch64-linux-android": {
+      "platform": "Android",
+      "kind": "native",
+      "status": "planned",
+      "gn_args": {"target_cpu": "arm64", "target_os": "android"},
+      "allowed_gn_overrides": ["ndk", "ndk_api"],
+      "required_gn_args": ["ndk", "ndk_api"],
+      "deployment_fields": ["android_api", "ndk", "cxx_runtime"]
+    },
+    "armv7-linux-androideabi": {
+      "platform": "Android",
+      "kind": "native",
+      "status": "planned",
+      "gn_args": {"target_cpu": "arm", "target_os": "android"},
+      "allowed_gn_overrides": ["ndk", "ndk_api"],
+      "required_gn_args": ["ndk", "ndk_api"],
+      "deployment_fields": ["android_api", "ndk", "cxx_runtime"]
+    },
+    "x86_64-linux-android": {
+      "platform": "Android",
+      "kind": "native",
+      "status": "planned",
+      "gn_args": {"target_cpu": "x64", "target_os": "android"},
+      "allowed_gn_overrides": ["ndk", "ndk_api"],
+      "required_gn_args": ["ndk", "ndk_api"],
+      "deployment_fields": ["android_api", "ndk", "cxx_runtime"]
+    },
+    "i686-linux-android": {
+      "platform": "Android",
+      "kind": "native",
+      "status": "planned",
+      "gn_args": {"target_cpu": "x86", "target_os": "android"},
+      "allowed_gn_overrides": ["ndk", "ndk_api"],
+      "required_gn_args": ["ndk", "ndk_api"],
+      "deployment_fields": ["android_api", "ndk", "cxx_runtime"]
+    },
+    "aarch64-apple-ios": {
+      "platform": "iOS",
+      "kind": "native",
+      "status": "planned",
+      "gn_args": {"ios_use_simulator": false, "target_cpu": "arm64", "target_os": "ios"},
+      "allowed_gn_overrides": ["ios_min_target"],
+      "required_gn_args": ["ios_min_target"],
+      "deployment_fields": ["minimum_ios", "sdk", "cxx_runtime", "slice"]
+    },
+    "aarch64-apple-ios-sim": {
+      "platform": "iOS",
+      "kind": "native",
+      "status": "planned",
+      "gn_args": {"ios_use_simulator": true, "target_cpu": "arm64", "target_os": "ios"},
+      "allowed_gn_overrides": ["ios_min_target"],
+      "required_gn_args": ["ios_min_target"],
+      "deployment_fields": ["minimum_ios", "sdk", "cxx_runtime", "slice"]
+    },
+    "x86_64-apple-ios": {
+      "platform": "iOS",
+      "kind": "native",
+      "status": "planned",
+      "gn_args": {"ios_use_simulator": true, "target_cpu": "x64", "target_os": "ios"},
+      "allowed_gn_overrides": ["ios_min_target"],
+      "required_gn_args": ["ios_min_target"],
+      "deployment_fields": ["minimum_ios", "sdk", "cxx_runtime", "slice"]
+    },
+    "wasm32-unknown-unknown": {
+      "platform": "Web",
+      "kind": "canvaskit",
+      "status": "planned",
+      "deployment_fields": ["emscripten", "browser_api", "wasm_memory_policy"]
+    }
+  }
+}
