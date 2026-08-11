@@ -98,25 +98,36 @@ It is responsible for:
 Rendering Backends convert abstract drawing commands into pixels.
 
 They are responsible for:
-- consuming display lists
+- consuming Fission-owned paint data and, in the target multi-backend
+  architecture, validated interactive frames and resource snapshots
 - applying transforms and clipping
 - rasterizing or GPU-rendering primitives
+- managing backend implementation state and derived caches
+
+The current Winit path has an interactive-frame preflight but still calls the
+Vello or software encoder directly and keeps presentation lifecycle in the
+host. Routing those implementations through `GraphicsBackendSession`, and
+populating the resource snapshot from one Fission resource service, remain
+Phase 1 work.
 
 ### Characteristics
 
-- Stateless with respect to UI logic
-- Replaceable
+- Stateful only for backend lifecycle and derived optimization data
+- Designed to be replaceable behind Fission-owned contracts
 - May target CPU or GPU
 
 ### Constraints
 
 - Must not affect layout, semantics, or event routing
-- Must behave as a pure function of inputs
+- Must not let cache or lifecycle state change frame semantics
 - Must not introduce nondeterminism into Core artifacts
 
 ### Guarantees
 
-- Identical display lists produce identical pixel output
+- Production-qualified backend profiles must produce stable output for
+  identical pinned inputs
+- Production-qualified profiles must preserve shared semantics and non-text
+  geometry across backends
 - Rendering differences are isolated to rendering code paths
 
 ---
@@ -157,7 +168,13 @@ They are responsible for:
 The interaction between layers is strictly defined:
 
 - Authoring Layer → Core Runtime: authoring node trees
-- Core Runtime → Rendering Backend: display lists and layout snapshots
+- Core Runtime → interactive frame compiler: retained scenes, layout, and
+  semantics inputs
+- Interactive frame compiler → rendering path: the target contract carries a
+  validated frame containing metadata and external-surface bindings, and
+  eventually a populated resource snapshot; the current Winit path validates
+  those inputs before invoking its legacy encoder directly, while the target
+  profile also binds one paragraph-result authority across layout and paint
 - Core Runtime → Platform Shell: semantic trees and accessibility data
 - Platform Shell → Core Runtime: input events and lifecycle signals
 

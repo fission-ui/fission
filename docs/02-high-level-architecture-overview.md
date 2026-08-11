@@ -8,9 +8,15 @@ The goal is to give contributors a clear mental model before diving into detaile
 
 ## 2.1 Architectural Overview
 
-At a high level, the framework is structured as a unidirectional pipeline:
+At a high level, UI data moves through a unidirectional pipeline:
 
-**Authoring → Core Runtime → Rendering Backend → Platform Shell**
+**Authoring → Core Runtime → target output**
+
+In the target multi-backend architecture, an interactive platform host drives
+the selected paragraph and graphics implementations and presents the resulting
+frame. The current Winit path is still being routed through those contracts.
+Static site, SSR, and terminal targets keep their own semantic output paths;
+they do not acquire an interactive graphics backend.
 
 Each stage transforms data into a more concrete form, with no hidden feedback loops or implicit side effects.
 
@@ -32,9 +38,10 @@ The framework consists of the following major components:
    - Snapshot and trace generation
 
 3. **Rendering Backends**
-   - Convert display lists into pixels
-   - Skia-safe backend in v1
-   - Pure Rust renderer planned for v2
+   - Convert Fission paint data into pixels
+   - Current interactive stack is centered on Vello, Parley, and wgpu
+   - Skia is a planned production implementation to be qualified alongside
+     the current stack, not an existing reference backend
 
 4. **Platform Shells**
    - OS integration (windows, input, accessibility)
@@ -76,10 +83,14 @@ Each phase produces structured outputs that can be inspected or snapshotted.
 ### 2.3.3 Core to Renderer
 
 - The Core Runtime produces a display list and layout snapshot.
-- Rendering backends consume this data to produce pixels.
-- Rendering is a pure function of inputs.
+- Graphics backends consume this data to produce pixels.
+- Backend caches and surface lifecycle are stateful, but may not change the
+  semantic meaning of the submitted paint data.
 
-The renderer does not influence layout, semantics, or behavior.
+The graphics backend does not recompute layout, semantics, or behavior. The
+selected paragraph engine supplies text geometry upstream; the target backend
+profile makes that authority explicit rather than letting the graphics encoder
+measure text independently.
 
 ---
 
@@ -108,7 +119,9 @@ This mode is used for:
 - automated analysis,
 - tooling and inspection.
 
-Headless execution uses the same Core Runtime and rendering code paths as production.
+Headless execution uses the same Core Runtime where applicable. Its renderer
+and output path are target-specific; static site, SSR, terminal, and software
+raster output are not aliases for the interactive Winit presentation path.
 
 ---
 
@@ -162,7 +175,9 @@ Configuration is part of the deterministic input set and must be identical for i
 The architecture supports extensibility at defined points:
 
 - New authoring widgets via desugaring
-- New rendering backends consuming display lists
+- New paragraph and graphics backends implementing the Fission-owned frame,
+  resource, capability, lifecycle, and presentation contracts being extracted
+  by the multi-backend work
 - New platform shells
 - Tooling built on snapshots and traces
 

@@ -1,7 +1,9 @@
 # 13.5 Future Renderer Integration
 
-This section describes how **future renderer backends** integrate with the 3D (and 2D) systems without changing Core semantics.
-Renderer integration is explicitly designed to be extensible, replaceable, and verifiable against reference behavior.
+This section describes how **future renderer backends** integrate with the 3D
+and 2D systems without changing Core semantics. Renderer integration is
+designed to be extensible, replaceable, and verifiable through Fission-owned
+contracts.
 
 Renderers are consumers of data, not owners of meaning.
 
@@ -12,41 +14,50 @@ Renderers are consumers of data, not owners of meaning.
 Future renderer integration must:
 
 - preserve Core determinism and semantics,
-- require no changes to Core IR or snapshots,
-- support both 2D and 3D uniformly,
+- require no application-widget changes,
+- compose typed 3D and other external producers with the 2D frame,
 - allow incremental backend development,
-- enable conformance testing against reference outputs.
+- enable shared semantic conformance and backend-specific visual testing.
 
 Renderer innovation must never leak into Core logic.
 
 ---
 
-## 13.5.2 Renderer as a Pure Consumer
+## 13.5.2 Renderer as a Semantic Consumer
 
-Renderers consume completed snapshots.
+Production renderer integrations must consume immutable frames without owning
+UI meaning. Interactive graphics sessions are deliberately stateful: they own
+surfaces, derived resources, caches, presentation, and recovery.
 
-Rules:
+Required rules for a production backend profile:
 - renderers read, never mutate, state,
 - renderers do not own time,
 - renderers do not schedule frames,
-- renderers may drop frames without semantic impact.
+- unsupported operations and dropped frames produce explicit diagnostics.
 
 A renderer crash must not corrupt Core state.
 
 ---
 
-## 13.5.3 Stable Renderer Input Contracts
+## 13.5.3 Fission-Owned Renderer Input Contracts
 
-Renderer inputs are stable and versioned.
+Renderer inputs are owned by Fission rather than by a backend dependency. The
+new cross-crate contracts are intentionally internal and remain evolvable while
+Phase 1 exercises them through the current implementations; this RFC does not
+declare their Rust spelling or serialization stable yet.
 
 Inputs include:
 - display lists (2D),
 - render descriptions (3D),
 - resolved geometry and transforms,
 - explicit clip and blend states,
-- resource handles resolved by the platform shell.
+- immutable resource snapshots,
+- typed external-surface bindings,
+- viewport, damage, lifecycle, and presentation inputs.
 
-Backward compatibility is a Core guarantee.
+Application and widget compatibility is a framework guarantee. Internal frame,
+resource, and backend contracts may evolve without exposing a dependency type
+or changing application code.
 
 ---
 
@@ -55,7 +66,8 @@ Backward compatibility is a Core guarantee.
 Multiple renderers may coexist.
 
 Examples:
-- Skia-based renderer (initial),
+- Skia-based renderer,
+- the current Vello-centered renderer,
 - pure Rust software renderer,
 - WebGPU renderer,
 - platform-native compositors.
@@ -75,19 +87,24 @@ Examples:
 
 Rules:
 - Core behavior does not change based on capabilities,
-- unsupported features degrade deterministically,
+- unsupported features fail explicitly with provenance,
 - capability negotiation is explicit and testable.
 
 ---
 
 ## 13.5.6 3D Backend and Renderer Separation
 
-3D backends and renderers are distinct.
+3D producers and 2D graphics backends are distinct.
 
-Rules:
-- 3D backends evaluate scenes and produce descriptions,
-- renderers turn descriptions into GPU commands,
+Target rules:
+- neutral 3D models are consumed by an optional general-GPU implementation,
+- the resulting work enters the ordered frame through an external-surface binding,
 - either side may be swapped independently.
+
+The current bridge is transitional: it identifies a tagged neutral 3D payload,
+derives placement from `DrawSurface`, and uses a `DirectTarget` binding while
+the wgpu renderer still encodes into the active target. Typed interchange
+images and producer synchronization are later work.
 
 This separation prevents lock-in.
 
@@ -102,20 +119,22 @@ Uses include:
 - debugging and instrumentation,
 - platforms without GPU access.
 
-Software renderers must match reference semantics.
+Software renderers must satisfy shared semantics and maintain their own visual
+goldens; they are not required to rasterize identically to another engine.
 
 ---
 
 ## 13.5.8 Conformance and Validation
 
-All renderers are validated via:
+Production renderer qualification requires:
 
 - snapshot comparison,
 - render-description diffing,
-- golden raster tests (where applicable),
-- cross-backend equivalence tests.
+- backend-specific golden raster tests,
+- shared semantic and non-text geometric conformance tests.
 
-Non-conformance is a bug.
+Semantic non-conformance or a regression against a backend's approved visual
+baseline is a bug. A cross-backend pixel difference is not automatically one.
 
 ---
 
@@ -136,12 +155,13 @@ Correctness precedes speed.
 
 Renderer failures are isolated.
 
-Rules:
+Required rules:
 - failures produce explicit error states,
 - fallbacks are deterministic,
 - Core continues to function without renderer recovery logic.
 
-Renderers are replaceable components.
+The target contracts make renderer implementations replaceable without making
+their lifecycle or recovery responsibilities stateless.
 
 ---
 
@@ -154,7 +174,9 @@ The integration model supports future evolution:
 - remote or streamed rendering,
 - LLM-assisted rendering analysis.
 
-All evolution happens behind stable contracts.
+All evolution must remain behind Fission-owned contracts. Those contracts earn
+stability through production implementations and conformance evidence rather
+than being frozen at the start of the refactor.
 
 ---
 
@@ -162,10 +184,10 @@ All evolution happens behind stable contracts.
 
 Future renderer integration works because:
 
-- renderers are pure consumers,
-- contracts are explicit and versioned,
+- renderers consume semantic frames without owning UI meaning,
+- contracts are explicit and owned by Fission,
 - semantics live in the Core,
-- conformance is enforced by tests.
+- conformance must be enforced by qualification tests.
 
 Renderers may change freely; the meaning of the UI does not.
 

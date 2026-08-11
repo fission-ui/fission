@@ -54,12 +54,17 @@ All authoring constructs lower into the same Core IR.
 Rendering backends are expected to diversify.
 
 Planned and possible backends:
-- Skia (initial reference),
+- the current Vello-centered backend,
+- Skia raster and GPU profiles,
 - pure Rust CPU renderer,
 - GPU-first renderer (Vulkan / WebGPU),
 - remote or streamed renderers.
 
-Renderers consume display lists only; no Core changes are required.
+The multi-backend refactor is introducing Fission-owned paragraph, frame,
+resource, capability, diagnostic, surface-lifecycle, and presentation
+contracts. New production renderers must implement them without application
+widget changes or backend types leaking through Core. The current Winit/Vello
+and software paths are still being routed through the complete contract set.
 
 ---
 

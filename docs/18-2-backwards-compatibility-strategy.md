@@ -1,8 +1,8 @@
 # 18.2 Backwards Compatibility Strategy
 
-This section defines the framework’s **backwards compatibility guarantees** and how evolution is managed
+This section defines the framework’s **backwards compatibility policy** and how evolution is managed
 without breaking existing applications, tests, or tools.
-Compatibility is explicit, versioned, and enforced by policy—not left to convention.
+Compatibility must be explicit, versioned, and enforced—not left to convention.
 
 Breaking behavior is a conscious act, never an accident.
 
@@ -42,10 +42,17 @@ Core IR versions are immutable once released.
 Semantic meaning is sacred.
 
 Guarantees include:
-- identical Core IR produces identical snapshots,
+- once paragraph profiles are fully routed through the production pipeline,
+  identical Core IR and a pinned paragraph profile produce stable snapshots for
+  that profile,
 - identical snapshots produce identical display lists,
-- identical display lists render identically (per renderer contract),
+- identical frames render consistently within a pinned backend profile,
 - identical actions produce identical state transitions.
+
+Graphics and paragraph implementations may produce different pixels and valid
+text-derived geometry. Those differences do not change Core IR meaning; shared
+semantic and constraint invariants remain compatible, while visual baselines
+are maintained per backend profile.
 
 Semantic changes require a new major version.
 
@@ -119,12 +126,16 @@ Authoring changes never alter lowered Core semantics silently.
 
 ## 18.2.9 Renderer Compatibility
 
-Renderer behavior is validated against reference outputs.
+Renderer behavior is validated against Fission's semantic contract and
+backend-specific reference outputs.
 
 Rules:
 - renderers must respect display list semantics,
-- renderer upgrades must not change output for existing display lists,
-- discrepancies are treated as bugs.
+- production graphics-session submission must reject unsupported operations
+  explicitly with provenance,
+- renderer upgrades must preserve shared invariants and remain within the
+  approved visual policy for that backend,
+- cross-backend rasterization or text differences are not automatically bugs.
 
 Renderer changes do not affect Core compatibility guarantees.
 
@@ -158,13 +169,14 @@ Silent removal is forbidden.
 
 ## 18.2.12 Compatibility Testing
 
-Compatibility is enforced by tests.
+Compatibility must be enforced by tests. The shared multi-backend conformance
+and visual matrix is built out as each production profile is qualified.
 
 Strategies:
 - golden snapshot tests across versions,
 - action replay tests on old recordings,
 - cross-version diff validation,
-- renderer parity tests.
+- shared renderer conformance tests and per-backend visual tests.
 
 Compatibility failures block releases.
 
@@ -197,11 +209,11 @@ Stability is a feature, not a cost.
 
 ## 18.2.15 Summary
 
-Backwards compatibility is achieved because:
+Backwards compatibility is achieved when:
 
 - semantics are versioned and immutable,
 - evolution is explicit and opt-in,
-- tooling enforces guarantees,
+- tooling and release tests enforce the stated guarantees,
 - discipline is architectural, not cultural.
 
 Users can upgrade with confidence—and choose when not to.

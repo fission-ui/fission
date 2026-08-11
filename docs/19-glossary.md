@@ -78,7 +78,14 @@ A thin adapter that hosts the Core Runtime on a specific platform (desktop, mobi
 ---
 
 ### Renderer
-A backend that consumes display lists and produces pixels or GPU submissions. Renderers do not perform layout, hit testing, or semantic interpretation.
+A graphics backend that turns Fission paint semantics into pixels or GPU
+submissions without owning UI state or semantic meaning. In the target
+multi-backend architecture, a graphics session validates interactive frames and
+resource snapshots and owns backend lifecycle, derived caches, presentation,
+and recovery. The selected paragraph engine supplies one geometry authority for
+layout, painting, hit testing, and editing. The current Winit path still calls
+the Vello or software encoder directly after frame preflight, and its resource
+snapshot and paragraph-result routing are transitional.
 
 ---
 

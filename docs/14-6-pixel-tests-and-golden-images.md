@@ -14,7 +14,7 @@ Pixel tests exist to:
 
 - validate renderer correctness,
 - catch visual regressions missed by structural tests,
-- ensure backend parity (Skia vs future renderers),
+- preserve the visual quality of each backend profile,
 - verify complex paint effects.
 
 They do **not** replace structural, geometry, or action tests.
@@ -115,16 +115,23 @@ Smaller scopes reduce brittleness.
 
 ---
 
-## 14.6.9 Renderer Parity Testing
+## 14.6.9 Cross-Backend Conformance
 
-Golden images are used for parity testing.
+The multi-backend qualification suites must compare semantic behavior,
+constraints, non-text geometry, and operation coverage across backends. Pixel
+goldens must be recorded separately for each backend profile because
+rasterization and paragraph metrics may validly differ. The initial Phase 1
+work provides structural conformance gates; the full cross-backend and visual
+matrix remains migration work.
 
 Examples:
 - Vello vs software renderer,
 - CPU vs GPU paths,
 - platform-specific renderers.
 
-Parity failures indicate backend bugs.
+An unexplained change against a backend's own approved golden is a regression.
+A difference between two conforming backends is reviewed for quality and
+semantic correctness; it is not automatically a bug.
 
 ---
 
