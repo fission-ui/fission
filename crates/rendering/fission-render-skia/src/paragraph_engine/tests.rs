@@ -341,9 +341,9 @@ fn native_offset_inside_utf16_surrogate_pair_is_rejected() {
 fn malformed_native_enums_and_geometry_are_rejected() {
     let mut bad_direction = base_output(INDEX_ENCODING_UTF8, 1);
     bad_direction.lines[0].direction = 99;
-    let (engine, _) = engine(bad_direction);
+    let (bad_direction_engine, _) = engine(bad_direction);
     assert!(matches!(
-        engine.layout(&description("a")),
+        bad_direction_engine.layout(&description("a")),
         Err(ParagraphError::InvalidResult {
             field: "lines.direction",
             ..

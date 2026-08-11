@@ -43,15 +43,6 @@ pub(crate) struct RasterColor {
     pub alpha: f32,
 }
 
-impl RasterColor {
-    pub const TRANSPARENT: Self = Self {
-        red: 0.0,
-        green: 0.0,
-        blue: 0.0,
-        alpha: 0.0,
-    };
-}
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct RasterRect {
     pub left: f32,
@@ -151,6 +142,8 @@ pub(crate) struct RasterBoxShadow {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RasterFillRule {
     NonZero,
+    /// Used once SVG fill-rule lowering reaches the Skia compiler.
+    #[allow(dead_code)]
     EvenOdd,
 }
 

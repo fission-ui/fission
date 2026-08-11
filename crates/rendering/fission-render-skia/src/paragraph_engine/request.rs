@@ -213,7 +213,7 @@ impl PackedParagraphRequest {
             selection: description.selection.map(packed_range).transpose()?,
             preedit: description
                 .preedit
-                .map(|preedit| {
+                .map(|preedit| -> Result<PackedPreedit, ParagraphError> {
                     Ok(PackedPreedit {
                         range: packed_range(preedit.range)?,
                         selection: packed_range(preedit.selection)?,

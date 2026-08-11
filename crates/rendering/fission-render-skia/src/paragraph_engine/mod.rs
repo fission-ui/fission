@@ -11,9 +11,10 @@ mod request;
 use std::fmt;
 use std::sync::Arc;
 
+#[cfg(test)]
+use fission_layout::ParagraphCapability;
 use fission_layout::{
-    ParagraphCapabilities, ParagraphCapability, ParagraphDescription, ParagraphEngine,
-    ParagraphError, ParagraphResult,
+    ParagraphCapabilities, ParagraphDescription, ParagraphEngine, ParagraphError, ParagraphResult,
 };
 
 use self::cache_key::paragraph_cache_key;
@@ -23,17 +24,17 @@ use self::request::PackedParagraphRequest;
 #[cfg(test)]
 mod tests;
 
-pub(super) const COMPLETE_PARAGRAPH_CAPABILITIES: ParagraphCapabilities =
-    ParagraphCapabilities::NONE
-        .with(ParagraphCapability::BidirectionalText)
-        .with(ParagraphCapability::VariableFonts)
-        .with(ParagraphCapability::FontFeatures)
-        .with(ParagraphCapability::InlineObjects)
-        .with(ParagraphCapability::ClusterMapping)
-        .with(ParagraphCapability::HitTesting)
-        .with(ParagraphCapability::CaretGeometry)
-        .with(ParagraphCapability::SelectionGeometry)
-        .with(ParagraphCapability::UnresolvedGlyphDiagnostics);
+#[cfg(test)]
+const COMPLETE_PARAGRAPH_CAPABILITIES: ParagraphCapabilities = ParagraphCapabilities::NONE
+    .with(ParagraphCapability::BidirectionalText)
+    .with(ParagraphCapability::VariableFonts)
+    .with(ParagraphCapability::FontFeatures)
+    .with(ParagraphCapability::InlineObjects)
+    .with(ParagraphCapability::ClusterMapping)
+    .with(ParagraphCapability::HitTesting)
+    .with(ParagraphCapability::CaretGeometry)
+    .with(ParagraphCapability::SelectionGeometry)
+    .with(ParagraphCapability::UnresolvedGlyphDiagnostics);
 
 /// Safe renderer-side SkParagraph adapter.
 ///
@@ -52,7 +53,8 @@ impl Default for SkiaParagraphEngine {
 }
 
 impl SkiaParagraphEngine {
-    pub(super) fn with_api(api: impl BatchedParagraphApi + 'static) -> Self {
+    #[cfg(test)]
+    fn with_api(api: impl BatchedParagraphApi + 'static) -> Self {
         Self { api: Arc::new(api) }
     }
 }
@@ -92,7 +94,7 @@ impl ParagraphEngine for SkiaParagraphEngine {
 
 /// One batched call boundary suitable for a future safe `fission-skia-sys`
 /// wrapper or deterministic tests.
-pub(super) trait BatchedParagraphApi: Send + Sync {
+trait BatchedParagraphApi: Send + Sync {
     fn capabilities(&self) -> ParagraphCapabilities;
 
     fn layout(
@@ -102,13 +104,13 @@ pub(super) trait BatchedParagraphApi: Send + Sync {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct BatchedParagraphError {
+struct BatchedParagraphError {
     operation: &'static str,
     details: String,
 }
 
 impl BatchedParagraphError {
-    pub(super) fn new(operation: &'static str, details: impl Into<String>) -> Self {
+    fn new(operation: &'static str, details: impl Into<String>) -> Self {
         Self {
             operation,
             details: details.into(),

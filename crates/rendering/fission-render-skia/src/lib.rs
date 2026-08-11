@@ -11,6 +11,7 @@ mod thread_owner;
 
 pub use capabilities::skia_raster_capabilities;
 pub use driver::SkiaRasterDriver;
+pub use paragraph_engine::SkiaParagraphEngine;
 
 use fission_render::backend::{BackendResult, GraphicsBackendSession};
 
