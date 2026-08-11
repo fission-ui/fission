@@ -428,8 +428,10 @@ fn cache_key_tracks_font_catalog_generation() {
 
 #[test]
 fn unsupported_native_stub_fails_explicitly() {
+    let mut description = description("plain");
+    description.paragraph_style.text_direction = fission_ir::op::TextDirection::Ltr;
     let error = SkiaParagraphEngine::default()
-        .layout(&description("plain"))
+        .layout(&description)
         .unwrap_err();
 
     assert!(matches!(
