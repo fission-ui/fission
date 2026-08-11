@@ -1,7 +1,7 @@
 #![cfg(feature = "test-shim")]
 
 use std::ffi::c_void;
-use std::num::{NonZeroU32, NonZeroU64};
+use std::num::{NonZeroIsize, NonZeroU32, NonZeroU64};
 use std::ptr::NonNull;
 use std::sync::Mutex;
 
@@ -22,6 +22,7 @@ fn ganesh_surface_enforces_zero_size_and_present_ordering() {
     let required = ffi::FEATURE_GANESH
         | ffi::FEATURE_VULKAN
         | ffi::FEATURE_METAL
+        | ffi::FEATURE_D3D12
         | ffi::FEATURE_NATIVE_PRESENTATION;
     assert_eq!(engine.build_info().feature_bits & required, required);
 
@@ -142,6 +143,15 @@ fn metal_descriptors_route_appkit_and_uikit_without_owning_views() {
     let _guard = TEST_LOCK.lock().unwrap();
     assert_eq!(live_counts(), ffi::TestCounts::default());
     let engine = Engine::new().expect("test engine");
+    let mut incompatible_view = Box::new(20_u8);
+    let incompatible = unsafe { NativeWindow::appkit(pointer(&mut incompatible_view)) };
+    assert_eq!(
+        GaneshContext::new_d3d12(&engine, incompatible)
+            .err()
+            .expect("Direct3D must reject a non-Win32 descriptor")
+            .kind,
+        ErrorKind::InvalidArgument
+    );
     let context = {
         let mut probe_view = Box::new(9_u8);
         let appkit = unsafe { NativeWindow::appkit(pointer(&mut probe_view)) };
@@ -181,6 +191,36 @@ fn metal_descriptors_route_appkit_and_uikit_without_owning_views() {
 }
 
 #[test]
+fn d3d12_descriptors_route_win32_without_owning_hwnds() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    assert_eq!(live_counts(), ffi::TestCounts::default());
+    let engine = Engine::new().expect("test engine");
+    let context = {
+        let hwnd = NonZeroIsize::new(21).unwrap();
+        let win32 = unsafe { NativeWindow::win32(hwnd) };
+        assert_eq!(win32.kind(), NativeWindowKind::Win32);
+        GaneshContext::new_d3d12(&engine, win32).expect("Direct3D 12 context")
+    };
+
+    let attached = unsafe { NativeWindow::win32(NonZeroIsize::new(22).unwrap()) };
+    let mut surface = GaneshSurface::new(&context, attached, 2, 2).expect("Win32 surface");
+    let mut appkit_view = Box::new(23_u8);
+    let appkit = unsafe { NativeWindow::appkit(pointer(&mut appkit_view)) };
+    assert_eq!(
+        surface
+            .resize(appkit, 2, 2)
+            .expect_err("host kind mismatch")
+            .kind,
+        ErrorKind::InvalidArgument
+    );
+
+    drop(surface);
+    drop(context);
+    drop(engine);
+    assert_eq!(live_counts(), ffi::TestCounts::default());
+}
+
+#[test]
 fn raw_abi_rejects_malformed_descriptors_and_invalid_presentation_handles() {
     let _guard = TEST_LOCK.lock().unwrap();
     let config = ffi::EngineConfig {
@@ -205,6 +245,19 @@ fn raw_abi_rejects_malformed_descriptors_and_invalid_presentation_handles() {
     let mut context = 0;
     let status = unsafe {
         ffi::fission_skia_context_create_ganesh(engine, &invalid, &mut context, &mut error)
+    };
+    assert_eq!(status, ffi::STATUS_INVALID_ARGUMENT);
+    assert_eq!(context, 0);
+
+    let invalid_win32 = ffi::NativeWindow {
+        struct_size: std::mem::size_of::<ffi::NativeWindow>() as u32,
+        kind: ffi::NATIVE_WINDOW_WIN32,
+        display: 1,
+        window: 2,
+        visual_id: 0,
+    };
+    let status = unsafe {
+        ffi::fission_skia_context_create_ganesh(engine, &invalid_win32, &mut context, &mut error)
     };
     assert_eq!(status, ffi::STATUS_INVALID_ARGUMENT);
     assert_eq!(context, 0);

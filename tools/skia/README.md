@@ -4,7 +4,7 @@ This directory owns the reproducible-input and artifact-layout contract for the
 direct Fission Skia integration. It does not contain or advertise a production
 artifact yet.
 
-The current direct bridge contract is ABI v11. ABI changes are explicit artifact
+The current direct bridge contract is ABI v12. ABI changes are explicit artifact
 identity changes; the tooling will not package or verify a header from another
 bridge ABI.
 
@@ -22,8 +22,9 @@ and qualification evidence exist.
 `config.json` declares these profiles:
 
 - `native-raster`, whose foundation build recipe is available;
-- `native-ganesh`, target-selected as Vulkan on Linux GNU x86_64/arm64 and
-  Metal on macOS x86_64/arm64 plus iOS device/simulator slices;
+- `native-ganesh`, target-selected as Vulkan on Linux GNU x86_64/arm64, Metal
+  on macOS x86_64/arm64 plus iOS device/simulator slices, and Direct3D 12 on
+  Windows MSVC x86_64/arm64;
 - `native-graphite-qualification`, planned and never an implicit fallback;
 - `canvaskit-production`, planned WebGL plus raster fallback;
 - `canvaskit-software-qualification`, planned CPU-only Web qualification.
@@ -34,15 +35,17 @@ recognize the identity; it does not mean an artifact exists or is qualified.
 Profiles without an implemented recipe fail rather than producing a plausible
 but incomplete archive. `native-ganesh` classifies every declared native
 target: Linux musl is explicitly unsupported until its C++/fontconfig
-toolchain is reproducible, while Windows and Android remain explicitly pending
-their platform surface and presentation contracts.
+toolchain is reproducible, while Android remains explicitly pending its
+platform surface and presentation contract.
 
 The Linux recipe enables Vulkan and VMA while disabling GL, X11, Metal,
 Direct3D, Dawn, and Graphite. Its exact native consumer link contract is `dl`,
 `fontconfig`, and the Vulkan loader. The macOS and iOS recipes enable Metal,
 compile their AppKit/UIKit presenter units, and bind the exact Apple framework
 set in the artifact receipt. Raster `SkSurface` remains in every native Ganesh
-artifact as the fallback. Each target recipe owns its exact bridge sources,
+artifact as the fallback. The Windows recipes enable Direct3D 12, compile the
+DXGI presenter units, and link exactly `d3d12`, `dxgi`, `user32`, and
+`kernel32`. Each target recipe owns its exact bridge sources,
 backend define, GN arguments, and native link contract; developers still
 select only `native-ganesh`, never a vendor profile.
 

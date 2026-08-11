@@ -8,7 +8,7 @@ use std::process::Command;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-const ABI_VERSION: u32 = 11;
+const ABI_VERSION: u32 = 12;
 const SKIA_REVISION: &str = "cf5c36972b73698eb3939cda147ea47152670312";
 const STATIC_LIBRARIES: &[&str] = &[
     "fission_skia_bridge",
@@ -20,6 +20,7 @@ const STATIC_LIBRARIES: &[&str] = &[
 ];
 const GANESH_LINUX_SYSTEM_LIBRARIES: &[&str] = &["dl", "fontconfig", "vulkan"];
 const GANESH_APPLE_SYSTEM_LIBRARIES: &[&str] = &["c++"];
+const GANESH_WINDOWS_SYSTEM_LIBRARIES: &[&str] = &["d3d12", "dxgi", "user32", "kernel32"];
 const GANESH_MACOS_FRAMEWORKS: &[&str] = &[
     "AppKit",
     "CoreFoundation",
@@ -70,12 +71,22 @@ const GANESH_IOS_BRIDGE_SOURCES: &[&str] = &[
     "cpp/fission_skia_ganesh_ios_metal_context.mm",
     "cpp/fission_skia_ganesh_ios_metal_surface.mm",
 ];
+const GANESH_D3D12_BRIDGE_SOURCES: &[&str] = &[
+    "cpp/fission_skia.cpp",
+    "cpp/fission_skia_registry.cpp",
+    "cpp/fission_skia_frame_validation.cpp",
+    "cpp/fission_skia_frame_playback.cpp",
+    "cpp/fission_skia_paragraph.cpp",
+    "cpp/fission_skia_ganesh_d3d_context.cpp",
+    "cpp/fission_skia_ganesh_d3d_surface.cpp",
+];
 
 #[derive(Clone, Copy)]
 enum GaneshBackend {
     Vulkan,
     MacOSMetal,
     IosMetal,
+    D3D12,
 }
 
 #[cfg(feature = "skia-build-from-source")]
@@ -191,6 +202,10 @@ fn emit_inputs() {
     println!("cargo:rerun-if-changed=cpp/fission_skia_ganesh_ios_metal_internal.h");
     println!("cargo:rerun-if-changed=cpp/fission_skia_ganesh_ios_metal_context.mm");
     println!("cargo:rerun-if-changed=cpp/fission_skia_ganesh_ios_metal_surface.mm");
+    println!("cargo:rerun-if-changed=cpp/fission_skia_ganesh_d3d.h");
+    println!("cargo:rerun-if-changed=cpp/fission_skia_ganesh_d3d_internal.h");
+    println!("cargo:rerun-if-changed=cpp/fission_skia_ganesh_d3d_context.cpp");
+    println!("cargo:rerun-if-changed=cpp/fission_skia_ganesh_d3d_surface.cpp");
     println!("cargo:rerun-if-changed=cpp/test_shim.cpp");
     println!("cargo:rerun-if-changed=cpp/test_shim_paragraph.cpp");
     println!("cargo:rerun-if-changed=skia_revision.txt");
@@ -310,6 +325,7 @@ fn ganesh_backend(target: &str) -> Option<GaneshBackend> {
         "aarch64-apple-ios" | "aarch64-apple-ios-sim" | "x86_64-apple-ios" => {
             Some(GaneshBackend::IosMetal)
         }
+        "x86_64-pc-windows-msvc" | "aarch64-pc-windows-msvc" => Some(GaneshBackend::D3D12),
         _ => None,
     }
 }
@@ -323,6 +339,7 @@ fn bridge_sources(profile: &str, target: &str) -> &'static [&'static str] {
             GaneshBackend::Vulkan => GANESH_VULKAN_BRIDGE_SOURCES,
             GaneshBackend::MacOSMetal => GANESH_MACOS_BRIDGE_SOURCES,
             GaneshBackend::IosMetal => GANESH_IOS_BRIDGE_SOURCES,
+            GaneshBackend::D3D12 => GANESH_D3D12_BRIDGE_SOURCES,
         },
         _ => unreachable!("profile was validated before selecting bridge sources"),
     }
@@ -342,6 +359,9 @@ fn bridge_defines(profile: &str, target: &str) -> BTreeMap<String, String> {
             "FISSION_SKIA_ENABLE_GANESH_IOS_METAL".to_owned(),
             "1".to_owned(),
         )]),
+        ("native-ganesh", Some(GaneshBackend::D3D12)) => {
+            BTreeMap::from([("FISSION_SKIA_ENABLE_GANESH_D3D".to_owned(), "1".to_owned())])
+        }
         ("native-raster", _) => BTreeMap::new(),
         _ => unreachable!("profile target was validated before selecting bridge defines"),
     }
@@ -354,6 +374,7 @@ fn ganesh_link_contract(target: &str) -> (&'static [&'static str], &'static [&'s
         GaneshBackend::Vulkan => (GANESH_LINUX_SYSTEM_LIBRARIES, &[]),
         GaneshBackend::MacOSMetal => (GANESH_APPLE_SYSTEM_LIBRARIES, GANESH_MACOS_FRAMEWORKS),
         GaneshBackend::IosMetal => (GANESH_APPLE_SYSTEM_LIBRARIES, GANESH_IOS_FRAMEWORKS),
+        GaneshBackend::D3D12 => (GANESH_WINDOWS_SYSTEM_LIBRARIES, &[]),
     }
 }
 
@@ -381,7 +402,8 @@ fn validate_profile_target(profile: &str, target: &str) {
         "native-ganesh" if ganesh_backend(target).is_some() => {}
         "native-ganesh" => panic!(
             "Skia profile native-ganesh is not available for {target}; supported targets are "
-            "Linux GNU x86_64/arm64, macOS x86_64/arm64, and iOS device/simulator arm64/x86_64"
+            "Linux GNU x86_64/arm64, macOS x86_64/arm64, iOS device/simulator arm64/x86_64, "
+            "and Windows MSVC x86_64/arm64"
         ),
         _ => panic!(
             "unsupported FISSION_SKIA_PROFILE={profile:?}; select native-raster or native-ganesh"
@@ -613,23 +635,28 @@ fn verify_ganesh_source_plan(build: &Path, target: &str) {
         ("skia_enable_ganesh", true),
         ("skia_enable_graphite", false),
         ("skia_use_dawn", false),
-        ("skia_use_direct3d", false),
         ("skia_use_gl", false),
     ] {
         if gn_args.get(name).and_then(serde_json::Value::as_bool) != Some(expected) {
             panic!("{} does not pin {name}={expected}", path.display());
         }
     }
-    let (expected_os, expected_cpu, metal, vulkan) = match target {
-        "x86_64-unknown-linux-gnu" => ("linux", "x64", false, true),
-        "aarch64-unknown-linux-gnu" => ("linux", "arm64", false, true),
-        "x86_64-apple-darwin" => ("mac", "x64", true, false),
-        "aarch64-apple-darwin" => ("mac", "arm64", true, false),
-        "aarch64-apple-ios" | "aarch64-apple-ios-sim" => ("ios", "arm64", true, false),
-        "x86_64-apple-ios" => ("ios", "x64", true, false),
+    let (expected_os, expected_cpu, metal, vulkan, direct3d) = match target {
+        "x86_64-unknown-linux-gnu" => ("linux", "x64", false, true, false),
+        "aarch64-unknown-linux-gnu" => ("linux", "arm64", false, true, false),
+        "x86_64-apple-darwin" => ("mac", "x64", true, false, false),
+        "aarch64-apple-darwin" => ("mac", "arm64", true, false, false),
+        "aarch64-apple-ios" | "aarch64-apple-ios-sim" => ("ios", "arm64", true, false, false),
+        "x86_64-apple-ios" => ("ios", "x64", true, false, false),
+        "x86_64-pc-windows-msvc" => ("win", "x64", false, false, true),
+        "aarch64-pc-windows-msvc" => ("win", "arm64", false, false, true),
         _ => unreachable!("native-ganesh target was validated"),
     };
-    for (name, expected) in [("skia_use_metal", metal), ("skia_use_vulkan", vulkan)] {
+    for (name, expected) in [
+        ("skia_use_metal", metal),
+        ("skia_use_vulkan", vulkan),
+        ("skia_use_direct3d", direct3d),
+    ] {
         if gn_args.get(name).and_then(serde_json::Value::as_bool) != Some(expected) {
             panic!("{} does not pin {name}={expected}", path.display());
         }
@@ -653,6 +680,7 @@ fn verify_ganesh_source_plan(build: &Path, target: &str) {
             }
         }
         GaneshBackend::MacOSMetal => {}
+        GaneshBackend::D3D12 => {}
         GaneshBackend::IosMetal => {
             let simulator = target != "aarch64-apple-ios";
             if gn_args

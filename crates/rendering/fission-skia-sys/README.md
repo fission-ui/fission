@@ -1,7 +1,7 @@
 # fission-skia-sys
 
 `fission-skia-sys` is Fission's sole native link authority for Skia. It exposes
-a narrow, versioned C ABI instead of C++ or Skia-owned layouts. ABI v11 contains
+a narrow, versioned C ABI instead of C++ or Skia-owned layouts. ABI v12 contains
 the production raster foundation: engine and context ownership, raster
 surfaces, batched paint state and shape execution, RGBA readback,
 memory-pressure notification, structured diagnostics, and explicit
@@ -54,8 +54,9 @@ prebuilt manifest with another revision is rejected rather than treated as
 compatible.
 
 `FISSION_SKIA_PROFILE` defaults to `native-raster`. The `native-ganesh` profile
-selects Vulkan on Linux GNU x86_64/arm64, Metal on macOS x86_64/arm64, and
-Metal on the declared iOS device/simulator slices, always with raster fallback.
+selects Vulkan on Linux GNU x86_64/arm64, Metal on macOS x86_64/arm64 and the
+declared iOS device/simulator slices, and Direct3D 12 on Windows MSVC
+x86_64/arm64, always with raster fallback.
 Developers select the one profile; the target chooses the vendor backend.
 Source mode requires the matching
 `fission-skia-build-plan.json` emitted by `tools/skia/skia.py`; it will not label

@@ -30,7 +30,7 @@ class SkiaToolTests(unittest.TestCase):
         inputs = temporary / "inputs"
         inputs.mkdir()
         header = inputs / "fission_skia.h"
-        header.write_text("#define FISSION_SKIA_ABI_VERSION 11u\n", encoding="utf-8")
+        header.write_text("#define FISSION_SKIA_ABI_VERSION 12u\n", encoding="utf-8")
 
         profile = self.config["profiles"]["native-raster"]
         target = "x86_64-unknown-linux-gnu"
@@ -152,7 +152,7 @@ class SkiaToolTests(unittest.TestCase):
     def test_pin_and_all_local_profiles_are_explicitly_unqualified(self) -> None:
         self.assertRegex(self.config["source"]["revision"], r"^[0-9a-f]{40}$")
         self.assertEqual(self.config["source"]["qualification"], "unqualified")
-        self.assertEqual(self.config["bridge"]["abi_version"], 11)
+        self.assertEqual(self.config["bridge"]["abi_version"], 12)
         lock = json.loads(
             (Path(__file__).resolve().parents[1] / "artifacts.lock.json").read_text(
                 encoding="utf-8"
@@ -280,7 +280,7 @@ class SkiaToolTests(unittest.TestCase):
         )
         self.assertEqual(
             profile["features"]["presentation"],
-            ["appkit", "uikit", "wayland", "xcb", "xlib"],
+            ["appkit", "uikit", "wayland", "win32", "xcb", "xlib"],
         )
         self.assertEqual(
             recipe["bridge_sources"],
@@ -379,6 +379,47 @@ class SkiaToolTests(unittest.TestCase):
             ],
         )
 
+    def test_native_ganesh_selects_exact_windows_d3d12_recipes(self) -> None:
+        for target_name, target_cpu in (
+            ("x86_64-pc-windows-msvc", "x64"),
+            ("aarch64-pc-windows-msvc", "arm64"),
+        ):
+            with self.subTest(target=target_name):
+                recipe = skia.resolve_build_plan(
+                    self.config,
+                    "native-ganesh",
+                    target_name,
+                    {},
+                )
+                self.assertEqual(recipe["gn_args"]["target_os"], "win")
+                self.assertEqual(recipe["gn_args"]["target_cpu"], target_cpu)
+                self.assertIs(recipe["gn_args"]["skia_use_direct3d"], True)
+                self.assertIs(recipe["gn_args"]["skia_use_metal"], False)
+                self.assertIs(recipe["gn_args"]["skia_use_vulkan"], False)
+                self.assertEqual(
+                    recipe["bridge_sources"][-2:],
+                    [
+                        "cpp/fission_skia_ganesh_d3d_context.cpp",
+                        "cpp/fission_skia_ganesh_d3d_surface.cpp",
+                    ],
+                )
+                self.assertEqual(
+                    recipe["bridge_defines"],
+                    {"FISSION_SKIA_ENABLE_GANESH_D3D": "1"},
+                )
+                target = self.config["profiles"]["native-ganesh"]["target_recipes"][
+                    target_name
+                ]
+                self.assertEqual(
+                    target["system_libraries"],
+                    ["d3d12", "dxgi", "user32", "kernel32"],
+                )
+                self.assertEqual(target["frameworks"], [])
+                self.assertEqual(
+                    self.config["targets"][target_name]["deployment_fields"],
+                    ["minimum_windows", "windows_sdk", "msvc_runtime"],
+                )
+
     def test_native_ganesh_unavailable_targets_fail_with_the_declared_reason(self) -> None:
         with self.assertRaisesRegex(skia.SkiaToolError, "unsupported.*musl"):
             skia.resolve_build_plan(
@@ -387,11 +428,11 @@ class SkiaToolTests(unittest.TestCase):
                 "x86_64-unknown-linux-musl",
                 {},
             )
-        with self.assertRaisesRegex(skia.SkiaToolError, "pending.*Direct3D"):
+        with self.assertRaisesRegex(skia.SkiaToolError, "pending.*Android"):
             skia.resolve_build_plan(
                 self.config,
                 "native-ganesh",
-                "x86_64-pc-windows-msvc",
+                "aarch64-linux-android",
                 {},
             )
 
@@ -439,6 +480,24 @@ class SkiaToolTests(unittest.TestCase):
                 "native-ganesh",
                 "aarch64-apple-darwin",
                 apple_links,
+            )
+        windows_links = {
+            "system_libraries": ["d3d12", "dxgi", "user32", "kernel32"],
+            "frameworks": [],
+        }
+        skia.validate_profile_target_links(
+            profile,
+            "native-ganesh",
+            "x86_64-pc-windows-msvc",
+            windows_links,
+        )
+        windows_links["system_libraries"].append("dxguid")
+        with self.assertRaisesRegex(skia.SkiaToolError, "system_libraries"):
+            skia.validate_profile_target_links(
+                profile,
+                "native-ganesh",
+                "x86_64-pc-windows-msvc",
+                windows_links,
             )
 
     def test_gn_overrides_are_closed_to_the_target_allowlist(self) -> None:

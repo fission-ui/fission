@@ -52,6 +52,10 @@ constexpr uint64_t kGaneshFeatureBits =
 constexpr uint64_t kGaneshFeatureBits =
     FISSION_SKIA_FEATURE_GANESH | FISSION_SKIA_FEATURE_METAL |
     FISSION_SKIA_FEATURE_NATIVE_PRESENTATION;
+#elif FISSION_SKIA_ENABLE_GANESH_D3D
+constexpr uint64_t kGaneshFeatureBits =
+    FISSION_SKIA_FEATURE_GANESH | FISSION_SKIA_FEATURE_D3D12 |
+    FISSION_SKIA_FEATURE_NATIVE_PRESENTATION;
 #else
 constexpr uint64_t kGaneshFeatureBits = 0;
 #endif

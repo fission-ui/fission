@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-#define FISSION_SKIA_ABI_VERSION 11u
+#define FISSION_SKIA_ABI_VERSION 12u
 #define FISSION_SKIA_REVISION_LENGTH 41u
 #define FISSION_SKIA_PROFILE_LENGTH 32u
 #define FISSION_SKIA_ERROR_OPERATION_LENGTH 64u
@@ -68,6 +68,7 @@ typedef enum fission_skia_feature_t {
     FISSION_SKIA_FEATURE_VULKAN = UINT64_C(1) << 14,
     FISSION_SKIA_FEATURE_NATIVE_PRESENTATION = UINT64_C(1) << 15,
     FISSION_SKIA_FEATURE_METAL = UINT64_C(1) << 16,
+    FISSION_SKIA_FEATURE_D3D12 = UINT64_C(1) << 17,
     FISSION_SKIA_FEATURE_TEST_SHIM = UINT64_C(1) << 63
 } fission_skia_feature_t;
 
@@ -98,7 +99,8 @@ typedef enum fission_skia_native_window_kind_t {
     FISSION_SKIA_NATIVE_WINDOW_XLIB = 2,
     FISSION_SKIA_NATIVE_WINDOW_XCB = 3,
     FISSION_SKIA_NATIVE_WINDOW_APPKIT = 4,
-    FISSION_SKIA_NATIVE_WINDOW_UIKIT = 5
+    FISSION_SKIA_NATIVE_WINDOW_UIKIT = 5,
+    FISSION_SKIA_NATIVE_WINDOW_WIN32 = 6
 } fission_skia_native_window_kind_t;
 
 /*
@@ -111,6 +113,10 @@ typedef enum fission_skia_native_window_kind_t {
  * For AppKit and UIKit, display and visual_id are zero. window contains a
  * borrowed NSView* or UIView*, respectively, encoded as uint64_t. Native view
  * operations must run on the platform main thread.
+ *
+ * For Win32, display and visual_id are zero. window contains a borrowed HWND
+ * encoded as uint64_t. Native window operations must run on the thread that
+ * created the HWND.
  *
  * The caller owns every referenced native object and must keep it valid for
  * the synchronous context-probe call that receives it. A descriptor used to

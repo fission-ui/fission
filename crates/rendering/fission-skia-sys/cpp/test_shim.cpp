@@ -34,6 +34,7 @@ constexpr uint64_t kFeatures =
     FISSION_SKIA_FEATURE_GANESH |
     FISSION_SKIA_FEATURE_VULKAN |
     FISSION_SKIA_FEATURE_METAL |
+    FISSION_SKIA_FEATURE_D3D12 |
     FISSION_SKIA_FEATURE_NATIVE_PRESENTATION |
     FISSION_SKIA_FEATURE_TEST_SHIM;
 
@@ -178,6 +179,7 @@ bool valid_native_window(const fission_skia_native_window_t* window) {
                    window->window <= UINT32_MAX && window->visual_id <= UINT32_MAX;
         case FISSION_SKIA_NATIVE_WINDOW_APPKIT:
         case FISSION_SKIA_NATIVE_WINDOW_UIKIT:
+        case FISSION_SKIA_NATIVE_WINDOW_WIN32:
             return window->display == 0 && window->visual_id == 0 &&
                    window->window <= static_cast<uint64_t>(UINTPTR_MAX);
         default:

@@ -1,5 +1,5 @@
 use std::ffi::c_void;
-use std::num::{NonZeroU32, NonZeroU64};
+use std::num::{NonZeroIsize, NonZeroU32, NonZeroU64};
 use std::ptr::NonNull;
 use std::rc::Rc;
 
@@ -28,6 +28,7 @@ pub enum NativeWindowKind {
     Xcb,
     AppKit,
     UIKit,
+    Win32,
 }
 
 /// Fixed-width native window descriptor borrowed by the Skia bridge.
@@ -116,6 +117,18 @@ impl NativeWindow {
         Self::new(ffi::NATIVE_WINDOW_UIKIT, 0, pointer_bits(view), 0)
     }
 
+    /// Describes a Windows HWND.
+    ///
+    /// # Safety
+    ///
+    /// `hwnd` must identify a live Win32 window owned by the current process.
+    /// All bridge operations must occur on the thread that created it. A
+    /// context probe borrows it only for that call; a surface attachment
+    /// requires it to remain live until resize or drop.
+    pub unsafe fn win32(hwnd: NonZeroIsize) -> Self {
+        Self::new(ffi::NATIVE_WINDOW_WIN32, 0, native_handle_bits(hwnd), 0)
+    }
+
     pub fn kind(self) -> NativeWindowKind {
         match self.raw.kind {
             ffi::NATIVE_WINDOW_WAYLAND => NativeWindowKind::Wayland,
@@ -123,6 +136,7 @@ impl NativeWindow {
             ffi::NATIVE_WINDOW_XCB => NativeWindowKind::Xcb,
             ffi::NATIVE_WINDOW_APPKIT => NativeWindowKind::AppKit,
             ffi::NATIVE_WINDOW_UIKIT => NativeWindowKind::UIKit,
+            ffi::NATIVE_WINDOW_WIN32 => NativeWindowKind::Win32,
             _ => unreachable!("safe NativeWindow contains an unknown kind"),
         }
     }
@@ -147,6 +161,11 @@ impl NativeWindow {
 fn pointer_bits(pointer: NonNull<c_void>) -> u64 {
     u64::try_from(pointer.as_ptr() as usize)
         .expect("Fission's fixed-width native-window ABI requires pointers no wider than 64 bits")
+}
+
+fn native_handle_bits(handle: NonZeroIsize) -> u64 {
+    u64::try_from(handle.get() as usize)
+        .expect("Fission's fixed-width native-window ABI requires handles no wider than 64 bits")
 }
 
 /// Owner-thread Ganesh context backed by target-native presentation.
@@ -216,6 +235,33 @@ impl GaneshContext {
             ffi::FEATURE_METAL,
             "GaneshContext::new_metal",
             |kind| matches!(kind, NativeWindowKind::AppKit | NativeWindowKind::UIKit),
+        )?;
+        context.set_resource_cache_limit(limit_bytes)?;
+        Ok(context)
+    }
+
+    /// Creates a Direct3D 12 context for a Win32 host window.
+    pub fn new_d3d12(engine: &Engine, compatible_window: NativeWindow) -> Result<Self> {
+        Self::new_d3d12_with_resource_cache_limit(
+            engine,
+            compatible_window,
+            DEFAULT_GANESH_GPU_CACHE_BYTES,
+        )
+    }
+
+    /// Creates a Direct3D 12 context and installs its sole GPU cache budget
+    /// before any surface or frame can allocate Ganesh resources.
+    pub fn new_d3d12_with_resource_cache_limit(
+        engine: &Engine,
+        compatible_window: NativeWindow,
+        limit_bytes: u64,
+    ) -> Result<Self> {
+        let context = Self::new_unconfigured(
+            engine,
+            compatible_window,
+            ffi::FEATURE_D3D12,
+            "GaneshContext::new_d3d12",
+            |kind| kind == NativeWindowKind::Win32,
         )?;
         context.set_resource_cache_limit(limit_bytes)?;
         Ok(context)

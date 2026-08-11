@@ -45,6 +45,7 @@ pub const FEATURE_GANESH: u64 = 1 << 13;
 pub const FEATURE_VULKAN: u64 = 1 << 14;
 pub const FEATURE_NATIVE_PRESENTATION: u64 = 1 << 15;
 pub const FEATURE_METAL: u64 = 1 << 16;
+pub const FEATURE_D3D12: u64 = 1 << 17;
 pub const FEATURE_TEST_SHIM: u64 = 1 << 63;
 
 pub const PATH_MOVE: u32 = 1;
@@ -97,6 +98,7 @@ pub const NATIVE_WINDOW_XLIB: u32 = 2;
 pub const NATIVE_WINDOW_XCB: u32 = 3;
 pub const NATIVE_WINDOW_APPKIT: u32 = 4;
 pub const NATIVE_WINDOW_UIKIT: u32 = 5;
+pub const NATIVE_WINDOW_WIN32: u32 = 6;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
