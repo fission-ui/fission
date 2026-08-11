@@ -21,8 +21,9 @@ WinitApp<S, W>
   +-- TestControl     (optional HTTP server for automated UI testing)
 ```
 
-Direct native Ganesh currently presents through Vulkan on Linux, Metal on
-macOS/iOS, and D3D12 on Windows without constructing a wgpu presentation path.
+Direct native Ganesh currently presents through Vulkan on Linux/Android, Metal
+on macOS/iOS, and D3D12 on Windows without constructing a wgpu presentation
+path.
 
 The main entry point is `WinitApp::new(root_widget)`, which creates a winit event loop and runs
 the full build-layout-paint-present cycle on every frame.

@@ -5,7 +5,8 @@ use super::*;
         target_os = "linux",
         target_os = "macos",
         target_os = "ios",
-        target_os = "windows"
+        target_os = "windows",
+        target_os = "android"
     )
 ))]
 use crate::skia_ganesh_presenter::WinitSkiaGaneshPresenter;
@@ -18,7 +19,8 @@ use fission_render::capabilities::RenderMode;
         target_os = "linux",
         target_os = "macos",
         target_os = "ios",
-        target_os = "windows"
+        target_os = "windows",
+        target_os = "android"
     )
 ))]
 use fission_render::surface::SessionState;
@@ -60,7 +62,8 @@ pub(super) struct WinitPresenter<'w> {
             target_os = "linux",
             target_os = "macos",
             target_os = "ios",
-            target_os = "windows"
+            target_os = "windows",
+            target_os = "android"
         )
     ))]
     direct_ganesh: Option<WinitSkiaGaneshPresenter>,
@@ -78,7 +81,8 @@ impl<'w> WinitPresenter<'w> {
                     target_os = "linux",
                     target_os = "macos",
                     target_os = "ios",
-                    target_os = "windows"
+                    target_os = "windows",
+                    target_os = "android"
                 )
             ))]
             direct_ganesh: None,
@@ -93,7 +97,8 @@ impl<'w> WinitPresenter<'w> {
                     target_os = "linux",
                     target_os = "macos",
                     target_os = "ios",
-                    target_os = "windows"
+                    target_os = "windows",
+                    target_os = "android"
                 )
             ))]
             {
@@ -107,7 +112,8 @@ impl<'w> WinitPresenter<'w> {
                     target_os = "linux",
                     target_os = "macos",
                     target_os = "ios",
-                    target_os = "windows"
+                    target_os = "windows",
+                    target_os = "android"
                 )
             )))]
             {
@@ -123,7 +129,8 @@ impl<'w> WinitPresenter<'w> {
                 target_os = "linux",
                 target_os = "macos",
                 target_os = "ios",
-                target_os = "windows"
+                target_os = "windows",
+                target_os = "android"
             )
         ))]
         debug_assert!(self.direct_ganesh.is_none());
@@ -142,7 +149,8 @@ impl<'w> WinitPresenter<'w> {
                 target_os = "linux",
                 target_os = "macos",
                 target_os = "ios",
-                target_os = "windows"
+                target_os = "windows",
+                target_os = "android"
             )
         ))]
         if let Some(presenter) = self.direct_ganesh.as_ref() {
@@ -163,7 +171,8 @@ impl<'w> WinitPresenter<'w> {
                 target_os = "linux",
                 target_os = "macos",
                 target_os = "ios",
-                target_os = "windows"
+                target_os = "windows",
+                target_os = "android"
             )
         ))]
         if self.direct_ganesh.is_some() {
@@ -184,7 +193,8 @@ impl<'w> WinitPresenter<'w> {
                 target_os = "linux",
                 target_os = "macos",
                 target_os = "ios",
-                target_os = "windows"
+                target_os = "windows",
+                target_os = "android"
             )
         ))]
         if let Some(presenter) = self.direct_ganesh.as_mut() {
@@ -224,7 +234,8 @@ impl<'w> WinitPresenter<'w> {
                 target_os = "linux",
                 target_os = "macos",
                 target_os = "ios",
-                target_os = "windows"
+                target_os = "windows",
+                target_os = "android"
             )
         ))]
         if let Some(presenter) = self.direct_ganesh.as_mut() {
@@ -245,7 +256,8 @@ impl<'w> WinitPresenter<'w> {
                 target_os = "linux",
                 target_os = "macos",
                 target_os = "ios",
-                target_os = "windows"
+                target_os = "windows",
+                target_os = "android"
             )
         ))]
         if let Some(mut presenter) = self.direct_ganesh.take() {
@@ -280,7 +292,8 @@ impl<'w> WinitPresenter<'w> {
             target_os = "linux",
             target_os = "macos",
             target_os = "ios",
-            target_os = "windows"
+            target_os = "windows",
+            target_os = "android"
         )
     ))]
     pub(super) fn direct_ganesh_mut(&mut self) -> Option<&mut WinitSkiaGaneshPresenter> {
@@ -293,7 +306,8 @@ impl<'w> WinitPresenter<'w> {
             target_os = "linux",
             target_os = "macos",
             target_os = "ios",
-            target_os = "windows"
+            target_os = "windows",
+            target_os = "android"
         )
     ))]
     pub(super) fn has_direct_ganesh(&self) -> bool {
@@ -306,7 +320,8 @@ impl<'w> WinitPresenter<'w> {
             target_os = "linux",
             target_os = "macos",
             target_os = "ios",
-            target_os = "windows"
+            target_os = "windows",
+            target_os = "android"
         )
     ))]
     pub(super) fn attach_direct_ganesh(&mut self, presenter: WinitSkiaGaneshPresenter) {
@@ -746,7 +761,8 @@ pub(super) fn sync_wgpu_render_state(
         target_os = "linux",
         target_os = "macos",
         target_os = "ios",
-        target_os = "windows"
+        target_os = "windows",
+        target_os = "android"
     )
 ))]
 pub(super) fn attach_or_resume_native_ganesh(
@@ -821,11 +837,12 @@ pub(super) fn attach_or_resume_native_ganesh(
         target_os = "linux",
         target_os = "macos",
         target_os = "ios",
-        target_os = "windows"
+        target_os = "windows",
+        target_os = "android"
     )
 ))]
 fn native_ganesh_renderer_name() -> &'static str {
-    if cfg!(target_os = "linux") {
+    if cfg!(any(target_os = "linux", target_os = "android")) {
         "Skia Ganesh (Vulkan direct)"
     } else if cfg!(target_os = "windows") {
         "Skia Ganesh (D3D12 direct)"
@@ -987,13 +1004,14 @@ pub(super) fn require_compiled_native_renderer(
             target_os = "linux",
             target_os = "macos",
             target_os = "ios",
-            target_os = "windows"
+            target_os = "windows",
+            target_os = "android"
         ))
     {
         Err(RequestedRendererInitializationError::new(
             request,
             RendererTarget::Native,
-            "native Skia Ganesh requires Linux Wayland/Xlib/XCB, macOS AppKit, iOS UIKit, or Windows Win32",
+            "native Skia Ganesh requires Linux Wayland/Xlib/XCB, Android NDK, macOS AppKit, iOS UIKit, or Windows Win32",
         ))
     } else if request == RendererRequest::NativeSkiaGanesh && cfg!(feature = "three-d") {
         Err(RequestedRendererInitializationError::new(

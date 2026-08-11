@@ -19,9 +19,10 @@ use fission_render::surface::{
 use fission_render::{LayoutRect, LayoutSize, RenderScene};
 use fission_skia_sys::{NativeWindow, NativeWindowKind};
 use raw_window_handle::{
-    AppKitDisplayHandle, AppKitWindowHandle, RawDisplayHandle, RawWindowHandle, UiKitDisplayHandle,
-    UiKitWindowHandle, WaylandDisplayHandle, WaylandWindowHandle, Win32WindowHandle,
-    WindowsDisplayHandle, XcbDisplayHandle, XcbWindowHandle, XlibDisplayHandle, XlibWindowHandle,
+    AndroidDisplayHandle, AndroidNdkWindowHandle, AppKitDisplayHandle, AppKitWindowHandle,
+    RawDisplayHandle, RawWindowHandle, UiKitDisplayHandle, UiKitWindowHandle, WaylandDisplayHandle,
+    WaylandWindowHandle, Win32WindowHandle, WindowsDisplayHandle, XcbDisplayHandle,
+    XcbWindowHandle, XlibDisplayHandle, XlibWindowHandle,
 };
 
 use super::*;
@@ -360,6 +361,14 @@ fn win32_target(size: PhysicalSize) -> NativeWindowTarget {
     )
 }
 
+fn android_target(size: PhysicalSize) -> NativeWindowTarget {
+    target(
+        size,
+        RawDisplayHandle::Android(AndroidDisplayHandle::new()),
+        RawWindowHandle::AndroidNdk(AndroidNdkWindowHandle::new(pointer())),
+    )
+}
+
 #[test]
 fn lowers_all_supported_native_window_routes_and_allows_unknown_visuals() {
     let size = PhysicalSize::new(640, 480);
@@ -390,6 +399,10 @@ fn lowers_all_supported_native_window_routes_and_allows_unknown_visuals() {
     assert_eq!(
         lower_native_window(&win32_target(size)).unwrap().kind(),
         NativeWindowKind::Win32
+    );
+    assert_eq!(
+        lower_native_window(&android_target(size)).unwrap().kind(),
+        NativeWindowKind::Android
     );
 }
 
@@ -460,6 +473,21 @@ fn native_window_descriptors_enforce_platform_thread_affinity() {
     assert_eq!(
         windows_session
             .attach(&wrong_windows_affinity)
+            .unwrap_err()
+            .code,
+        "skia-ganesh-thread-affinity-invalid"
+    );
+
+    let mut android_session = session(MockApi::default());
+    let wrong_android_affinity = target_with_affinity(
+        size,
+        RawDisplayHandle::Android(AndroidDisplayHandle::new()),
+        RawWindowHandle::AndroidNdk(AndroidNdkWindowHandle::new(pointer())),
+        ThreadAffinity::MainThread,
+    );
+    assert_eq!(
+        android_session
+            .attach(&wrong_android_affinity)
             .unwrap_err()
             .code,
         "skia-ganesh-thread-affinity-invalid"

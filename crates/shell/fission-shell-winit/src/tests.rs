@@ -223,7 +223,8 @@ fn direct_ganesh_is_the_only_native_request_that_skips_wgpu_initialization() {
         target_os = "linux",
         target_os = "macos",
         target_os = "ios",
-        target_os = "windows"
+        target_os = "windows",
+        target_os = "android"
     )
 ))]
 #[test]

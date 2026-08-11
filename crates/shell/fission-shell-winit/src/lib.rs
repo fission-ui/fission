@@ -171,7 +171,8 @@ use rendering::*;
     target_os = "linux",
     target_os = "macos",
     target_os = "ios",
-    target_os = "windows"
+    target_os = "windows",
+    target_os = "android"
 ))]
 mod native_window_target;
 #[cfg(all(
@@ -180,7 +181,8 @@ mod native_window_target;
         target_os = "linux",
         target_os = "macos",
         target_os = "ios",
-        target_os = "windows"
+        target_os = "windows",
+        target_os = "android"
     )
 ))]
 mod skia_ganesh_presenter;
@@ -218,7 +220,8 @@ fn paragraph_engine_for_native_renderer(
             target_os = "linux",
             target_os = "macos",
             target_os = "ios",
-            target_os = "windows"
+            target_os = "windows",
+            target_os = "android"
         )
     ))]
     skia_ganesh_profile: Option<&fission_render_skia::SkiaGaneshProfile>,
@@ -242,7 +245,8 @@ fn paragraph_engine_for_native_renderer(
                 target_os = "linux",
                 target_os = "macos",
                 target_os = "ios",
-                target_os = "windows"
+                target_os = "windows",
+                target_os = "android"
             )
         ))]
         {
@@ -258,7 +262,8 @@ fn paragraph_engine_for_native_renderer(
                 target_os = "linux",
                 target_os = "macos",
                 target_os = "ios",
-                target_os = "windows"
+                target_os = "windows",
+                target_os = "android"
             )
         )))]
         unreachable!("native renderer validation rejects Ganesh on this build");
@@ -293,7 +298,8 @@ where
                 target_os = "linux",
                 target_os = "macos",
                 target_os = "ios",
-                target_os = "windows"
+                target_os = "windows",
+                target_os = "android"
             )
         ))]
         let skia_ganesh_profile = (renderer_request == RendererRequest::NativeSkiaGanesh)
@@ -310,7 +316,8 @@ where
                     target_os = "linux",
                     target_os = "macos",
                     target_os = "ios",
-                    target_os = "windows"
+                    target_os = "windows",
+                    target_os = "android"
                 )
             ))]
             skia_ganesh_profile.as_ref(),
@@ -617,7 +624,8 @@ where
                     target_os = "linux",
                     target_os = "macos",
                     target_os = "ios",
-                    target_os = "windows"
+                    target_os = "windows",
+                    target_os = "android"
                 )
             ))]
             skia_ganesh_profile,

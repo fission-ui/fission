@@ -7,7 +7,8 @@ layout, or platform hosts.
 
 The renderer adapter now includes deterministic headless Skia raster and a
 native Ganesh presentation profile for Linux Vulkan (Wayland, Xlib, and XCB),
-macOS Metal (AppKit), iOS Metal (UIKit), and Windows D3D12 (Win32).
+Android Vulkan (ANativeWindow), macOS Metal (AppKit), iOS Metal (UIKit), and
+Windows D3D12 (Win32).
 The Ganesh profile becomes constructible only with a matching native artifact.
 Both paths provide explicit lifecycle, recovery, memory-pressure, diagnostic,
 thread-affinity, and teardown behavior together with save/restore, rectangular

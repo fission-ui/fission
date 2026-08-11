@@ -109,6 +109,19 @@ fn validate_native_handle_pair(
     }
 }
 
+#[cfg(target_os = "android")]
+fn validate_native_handle_pair(
+    display_handle: RawDisplayHandle,
+    window_handle: RawWindowHandle,
+) -> anyhow::Result<()> {
+    match (display_handle, window_handle) {
+        (RawDisplayHandle::Android(_), RawWindowHandle::AndroidNdk(_)) => Ok(()),
+        _ => Err(anyhow!(
+            "native Skia presentation on Android requires a matching Android/AndroidNdk display and window handle pair"
+        )),
+    }
+}
+
 pub(super) fn native_thread_affinity() -> ThreadAffinity {
     if cfg!(any(target_os = "macos", target_os = "ios")) {
         ThreadAffinity::MainThread
@@ -124,6 +137,8 @@ mod tests {
     #[cfg(target_os = "linux")]
     use std::num::NonZeroU32;
 
+    #[cfg(target_os = "android")]
+    use raw_window_handle::{AndroidDisplayHandle, AndroidNdkWindowHandle};
     #[cfg(target_os = "macos")]
     use raw_window_handle::{AppKitDisplayHandle, AppKitWindowHandle};
     #[cfg(target_os = "ios")]
@@ -227,6 +242,22 @@ mod tests {
             RawWindowHandle::AppKit(raw_window_handle::AppKitWindowHandle::new(
                 NonNull::dangling(),
             )),
+        )
+        .is_err());
+    }
+
+    #[cfg(target_os = "android")]
+    #[test]
+    fn accepts_only_android_ndk_handle_pairs_on_android() {
+        let pointer = NonNull::dangling();
+        validate_native_handle_pair(
+            RawDisplayHandle::Android(AndroidDisplayHandle::new()),
+            RawWindowHandle::AndroidNdk(AndroidNdkWindowHandle::new(pointer)),
+        )
+        .unwrap();
+        assert!(validate_native_handle_pair(
+            RawDisplayHandle::Android(AndroidDisplayHandle::new()),
+            RawWindowHandle::AppKit(raw_window_handle::AppKitWindowHandle::new(pointer)),
         )
         .is_err());
     }

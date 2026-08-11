@@ -111,7 +111,8 @@ where
             target_os = "linux",
             target_os = "macos",
             target_os = "ios",
-            target_os = "windows"
+            target_os = "windows",
+            target_os = "android"
         )
     ))]
     pub(super) skia_ganesh_profile: Option<fission_render_skia::SkiaGaneshProfile>,

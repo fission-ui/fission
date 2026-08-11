@@ -62,7 +62,8 @@ where
                         target_os = "linux",
                         target_os = "macos",
                         target_os = "ios",
-                        target_os = "windows"
+                        target_os = "windows",
+                        target_os = "android"
                     )
                 ))]
                 let direct_ganesh_attached =
@@ -92,7 +93,8 @@ where
                         target_os = "linux",
                         target_os = "macos",
                         target_os = "ios",
-                        target_os = "windows"
+                        target_os = "windows",
+                        target_os = "android"
                     )
                 )))]
                 let direct_ganesh_attached = false;

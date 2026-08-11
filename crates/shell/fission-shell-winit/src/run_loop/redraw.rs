@@ -288,7 +288,8 @@ where
                         target_os = "linux",
                         target_os = "macos",
                         target_os = "ios",
-                        target_os = "windows"
+                        target_os = "windows",
+                        target_os = "android"
                     )
                 ))]
                 let direct_ganesh_attached =
@@ -319,7 +320,8 @@ where
                         target_os = "linux",
                         target_os = "macos",
                         target_os = "ios",
-                        target_os = "windows"
+                        target_os = "windows",
+                        target_os = "android"
                     )
                 )))]
                 let direct_ganesh_attached = false;
@@ -369,7 +371,8 @@ where
                     target_os = "linux",
                     target_os = "macos",
                     target_os = "ios",
-                    target_os = "windows"
+                    target_os = "windows",
+                    target_os = "android"
                 )
             ))]
             if let Some(ganesh) = self.presenter.direct_ganesh_mut() {
@@ -405,7 +408,8 @@ where
                     target_os = "linux",
                     target_os = "macos",
                     target_os = "ios",
-                    target_os = "windows"
+                    target_os = "windows",
+                    target_os = "android"
                 )
             )))]
             if let Err(error) = sync_wgpu_render_state(
@@ -1077,7 +1081,8 @@ where
                             target_os = "linux",
                             target_os = "macos",
                             target_os = "ios",
-                            target_os = "windows"
+                            target_os = "windows",
+                            target_os = "android"
                         )
                     ))]
                     if self.presenter.has_direct_ganesh() {

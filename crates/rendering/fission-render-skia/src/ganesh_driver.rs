@@ -1036,8 +1036,14 @@ fn lower_native_window(target: &NativeWindowTarget) -> Result<NativeWindow, Stri
             // creating thread for the complete attachment lifetime.
             Ok(unsafe { NativeWindow::win32(window.hwnd) })
         }
+        (RawDisplayHandle::Android(_), RawWindowHandle::AndroidNdk(window)) => {
+            // SAFETY: NativeWindowTarget's host keeps the ANativeWindow live
+            // for the complete attachment lifetime. The bridge takes its own
+            // native reference while a surface is attached.
+            Ok(unsafe { NativeWindow::android(window.a_native_window) })
+        }
         (display, window) => Err(format!(
-            "native Ganesh requires a matching Linux Wayland/Xlib/XCB, macOS AppKit, iOS UIKit, or Windows Win32 handle pair, got {display:?} and {window:?}"
+            "native Ganesh requires a matching Linux Wayland/Xlib/XCB, Android NDK, macOS AppKit, iOS UIKit, or Windows Win32 handle pair, got {display:?} and {window:?}"
         )),
     }
 }
@@ -1047,7 +1053,8 @@ fn native_window_thread_affinity(kind: NativeWindowKind) -> ThreadAffinity {
         NativeWindowKind::Wayland
         | NativeWindowKind::Xlib
         | NativeWindowKind::Xcb
-        | NativeWindowKind::Win32 => ThreadAffinity::CreatingThread,
+        | NativeWindowKind::Win32
+        | NativeWindowKind::Android => ThreadAffinity::CreatingThread,
         NativeWindowKind::AppKit | NativeWindowKind::UIKit => ThreadAffinity::MainThread,
     }
 }

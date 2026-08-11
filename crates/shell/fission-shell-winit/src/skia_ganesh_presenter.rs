@@ -33,8 +33,9 @@ pub(super) enum GaneshCapture {
 ///
 /// This path owns no wgpu surface or upload texture. The backend session
 /// renders into a Skia-wrapped swapchain image and commits that image directly
-/// through Vulkan on Linux, Metal on Apple platforms, or D3D12 on Windows.
-/// `target` retains the Winit window that owns every borrowed native handle.
+/// through Vulkan on Linux/Android, Metal on Apple platforms, or D3D12 on
+/// Windows. `target` retains the Winit window that owns every borrowed native
+/// handle.
 pub(super) struct WinitSkiaGaneshPresenter {
     session: GraphicsBackendSession<'static>,
     target: WinitNativeWindowTarget,
