@@ -31,7 +31,48 @@ pub struct VideoSurfaceFrame {
     pub paint_order: u32,
 }
 
+/// Presentation semantics implemented by a native or DOM child-view adapter.
+///
+/// The conservative default is unavailable. Adapters must opt into every
+/// semantic they actually preserve so shells can reject a frame before its 2D
+/// target is presented instead of silently desynchronizing external content.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PlatformSurfaceCapabilities {
+    pub available: bool,
+    pub rectangular_clip: bool,
+    pub opacity: bool,
+    pub paint_order: bool,
+}
+
+impl PlatformSurfaceCapabilities {
+    pub const UNAVAILABLE: Self = Self {
+        available: false,
+        rectangular_clip: false,
+        opacity: false,
+        paint_order: false,
+    };
+
+    pub const FULL: Self = Self {
+        available: true,
+        rectangular_clip: true,
+        opacity: true,
+        paint_order: true,
+    };
+}
+
 pub trait VideoBackend: Send + Sync {
+    /// Reports which retained placement semantics this backend can present.
+    ///
+    /// The default is deliberately unavailable for existing third-party
+    /// backends until they make an explicit, truthful declaration.
+    fn surface_capabilities(&self) -> PlatformSurfaceCapabilities {
+        PlatformSurfaceCapabilities::UNAVAILABLE
+    }
+
+    /// Updates the logical-to-physical scale used by pixel-based child-view
+    /// APIs. Point/CSS-coordinate backends may keep the default no-op.
+    fn set_scale_factor(&self, _scale_factor: f64) {}
+
     fn create_player(&self, source: &str, audio: &VideoAudioOptions) -> Box<dyn VideoPlayer>;
     fn present_surfaces(&self, frames: &[VideoSurfaceFrame]);
 }
@@ -132,6 +173,14 @@ impl<'a> NativeSurfaceHost<'a> {
 pub trait NativeSurfaceHandler {
     /// Returns whether this handler owns a custom embed payload.
     fn handles_payload(&self, payload: &[u8]) -> bool;
+
+    /// Reports placement semantics supported for a claimed payload.
+    ///
+    /// The safe default is unavailable. A handler that creates a platform view
+    /// must explicitly advertise every retained semantic it preserves.
+    fn surface_capabilities(&self, _payload: &[u8]) -> PlatformSurfaceCapabilities {
+        PlatformSurfaceCapabilities::UNAVAILABLE
+    }
 
     /// Supplies a ready platform window.
     ///
