@@ -96,19 +96,115 @@
     },
     "native-ganesh": {
       "kind": "native",
-      "status": "planned",
+      "status": "foundation",
       "qualified": false,
-      "build_recipe": "pending-platform-integration",
-      "description": "Ganesh using the selected native GPU API plus raster fallback.",
-      "required_licenses": ["fission", "skia"],
+      "build_recipe": "available",
+      "description": "Ganesh using Vulkan on supported Linux GNU targets plus raster fallback.",
+      "required_licenses": [
+        "cpu-features",
+        "expat",
+        "fission",
+        "freetype",
+        "harfbuzz",
+        "icu",
+        "libjpeg-turbo",
+        "libpng",
+        "libwebp",
+        "skia",
+        "vulkan-headers",
+        "vulkan-memory-allocator",
+        "wuffs",
+        "zlib"
+      ],
+      "upstream_libraries": ["svg", "skparagraph", "skshaper", "skunicode", "skia"],
       "features": {
-        "gpu": "ganesh-platform-native",
+        "gpu": "ganesh-vulkan",
+        "presentation": ["xlib", "xcb", "wayland"],
         "raster_fallback": true,
         "paragraph": true,
         "unicode": "icu",
         "svg": "native-svgdom",
         "pdf": false,
         "codecs": ["jpeg", "png", "webp"]
+      },
+      "gn_args": {
+        "skia_enable_ganesh": true,
+        "skia_enable_graphite": false,
+        "skia_use_dawn": false,
+        "skia_use_direct3d": false,
+        "skia_use_gl": false,
+        "skia_use_metal": false,
+        "skia_use_vulkan": true,
+        "skia_use_vma": true
+      },
+      "ninja_targets": [
+        "skia",
+        "modules/skparagraph:skparagraph",
+        "modules/skshaper:skshaper",
+        "modules/skunicode:skunicode",
+        "modules/svg:svg"
+      ],
+      "target_recipes": {
+        "x86_64-unknown-linux-gnu": {
+          "status": "available",
+          "gn_args": {"skia_use_x11": false},
+          "system_libraries": ["dl", "fontconfig", "vulkan"],
+          "frameworks": []
+        },
+        "aarch64-unknown-linux-gnu": {
+          "status": "available",
+          "gn_args": {"skia_use_x11": false},
+          "system_libraries": ["dl", "fontconfig", "vulkan"],
+          "frameworks": []
+        },
+        "x86_64-unknown-linux-musl": {
+          "status": "unsupported",
+          "reason": "The pinned GN target describes Linux but not a reproducible musl C++ and fontconfig toolchain contract."
+        },
+        "x86_64-apple-darwin": {
+          "status": "pending",
+          "reason": "The Metal Ganesh surface and presentation contract is not implemented yet."
+        },
+        "aarch64-apple-darwin": {
+          "status": "pending",
+          "reason": "The Metal Ganesh surface and presentation contract is not implemented yet."
+        },
+        "x86_64-pc-windows-msvc": {
+          "status": "pending",
+          "reason": "The Direct3D Ganesh surface and presentation contract is not implemented yet."
+        },
+        "aarch64-pc-windows-msvc": {
+          "status": "pending",
+          "reason": "The Direct3D Ganesh surface and presentation contract is not implemented yet."
+        },
+        "aarch64-linux-android": {
+          "status": "pending",
+          "reason": "The Android Vulkan Ganesh surface, NDK baseline, and presentation contract are not implemented yet."
+        },
+        "armv7-linux-androideabi": {
+          "status": "pending",
+          "reason": "The Android Vulkan Ganesh surface, NDK baseline, and presentation contract are not implemented yet."
+        },
+        "x86_64-linux-android": {
+          "status": "pending",
+          "reason": "The Android Vulkan Ganesh surface, NDK baseline, and presentation contract are not implemented yet."
+        },
+        "i686-linux-android": {
+          "status": "pending",
+          "reason": "The Android Vulkan Ganesh surface, NDK baseline, and presentation contract are not implemented yet."
+        },
+        "aarch64-apple-ios": {
+          "status": "pending",
+          "reason": "The Metal Ganesh surface and iOS presentation contract is not implemented yet."
+        },
+        "aarch64-apple-ios-sim": {
+          "status": "pending",
+          "reason": "The Metal Ganesh surface and iOS presentation contract is not implemented yet."
+        },
+        "x86_64-apple-ios": {
+          "status": "pending",
+          "reason": "The Metal Ganesh surface and iOS presentation contract is not implemented yet."
+        }
       }
     },
     "native-graphite-qualification": {

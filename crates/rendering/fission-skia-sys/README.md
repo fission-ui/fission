@@ -42,7 +42,7 @@ Exactly one mode must be selected:
   `FISSION_SKIA_ARTIFACT_DIR`.
 - `skia-build-from-source` consumes the exact pinned checkout from
   `FISSION_SKIA_SOURCE_DIR` and its configured GN output from
-  `FISSION_SKIA_BUILD_DIR`, invokes Ninja for the complete native-raster
+  `FISSION_SKIA_BUILD_DIR`, invokes Ninja for the selected profile's complete
   library set (including SVG, paragraph, shaping, and Unicode), and compiles
   this crate's bridge against it. It never downloads or configures source
   implicitly; Fission's artifact tooling owns the reproducible GN arguments.
@@ -52,3 +52,12 @@ Exactly one mode must be selected:
 The source revision is pinned in `skia_revision.txt`. A source checkout or
 prebuilt manifest with another revision is rejected rather than treated as
 compatible.
+
+`FISSION_SKIA_PROFILE` defaults to `native-raster`. The first
+`native-ganesh` profile is explicitly limited to Linux GNU x86_64 and arm64 and
+uses Ganesh/Vulkan with raster fallback. Source mode requires the matching
+`fission-skia-build-plan.json` emitted by `tools/skia/skia.py`; it will not label
+a raster-configured output as Ganesh. Prebuilt mode likewise requires the exact
+profile and Linux Vulkan system-link contract from the artifact manifest.
+Other targets fail clearly until their platform-specific Ganesh surface and
+presentation work is implemented.

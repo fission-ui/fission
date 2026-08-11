@@ -22,7 +22,7 @@ and qualification evidence exist.
 `config.json` declares these profiles:
 
 - `native-raster`, whose foundation build recipe is available;
-- `native-ganesh`, planned per-platform GPU integration;
+- `native-ganesh`, available for Vulkan on Linux GNU x86_64 and arm64;
 - `native-graphite-qualification`, planned and never an implicit fallback;
 - `canvaskit-production`, planned WebGL plus raster fallback;
 - `canvaskit-software-qualification`, planned CPU-only Web qualification.
@@ -31,7 +31,18 @@ Linux GNU and musl, macOS, Windows MSVC, Android ABIs, iOS device/simulator
 slices, and interactive Web target names are declared. Declared means the tools
 recognize the identity; it does not mean an artifact exists or is qualified.
 Profiles without an implemented recipe fail rather than producing a plausible
-but incomplete archive.
+but incomplete archive. `native-ganesh` classifies every declared native
+target: Linux musl is explicitly unsupported until its C++/fontconfig
+toolchain is reproducible, while macOS, Windows, Android, and iOS remain
+explicitly pending their platform surface and presentation contracts.
+
+The first Ganesh slice enables Vulkan and VMA while disabling GL, X11, Metal,
+Direct3D, Dawn, and Graphite. Fission's Vulkan surface bridge is the WSI owner
+for this profile; Xlib, XCB, and Wayland are declared presentation routes and
+do not require Skia's GLX integration. `skia_use_x11=false` therefore removes a
+Skia GLX dependency without narrowing that planned WSI set. The exact native
+consumer link contract is `dl`, `fontconfig`, and the Vulkan loader. Raster
+`SkSurface` remains in the same artifact as the fallback.
 
 ## Local source and vendor overrides
 
@@ -48,6 +59,11 @@ python3 tools/skia/skia.py build-native \
   --gn-sha256 "$PINNED_GN_SHA256" \
   --ninja-sha256 "$PINNED_NINJA_SHA256"
 ```
+
+Select the Linux Vulkan build by changing `--profile` to `native-ganesh`.
+Both source and prebuilt consumers select it with
+`FISSION_SKIA_PROFILE=native-ganesh`; omitting the variable continues to select
+`native-raster`.
 
 `FISSION_SKIA_SOURCE_DIR` and `FISSION_SKIA_BUILD_DIR` are the equivalent
 explicit environment overrides. If a command-line value and environment value
@@ -76,12 +92,14 @@ paths. The Fission bridge is built from the bridge source owned by
 `fission-skia-sys` and supplied to the packaging step; packaging checks its
 header ABI and binds the header and library digests into the artifact manifest.
 
-`native-raster` deliberately ships one stable notice bundle on every native
-target. Its required components are Fission, Skia, Expat, FreeType, HarfBuzz,
-ICU, libjpeg-turbo, libpng, libwebp, Wuffs, zlib, and Android's conditional
-cpu-features dependency. Expat and the other explicitly non-system libraries
-are built from the pinned Skia dependency checkout; target-conditional notices
-remain in every artifact so the profile contract does not vary by host.
+The native profiles deliberately ship one stable notice bundle across their
+supported targets. Their common required components are Fission, Skia, Expat,
+FreeType, HarfBuzz, ICU, libjpeg-turbo, libpng, libwebp, Wuffs, zlib, and
+Android's conditional cpu-features dependency. `native-ganesh` additionally
+includes the Vulkan headers and Vulkan Memory Allocator notices. Expat and the
+other explicitly non-system libraries are built from the pinned Skia
+dependency checkout; target-conditional notices remain in every artifact so a
+profile's contract does not vary by host.
 
 ## Installed artifact layout
 
@@ -119,7 +137,10 @@ payload file. Its native link section always has this shape:
 ```
 
 The actual list is target/profile-specific and must describe every supplied
-library. No build script guesses system libraries or frameworks.
+library. For a profile with target recipes, packaging and verification require
+the exact system libraries and frameworks declared for that target; callers
+cannot weaken or expand the contract through link metadata. No build script
+guesses system libraries or frameworks.
 
 CanvasKit uses the same pin and profile identity but a Web-specific layout:
 `web/canvaskit.js`, `web/canvaskit.wasm`, and the Fission Web bridge. The layout

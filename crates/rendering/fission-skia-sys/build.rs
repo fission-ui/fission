@@ -9,7 +9,7 @@ use sha2::{Digest, Sha256};
 
 const ABI_VERSION: u32 = 8;
 const SKIA_REVISION: &str = "cf5c36972b73698eb3939cda147ea47152670312";
-const PREBUILT_STATIC_LIBRARIES: &[&str] = &[
+const STATIC_LIBRARIES: &[&str] = &[
     "fission_skia_bridge",
     "svg",
     "skparagraph",
@@ -17,6 +17,8 @@ const PREBUILT_STATIC_LIBRARIES: &[&str] = &[
     "skunicode",
     "skia",
 ];
+const GANESH_LINUX_TARGETS: &[&str] = &["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"];
+const GANESH_LINUX_SYSTEM_LIBRARIES: &[&str] = &["dl", "fontconfig", "vulkan"];
 
 #[cfg(feature = "skia-build-from-source")]
 const SOURCE_NINJA_TARGETS: &[&str] = &[
@@ -174,6 +176,7 @@ fn validate_manifest(manifest: &ArtifactManifest) {
         );
     }
     let profile = env::var("FISSION_SKIA_PROFILE").unwrap_or_else(|_| "native-raster".into());
+    validate_profile_target(&profile, &target);
     if manifest.profile != profile {
         panic!(
             "Skia artifact profile {} does not match requested profile {profile}",
@@ -185,11 +188,38 @@ fn validate_manifest(manifest: &ArtifactManifest) {
         .static_libraries
         .iter()
         .map(String::as_str)
-        .ne(PREBUILT_STATIC_LIBRARIES.iter().copied())
+        .ne(STATIC_LIBRARIES.iter().copied())
     {
         panic!(
             "Skia artifact static libraries do not match the required consumer-before-dependency order"
         );
+    }
+    if profile == "native-ganesh"
+        && (manifest
+            .native
+            .system_libraries
+            .iter()
+            .map(String::as_str)
+            .ne(GANESH_LINUX_SYSTEM_LIBRARIES.iter().copied())
+            || !manifest.native.frameworks.is_empty())
+    {
+        panic!(
+            "Skia native-ganesh artifact does not match the pinned Linux Vulkan system-link contract"
+        );
+    }
+}
+
+fn validate_profile_target(profile: &str, target: &str) {
+    match profile {
+        "native-raster" => {}
+        "native-ganesh" if GANESH_LINUX_TARGETS.contains(&target) => {}
+        "native-ganesh" => panic!(
+            "Skia profile native-ganesh is not available for {target}; the current foundation "
+            "supports only x86_64-unknown-linux-gnu and aarch64-unknown-linux-gnu"
+        ),
+        _ => panic!(
+            "unsupported FISSION_SKIA_PROFILE={profile:?}; select native-raster or native-ganesh"
+        ),
     }
 }
 
@@ -276,6 +306,12 @@ fn configure_source() {
     let source = required_dir("FISSION_SKIA_SOURCE_DIR");
     let build = required_dir("FISSION_SKIA_BUILD_DIR");
     verify_source_revision(&source);
+    let target = env::var("TARGET").expect("Cargo must set TARGET");
+    let profile = env::var("FISSION_SKIA_PROFILE").unwrap_or_else(|_| "native-raster".into());
+    validate_profile_target(&profile, &target);
+    if profile == "native-ganesh" {
+        verify_ganesh_source_plan(&build, &target);
+    }
     let ninja = env::var("NINJA").unwrap_or_else(|_| "ninja".into());
     let status = Command::new(&ninja)
         .arg("-C")
@@ -284,9 +320,9 @@ fn configure_source() {
         .status()
         .unwrap_or_else(|error| panic!("failed to execute {ninja}: {error}"));
     if !status.success() {
-        panic!("Ninja failed to build the pinned Skia native-raster libraries");
+        panic!("Ninja failed to build the pinned Skia {profile} libraries");
     }
-    compile_bridge(&source, &build, "native-raster");
+    compile_bridge(&source, &build, &profile);
     println!("cargo:rustc-link-search=native={}", build.display());
     let links = env::var("FISSION_SKIA_LINK_LIBS")
         .unwrap_or_else(|_| "svg,skparagraph,skshaper,skunicode,skia".into());
@@ -296,6 +332,107 @@ fn configure_source() {
         .filter(|value| !value.is_empty())
     {
         println!("cargo:rustc-link-lib=static={library}");
+    }
+    if profile == "native-ganesh" {
+        for library in GANESH_LINUX_SYSTEM_LIBRARIES {
+            println!("cargo:rustc-link-lib={library}");
+        }
+    }
+}
+
+#[cfg(feature = "skia-build-from-source")]
+fn verify_ganesh_source_plan(build: &Path, target: &str) {
+    let path = build.join("fission-skia-build-plan.json");
+    let raw = fs::read(&path).unwrap_or_else(|error| {
+        panic!(
+            "native-ganesh source builds require the pinned tool plan {}: {error}",
+            path.display()
+        )
+    });
+    let plan: serde_json::Value = serde_json::from_slice(&raw)
+        .unwrap_or_else(|error| panic!("failed to parse {}: {error}", path.display()));
+    let recipe = plan
+        .get("recipe")
+        .and_then(serde_json::Value::as_object)
+        .unwrap_or_else(|| panic!("{} has no build recipe", path.display()));
+    for (name, expected) in [
+        ("skia_revision", SKIA_REVISION),
+        ("profile", "native-ganesh"),
+        ("target", target),
+    ] {
+        if recipe.get(name).and_then(serde_json::Value::as_str) != Some(expected) {
+            panic!(
+                "{} does not select the required {name}={expected}",
+                path.display()
+            );
+        }
+    }
+    if recipe
+        .get("bridge_abi_version")
+        .and_then(serde_json::Value::as_u64)
+        != Some(u64::from(ABI_VERSION))
+    {
+        panic!(
+            "{} does not select bridge ABI {ABI_VERSION}",
+            path.display()
+        );
+    }
+    let gn_args = recipe
+        .get("gn_args")
+        .and_then(serde_json::Value::as_object)
+        .unwrap_or_else(|| panic!("{} has no GN argument map", path.display()));
+    for (name, expected) in [
+        ("skia_enable_ganesh", true),
+        ("skia_enable_graphite", false),
+        ("skia_use_dawn", false),
+        ("skia_use_direct3d", false),
+        ("skia_use_gl", false),
+        ("skia_use_metal", false),
+        ("skia_use_vulkan", true),
+        ("skia_use_vma", true),
+        ("skia_use_x11", false),
+    ] {
+        if gn_args.get(name).and_then(serde_json::Value::as_bool) != Some(expected) {
+            panic!("{} does not pin {name}={expected}", path.display());
+        }
+    }
+    if gn_args.get("target_os").and_then(serde_json::Value::as_str) != Some("linux") {
+        panic!("{} does not target Linux", path.display());
+    }
+    let expected_cpu = if target == "x86_64-unknown-linux-gnu" {
+        "x64"
+    } else {
+        "arm64"
+    };
+    if gn_args
+        .get("target_cpu")
+        .and_then(serde_json::Value::as_str)
+        != Some(expected_cpu)
+    {
+        panic!("{} does not target CPU {expected_cpu}", path.display());
+    }
+    let expected_upstream = &STATIC_LIBRARIES[1..];
+    let upstream = recipe
+        .get("upstream_libraries")
+        .and_then(serde_json::Value::as_array)
+        .unwrap_or_else(|| panic!("{} has no upstream library order", path.display()));
+    if upstream
+        .iter()
+        .map(|value| value.as_str())
+        .ne(expected_upstream.iter().copied().map(Some))
+    {
+        panic!("{} has the wrong upstream library order", path.display());
+    }
+    let ninja_targets = recipe
+        .get("ninja_targets")
+        .and_then(serde_json::Value::as_array)
+        .unwrap_or_else(|| panic!("{} has no Ninja target list", path.display()));
+    if ninja_targets
+        .iter()
+        .map(|value| value.as_str())
+        .ne(SOURCE_NINJA_TARGETS.iter().copied().map(Some))
+    {
+        panic!("{} has the wrong Ninja target list", path.display());
     }
 }
 

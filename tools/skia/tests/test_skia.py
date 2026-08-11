@@ -233,13 +233,79 @@ class SkiaToolTests(unittest.TestCase):
                 )
         run_checked.assert_not_called()
 
-    def test_unimplemented_profile_fails_closed(self) -> None:
-        with self.assertRaisesRegex(skia.SkiaToolError, "no artifact will be fabricated"):
+    def test_native_ganesh_is_explicit_linux_vulkan_profile(self) -> None:
+        profile = self.config["profiles"]["native-ganesh"]
+        recipe = skia.resolve_build_plan(
+            self.config,
+            "native-ganesh",
+            "x86_64-unknown-linux-gnu",
+            {},
+        )
+        self.assertEqual(profile["build_recipe"], "available")
+        self.assertEqual(
+            recipe["upstream_libraries"],
+            ["svg", "skparagraph", "skshaper", "skunicode", "skia"],
+        )
+        self.assertIs(recipe["gn_args"]["skia_enable_ganesh"], True)
+        self.assertIs(recipe["gn_args"]["skia_use_vulkan"], True)
+        for name in (
+            "skia_enable_graphite",
+            "skia_use_dawn",
+            "skia_use_direct3d",
+            "skia_use_gl",
+            "skia_use_metal",
+            "skia_use_x11",
+        ):
+            self.assertIs(recipe["gn_args"][name], False)
+        self.assertEqual(
+            profile["target_recipes"]["x86_64-unknown-linux-gnu"]["system_libraries"],
+            ["dl", "fontconfig", "vulkan"],
+        )
+        self.assertEqual(
+            profile["features"]["presentation"],
+            ["xlib", "xcb", "wayland"],
+        )
+        self.assertTrue(
+            {"vulkan-headers", "vulkan-memory-allocator"}.issubset(
+                profile["required_licenses"]
+            )
+        )
+
+    def test_native_ganesh_unavailable_targets_fail_with_the_declared_reason(self) -> None:
+        with self.assertRaisesRegex(skia.SkiaToolError, "unsupported.*musl"):
             skia.resolve_build_plan(
                 self.config,
                 "native-ganesh",
-                "x86_64-unknown-linux-gnu",
+                "x86_64-unknown-linux-musl",
                 {},
+            )
+        with self.assertRaisesRegex(skia.SkiaToolError, "pending.*Direct3D"):
+            skia.resolve_build_plan(
+                self.config,
+                "native-ganesh",
+                "x86_64-pc-windows-msvc",
+                {},
+            )
+
+    def test_native_ganesh_link_contract_is_exact(self) -> None:
+        profile = self.config["profiles"]["native-ganesh"]
+        links = {
+            "system_libraries": ["dl", "fontconfig", "vulkan"],
+            "frameworks": [],
+        }
+        skia.validate_profile_target_links(
+            profile,
+            "native-ganesh",
+            "aarch64-unknown-linux-gnu",
+            links,
+        )
+        links["system_libraries"] = ["dl", "fontconfig"]
+        with self.assertRaisesRegex(skia.SkiaToolError, "system_libraries"):
+            skia.validate_profile_target_links(
+                profile,
+                "native-ganesh",
+                "aarch64-unknown-linux-gnu",
+                links,
             )
 
     def test_gn_overrides_are_closed_to_the_target_allowlist(self) -> None:

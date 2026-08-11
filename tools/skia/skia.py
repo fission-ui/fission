@@ -138,6 +138,51 @@ def load_config(path: Path) -> dict[str, Any]:
             raise SkiaToolError(
                 f"config.targets.{name}.required_gn_args must be a subset of allowed_gn_overrides"
             )
+
+    native_targets = {
+        name for name, raw_target in targets.items()
+        if require_object(raw_target, f"config.targets.{name}").get("kind") == "native"
+    }
+    for name, raw_profile in profiles.items():
+        profile = require_object(raw_profile, f"config.profiles.{name}")
+        raw_recipes = profile.get("target_recipes")
+        if raw_recipes is None:
+            continue
+        recipes = require_object(raw_recipes, f"config.profiles.{name}.target_recipes")
+        if set(recipes) != native_targets:
+            raise SkiaToolError(
+                f"config.profiles.{name}.target_recipes must explicitly classify every native "
+                f"target; missing={sorted(native_targets - set(recipes))}, "
+                f"extra={sorted(set(recipes) - native_targets)}"
+            )
+        available = 0
+        for target_name, raw_recipe in recipes.items():
+            context = f"config.profiles.{name}.target_recipes.{target_name}"
+            recipe = require_object(raw_recipe, context)
+            status = require_string(recipe.get("status"), f"{context}.status")
+            if status == "available":
+                available += 1
+                if set(recipe) != {"status", "gn_args", "system_libraries", "frameworks"}:
+                    raise SkiaToolError(f"{context} has unknown or missing available-recipe fields")
+                gn_args = require_object(recipe.get("gn_args"), f"{context}.gn_args")
+                if any(not GN_NAME_RE.fullmatch(argument) for argument in gn_args):
+                    raise SkiaToolError(f"{context}.gn_args contains an invalid GN name")
+                for value in gn_args.values():
+                    gn_literal(value)
+                for field in ("system_libraries", "frameworks"):
+                    values = require_string_list(recipe.get(field), f"{context}.{field}")
+                    if any(not NAME_RE.fullmatch(value) for value in values):
+                        raise SkiaToolError(f"{context}.{field} contains an unsafe name")
+            elif status in {"pending", "unsupported"}:
+                if set(recipe) != {"status", "reason"}:
+                    raise SkiaToolError(f"{context} has unknown or missing unavailable-recipe fields")
+                require_string(recipe.get("reason"), f"{context}.reason")
+            else:
+                raise SkiaToolError(
+                    f"{context}.status must be 'available', 'pending', or 'unsupported'"
+                )
+        if profile.get("build_recipe") == "available" and available == 0:
+            raise SkiaToolError(f"config.profiles.{name} has no available target recipe")
     return config
 
 
@@ -153,6 +198,44 @@ def select_target(config: Mapping[str, Any], name: str) -> dict[str, Any]:
     if name not in targets:
         raise SkiaToolError(f"unknown Skia target {name!r}; choose one of: {', '.join(sorted(targets))}")
     return require_object(targets[name], f"config.targets.{name}")
+
+
+def select_profile_target_recipe(
+    profile: Mapping[str, Any], profile_name: str, target_name: str
+) -> dict[str, Any] | None:
+    raw_recipes = profile.get("target_recipes")
+    if raw_recipes is None:
+        return None
+    recipes = require_object(raw_recipes, f"profiles.{profile_name}.target_recipes")
+    recipe = require_object(
+        recipes.get(target_name),
+        f"profiles.{profile_name}.target_recipes.{target_name}",
+    )
+    status = require_string(recipe.get("status"), "profile target recipe status")
+    if status != "available":
+        reason = require_string(recipe.get("reason"), "profile target recipe reason")
+        raise SkiaToolError(
+            f"profile {profile_name!r} is {status} for target {target_name!r}: {reason}"
+        )
+    return recipe
+
+
+def validate_profile_target_links(
+    profile: Mapping[str, Any],
+    profile_name: str,
+    target_name: str,
+    links: Mapping[str, Any],
+) -> None:
+    recipe = select_profile_target_recipe(profile, profile_name, target_name)
+    if recipe is None:
+        return
+    for field in ("system_libraries", "frameworks"):
+        expected = require_string_list(recipe.get(field), f"profile target recipe {field}")
+        if links.get(field) != expected:
+            raise SkiaToolError(
+                f"native.{field} does not match the declared {profile_name}/{target_name} "
+                "link contract"
+            )
 
 
 def resolve_explicit_path(
@@ -377,9 +460,15 @@ def resolve_build_plan(
             f"profile {profile_name!r} is declared but its build recipe is "
             f"{profile.get('build_recipe', 'unavailable')!r}; no artifact will be fabricated"
         )
+    target_recipe = select_profile_target_recipe(profile, profile_name, target_name)
     common_args = require_object(config.get("common_native_gn_args"), "common_native_gn_args")
     profile_args = require_object(profile.get("gn_args"), f"profiles.{profile_name}.gn_args")
     target_args = require_object(target.get("gn_args"), f"targets.{target_name}.gn_args")
+    profile_target_args = (
+        require_object(target_recipe.get("gn_args"), "profile target recipe gn_args")
+        if target_recipe is not None
+        else {}
+    )
     allowed_overrides = set(
         require_string_list(
             target.get("allowed_gn_overrides"),
@@ -387,7 +476,7 @@ def resolve_build_plan(
         )
     )
     gn_args: dict[str, Any] = {}
-    for source in (common_args, profile_args, target_args):
+    for source in (common_args, profile_args, target_args, profile_target_args):
         for name, value in source.items():
             if name in gn_args and gn_args[name] != value:
                 raise SkiaToolError(f"configuration contains conflicting GN argument {name}")
@@ -450,11 +539,15 @@ def validate_build_recipe(
     gn_args = require_object(recipe.get("gn_args"), "build receipt.plan.recipe.gn_args")
     profile = select_profile(config, expected_profile)
     target = select_target(config, expected_target)
+    target_recipe = select_profile_target_recipe(profile, expected_profile, expected_target)
     configured: dict[str, Any] = {}
     for source in (
         require_object(config.get("common_native_gn_args"), "common_native_gn_args"),
         require_object(profile.get("gn_args"), f"profiles.{expected_profile}.gn_args"),
         require_object(target.get("gn_args"), f"targets.{expected_target}.gn_args"),
+        require_object(target_recipe.get("gn_args"), "profile target recipe gn_args")
+        if target_recipe is not None
+        else {},
     ):
         configured.update(source)
     overrides = {name: value for name, value in gn_args.items() if name not in configured}
@@ -835,6 +928,7 @@ def package_native(args: argparse.Namespace, config: dict[str, Any]) -> None:
         raise SkiaToolError("package-native accepts only a native profile and native target")
     if profile.get("build_recipe") != "available":
         raise SkiaToolError(f"profile {args.profile!r} does not yet have a supported build recipe")
+    select_profile_target_recipe(profile, args.profile, args.target)
 
     output = Path(args.output).expanduser().resolve()
     archive = Path(args.archive).expanduser().resolve() if args.archive else None
@@ -863,6 +957,7 @@ def package_native(args: argparse.Namespace, config: dict[str, Any]) -> None:
         Path(args.link_metadata).expanduser().resolve(),
         required_library_order,
     )
+    validate_profile_target_links(profile, args.profile, args.target, links)
     licences = parse_named_paths(args.license, "licence")
     required_licences = set(
         require_string_list(profile.get("required_licenses"), "profile required_licenses")
@@ -1030,6 +1125,7 @@ def verify_artifact_directory(
     target = select_target(config, target_name)
     if profile.get("kind") != "native" or target.get("kind") != "native":
         raise SkiaToolError("native artifact identifies a non-native profile or target")
+    select_profile_target_recipe(profile, profile_name, target_name)
     if expected_profile is not None and profile_name != expected_profile:
         raise SkiaToolError(f"artifact profile mismatch: expected {expected_profile}, found {profile_name}")
     if expected_target is not None and target_name != expected_target:
@@ -1083,6 +1179,7 @@ def verify_artifact_directory(
         raise SkiaToolError(f"artifact does not declare required bridge header: {header}")
     native = require_object(manifest.get("native"), "manifest.native")
     links = load_link_metadata_object(native)
+    validate_profile_target_links(profile, profile_name, target_name, links)
     expected_library_paths = {
         f"lib/{canonical_library_filename(name, target_name)}" for name in links["static_libraries"]
     }
