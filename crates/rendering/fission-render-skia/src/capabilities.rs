@@ -25,13 +25,13 @@ pub(crate) fn skia_raster_profile_capabilities() -> GraphicsCapabilities {
     raster_capabilities(true)
 }
 
-/// Complete semantics of the paired native Ganesh/Vulkan profile.
+/// Complete semantics of the paired native Ganesh GPU profile.
 ///
-/// The profile presents directly to a host-owned Linux native window. It does
-/// not advertise headless rendering, external surfaces, or 3D interop. The
-/// shared color-format set is the union of the required BGRA presentation
-/// format and the RGBA readback format; attaching a Ganesh target still
-/// requires `Bgra8Srgb`.
+/// The profile presents directly to a host-owned Linux Vulkan, macOS Metal, or
+/// iOS Metal native window. It does not advertise headless rendering, external
+/// surfaces, or 3D interop. The shared color-format set is the union of the
+/// required BGRA presentation format and the RGBA readback format; attaching a
+/// Ganesh target still requires `Bgra8Srgb`.
 pub fn skia_ganesh_capabilities() -> GraphicsCapabilities {
     let mut capabilities = paint_capabilities(
         BackendIdentity::new("skia", env!("CARGO_PKG_VERSION"), "native-ganesh"),

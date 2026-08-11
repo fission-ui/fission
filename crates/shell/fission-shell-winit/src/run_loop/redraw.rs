@@ -282,7 +282,10 @@ where
                     diag::end_frame(diag::FrameStats::default());
                     return;
                 };
-                #[cfg(all(feature = "skia", target_os = "linux"))]
+                #[cfg(all(
+                    feature = "skia",
+                    any(target_os = "linux", target_os = "macos", target_os = "ios")
+                ))]
                 let direct_ganesh_attached =
                     if self.renderer_request == RendererRequest::NativeSkiaGanesh {
                         let profile = self
@@ -305,7 +308,10 @@ where
                     } else {
                         false
                     };
-                #[cfg(not(all(feature = "skia", target_os = "linux")))]
+                #[cfg(not(all(
+                    feature = "skia",
+                    any(target_os = "linux", target_os = "macos", target_os = "ios")
+                )))]
                 let direct_ganesh_attached = false;
                 if !direct_ganesh_attached {
                     let render_cx = self
@@ -347,7 +353,10 @@ where
                     }
                 }
             }
-            #[cfg(all(feature = "skia", target_os = "linux"))]
+            #[cfg(all(
+                feature = "skia",
+                any(target_os = "linux", target_os = "macos", target_os = "ios")
+            ))]
             if let Some(ganesh) = self.presenter.direct_ganesh_mut() {
                 if let Err(error) = ganesh.sync_surface_metrics(
                     render_target_size.0,
@@ -375,7 +384,10 @@ where
                     return;
                 }
             }
-            #[cfg(not(all(feature = "skia", target_os = "linux")))]
+            #[cfg(not(all(
+                feature = "skia",
+                any(target_os = "linux", target_os = "macos", target_os = "ios")
+            )))]
             if let Err(error) = sync_wgpu_render_state(
                 self.render_cx
                     .as_mut()
@@ -1039,7 +1051,10 @@ where
                 }
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    #[cfg(all(feature = "skia", target_os = "linux"))]
+                    #[cfg(all(
+                        feature = "skia",
+                        any(target_os = "linux", target_os = "macos", target_os = "ios")
+                    ))]
                     if self.presenter.has_direct_ganesh() {
                         if submission.has_external_surfaces() || {
                             #[cfg(feature = "three-d")]

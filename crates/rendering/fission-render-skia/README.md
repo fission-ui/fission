@@ -5,8 +5,9 @@ Skia ABI. It translates backend-neutral `InteractiveFrame` submissions into
 batched Skia work without exposing Skia objects to applications, widgets,
 layout, or platform hosts.
 
-The renderer adapter now includes deterministic headless Skia raster and the
-native Ganesh/Vulkan presentation profile for Linux Wayland, Xlib, and XCB.
+The renderer adapter now includes deterministic headless Skia raster and a
+native Ganesh presentation profile for Linux Vulkan (Wayland, Xlib, and XCB),
+macOS Metal (AppKit), and iOS Metal (UIKit).
 The Ganesh profile becomes constructible only with a matching native artifact.
 Both paths provide explicit lifecycle, recovery, memory-pressure, diagnostic,
 thread-affinity, and teardown behavior together with save/restore, rectangular
@@ -48,4 +49,5 @@ The default `skia-prebuilt` feature consumes Fission's verified native artifact.
 `skia-build-from-source` is the explicit source-build path, while `test-shim`
 exists only for ABI and ownership tests and is never a renderer profile.
 Creating a Ganesh driver or session fails clearly when the selected artifact
-does not advertise Ganesh, Vulkan, and native-presentation feature bits.
+does not advertise Ganesh, native presentation, and the target platform's
+Vulkan or Metal feature bits.

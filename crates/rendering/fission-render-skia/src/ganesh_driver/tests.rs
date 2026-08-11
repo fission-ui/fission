@@ -19,7 +19,8 @@ use fission_render::surface::{
 use fission_render::{LayoutRect, LayoutSize, RenderScene};
 use fission_skia_sys::{NativeWindow, NativeWindowKind};
 use raw_window_handle::{
-    RawDisplayHandle, RawWindowHandle, WaylandDisplayHandle, WaylandWindowHandle, XcbDisplayHandle,
+    AppKitDisplayHandle, AppKitWindowHandle, RawDisplayHandle, RawWindowHandle, UiKitDisplayHandle,
+    UiKitWindowHandle, WaylandDisplayHandle, WaylandWindowHandle, XcbDisplayHandle,
     XcbWindowHandle, XlibDisplayHandle, XlibWindowHandle,
 };
 
@@ -275,13 +276,21 @@ fn descriptor(size: PhysicalSize) -> SurfaceDescriptor {
 }
 
 fn descriptor_with_color(size: PhysicalSize, color_format: ColorFormat) -> SurfaceDescriptor {
+    descriptor_with_affinity(size, color_format, ThreadAffinity::CreatingThread)
+}
+
+fn descriptor_with_affinity(
+    size: PhysicalSize,
+    color_format: ColorFormat,
+    thread_affinity: ThreadAffinity,
+) -> SurfaceDescriptor {
     SurfaceDescriptor {
         id: SurfaceId(44),
         kind: SurfaceKind::NativeWindow,
         size,
         scale_factor: ScaleFactor::ONE,
         color_format,
-        thread_affinity: ThreadAffinity::CreatingThread,
+        thread_affinity,
     }
 }
 
@@ -290,9 +299,25 @@ fn target(
     display: RawDisplayHandle,
     window: RawWindowHandle,
 ) -> NativeWindowTarget {
+    target_with_affinity(size, display, window, ThreadAffinity::CreatingThread)
+}
+
+fn target_with_affinity(
+    size: PhysicalSize,
+    display: RawDisplayHandle,
+    window: RawWindowHandle,
+    thread_affinity: ThreadAffinity,
+) -> NativeWindowTarget {
     // SAFETY: these tests never pass their inert handles to the native bridge;
     // the leaked pointer tokens remain live for the complete target lifetime.
-    unsafe { NativeWindowTarget::from_raw_handles(descriptor(size), display, window).unwrap() }
+    unsafe {
+        NativeWindowTarget::from_raw_handles(
+            descriptor_with_affinity(size, ColorFormat::Bgra8Srgb, thread_affinity),
+            display,
+            window,
+        )
+        .unwrap()
+    }
 }
 
 fn xlib_target(size: PhysicalSize) -> NativeWindowTarget {
@@ -307,8 +332,26 @@ fn wayland_target(size: PhysicalSize) -> NativeWindowTarget {
     target(size, display, window)
 }
 
+fn appkit_target(size: PhysicalSize) -> NativeWindowTarget {
+    target_with_affinity(
+        size,
+        RawDisplayHandle::AppKit(AppKitDisplayHandle::new()),
+        RawWindowHandle::AppKit(AppKitWindowHandle::new(pointer())),
+        ThreadAffinity::MainThread,
+    )
+}
+
+fn uikit_target(size: PhysicalSize) -> NativeWindowTarget {
+    target_with_affinity(
+        size,
+        RawDisplayHandle::UiKit(UiKitDisplayHandle::new()),
+        RawWindowHandle::UiKit(UiKitWindowHandle::new(pointer())),
+        ThreadAffinity::MainThread,
+    )
+}
+
 #[test]
-fn lowers_all_supported_linux_window_routes_and_allows_unknown_visuals() {
+fn lowers_all_supported_native_window_routes_and_allows_unknown_visuals() {
     let size = PhysicalSize::new(640, 480);
     assert_eq!(
         lower_native_window(&wayland_target(size)).unwrap().kind(),
@@ -325,6 +368,14 @@ fn lowers_all_supported_linux_window_routes_and_allows_unknown_visuals() {
     assert_eq!(
         lower_native_window(&xcb).unwrap().kind(),
         NativeWindowKind::Xcb
+    );
+    assert_eq!(
+        lower_native_window(&appkit_target(size)).unwrap().kind(),
+        NativeWindowKind::AppKit
+    );
+    assert_eq!(
+        lower_native_window(&uikit_target(size)).unwrap().kind(),
+        NativeWindowKind::UIKit
     );
 }
 
@@ -347,7 +398,41 @@ fn rejects_missing_or_mismatched_linux_handles_before_the_bridge() {
     );
     assert!(lower_native_window(&mismatch)
         .unwrap_err()
-        .contains("matching Linux"));
+        .contains("matching Linux Wayland"));
+}
+
+#[test]
+fn native_window_descriptors_enforce_platform_thread_affinity() {
+    let size = PhysicalSize::new(640, 480);
+    let mut linux_session = session(MockApi::default());
+    let wrong_linux_affinity = target_with_affinity(
+        size,
+        RawDisplayHandle::Xlib(XlibDisplayHandle::new(Some(pointer()), 0)),
+        RawWindowHandle::Xlib(XlibWindowHandle::new(71)),
+        ThreadAffinity::MainThread,
+    );
+    assert_eq!(
+        linux_session
+            .attach(&wrong_linux_affinity)
+            .unwrap_err()
+            .code,
+        "skia-ganesh-thread-affinity-invalid"
+    );
+
+    let mut apple_session = session(MockApi::default());
+    let wrong_apple_affinity = target_with_affinity(
+        size,
+        RawDisplayHandle::AppKit(AppKitDisplayHandle::new()),
+        RawWindowHandle::AppKit(AppKitWindowHandle::new(pointer())),
+        ThreadAffinity::CreatingThread,
+    );
+    assert_eq!(
+        apple_session
+            .attach(&wrong_apple_affinity)
+            .unwrap_err()
+            .code,
+        "skia-ganesh-thread-affinity-invalid"
+    );
 }
 
 #[test]

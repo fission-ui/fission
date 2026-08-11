@@ -105,7 +105,10 @@ where
     pub(super) renderer_request: RendererRequest,
     #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
     pub(super) skia_profile: Option<fission_render_skia::SkiaRasterProfile>,
-    #[cfg(all(feature = "skia", target_os = "linux"))]
+    #[cfg(all(
+        feature = "skia",
+        any(target_os = "linux", target_os = "macos", target_os = "ios")
+    ))]
     pub(super) skia_ganesh_profile: Option<fission_render_skia::SkiaGaneshProfile>,
     #[cfg(target_arch = "wasm32")]
     pub(super) web_renderer: Option<WebRenderer>,

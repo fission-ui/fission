@@ -9,11 +9,11 @@ use fission_render::capabilities::{ColorFormat, GraphicsCapabilities};
 use fission_render::frame::InteractiveFrame;
 use fission_render::surface::{
     LossKind, MemoryPressure, PhysicalSize, Recovery, ScaleFactor, SessionState, SurfaceDescriptor,
-    SurfaceId, SurfaceKind, ThreadAffinity,
+    SurfaceId, SurfaceKind,
 };
 use winit::window::Window;
 
-use crate::native_window_target::WinitNativeWindowTarget;
+use crate::native_window_target::{native_thread_affinity, WinitNativeWindowTarget};
 use crate::skia_presenter::tight_rgba;
 
 static NEXT_GANESH_SURFACE_ID: AtomicU64 = AtomicU64::new(1);
@@ -29,11 +29,12 @@ pub(super) enum GaneshCapture {
     Failed(BackendError),
 }
 
-/// Direct Linux native-window presenter for Skia Ganesh/Vulkan.
+/// Direct native-window presenter for Skia Ganesh.
 ///
 /// This path owns no wgpu surface or upload texture. The backend session
 /// renders into a Skia-wrapped swapchain image and commits that image directly
-/// through Vulkan presentation.
+/// through Vulkan on Linux or Metal on Apple platforms. `target` retains the
+/// Winit window that owns every borrowed native view/display handle.
 pub(super) struct WinitSkiaGaneshPresenter {
     session: GraphicsBackendSession<'static>,
     target: WinitNativeWindowTarget,
@@ -117,8 +118,8 @@ impl WinitSkiaGaneshPresenter {
 
     /// Render and directly present one frame, optionally reading its RGBA
     /// pixels between those operations. `before_present` performs Winit's
-    /// platform presentation notification immediately before the Vulkan queue
-    /// commits the acquired image.
+    /// platform presentation notification immediately before the native GPU
+    /// backend commits the acquired image.
     pub(super) fn render_and_present(
         &mut self,
         frame: &InteractiveFrame<'_>,
@@ -231,7 +232,7 @@ fn build_target(
             size: metrics.size,
             scale_factor: metrics.scale_factor,
             color_format: ColorFormat::Bgra8Srgb,
-            thread_affinity: ThreadAffinity::CreatingThread,
+            thread_affinity: native_thread_affinity(),
         },
     )
     .map_err(|error| contract_error(operation, "skia-ganesh-native-window", error.to_string()))

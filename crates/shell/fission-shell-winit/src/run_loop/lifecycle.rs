@@ -56,7 +56,10 @@ where
             && current_viewport.physical_size.height > 0
         {
             if let Some(render_window) = self.platform_window.active_window_arc() {
-                #[cfg(all(feature = "skia", target_os = "linux"))]
+                #[cfg(all(
+                    feature = "skia",
+                    any(target_os = "linux", target_os = "macos", target_os = "ios")
+                ))]
                 let direct_ganesh_attached =
                     if self.renderer_request == RendererRequest::NativeSkiaGanesh {
                         let profile = self
@@ -78,7 +81,10 @@ where
                     } else {
                         false
                     };
-                #[cfg(not(all(feature = "skia", target_os = "linux")))]
+                #[cfg(not(all(
+                    feature = "skia",
+                    any(target_os = "linux", target_os = "macos", target_os = "ios")
+                )))]
                 let direct_ganesh_attached = false;
                 if !direct_ganesh_attached {
                     let render_cx = self

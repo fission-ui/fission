@@ -13,7 +13,7 @@ WinitApp<S, W>
   +-- Runtime         (fission-core: state management, action dispatch, animation ticking)
   +-- LayoutEngine    (fission-layout: flexbox layout computation)
   +-- Pipeline        (IR diffing, layout, paint, display list generation)
-  +-- MainRenderer    (Vello, software, or opt-in Skia raster session)
+  +-- MainRenderer    (Vello, software, Skia raster, or direct native Skia Ganesh)
   +-- VelloTextMeasurer (font context, text shaping via Parley + Fontique)
   +-- DesktopClipboard (or in-memory clipboard fallback on mobile)
   +-- DesktopImeHandler (IME composition via winit)

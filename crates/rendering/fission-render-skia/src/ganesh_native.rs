@@ -1,15 +1,21 @@
 use fission_render::surface::{MemoryPressure, PhysicalSize};
 use fission_skia_sys::{
-    Engine, GaneshContext, GaneshSurface, NativeWindow, PixelRect, RecordedPicture,
+    Engine, GaneshContext, GaneshSurface, NativeWindow, NativeWindowKind, PixelRect,
+    RecordedPicture,
 };
 
 use crate::api::{ApiError, ApiErrorKind, ApiReadback, PixelRegion, RasterFrame, RasterRect};
 use crate::ganesh_api::{GaneshApi, GaneshResourceCacheUsage};
 use crate::native::{map_error, native_frame};
 
-const REQUIRED_GANESH_FEATURES: u64 = fission_skia_sys::ffi::FEATURE_GANESH
-    | fission_skia_sys::ffi::FEATURE_VULKAN
-    | fission_skia_sys::ffi::FEATURE_NATIVE_PRESENTATION;
+const REQUIRED_NATIVE_GANESH_FEATURES: u64 =
+    fission_skia_sys::ffi::FEATURE_GANESH | fission_skia_sys::ffi::FEATURE_NATIVE_PRESENTATION;
+#[cfg(target_os = "linux")]
+const REQUIRED_GANESH_FEATURES: u64 =
+    REQUIRED_NATIVE_GANESH_FEATURES | fission_skia_sys::ffi::FEATURE_VULKAN;
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+const REQUIRED_GANESH_FEATURES: u64 =
+    REQUIRED_NATIVE_GANESH_FEATURES | fission_skia_sys::ffi::FEATURE_METAL;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct NativeGaneshApi;
@@ -29,16 +35,22 @@ impl GaneshApi for NativeGaneshApi {
                 "the Skia ABI test shim cannot back a Ganesh renderer session",
             ));
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(all(
+            not(feature = "test-shim"),
+            not(any(target_os = "linux", target_os = "macos", target_os = "ios"))
+        ))]
         {
             return Err(ApiError::new(
                 ApiErrorKind::Unsupported,
                 "ganesh-platform-unsupported",
                 "create_ganesh_engine",
-                "the first native Ganesh profile supports Linux Vulkan only",
+                "native Ganesh supports Linux Vulkan, macOS Metal, and iOS Metal",
             ));
         }
-        #[cfg(all(not(feature = "test-shim"), target_os = "linux"))]
+        #[cfg(all(
+            not(feature = "test-shim"),
+            any(target_os = "linux", target_os = "macos", target_os = "ios")
+        ))]
         {
             let engine = Engine::new().map_err(map_error)?;
             let missing = REQUIRED_GANESH_FEATURES & !engine.build_info().feature_bits;
@@ -62,12 +74,30 @@ impl GaneshApi for NativeGaneshApi {
         compatible_window: NativeWindow,
         resource_cache_limit_bytes: u64,
     ) -> Result<Self::Context, ApiError> {
-        GaneshContext::new_vulkan_with_resource_cache_limit(
-            engine,
-            compatible_window,
-            resource_cache_limit_bytes,
-        )
-        .map_err(map_error)
+        require_platform_window(compatible_window.kind())?;
+        #[cfg(target_os = "linux")]
+        {
+            return GaneshContext::new_vulkan_with_resource_cache_limit(
+                engine,
+                compatible_window,
+                resource_cache_limit_bytes,
+            )
+            .map_err(map_error);
+        }
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        {
+            return GaneshContext::new_metal_with_resource_cache_limit(
+                engine,
+                compatible_window,
+                resource_cache_limit_bytes,
+            )
+            .map_err(map_error);
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "ios")))]
+        {
+            let _ = (engine, resource_cache_limit_bytes);
+            Err(unsupported_platform_window(compatible_window.kind()))
+        }
     }
 
     fn create_surface(
@@ -182,6 +212,30 @@ impl GaneshApi for NativeGaneshApi {
     }
 }
 
+fn require_platform_window(kind: NativeWindowKind) -> Result<(), ApiError> {
+    let supported = match kind {
+        NativeWindowKind::Wayland | NativeWindowKind::Xlib | NativeWindowKind::Xcb => {
+            cfg!(target_os = "linux")
+        }
+        NativeWindowKind::AppKit => cfg!(target_os = "macos"),
+        NativeWindowKind::UIKit => cfg!(target_os = "ios"),
+    };
+    if supported {
+        Ok(())
+    } else {
+        Err(unsupported_platform_window(kind))
+    }
+}
+
+fn unsupported_platform_window(kind: NativeWindowKind) -> ApiError {
+    ApiError::new(
+        ApiErrorKind::InvalidArgument,
+        "ganesh-window-platform-mismatch",
+        "create_ganesh_context",
+        format!("native window kind {kind:?} does not match this target platform"),
+    )
+}
+
 fn native_rect(rect: RasterRect) -> fission_skia_sys::Rect {
     fission_skia_sys::Rect::new(
         rect.left,
@@ -189,4 +243,43 @@ fn native_rect(rect: RasterRect) -> fission_skia_sys::Rect {
         rect.right - rect.left,
         rect.bottom - rect.top,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_context_accepts_only_the_current_platform_window_family() {
+        #[cfg(target_os = "linux")]
+        {
+            assert!(require_platform_window(NativeWindowKind::Wayland).is_ok());
+            assert!(require_platform_window(NativeWindowKind::Xlib).is_ok());
+            assert!(require_platform_window(NativeWindowKind::Xcb).is_ok());
+            assert!(require_platform_window(NativeWindowKind::AppKit).is_err());
+            assert!(require_platform_window(NativeWindowKind::UIKit).is_err());
+        }
+        #[cfg(target_os = "macos")]
+        {
+            assert!(require_platform_window(NativeWindowKind::AppKit).is_ok());
+            assert!(require_platform_window(NativeWindowKind::UIKit).is_err());
+            assert!(require_platform_window(NativeWindowKind::Xlib).is_err());
+        }
+        #[cfg(target_os = "ios")]
+        {
+            assert!(require_platform_window(NativeWindowKind::UIKit).is_ok());
+            assert!(require_platform_window(NativeWindowKind::AppKit).is_err());
+            assert!(require_platform_window(NativeWindowKind::Xlib).is_err());
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "ios")))]
+        for kind in [
+            NativeWindowKind::Wayland,
+            NativeWindowKind::Xlib,
+            NativeWindowKind::Xcb,
+            NativeWindowKind::AppKit,
+            NativeWindowKind::UIKit,
+        ] {
+            assert!(require_platform_window(kind).is_err());
+        }
+    }
 }

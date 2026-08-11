@@ -216,7 +216,11 @@ fn direct_ganesh_is_the_only_native_request_that_skips_wgpu_initialization() {
     ));
 }
 
-#[cfg(all(feature = "skia", feature = "three-d", target_os = "linux"))]
+#[cfg(all(
+    feature = "skia",
+    feature = "three-d",
+    any(target_os = "linux", target_os = "macos", target_os = "ios")
+))]
 #[test]
 fn direct_ganesh_rejects_three_d_builds_at_selection_time() {
     let error = require_compiled_native_renderer(RendererRequest::NativeSkiaGanesh).unwrap_err();

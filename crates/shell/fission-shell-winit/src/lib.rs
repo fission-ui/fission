@@ -167,9 +167,12 @@ mod host_capabilities;
 use host_capabilities::*;
 mod rendering;
 use rendering::*;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "ios"))]
 mod native_window_target;
-#[cfg(all(feature = "skia", target_os = "linux"))]
+#[cfg(all(
+    feature = "skia",
+    any(target_os = "linux", target_os = "macos", target_os = "ios")
+))]
 mod skia_ganesh_presenter;
 #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
 mod skia_presenter;
@@ -199,9 +202,11 @@ fn paragraph_engine_for_native_renderer(
     request: RendererRequest,
     vello: Arc<VelloTextMeasurer>,
     #[cfg(feature = "skia")] skia_profile: Option<&fission_render_skia::SkiaRasterProfile>,
-    #[cfg(all(feature = "skia", target_os = "linux"))] skia_ganesh_profile: Option<
-        &fission_render_skia::SkiaGaneshProfile,
-    >,
+    #[cfg(all(
+        feature = "skia",
+        any(target_os = "linux", target_os = "macos", target_os = "ios")
+    ))]
+    skia_ganesh_profile: Option<&fission_render_skia::SkiaGaneshProfile>,
 ) -> Arc<dyn ParagraphEngine> {
     if request == RendererRequest::NativeSkiaRaster {
         #[cfg(feature = "skia")]
@@ -216,7 +221,10 @@ fn paragraph_engine_for_native_renderer(
         unreachable!("native renderer validation rejects Skia when its feature is disabled");
     }
     if request == RendererRequest::NativeSkiaGanesh {
-        #[cfg(all(feature = "skia", target_os = "linux"))]
+        #[cfg(all(
+            feature = "skia",
+            any(target_os = "linux", target_os = "macos", target_os = "ios")
+        ))]
         {
             return Arc::new(
                 skia_ganesh_profile
@@ -224,7 +232,10 @@ fn paragraph_engine_for_native_renderer(
                     .paragraph_engine(),
             );
         }
-        #[cfg(not(all(feature = "skia", target_os = "linux")))]
+        #[cfg(not(all(
+            feature = "skia",
+            any(target_os = "linux", target_os = "macos", target_os = "ios")
+        )))]
         unreachable!("native renderer validation rejects Ganesh on this build");
     }
     vello
@@ -251,7 +262,10 @@ where
         #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
         let skia_profile = (renderer_request == RendererRequest::NativeSkiaRaster)
             .then(fission_render_skia::SkiaRasterProfile::new);
-        #[cfg(all(feature = "skia", target_os = "linux"))]
+        #[cfg(all(
+            feature = "skia",
+            any(target_os = "linux", target_os = "macos", target_os = "ios")
+        ))]
         let skia_ganesh_profile = (renderer_request == RendererRequest::NativeSkiaGanesh)
             .then(fission_render_skia::SkiaGaneshProfile::new);
         #[cfg(not(target_arch = "wasm32"))]
@@ -260,7 +274,10 @@ where
             self.measurer.clone(),
             #[cfg(feature = "skia")]
             skia_profile.as_ref(),
-            #[cfg(all(feature = "skia", target_os = "linux"))]
+            #[cfg(all(
+                feature = "skia",
+                any(target_os = "linux", target_os = "macos", target_os = "ios")
+            ))]
             skia_ganesh_profile.as_ref(),
         );
         #[cfg(target_arch = "wasm32")]
@@ -559,7 +576,10 @@ where
             renderer_request,
             #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
             skia_profile,
-            #[cfg(all(feature = "skia", target_os = "linux"))]
+            #[cfg(all(
+                feature = "skia",
+                any(target_os = "linux", target_os = "macos", target_os = "ios")
+            ))]
             skia_ganesh_profile,
             #[cfg(target_arch = "wasm32")]
             web_renderer,

@@ -15,7 +15,7 @@ use fission_render::diagnostics::{
 use fission_render::frame::{FrameId, ValidatedInteractiveFrame};
 use fission_render::surface::{
     LossKind, MemoryPressure, NativeWindowTarget, PhysicalSize, Recovery, SessionState,
-    SurfaceKind, SurfaceTarget,
+    SurfaceKind, SurfaceTarget, ThreadAffinity,
 };
 use fission_skia_sys::{NativeWindow, NativeWindowKind, DEFAULT_GANESH_GPU_CACHE_BYTES};
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
@@ -36,7 +36,7 @@ const MAX_RECENT_EVENTS: usize = 64;
 const GPU_CACHE_NAME: &str = "skia-ganesh-gpu-resources";
 const GPU_CACHE_BYTES_ENV: &str = "FISSION_SKIA_GPU_CACHE_BYTES";
 
-/// Fission graphics driver for direct Skia Ganesh/Vulkan presentation.
+/// Fission graphics driver for direct native Skia Ganesh presentation.
 ///
 /// Construct this driver through [`crate::SkiaGaneshProfile`] so paragraph
 /// layout and paint share one authoritative draw-data registry. Native window
@@ -238,7 +238,7 @@ impl<A: GaneshApi> GaneshDriver<A> {
                 "skia-ganesh-color-format-unsupported",
                 DiagnosticCategory::Capability,
                 format!(
-                    "the native Ganesh Vulkan profile requires Bgra8Srgb, not {:?}",
+                    "the native Ganesh profile requires Bgra8Srgb, not {:?}",
                     descriptor.color_format
                 ),
             );
@@ -268,6 +268,21 @@ impl<A: GaneshApi> GaneshDriver<A> {
                 return Err(error);
             }
         };
+        let required_affinity = native_window_thread_affinity(window.kind());
+        if descriptor.thread_affinity != required_affinity {
+            let error = contract_error(
+                operation,
+                "skia-ganesh-thread-affinity-invalid",
+                DiagnosticCategory::Surface,
+                format!(
+                    "native window kind {:?} requires {required_affinity:?} affinity, not {:?}",
+                    window.kind(),
+                    descriptor.thread_affinity
+                ),
+            );
+            self.record_error(&error);
+            return Err(error);
+        }
         Ok((
             SurfaceMetrics {
                 size: descriptor.size,
@@ -1006,9 +1021,28 @@ fn lower_native_window(target: &NativeWindowTarget) -> Result<NativeWindow, Stri
             // non-zero XID live. Vulkan WSI permits an unknown visual as zero.
             Ok(unsafe { NativeWindow::xcb(connection, window.window, visual_id) })
         }
+        (RawDisplayHandle::AppKit(_), RawWindowHandle::AppKit(window)) => {
+            // SAFETY: NativeWindowTarget's host keeps the NSView live for the
+            // attachment lifetime and declares main-thread affinity.
+            Ok(unsafe { NativeWindow::appkit(window.ns_view) })
+        }
+        (RawDisplayHandle::UiKit(_), RawWindowHandle::UiKit(window)) => {
+            // SAFETY: NativeWindowTarget's host keeps the UIView live for the
+            // attachment lifetime and declares main-thread affinity.
+            Ok(unsafe { NativeWindow::uikit(window.ui_view) })
+        }
         (display, window) => Err(format!(
-            "the native Ganesh Vulkan profile requires matching Linux Wayland, Xlib, or XCB handles, got {display:?} and {window:?}"
+            "native Ganesh requires a matching Linux Wayland/Xlib/XCB, macOS AppKit, or iOS UIKit handle pair, got {display:?} and {window:?}"
         )),
+    }
+}
+
+fn native_window_thread_affinity(kind: NativeWindowKind) -> ThreadAffinity {
+    match kind {
+        NativeWindowKind::Wayland | NativeWindowKind::Xlib | NativeWindowKind::Xcb => {
+            ThreadAffinity::CreatingThread
+        }
+        NativeWindowKind::AppKit | NativeWindowKind::UIKit => ThreadAffinity::MainThread,
     }
 }
 
