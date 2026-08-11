@@ -7,10 +7,11 @@
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
-use fission_render::backend::{BackendResult, GraphicsBackendSession};
+use fission_render::backend::{BackendResult, GraphicsBackendSession, SurfaceMetrics};
 use fission_skia_sys::ParagraphDrawData;
 
 use crate::paragraph_draw_data::{ParagraphDrawDataBudget, ParagraphDrawDataRegistry};
+use crate::raster_session::SkiaRasterSession;
 use crate::{SkiaGaneshDriver, SkiaParagraphEngine, SkiaRasterDriver};
 
 const DEFAULT_PARAGRAPH_DRAW_DATA_ENTRIES: usize = 4_096;
@@ -55,6 +56,19 @@ impl SkiaRasterProfile {
     /// Creates a graphics session paired with this profile's paragraph engine.
     pub fn create_session(&self) -> BackendResult<GraphicsBackendSession<'static>> {
         GraphicsBackendSession::new(self.raster_driver()?)
+    }
+
+    /// Creates and attaches the production headless raster adapter.
+    ///
+    /// The returned session owns its headless target, Skia runtime, raster
+    /// surface, derived-resource caches, and readback normalization. Platform
+    /// hosts retain only their own upload or presentation resources and drive
+    /// this session through Fission lifecycle operations.
+    pub fn create_headless_session(
+        &self,
+        metrics: SurfaceMetrics,
+    ) -> BackendResult<SkiaRasterSession> {
+        SkiaRasterSession::attach(self.raster_driver()?, metrics)
     }
 
     pub(crate) fn paragraph_draw_data(&self) -> Arc<SkiaParagraphDrawDataRegistry> {

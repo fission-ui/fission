@@ -15,6 +15,7 @@ mod paragraph_draw_data;
 mod paragraph_engine;
 mod picture;
 mod profile;
+mod raster_session;
 mod svg;
 mod thread_owner;
 mod web;
@@ -24,6 +25,7 @@ pub use driver::SkiaRasterDriver;
 pub use ganesh_driver::SkiaGaneshDriver;
 pub use paragraph_engine::SkiaParagraphEngine;
 pub use profile::{SkiaGaneshProfile, SkiaRasterProfile};
+pub use raster_session::SkiaRasterSession;
 
 use fission_render::backend::{BackendResult, GraphicsBackendSession};
 
