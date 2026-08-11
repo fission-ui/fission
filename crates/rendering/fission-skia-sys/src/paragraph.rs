@@ -235,6 +235,14 @@ impl ParagraphCapabilities {
     pub const fn supports(self, capability: u64) -> bool {
         self.0 & capability == capability
     }
+
+    pub(crate) const fn from_known_bits(bits: u64) -> Option<Self> {
+        if bits & !ffi::PARAGRAPH_ALL_CAPABILITIES == 0 {
+            Some(Self(bits))
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

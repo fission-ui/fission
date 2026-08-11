@@ -5,6 +5,7 @@
 //! pointers into the other module's WebAssembly memory.
 
 mod commands;
+mod paragraph;
 mod protocol;
 mod types;
 
@@ -12,6 +13,11 @@ pub use commands::{
     decode_commands, encode_commands, CommandStreamError, WebCommand, WebImageAlignment,
     WebImageFit, COMMAND_HEADER_LEN, COMMAND_MAGIC, COMMAND_VERSION, MAX_COMMANDS,
     MAX_COMMAND_STREAM_BYTES, MAX_DASH_INTERVALS, MAX_GRADIENT_STOPS, MAX_PATH_COMMANDS,
+};
+pub use paragraph::{
+    decode_paragraph_request, decode_paragraph_response, encode_paragraph_request,
+    encode_paragraph_response, ParagraphWireError, WebParagraphFont, WebParagraphRequest,
+    WebParagraphResponse, MAX_PARAGRAPH_PACKET_BYTES,
 };
 pub use protocol::{
     decode, encode, DecodeLimits, ProtocolError, ProtocolSession, DEFAULT_DECODE_LIMITS,
