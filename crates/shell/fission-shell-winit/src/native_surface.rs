@@ -40,14 +40,24 @@ impl NativeSurfaceRegistry {
     /// backed by the `NativeSurfaceHandler` platform-view contract. Unknown
     /// payloads must not be advertised as `NativeView` frame bindings.
     pub(crate) fn claims_native_view_payload(&self, payload: &[u8]) -> bool {
+        self.presenter_index(payload).is_some()
+    }
+
+    /// Identifies the handler that owns a payload in the registry's stable
+    /// first-match dispatch order.
+    pub(crate) fn presenter_index(&self, payload: &[u8]) -> Option<usize> {
         self.handlers
             .iter()
-            .any(|handler| handler.handles_payload(payload))
+            .position(|handler| handler.handles_payload(payload))
     }
 
     /// Returns whether a claimed native view has a live host to present into.
     pub(crate) fn native_view_ready(&self, payload: &[u8]) -> bool {
         self.native_view_capabilities(payload).available
+    }
+
+    pub(crate) fn has_attached_host(&self) -> bool {
+        self.host_attached
     }
 
     pub(crate) fn native_view_capabilities(&self, payload: &[u8]) -> PlatformSurfaceCapabilities {
@@ -167,10 +177,12 @@ mod tests {
         assert!(registry.claims_native_view_payload(b"maps:payload"));
         assert!(!registry.claims_native_view_payload(b"other:payload"));
         assert!(!registry.native_view_ready(b"maps:payload"));
+        assert!(!registry.has_attached_host());
 
         let raw = RawWindowHandle::Web(raw_window_handle::WebWindowHandle::new(0));
         let handle = unsafe { WindowHandle::borrow_raw(raw) };
         registry.attach_host(NativeSurfaceHost::from_window_handle(handle));
+        assert!(registry.has_attached_host());
         assert!(registry.native_view_ready(b"maps:payload"));
     }
 

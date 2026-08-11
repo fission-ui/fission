@@ -4,11 +4,20 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RendererRequest {
     Auto,
+    Vello,
+    Software,
     WebGpuVello,
     Canvas2dSoftware,
     NativeVelloGpu,
     NativeVelloCpu,
     NativeSoftware,
+    Invalid,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RendererTarget {
+    Native,
+    Web,
 }
 
 impl RendererRequest {
@@ -19,17 +28,112 @@ impl RendererRequest {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Auto => "auto",
+            Self::Vello => "vello",
+            Self::Software => "software",
             Self::WebGpuVello => "webgpu-vello",
             Self::Canvas2dSoftware => "canvas2d-software",
             Self::NativeVelloGpu => "native-vello-gpu",
             Self::NativeVelloCpu => "native-vello-cpu",
             Self::NativeSoftware => "native-software",
+            Self::Invalid => "invalid",
         }
     }
 
     pub(crate) fn is_explicit_gpu(self) -> bool {
-        matches!(self, Self::WebGpuVello | Self::NativeVelloGpu)
+        matches!(self, Self::Vello | Self::WebGpuVello | Self::NativeVelloGpu)
     }
+
+    pub(crate) fn for_target(self, target: RendererTarget) -> Result<Self, RendererSelectionError> {
+        match (target, self) {
+            (_, Self::Auto) => Ok(Self::Auto),
+            (RendererTarget::Native, Self::Vello) => Ok(Self::NativeVelloGpu),
+            (RendererTarget::Native, Self::Software) => Ok(Self::NativeSoftware),
+            (RendererTarget::Web, Self::Vello) => Ok(Self::WebGpuVello),
+            (RendererTarget::Web, Self::Software) => Ok(Self::Canvas2dSoftware),
+            (
+                RendererTarget::Native,
+                Self::NativeVelloGpu | Self::NativeVelloCpu | Self::NativeSoftware,
+            )
+            | (RendererTarget::Web, Self::WebGpuVello | Self::Canvas2dSoftware) => Ok(self),
+            _ => Err(RendererSelectionError {
+                request: self,
+                target,
+            }),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RendererSelectionError {
+    pub(crate) request: RendererRequest,
+    pub(crate) target: RendererTarget,
+}
+
+impl std::fmt::Display for RendererSelectionError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.request == RendererRequest::Invalid {
+            return write!(
+                formatter,
+                "unsupported FISSION_RENDERER value; expected auto, vello, software, webgpu-vello, canvas2d-software, native-vello-gpu, native-vello-cpu, or native-software"
+            );
+        }
+        write!(
+            formatter,
+            "renderer request `{}` is unavailable for the {} target",
+            self.request.as_str(),
+            match self.target {
+                RendererTarget::Native => "native",
+                RendererTarget::Web => "web",
+            }
+        )
+    }
+}
+
+impl std::error::Error for RendererSelectionError {}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RequestedRendererInitializationError {
+    pub(crate) request: RendererRequest,
+    pub(crate) target: RendererTarget,
+    pub(crate) details: String,
+}
+
+impl RequestedRendererInitializationError {
+    pub(crate) fn new(
+        request: RendererRequest,
+        target: RendererTarget,
+        details: impl Into<String>,
+    ) -> Self {
+        Self {
+            request,
+            target,
+            details: details.into(),
+        }
+    }
+}
+
+impl std::fmt::Display for RequestedRendererInitializationError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "requested renderer `{}` could not initialize for the {} target: {}",
+            self.request.as_str(),
+            match self.target {
+                RendererTarget::Native => "native",
+                RendererTarget::Web => "web",
+            },
+            self.details
+        )
+    }
+}
+
+impl std::error::Error for RequestedRendererInitializationError {}
+
+pub(crate) fn renderer_error_is_terminal(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<RendererSelectionError>().is_some()
+        || error
+            .downcast_ref::<RequestedRendererInitializationError>()
+            .is_some()
 }
 
 pub(crate) fn renderer_request_from_value(value: Option<&str>) -> RendererRequest {
@@ -37,16 +141,17 @@ pub(crate) fn renderer_request_from_value(value: Option<&str>) -> RendererReques
         return RendererRequest::Auto;
     };
     match value.trim().to_ascii_lowercase().as_str() {
+        "auto" => RendererRequest::Auto,
         "webgpu" | "webgpu-vello" => RendererRequest::WebGpuVello,
         "canvas" | "canvas2d" | "canvas2d-software" | "software-canvas" => {
             RendererRequest::Canvas2dSoftware
         }
-        "vello" | "vello-gpu" | "native-vello" | "native-vello-gpu" | "gpu" => {
-            RendererRequest::NativeVelloGpu
-        }
+        "vello" | "vello-gpu" | "gpu" => RendererRequest::Vello,
+        "native-vello" | "native-vello-gpu" => RendererRequest::NativeVelloGpu,
         "vello-cpu" | "native-vello-cpu" | "cpu-vello" => RendererRequest::NativeVelloCpu,
-        "software" | "native-software" => RendererRequest::NativeSoftware,
-        _ => RendererRequest::Auto,
+        "software" => RendererRequest::Software,
+        "native-software" => RendererRequest::NativeSoftware,
+        _ => RendererRequest::Invalid,
     }
 }
 
@@ -135,7 +240,10 @@ pub(crate) fn emit_renderer_report(report: &RendererReport) {
 
 #[cfg(test)]
 mod tests {
-    use super::{renderer_request_from_value, RendererRequest};
+    use super::{
+        renderer_error_is_terminal, renderer_request_from_value, RendererRequest,
+        RendererSelectionError, RendererTarget, RequestedRendererInitializationError,
+    };
 
     #[test]
     fn renderer_request_parses_known_values() {
@@ -155,10 +263,108 @@ mod tests {
     }
 
     #[test]
-    fn renderer_request_unknown_is_auto() {
+    fn renderer_request_unknown_is_invalid() {
         assert_eq!(
             renderer_request_from_value(Some("not-a-renderer")),
+            RendererRequest::Invalid
+        );
+    }
+
+    #[test]
+    fn configuration_and_explicit_initialization_errors_are_terminal() {
+        let selection = anyhow::Error::new(RendererSelectionError {
+            request: RendererRequest::Invalid,
+            target: RendererTarget::Native,
+        });
+        let initialization = anyhow::Error::new(RequestedRendererInitializationError::new(
+            RendererRequest::NativeVelloGpu,
+            RendererTarget::Native,
+            "adapter rejected the request",
+        ));
+
+        assert!(renderer_error_is_terminal(&selection));
+        assert!(renderer_error_is_terminal(&initialization));
+        assert!(!renderer_error_is_terminal(&anyhow::anyhow!(
+            "surface temporarily unavailable"
+        )));
+    }
+
+    #[test]
+    fn unset_and_explicit_auto_remain_auto() {
+        assert_eq!(renderer_request_from_value(None), RendererRequest::Auto);
+        assert_eq!(
+            renderer_request_from_value(Some("auto")),
             RendererRequest::Auto
+        );
+    }
+
+    #[test]
+    fn renderer_target_rejects_known_but_unavailable_requests() {
+        assert_eq!(
+            RendererRequest::Canvas2dSoftware
+                .for_target(RendererTarget::Native)
+                .unwrap_err(),
+            RendererSelectionError {
+                request: RendererRequest::Canvas2dSoftware,
+                target: RendererTarget::Native,
+            }
+        );
+        assert_eq!(
+            RendererRequest::NativeSoftware
+                .for_target(RendererTarget::Web)
+                .unwrap_err(),
+            RendererSelectionError {
+                request: RendererRequest::NativeSoftware,
+                target: RendererTarget::Web,
+            }
+        );
+        assert_eq!(
+            RendererRequest::Auto
+                .for_target(RendererTarget::Native)
+                .unwrap(),
+            RendererRequest::Auto
+        );
+        assert_eq!(
+            RendererRequest::Vello
+                .for_target(RendererTarget::Native)
+                .unwrap(),
+            RendererRequest::NativeVelloGpu
+        );
+        assert_eq!(
+            RendererRequest::Vello
+                .for_target(RendererTarget::Web)
+                .unwrap(),
+            RendererRequest::WebGpuVello
+        );
+        assert_eq!(
+            RendererRequest::Software
+                .for_target(RendererTarget::Native)
+                .unwrap(),
+            RendererRequest::NativeSoftware
+        );
+        assert_eq!(
+            RendererRequest::Software
+                .for_target(RendererTarget::Web)
+                .unwrap(),
+            RendererRequest::Canvas2dSoftware
+        );
+        assert_eq!(
+            RendererRequest::Auto
+                .for_target(RendererTarget::Web)
+                .unwrap(),
+            RendererRequest::Auto
+        );
+    }
+
+    #[test]
+    fn invalid_renderer_has_a_stable_actionable_diagnostic() {
+        let error = RendererRequest::Invalid
+            .for_target(RendererTarget::Native)
+            .unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "unsupported FISSION_RENDERER value; expected auto, vello, software, webgpu-vello, canvas2d-software, native-vello-gpu, native-vello-cpu, or native-software"
         );
     }
 }
