@@ -17,6 +17,7 @@ mod picture;
 mod profile;
 mod svg;
 mod thread_owner;
+mod web;
 
 pub use capabilities::{skia_ganesh_capabilities, skia_raster_capabilities};
 pub use driver::SkiaRasterDriver;
