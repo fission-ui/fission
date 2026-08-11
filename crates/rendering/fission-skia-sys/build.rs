@@ -428,9 +428,9 @@ fn validate_profile_target(profile: &str, target: &str) {
         "native-raster" => {}
         "native-ganesh" if ganesh_backend(target).is_some() => {}
         "native-ganesh" => panic!(
-            "Skia profile native-ganesh is not available for {target}; supported targets are "
-            "Linux GNU x86_64/arm64, macOS x86_64/arm64, iOS device/simulator arm64/x86_64, "
-            "Windows MSVC x86_64/arm64, and Android arm64/armv7/x86_64/x86"
+            "Skia profile native-ganesh is not available for {target}; supported targets are \
+             Linux GNU x86_64/arm64, macOS x86_64/arm64, iOS device/simulator arm64/x86_64, \
+             Windows MSVC x86_64/arm64, and Android arm64/armv7/x86_64/x86"
         ),
         _ => panic!(
             "unsupported FISSION_SKIA_PROFILE={profile:?}; select native-raster or native-ganesh"
