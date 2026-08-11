@@ -5,6 +5,26 @@ use fission_ir::WidgetId;
 pub use fission_layout::{LayoutPoint, LayoutRect, LayoutSize, LayoutUnit};
 use serde::{Deserialize, Serialize};
 
+/// Internal cross-crate contracts used by interactive graphics backends.
+/// They are public so separately packaged backend crates can implement them,
+/// but are not yet a stable application-authoring API.
+#[doc(hidden)]
+pub mod backend;
+#[doc(hidden)]
+pub mod capabilities;
+#[doc(hidden)]
+pub mod conformance;
+#[doc(hidden)]
+pub mod diagnostics;
+#[doc(hidden)]
+pub mod external_surface;
+#[doc(hidden)]
+pub mod frame;
+#[doc(hidden)]
+pub mod resource;
+#[doc(hidden)]
+pub mod surface;
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Color {
     pub r: u8,
@@ -194,6 +214,31 @@ pub enum DisplayOp {
         bounds: LayoutRect,
         node_id: Option<WidgetId>,
     },
+}
+
+impl DisplayOp {
+    pub fn kind(&self) -> capabilities::DisplayOpKind {
+        use capabilities::DisplayOpKind;
+
+        match self {
+            Self::Save => DisplayOpKind::Save,
+            Self::Restore => DisplayOpKind::Restore,
+            Self::ClipRect(_) => DisplayOpKind::ClipRect,
+            Self::ClipRoundedRect { .. } => DisplayOpKind::ClipRoundedRect,
+            Self::OpacityLayer { .. } => DisplayOpKind::OpacityLayer,
+            Self::Translate(_) => DisplayOpKind::Translate,
+            Self::Transform(_) => DisplayOpKind::Transform,
+            Self::CachedScene { .. } => DisplayOpKind::CachedScene,
+            Self::BackdropFilter { .. } => DisplayOpKind::BackdropFilter,
+            Self::DrawRect { .. } => DisplayOpKind::DrawRect,
+            Self::DrawText { .. } => DisplayOpKind::DrawText,
+            Self::DrawRichText { .. } => DisplayOpKind::DrawRichText,
+            Self::DrawImage { .. } => DisplayOpKind::DrawImage,
+            Self::DrawPath { .. } => DisplayOpKind::DrawPath,
+            Self::DrawSvg { .. } => DisplayOpKind::DrawSvg,
+            Self::DrawSurface { .. } => DisplayOpKind::DrawSurface,
+        }
+    }
 }
 
 pub fn embed_surface_id(kind: &EmbedKind, widget_id: WidgetId) -> u64 {

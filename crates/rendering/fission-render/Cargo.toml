@@ -7,13 +7,12 @@ repository = "https://github.com/fission-ui/fission"
 description = "Renderer trait and display-list conversion layer for Fission"
 categories = ["rendering", "graphics", "gui"]
 keywords = ["fission", "rendering", "display-list", "gpu-accelerated", "cross-platform"]
-
-[package.metadata.fission]
-platforms = ["android", "ios", "linux", "macos", "windows", "web"]
-
 homepage = "https://fission.rs"
 documentation = "https://fission.rs"
 readme = "README.md"
+
+[package.metadata.fission]
+platforms = ["android", "ios", "linux", "macos", "windows", "web", "terminal", "static-site", "ssr"]
 [dependencies]
 fission-layout = { path = "../../core/fission-layout", version = "0.10.1" }
 fission-ir = { path = "../../core/fission-ir", version = "0.10.1" }

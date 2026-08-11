@@ -1,92 +1,74 @@
 # fission-render
 
-Display list and rendering abstraction for the Fission UI framework.
+Backend-neutral display lists, retained render scenes, and interactive graphics
+contracts for the Fission UI framework.
 
-## What is this?
+Fission lowers widgets and layout into a `RenderScene`. Its ordered `DisplayOp`
+values describe paint and composition semantics without exposing Vello, wgpu,
+Skia, Winit, or another implementation type. Static-site, SSR, and terminal
+targets can share these neutral types without linking an interactive renderer.
 
-`fission-render` sits at the end of the Fission pipeline. After the widget tree
-has been compiled to an IR and the layout engine has positioned every node, the
-framework flattens the result into a [`DisplayList`] -- an ordered sequence of
-[`DisplayOp`] commands that describe exactly what to draw and in what order.
-
-Platform backends implement the [`Renderer`] trait to consume a display list and
-produce pixels using whatever GPU or software rasterizer is available (Metal,
-Vulkan, wgpu, Skia, etc.).
-
-## Core concepts
+## Core types
 
 | Type | Purpose |
-|------|---------|
-| [`DisplayList`] | An ordered list of [`DisplayOp`]s plus the bounding rectangle of the scene. |
-| [`DisplayOp`] | A single rendering command: draw a rect, draw text, clip, save/restore state, etc. |
-| [`Renderer`] | Trait that platform backends implement to turn a display list into pixels. |
-| [`Color`] | RGBA color with 8-bit channels. |
-| [`TextStyle`] | Font size, color, underline, and optional background highlight. |
-| [`TextRun`] | A run of text with a uniform style -- the building block of rich text. |
-| [`Fill`] | A solid color fill. |
-| [`Stroke`] | A colored stroke with a line width. |
-| [`BoxShadow`] | Shadow parameters: color, blur radius, and offset. |
-| [`ImageFit`] | How an image scales to fit its layout box (contain, cover, fill, or none). |
+|---|---|
+| `DisplayList` | Ordered paint operations and their logical bounds. |
+| `DisplayOp` | Shapes, text, images, paths, SVG, clips, layers, and external surfaces. |
+| `RenderScene` | Retained tree of paint lists and compositing layers. |
+| `Renderer` | Small scene-consumer contract for headless and compatibility renderers. |
+| `InteractiveFrame` | A scene bound to frame metadata, resources, and external producers. |
+| `GraphicsBackendSession` | Capability, lifecycle, validation, render, present, recovery, and readback boundary. |
 
-## Display operations
+The interactive contracts are hidden from generated documentation while the
+current backends exercise them. They are public at the Rust crate boundary so
+separately packaged backend crates can implement the contract, but they are not
+yet a stable application-authoring API.
 
-The display list uses a save/restore stack model (like HTML Canvas or CoreGraphics):
-
-- **`Save` / `Restore`** -- push and pop the current graphics state.
-- **`ClipRect` / `ClipRoundedRect`** -- restrict drawing to a rectangle.
-- **`Translate` / `Transform`** -- move or apply a 4x4 matrix to the coordinate space.
-- **`DrawRect`** -- fill and/or stroke a rectangle with optional rounded corners and shadow.
-- **`DrawText`** -- draw a single-style text string.
-- **`DrawRichText`** -- draw multi-style text composed of [`TextRun`]s.
-- **`DrawImage`** -- draw an image from a source URI.
-- **`DrawPath`** -- draw an SVG-style path string.
-- **`DrawSvg`** -- draw inline SVG content.
-- **`DrawSurface`** -- blit an external surface (video, embedded web view, etc.).
-
-## Quick example
+## Display-list example
 
 ```rust
-use fission_render::*;
+use fission_render::{Color, DisplayList, DisplayOp, Fill, LayoutRect};
 
 let bounds = LayoutRect::new(0.0, 0.0, 800.0, 600.0);
 let mut list = DisplayList::new(bounds);
-
-// Draw a blue rectangle with rounded corners
 list.push(DisplayOp::DrawRect {
     rect: LayoutRect::new(10.0, 10.0, 200.0, 100.0),
-    fill: Some(Fill { color: Color { r: 0, g: 100, b: 255, a: 255 } }),
+    fill: Some(Fill::Solid(Color {
+        r: 0,
+        g: 100,
+        b: 255,
+        a: 255,
+    })),
     stroke: None,
     corner_radius: 8.0,
     shadow: None,
     bounds: LayoutRect::new(10.0, 10.0, 200.0, 100.0),
     node_id: None,
 });
-
-// A backend would consume the list like this:
-// renderer.render(&list).unwrap();
 ```
 
-## Implementing a backend
+## Implementing a scene consumer
 
-```rust,ignore
-use fission_render::{Renderer, DisplayList, DisplayOp};
+```rust
+use fission_render::{RenderScene, Renderer};
 
-struct MyGpuRenderer { /* ... */ }
+struct Inspector;
 
-impl Renderer for MyGpuRenderer {
-    fn render(&mut self, display_list: &DisplayList) -> anyhow::Result<()> {
-        for op in &display_list.ops {
-            match op {
-                DisplayOp::DrawRect { rect, fill, .. } => { /* draw with your GPU */ }
-                DisplayOp::DrawText { text, position, size, color, .. } => { /* shape & rasterize */ }
-                // ... handle all variants
-                _ => {}
-            }
+impl Renderer for Inspector {
+    fn render_scene(&mut self, scene: &RenderScene) -> anyhow::Result<()> {
+        for operation in scene.flatten().ops {
+            println!("{operation:?}");
         }
         Ok(())
     }
 }
 ```
+
+The lifecycle and capability contracts in `fission_render::backend` are the
+target boundary for interactive backends. `GraphicsBackendSession` provides a
+non-bypassable validation and lifecycle gate for adapters implemented against
+that contract. Existing production hosts are being migrated incrementally and
+still use compatibility integration paths where no session driver exists yet.
 
 ## License
 
