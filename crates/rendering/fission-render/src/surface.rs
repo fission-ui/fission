@@ -5,6 +5,9 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::capabilities::ColorFormat;
 
+mod native_window_target;
+pub use native_window_target::{NativeWindowTarget, NativeWindowTargetError};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct SurfaceId(pub u64);
 
