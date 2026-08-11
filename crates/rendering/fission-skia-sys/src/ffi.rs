@@ -31,6 +31,7 @@ pub const FEATURE_THREAD_AFFINITY: u64 = 1 << 4;
 pub const FEATURE_MEMORY_PRESSURE: u64 = 1 << 5;
 pub const FEATURE_PAINT_STATE: u64 = 1 << 6;
 pub const FEATURE_PARAGRAPH: u64 = 1 << 7;
+pub const FEATURE_OPACITY_LAYER: u64 = 1 << 8;
 pub const FEATURE_TEST_SHIM: u64 = 1 << 63;
 
 pub const PATH_MOVE: u32 = 1;
@@ -66,6 +67,7 @@ pub const FRAME_FILL_PATH: u32 = 9;
 pub const FRAME_STROKE_PATH: u32 = 10;
 pub const FRAME_BOX_SHADOW: u32 = 11;
 pub const FRAME_DRAW_PARAGRAPH: u32 = 12;
+pub const FRAME_OPACITY_LAYER: u32 = 13;
 
 pub const MEMORY_PRESSURE_MODERATE: u32 = 1;
 pub const MEMORY_PRESSURE_CRITICAL: u32 = 2;
@@ -228,7 +230,7 @@ pub struct FrameOp {
     pub path_offset: u32,
     pub path_count: u32,
     pub fill_rule: u32,
-    pub reserved: u32,
+    pub opacity: f32,
 }
 
 #[repr(C)]

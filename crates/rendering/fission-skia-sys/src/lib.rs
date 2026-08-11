@@ -32,7 +32,7 @@ pub use paragraph::{
 };
 
 /// Exact bridge ABI accepted by this crate.
-pub const ABI_VERSION: u32 = 3;
+pub const ABI_VERSION: u32 = 4;
 
 /// Exact Skia source revision used by both source and prebuilt profiles.
 pub const SKIA_REVISION: &str = "cf5c36972b73698eb3939cda147ea47152670312";

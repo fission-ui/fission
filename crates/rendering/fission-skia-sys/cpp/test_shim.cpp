@@ -9,6 +9,7 @@
 #include <mutex>
 #include <thread>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #ifndef FISSION_SKIA_REVISION
@@ -22,6 +23,7 @@ constexpr uint64_t kFeatures =
     FISSION_SKIA_FEATURE_RGBA_READBACK | FISSION_SKIA_FEATURE_STRUCTURED_ERRORS |
     FISSION_SKIA_FEATURE_THREAD_AFFINITY | FISSION_SKIA_FEATURE_MEMORY_PRESSURE |
     FISSION_SKIA_FEATURE_PAINT_STATE | FISSION_SKIA_FEATURE_PARAGRAPH |
+    FISSION_SKIA_FEATURE_OPACITY_LAYER |
     FISSION_SKIA_FEATURE_TEST_SHIM;
 
 struct Engine { std::thread::id owner; uint64_t children = 0; };
@@ -33,6 +35,18 @@ struct Surface {
     uint32_t height = 0;
     std::vector<uint8_t> pixels;
 };
+struct PixelTarget {
+    uint32_t width = 0;
+    uint32_t height = 0;
+    std::vector<uint8_t>* pixels = nullptr;
+    fission_skia_rect_t clip = {};
+};
+struct OpacityLayer {
+    fission_skia_rect_t bounds = {};
+    float alpha = 1.0f;
+    std::vector<uint8_t> pixels;
+};
+enum class SavedKind { kCanvasState, kOpacityLayer };
 struct State {
     std::mutex mutex;
     std::unordered_map<uint64_t, Engine> engines;
@@ -168,29 +182,124 @@ uint8_t channel(float value) {
     return static_cast<uint8_t>(std::lround(value * 255.0f));
 }
 
-void paint_rect(Surface& surface, const fission_skia_rect_t& rect,
-                const fission_skia_color_t& color) {
-    const int left = std::max(0, static_cast<int>(std::floor(rect.x)));
-    const int top = std::max(0, static_cast<int>(std::floor(rect.y)));
-    const int right = std::min(static_cast<int>(surface.width),
-                               static_cast<int>(std::ceil(rect.x + rect.width)));
-    const int bottom = std::min(static_cast<int>(surface.height),
-                                static_cast<int>(std::ceil(rect.y + rect.height)));
+struct PixelBounds {
+    int left = 0;
+    int top = 0;
+    int right = 0;
+    int bottom = 0;
+};
+
+PixelBounds intersected_pixel_bounds(
+    const PixelTarget& target,
+    const fission_skia_rect_t& rect) {
+    const double left = std::max<double>(rect.x, target.clip.x);
+    const double top = std::max<double>(rect.y, target.clip.y);
+    const double right = std::min<double>(
+        static_cast<double>(rect.x) + rect.width,
+        static_cast<double>(target.clip.x) + target.clip.width);
+    const double bottom = std::min<double>(
+        static_cast<double>(rect.y) + rect.height,
+        static_cast<double>(target.clip.y) + target.clip.height);
+    if (right <= left || bottom <= top) return {};
+    return {
+        static_cast<int>(std::clamp(std::floor(left), 0.0,
+                                    static_cast<double>(target.width))),
+        static_cast<int>(std::clamp(std::floor(top), 0.0,
+                                    static_cast<double>(target.height))),
+        static_cast<int>(std::clamp(std::ceil(right), 0.0,
+                                    static_cast<double>(target.width))),
+        static_cast<int>(std::clamp(std::ceil(bottom), 0.0,
+                                    static_cast<double>(target.height))),
+    };
+}
+
+void replace_pixel(uint8_t* destination, const fission_skia_color_t& color) {
+    destination[0] = channel(color.red);
+    destination[1] = channel(color.green);
+    destination[2] = channel(color.blue);
+    destination[3] = channel(color.alpha);
+}
+
+void blend_pixel(
+    uint8_t* destination,
+    const fission_skia_color_t& source,
+    float opacity = 1.0f) {
+    const float source_alpha = source.alpha * opacity;
+    const float destination_alpha = static_cast<float>(destination[3]) / 255.0f;
+    const float output_alpha = source_alpha + destination_alpha * (1.0f - source_alpha);
+    if (output_alpha <= 0.0f) {
+        std::memset(destination, 0, 4);
+        return;
+    }
+    const float destination_weight = destination_alpha * (1.0f - source_alpha);
+    const float destination_red = static_cast<float>(destination[0]) / 255.0f;
+    const float destination_green = static_cast<float>(destination[1]) / 255.0f;
+    const float destination_blue = static_cast<float>(destination[2]) / 255.0f;
+    destination[0] = channel(
+        (source.red * source_alpha + destination_red * destination_weight) / output_alpha);
+    destination[1] = channel(
+        (source.green * source_alpha + destination_green * destination_weight) / output_alpha);
+    destination[2] = channel(
+        (source.blue * source_alpha + destination_blue * destination_weight) / output_alpha);
+    destination[3] = channel(output_alpha);
+}
+
+void paint_rect(
+    PixelTarget& target,
+    const fission_skia_rect_t& rect,
+    const fission_skia_color_t& color,
+    bool replace = false) {
+    const PixelBounds bounds = intersected_pixel_bounds(target, rect);
+    if (target.pixels == nullptr) return;
+    auto& pixels = *target.pixels;
+    const int left = bounds.left;
+    const int top = bounds.top;
+    const int right = bounds.right;
+    const int bottom = bounds.bottom;
     for (int y = top; y < bottom; ++y) {
         for (int x = left; x < right; ++x) {
-            const size_t offset = (static_cast<size_t>(y) * surface.width + x) * 4;
-            surface.pixels[offset] = channel(color.red);
-            surface.pixels[offset + 1] = channel(color.green);
-            surface.pixels[offset + 2] = channel(color.blue);
-            surface.pixels[offset + 3] = channel(color.alpha);
+            const size_t offset = (static_cast<size_t>(y) * target.width + x) * 4;
+            if (replace) replace_pixel(pixels.data() + offset, color);
+            else blend_pixel(pixels.data() + offset, color);
+        }
+    }
+}
+
+PixelTarget current_target(Surface& surface, std::vector<OpacityLayer>& layers) {
+    if (!layers.empty()) {
+        auto& layer = layers.back();
+        return {surface.width, surface.height, &layer.pixels, layer.bounds};
+    }
+    return {
+        surface.width,
+        surface.height,
+        &surface.pixels,
+        {0.0f, 0.0f, static_cast<float>(surface.width), static_cast<float>(surface.height)},
+    };
+}
+
+void composite_layer(PixelTarget& destination, const OpacityLayer& layer) {
+    const PixelBounds bounds = intersected_pixel_bounds(destination, layer.bounds);
+    if (destination.pixels == nullptr) return;
+    auto& pixels = *destination.pixels;
+    for (int y = bounds.top; y < bounds.bottom; ++y) {
+        for (int x = bounds.left; x < bounds.right; ++x) {
+            const size_t offset = (static_cast<size_t>(y) * destination.width + x) * 4;
+            const fission_skia_color_t source = {
+                static_cast<float>(layer.pixels[offset]) / 255.0f,
+                static_cast<float>(layer.pixels[offset + 1]) / 255.0f,
+                static_cast<float>(layer.pixels[offset + 2]) / 255.0f,
+                static_cast<float>(layer.pixels[offset + 3]) / 255.0f,
+            };
+            blend_pixel(pixels.data() + offset, source, layer.alpha);
         }
     }
 }
 
 void paint_paragraph_rect(void* context, const fission_skia_paragraph_rect_t& rect,
                           const fission_skia_color_t& color) {
-    auto& surface = *static_cast<Surface*>(context);
-    paint_rect(surface, {rect.x, rect.y, rect.width, rect.height}, color);
+    auto& target = *static_cast<PixelTarget*>(context);
+    paint_rect(target, {rect.x, rect.y, rect.width, rect.height}, color);
 }
 
 }  // namespace
@@ -351,10 +460,17 @@ fission_skia_status_t fission_skia_surface_execute_frame(
             case FISSION_SKIA_FRAME_SAVE:
                 save_depth += 1;
                 break;
+            case FISSION_SKIA_FRAME_OPACITY_LAYER:
+                if (!valid_rect(op.rect) || !std::isfinite(op.opacity) ||
+                    op.opacity < 0.0f || op.opacity > 1.0f)
+                    return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame",
+                                "invalid opacity layer", error);
+                save_depth += 1;
+                break;
             case FISSION_SKIA_FRAME_RESTORE:
                 if (!save_depth)
                     return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame",
-                                "restore without save", error);
+                                "restore without save or opacity layer", error);
                 save_depth -= 1;
                 break;
             case FISSION_SKIA_FRAME_CLIP_RECT:
@@ -422,24 +538,47 @@ fission_skia_status_t fission_skia_surface_execute_frame(
     }
     if (save_depth)
         return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame",
-                    "unrestored save", error);
+                    "unrestored save or opacity layer", error);
     std::lock_guard<std::mutex> lock(state().mutex);
     auto found = state().surfaces.find(id);
     if (found == state().surfaces.end())
         return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, "execute_frame", "invalid surface", error);
     auto status = owner(found->second, "execute_frame", error);
     if (status) return status;
+    std::vector<SavedKind> saved;
+    std::vector<OpacityLayer> layers;
     for (size_t index = 0; index < frame->operation_count; ++index) {
         const auto& op = frame->operations[index];
         if (op.kind == FISSION_SKIA_FRAME_CLEAR) {
-            paint_rect(found->second, {0, 0, static_cast<float>(found->second.width),
-                                      static_cast<float>(found->second.height)}, op.paint.color);
+            auto target = current_target(found->second, layers);
+            paint_rect(target, {0, 0, static_cast<float>(found->second.width),
+                                static_cast<float>(found->second.height)}, op.paint.color, true);
+        } else if (op.kind == FISSION_SKIA_FRAME_SAVE) {
+            saved.push_back(SavedKind::kCanvasState);
+        } else if (op.kind == FISSION_SKIA_FRAME_OPACITY_LAYER) {
+            layers.push_back(OpacityLayer{
+                op.rect,
+                op.opacity,
+                std::vector<uint8_t>(found->second.pixels.size(), 0),
+            });
+            saved.push_back(SavedKind::kOpacityLayer);
+        } else if (op.kind == FISSION_SKIA_FRAME_RESTORE) {
+            const SavedKind kind = saved.back();
+            saved.pop_back();
+            if (kind == SavedKind::kOpacityLayer) {
+                OpacityLayer layer = std::move(layers.back());
+                layers.pop_back();
+                auto target = current_target(found->second, layers);
+                composite_layer(target, layer);
+            }
         } else if (op.kind == FISSION_SKIA_FRAME_FILL_RECT) {
-            paint_rect(found->second, op.rect, representative_color(*frame, op.paint));
+            auto target = current_target(found->second, layers);
+            paint_rect(target, op.rect, representative_color(*frame, op.paint));
         } else if (op.kind == FISSION_SKIA_FRAME_DRAW_PARAGRAPH) {
+            auto target = current_target(found->second, layers);
             status = fission_skia_paragraph_draw_test_picture(
                 fission_skia_paragraph_handle_from_frame_op(op), op.rect.x, op.rect.y,
-                op.radius, &found->second, paint_paragraph_rect, error);
+                op.radius, &target, paint_paragraph_rect, error);
             if (status != FISSION_SKIA_STATUS_OK) return status;
         }
         // State, gradients, strokes, paths, and shadows are intentionally

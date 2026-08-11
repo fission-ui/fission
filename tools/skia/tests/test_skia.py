@@ -30,7 +30,7 @@ class SkiaToolTests(unittest.TestCase):
         inputs = temporary / "inputs"
         inputs.mkdir()
         header = inputs / "fission_skia.h"
-        header.write_text("#define FISSION_SKIA_ABI_VERSION 3u\n", encoding="utf-8")
+        header.write_text("#define FISSION_SKIA_ABI_VERSION 4u\n", encoding="utf-8")
 
         profile = self.config["profiles"]["native-raster"]
         target = "x86_64-unknown-linux-gnu"
@@ -152,7 +152,7 @@ class SkiaToolTests(unittest.TestCase):
     def test_pin_and_all_local_profiles_are_explicitly_unqualified(self) -> None:
         self.assertRegex(self.config["source"]["revision"], r"^[0-9a-f]{40}$")
         self.assertEqual(self.config["source"]["qualification"], "unqualified")
-        self.assertEqual(self.config["bridge"]["abi_version"], 3)
+        self.assertEqual(self.config["bridge"]["abi_version"], 4)
         lock = json.loads(
             (Path(__file__).resolve().parents[1] / "artifacts.lock.json").read_text(
                 encoding="utf-8"

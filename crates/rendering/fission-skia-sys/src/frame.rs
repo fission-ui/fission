@@ -200,6 +200,13 @@ pub enum FrameOp {
     Clear(Color),
     Save,
     Restore,
+    /// Begins an isolated layer clipped to `bounds`. A matching [`FrameOp::Restore`]
+    /// composites the complete group once using `alpha` in the inclusive range
+    /// `0.0..=1.0`.
+    OpacityLayer {
+        bounds: Rect,
+        alpha: f32,
+    },
     ClipRect {
         rect: Rect,
     },
@@ -272,7 +279,13 @@ impl Frame {
                     raw.kind = ffi::FRAME_RESTORE;
                     save_depth = save_depth
                         .checked_sub(1)
-                        .ok_or_else(|| invalid("restore has no matching save"))?;
+                        .ok_or_else(|| invalid("restore has no matching save or opacity layer"))?;
+                }
+                FrameOp::OpacityLayer { bounds, alpha } => {
+                    raw.kind = ffi::FRAME_OPACITY_LAYER;
+                    raw.rect = raw_rect(*bounds)?;
+                    raw.opacity = unit_interval(*alpha, "opacity layer alpha")?;
+                    save_depth = save_depth.saturating_add(1);
                 }
                 FrameOp::ClipRect { rect } => {
                     raw.kind = ffi::FRAME_CLIP_RECT;
@@ -368,7 +381,7 @@ impl Frame {
 
         if save_depth != 0 {
             return Err(invalid(format!(
-                "frame leaves {save_depth} save operation(s) unrestored"
+                "frame leaves {save_depth} save or opacity-layer operation(s) unrestored"
             )));
         }
         Ok(encoded)
@@ -732,7 +745,7 @@ fn zero_operation() -> ffi::FrameOp {
         path_offset: 0,
         path_count: 0,
         fill_rule: 0,
-        reserved: 0,
+        opacity: 0.0,
     }
 }
 
@@ -829,6 +842,14 @@ fn positive(value: f32, label: &str) -> Result<f32> {
     }
 }
 
+fn unit_interval(value: f32, label: &str) -> Result<f32> {
+    if value.is_finite() && (0.0..=1.0).contains(&value) {
+        Ok(value)
+    } else {
+        Err(invalid(format!("{label} must be finite and in 0..=1")))
+    }
+}
+
 fn invalid(message: impl Into<String>) -> Error {
     Error::local(ErrorKind::InvalidArgument, "Frame::encode", message)
 }
@@ -871,10 +892,61 @@ mod tests {
     fn state_stack_and_finite_values_fail_closed() {
         assert!(Frame::new([FrameOp::Restore]).encode().is_err());
         assert!(Frame::new([FrameOp::Save]).encode().is_err());
+        assert!(Frame::new([FrameOp::OpacityLayer {
+            bounds: Rect::new(0.0, 0.0, 10.0, 10.0),
+            alpha: 0.5,
+        }])
+        .encode()
+        .is_err());
         assert!(Frame::new([FrameOp::ConcatAffine(Affine {
             scale_x: f32::NAN,
             ..Affine::IDENTITY
         })])
+        .encode()
+        .is_err());
+    }
+
+    #[test]
+    fn opacity_layers_encode_bounded_group_alpha_and_balance_with_restore() {
+        let frame = Frame::new([
+            FrameOp::OpacityLayer {
+                bounds: Rect::new(1.0, 2.0, 3.0, 4.0),
+                alpha: 0.25,
+            },
+            FrameOp::Restore,
+        ]);
+
+        let encoded = frame.encode().unwrap();
+
+        assert_eq!(encoded.operations[0].kind, ffi::FRAME_OPACITY_LAYER);
+        assert_eq!(encoded.operations[0].rect.x, 1.0);
+        assert_eq!(encoded.operations[0].rect.y, 2.0);
+        assert_eq!(encoded.operations[0].rect.width, 3.0);
+        assert_eq!(encoded.operations[0].rect.height, 4.0);
+        assert_eq!(encoded.operations[0].opacity, 0.25);
+        assert_eq!(encoded.operations[1].kind, ffi::FRAME_RESTORE);
+    }
+
+    #[test]
+    fn opacity_layer_rejects_invalid_bounds_and_alpha() {
+        for alpha in [f32::NAN, f32::NEG_INFINITY, -0.01, 1.01] {
+            assert!(Frame::new([
+                FrameOp::OpacityLayer {
+                    bounds: Rect::new(0.0, 0.0, 1.0, 1.0),
+                    alpha,
+                },
+                FrameOp::Restore
+            ])
+            .encode()
+            .is_err());
+        }
+        assert!(Frame::new([
+            FrameOp::OpacityLayer {
+                bounds: Rect::new(0.0, 0.0, -1.0, 1.0),
+                alpha: 0.5,
+            },
+            FrameOp::Restore,
+        ])
         .encode()
         .is_err());
     }

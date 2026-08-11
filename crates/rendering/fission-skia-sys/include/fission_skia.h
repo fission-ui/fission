@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-#define FISSION_SKIA_ABI_VERSION 3u
+#define FISSION_SKIA_ABI_VERSION 4u
 #define FISSION_SKIA_REVISION_LENGTH 41u
 #define FISSION_SKIA_PROFILE_LENGTH 32u
 #define FISSION_SKIA_ERROR_OPERATION_LENGTH 64u
@@ -55,6 +55,7 @@ typedef enum fission_skia_feature_t {
     FISSION_SKIA_FEATURE_MEMORY_PRESSURE = UINT64_C(1) << 5,
     FISSION_SKIA_FEATURE_PAINT_STATE = UINT64_C(1) << 6,
     FISSION_SKIA_FEATURE_PARAGRAPH = UINT64_C(1) << 7,
+    FISSION_SKIA_FEATURE_OPACITY_LAYER = UINT64_C(1) << 8,
     FISSION_SKIA_FEATURE_TEST_SHIM = UINT64_C(1) << 63
 } fission_skia_feature_t;
 
@@ -213,7 +214,8 @@ typedef enum fission_skia_frame_op_kind_t {
     FISSION_SKIA_FRAME_FILL_PATH = 9,
     FISSION_SKIA_FRAME_STROKE_PATH = 10,
     FISSION_SKIA_FRAME_BOX_SHADOW = 11,
-    FISSION_SKIA_FRAME_DRAW_PARAGRAPH = 12
+    FISSION_SKIA_FRAME_DRAW_PARAGRAPH = 12,
+    FISSION_SKIA_FRAME_OPACITY_LAYER = 13
 } fission_skia_frame_op_kind_t;
 
 /*
@@ -222,6 +224,10 @@ typedef enum fission_skia_frame_op_kind_t {
  * fields must be zero, allowing future ABI versions to give them meaning
  * explicitly. Odd dash arrays are duplicated by the safe Rust encoder; empty
  * and all-zero arrays are encoded as a solid stroke.
+ *
+ * OPACITY_LAYER begins an isolated group bounded by rect. opacity contains a
+ * finite alpha in 0..=1. A matching RESTORE composites the group exactly once.
+ * The bounds are part of the operation contract, not inferred from its draws.
  *
  * DRAW_PARAGRAPH is the sole exception to the path offset/count meaning:
  * path_offset contains the low 32 bits and path_count the high 32 bits of an
@@ -242,7 +248,7 @@ typedef struct fission_skia_frame_op_t {
     uint32_t path_offset;
     uint32_t path_count;
     uint32_t fill_rule;
-    uint32_t reserved;
+    float opacity;
 } fission_skia_frame_op_t;
 
 typedef struct fission_skia_frame_t {

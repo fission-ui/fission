@@ -1,11 +1,13 @@
 # fission-skia-sys
 
 `fission-skia-sys` is Fission's sole native link authority for Skia. It exposes
-a narrow, versioned C ABI instead of C++ or Skia-owned layouts. ABI v2 contains
+a narrow, versioned C ABI instead of C++ or Skia-owned layouts. ABI v4 contains
 the production raster foundation: engine and context ownership, raster
 surfaces, batched paint state and shape execution, RGBA readback,
 memory-pressure notification, structured diagnostics, and explicit
-owner-thread checks.
+owner-thread checks. It also carries retained SkParagraph paint data and
+bounded opacity layers whose contents are isolated before group alpha is
+applied once.
 
 The paint contract carries finite unpremultiplied sRGB values. Gradients use
 shape-resolved coordinates and ordered stops. Empty gradients are transparent,

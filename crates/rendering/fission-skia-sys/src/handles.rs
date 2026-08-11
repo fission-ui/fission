@@ -11,7 +11,8 @@ const REQUIRED_RASTER_FEATURES: u64 = ffi::FEATURE_RASTER_SURFACE
     | ffi::FEATURE_STRUCTURED_ERRORS
     | ffi::FEATURE_THREAD_AFFINITY
     | ffi::FEATURE_MEMORY_PRESSURE
-    | ffi::FEATURE_PAINT_STATE;
+    | ffi::FEATURE_PAINT_STATE
+    | ffi::FEATURE_OPACITY_LAYER;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildInfo {

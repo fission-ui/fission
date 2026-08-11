@@ -43,7 +43,8 @@ constexpr uint64_t kFeatureBits =
     FISSION_SKIA_FEATURE_THREAD_AFFINITY |
     FISSION_SKIA_FEATURE_MEMORY_PRESSURE |
     FISSION_SKIA_FEATURE_PAINT_STATE |
-    FISSION_SKIA_FEATURE_PARAGRAPH;
+    FISSION_SKIA_FEATURE_PARAGRAPH |
+    FISSION_SKIA_FEATURE_OPACITY_LAYER;
 
 struct EngineState {
     std::thread::id owner;
@@ -344,10 +345,18 @@ fission_skia_status_t validate_frame(
             case FISSION_SKIA_FRAME_SAVE:
                 save_depth += 1;
                 break;
+            case FISSION_SKIA_FRAME_OPACITY_LAYER:
+                if (!valid_rect(operation.rect) || !finite(operation.opacity) ||
+                    operation.opacity < 0.0f || operation.opacity > 1.0f) {
+                    return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame",
+                                "opacity layer has invalid bounds or alpha", error);
+                }
+                save_depth += 1;
+                break;
             case FISSION_SKIA_FRAME_RESTORE:
                 if (save_depth == 0) {
                     return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame",
-                                "restore has no matching save", error);
+                                "restore has no matching save or opacity layer", error);
                 }
                 save_depth -= 1;
                 break;
@@ -431,7 +440,7 @@ fission_skia_status_t validate_frame(
     }
     if (save_depth != 0) {
         return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame",
-                    "frame leaves save operations unrestored", error);
+                    "frame leaves save or opacity-layer operations unrestored", error);
     }
     return FISSION_SKIA_STATUS_OK;
 }
@@ -887,6 +896,14 @@ fission_skia_status_t fission_skia_surface_execute_frame(
             case FISSION_SKIA_FRAME_SAVE:
                 canvas->save();
                 break;
+            case FISSION_SKIA_FRAME_OPACITY_LAYER: {
+                SkPaint paint;
+                paint.setAlphaf(operation.opacity);
+                const SkRect bounds = sk_rect(operation.rect);
+                canvas->saveLayer(&bounds, &paint);
+                canvas->clipRect(bounds, SkClipOp::kIntersect, false);
+                break;
+            }
             case FISSION_SKIA_FRAME_RESTORE:
                 canvas->restore();
                 break;
