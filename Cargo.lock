@@ -3025,6 +3025,7 @@ dependencies = [
  "fission-render",
  "fission-skia-sys",
  "kurbo",
+ "raw-window-handle",
 ]
 
 [[package]]

@@ -5,6 +5,9 @@ mod capabilities;
 mod compiler;
 mod driver;
 mod error;
+mod ganesh_api;
+mod ganesh_driver;
+mod ganesh_native;
 mod image;
 mod native;
 mod paragraph_caret;
@@ -15,10 +18,11 @@ mod profile;
 mod svg;
 mod thread_owner;
 
-pub use capabilities::skia_raster_capabilities;
+pub use capabilities::{skia_ganesh_capabilities, skia_raster_capabilities};
 pub use driver::SkiaRasterDriver;
+pub use ganesh_driver::SkiaGaneshDriver;
 pub use paragraph_engine::SkiaParagraphEngine;
-pub use profile::SkiaRasterProfile;
+pub use profile::{SkiaGaneshProfile, SkiaRasterProfile};
 
 use fission_render::backend::{BackendResult, GraphicsBackendSession};
 

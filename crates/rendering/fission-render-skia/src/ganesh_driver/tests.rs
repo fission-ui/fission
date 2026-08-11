@@ -1,0 +1,548 @@
+use std::collections::VecDeque;
+use std::ffi::c_void;
+use std::num::NonZeroU32;
+use std::ptr::NonNull;
+use std::sync::{Arc, Mutex};
+
+use fission_render::backend::{GraphicsBackendSession, ReadbackRequest, SurfaceMetrics};
+use fission_render::capabilities::ColorFormat;
+use fission_render::external_surface::ExternalSurfaceBindings;
+use fission_render::frame::{
+    DamageRegion, FrameId, FrameMetadata, FrameViewport, InteractiveFrame, ResourceEpoch,
+    SemanticsEpoch,
+};
+use fission_render::resource::ResourceSnapshot;
+use fission_render::surface::{
+    LossKind, MemoryPressure, NativeWindowTarget, PhysicalSize, Recovery, ScaleFactor,
+    SurfaceDescriptor, SurfaceId, SurfaceKind, SurfaceTarget, ThreadAffinity,
+};
+use fission_render::{LayoutRect, LayoutSize, RenderScene};
+use fission_skia_sys::{NativeWindow, NativeWindowKind};
+use raw_window_handle::{
+    RawDisplayHandle, RawWindowHandle, WaylandDisplayHandle, WaylandWindowHandle, XcbDisplayHandle,
+    XcbWindowHandle, XlibDisplayHandle, XlibWindowHandle,
+};
+
+use super::*;
+use crate::api::{RasterFrame, RasterRect};
+use crate::ganesh_api::GaneshApi;
+use crate::profile::new_paragraph_draw_data_registry;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MockCall {
+    CreateEngine,
+    CreateContext(NativeWindowKind),
+    CreateSurface(NativeWindowKind, PhysicalSize),
+    Resize(NativeWindowKind, PhysicalSize),
+    Execute,
+    Present,
+    Trim(MemoryPressure),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum MockEvent {
+    Call(MockCall),
+    Drop(&'static str, u64),
+}
+
+#[derive(Clone, Default)]
+struct MockApi {
+    state: Arc<Mutex<MockState>>,
+}
+
+#[derive(Default)]
+struct MockState {
+    next_id: u64,
+    events: Vec<MockEvent>,
+    failures: VecDeque<(MockCall, ApiError)>,
+}
+
+impl MockApi {
+    fn fail_next(&self, call: MockCall, error: ApiError) {
+        self.state.lock().unwrap().failures.push_back((call, error));
+    }
+
+    fn events(&self) -> Vec<MockEvent> {
+        self.state.lock().unwrap().events.clone()
+    }
+
+    fn call(&self, call: MockCall) -> Result<(), ApiError> {
+        let mut state = self.state.lock().unwrap();
+        state.events.push(MockEvent::Call(call));
+        if state
+            .failures
+            .front()
+            .is_some_and(|(expected, _)| *expected == call)
+        {
+            return Err(state.failures.pop_front().unwrap().1);
+        }
+        Ok(())
+    }
+
+    fn handle(&self, kind: &'static str) -> MockHandle {
+        let id = {
+            let mut state = self.state.lock().unwrap();
+            state.next_id += 1;
+            state.next_id
+        };
+        MockHandle {
+            id,
+            kind,
+            state: Arc::clone(&self.state),
+        }
+    }
+}
+
+struct MockHandle {
+    id: u64,
+    kind: &'static str,
+    state: Arc<Mutex<MockState>>,
+}
+
+impl Drop for MockHandle {
+    fn drop(&mut self) {
+        self.state
+            .lock()
+            .unwrap()
+            .events
+            .push(MockEvent::Drop(self.kind, self.id));
+    }
+}
+
+impl GaneshApi for MockApi {
+    type Engine = MockHandle;
+    type Context = MockHandle;
+    type Surface = MockHandle;
+
+    fn create_engine(&self) -> Result<Self::Engine, ApiError> {
+        self.call(MockCall::CreateEngine)?;
+        Ok(self.handle("engine"))
+    }
+
+    fn create_context(
+        &self,
+        _engine: &Self::Engine,
+        compatible_window: NativeWindow,
+    ) -> Result<Self::Context, ApiError> {
+        self.call(MockCall::CreateContext(compatible_window.kind()))?;
+        Ok(self.handle("context"))
+    }
+
+    fn create_surface(
+        &self,
+        _context: &Self::Context,
+        window: NativeWindow,
+        size: PhysicalSize,
+    ) -> Result<Self::Surface, ApiError> {
+        self.call(MockCall::CreateSurface(window.kind(), size))?;
+        Ok(self.handle("surface"))
+    }
+
+    fn resize_surface(
+        &self,
+        _surface: &mut Self::Surface,
+        window: NativeWindow,
+        size: PhysicalSize,
+    ) -> Result<(), ApiError> {
+        self.call(MockCall::Resize(window.kind(), size))
+    }
+
+    fn execute_frame(
+        &self,
+        _surface: &mut Self::Surface,
+        _frame: &RasterFrame,
+    ) -> Result<(), ApiError> {
+        self.call(MockCall::Execute)
+    }
+
+    fn present(&self, _surface: &mut Self::Surface) -> Result<(), ApiError> {
+        self.call(MockCall::Present)
+    }
+
+    fn trim_memory(
+        &self,
+        _context: &Self::Context,
+        pressure: MemoryPressure,
+    ) -> Result<(), ApiError> {
+        self.call(MockCall::Trim(pressure))
+    }
+}
+
+struct FrameFixture {
+    scene: RenderScene,
+    metadata: FrameMetadata,
+    resources: ResourceSnapshot,
+    bindings: ExternalSurfaceBindings,
+}
+
+impl FrameFixture {
+    fn empty(size: PhysicalSize, scale_factor: f64, frame_id: u64) -> Self {
+        let scale_factor = ScaleFactor::new(scale_factor).unwrap();
+        let resource_epoch = ResourceEpoch(17);
+        Self {
+            scene: RenderScene::new(LayoutRect::new(
+                0.0,
+                0.0,
+                size.width as f32 / scale_factor.get() as f32,
+                size.height as f32 / scale_factor.get() as f32,
+            )),
+            metadata: FrameMetadata {
+                frame_id: FrameId(frame_id),
+                viewport: FrameViewport {
+                    logical_size: LayoutSize::new(
+                        size.width as f32 / scale_factor.get() as f32,
+                        size.height as f32 / scale_factor.get() as f32,
+                    ),
+                    physical_size: size,
+                    scale_factor,
+                },
+                damage: DamageRegion::Full,
+                resource_epoch,
+                semantics_epoch: SemanticsEpoch(9),
+            },
+            resources: ResourceSnapshot::empty(resource_epoch),
+            bindings: ExternalSurfaceBindings::new(),
+        }
+    }
+
+    fn frame(&self) -> InteractiveFrame<'_> {
+        InteractiveFrame::new(&self.scene, &self.metadata, &self.resources, &self.bindings)
+    }
+}
+
+fn session(api: MockApi) -> GraphicsBackendSession<'static> {
+    GraphicsBackendSession::new(
+        GaneshDriver::try_new(api, new_paragraph_draw_data_registry()).unwrap(),
+    )
+    .unwrap()
+}
+
+fn pointer() -> NonNull<c_void> {
+    NonNull::from(Box::leak(Box::new(0_u8))).cast()
+}
+
+fn descriptor(size: PhysicalSize) -> SurfaceDescriptor {
+    SurfaceDescriptor {
+        id: SurfaceId(44),
+        kind: SurfaceKind::NativeWindow,
+        size,
+        scale_factor: ScaleFactor::ONE,
+        color_format: ColorFormat::Bgra8Srgb,
+        thread_affinity: ThreadAffinity::CreatingThread,
+    }
+}
+
+fn target(
+    size: PhysicalSize,
+    display: RawDisplayHandle,
+    window: RawWindowHandle,
+) -> NativeWindowTarget {
+    // SAFETY: these tests never pass their inert handles to the native bridge;
+    // the leaked pointer tokens remain live for the complete target lifetime.
+    unsafe { NativeWindowTarget::from_raw_handles(descriptor(size), display, window).unwrap() }
+}
+
+fn xlib_target(size: PhysicalSize) -> NativeWindowTarget {
+    let display = RawDisplayHandle::Xlib(XlibDisplayHandle::new(Some(pointer()), 0));
+    let window = RawWindowHandle::Xlib(XlibWindowHandle::new(71));
+    target(size, display, window)
+}
+
+fn wayland_target(size: PhysicalSize) -> NativeWindowTarget {
+    let display = RawDisplayHandle::Wayland(WaylandDisplayHandle::new(pointer()));
+    let window = RawWindowHandle::Wayland(WaylandWindowHandle::new(pointer()));
+    target(size, display, window)
+}
+
+#[test]
+fn lowers_all_supported_linux_window_routes_and_allows_unknown_visuals() {
+    let size = PhysicalSize::new(640, 480);
+    assert_eq!(
+        lower_native_window(&wayland_target(size)).unwrap().kind(),
+        NativeWindowKind::Wayland
+    );
+    assert_eq!(
+        lower_native_window(&xlib_target(size)).unwrap().kind(),
+        NativeWindowKind::Xlib
+    );
+
+    let display = RawDisplayHandle::Xcb(XcbDisplayHandle::new(Some(pointer()), 0));
+    let window = RawWindowHandle::Xcb(XcbWindowHandle::new(NonZeroU32::new(81).unwrap()));
+    let xcb = target(size, display, window);
+    assert_eq!(
+        lower_native_window(&xcb).unwrap().kind(),
+        NativeWindowKind::Xcb
+    );
+}
+
+#[test]
+fn rejects_missing_or_mismatched_linux_handles_before_the_bridge() {
+    let size = PhysicalSize::new(640, 480);
+    let missing_display = target(
+        size,
+        RawDisplayHandle::Xlib(XlibDisplayHandle::new(None, 0)),
+        RawWindowHandle::Xlib(XlibWindowHandle::new(1)),
+    );
+    assert!(lower_native_window(&missing_display)
+        .unwrap_err()
+        .contains("non-null Display"));
+
+    let mismatch = target(
+        size,
+        RawDisplayHandle::Xlib(XlibDisplayHandle::new(Some(pointer()), 0)),
+        RawWindowHandle::Wayland(WaylandWindowHandle::new(pointer())),
+    );
+    assert!(lower_native_window(&mismatch)
+        .unwrap_err()
+        .contains("matching Linux"));
+}
+
+#[test]
+fn constructor_reports_missing_ganesh_support_as_initialization_failure() {
+    let api = MockApi::default();
+    api.fail_next(
+        MockCall::CreateEngine,
+        ApiError::new(
+            ApiErrorKind::Unsupported,
+            "ganesh-features-missing",
+            "create_ganesh_engine",
+            "required feature bits are absent",
+        ),
+    );
+
+    let error = match GaneshDriver::try_new(api, new_paragraph_draw_data_registry()) {
+        Ok(_) => panic!("Ganesh construction unexpectedly succeeded"),
+        Err(error) => error,
+    };
+    assert_eq!(error.operation, BackendOperation::Initialize);
+    assert_eq!(error.code, "skia-unsupported");
+    assert!(error.message.contains("required feature bits are absent"));
+}
+
+#[test]
+fn renders_and_presents_directly_then_resizes_the_swapchain() {
+    let api = MockApi::default();
+    let mut session = session(api.clone());
+    let initial = PhysicalSize::new(640, 480);
+    session.attach(&xlib_target(initial)).unwrap();
+
+    let frame = FrameFixture::empty(initial, 1.0, 5);
+    assert_eq!(
+        session.render(&frame.frame()).unwrap().frame_id,
+        Some(FrameId(5))
+    );
+    assert_eq!(session.present().unwrap().frame_id, Some(FrameId(5)));
+
+    let resized = PhysicalSize::new(800, 600);
+    session
+        .resize(SurfaceMetrics {
+            size: resized,
+            scale_factor: ScaleFactor::ONE,
+        })
+        .unwrap();
+
+    assert_eq!(
+        api.events()
+            .into_iter()
+            .filter_map(|event| match event {
+                MockEvent::Call(call) => Some(call),
+                MockEvent::Drop(_, _) => None,
+            })
+            .collect::<Vec<_>>(),
+        vec![
+            MockCall::CreateEngine,
+            MockCall::CreateContext(NativeWindowKind::Xlib),
+            MockCall::CreateSurface(NativeWindowKind::Xlib, initial),
+            MockCall::Execute,
+            MockCall::Present,
+            MockCall::Resize(NativeWindowKind::Xlib, resized),
+        ]
+    );
+}
+
+#[test]
+fn zero_sized_frames_complete_without_executing_or_presenting_native_work() {
+    let api = MockApi::default();
+    let mut session = session(api.clone());
+    let size = PhysicalSize::ZERO;
+    session.attach(&xlib_target(size)).unwrap();
+
+    let frame = FrameFixture::empty(size, 1.0, 8);
+    session.render(&frame.frame()).unwrap();
+    session.present().unwrap();
+
+    assert!(!api.events().iter().any(|event| matches!(
+        event,
+        MockEvent::Call(MockCall::Execute | MockCall::Present)
+    )));
+}
+
+#[test]
+fn requires_present_before_another_render_or_resize() {
+    let api = MockApi::default();
+    let mut session = session(api);
+    let size = PhysicalSize::new(320, 240);
+    session.attach(&xlib_target(size)).unwrap();
+    let first = FrameFixture::empty(size, 1.0, 1);
+    session.render(&first.frame()).unwrap();
+
+    let second = FrameFixture::empty(size, 1.0, 2);
+    assert_eq!(
+        session.render(&second.frame()).unwrap_err().code,
+        "skia-ganesh-present-pending"
+    );
+    assert_eq!(
+        session
+            .resize(SurfaceMetrics {
+                size,
+                scale_factor: ScaleFactor::ONE,
+            })
+            .unwrap_err()
+            .code,
+        "skia-ganesh-present-pending"
+    );
+}
+
+#[test]
+fn suspend_resume_can_recreate_for_a_different_linux_wsi_kind() {
+    let api = MockApi::default();
+    let mut session = session(api.clone());
+    let size = PhysicalSize::new(640, 480);
+    session.attach(&xlib_target(size)).unwrap();
+    session.suspend().unwrap();
+    session.resume(&wayland_target(size)).unwrap();
+
+    let calls = api
+        .events()
+        .into_iter()
+        .filter_map(|event| match event {
+            MockEvent::Call(call) => Some(call),
+            MockEvent::Drop(_, _) => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        calls,
+        vec![
+            MockCall::CreateEngine,
+            MockCall::CreateContext(NativeWindowKind::Xlib),
+            MockCall::CreateSurface(NativeWindowKind::Xlib, size),
+            MockCall::CreateContext(NativeWindowKind::Wayland),
+            MockCall::CreateSurface(NativeWindowKind::Wayland, size),
+        ]
+    );
+}
+
+#[test]
+fn surface_and_device_recovery_rebuild_the_required_native_owners() {
+    let api = MockApi::default();
+    let mut session = session(api.clone());
+    let size = PhysicalSize::new(640, 480);
+    session.attach(&xlib_target(size)).unwrap();
+
+    assert_eq!(
+        session.recover(LossKind::Surface).unwrap(),
+        Recovery::Reattached
+    );
+    assert_eq!(
+        session.recover(LossKind::Device).unwrap(),
+        Recovery::DeviceRecreated
+    );
+    session.trim_memory(MemoryPressure::Critical).unwrap();
+
+    let calls = api
+        .events()
+        .into_iter()
+        .filter_map(|event| match event {
+            MockEvent::Call(call) => Some(call),
+            MockEvent::Drop(_, _) => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        calls
+            .iter()
+            .filter(|call| matches!(call, MockCall::CreateEngine))
+            .count(),
+        2
+    );
+    assert_eq!(
+        calls
+            .iter()
+            .filter(|call| matches!(call, MockCall::CreateContext(_)))
+            .count(),
+        2
+    );
+    assert_eq!(
+        calls
+            .iter()
+            .filter(|call| matches!(call, MockCall::CreateSurface(_, _)))
+            .count(),
+        3
+    );
+    assert_eq!(
+        calls.last(),
+        Some(&MockCall::Trim(MemoryPressure::Critical))
+    );
+}
+
+#[test]
+fn readback_is_explicitly_unavailable_at_the_session_gate() {
+    let api = MockApi::default();
+    let mut session = session(api);
+    session
+        .attach(&xlib_target(PhysicalSize::new(64, 64)))
+        .unwrap();
+
+    let error = session
+        .readback(ReadbackRequest {
+            region: None,
+            color_format: ColorFormat::Bgra8Srgb,
+        })
+        .unwrap_err();
+    assert_eq!(error.code, "readback-unsupported");
+}
+
+#[derive(Debug)]
+struct ImpostorNativeTarget {
+    descriptor: SurfaceDescriptor,
+}
+
+impl SurfaceTarget for ImpostorNativeTarget {
+    fn descriptor(&self) -> &SurfaceDescriptor {
+        &self.descriptor
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+#[test]
+fn rejects_native_descriptors_without_the_typed_handle_carrier() {
+    let api = MockApi::default();
+    let mut session = session(api);
+    let target = ImpostorNativeTarget {
+        descriptor: descriptor(PhysicalSize::new(64, 64)),
+    };
+
+    assert_eq!(
+        session.attach(&target).unwrap_err().code,
+        "skia-ganesh-target-type-invalid"
+    );
+}
+
+#[test]
+fn picture_recording_seam_defaults_to_uncached_lowering_in_driver_tests() {
+    let api = MockApi::default();
+    assert!(api
+        .record_picture(
+            RasterRect {
+                left: 0.0,
+                top: 0.0,
+                right: 10.0,
+                bottom: 10.0,
+            },
+            &RasterFrame { commands: vec![] },
+        )
+        .unwrap()
+        .is_none());
+}

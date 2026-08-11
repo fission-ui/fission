@@ -5,8 +5,10 @@ Skia ABI. It translates backend-neutral `InteractiveFrame` submissions into
 batched Skia work without exposing Skia objects to applications, widgets,
 layout, or platform hosts.
 
-The first implementation profile is deterministic headless Skia raster. It
-provides explicit lifecycle, readback, recovery, memory-pressure, diagnostic,
+The renderer adapter now includes deterministic headless Skia raster and the
+native Ganesh/Vulkan presentation profile for Linux Wayland, Xlib, and XCB.
+The Ganesh profile becomes constructible only with a matching native artifact.
+Both paths provide explicit lifecycle, recovery, memory-pressure, diagnostic,
 thread-affinity, and teardown behavior together with save/restore, rectangular
 and rounded clipping, finite 2D affine transforms, complete rectangle and SVG
 path fills/strokes, gradients, dash/cap/join state, and outer or inset box
@@ -25,9 +27,14 @@ require exact retained content, physical scale, current frame resource entries,
 and authoritative paragraph geometry/draw-data identities; destination-dependent
 content falls back to ordinary recursive lowering. The defaults can be tuned
 with `FISSION_SKIA_PICTURE_CACHE_BYTES` and
-`FISSION_SKIA_PICTURE_CACHE_ENTRIES`. Other image sources, GPU surfaces, other
-filters, and CanvasKit remain behind the same Fission contracts while their
-production implementations are completed.
+`FISSION_SKIA_PICTURE_CACHE_ENTRIES`. `SkiaGaneshProfile` uses those same
+compiler, image, SVG, picture, and authoritative SkParagraph resources while
+rendering directly into a Ganesh swapchain surface; it never routes pixels
+through wgpu or a raster readback/upload path. Its platform host must keep the
+raw native display and window handles live until detach. Ganesh readback,
+external-surface/3D interop, other image sources, other filters, and CanvasKit
+remain behind the same Fission contracts while their production implementations
+are completed.
 
 This crate deliberately reports only semantics that its current adapter can
 honor. The initial foundation profile is not advertised as a complete
@@ -36,3 +43,5 @@ production graphical profile.
 The default `skia-prebuilt` feature consumes Fission's verified native artifact.
 `skia-build-from-source` is the explicit source-build path, while `test-shim`
 exists only for ABI and ownership tests and is never a renderer profile.
+Creating a Ganesh driver or session fails clearly when the selected artifact
+does not advertise Ganesh, Vulkan, and native-presentation feature bits.

@@ -25,13 +25,39 @@ pub(crate) fn skia_raster_profile_capabilities() -> GraphicsCapabilities {
     raster_capabilities(true)
 }
 
+/// Complete semantics of the paired native Ganesh/Vulkan profile.
+///
+/// The profile presents directly to a host-owned Linux native window. It does
+/// not advertise headless rendering, readback, external surfaces, or 3D
+/// interop.
+pub fn skia_ganesh_capabilities() -> GraphicsCapabilities {
+    let mut capabilities = paint_capabilities(
+        BackendIdentity::new("skia", env!("CARGO_PKG_VERSION"), "native-ganesh"),
+        true,
+    );
+    capabilities.render_modes.insert(RenderMode::Gpu);
+    capabilities.color_formats.insert(ColorFormat::Bgra8Srgb);
+    capabilities.surface_loss_recovery = true;
+    capabilities.device_loss_recovery = true;
+    capabilities
+}
+
 fn raster_capabilities(paragraph_paint: bool) -> GraphicsCapabilities {
-    let mut capabilities = GraphicsCapabilities::empty(BackendIdentity::new(
-        "skia",
-        env!("CARGO_PKG_VERSION"),
-        "native-raster",
-    ));
+    let mut capabilities = paint_capabilities(
+        BackendIdentity::new("skia", env!("CARGO_PKG_VERSION"), "native-raster"),
+        paragraph_paint,
+    );
     capabilities.render_modes.insert(RenderMode::Software);
+    capabilities.color_formats.insert(ColorFormat::Rgba8Srgb);
+    capabilities.headless = true;
+    capabilities.readback = true;
+    capabilities.surface_loss_recovery = true;
+    capabilities.device_loss_recovery = true;
+    capabilities
+}
+
+fn paint_capabilities(identity: BackendIdentity, paragraph_paint: bool) -> GraphicsCapabilities {
+    let mut capabilities = GraphicsCapabilities::empty(identity);
     capabilities.display_ops.extend([
         DisplayOpKind::Save,
         DisplayOpKind::Restore,
@@ -61,11 +87,6 @@ fn raster_capabilities(paragraph_paint: bool) -> GraphicsCapabilities {
         ]);
     }
     capabilities.transform_support = TransformSupport::Affine2d;
-    capabilities.color_formats.insert(ColorFormat::Rgba8Srgb);
-    capabilities.headless = true;
-    capabilities.readback = true;
-    capabilities.surface_loss_recovery = true;
-    capabilities.device_loss_recovery = true;
     capabilities
 }
 
@@ -121,5 +142,30 @@ mod tests {
         assert!(capabilities.supports_text_feature(TextFeature::RichTextLocale));
         assert!(capabilities.supports_text_feature(TextFeature::RichTextLineHeight));
         assert!(capabilities.supports_text_feature(TextFeature::RichTextLetterSpacing));
+    }
+
+    #[test]
+    fn ganesh_profile_claims_gpu_native_presentation_without_readback_or_interop() {
+        let capabilities = skia_ganesh_capabilities();
+
+        assert_eq!(capabilities.identity.profile, "native-ganesh");
+        assert_eq!(
+            capabilities.render_modes,
+            [RenderMode::Gpu].into_iter().collect()
+        );
+        assert_eq!(
+            capabilities.color_formats,
+            [ColorFormat::Bgra8Srgb].into_iter().collect()
+        );
+        assert!(capabilities.supports_display_op(DisplayOpKind::DrawText));
+        assert!(capabilities.supports_display_op(DisplayOpKind::DrawRichText));
+        assert!(capabilities.supports_display_op(DisplayOpKind::DrawImage));
+        assert!(capabilities.supports_display_op(DisplayOpKind::DrawSvg));
+        assert!(!capabilities.supports_display_op(DisplayOpKind::DrawSurface));
+        assert!(capabilities.external_surface_transports.is_empty());
+        assert!(!capabilities.headless);
+        assert!(!capabilities.readback);
+        assert!(capabilities.surface_loss_recovery);
+        assert!(capabilities.device_loss_recovery);
     }
 }

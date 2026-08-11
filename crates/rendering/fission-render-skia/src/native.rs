@@ -50,13 +50,7 @@ impl SkiaApi for NativeSkiaApi {
         bounds: crate::api::RasterRect,
         frame: &RasterFrame,
     ) -> Result<Option<fission_skia_sys::RecordedPicture>, ApiError> {
-        let frame = Frame::new(
-            frame
-                .commands
-                .iter()
-                .map(native_command)
-                .collect::<Vec<_>>(),
-        );
+        let frame = native_frame(frame);
         fission_skia_sys::RecordedPicture::record(native_rect(bounds), &frame)
             .map(Some)
             .map_err(map_error)
@@ -68,13 +62,7 @@ impl SkiaApi for NativeSkiaApi {
         surface: &mut Self::Surface,
         frame: &RasterFrame,
     ) -> Result<(), ApiError> {
-        let frame = Frame::new(
-            frame
-                .commands
-                .iter()
-                .map(native_command)
-                .collect::<Vec<_>>(),
-        );
+        let frame = native_frame(frame);
         surface.execute_frame(&frame).map_err(map_error)
     }
 
@@ -132,6 +120,16 @@ impl SkiaApi for NativeSkiaApi {
         };
         context.trim_memory(pressure).map_err(map_error)
     }
+}
+
+pub(crate) fn native_frame(frame: &RasterFrame) -> Frame {
+    Frame::new(
+        frame
+            .commands
+            .iter()
+            .map(native_command)
+            .collect::<Vec<_>>(),
+    )
 }
 
 fn native_command(command: &RasterCommand) -> FrameOp {
@@ -347,7 +345,7 @@ fn native_shadow(shadow: RasterBoxShadow) -> BoxShadow {
     }
 }
 
-fn map_error(error: Error) -> ApiError {
+pub(crate) fn map_error(error: Error) -> ApiError {
     let (kind, code) = match error.kind {
         ErrorKind::InvalidArgument => (ApiErrorKind::InvalidArgument, "invalid-argument"),
         ErrorKind::InvalidHandle => (ApiErrorKind::Internal, "invalid-handle"),

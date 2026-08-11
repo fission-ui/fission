@@ -26,3 +26,4 @@ fission-layout = { path = "../../core/fission-layout", version = "0.10.1" }
 fission-render = { path = "../fission-render", version = "0.10.1" }
 fission-skia-sys = { path = "../fission-skia-sys", version = "0.10.1", default-features = false }
 kurbo = "0.12"
+raw-window-handle = "0.6"
