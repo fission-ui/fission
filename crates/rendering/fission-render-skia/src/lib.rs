@@ -6,6 +6,7 @@ mod compiler;
 mod driver;
 mod error;
 mod native;
+mod paragraph_engine;
 mod thread_owner;
 
 pub use capabilities::skia_raster_capabilities;

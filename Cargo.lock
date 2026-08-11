@@ -3020,6 +3020,7 @@ name = "fission-render-skia"
 version = "0.10.1"
 dependencies = [
  "fission-ir",
+ "fission-layout",
  "fission-render",
  "fission-skia-sys",
  "kurbo",
