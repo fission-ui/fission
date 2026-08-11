@@ -418,7 +418,20 @@
       "qualified": false,
       "build_recipe": "pending-web-bridge",
       "description": "CanvasKit WebGL production profile with optimized CPU fallback.",
-      "required_licenses": ["fission", "skia"],
+      "required_licenses": [
+        "brotli",
+        "fission",
+        "freetype",
+        "harfbuzz",
+        "icu",
+        "libjpeg-turbo",
+        "libpng",
+        "libwebp",
+        "skia",
+        "woff2",
+        "wuffs",
+        "zlib"
+      ],
       "features": {
         "gpu": "webgl",
         "raster_fallback": true,
@@ -442,7 +455,20 @@
       "qualified": false,
       "build_recipe": "pending-web-bridge",
       "description": "CanvasKit CPU-only qualification profile.",
-      "required_licenses": ["fission", "skia"],
+      "required_licenses": [
+        "brotli",
+        "fission",
+        "freetype",
+        "harfbuzz",
+        "icu",
+        "libjpeg-turbo",
+        "libpng",
+        "libwebp",
+        "skia",
+        "woff2",
+        "wuffs",
+        "zlib"
+      ],
       "features": {
         "gpu": "none",
         "raster_fallback": true,
