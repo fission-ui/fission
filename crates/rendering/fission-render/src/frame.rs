@@ -8,7 +8,8 @@ use crate::conformance::{
     validate_scene_capabilities, DisplayOpProvenance, FrameConformanceError, FrameOperationSource,
 };
 use crate::external_surface::{
-    ExternalSurfaceBindings, ExternalSurfaceSlotId, InvalidExternalSurfaceBinding,
+    ExternalFrameState, ExternalSurfaceBindings, ExternalSurfaceSlotId,
+    InvalidExternalSurfaceBinding,
 };
 use crate::resource::{ResourceSnapshot, ResourceSnapshotError};
 use crate::surface::{PhysicalSize, ScaleFactor};
