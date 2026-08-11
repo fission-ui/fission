@@ -33,6 +33,10 @@ server = ["dep:fission-shell-server"]
 server-actix = ["server", "fission-shell-server?/actix-adapter"]
 server-axum = ["server", "fission-shell-server?/axum-adapter"]
 server-redis = ["server", "fission-shell-server?/redis"]
+skia = [
+    "fission-shell-desktop?/skia",
+    "fission-shell-mobile?/skia",
+]
 terminal-shell = ["dep:fission-shell-terminal"]
 terminal-widget = ["fission-widgets/terminal"]
 test-driver = ["dep:fission-test-driver"]

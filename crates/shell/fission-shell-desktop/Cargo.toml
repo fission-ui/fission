@@ -16,6 +16,7 @@ platforms = ["linux", "macos", "windows"]
 readme = "README.md"
 [features]
 default = []
+skia = ["fission-shell-winit/skia"]
 tray = ["fission-shell-winit/tray"]
 three-d = ["fission-shell-winit/three-d"]
 video = ["fission-shell-winit/video"]

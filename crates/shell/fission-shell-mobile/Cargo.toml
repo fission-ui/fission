@@ -16,6 +16,7 @@ documentation = "https://fission.rs"
 readme = "README.md"
 [features]
 default = []
+skia = ["fission-shell-winit/skia"]
 three-d = ["fission-shell-winit/three-d"]
 video = ["fission-shell-winit/video"]
 
