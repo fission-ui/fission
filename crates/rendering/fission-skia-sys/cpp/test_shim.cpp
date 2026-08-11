@@ -24,6 +24,7 @@ constexpr uint64_t kFeatures =
     FISSION_SKIA_FEATURE_THREAD_AFFINITY | FISSION_SKIA_FEATURE_MEMORY_PRESSURE |
     FISSION_SKIA_FEATURE_PAINT_STATE | FISSION_SKIA_FEATURE_PARAGRAPH |
     FISSION_SKIA_FEATURE_OPACITY_LAYER |
+    FISSION_SKIA_FEATURE_IMAGE_DECODE |
     FISSION_SKIA_FEATURE_TEST_SHIM;
 
 struct Engine { std::thread::id owner; uint64_t children = 0; };
@@ -31,6 +32,11 @@ struct Context { std::thread::id owner; uint64_t engine = 0; uint64_t children =
 struct Surface {
     std::thread::id owner;
     uint64_t context = 0;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    std::vector<uint8_t> pixels;
+};
+struct DecodedImage {
     uint32_t width = 0;
     uint32_t height = 0;
     std::vector<uint8_t> pixels;
@@ -52,6 +58,7 @@ struct State {
     std::unordered_map<uint64_t, Engine> engines;
     std::unordered_map<uint64_t, Context> contexts;
     std::unordered_map<uint64_t, Surface> surfaces;
+    std::unordered_map<uint64_t, DecodedImage> images;
     std::atomic<uint64_t> next{1};
     std::atomic<uint64_t> errors{1};
 };
@@ -107,6 +114,26 @@ bool valid_rect(const fission_skia_rect_t& rect) {
     return std::isfinite(rect.x) && std::isfinite(rect.y) &&
            std::isfinite(rect.width) && std::isfinite(rect.height) &&
            rect.width >= 0.0f && rect.height >= 0.0f;
+}
+
+bool valid_non_empty_rect(const fission_skia_rect_t& rect) {
+    return valid_rect(rect) && rect.width > 0.0f && rect.height > 0.0f;
+}
+
+uint32_t read_u32_le(const uint8_t* bytes) {
+    return static_cast<uint32_t>(bytes[0]) |
+           (static_cast<uint32_t>(bytes[1]) << 8) |
+           (static_cast<uint32_t>(bytes[2]) << 16) |
+           (static_cast<uint32_t>(bytes[3]) << 24);
+}
+
+void write_image_info(
+    const DecodedImage& image,
+    fission_skia_image_info_t* info) {
+    info->width = image.width;
+    info->height = image.height;
+    info->reserved = 0;
+    info->approximate_decoded_bytes = image.pixels.size();
 }
 
 bool valid_range(uint32_t offset, uint32_t count, size_t length) {
@@ -168,6 +195,33 @@ bool valid_path(const fission_skia_frame_t& frame, const fission_skia_frame_op_t
                  command.verb > FISSION_SKIA_PATH_CLOSE) return false;
     }
     return true;
+}
+
+fission_skia_status_t validate_image_draw(
+    const fission_skia_image_draw_t& draw,
+    fission_skia_error_t* error) {
+    if (draw.struct_size != sizeof(draw) ||
+        (draw.sampling != FISSION_SKIA_IMAGE_SAMPLING_NEAREST &&
+         draw.sampling != FISSION_SKIA_IMAGE_SAMPLING_LINEAR) ||
+        !valid_non_empty_rect(draw.source) ||
+        !valid_non_empty_rect(draw.destination) ||
+        draw.source.x < 0.0f || draw.source.y < 0.0f) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame",
+                    "invalid image draw", error);
+    }
+    std::lock_guard<std::mutex> lock(state().mutex);
+    const auto found = state().images.find(draw.image);
+    if (found == state().images.end()) {
+        return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, "execute_frame",
+                    "invalid image handle", error);
+    }
+    const double right = static_cast<double>(draw.source.x) + draw.source.width;
+    const double bottom = static_cast<double>(draw.source.y) + draw.source.height;
+    if (right > found->second.width || bottom > found->second.height) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame",
+                    "image source rectangle is outside the image", error);
+    }
+    return FISSION_SKIA_STATUS_OK;
 }
 
 fission_skia_color_t representative_color(
@@ -292,6 +346,87 @@ void composite_layer(PixelTarget& destination, const OpacityLayer& layer) {
                 static_cast<float>(layer.pixels[offset + 3]) / 255.0f,
             };
             blend_pixel(pixels.data() + offset, source, layer.alpha);
+        }
+    }
+}
+
+fission_skia_color_t image_pixel(const DecodedImage& image, int x, int y) {
+    x = std::clamp(x, 0, static_cast<int>(image.width) - 1);
+    y = std::clamp(y, 0, static_cast<int>(image.height) - 1);
+    const size_t offset = (static_cast<size_t>(y) * image.width + x) * 4;
+    return {
+        static_cast<float>(image.pixels[offset]) / 255.0f,
+        static_cast<float>(image.pixels[offset + 1]) / 255.0f,
+        static_cast<float>(image.pixels[offset + 2]) / 255.0f,
+        static_cast<float>(image.pixels[offset + 3]) / 255.0f,
+    };
+}
+
+fission_skia_color_t interpolate_color(
+    const fission_skia_color_t& first,
+    const fission_skia_color_t& second,
+    float amount) {
+    return {
+        first.red + (second.red - first.red) * amount,
+        first.green + (second.green - first.green) * amount,
+        first.blue + (second.blue - first.blue) * amount,
+        first.alpha + (second.alpha - first.alpha) * amount,
+    };
+}
+
+fission_skia_color_t sample_image(
+    const DecodedImage& image,
+    const fission_skia_image_draw_t& draw,
+    float destination_x,
+    float destination_y) {
+    const float source_x = draw.source.x +
+        ((destination_x - draw.destination.x) / draw.destination.width) * draw.source.width;
+    const float source_y = draw.source.y +
+        ((destination_y - draw.destination.y) / draw.destination.height) * draw.source.height;
+    const int min_x = static_cast<int>(std::floor(draw.source.x));
+    const int min_y = static_cast<int>(std::floor(draw.source.y));
+    const int max_x = static_cast<int>(std::ceil(draw.source.x + draw.source.width)) - 1;
+    const int max_y = static_cast<int>(std::ceil(draw.source.y + draw.source.height)) - 1;
+    if (draw.sampling == FISSION_SKIA_IMAGE_SAMPLING_NEAREST) {
+        return image_pixel(image, std::clamp(static_cast<int>(std::floor(source_x)), min_x, max_x),
+                           std::clamp(static_cast<int>(std::floor(source_y)), min_y, max_y));
+    }
+
+    const float center_x = source_x - 0.5f;
+    const float center_y = source_y - 0.5f;
+    const int raw_x0 = static_cast<int>(std::floor(center_x));
+    const int raw_y0 = static_cast<int>(std::floor(center_y));
+    const float x_amount = center_x - raw_x0;
+    const float y_amount = center_y - raw_y0;
+    const int x0 = std::clamp(raw_x0, min_x, max_x);
+    const int y0 = std::clamp(raw_y0, min_y, max_y);
+    const int x1 = std::clamp(raw_x0 + 1, min_x, max_x);
+    const int y1 = std::clamp(raw_y0 + 1, min_y, max_y);
+    const auto top = interpolate_color(image_pixel(image, x0, y0),
+                                       image_pixel(image, x1, y0), x_amount);
+    const auto bottom = interpolate_color(image_pixel(image, x0, y1),
+                                          image_pixel(image, x1, y1), x_amount);
+    return interpolate_color(top, bottom, y_amount);
+}
+
+void draw_image(
+    PixelTarget& target,
+    const DecodedImage& image,
+    const fission_skia_image_draw_t& draw) {
+    if (target.pixels == nullptr) return;
+    const PixelBounds bounds = intersected_pixel_bounds(target, draw.destination);
+    auto& pixels = *target.pixels;
+    for (int y = bounds.top; y < bounds.bottom; ++y) {
+        const float center_y = static_cast<float>(y) + 0.5f;
+        if (center_y < draw.destination.y ||
+            center_y >= draw.destination.y + draw.destination.height) continue;
+        for (int x = bounds.left; x < bounds.right; ++x) {
+            const float center_x = static_cast<float>(x) + 0.5f;
+            if (center_x < draw.destination.x ||
+                center_x >= draw.destination.x + draw.destination.width) continue;
+            const size_t offset = (static_cast<size_t>(y) * target.width + x) * 4;
+            blend_pixel(pixels.data() + offset,
+                        sample_image(image, draw, center_x, center_y));
         }
     }
 }
@@ -531,6 +666,11 @@ fission_skia_status_t fission_skia_surface_execute_frame(
                 if (status != FISSION_SKIA_STATUS_OK) return status;
                 break;
             }
+            case FISSION_SKIA_FRAME_DRAW_IMAGE: {
+                const auto status = validate_image_draw(op.image, error);
+                if (status != FISSION_SKIA_STATUS_OK) return status;
+                break;
+            }
             default:
                 return fail(FISSION_SKIA_STATUS_UNSUPPORTED, "execute_frame",
                             "unknown operation", error);
@@ -580,6 +720,14 @@ fission_skia_status_t fission_skia_surface_execute_frame(
                 fission_skia_paragraph_handle_from_frame_op(op), op.rect.x, op.rect.y,
                 op.radius, &target, paint_paragraph_rect, error);
             if (status != FISSION_SKIA_STATUS_OK) return status;
+        } else if (op.kind == FISSION_SKIA_FRAME_DRAW_IMAGE) {
+            const auto image = state().images.find(op.image.image);
+            if (image == state().images.end()) {
+                return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, "execute_frame",
+                            "image was destroyed before playback", error);
+            }
+            auto target = current_target(found->second, layers);
+            draw_image(target, image->second, op.image);
         }
         // State, gradients, strokes, paths, and shadows are intentionally
         // validation-only in the ABI ownership test double.
@@ -636,6 +784,94 @@ fission_skia_status_t fission_skia_surface_destroy(
     return FISSION_SKIA_STATUS_OK;
 }
 
+fission_skia_status_t fission_skia_image_decode_encoded(
+    const uint8_t* encoded, size_t encoded_length, size_t max_decoded_bytes,
+    fission_skia_image_handle_t* output, fission_skia_image_info_t* info,
+    fission_skia_error_t* error) {
+    if (!encoded || encoded_length < 12 || !max_decoded_bytes || !output || !info ||
+        info->struct_size != sizeof(*info)) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "image_decode_encoded",
+                    "invalid encoded image or outputs", error);
+    }
+    *output = 0;
+    info->width = 0;
+    info->height = 0;
+    info->reserved = 0;
+    info->approximate_decoded_bytes = 0;
+    // The deterministic test-only format is: "FSIM", little-endian width and
+    // height, then tightly packed unpremultiplied RGBA8 pixels.
+    if (std::memcmp(encoded, "FSIM", 4) != 0) {
+        return fail(FISSION_SKIA_STATUS_UNSUPPORTED, "image_decode_encoded",
+                    "test shim only accepts the deterministic FSIM image format", error);
+    }
+    const uint32_t width = read_u32_le(encoded + 4);
+    const uint32_t height = read_u32_le(encoded + 8);
+    if (!width || !height || static_cast<size_t>(width) > static_cast<size_t>(-1) / height ||
+        static_cast<size_t>(width) * height > static_cast<size_t>(-1) / 4) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "image_decode_encoded",
+                    "test image dimensions overflow", error);
+    }
+    const size_t pixel_bytes = static_cast<size_t>(width) * height * 4;
+    if (pixel_bytes > static_cast<size_t>(-1) - 12) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "image_decode_encoded",
+                    "test image encoded length overflows", error);
+    }
+    if (pixel_bytes > max_decoded_bytes) {
+        return fail(FISSION_SKIA_STATUS_OUT_OF_MEMORY, "image_decode_encoded",
+                    "decoded image exceeds the caller byte limit", error);
+    }
+    if (encoded_length != 12 + pixel_bytes) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "image_decode_encoded",
+                    "test image pixel length does not match its dimensions", error);
+    }
+    DecodedImage image;
+    image.width = width;
+    image.height = height;
+    image.pixels.assign(encoded + 12, encoded + encoded_length);
+    const auto id = handle();
+    std::lock_guard<std::mutex> lock(state().mutex);
+    auto [found, inserted] = state().images.emplace(id, std::move(image));
+    if (!inserted) {
+        return fail(FISSION_SKIA_STATUS_INTERNAL, "image_decode_encoded",
+                    "test image handle collision", error);
+    }
+    write_image_info(found->second, info);
+    *output = id;
+    clear(error);
+    return FISSION_SKIA_STATUS_OK;
+}
+
+fission_skia_status_t fission_skia_image_get_info(
+    fission_skia_image_handle_t id, fission_skia_image_info_t* info,
+    fission_skia_error_t* error) {
+    if (!info || info->struct_size != sizeof(*info)) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "image_get_info",
+                    "invalid image info output", error);
+    }
+    std::lock_guard<std::mutex> lock(state().mutex);
+    const auto found = state().images.find(id);
+    if (found == state().images.end()) {
+        return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, "image_get_info",
+                    "invalid image handle", error);
+    }
+    write_image_info(found->second, info);
+    clear(error);
+    return FISSION_SKIA_STATUS_OK;
+}
+
+fission_skia_status_t fission_skia_image_destroy(
+    fission_skia_image_handle_t id, fission_skia_error_t* error) {
+    std::lock_guard<std::mutex> lock(state().mutex);
+    const auto found = state().images.find(id);
+    if (found == state().images.end()) {
+        return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, "image_destroy",
+                    "invalid image handle", error);
+    }
+    state().images.erase(found);
+    clear(error);
+    return FISSION_SKIA_STATUS_OK;
+}
+
 fission_skia_status_t fission_skia_test_live_counts(
     fission_skia_test_counts_t* counts, fission_skia_error_t* error) {
     if (!counts) return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "test_live_counts",
@@ -644,6 +880,7 @@ fission_skia_status_t fission_skia_test_live_counts(
     counts->engines = state().engines.size();
     counts->contexts = state().contexts.size();
     counts->surfaces = state().surfaces.size();
+    counts->images = state().images.size();
     clear(error);
     return FISSION_SKIA_STATUS_OK;
 }

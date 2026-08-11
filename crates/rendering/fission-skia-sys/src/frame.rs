@@ -1,5 +1,5 @@
 use crate::paragraph::ParagraphDrawData;
-use crate::{ffi, Error, ErrorKind, Result};
+use crate::{ffi, DecodedImage, Error, ErrorKind, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Color {
@@ -195,6 +195,14 @@ pub struct BoxShadow {
     pub inset: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImageSampling {
+    /// Select the nearest source texel without mipmapping.
+    Nearest,
+    /// Bilinearly filter adjacent source texels without mipmapping.
+    Linear,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum FrameOp {
     Clear(Color),
@@ -245,6 +253,15 @@ pub enum FrameOp {
         data: ParagraphDrawData,
         origin: Point,
         scale_factor: f32,
+    },
+    /// Draws an immutable decoded image from an explicit pixel-space source
+    /// rectangle into a destination rectangle. Sampling is strictly confined
+    /// to `source` and never uses mipmaps.
+    DrawImage {
+        image: DecodedImage,
+        source: Rect,
+        destination: Rect,
+        sampling: ImageSampling,
     },
 }
 
@@ -375,6 +392,42 @@ impl Frame {
                     raw.path_count = (handle >> 32) as u32;
                     encoded.paragraph_draw_data.push(data.clone());
                 }
+                FrameOp::DrawImage {
+                    image,
+                    source,
+                    destination,
+                    sampling,
+                } => {
+                    raw.kind = ffi::FRAME_DRAW_IMAGE;
+                    let source = raw_non_empty_rect(*source, "image source")?;
+                    let destination = raw_non_empty_rect(*destination, "image destination")?;
+                    let source_right = f64::from(source.x) + f64::from(source.width);
+                    let source_bottom = f64::from(source.y) + f64::from(source.height);
+                    if source.x < 0.0
+                        || source.y < 0.0
+                        || source_right > f64::from(image.width())
+                        || source_bottom > f64::from(image.height())
+                    {
+                        return Err(invalid(
+                            "image source rectangle must lie inside the decoded image",
+                        ));
+                    }
+                    let handle = image.raw_handle();
+                    if handle == 0 {
+                        return Err(invalid("decoded image handle must not be null"));
+                    }
+                    raw.image = ffi::ImageDraw {
+                        struct_size: std::mem::size_of::<ffi::ImageDraw>() as u32,
+                        sampling: match sampling {
+                            ImageSampling::Nearest => ffi::IMAGE_SAMPLING_NEAREST,
+                            ImageSampling::Linear => ffi::IMAGE_SAMPLING_LINEAR,
+                        },
+                        image: handle,
+                        source,
+                        destination,
+                    };
+                    encoded.images.push(image.clone());
+                }
             }
             encoded.operations.push(raw);
         }
@@ -415,6 +468,9 @@ pub(crate) struct EncodedFrame {
     // Keeps every packed native paragraph handle alive through execution even
     // if another internal caller encodes from a temporary Frame.
     paragraph_draw_data: Vec<ParagraphDrawData>,
+    // Keeps every packed native image handle alive through execution even if
+    // another internal caller encodes from a temporary Frame.
+    images: Vec<DecodedImage>,
 }
 
 impl EncodedFrame {
@@ -425,6 +481,7 @@ impl EncodedFrame {
             gradient_stops: Vec::new(),
             dash_intervals: Vec::new(),
             paragraph_draw_data: Vec::new(),
+            images: Vec::new(),
         }
     }
 
@@ -680,6 +737,14 @@ fn raw_rect(rect: Rect) -> Result<ffi::Rect> {
     })
 }
 
+fn raw_non_empty_rect(rect: Rect, label: &str) -> Result<ffi::Rect> {
+    let rect = raw_rect(rect)?;
+    if rect.width == 0.0 || rect.height == 0.0 {
+        return Err(invalid(format!("{label} rectangle must be non-empty")));
+    }
+    Ok(rect)
+}
+
 fn raw_affine(affine: Affine) -> Result<ffi::Affine> {
     let values = [
         affine.scale_x,
@@ -746,6 +811,17 @@ fn zero_operation() -> ffi::FrameOp {
         path_count: 0,
         fill_rule: 0,
         opacity: 0.0,
+        image: zero_image_draw(),
+    }
+}
+
+fn zero_image_draw() -> ffi::ImageDraw {
+    ffi::ImageDraw {
+        struct_size: 0,
+        sampling: 0,
+        image: 0,
+        source: zero_rect(),
+        destination: zero_rect(),
     }
 }
 

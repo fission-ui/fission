@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-#define FISSION_SKIA_ABI_VERSION 4u
+#define FISSION_SKIA_ABI_VERSION 5u
 #define FISSION_SKIA_REVISION_LENGTH 41u
 #define FISSION_SKIA_PROFILE_LENGTH 32u
 #define FISSION_SKIA_ERROR_OPERATION_LENGTH 64u
@@ -30,6 +30,7 @@ typedef uint64_t fission_skia_engine_handle_t;
 typedef uint64_t fission_skia_context_handle_t;
 typedef uint64_t fission_skia_surface_handle_t;
 typedef uint64_t fission_skia_paragraph_result_handle_t;
+typedef uint64_t fission_skia_image_handle_t;
 
 typedef enum fission_skia_status_t {
     FISSION_SKIA_STATUS_OK = 0,
@@ -56,6 +57,7 @@ typedef enum fission_skia_feature_t {
     FISSION_SKIA_FEATURE_PAINT_STATE = UINT64_C(1) << 6,
     FISSION_SKIA_FEATURE_PARAGRAPH = UINT64_C(1) << 7,
     FISSION_SKIA_FEATURE_OPACITY_LAYER = UINT64_C(1) << 8,
+    FISSION_SKIA_FEATURE_IMAGE_DECODE = UINT64_C(1) << 9,
     FISSION_SKIA_FEATURE_TEST_SHIM = UINT64_C(1) << 63
 } fission_skia_feature_t;
 
@@ -202,6 +204,29 @@ typedef struct fission_skia_box_shadow_t {
     float offset_y;
 } fission_skia_box_shadow_t;
 
+typedef enum fission_skia_image_sampling_t {
+    /* Selects the nearest source texel without mipmapping. */
+    FISSION_SKIA_IMAGE_SAMPLING_NEAREST = 1,
+    /* Bilinearly filters adjacent source texels without mipmapping. */
+    FISSION_SKIA_IMAGE_SAMPLING_LINEAR = 2
+} fission_skia_image_sampling_t;
+
+typedef struct fission_skia_image_draw_t {
+    uint32_t struct_size;
+    uint32_t sampling;
+    fission_skia_image_handle_t image;
+    fission_skia_rect_t source;
+    fission_skia_rect_t destination;
+} fission_skia_image_draw_t;
+
+typedef struct fission_skia_image_info_t {
+    uint32_t struct_size;
+    uint32_t width;
+    uint32_t height;
+    uint32_t reserved;
+    size_t approximate_decoded_bytes;
+} fission_skia_image_info_t;
+
 typedef enum fission_skia_frame_op_kind_t {
     FISSION_SKIA_FRAME_CLEAR = 1,
     FISSION_SKIA_FRAME_SAVE = 2,
@@ -215,7 +240,8 @@ typedef enum fission_skia_frame_op_kind_t {
     FISSION_SKIA_FRAME_STROKE_PATH = 10,
     FISSION_SKIA_FRAME_BOX_SHADOW = 11,
     FISSION_SKIA_FRAME_DRAW_PARAGRAPH = 12,
-    FISSION_SKIA_FRAME_OPACITY_LAYER = 13
+    FISSION_SKIA_FRAME_OPACITY_LAYER = 13,
+    FISSION_SKIA_FRAME_DRAW_IMAGE = 14
 } fission_skia_frame_op_kind_t;
 
 /*
@@ -235,6 +261,13 @@ typedef enum fission_skia_frame_op_kind_t {
  * the remaining rect fields are zero. radius contains the finite, positive
  * logical-to-physical scale factor. The caller must keep that result handle
  * alive until frame execution returns.
+ *
+ * DRAW_IMAGE uses image and ignores the generic paint/path fields. Source and
+ * destination rectangles must both be non-empty. Source is expressed in
+ * decoded-image pixel coordinates and must lie entirely inside the image.
+ * Sampling is nearest or bilinear with no mipmapping, and source sampling is
+ * strictly constrained to that rectangle. The caller must keep the image
+ * handle alive until frame execution returns.
  */
 typedef struct fission_skia_frame_op_t {
     uint32_t struct_size;
@@ -249,6 +282,7 @@ typedef struct fission_skia_frame_op_t {
     uint32_t path_count;
     uint32_t fill_rule;
     float opacity;
+    fission_skia_image_draw_t image;
 } fission_skia_frame_op_t;
 
 typedef struct fission_skia_frame_t {
@@ -592,6 +626,28 @@ FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_surface_destroy(
     fission_skia_surface_handle_t surface,
     fission_skia_error_t* out_error);
 
+/*
+ * Encoded bytes are borrowed only for the duration of decode. The result is an
+ * immutable, independently owned N32 premultiplied-sRGB SkImage. Decode applies
+ * encoded orientation. max_decoded_bytes is a mandatory non-zero cumulative
+ * SkCodec allocation limit; images whose oriented output exceeds it fail before
+ * pixel allocation.
+ */
+FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_image_decode_encoded(
+    const uint8_t* encoded,
+    size_t encoded_length,
+    size_t max_decoded_bytes,
+    fission_skia_image_handle_t* out_image,
+    fission_skia_image_info_t* out_info,
+    fission_skia_error_t* out_error);
+FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_image_get_info(
+    fission_skia_image_handle_t image,
+    fission_skia_image_info_t* out_info,
+    fission_skia_error_t* out_error);
+FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_image_destroy(
+    fission_skia_image_handle_t image,
+    fission_skia_error_t* out_error);
+
 FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_paragraph_capabilities(
     uint64_t* out_capabilities,
     fission_skia_error_t* out_error);
@@ -617,6 +673,7 @@ typedef struct fission_skia_test_counts_t {
     uint64_t engines;
     uint64_t contexts;
     uint64_t surfaces;
+    uint64_t images;
 } fission_skia_test_counts_t;
 FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_test_live_counts(
     fission_skia_test_counts_t* out_counts,

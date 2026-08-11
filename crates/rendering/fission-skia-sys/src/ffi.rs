@@ -9,6 +9,7 @@ pub type Status = u32;
 pub type EngineHandle = u64;
 pub type ContextHandle = u64;
 pub type SurfaceHandle = u64;
+pub type ImageHandle = u64;
 
 pub const STATUS_OK: Status = 0;
 pub const STATUS_INVALID_ARGUMENT: Status = 1;
@@ -32,6 +33,7 @@ pub const FEATURE_MEMORY_PRESSURE: u64 = 1 << 5;
 pub const FEATURE_PAINT_STATE: u64 = 1 << 6;
 pub const FEATURE_PARAGRAPH: u64 = 1 << 7;
 pub const FEATURE_OPACITY_LAYER: u64 = 1 << 8;
+pub const FEATURE_IMAGE_DECODE: u64 = 1 << 9;
 pub const FEATURE_TEST_SHIM: u64 = 1 << 63;
 
 pub const PATH_MOVE: u32 = 1;
@@ -68,6 +70,10 @@ pub const FRAME_STROKE_PATH: u32 = 10;
 pub const FRAME_BOX_SHADOW: u32 = 11;
 pub const FRAME_DRAW_PARAGRAPH: u32 = 12;
 pub const FRAME_OPACITY_LAYER: u32 = 13;
+pub const FRAME_DRAW_IMAGE: u32 = 14;
+
+pub const IMAGE_SAMPLING_NEAREST: u32 = 1;
+pub const IMAGE_SAMPLING_LINEAR: u32 = 2;
 
 pub const MEMORY_PRESSURE_MODERATE: u32 = 1;
 pub const MEMORY_PRESSURE_CRITICAL: u32 = 2;
@@ -218,6 +224,38 @@ pub struct BoxShadow {
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
+pub struct ImageDraw {
+    pub struct_size: u32,
+    pub sampling: u32,
+    pub image: ImageHandle,
+    pub source: Rect,
+    pub destination: Rect,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct ImageInfo {
+    pub struct_size: u32,
+    pub width: u32,
+    pub height: u32,
+    pub reserved: u32,
+    pub approximate_decoded_bytes: usize,
+}
+
+impl Default for ImageInfo {
+    fn default() -> Self {
+        Self {
+            struct_size: std::mem::size_of::<Self>() as u32,
+            width: 0,
+            height: 0,
+            reserved: 0,
+            approximate_decoded_bytes: 0,
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
 pub struct FrameOp {
     pub struct_size: u32,
     pub kind: u32,
@@ -231,6 +269,7 @@ pub struct FrameOp {
     pub path_count: u32,
     pub fill_rule: u32,
     pub opacity: f32,
+    pub image: ImageDraw,
 }
 
 #[repr(C)]
@@ -298,6 +337,20 @@ extern "C" {
         out_error: *mut Error,
     ) -> Status;
     pub fn fission_skia_surface_destroy(surface: SurfaceHandle, out_error: *mut Error) -> Status;
+    pub fn fission_skia_image_decode_encoded(
+        encoded: *const c_uchar,
+        encoded_length: usize,
+        max_decoded_bytes: usize,
+        out_image: *mut ImageHandle,
+        out_info: *mut ImageInfo,
+        out_error: *mut Error,
+    ) -> Status;
+    pub fn fission_skia_image_get_info(
+        image: ImageHandle,
+        out_info: *mut ImageInfo,
+        out_error: *mut Error,
+    ) -> Status;
+    pub fn fission_skia_image_destroy(image: ImageHandle, out_error: *mut Error) -> Status;
 
     #[cfg(feature = "test-shim")]
     pub fn fission_skia_test_live_counts(
@@ -313,4 +366,5 @@ pub struct TestCounts {
     pub engines: u64,
     pub contexts: u64,
     pub surfaces: u64,
+    pub images: u64,
 }

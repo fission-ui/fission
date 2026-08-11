@@ -10,6 +10,7 @@
 mod error;
 mod frame;
 mod handles;
+mod image;
 mod paragraph;
 mod thread_affinity;
 
@@ -17,10 +18,11 @@ pub mod ffi;
 
 pub use error::{Error, ErrorKind, Result};
 pub use frame::{
-    Affine, BoxShadow, Color, FillRule, Frame, FrameOp, GradientStop, LineCap, LineJoin, Paint,
-    Path, PathCommand, PixelRect, Point, Rect, Stroke,
+    Affine, BoxShadow, Color, FillRule, Frame, FrameOp, GradientStop, ImageSampling, LineCap,
+    LineJoin, Paint, Path, PathCommand, PixelRect, Point, Rect, Stroke,
 };
 pub use handles::{BuildInfo, Context, Engine, MemoryPressure, RasterSurface};
+pub use image::DecodedImage;
 pub use paragraph::{
     ParagraphAffinity, ParagraphCapabilities, ParagraphCaret, ParagraphCluster, ParagraphColor,
     ParagraphDirection, ParagraphDrawData, ParagraphEngine, ParagraphFontFeature,
@@ -32,7 +34,7 @@ pub use paragraph::{
 };
 
 /// Exact bridge ABI accepted by this crate.
-pub const ABI_VERSION: u32 = 4;
+pub const ABI_VERSION: u32 = 5;
 
 /// Exact Skia source revision used by both source and prebuilt profiles.
 pub const SKIA_REVISION: &str = "cf5c36972b73698eb3939cda147ea47152670312";

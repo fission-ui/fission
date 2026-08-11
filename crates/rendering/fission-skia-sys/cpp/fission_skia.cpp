@@ -3,7 +3,9 @@
 
 #include "include/core/SkCanvas.h"
 #include "include/core/SkColorSpace.h"
+#include "include/core/SkData.h"
 #include "include/core/SkGraphics.h"
+#include "include/core/SkImage.h"
 #include "include/core/SkImageInfo.h"
 #include "include/core/SkMaskFilter.h"
 #include "include/core/SkMatrix.h"
@@ -11,6 +13,9 @@
 #include "include/core/SkPath.h"
 #include "include/core/SkPathBuilder.h"
 #include "include/core/SkRRect.h"
+#include "include/core/SkSamplingOptions.h"
+#include "include/codec/SkCodec.h"
+#include "include/codec/SkEncodedOrigin.h"
 #include "include/effects/SkDashPathEffect.h"
 #include "include/effects/SkGradient.h"
 #include "include/core/SkSurface.h"
@@ -23,7 +28,9 @@
 #include <mutex>
 #include <new>
 #include <thread>
+#include <tuple>
 #include <unordered_map>
+#include <utility>
 
 #ifndef FISSION_SKIA_REVISION
 #define FISSION_SKIA_REVISION "unknown"
@@ -44,7 +51,8 @@ constexpr uint64_t kFeatureBits =
     FISSION_SKIA_FEATURE_MEMORY_PRESSURE |
     FISSION_SKIA_FEATURE_PAINT_STATE |
     FISSION_SKIA_FEATURE_PARAGRAPH |
-    FISSION_SKIA_FEATURE_OPACITY_LAYER;
+    FISSION_SKIA_FEATURE_OPACITY_LAYER |
+    FISSION_SKIA_FEATURE_IMAGE_DECODE;
 
 struct EngineState {
     std::thread::id owner;
@@ -65,11 +73,19 @@ struct SurfaceState {
     sk_sp<SkSurface> surface;
 };
 
+struct ImageState {
+    uint32_t width = 0;
+    uint32_t height = 0;
+    size_t approximate_decoded_bytes = 0;
+    sk_sp<SkImage> image;
+};
+
 struct Registry {
     std::mutex mutex;
     std::unordered_map<uint64_t, std::unique_ptr<EngineState>> engines;
     std::unordered_map<uint64_t, std::unique_ptr<ContextState>> contexts;
     std::unordered_map<uint64_t, std::unique_ptr<SurfaceState>> surfaces;
+    std::unordered_map<uint64_t, std::unique_ptr<ImageState>> images;
     std::atomic<uint64_t> next_handle{1};
     std::atomic<uint64_t> next_error{1};
 };
@@ -140,6 +156,19 @@ bool valid_color(const fission_skia_color_t& color) {
 bool valid_rect(const fission_skia_rect_t& rect) {
     return finite(rect.x) && finite(rect.y) && finite(rect.width) &&
            finite(rect.height) && rect.width >= 0.0f && rect.height >= 0.0f;
+}
+
+bool valid_non_empty_rect(const fission_skia_rect_t& rect) {
+    return valid_rect(rect) && rect.width > 0.0f && rect.height > 0.0f;
+}
+
+void write_image_info(
+    const ImageState& image,
+    fission_skia_image_info_t* out_info) {
+    out_info->width = image.width;
+    out_info->height = image.height;
+    out_info->reserved = 0;
+    out_info->approximate_decoded_bytes = image.approximate_decoded_bytes;
 }
 
 bool valid_point(const fission_skia_point_t& point) {
@@ -260,6 +289,33 @@ fission_skia_status_t validate_shadow(
         !finite(shadow.offset_y)) {
         return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame",
                     "box shadow contains invalid geometry or color", error);
+    }
+    return FISSION_SKIA_STATUS_OK;
+}
+
+fission_skia_status_t validate_image_draw(
+    const fission_skia_image_draw_t& draw,
+    fission_skia_error_t* error) {
+    if (draw.struct_size != sizeof(fission_skia_image_draw_t) ||
+        (draw.sampling != FISSION_SKIA_IMAGE_SAMPLING_NEAREST &&
+         draw.sampling != FISSION_SKIA_IMAGE_SAMPLING_LINEAR) ||
+        !valid_non_empty_rect(draw.source) ||
+        !valid_non_empty_rect(draw.destination) ||
+        draw.source.x < 0.0f || draw.source.y < 0.0f) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame",
+                    "image draw has an invalid layout, rectangle, or sampling mode", error);
+    }
+    std::lock_guard<std::mutex> lock(registry().mutex);
+    const auto found = registry().images.find(draw.image);
+    if (found == registry().images.end()) {
+        return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, "execute_frame",
+                    "image draw handle is not live", error);
+    }
+    const double right = static_cast<double>(draw.source.x) + draw.source.width;
+    const double bottom = static_cast<double>(draw.source.y) + draw.source.height;
+    if (right > found->second->width || bottom > found->second->height) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame",
+                    "image source rectangle lies outside the decoded image", error);
     }
     return FISSION_SKIA_STATUS_OK;
 }
@@ -430,6 +486,11 @@ fission_skia_status_t validate_frame(
                 const auto status = fission_skia_paragraph_validate_draw(
                     fission_skia_paragraph_handle_from_frame_op(operation), operation.rect.x,
                     operation.rect.y, operation.radius, error);
+                if (status != FISSION_SKIA_STATUS_OK) return status;
+                break;
+            }
+            case FISSION_SKIA_FRAME_DRAW_IMAGE: {
+                const auto status = validate_image_draw(operation.image, error);
                 if (status != FISSION_SKIA_STATUS_OK) return status;
                 break;
             }
@@ -977,6 +1038,25 @@ fission_skia_status_t fission_skia_surface_execute_frame(
                     return status;
                 }
                 break;
+            case FISSION_SKIA_FRAME_DRAW_IMAGE: {
+                const auto image = registry().images.find(operation.image.image);
+                if (image == registry().images.end()) {
+                    canvas->restoreToCount(initial_save_count);
+                    return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, "execute_frame",
+                                "image draw handle was destroyed before playback", out_error);
+                }
+                const SkSamplingOptions sampling =
+                    operation.image.sampling == FISSION_SKIA_IMAGE_SAMPLING_NEAREST
+                        ? SkSamplingOptions(SkFilterMode::kNearest,
+                                            SkMipmapMode::kNone)
+                        : SkSamplingOptions(SkFilterMode::kLinear,
+                                            SkMipmapMode::kNone);
+                canvas->drawImageRect(
+                    image->second->image.get(), sk_rect(operation.image.source),
+                    sk_rect(operation.image.destination), sampling, nullptr,
+                    SkCanvas::kStrict_SrcRectConstraint);
+                break;
+            }
         }
     }
     canvas->restoreToCount(initial_save_count);
@@ -1052,6 +1132,129 @@ fission_skia_status_t fission_skia_surface_destroy(
     registry().surfaces.erase(found);
     const auto parent = registry().contexts.find(context);
     if (parent != registry().contexts.end()) parent->second->live_surfaces -= 1;
+    clear_error(out_error);
+    return FISSION_SKIA_STATUS_OK;
+}
+
+fission_skia_status_t fission_skia_image_decode_encoded(
+    const uint8_t* encoded,
+    size_t encoded_length,
+    size_t max_decoded_bytes,
+    fission_skia_image_handle_t* out_image,
+    fission_skia_image_info_t* out_info,
+    fission_skia_error_t* out_error) {
+    if (encoded == nullptr || encoded_length == 0 || max_decoded_bytes == 0 ||
+        out_image == nullptr ||
+        out_info == nullptr || out_info->struct_size != sizeof(fission_skia_image_info_t)) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "image_decode_encoded",
+                    "encoded bytes or image outputs are invalid", out_error);
+    }
+    *out_image = 0;
+    out_info->width = 0;
+    out_info->height = 0;
+    out_info->reserved = 0;
+    out_info->approximate_decoded_bytes = 0;
+
+    auto data = SkData::MakeWithoutCopy(encoded, encoded_length);
+    if (!data) {
+        return fail(FISSION_SKIA_STATUS_OUT_OF_MEMORY, "image_decode_encoded",
+                    "Skia could not create the encoded image view", out_error);
+    }
+    auto codec = SkCodec::MakeFromData(std::move(data));
+    if (!codec) {
+        return fail(FISSION_SKIA_STATUS_UNSUPPORTED, "image_decode_encoded",
+                    "encoded image format is invalid or unavailable in this profile", out_error);
+    }
+    const SkImageInfo source_info = codec->getInfo();
+    int width = source_info.width();
+    int height = source_info.height();
+    if (SkEncodedOriginSwapsWidthHeight(codec->getOrigin())) {
+        std::swap(width, height);
+    }
+    if (width <= 0 || height <= 0) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "image_decode_encoded",
+                    "encoded image dimensions are invalid", out_error);
+    }
+    const SkImageInfo decoded_info = SkImageInfo::MakeN32Premul(
+        width, height, SkColorSpace::MakeSRGB());
+    const size_t approximate_bytes = decoded_info.computeMinByteSize();
+    if (SkImageInfo::ByteSizeOverflowed(approximate_bytes) || approximate_bytes == 0) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "image_decode_encoded",
+                    "decoded image byte size overflows this platform", out_error);
+    }
+    if (approximate_bytes > max_decoded_bytes) {
+        return fail(FISSION_SKIA_STATUS_OUT_OF_MEMORY, "image_decode_encoded",
+                    "decoded image exceeds the caller byte limit", out_error);
+    }
+    SkCodec::Options options;
+    options.fMaxDecodeMemory = max_decoded_bytes;
+    auto [image, result] = codec->getImage(decoded_info, &options);
+    if (!image) {
+        if (result == SkCodec::kOutOfMemory) {
+            return fail(FISSION_SKIA_STATUS_OUT_OF_MEMORY, "image_decode_encoded",
+                        "Skia could not allocate decoded image pixels", out_error);
+        }
+        if (result == SkCodec::kUnimplemented) {
+            return fail(FISSION_SKIA_STATUS_UNSUPPORTED, "image_decode_encoded",
+                        "the artifact codec cannot decode this image", out_error);
+        }
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "image_decode_encoded",
+                    "the encoded image could not be decoded", out_error);
+    }
+    if (image->width() != width || image->height() != height ||
+        image->imageInfo().computeMinByteSize() != approximate_bytes) {
+        return fail(FISSION_SKIA_STATUS_INTERNAL, "image_decode_encoded",
+                    "Skia returned image storage that differs from its preflight", out_error);
+    }
+    auto state = std::unique_ptr<ImageState>(new (std::nothrow) ImageState{});
+    if (!state) {
+        return fail(FISSION_SKIA_STATUS_OUT_OF_MEMORY, "image_decode_encoded",
+                    "could not allocate decoded image state", out_error);
+    }
+    state->width = static_cast<uint32_t>(width);
+    state->height = static_cast<uint32_t>(height);
+    state->approximate_decoded_bytes = approximate_bytes;
+    state->image = std::move(image);
+    const auto image_handle = next_handle();
+    {
+        std::lock_guard<std::mutex> lock(registry().mutex);
+        registry().images.emplace(image_handle, std::move(state));
+        write_image_info(*registry().images.at(image_handle), out_info);
+    }
+    *out_image = image_handle;
+    clear_error(out_error);
+    return FISSION_SKIA_STATUS_OK;
+}
+
+fission_skia_status_t fission_skia_image_get_info(
+    fission_skia_image_handle_t image,
+    fission_skia_image_info_t* out_info,
+    fission_skia_error_t* out_error) {
+    if (out_info == nullptr || out_info->struct_size != sizeof(fission_skia_image_info_t)) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "image_get_info",
+                    "image info output is invalid", out_error);
+    }
+    std::lock_guard<std::mutex> lock(registry().mutex);
+    const auto found = registry().images.find(image);
+    if (found == registry().images.end()) {
+        return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, "image_get_info",
+                    "image handle is not live", out_error);
+    }
+    write_image_info(*found->second, out_info);
+    clear_error(out_error);
+    return FISSION_SKIA_STATUS_OK;
+}
+
+fission_skia_status_t fission_skia_image_destroy(
+    fission_skia_image_handle_t image,
+    fission_skia_error_t* out_error) {
+    std::lock_guard<std::mutex> lock(registry().mutex);
+    const auto found = registry().images.find(image);
+    if (found == registry().images.end()) {
+        return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, "image_destroy",
+                    "image handle is not live", out_error);
+    }
+    registry().images.erase(found);
     clear_error(out_error);
     return FISSION_SKIA_STATUS_OK;
 }

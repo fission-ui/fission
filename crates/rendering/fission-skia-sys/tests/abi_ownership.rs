@@ -127,5 +127,6 @@ fn counts(engines: u64, contexts: u64, surfaces: u64) -> ffi::TestCounts {
         engines,
         contexts,
         surfaces,
+        images: 0,
     }
 }
