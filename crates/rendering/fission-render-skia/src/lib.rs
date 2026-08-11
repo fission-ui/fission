@@ -6,6 +6,7 @@ mod compiler;
 mod driver;
 mod error;
 mod native;
+mod paragraph_draw_data;
 mod paragraph_engine;
 mod thread_owner;
 
