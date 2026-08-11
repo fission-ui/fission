@@ -12,6 +12,8 @@
 #include "include/core/SkPaint.h"
 #include "include/core/SkPath.h"
 #include "include/core/SkPathBuilder.h"
+#include "include/core/SkPicture.h"
+#include "include/core/SkPictureRecorder.h"
 #include "include/core/SkRRect.h"
 #include "include/core/SkSamplingOptions.h"
 #include "include/core/SkSize.h"
@@ -59,7 +61,8 @@ constexpr uint64_t kFeatureBits =
     FISSION_SKIA_FEATURE_OPACITY_LAYER |
     FISSION_SKIA_FEATURE_IMAGE_DECODE |
     FISSION_SKIA_FEATURE_BACKDROP_BLUR |
-    FISSION_SKIA_FEATURE_SVG_DOCUMENT;
+    FISSION_SKIA_FEATURE_SVG_DOCUMENT |
+    FISSION_SKIA_FEATURE_RETAINED_PICTURE;
 
 struct EngineState {
     std::thread::id owner;
@@ -92,6 +95,10 @@ struct SvgDocumentState {
     sk_sp<SkSVGDOM> document;
 };
 
+struct PictureState {
+    sk_sp<SkPicture> picture;
+};
+
 struct Registry {
     std::mutex mutex;
     std::unordered_map<uint64_t, std::unique_ptr<EngineState>> engines;
@@ -99,6 +106,7 @@ struct Registry {
     std::unordered_map<uint64_t, std::unique_ptr<SurfaceState>> surfaces;
     std::unordered_map<uint64_t, std::unique_ptr<ImageState>> images;
     std::unordered_map<uint64_t, std::unique_ptr<SvgDocumentState>> svg_documents;
+    std::unordered_map<uint64_t, std::unique_ptr<PictureState>> pictures;
     std::atomic<uint64_t> next_handle{1};
     std::atomic<uint64_t> next_error{1};
 };
@@ -444,6 +452,21 @@ fission_skia_status_t validate_svg_draw(
     return FISSION_SKIA_STATUS_OK;
 }
 
+fission_skia_status_t validate_picture_draw(
+    const fission_skia_picture_draw_t& draw,
+    fission_skia_error_t* error) {
+    if (draw.struct_size != sizeof(fission_skia_picture_draw_t) || draw.reserved != 0) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame",
+                    "picture draw has an invalid layout", error);
+    }
+    std::lock_guard<std::mutex> lock(registry().mutex);
+    if (registry().pictures.find(draw.picture) == registry().pictures.end()) {
+        return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, "execute_frame",
+                    "picture draw handle is not live", error);
+    }
+    return FISSION_SKIA_STATUS_OK;
+}
+
 fission_skia_status_t validate_path(
     const fission_skia_frame_t& frame,
     const fission_skia_frame_op_t& operation,
@@ -491,6 +514,7 @@ fission_skia_status_t validate_path(
 
 fission_skia_status_t validate_frame(
     const fission_skia_frame_t* frame,
+    bool recording,
     fission_skia_error_t* error) {
     if (frame == nullptr || frame->struct_size != sizeof(fission_skia_frame_t)) {
         return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame",
@@ -512,6 +536,11 @@ fission_skia_status_t validate_frame(
         }
         switch (operation.kind) {
             case FISSION_SKIA_FRAME_CLEAR: {
+                if (recording) {
+                    return fail(FISSION_SKIA_STATUS_UNSUPPORTED, "execute_frame",
+                                "clear cannot be recorded because it targets the destination surface",
+                                error);
+                }
                 const auto status = validate_paint(*frame, operation.paint, error);
                 if (status != FISSION_SKIA_STATUS_OK ||
                     operation.paint.kind != FISSION_SKIA_PAINT_SOLID) {
@@ -619,12 +648,22 @@ fission_skia_status_t validate_frame(
                 break;
             }
             case FISSION_SKIA_FRAME_BACKDROP_BLUR: {
+                if (recording) {
+                    return fail(FISSION_SKIA_STATUS_UNSUPPORTED, "execute_frame",
+                                "backdrop blur cannot be recorded because it reads destination pixels",
+                                error);
+                }
                 const auto status = validate_backdrop_blur(operation, error);
                 if (status != FISSION_SKIA_STATUS_OK) return status;
                 break;
             }
             case FISSION_SKIA_FRAME_DRAW_SVG: {
                 const auto status = validate_svg_draw(operation.svg, error);
+                if (status != FISSION_SKIA_STATUS_OK) return status;
+                break;
+            }
+            case FISSION_SKIA_FRAME_DRAW_PICTURE: {
+                const auto status = validate_picture_draw(operation.picture, error);
                 if (status != FISSION_SKIA_STATUS_OK) return status;
                 break;
             }
@@ -935,6 +974,164 @@ fission_skia_status_t check_owner(
     return FISSION_SKIA_STATUS_OK;
 }
 
+fission_skia_status_t play_frame(
+    SkCanvas* canvas,
+    SurfaceState* surface,
+    const fission_skia_frame_t& frame,
+    const char* operation_name,
+    fission_skia_error_t* error) {
+    const int initial_save_count = canvas->getSaveCount();
+    for (size_t index = 0; index < frame.operation_count; ++index) {
+        const auto& operation = frame.operations[index];
+        switch (operation.kind) {
+            case FISSION_SKIA_FRAME_CLEAR:
+                canvas->clear(sk_color(operation.paint.color));
+                break;
+            case FISSION_SKIA_FRAME_SAVE:
+                canvas->save();
+                break;
+            case FISSION_SKIA_FRAME_OPACITY_LAYER: {
+                SkPaint paint;
+                paint.setAlphaf(operation.opacity);
+                const SkRect bounds = sk_rect(operation.rect);
+                canvas->saveLayer(&bounds, &paint);
+                canvas->clipRect(bounds, SkClipOp::kIntersect, false);
+                break;
+            }
+            case FISSION_SKIA_FRAME_RESTORE:
+                canvas->restore();
+                break;
+            case FISSION_SKIA_FRAME_CLIP_RECT:
+                canvas->clipRect(sk_rect(operation.rect), SkClipOp::kIntersect, true);
+                break;
+            case FISSION_SKIA_FRAME_CLIP_ROUNDED_RECT:
+                canvas->clipRRect(sk_rounded_rect(operation.rect, operation.radius),
+                                  SkClipOp::kIntersect, true);
+                break;
+            case FISSION_SKIA_FRAME_CONCAT_AFFINE:
+                canvas->concat(SkMatrix::MakeAll(
+                    operation.affine.scale_x, operation.affine.skew_x,
+                    operation.affine.translate_x, operation.affine.skew_y,
+                    operation.affine.scale_y, operation.affine.translate_y,
+                    0.0f, 0.0f, 1.0f));
+                break;
+            case FISSION_SKIA_FRAME_FILL_RECT:
+            case FISSION_SKIA_FRAME_STROKE_RECT: {
+                if (operation.kind == FISSION_SKIA_FRAME_STROKE_RECT &&
+                    operation.stroke.width == 0.0f) break;
+                SkPaint paint;
+                if (!configure_paint(frame, operation.paint, &paint) ||
+                    (operation.kind == FISSION_SKIA_FRAME_STROKE_RECT &&
+                     !configure_stroke(frame, operation.stroke, &paint))) {
+                    canvas->restoreToCount(initial_save_count);
+                    return fail(FISSION_SKIA_STATUS_INTERNAL, operation_name,
+                                "Skia rejected validated rectangle paint", error);
+                }
+                paint.setStyle(operation.kind == FISSION_SKIA_FRAME_FILL_RECT
+                    ? SkPaint::kFill_Style
+                    : SkPaint::kStroke_Style);
+                canvas->drawRRect(sk_rounded_rect(operation.rect, operation.radius), paint);
+                break;
+            }
+            case FISSION_SKIA_FRAME_FILL_PATH:
+            case FISSION_SKIA_FRAME_STROKE_PATH: {
+                if (operation.kind == FISSION_SKIA_FRAME_STROKE_PATH &&
+                    operation.stroke.width == 0.0f) break;
+                SkPaint paint;
+                if (!configure_paint(frame, operation.paint, &paint) ||
+                    (operation.kind == FISSION_SKIA_FRAME_STROKE_PATH &&
+                     !configure_stroke(frame, operation.stroke, &paint))) {
+                    canvas->restoreToCount(initial_save_count);
+                    return fail(FISSION_SKIA_STATUS_INTERNAL, operation_name,
+                                "Skia rejected validated path paint", error);
+                }
+                paint.setStyle(operation.kind == FISSION_SKIA_FRAME_FILL_PATH
+                    ? SkPaint::kFill_Style
+                    : SkPaint::kStroke_Style);
+                canvas->drawPath(
+                    sk_path(frame.path_commands + operation.path_offset,
+                            operation.path_count, operation.fill_rule),
+                    paint);
+                break;
+            }
+            case FISSION_SKIA_FRAME_BOX_SHADOW:
+                if (!draw_box_shadow(canvas, operation.rect, operation.radius,
+                                     operation.shadow)) {
+                    canvas->restoreToCount(initial_save_count);
+                    return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, operation_name,
+                                "box shadow produced invalid derived geometry", error);
+                }
+                break;
+            case FISSION_SKIA_FRAME_DRAW_PARAGRAPH: {
+                const auto status = fission_skia_paragraph_draw_picture(
+                    fission_skia_paragraph_handle_from_frame_op(operation), canvas,
+                    operation.rect.x, operation.rect.y, operation.radius, error);
+                if (status != FISSION_SKIA_STATUS_OK) {
+                    canvas->restoreToCount(initial_save_count);
+                    return status;
+                }
+                break;
+            }
+            case FISSION_SKIA_FRAME_DRAW_IMAGE: {
+                const auto image = registry().images.find(operation.image.image);
+                if (image == registry().images.end()) {
+                    canvas->restoreToCount(initial_save_count);
+                    return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, operation_name,
+                                "image draw handle was destroyed before playback", error);
+                }
+                const SkSamplingOptions sampling =
+                    operation.image.sampling == FISSION_SKIA_IMAGE_SAMPLING_NEAREST
+                        ? SkSamplingOptions(SkFilterMode::kNearest,
+                                            SkMipmapMode::kNone)
+                        : SkSamplingOptions(SkFilterMode::kLinear,
+                                            SkMipmapMode::kNone);
+                canvas->drawImageRect(
+                    image->second->image.get(), sk_rect(operation.image.source),
+                    sk_rect(operation.image.destination), sampling, nullptr,
+                    SkCanvas::kStrict_SrcRectConstraint);
+                break;
+            }
+            case FISSION_SKIA_FRAME_BACKDROP_BLUR:
+                if (surface == nullptr ||
+                    !draw_backdrop_blur(*surface, canvas, operation.rect,
+                                        operation.radius, operation.sigma)) {
+                    canvas->restoreToCount(initial_save_count);
+                    return fail(FISSION_SKIA_STATUS_INTERNAL, operation_name,
+                                "Skia rejected validated backdrop blur", error);
+                }
+                break;
+            case FISSION_SKIA_FRAME_DRAW_SVG: {
+                const auto document =
+                    registry().svg_documents.find(operation.svg.document);
+                if (document == registry().svg_documents.end()) {
+                    canvas->restoreToCount(initial_save_count);
+                    return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, operation_name,
+                                "SVG document was destroyed before playback", error);
+                }
+                if (!draw_svg_document(canvas, *document->second,
+                                       operation.svg.destination)) {
+                    canvas->restoreToCount(initial_save_count);
+                    return fail(FISSION_SKIA_STATUS_INTERNAL, operation_name,
+                                "Skia rejected validated SVG placement", error);
+                }
+                break;
+            }
+            case FISSION_SKIA_FRAME_DRAW_PICTURE: {
+                const auto picture = registry().pictures.find(operation.picture.picture);
+                if (picture == registry().pictures.end() || !picture->second->picture) {
+                    canvas->restoreToCount(initial_save_count);
+                    return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, operation_name,
+                                "recorded picture was destroyed before playback", error);
+                }
+                canvas->drawPicture(picture->second->picture);
+                break;
+            }
+        }
+    }
+    canvas->restoreToCount(initial_save_count);
+    return FISSION_SKIA_STATUS_OK;
+}
+
 }  // namespace
 
 extern "C" {
@@ -1136,7 +1333,7 @@ fission_skia_status_t fission_skia_surface_execute_frame(
     fission_skia_surface_handle_t surface,
     const fission_skia_frame_t* frame,
     fission_skia_error_t* out_error) {
-    auto status = validate_frame(frame, out_error);
+    auto status = validate_frame(frame, false, out_error);
     if (status != FISSION_SKIA_STATUS_OK) return status;
     std::lock_guard<std::mutex> lock(registry().mutex);
     const auto found = registry().surfaces.find(surface);
@@ -1151,145 +1348,8 @@ fission_skia_status_t fission_skia_surface_execute_frame(
         return fail(FISSION_SKIA_STATUS_SURFACE_LOST, "execute_frame",
                     "raster surface has no canvas", out_error);
     }
-    const int initial_save_count = canvas->getSaveCount();
-    for (size_t index = 0; index < frame->operation_count; ++index) {
-        const auto& operation = frame->operations[index];
-        switch (operation.kind) {
-            case FISSION_SKIA_FRAME_CLEAR:
-                // The destination surface is explicitly tagged sRGB, so the
-                // unpremultiplied input values use that destination space.
-                canvas->clear(sk_color(operation.paint.color));
-                break;
-            case FISSION_SKIA_FRAME_SAVE:
-                canvas->save();
-                break;
-            case FISSION_SKIA_FRAME_OPACITY_LAYER: {
-                SkPaint paint;
-                paint.setAlphaf(operation.opacity);
-                const SkRect bounds = sk_rect(operation.rect);
-                canvas->saveLayer(&bounds, &paint);
-                canvas->clipRect(bounds, SkClipOp::kIntersect, false);
-                break;
-            }
-            case FISSION_SKIA_FRAME_RESTORE:
-                canvas->restore();
-                break;
-            case FISSION_SKIA_FRAME_CLIP_RECT:
-                canvas->clipRect(sk_rect(operation.rect), SkClipOp::kIntersect, true);
-                break;
-            case FISSION_SKIA_FRAME_CLIP_ROUNDED_RECT:
-                canvas->clipRRect(sk_rounded_rect(operation.rect, operation.radius),
-                                  SkClipOp::kIntersect, true);
-                break;
-            case FISSION_SKIA_FRAME_CONCAT_AFFINE:
-                canvas->concat(SkMatrix::MakeAll(
-                    operation.affine.scale_x, operation.affine.skew_x,
-                    operation.affine.translate_x, operation.affine.skew_y,
-                    operation.affine.scale_y, operation.affine.translate_y,
-                    0.0f, 0.0f, 1.0f));
-                break;
-            case FISSION_SKIA_FRAME_FILL_RECT:
-            case FISSION_SKIA_FRAME_STROKE_RECT: {
-                if (operation.kind == FISSION_SKIA_FRAME_STROKE_RECT &&
-                    operation.stroke.width == 0.0f) break;
-                SkPaint paint;
-                if (!configure_paint(*frame, operation.paint, &paint) ||
-                    (operation.kind == FISSION_SKIA_FRAME_STROKE_RECT &&
-                     !configure_stroke(*frame, operation.stroke, &paint))) {
-                    canvas->restoreToCount(initial_save_count);
-                    return fail(FISSION_SKIA_STATUS_INTERNAL, "execute_frame",
-                                "Skia rejected validated rectangle paint", out_error);
-                }
-                paint.setStyle(operation.kind == FISSION_SKIA_FRAME_FILL_RECT
-                    ? SkPaint::kFill_Style
-                    : SkPaint::kStroke_Style);
-                canvas->drawRRect(sk_rounded_rect(operation.rect, operation.radius), paint);
-                break;
-            }
-            case FISSION_SKIA_FRAME_FILL_PATH:
-            case FISSION_SKIA_FRAME_STROKE_PATH: {
-                if (operation.kind == FISSION_SKIA_FRAME_STROKE_PATH &&
-                    operation.stroke.width == 0.0f) break;
-                SkPaint paint;
-                if (!configure_paint(*frame, operation.paint, &paint) ||
-                    (operation.kind == FISSION_SKIA_FRAME_STROKE_PATH &&
-                     !configure_stroke(*frame, operation.stroke, &paint))) {
-                    canvas->restoreToCount(initial_save_count);
-                    return fail(FISSION_SKIA_STATUS_INTERNAL, "execute_frame",
-                                "Skia rejected validated path paint", out_error);
-                }
-                paint.setStyle(operation.kind == FISSION_SKIA_FRAME_FILL_PATH
-                    ? SkPaint::kFill_Style
-                    : SkPaint::kStroke_Style);
-                canvas->drawPath(
-                    sk_path(frame->path_commands + operation.path_offset,
-                            operation.path_count, operation.fill_rule),
-                    paint);
-                break;
-            }
-            case FISSION_SKIA_FRAME_BOX_SHADOW:
-                if (!draw_box_shadow(canvas, operation.rect, operation.radius,
-                                     operation.shadow)) {
-                    canvas->restoreToCount(initial_save_count);
-                    return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame",
-                                "box shadow produced invalid derived geometry", out_error);
-                }
-                break;
-            case FISSION_SKIA_FRAME_DRAW_PARAGRAPH:
-                status = fission_skia_paragraph_draw_picture(
-                    fission_skia_paragraph_handle_from_frame_op(operation), canvas,
-                    operation.rect.x, operation.rect.y, operation.radius, out_error);
-                if (status != FISSION_SKIA_STATUS_OK) {
-                    canvas->restoreToCount(initial_save_count);
-                    return status;
-                }
-                break;
-            case FISSION_SKIA_FRAME_DRAW_IMAGE: {
-                const auto image = registry().images.find(operation.image.image);
-                if (image == registry().images.end()) {
-                    canvas->restoreToCount(initial_save_count);
-                    return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, "execute_frame",
-                                "image draw handle was destroyed before playback", out_error);
-                }
-                const SkSamplingOptions sampling =
-                    operation.image.sampling == FISSION_SKIA_IMAGE_SAMPLING_NEAREST
-                        ? SkSamplingOptions(SkFilterMode::kNearest,
-                                            SkMipmapMode::kNone)
-                        : SkSamplingOptions(SkFilterMode::kLinear,
-                                            SkMipmapMode::kNone);
-                canvas->drawImageRect(
-                    image->second->image.get(), sk_rect(operation.image.source),
-                    sk_rect(operation.image.destination), sampling, nullptr,
-                    SkCanvas::kStrict_SrcRectConstraint);
-                break;
-            }
-            case FISSION_SKIA_FRAME_BACKDROP_BLUR:
-                if (!draw_backdrop_blur(*found->second, canvas, operation.rect,
-                                        operation.radius, operation.sigma)) {
-                    canvas->restoreToCount(initial_save_count);
-                    return fail(FISSION_SKIA_STATUS_INTERNAL, "execute_frame",
-                                "Skia rejected validated backdrop blur", out_error);
-                }
-                break;
-            case FISSION_SKIA_FRAME_DRAW_SVG: {
-                const auto document =
-                    registry().svg_documents.find(operation.svg.document);
-                if (document == registry().svg_documents.end()) {
-                    canvas->restoreToCount(initial_save_count);
-                    return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, "execute_frame",
-                                "SVG document was destroyed before playback", out_error);
-                }
-                if (!draw_svg_document(canvas, *document->second,
-                                       operation.svg.destination)) {
-                    canvas->restoreToCount(initial_save_count);
-                    return fail(FISSION_SKIA_STATUS_INTERNAL, "execute_frame",
-                                "Skia rejected validated SVG placement", out_error);
-                }
-                break;
-            }
-        }
-    }
-    canvas->restoreToCount(initial_save_count);
+    status = play_frame(canvas, found->second.get(), *frame, "execute_frame", out_error);
+    if (status != FISSION_SKIA_STATUS_OK) return status;
     clear_error(out_error);
     return FISSION_SKIA_STATUS_OK;
 }
@@ -1541,6 +1601,69 @@ fission_skia_status_t fission_skia_svg_document_destroy(
                     "SVG document handle is not live", out_error);
     }
     registry().svg_documents.erase(found);
+    clear_error(out_error);
+    return FISSION_SKIA_STATUS_OK;
+}
+
+fission_skia_status_t fission_skia_picture_record(
+    const fission_skia_rect_t* cull_bounds,
+    const fission_skia_frame_t* frame,
+    fission_skia_picture_handle_t* out_picture,
+    fission_skia_error_t* out_error) {
+    if (cull_bounds == nullptr || !valid_non_empty_rect(*cull_bounds) ||
+        !finite(cull_bounds->x + cull_bounds->width) ||
+        !finite(cull_bounds->y + cull_bounds->height) || out_picture == nullptr) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "picture_record",
+                    "picture cull bounds or output are invalid", out_error);
+    }
+    *out_picture = 0;
+    auto status = validate_frame(frame, true, out_error);
+    if (status != FISSION_SKIA_STATUS_OK) {
+        if (out_error != nullptr &&
+            out_error->struct_size == sizeof(fission_skia_error_t)) {
+            copy_text(out_error->operation, sizeof(out_error->operation),
+                      "picture_record");
+        }
+        return status;
+    }
+
+    std::lock_guard<std::mutex> lock(registry().mutex);
+    SkPictureRecorder recorder;
+    SkCanvas* canvas = recorder.beginRecording(sk_rect(*cull_bounds));
+    if (canvas == nullptr) {
+        return fail(FISSION_SKIA_STATUS_OUT_OF_MEMORY, "picture_record",
+                    "Skia could not create a picture recording canvas", out_error);
+    }
+    status = play_frame(canvas, nullptr, *frame, "picture_record", out_error);
+    if (status != FISSION_SKIA_STATUS_OK) return status;
+    auto picture = recorder.finishRecordingAsPicture();
+    if (!picture) {
+        return fail(FISSION_SKIA_STATUS_OUT_OF_MEMORY, "picture_record",
+                    "Skia could not finish the retained picture", out_error);
+    }
+    auto state = std::unique_ptr<PictureState>(new (std::nothrow) PictureState{});
+    if (!state) {
+        return fail(FISSION_SKIA_STATUS_OUT_OF_MEMORY, "picture_record",
+                    "could not allocate retained picture state", out_error);
+    }
+    state->picture = std::move(picture);
+    const auto handle = next_handle();
+    registry().pictures.emplace(handle, std::move(state));
+    *out_picture = handle;
+    clear_error(out_error);
+    return FISSION_SKIA_STATUS_OK;
+}
+
+fission_skia_status_t fission_skia_picture_destroy(
+    fission_skia_picture_handle_t picture,
+    fission_skia_error_t* out_error) {
+    std::lock_guard<std::mutex> lock(registry().mutex);
+    const auto found = registry().pictures.find(picture);
+    if (found == registry().pictures.end()) {
+        return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, "picture_destroy",
+                    "picture handle is not live", out_error);
+    }
+    registry().pictures.erase(found);
     clear_error(out_error);
     return FISSION_SKIA_STATUS_OK;
 }

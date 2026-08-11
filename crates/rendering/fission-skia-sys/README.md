@@ -1,7 +1,7 @@
 # fission-skia-sys
 
 `fission-skia-sys` is Fission's sole native link authority for Skia. It exposes
-a narrow, versioned C ABI instead of C++ or Skia-owned layouts. ABI v7 contains
+a narrow, versioned C ABI instead of C++ or Skia-owned layouts. ABI v8 contains
 the production raster foundation: engine and context ownership, raster
 surfaces, batched paint state and shape execution, RGBA readback,
 memory-pressure notification, structured diagnostics, and explicit
@@ -17,6 +17,10 @@ resources disabled, then rendered atomically into an explicit destination.
 Intrinsic documents use centered contain placement; percentage-sized roots use
 the destination as their SkSVGDOM container viewport so viewBox and
 preserveAspectRatio remain document-owned.
+Validated frame fragments can also be recorded into immutable SkPictures and
+replayed through the current canvas state. Recording owns every Skia resource
+needed after the call and rejects destination-dependent clear and backdrop
+operations rather than changing their meaning during later playback.
 
 The paint contract carries finite unpremultiplied sRGB values. Gradients use
 shape-resolved coordinates and ordered stops. Empty gradients are transparent,

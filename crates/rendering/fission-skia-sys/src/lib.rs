@@ -12,6 +12,7 @@ mod frame;
 mod handles;
 mod image;
 mod paragraph;
+mod picture;
 mod svg;
 mod thread_affinity;
 
@@ -33,10 +34,11 @@ pub use paragraph::{
     ParagraphTextAlign, ParagraphTextDirection, ParagraphTextStyleRun, ParagraphTextWidthBasis,
     RetainedParagraphOutput, UnresolvedGlyph,
 };
+pub use picture::RecordedPicture;
 pub use svg::{SvgDocument, MAX_SVG_DOCUMENT_BYTES};
 
 /// Exact bridge ABI accepted by this crate.
-pub const ABI_VERSION: u32 = 7;
+pub const ABI_VERSION: u32 = 8;
 
 /// Exact Skia source revision used by both source and prebuilt profiles.
 pub const SKIA_REVISION: &str = "cf5c36972b73698eb3939cda147ea47152670312";

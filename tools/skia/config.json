@@ -9,7 +9,7 @@
     "license_file": "LICENSE"
   },
   "bridge": {
-    "abi_version": 7,
+    "abi_version": 8,
     "header": "include/fission_skia.h",
     "unix_library": "lib/fission_skia_bridge.a",
     "windows_library": "lib/fission_skia_bridge.lib"

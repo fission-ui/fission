@@ -15,7 +15,8 @@ const REQUIRED_RASTER_FEATURES: u64 = ffi::FEATURE_RASTER_SURFACE
     | ffi::FEATURE_OPACITY_LAYER
     | ffi::FEATURE_IMAGE_DECODE
     | ffi::FEATURE_BACKDROP_BLUR
-    | ffi::FEATURE_SVG_DOCUMENT;
+    | ffi::FEATURE_SVG_DOCUMENT
+    | ffi::FEATURE_RETAINED_PICTURE;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildInfo {

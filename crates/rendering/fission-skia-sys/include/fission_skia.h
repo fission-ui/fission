@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-#define FISSION_SKIA_ABI_VERSION 7u
+#define FISSION_SKIA_ABI_VERSION 8u
 #define FISSION_SKIA_REVISION_LENGTH 41u
 #define FISSION_SKIA_PROFILE_LENGTH 32u
 #define FISSION_SKIA_ERROR_OPERATION_LENGTH 64u
@@ -33,6 +33,7 @@ typedef uint64_t fission_skia_surface_handle_t;
 typedef uint64_t fission_skia_paragraph_result_handle_t;
 typedef uint64_t fission_skia_image_handle_t;
 typedef uint64_t fission_skia_svg_document_handle_t;
+typedef uint64_t fission_skia_picture_handle_t;
 
 typedef enum fission_skia_status_t {
     FISSION_SKIA_STATUS_OK = 0,
@@ -62,6 +63,7 @@ typedef enum fission_skia_feature_t {
     FISSION_SKIA_FEATURE_IMAGE_DECODE = UINT64_C(1) << 9,
     FISSION_SKIA_FEATURE_BACKDROP_BLUR = UINT64_C(1) << 10,
     FISSION_SKIA_FEATURE_SVG_DOCUMENT = UINT64_C(1) << 11,
+    FISSION_SKIA_FEATURE_RETAINED_PICTURE = UINT64_C(1) << 12,
     FISSION_SKIA_FEATURE_TEST_SHIM = UINT64_C(1) << 63
 } fission_skia_feature_t;
 
@@ -238,6 +240,12 @@ typedef struct fission_skia_svg_draw_t {
     fission_skia_rect_t destination;
 } fission_skia_svg_draw_t;
 
+typedef struct fission_skia_picture_draw_t {
+    uint32_t struct_size;
+    uint32_t reserved;
+    fission_skia_picture_handle_t picture;
+} fission_skia_picture_draw_t;
+
 typedef enum fission_skia_frame_op_kind_t {
     FISSION_SKIA_FRAME_CLEAR = 1,
     FISSION_SKIA_FRAME_SAVE = 2,
@@ -254,7 +262,8 @@ typedef enum fission_skia_frame_op_kind_t {
     FISSION_SKIA_FRAME_OPACITY_LAYER = 13,
     FISSION_SKIA_FRAME_DRAW_IMAGE = 14,
     FISSION_SKIA_FRAME_BACKDROP_BLUR = 15,
-    FISSION_SKIA_FRAME_DRAW_SVG = 16
+    FISSION_SKIA_FRAME_DRAW_SVG = 16,
+    FISSION_SKIA_FRAME_DRAW_PICTURE = 17
 } fission_skia_frame_op_kind_t;
 
 /*
@@ -295,6 +304,12 @@ typedef enum fission_skia_frame_op_kind_t {
  * the root viewBox and preserveAspectRatio attributes to resolve the viewport.
  * The caller must keep the document handle alive until frame execution
  * returns.
+ *
+ * DRAW_PICTURE replays one immutable retained picture through the current
+ * canvas state. The caller must keep the picture handle alive until frame
+ * execution returns. Pictures may contain nested pictures, decoded images,
+ * paragraph pictures, and SVG-expanded paint, all of which are retained by
+ * the recorded SkPicture rather than borrowed from their original handles.
  */
 typedef struct fission_skia_frame_op_t {
     uint32_t struct_size;
@@ -312,6 +327,7 @@ typedef struct fission_skia_frame_op_t {
     float sigma;
     fission_skia_image_draw_t image;
     fission_skia_svg_draw_t svg;
+    fission_skia_picture_draw_t picture;
 } fission_skia_frame_op_t;
 
 typedef struct fission_skia_frame_t {
@@ -695,6 +711,22 @@ FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_svg_document_destroy(
     fission_skia_svg_document_handle_t document,
     fission_skia_error_t* out_error);
 
+/*
+ * Records a validated frame into an immutable SkPicture with explicit finite,
+ * non-empty cull bounds. CLEAR and BACKDROP_BLUR are rejected because their
+ * meaning depends on the destination surface or pixels present at playback.
+ * Input arrays and resource handles are borrowed only until this call returns;
+ * the resulting picture owns all Skia resources needed for later playback.
+ */
+FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_picture_record(
+    const fission_skia_rect_t* cull_bounds,
+    const fission_skia_frame_t* frame,
+    fission_skia_picture_handle_t* out_picture,
+    fission_skia_error_t* out_error);
+FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_picture_destroy(
+    fission_skia_picture_handle_t picture,
+    fission_skia_error_t* out_error);
+
 FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_paragraph_capabilities(
     uint64_t* out_capabilities,
     fission_skia_error_t* out_error);
@@ -722,6 +754,7 @@ typedef struct fission_skia_test_counts_t {
     uint64_t surfaces;
     uint64_t images;
     uint64_t svg_documents;
+    uint64_t pictures;
 } fission_skia_test_counts_t;
 FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_test_live_counts(
     fission_skia_test_counts_t* out_counts,

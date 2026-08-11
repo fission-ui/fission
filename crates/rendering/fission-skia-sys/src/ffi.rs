@@ -11,6 +11,7 @@ pub type ContextHandle = u64;
 pub type SurfaceHandle = u64;
 pub type ImageHandle = u64;
 pub type SvgDocumentHandle = u64;
+pub type PictureHandle = u64;
 
 pub const MAX_SVG_DOCUMENT_BYTES: usize = 8 * 1024 * 1024;
 
@@ -39,6 +40,7 @@ pub const FEATURE_OPACITY_LAYER: u64 = 1 << 8;
 pub const FEATURE_IMAGE_DECODE: u64 = 1 << 9;
 pub const FEATURE_BACKDROP_BLUR: u64 = 1 << 10;
 pub const FEATURE_SVG_DOCUMENT: u64 = 1 << 11;
+pub const FEATURE_RETAINED_PICTURE: u64 = 1 << 12;
 pub const FEATURE_TEST_SHIM: u64 = 1 << 63;
 
 pub const PATH_MOVE: u32 = 1;
@@ -78,6 +80,7 @@ pub const FRAME_OPACITY_LAYER: u32 = 13;
 pub const FRAME_DRAW_IMAGE: u32 = 14;
 pub const FRAME_BACKDROP_BLUR: u32 = 15;
 pub const FRAME_DRAW_SVG: u32 = 16;
+pub const FRAME_DRAW_PICTURE: u32 = 17;
 
 pub const IMAGE_SAMPLING_NEAREST: u32 = 1;
 pub const IMAGE_SAMPLING_LINEAR: u32 = 2;
@@ -258,6 +261,14 @@ pub struct SvgDraw {
     pub destination: Rect,
 }
 
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct PictureDraw {
+    pub struct_size: u32,
+    pub reserved: u32,
+    pub picture: PictureHandle,
+}
+
 impl Default for ImageInfo {
     fn default() -> Self {
         Self {
@@ -288,6 +299,7 @@ pub struct FrameOp {
     pub sigma: f32,
     pub image: ImageDraw,
     pub svg: SvgDraw,
+    pub picture: PictureDraw,
 }
 
 #[repr(C)]
@@ -379,6 +391,13 @@ extern "C" {
         document: SvgDocumentHandle,
         out_error: *mut Error,
     ) -> Status;
+    pub fn fission_skia_picture_record(
+        cull_bounds: *const Rect,
+        frame: *const Frame,
+        out_picture: *mut PictureHandle,
+        out_error: *mut Error,
+    ) -> Status;
+    pub fn fission_skia_picture_destroy(picture: PictureHandle, out_error: *mut Error) -> Status;
 
     #[cfg(feature = "test-shim")]
     pub fn fission_skia_test_live_counts(
@@ -396,4 +415,5 @@ pub struct TestCounts {
     pub surfaces: u64,
     pub images: u64,
     pub svg_documents: u64,
+    pub pictures: u64,
 }

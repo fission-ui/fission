@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
+#include <memory>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -29,6 +30,7 @@ constexpr uint64_t kFeatures =
     FISSION_SKIA_FEATURE_IMAGE_DECODE |
     FISSION_SKIA_FEATURE_BACKDROP_BLUR |
     FISSION_SKIA_FEATURE_SVG_DOCUMENT |
+    FISSION_SKIA_FEATURE_RETAINED_PICTURE |
     FISSION_SKIA_FEATURE_TEST_SHIM;
 
 struct Engine { std::thread::id owner; uint64_t children = 0; };
@@ -38,6 +40,8 @@ struct Surface {
     uint64_t context = 0;
     uint32_t width = 0;
     uint32_t height = 0;
+    float origin_x = 0.0f;
+    float origin_y = 0.0f;
     std::vector<uint8_t> pixels;
 };
 struct DecodedImage {
@@ -49,11 +53,19 @@ struct SvgDocument {
     float aspect_width = 1.0f;
     float aspect_height = 1.0f;
 };
+struct Picture {
+    fission_skia_rect_t bounds = {};
+    uint32_t width = 0;
+    uint32_t height = 0;
+    std::vector<uint8_t> pixels;
+};
 struct PixelTarget {
     uint32_t width = 0;
     uint32_t height = 0;
     std::vector<uint8_t>* pixels = nullptr;
     fission_skia_rect_t clip = {};
+    float origin_x = 0.0f;
+    float origin_y = 0.0f;
 };
 struct OpacityLayer {
     fission_skia_rect_t bounds = {};
@@ -68,6 +80,7 @@ struct State {
     std::unordered_map<uint64_t, Surface> surfaces;
     std::unordered_map<uint64_t, DecodedImage> images;
     std::unordered_map<uint64_t, SvgDocument> svg_documents;
+    std::unordered_map<uint64_t, std::shared_ptr<const Picture>> pictures;
     std::atomic<uint64_t> next{1};
     std::atomic<uint64_t> errors{1};
 };
@@ -385,6 +398,21 @@ fission_skia_status_t validate_svg_draw(
     return FISSION_SKIA_STATUS_OK;
 }
 
+fission_skia_status_t validate_picture_draw(
+    const fission_skia_picture_draw_t& draw,
+    fission_skia_error_t* error) {
+    if (draw.struct_size != sizeof(draw) || draw.reserved != 0) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame",
+                    "invalid picture draw", error);
+    }
+    std::lock_guard<std::mutex> lock(state().mutex);
+    if (state().pictures.find(draw.picture) == state().pictures.end()) {
+        return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, "execute_frame",
+                    "invalid picture handle", error);
+    }
+    return FISSION_SKIA_STATUS_OK;
+}
+
 fission_skia_color_t representative_color(
     const fission_skia_frame_t& frame,
     const fission_skia_paint_t& paint) {
@@ -417,13 +445,13 @@ PixelBounds intersected_pixel_bounds(
         static_cast<double>(target.clip.y) + target.clip.height);
     if (right <= left || bottom <= top) return {};
     return {
-        static_cast<int>(std::clamp(std::floor(left), 0.0,
+        static_cast<int>(std::clamp(std::floor(left - target.origin_x), 0.0,
                                     static_cast<double>(target.width))),
-        static_cast<int>(std::clamp(std::floor(top), 0.0,
+        static_cast<int>(std::clamp(std::floor(top - target.origin_y), 0.0,
                                     static_cast<double>(target.height))),
-        static_cast<int>(std::clamp(std::ceil(right), 0.0,
+        static_cast<int>(std::clamp(std::ceil(right - target.origin_x), 0.0,
                                     static_cast<double>(target.width))),
-        static_cast<int>(std::clamp(std::ceil(bottom), 0.0,
+        static_cast<int>(std::clamp(std::ceil(bottom - target.origin_y), 0.0,
                                     static_cast<double>(target.height))),
     };
 }
@@ -504,13 +532,17 @@ void draw_svg_document(
 PixelTarget current_target(Surface& surface, std::vector<OpacityLayer>& layers) {
     if (!layers.empty()) {
         auto& layer = layers.back();
-        return {surface.width, surface.height, &layer.pixels, layer.bounds};
+        return {surface.width, surface.height, &layer.pixels, layer.bounds,
+                surface.origin_x, surface.origin_y};
     }
     return {
         surface.width,
         surface.height,
         &surface.pixels,
-        {0.0f, 0.0f, static_cast<float>(surface.width), static_cast<float>(surface.height)},
+        {surface.origin_x, surface.origin_y, static_cast<float>(surface.width),
+         static_cast<float>(surface.height)},
+        surface.origin_x,
+        surface.origin_y,
     };
 }
 
@@ -628,8 +660,8 @@ void blur_backdrop(
     for (int y = bounds.top; y < bounds.bottom; ++y) {
         for (int x = bounds.left; x < bounds.right; ++x) {
             if (!rounded_rect_contains(rect, radius,
-                                       static_cast<float>(x) + 0.5f,
-                                       static_cast<float>(y) + 0.5f)) {
+                                       target.origin_x + static_cast<float>(x) + 0.5f,
+                                       target.origin_y + static_cast<float>(y) + 0.5f)) {
                 continue;
             }
             const size_t pixel = (static_cast<size_t>(y) * target.width + x) * 4;
@@ -705,16 +737,43 @@ void draw_image(
     const PixelBounds bounds = intersected_pixel_bounds(target, draw.destination);
     auto& pixels = *target.pixels;
     for (int y = bounds.top; y < bounds.bottom; ++y) {
-        const float center_y = static_cast<float>(y) + 0.5f;
+        const float center_y = target.origin_y + static_cast<float>(y) + 0.5f;
         if (center_y < draw.destination.y ||
             center_y >= draw.destination.y + draw.destination.height) continue;
         for (int x = bounds.left; x < bounds.right; ++x) {
-            const float center_x = static_cast<float>(x) + 0.5f;
+            const float center_x = target.origin_x + static_cast<float>(x) + 0.5f;
             if (center_x < draw.destination.x ||
                 center_x >= draw.destination.x + draw.destination.width) continue;
             const size_t offset = (static_cast<size_t>(y) * target.width + x) * 4;
             blend_pixel(pixels.data() + offset,
                         sample_image(image, draw, center_x, center_y));
+        }
+    }
+}
+
+void draw_picture(PixelTarget& target, const Picture& picture) {
+    if (target.pixels == nullptr) return;
+    const PixelBounds destination = intersected_pixel_bounds(target, picture.bounds);
+    auto& pixels = *target.pixels;
+    for (int y = destination.top; y < destination.bottom; ++y) {
+        const float global_y = target.origin_y + static_cast<float>(y) + 0.5f;
+        const int source_y = static_cast<int>(std::floor(global_y - picture.bounds.y));
+        if (source_y < 0 || source_y >= static_cast<int>(picture.height)) continue;
+        for (int x = destination.left; x < destination.right; ++x) {
+            const float global_x = target.origin_x + static_cast<float>(x) + 0.5f;
+            const int source_x = static_cast<int>(std::floor(global_x - picture.bounds.x));
+            if (source_x < 0 || source_x >= static_cast<int>(picture.width)) continue;
+            const size_t source =
+                (static_cast<size_t>(source_y) * picture.width + source_x) * 4;
+            const fission_skia_color_t color = {
+                static_cast<float>(picture.pixels[source]) / 255.0f,
+                static_cast<float>(picture.pixels[source + 1]) / 255.0f,
+                static_cast<float>(picture.pixels[source + 2]) / 255.0f,
+                static_cast<float>(picture.pixels[source + 3]) / 255.0f,
+            };
+            const size_t destination_offset =
+                (static_cast<size_t>(y) * target.width + x) * 4;
+            blend_pixel(pixels.data() + destination_offset, color);
         }
     }
 }
@@ -851,8 +910,9 @@ fission_skia_status_t fission_skia_surface_create_raster(
     auto status = owner(parent->second, "surface_create_raster", error);
     if (status) return status;
     const auto id = handle();
-    state().surfaces.emplace(id, Surface{std::this_thread::get_id(), context, width, height,
-                                        std::vector<uint8_t>(pixels * 4, 0)});
+    state().surfaces.emplace(
+        id, Surface{std::this_thread::get_id(), context, width, height, 0.0f, 0.0f,
+                    std::vector<uint8_t>(pixels * 4, 0)});
     parent->second.children += 1;
     *output = id;
     clear(error);
@@ -974,6 +1034,11 @@ fission_skia_status_t fission_skia_surface_execute_frame(
                 if (status != FISSION_SKIA_STATUS_OK) return status;
                 break;
             }
+            case FISSION_SKIA_FRAME_DRAW_PICTURE: {
+                const auto status = validate_picture_draw(op.picture, error);
+                if (status != FISSION_SKIA_STATUS_OK) return status;
+                break;
+            }
             default:
                 return fail(FISSION_SKIA_STATUS_UNSUPPORTED, "execute_frame",
                             "unknown operation", error);
@@ -1042,6 +1107,14 @@ fission_skia_status_t fission_skia_surface_execute_frame(
             }
             auto target = current_target(found->second, layers);
             draw_svg_document(target, document->second, op.svg.destination);
+        } else if (op.kind == FISSION_SKIA_FRAME_DRAW_PICTURE) {
+            const auto picture = state().pictures.find(op.picture.picture);
+            if (picture == state().pictures.end() || !picture->second) {
+                return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, "execute_frame",
+                            "picture was destroyed before playback", error);
+            }
+            auto target = current_target(found->second, layers);
+            draw_picture(target, *picture->second);
         }
         // State, gradients, strokes, paths, and shadows are intentionally
         // validation-only in the ABI ownership test double.
@@ -1225,6 +1298,106 @@ fission_skia_status_t fission_skia_svg_document_destroy(
     return FISSION_SKIA_STATUS_OK;
 }
 
+fission_skia_status_t fission_skia_picture_record(
+    const fission_skia_rect_t* bounds,
+    const fission_skia_frame_t* frame,
+    fission_skia_picture_handle_t* output,
+    fission_skia_error_t* error) {
+    if (!bounds || !valid_non_empty_rect(*bounds) ||
+        !std::isfinite(bounds->x + bounds->width) ||
+        !std::isfinite(bounds->y + bounds->height) || !output || !frame ||
+        frame->struct_size != sizeof(*frame) ||
+        (frame->operation_count && !frame->operations)) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "picture_record",
+                    "invalid picture bounds, frame, or output", error);
+    }
+    *output = 0;
+    for (size_t index = 0; index < frame->operation_count; ++index) {
+        const auto& op = frame->operations[index];
+        if (op.struct_size != sizeof(op)) {
+            return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "picture_record",
+                        "invalid picture operation layout", error);
+        }
+        if (op.kind == FISSION_SKIA_FRAME_CLEAR ||
+            op.kind == FISSION_SKIA_FRAME_BACKDROP_BLUR) {
+            return fail(FISSION_SKIA_STATUS_UNSUPPORTED, "picture_record",
+                        "surface-dependent operations cannot be recorded", error);
+        }
+    }
+
+    const double rounded_width = std::ceil(static_cast<double>(bounds->width));
+    const double rounded_height = std::ceil(static_cast<double>(bounds->height));
+    if (rounded_width > static_cast<double>(UINT32_MAX) ||
+        rounded_height > static_cast<double>(UINT32_MAX)) {
+        return fail(FISSION_SKIA_STATUS_OUT_OF_MEMORY, "picture_record",
+                    "picture raster dimensions exceed the test shim limit", error);
+    }
+    const uint32_t width = static_cast<uint32_t>(rounded_width);
+    const uint32_t height = static_cast<uint32_t>(rounded_height);
+    const size_t pixel_count = static_cast<size_t>(width) * height;
+    if ((width != 0 && pixel_count / width != height) ||
+        pixel_count > static_cast<size_t>(-1) / 4) {
+        return fail(FISSION_SKIA_STATUS_OUT_OF_MEMORY, "picture_record",
+                    "picture raster byte length overflows", error);
+    }
+
+    const auto temporary = handle();
+    {
+        std::lock_guard<std::mutex> lock(state().mutex);
+        state().surfaces.emplace(
+            temporary,
+            Surface{std::this_thread::get_id(), 0, width, height, bounds->x, bounds->y,
+                    std::vector<uint8_t>(pixel_count * 4, 0)});
+    }
+    auto status = fission_skia_surface_execute_frame(temporary, frame, error);
+    std::shared_ptr<Picture> picture;
+    {
+        std::lock_guard<std::mutex> lock(state().mutex);
+        auto surface = state().surfaces.find(temporary);
+        if (status == FISSION_SKIA_STATUS_OK && surface != state().surfaces.end()) {
+            picture = std::make_shared<Picture>();
+            picture->bounds = *bounds;
+            picture->width = width;
+            picture->height = height;
+            picture->pixels = std::move(surface->second.pixels);
+        }
+        if (surface != state().surfaces.end()) state().surfaces.erase(surface);
+    }
+    if (status != FISSION_SKIA_STATUS_OK) {
+        if (error && error->struct_size == sizeof(*error)) {
+            text(error->operation, sizeof(error->operation), "picture_record");
+        }
+        return status;
+    }
+    if (!picture) {
+        return fail(FISSION_SKIA_STATUS_INTERNAL, "picture_record",
+                    "test shim lost its temporary picture surface", error);
+    }
+
+    const auto id = handle();
+    {
+        std::lock_guard<std::mutex> lock(state().mutex);
+        state().pictures.emplace(id, std::move(picture));
+    }
+    *output = id;
+    clear(error);
+    return FISSION_SKIA_STATUS_OK;
+}
+
+fission_skia_status_t fission_skia_picture_destroy(
+    fission_skia_picture_handle_t id,
+    fission_skia_error_t* error) {
+    std::lock_guard<std::mutex> lock(state().mutex);
+    const auto found = state().pictures.find(id);
+    if (found == state().pictures.end()) {
+        return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, "picture_destroy",
+                    "invalid picture handle", error);
+    }
+    state().pictures.erase(found);
+    clear(error);
+    return FISSION_SKIA_STATUS_OK;
+}
+
 fission_skia_status_t fission_skia_test_live_counts(
     fission_skia_test_counts_t* counts, fission_skia_error_t* error) {
     if (!counts) return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "test_live_counts",
@@ -1235,6 +1408,7 @@ fission_skia_status_t fission_skia_test_live_counts(
     counts->surfaces = state().surfaces.size();
     counts->images = state().images.size();
     counts->svg_documents = state().svg_documents.size();
+    counts->pictures = state().pictures.size();
     clear(error);
     return FISSION_SKIA_STATUS_OK;
 }

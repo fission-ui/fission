@@ -1,5 +1,5 @@
 use crate::paragraph::ParagraphDrawData;
-use crate::{ffi, DecodedImage, Error, ErrorKind, Result, SvgDocument};
+use crate::{ffi, DecodedImage, Error, ErrorKind, RecordedPicture, Result, SvgDocument};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Color {
@@ -277,6 +277,10 @@ pub enum FrameOp {
         document: SvgDocument,
         destination: Rect,
     },
+    /// Replays an immutable Skia picture through the current canvas state.
+    DrawPicture {
+        picture: RecordedPicture,
+    },
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -289,6 +293,21 @@ impl Frame {
         Self {
             operations: operations.into(),
         }
+    }
+
+    pub(crate) fn ensure_picture_recordable(&self) -> Result<()> {
+        if self
+            .operations
+            .iter()
+            .any(|operation| matches!(operation, FrameOp::Clear(_) | FrameOp::BackdropBlur { .. }))
+        {
+            return Err(Error::local(
+                ErrorKind::Unsupported,
+                "RecordedPicture::record",
+                "clear and backdrop blur cannot be retained because they depend on the destination surface",
+            ));
+        }
+        Ok(())
     }
 
     pub(crate) fn encode(&self) -> Result<EncodedFrame> {
@@ -481,6 +500,19 @@ impl Frame {
                     };
                     encoded.svg_documents.push(document.clone());
                 }
+                FrameOp::DrawPicture { picture } => {
+                    raw.kind = ffi::FRAME_DRAW_PICTURE;
+                    let handle = picture.raw_handle();
+                    if handle == 0 {
+                        return Err(invalid("recorded picture handle must not be null"));
+                    }
+                    raw.picture = ffi::PictureDraw {
+                        struct_size: std::mem::size_of::<ffi::PictureDraw>() as u32,
+                        reserved: 0,
+                        picture: handle,
+                    };
+                    encoded.pictures.push(picture.clone());
+                }
             }
             encoded.operations.push(raw);
         }
@@ -527,6 +559,8 @@ pub(crate) struct EncodedFrame {
     // Keeps every packed native SVG handle alive through execution even if
     // another internal caller encodes from a temporary Frame.
     svg_documents: Vec<SvgDocument>,
+    // Keeps every packed retained-picture handle alive through execution.
+    pictures: Vec<RecordedPicture>,
 }
 
 impl EncodedFrame {
@@ -539,6 +573,7 @@ impl EncodedFrame {
             paragraph_draw_data: Vec::new(),
             images: Vec::new(),
             svg_documents: Vec::new(),
+            pictures: Vec::new(),
         }
     }
 
@@ -871,6 +906,7 @@ fn zero_operation() -> ffi::FrameOp {
         sigma: 0.0,
         image: zero_image_draw(),
         svg: zero_svg_draw(),
+        picture: zero_picture_draw(),
     }
 }
 
@@ -890,6 +926,14 @@ fn zero_svg_draw() -> ffi::SvgDraw {
         reserved: 0,
         document: 0,
         destination: zero_rect(),
+    }
+}
+
+fn zero_picture_draw() -> ffi::PictureDraw {
+    ffi::PictureDraw {
+        struct_size: 0,
+        reserved: 0,
+        picture: 0,
     }
 }
 
