@@ -19,7 +19,13 @@ painted with all current fit, alignment, clipping, and device-scale semantics.
 Document-paint SVG is retained in bounded, driver-owned SkSVGDOM cache entries,
 while Fission fill/stroke overrides retain the existing path,
 rectangle, polygon, viewBox, gradient, dash, cap, and join semantics through
-the backend-neutral paint commands. Other image sources, GPU surfaces, other
+the backend-neutral paint commands. Cache hints on display lists and render
+layers record immutable Skia pictures in a bounded driver-owned cache. Hits
+require exact retained content, physical scale, current frame resource entries,
+and authoritative paragraph geometry/draw-data identities; destination-dependent
+content falls back to ordinary recursive lowering. The defaults can be tuned
+with `FISSION_SKIA_PICTURE_CACHE_BYTES` and
+`FISSION_SKIA_PICTURE_CACHE_ENTRIES`. Other image sources, GPU surfaces, other
 filters, and CanvasKit remain behind the same Fission contracts while their
 production implementations are completed.
 

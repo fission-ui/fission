@@ -13,8 +13,8 @@ use fission_render::capabilities::ImageSourceKind;
 use fission_render::diagnostics::{CacheDiagnostics, DiagnosticCategory};
 use fission_render::image_cache_store::ImageCacheStore;
 use fission_render::resource::{
-    ResourceContentIdentity, ResourceId, ResourceKind, ResourcePayload, ResourceSnapshot,
-    ResourceSource, ResourceStatus,
+    ResourceContentIdentity, ResourceEntry, ResourceId, ResourceKind, ResourcePayload,
+    ResourceSnapshot, ResourceSource, ResourceStatus,
 };
 use fission_render::{ImageFit, LayoutRect};
 use fission_skia_sys::DecodedImage;
@@ -27,6 +27,9 @@ const DEFAULT_IMAGE_CACHE_BYTES: u64 = 50 * 1024 * 1024;
 pub(crate) struct ResolvedImageResource<'a> {
     pub cache_key: String,
     pub encoded: &'a [u8],
+    /// Exact authoritative entry selected from this frame. Retained-picture
+    /// caches use it to prevent a cache hint from bypassing resource changes.
+    pub entry: &'a ResourceEntry,
 }
 
 /// Destination and clipping geometry in Fission logical coordinates.
@@ -321,7 +324,11 @@ pub(crate) fn resolve_memory_image<'a>(
         });
     }
 
-    Ok(ResolvedImageResource { cache_key, encoded })
+    Ok(ResolvedImageResource {
+        cache_key,
+        encoded,
+        entry,
+    })
 }
 
 pub(crate) fn place_image(

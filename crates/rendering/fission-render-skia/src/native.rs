@@ -45,6 +45,23 @@ impl SkiaApi for NativeSkiaApi {
         RasterSurface::new(context, size.width, size.height).map_err(map_error)
     }
 
+    fn record_picture(
+        &self,
+        bounds: crate::api::RasterRect,
+        frame: &RasterFrame,
+    ) -> Result<Option<fission_skia_sys::RecordedPicture>, ApiError> {
+        let frame = Frame::new(
+            frame
+                .commands
+                .iter()
+                .map(native_command)
+                .collect::<Vec<_>>(),
+        );
+        fission_skia_sys::RecordedPicture::record(native_rect(bounds), &frame)
+            .map(Some)
+            .map_err(map_error)
+    }
+
     fn execute_frame(
         &self,
         _context: &mut Self::Context,
@@ -203,6 +220,9 @@ fn native_command(command: &RasterCommand) -> FrameOp {
         } => FrameOp::DrawSvg {
             document: document.clone(),
             destination: native_rect(*destination),
+        },
+        RasterCommand::DrawPicture { picture } => FrameOp::DrawPicture {
+            picture: picture.clone(),
         },
     }
 }

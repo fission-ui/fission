@@ -35,7 +35,18 @@ fn fission_paint_svg_uses_view_box_transform_and_existing_paint_commands() {
         Some(Fill::LinearGradient {
             start: (0.0, 0.0),
             end: (1.0, 0.0),
-            stops: vec![(0.0, color()), (1.0, Color::BLACK)],
+            stops: vec![
+                (0.0, color()),
+                (
+                    1.0,
+                    Color {
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                        a: 255,
+                    },
+                ),
+            ],
         }),
         Some(Stroke {
             fill: Fill::Solid(color()),

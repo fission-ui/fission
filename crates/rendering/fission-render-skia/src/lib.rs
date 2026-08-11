@@ -10,6 +10,7 @@ mod native;
 mod paragraph_caret;
 mod paragraph_draw_data;
 mod paragraph_engine;
+mod picture;
 mod profile;
 mod svg;
 mod thread_owner;

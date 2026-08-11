@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use fission_render::surface::{MemoryPressure, PhysicalSize};
-use fission_skia_sys::{DecodedImage, ParagraphDrawData, SvgDocument};
+use fission_skia_sys::{DecodedImage, ParagraphDrawData, RecordedPicture, SvgDocument};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ApiErrorKind {
@@ -251,6 +251,11 @@ pub(crate) enum RasterCommand {
         document: SvgDocument,
         destination: RasterRect,
     },
+    /// Replays one immutable picture through the live canvas state. The
+    /// handle remains pinned through native frame execution.
+    DrawPicture {
+        picture: RecordedPicture,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -305,6 +310,16 @@ pub(crate) trait SkiaApi {
         context: &Self::Context,
         size: PhysicalSize,
     ) -> Result<Self::Surface, ApiError>;
+    /// Records an immutable command fragment when this API supports native
+    /// pictures. Test and alternative APIs may return `Ok(None)` to preserve
+    /// the uncached command path exactly.
+    fn record_picture(
+        &self,
+        _bounds: RasterRect,
+        _frame: &RasterFrame,
+    ) -> Result<Option<RecordedPicture>, ApiError> {
+        Ok(None)
+    }
     fn execute_frame(
         &self,
         context: &mut Self::Context,
@@ -322,4 +337,24 @@ pub(crate) trait SkiaApi {
         context: &mut Self::Context,
         pressure: MemoryPressure,
     ) -> Result<(), ApiError>;
+}
+
+/// Object-safe recording view used by the compiler without coupling it to an
+/// API's engine/context/surface associated types.
+pub(crate) trait SkiaPictureRecorder {
+    fn record_picture(
+        &self,
+        bounds: RasterRect,
+        frame: &RasterFrame,
+    ) -> Result<Option<RecordedPicture>, ApiError>;
+}
+
+impl<T: SkiaApi> SkiaPictureRecorder for T {
+    fn record_picture(
+        &self,
+        bounds: RasterRect,
+        frame: &RasterFrame,
+    ) -> Result<Option<RecordedPicture>, ApiError> {
+        SkiaApi::record_picture(self, bounds, frame)
+    }
 }

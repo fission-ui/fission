@@ -15,20 +15,25 @@ use kurbo::{BezPath, PathEl};
 use crate::api::{
     RasterAffine, RasterBoxShadow, RasterColor, RasterCommand, RasterFillRule, RasterFrame,
     RasterGradientStop, RasterLineCap, RasterLineJoin, RasterPaint, RasterPath, RasterPathCommand,
-    RasterPoint, RasterRect, RasterStroke,
+    RasterPoint, RasterRect, RasterStroke, SkiaPictureRecorder,
 };
 use crate::image::{place_image, resolve_memory_image, ImageError, SkiaImageCache};
 use crate::paragraph_caret::{paragraph_caret_paint, ParagraphCaretPaint, ParagraphCaretStyle};
 use crate::paragraph_draw_data::{ParagraphDrawDataError, ParagraphFrameDrawData};
+use crate::picture::SkiaPictureCache;
 use crate::profile::SkiaParagraphDrawDataRegistry;
 use crate::svg::{
     parse_svg_geometry, place_svg_geometry, validate_svg_bounds, SkiaSvgCache, SvgError,
 };
 
+#[path = "compiler_picture.rs"]
+mod picture_cache;
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct CompiledRasterFrame {
     pub frame: RasterFrame,
     pub source_operations: u64,
+    pub reused_layers: u64,
 }
 
 pub(crate) fn compile_scene(
@@ -37,7 +42,15 @@ pub(crate) fn compile_scene(
     clear_color: Color,
 ) -> Result<CompiledRasterFrame, CompileError> {
     let svg_cache = SkiaSvgCache::new();
-    compile_scene_inner(scene, scale_factor, clear_color, None, None, &svg_cache)
+    compile_scene_inner(
+        scene,
+        scale_factor,
+        clear_color,
+        None,
+        None,
+        &svg_cache,
+        None,
+    )
 }
 
 pub(crate) fn compile_scene_with_paragraphs(
@@ -49,6 +62,8 @@ pub(crate) fn compile_scene_with_paragraphs(
     svg_cache: &SkiaSvgCache,
     paragraph_bindings: Option<&ParagraphFrameBindings>,
     paragraph_draw_data: &SkiaParagraphDrawDataRegistry,
+    picture_cache: &SkiaPictureCache,
+    picture_recorder: &dyn SkiaPictureRecorder,
 ) -> Result<CompiledRasterFrame, CompileError> {
     let paragraphs = paragraph_bindings
         .map(|bindings| {
@@ -75,6 +90,10 @@ pub(crate) fn compile_scene_with_paragraphs(
             cache: image_cache,
         }),
         svg_cache,
+        Some(PictureCompilation {
+            cache: picture_cache,
+            recorder: picture_recorder,
+        }),
     )
 }
 
@@ -85,6 +104,7 @@ fn compile_scene_inner<'a>(
     paragraphs: Option<ParagraphCompilation>,
     images: Option<ImageCompilation<'a>>,
     svg_cache: &'a SkiaSvgCache,
+    pictures: Option<PictureCompilation<'a>>,
 ) -> Result<CompiledRasterFrame, CompileError> {
     let scale_factor = scale_factor as f32;
     if !scale_factor.is_finite() || scale_factor <= 0.0 {
@@ -97,11 +117,13 @@ fn compile_scene_inner<'a>(
         scale_factor,
         commands: vec![RasterCommand::Clear(srgb_color(clear_color))],
         source_operations: 0,
+        reused_layers: 0,
         save_scopes: Vec::new(),
         root_opacity_layers: 0,
-        paragraphs,
+        paragraphs: paragraphs.as_ref(),
         images,
         svg_cache,
+        pictures,
     };
     for (root_index, root) in scene.roots.iter().enumerate() {
         compiler.compile_node(root, root_index, &mut Vec::new(), None)?;
@@ -118,6 +140,7 @@ fn compile_scene_inner<'a>(
             commands: compiler.commands,
         },
         source_operations: compiler.source_operations,
+        reused_layers: compiler.reused_layers,
     })
 }
 
@@ -125,24 +148,33 @@ struct ParagraphCompilation {
     frame_draw_data: ParagraphFrameDrawData<fission_skia_sys::ParagraphDrawData>,
 }
 
+#[derive(Clone, Copy)]
 struct ImageCompilation<'a> {
     resources: &'a ResourceSnapshot,
     cache: &'a SkiaImageCache,
+}
+
+#[derive(Clone, Copy)]
+struct PictureCompilation<'a> {
+    cache: &'a SkiaPictureCache,
+    recorder: &'a dyn SkiaPictureRecorder,
 }
 
 struct Compiler<'a> {
     scale_factor: f32,
     commands: Vec<RasterCommand>,
     source_operations: u64,
+    reused_layers: u64,
     /// Each logical `Save` owns every isolated opacity group opened before its
     /// matching `Restore`, mirroring Fission's display-list semantics.
     save_scopes: Vec<usize>,
     /// Explicit opacity groups are valid at the display-list root and are
     /// closed together by the next `Restore`, as in the existing renderers.
     root_opacity_layers: usize,
-    paragraphs: Option<ParagraphCompilation>,
+    paragraphs: Option<&'a ParagraphCompilation>,
     images: Option<ImageCompilation<'a>>,
     svg_cache: &'a SkiaSvgCache,
+    pictures: Option<PictureCompilation<'a>>,
 }
 
 impl Compiler<'_> {
@@ -162,43 +194,66 @@ impl Compiler<'_> {
                 inherited_node_id,
             ),
             RenderNode::Layer(layer) => {
-                let node_id = layer.node_id.or(inherited_node_id);
-                let has_opacity = layer.style.opacity.to_bits() != 1.0_f32.to_bits();
-                let needs_save =
-                    layer.style.clip.is_some() || layer.style.transform.is_some() || has_opacity;
-                if needs_save {
-                    self.push_save();
+                if self.compile_cached_layer(layer, root_index, node_path, inherited_node_id)? {
+                    Ok(())
+                } else {
+                    self.compile_layer_uncached(layer, root_index, node_path, inherited_node_id)
                 }
-                if let Some(clip) = layer.style.clip.as_ref() {
-                    let provenance =
-                        CompileProvenance::layer(root_index, node_path, node_id, "clip");
-                    self.compile_layer_clip(clip, provenance)?;
-                }
-                if has_opacity {
-                    let provenance =
-                        CompileProvenance::layer(root_index, node_path, node_id, "opacity");
-                    self.push_opacity_layer(layer.bounds, layer.style.opacity, &provenance)?;
-                }
-                if let Some(matrix) = layer.style.transform.as_ref() {
-                    let provenance =
-                        CompileProvenance::layer(root_index, node_path, node_id, "transform");
-                    self.commands.push(RasterCommand::ConcatAffine(
-                        self.affine(*matrix, &provenance)?,
-                    ));
-                }
-                for (child_index, child) in layer.children.iter().enumerate() {
-                    node_path.push(child_index);
-                    self.compile_node(child, root_index, node_path, node_id)?;
-                    node_path.pop();
-                }
-                if needs_save {
-                    self.push_restore(CompileProvenance::layer(
-                        root_index, node_path, node_id, "restore",
-                    ))?;
-                }
-                Ok(())
             }
         }
+    }
+
+    fn compile_layer_uncached(
+        &mut self,
+        layer: &fission_render::RenderLayer,
+        root_index: usize,
+        node_path: &mut Vec<usize>,
+        inherited_node_id: Option<fission_ir::WidgetId>,
+    ) -> Result<(), CompileError> {
+        let node_id = layer.node_id.or(inherited_node_id);
+        let has_opacity = layer.style.opacity.to_bits() != 1.0_f32.to_bits();
+        let needs_save =
+            layer.style.clip.is_some() || layer.style.transform.is_some() || has_opacity;
+        if needs_save {
+            self.push_save();
+        }
+        if let Some(clip) = layer.style.clip.as_ref() {
+            let provenance = CompileProvenance::layer(root_index, node_path, node_id, "clip");
+            self.compile_layer_clip(clip, provenance)?;
+        }
+        if has_opacity {
+            let provenance = CompileProvenance::layer(root_index, node_path, node_id, "opacity");
+            self.push_opacity_layer(layer.bounds, layer.style.opacity, &provenance)?;
+        }
+        if let Some(matrix) = layer.style.transform.as_ref() {
+            let provenance = CompileProvenance::layer(root_index, node_path, node_id, "transform");
+            let affine = self.affine(*matrix, &provenance)?;
+            self.commands.push(RasterCommand::ConcatAffine(affine));
+        }
+        if !self.compile_cached_layer_contents(layer, root_index, node_path, node_id)? {
+            self.compile_layer_children(layer, root_index, node_path, node_id)?;
+        }
+        if needs_save {
+            self.push_restore(CompileProvenance::layer(
+                root_index, node_path, node_id, "restore",
+            ))?;
+        }
+        Ok(())
+    }
+
+    fn compile_layer_children(
+        &mut self,
+        layer: &fission_render::RenderLayer,
+        root_index: usize,
+        node_path: &mut Vec<usize>,
+        node_id: Option<fission_ir::WidgetId>,
+    ) -> Result<(), CompileError> {
+        for (child_index, child) in layer.children.iter().enumerate() {
+            node_path.push(child_index);
+            self.compile_node(child, root_index, node_path, node_id)?;
+            node_path.pop();
+        }
+        Ok(())
     }
 
     fn compile_layer_clip(
@@ -285,13 +340,26 @@ impl Compiler<'_> {
                     self.affine(*matrix, &provenance)?,
                 ));
             }
-            DisplayOp::CachedScene { list, .. } => self.compile_list(
-                list,
-                root_index,
-                node_path,
-                operation_path,
-                inherited_node_id,
-            )?,
+            DisplayOp::CachedScene {
+                cache_key, list, ..
+            } => {
+                if !self.compile_cached_display_list(
+                    *cache_key,
+                    list,
+                    root_index,
+                    node_path,
+                    operation_path,
+                    inherited_node_id,
+                )? {
+                    self.compile_list(
+                        list,
+                        root_index,
+                        node_path,
+                        operation_path,
+                        inherited_node_id,
+                    )?;
+                }
+            }
             DisplayOp::BackdropFilter {
                 rect,
                 filter,
@@ -358,9 +426,12 @@ impl Compiler<'_> {
                 *caret_index,
                 ParagraphCaretStyle {
                     color: caret_color.unwrap_or_else(|| {
-                        runs.first()
-                            .map(|run| run.style.color)
-                            .unwrap_or(Color::BLACK)
+                        runs.first().map(|run| run.style.color).unwrap_or(Color {
+                            r: 0,
+                            g: 0,
+                            b: 0,
+                            a: 255,
+                        })
                     }),
                     width: *caret_width,
                     height: *caret_height,
@@ -1262,6 +1333,18 @@ mod tests {
     };
     use fission_render::{DisplayList, LayoutRect};
 
+    struct NoPictureRecorder;
+
+    impl crate::api::SkiaPictureRecorder for NoPictureRecorder {
+        fn record_picture(
+            &self,
+            _bounds: RasterRect,
+            _frame: &RasterFrame,
+        ) -> Result<Option<fission_skia_sys::RecordedPicture>, crate::api::ApiError> {
+            Ok(None)
+        }
+    }
+
     fn red() -> Color {
         Color {
             r: 255,
@@ -1687,7 +1770,9 @@ mod tests {
         let resources = ResourceSnapshot::empty(ResourceEpoch(1));
         let cache = SkiaImageCache::with_budget_bytes(1_024);
         let svg_cache = SkiaSvgCache::with_budget_bytes(8_192);
+        let picture_cache = SkiaPictureCache::with_limits(8_192, 8);
         let paragraphs = crate::profile::new_paragraph_draw_data_registry();
+        let no_picture = NoPictureRecorder;
 
         let error = compile_scene_with_paragraphs(
             &scene,
@@ -1698,6 +1783,8 @@ mod tests {
             &svg_cache,
             None,
             paragraphs.as_ref(),
+            &picture_cache,
+            &no_picture,
         )
         .unwrap_err();
 
@@ -1739,7 +1826,9 @@ mod tests {
         .unwrap();
         let cache = SkiaImageCache::with_budget_bytes(1_024);
         let svg_cache = SkiaSvgCache::with_budget_bytes(8_192);
+        let picture_cache = SkiaPictureCache::with_limits(8_192, 8);
         let paragraphs = crate::profile::new_paragraph_draw_data_registry();
+        let no_picture = NoPictureRecorder;
 
         let compile = || {
             compile_scene_with_paragraphs(
@@ -1751,6 +1840,8 @@ mod tests {
                 &svg_cache,
                 None,
                 paragraphs.as_ref(),
+                &picture_cache,
+                &no_picture,
             )
             .unwrap()
         };

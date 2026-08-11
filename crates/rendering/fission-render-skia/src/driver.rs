@@ -22,6 +22,7 @@ use crate::compiler::compile_scene_with_paragraphs;
 use crate::error::{api_error, contract_error, contract_error_with_provenance, wrong_thread};
 use crate::image::SkiaImageCache;
 use crate::native::NativeSkiaApi;
+use crate::picture::SkiaPictureCache;
 use crate::profile::{new_paragraph_draw_data_registry, SkiaParagraphDrawDataRegistry};
 use crate::svg::SkiaSvgCache;
 use crate::thread_owner::ThreadOwner;
@@ -128,6 +129,7 @@ struct RasterDriver<A: SkiaApi> {
     paragraph_draw_data: Arc<SkiaParagraphDrawDataRegistry>,
     image_cache: SkiaImageCache,
     svg_cache: SkiaSvgCache,
+    picture_cache: SkiaPictureCache,
     _not_send_or_sync: PhantomData<Rc<()>>,
 }
 
@@ -177,6 +179,7 @@ impl<A: SkiaApi> RasterDriver<A> {
             paragraph_draw_data,
             image_cache: SkiaImageCache::new(),
             svg_cache: SkiaSvgCache::new(),
+            picture_cache: SkiaPictureCache::new(),
             _not_send_or_sync: PhantomData,
         })
     }
@@ -316,6 +319,7 @@ impl<A: SkiaApi> RasterDriver<A> {
         self.release_surface();
         self.image_cache.clear();
         self.svg_cache.clear();
+        self.picture_cache.clear();
         drop(self.context.take());
         drop(self.engine.take());
     }
@@ -533,6 +537,8 @@ impl<A: SkiaApi> GraphicsBackendDriver for RasterDriver<A> {
             &self.svg_cache,
             frame.frame().paragraph_bindings(),
             self.paragraph_draw_data.as_ref(),
+            &self.picture_cache,
+            &self.api,
         ) {
             Ok(compiled) => compiled,
             Err(error) => {
@@ -586,7 +592,7 @@ impl<A: SkiaApi> GraphicsBackendDriver for RasterDriver<A> {
         Ok(RenderReport {
             frame_id: Some(frame_id),
             encoded_operations: compiled.source_operations,
-            reused_layers: 0,
+            reused_layers: compiled.reused_layers,
             uploaded_bytes: 0,
         })
     }
@@ -794,6 +800,7 @@ impl<A: SkiaApi> GraphicsBackendDriver for RasterDriver<A> {
         if pressure == MemoryPressure::Critical {
             self.image_cache.clear();
             self.svg_cache.clear();
+            self.picture_cache.clear();
         }
         if let Some(context) = self.context.as_mut() {
             if let Err(error) = self.api.trim_memory(context, pressure) {
@@ -825,6 +832,7 @@ impl<A: SkiaApi> GraphicsBackendDriver for RasterDriver<A> {
         diagnostics.session_state = self.state;
         diagnostics.caches.push(self.image_cache.diagnostics());
         diagnostics.caches.push(self.svg_cache.diagnostics());
+        diagnostics.caches.push(self.picture_cache.diagnostics());
         diagnostics
     }
 }
