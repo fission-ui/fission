@@ -1,15 +1,26 @@
 use fission_render::capabilities::{
-    BackendIdentity, ColorFormat, DisplayOpKind, GraphicsCapabilities, RenderMode, TransformSupport,
+    BackendIdentity, ColorFormat, DisplayOpKind, GraphicsCapabilities, RenderMode, TextFeature,
+    TransformSupport,
 };
 
-/// Semantics implemented by the direct-Skia raster paint profile.
+/// Semantics implemented by a standalone direct-Skia raster session.
 ///
 /// Rectangle and path claims include every current Fission fill, stroke,
 /// rounded-corner, dash, cap, join, and box-shadow variant. `CachedScene` is a
 /// correctness-neutral cache hint and is recursively lowered. Opacity layers,
-/// text, images, SVG, filters, and external surfaces remain unclaimed until
-/// every variant represented by their operation can execute without loss.
+/// text, images, SVG, filters, and external surfaces remain unclaimed. Text is
+/// enabled only by [`crate::SkiaRasterProfile`], which can prove that layout
+/// and paint share one draw-data registry.
 pub fn skia_raster_capabilities() -> GraphicsCapabilities {
+    raster_capabilities(false)
+}
+
+/// Semantics enabled only by an explicitly paired Skia raster profile.
+pub(crate) fn skia_raster_profile_capabilities() -> GraphicsCapabilities {
+    raster_capabilities(true)
+}
+
+fn raster_capabilities(paragraph_paint: bool) -> GraphicsCapabilities {
     let mut capabilities = GraphicsCapabilities::empty(BackendIdentity::new(
         "skia",
         env!("CARGO_PKG_VERSION"),
@@ -27,6 +38,17 @@ pub fn skia_raster_capabilities() -> GraphicsCapabilities {
         DisplayOpKind::DrawRect,
         DisplayOpKind::DrawPath,
     ]);
+    if paragraph_paint {
+        capabilities
+            .display_ops
+            .extend([DisplayOpKind::DrawText, DisplayOpKind::DrawRichText]);
+        capabilities.text_features.extend([
+            TextFeature::CaretPainting,
+            TextFeature::RichTextLocale,
+            TextFeature::RichTextLineHeight,
+            TextFeature::RichTextLetterSpacing,
+        ]);
+    }
     capabilities.transform_support = TransformSupport::Affine2d;
     capabilities.color_formats.insert(ColorFormat::Rgba8Srgb);
     capabilities.headless = true;
@@ -65,5 +87,18 @@ mod tests {
         assert!(capabilities.readback);
         assert!(capabilities.surface_loss_recovery);
         assert!(capabilities.device_loss_recovery);
+    }
+
+    #[test]
+    fn paired_profile_claims_only_supported_paragraph_variants() {
+        let capabilities = skia_raster_profile_capabilities();
+
+        assert!(capabilities.supports_display_op(DisplayOpKind::DrawText));
+        assert!(capabilities.supports_display_op(DisplayOpKind::DrawRichText));
+        assert!(capabilities.supports_text_feature(TextFeature::CaretPainting));
+        assert!(!capabilities.supports_text_feature(TextFeature::NonDefaultParagraphStyle));
+        assert!(capabilities.supports_text_feature(TextFeature::RichTextLocale));
+        assert!(capabilities.supports_text_feature(TextFeature::RichTextLineHeight));
+        assert!(capabilities.supports_text_feature(TextFeature::RichTextLetterSpacing));
     }
 }

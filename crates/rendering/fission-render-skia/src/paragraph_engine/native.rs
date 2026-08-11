@@ -13,7 +13,7 @@ use super::request::{
     PackedColor, PackedFontFeature, PackedFontVariation, PackedInlineObject,
     PackedParagraphRequest, PackedParagraphStyle, PackedPreedit, PackedRange, PackedStyleRun,
 };
-use super::{BatchedParagraphApi, BatchedParagraphError};
+use super::{BatchedParagraphApi, BatchedParagraphError, BatchedParagraphLayout};
 
 pub(super) struct NativeParagraphApi {
     engine: sys::ParagraphEngine,
@@ -42,12 +42,13 @@ impl BatchedParagraphApi for NativeParagraphApi {
     fn layout(
         &self,
         request: PackedParagraphRequest,
-    ) -> Result<PackedParagraphOutput, BatchedParagraphError> {
+    ) -> Result<BatchedParagraphLayout, BatchedParagraphError> {
         let request = native_request(request)?;
-        let output = self
+        let retained = self
             .engine
-            .layout(&request)
+            .layout_retained(&request)
             .map_err(BatchedParagraphError::native)?;
+        let output = retained.output;
         if output.capabilities.bits() != self.native_capability_bits {
             return Err(invalid_result(
                 "capabilities",
@@ -58,7 +59,10 @@ impl BatchedParagraphApi for NativeParagraphApi {
                 ),
             ));
         }
-        packed_output(output)
+        Ok(BatchedParagraphLayout {
+            output: packed_output(output)?,
+            draw_data: Some(retained.draw_data),
+        })
     }
 }
 

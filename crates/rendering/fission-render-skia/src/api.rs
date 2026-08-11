@@ -1,4 +1,7 @@
+use std::sync::Arc;
+
 use fission_render::surface::{MemoryPressure, PhysicalSize};
+use fission_skia_sys::ParagraphDrawData;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ApiErrorKind {
@@ -215,6 +218,13 @@ pub(crate) enum RasterCommand {
         rect: RasterRect,
         radius: f32,
         shadow: RasterBoxShadow,
+    },
+    /// Paint data retained from the exact paragraph layout that supplied the
+    /// frame's geometry. The resource is pinned through native execution.
+    DrawParagraph {
+        data: Arc<ParagraphDrawData>,
+        origin: RasterPoint,
+        scale_factor: f32,
     },
 }
 

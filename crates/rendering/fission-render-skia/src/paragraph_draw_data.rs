@@ -200,16 +200,33 @@ impl<T> ParagraphDrawDataRegistry<T> {
         &self,
         results: impl IntoIterator<Item = (WidgetId, Arc<ParagraphResult>)>,
     ) -> Result<ParagraphFrameDrawData<T>, ParagraphDrawDataError> {
+        let state = self.state.lock().unwrap();
         let mut by_node = HashMap::new();
         for (node_id, result) in results {
             let id = result
                 .draw_data()
                 .ok_or(ParagraphDrawDataError::MissingNodeDrawData { node_id })?;
-            let data = self
-                .resolve(&result)
-                .map_err(|error| error.for_node(node_id))?;
+            let entry = state
+                .by_id
+                .get(&id)
+                .ok_or(ParagraphDrawDataError::UnknownNodeIdentifier { node_id, id })?;
+            if entry.cache_key != result.cache_key() {
+                return Err(ParagraphDrawDataError::NodeCacheKeyMismatch {
+                    node_id,
+                    id,
+                    expected: entry.cache_key,
+                    actual: result.cache_key(),
+                });
+            }
             if by_node
-                .insert(node_id, BoundParagraphDrawData { id, result, data })
+                .insert(
+                    node_id,
+                    BoundParagraphDrawData {
+                        id,
+                        result,
+                        data: Arc::clone(&entry.data),
+                    },
+                )
                 .is_some()
             {
                 return Err(ParagraphDrawDataError::DuplicateNode { node_id });
@@ -315,26 +332,6 @@ pub(crate) enum ParagraphDrawDataError {
         field: &'static str,
     },
     IdentifierExhausted,
-}
-
-impl ParagraphDrawDataError {
-    fn for_node(self, node_id: WidgetId) -> Self {
-        match self {
-            Self::UnknownIdentifier { id } => Self::UnknownNodeIdentifier { node_id, id },
-            Self::CacheKeyMismatch {
-                id,
-                expected,
-                actual,
-            } => Self::NodeCacheKeyMismatch {
-                node_id,
-                id,
-                expected,
-                actual,
-            },
-            Self::MissingDrawData => Self::MissingNodeDrawData { node_id },
-            other => other,
-        }
-    }
 }
 
 impl fmt::Display for ParagraphDrawDataError {

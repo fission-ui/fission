@@ -104,6 +104,15 @@ impl SkiaApi for NativeSkiaApi {
                         radius: *radius,
                         shadow: native_shadow(*shadow),
                     },
+                    RasterCommand::DrawParagraph {
+                        data,
+                        origin,
+                        scale_factor,
+                    } => FrameOp::DrawParagraph {
+                        data: data.as_ref().clone(),
+                        origin: native_point(*origin),
+                        scale_factor: *scale_factor,
+                    },
                 })
                 .collect::<Vec<_>>(),
         );

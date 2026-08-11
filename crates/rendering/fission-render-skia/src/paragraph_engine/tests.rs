@@ -13,7 +13,7 @@ use super::output::{
 };
 use super::request::{PackedParagraphRequest, PackedRange};
 use super::{
-    BatchedParagraphApi, BatchedParagraphError, SkiaParagraphEngine,
+    BatchedParagraphApi, BatchedParagraphError, BatchedParagraphLayout, SkiaParagraphEngine,
     COMPLETE_PARAGRAPH_CAPABILITIES,
 };
 
@@ -30,9 +30,9 @@ impl BatchedParagraphApi for MockApi {
     fn layout(
         &self,
         request: PackedParagraphRequest,
-    ) -> Result<PackedParagraphOutput, BatchedParagraphError> {
+    ) -> Result<BatchedParagraphLayout, BatchedParagraphError> {
         self.requests.lock().unwrap().push(request);
-        Ok(self.output.clone())
+        Ok(BatchedParagraphLayout::geometry_only(self.output.clone()))
     }
 }
 

@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use fission_render::backend::{
     BackendError, BackendOperation, BackendResult, GraphicsBackendDriver, PresentReport, Readback,
@@ -16,10 +17,11 @@ use fission_render::surface::{
 };
 
 use crate::api::{ApiError, ApiErrorKind, PixelRegion, SkiaApi};
-use crate::capabilities::skia_raster_capabilities;
-use crate::compiler::compile_scene;
+use crate::capabilities::{skia_raster_capabilities, skia_raster_profile_capabilities};
+use crate::compiler::compile_scene_with_paragraphs;
 use crate::error::{api_error, contract_error, contract_error_with_provenance, wrong_thread};
 use crate::native::NativeSkiaApi;
+use crate::profile::{new_paragraph_draw_data_registry, SkiaParagraphDrawDataRegistry};
 use crate::thread_owner::ThreadOwner;
 
 const MAX_RECENT_EVENTS: usize = 64;
@@ -38,6 +40,17 @@ impl SkiaRasterDriver {
     pub fn new() -> BackendResult<Self> {
         Ok(Self {
             inner: RasterDriver::try_new(NativeSkiaApi)?,
+        })
+    }
+
+    pub(crate) fn with_draw_data_registry(
+        paragraph_draw_data: Arc<SkiaParagraphDrawDataRegistry>,
+    ) -> BackendResult<Self> {
+        Ok(Self {
+            inner: RasterDriver::try_new_with_paragraph_draw_data(
+                NativeSkiaApi,
+                paragraph_draw_data,
+            )?,
         })
     }
 }
@@ -110,11 +123,35 @@ struct RasterDriver<A: SkiaApi> {
     metrics: Option<SurfaceMetrics>,
     last_rendered: Option<FrameId>,
     diagnostics: BackendDiagnostics,
+    paragraph_draw_data: Arc<SkiaParagraphDrawDataRegistry>,
     _not_send_or_sync: PhantomData<Rc<()>>,
 }
 
 impl<A: SkiaApi> RasterDriver<A> {
     fn try_new(api: A) -> BackendResult<Self> {
+        Self::try_new_with_capabilities(
+            api,
+            new_paragraph_draw_data_registry(),
+            skia_raster_capabilities(),
+        )
+    }
+
+    fn try_new_with_paragraph_draw_data(
+        api: A,
+        paragraph_draw_data: Arc<SkiaParagraphDrawDataRegistry>,
+    ) -> BackendResult<Self> {
+        Self::try_new_with_capabilities(
+            api,
+            paragraph_draw_data,
+            skia_raster_profile_capabilities(),
+        )
+    }
+
+    fn try_new_with_capabilities(
+        api: A,
+        paragraph_draw_data: Arc<SkiaParagraphDrawDataRegistry>,
+        capabilities: GraphicsCapabilities,
+    ) -> BackendResult<Self> {
         let owner = ThreadOwner::current();
         let engine = api
             .create_engine()
@@ -122,7 +159,6 @@ impl<A: SkiaApi> RasterDriver<A> {
         let context = api
             .create_raster_context(&engine)
             .map_err(|error| api_error(BackendOperation::Initialize, error))?;
-        let capabilities = skia_raster_capabilities();
         Ok(Self {
             api,
             owner,
@@ -134,6 +170,7 @@ impl<A: SkiaApi> RasterDriver<A> {
             metrics: None,
             last_rendered: None,
             diagnostics: BackendDiagnostics::new(capabilities.identity, SessionState::Detached),
+            paragraph_draw_data,
             _not_send_or_sync: PhantomData,
         })
     }
@@ -479,10 +516,12 @@ impl<A: SkiaApi> GraphicsBackendDriver for RasterDriver<A> {
         self.check_thread(BackendOperation::Render)?;
         self.require_state(BackendOperation::Render, &[SessionState::Attached])?;
         let metrics = self.validate_frame_metrics(frame)?;
-        let compiled = match compile_scene(
+        let compiled = match compile_scene_with_paragraphs(
             frame.frame().scene(),
             metrics.scale_factor.get(),
             frame.frame().clear_color(),
+            frame.frame().paragraph_bindings(),
+            self.paragraph_draw_data.as_ref(),
         ) {
             Ok(compiled) => compiled,
             Err(error) => {

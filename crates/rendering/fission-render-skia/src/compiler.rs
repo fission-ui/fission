@@ -1,6 +1,8 @@
 use std::fmt;
+use std::sync::Arc;
 
 use fission_render::capabilities::{is_2d_affine_transform, DisplayOpKind};
+use fission_render::paragraph::ParagraphFrameBindings;
 use fission_render::{
     BoxShadow, Color, DisplayList, DisplayOp, Fill, LayerClip, LayoutPoint, LayoutRect, LineCap,
     LineJoin, RenderNode, RenderScene, Stroke,
@@ -12,6 +14,9 @@ use crate::api::{
     RasterGradientStop, RasterLineCap, RasterLineJoin, RasterPaint, RasterPath, RasterPathCommand,
     RasterPoint, RasterRect, RasterStroke,
 };
+use crate::paragraph_caret::{paragraph_caret_paint, ParagraphCaretPaint, ParagraphCaretStyle};
+use crate::paragraph_draw_data::{ParagraphDrawDataError, ParagraphFrameDrawData};
+use crate::profile::SkiaParagraphDrawDataRegistry;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct CompiledRasterFrame {
@@ -23,6 +28,40 @@ pub(crate) fn compile_scene(
     scene: &RenderScene,
     scale_factor: f64,
     clear_color: Color,
+) -> Result<CompiledRasterFrame, CompileError> {
+    compile_scene_inner(scene, scale_factor, clear_color, None)
+}
+
+pub(crate) fn compile_scene_with_paragraphs(
+    scene: &RenderScene,
+    scale_factor: f64,
+    clear_color: Color,
+    paragraph_bindings: Option<&ParagraphFrameBindings>,
+    paragraph_draw_data: &SkiaParagraphDrawDataRegistry,
+) -> Result<CompiledRasterFrame, CompileError> {
+    let paragraphs = paragraph_bindings
+        .map(|bindings| {
+            let frame_draw_data = paragraph_draw_data
+                .bind_frame(
+                    bindings
+                        .iter()
+                        .map(|(node_id, result)| (*node_id, Arc::clone(result))),
+                )
+                .map_err(paragraph_registry_error)?;
+            paragraph_draw_data
+                .retain_results(bindings.iter().map(|(_, result)| result.as_ref()))
+                .map_err(paragraph_registry_error)?;
+            Ok(ParagraphCompilation { frame_draw_data })
+        })
+        .transpose()?;
+    compile_scene_inner(scene, scale_factor, clear_color, paragraphs)
+}
+
+fn compile_scene_inner(
+    scene: &RenderScene,
+    scale_factor: f64,
+    clear_color: Color,
+    paragraphs: Option<ParagraphCompilation>,
 ) -> Result<CompiledRasterFrame, CompileError> {
     let scale_factor = scale_factor as f32;
     if !scale_factor.is_finite() || scale_factor <= 0.0 {
@@ -36,6 +75,7 @@ pub(crate) fn compile_scene(
         commands: vec![RasterCommand::Clear(srgb_color(clear_color))],
         source_operations: 0,
         save_depth: 0,
+        paragraphs,
     };
     for (root_index, root) in scene.roots.iter().enumerate() {
         compiler.compile_node(root, root_index, &mut Vec::new(), None)?;
@@ -56,11 +96,16 @@ pub(crate) fn compile_scene(
     })
 }
 
+struct ParagraphCompilation {
+    frame_draw_data: ParagraphFrameDrawData<fission_skia_sys::ParagraphDrawData>,
+}
+
 struct Compiler {
     scale_factor: f32,
     commands: Vec<RasterCommand>,
     source_operations: u64,
     save_depth: usize,
+    paragraphs: Option<ParagraphCompilation>,
 }
 
 impl Compiler {
@@ -228,6 +273,54 @@ impl Compiler {
                 bounds,
                 ..
             } => self.draw_path(path, fill.as_ref(), stroke.as_ref(), *bounds, &provenance)?,
+            DisplayOp::DrawText {
+                position,
+                color,
+                caret_index,
+                caret_color,
+                caret_width,
+                caret_height,
+                caret_radius,
+                ..
+            } => self.draw_paragraph(
+                DisplayOpKind::DrawText,
+                provenance.node_id,
+                *position,
+                *caret_index,
+                ParagraphCaretStyle {
+                    color: caret_color.unwrap_or(*color),
+                    width: *caret_width,
+                    height: *caret_height,
+                    radius: *caret_radius,
+                },
+                &provenance,
+            )?,
+            DisplayOp::DrawRichText {
+                runs,
+                position,
+                caret_index,
+                caret_color,
+                caret_width,
+                caret_height,
+                caret_radius,
+                ..
+            } => self.draw_paragraph(
+                DisplayOpKind::DrawRichText,
+                provenance.node_id,
+                *position,
+                *caret_index,
+                ParagraphCaretStyle {
+                    color: caret_color.unwrap_or_else(|| {
+                        runs.first()
+                            .map(|run| run.style.color)
+                            .unwrap_or(Color::BLACK)
+                    }),
+                    width: *caret_width,
+                    height: *caret_height,
+                    radius: *caret_radius,
+                },
+                &provenance,
+            )?,
             other => {
                 return Err(CompileError::new(
                     CompileErrorKind::UnsupportedOperation(other.kind()),
@@ -235,6 +328,70 @@ impl Compiler {
                 ));
             }
         }
+        Ok(())
+    }
+
+    fn draw_paragraph(
+        &mut self,
+        operation: DisplayOpKind,
+        node_id: Option<fission_ir::WidgetId>,
+        position: LayoutPoint,
+        caret_index: Option<usize>,
+        caret_style: ParagraphCaretStyle,
+        provenance: &CompileProvenance,
+    ) -> Result<(), CompileError> {
+        let node_id = node_id.ok_or_else(|| {
+            CompileError::new(
+                CompileErrorKind::MissingParagraphNodeId(operation),
+                provenance.clone(),
+            )
+        })?;
+        let paragraphs = self.paragraphs.as_ref().ok_or_else(|| {
+            CompileError::new(
+                CompileErrorKind::MissingParagraphBindings,
+                provenance.clone(),
+            )
+        })?;
+        let bound = paragraphs.frame_draw_data.get(node_id).ok_or_else(|| {
+            CompileError::new(
+                CompileErrorKind::MissingParagraphBinding { node_id },
+                provenance.clone(),
+            )
+        })?;
+        let result = Arc::clone(&bound.result);
+        let data = Arc::clone(&bound.data);
+        self.commands.push(RasterCommand::DrawParagraph {
+            data,
+            origin: RasterPoint {
+                x: self.scaled(position.x, provenance, "paragraph origin x")?,
+                y: self.scaled(position.y, provenance, "paragraph origin y")?,
+            },
+            scale_factor: self.scale_factor,
+        });
+
+        let caret = paragraph_caret_paint(result.as_ref(), caret_index, position, caret_style)
+            .map_err(|error| {
+                CompileError::new(
+                    CompileErrorKind::InvalidParagraphCaret(error.to_string()),
+                    provenance.clone(),
+                )
+            })?;
+        if let Some(caret) = caret {
+            self.draw_paragraph_caret(caret, provenance)?;
+        }
+        Ok(())
+    }
+
+    fn draw_paragraph_caret(
+        &mut self,
+        caret: ParagraphCaretPaint,
+        provenance: &CompileProvenance,
+    ) -> Result<(), CompileError> {
+        self.commands.push(RasterCommand::FillRect {
+            rect: self.rect(caret.rect, provenance)?,
+            radius: self.scaled(caret.radius, provenance, "caret radius")?,
+            paint: RasterPaint::Solid(srgb_color(caret.color)),
+        });
         Ok(())
     }
 
@@ -641,6 +798,11 @@ impl CompileError {
 pub(crate) enum CompileErrorKind {
     InvalidScaleFactor,
     UnsupportedOperation(DisplayOpKind),
+    MissingParagraphNodeId(DisplayOpKind),
+    MissingParagraphBindings,
+    MissingParagraphBinding { node_id: fission_ir::WidgetId },
+    InvalidParagraphDrawData(String),
+    InvalidParagraphCaret(String),
     UnsupportedTransform,
     InvalidPaint(String),
     InvalidPath(String),
@@ -657,6 +819,23 @@ impl fmt::Display for CompileError {
             }
             CompileErrorKind::UnsupportedOperation(operation) => {
                 write!(formatter, "the Skia ABI cannot yet execute {operation:?}")?
+            }
+            CompileErrorKind::MissingParagraphNodeId(operation) => write!(
+                formatter,
+                "the Skia {operation:?} operation has no stable paragraph node identity"
+            )?,
+            CompileErrorKind::MissingParagraphBindings => formatter
+                .write_str("the Skia text frame has no authoritative paragraph-result bindings")?,
+            CompileErrorKind::MissingParagraphBinding { node_id } => write!(
+                formatter,
+                "the Skia text frame has no paragraph result for node {node_id}"
+            )?,
+            CompileErrorKind::InvalidParagraphDrawData(message) => write!(
+                formatter,
+                "the Skia paragraph paint resource is invalid: {message}"
+            )?,
+            CompileErrorKind::InvalidParagraphCaret(message) => {
+                write!(formatter, "the Skia paragraph caret is invalid: {message}")?
             }
             CompileErrorKind::UnsupportedTransform => formatter.write_str(
                 "the Skia raster profile supports only finite two-dimensional affine transforms",
@@ -703,6 +882,23 @@ impl fmt::Display for CompileError {
 }
 
 impl std::error::Error for CompileError {}
+
+fn paragraph_registry_error(error: ParagraphDrawDataError) -> CompileError {
+    let node_id = match &error {
+        ParagraphDrawDataError::MissingNodeDrawData { node_id }
+        | ParagraphDrawDataError::UnknownNodeIdentifier { node_id, .. }
+        | ParagraphDrawDataError::NodeCacheKeyMismatch { node_id, .. }
+        | ParagraphDrawDataError::DuplicateNode { node_id } => Some(*node_id),
+        _ => None,
+    };
+    CompileError::new(
+        CompileErrorKind::InvalidParagraphDrawData(error.to_string()),
+        CompileProvenance {
+            node_id,
+            ..CompileProvenance::default()
+        },
+    )
+}
 
 #[cfg(test)]
 mod tests {

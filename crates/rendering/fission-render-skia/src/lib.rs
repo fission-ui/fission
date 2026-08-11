@@ -6,13 +6,16 @@ mod compiler;
 mod driver;
 mod error;
 mod native;
+mod paragraph_caret;
 mod paragraph_draw_data;
 mod paragraph_engine;
+mod profile;
 mod thread_owner;
 
 pub use capabilities::skia_raster_capabilities;
 pub use driver::SkiaRasterDriver;
 pub use paragraph_engine::SkiaParagraphEngine;
+pub use profile::SkiaRasterProfile;
 
 use fission_render::backend::{BackendResult, GraphicsBackendSession};
 
