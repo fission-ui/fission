@@ -1,7 +1,12 @@
 use super::*;
 #[cfg(all(
     feature = "skia",
-    any(target_os = "linux", target_os = "macos", target_os = "ios")
+    any(
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "windows"
+    )
 ))]
 use crate::skia_ganesh_presenter::WinitSkiaGaneshPresenter;
 #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
@@ -9,7 +14,12 @@ use crate::skia_presenter::WinitSkiaRasterPresenter;
 use fission_render::capabilities::RenderMode;
 #[cfg(all(
     feature = "skia",
-    any(target_os = "linux", target_os = "macos", target_os = "ios")
+    any(
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "windows"
+    )
 ))]
 use fission_render::surface::SessionState;
 
@@ -46,7 +56,12 @@ pub(super) struct WinitPresenter<'w> {
     suspended_skia: Option<WinitSkiaRasterPresenter>,
     #[cfg(all(
         feature = "skia",
-        any(target_os = "linux", target_os = "macos", target_os = "ios")
+        any(
+            target_os = "linux",
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "windows"
+        )
     ))]
     direct_ganesh: Option<WinitSkiaGaneshPresenter>,
 }
@@ -59,7 +74,12 @@ impl<'w> WinitPresenter<'w> {
             suspended_skia: None,
             #[cfg(all(
                 feature = "skia",
-                any(target_os = "linux", target_os = "macos", target_os = "ios")
+                any(
+                    target_os = "linux",
+                    target_os = "macos",
+                    target_os = "ios",
+                    target_os = "windows"
+                )
             ))]
             direct_ganesh: None,
         }
@@ -69,7 +89,12 @@ impl<'w> WinitPresenter<'w> {
         self.state.is_some() || {
             #[cfg(all(
                 feature = "skia",
-                any(target_os = "linux", target_os = "macos", target_os = "ios")
+                any(
+                    target_os = "linux",
+                    target_os = "macos",
+                    target_os = "ios",
+                    target_os = "windows"
+                )
             ))]
             {
                 self.direct_ganesh
@@ -78,7 +103,12 @@ impl<'w> WinitPresenter<'w> {
             }
             #[cfg(not(all(
                 feature = "skia",
-                any(target_os = "linux", target_os = "macos", target_os = "ios")
+                any(
+                    target_os = "linux",
+                    target_os = "macos",
+                    target_os = "ios",
+                    target_os = "windows"
+                )
             )))]
             {
                 false
@@ -89,7 +119,12 @@ impl<'w> WinitPresenter<'w> {
     pub(super) fn attach(&mut self, state: RenderState<'w>) {
         #[cfg(all(
             feature = "skia",
-            any(target_os = "linux", target_os = "macos", target_os = "ios")
+            any(
+                target_os = "linux",
+                target_os = "macos",
+                target_os = "ios",
+                target_os = "windows"
+            )
         ))]
         debug_assert!(self.direct_ganesh.is_none());
         self.state = Some(state);
@@ -103,7 +138,12 @@ impl<'w> WinitPresenter<'w> {
     pub(super) fn frame_capabilities(&self) -> fission_render::capabilities::GraphicsCapabilities {
         #[cfg(all(
             feature = "skia",
-            any(target_os = "linux", target_os = "macos", target_os = "ios")
+            any(
+                target_os = "linux",
+                target_os = "macos",
+                target_os = "ios",
+                target_os = "windows"
+            )
         ))]
         if let Some(presenter) = self.direct_ganesh.as_ref() {
             return presenter.capabilities().clone();
@@ -119,7 +159,12 @@ impl<'w> WinitPresenter<'w> {
     pub(super) fn allows_host_software_fallback(&self) -> bool {
         #[cfg(all(
             feature = "skia",
-            any(target_os = "linux", target_os = "macos", target_os = "ios")
+            any(
+                target_os = "linux",
+                target_os = "macos",
+                target_os = "ios",
+                target_os = "windows"
+            )
         ))]
         if self.direct_ganesh.is_some() {
             return false;
@@ -135,7 +180,12 @@ impl<'w> WinitPresenter<'w> {
     pub(super) fn suspend(&mut self) -> fission_render::backend::BackendResult<()> {
         #[cfg(all(
             feature = "skia",
-            any(target_os = "linux", target_os = "macos", target_os = "ios")
+            any(
+                target_os = "linux",
+                target_os = "macos",
+                target_os = "ios",
+                target_os = "windows"
+            )
         ))]
         if let Some(presenter) = self.direct_ganesh.as_mut() {
             if presenter.state() == SessionState::Attached {
@@ -170,7 +220,12 @@ impl<'w> WinitPresenter<'w> {
         }
         #[cfg(all(
             feature = "skia",
-            any(target_os = "linux", target_os = "macos", target_os = "ios")
+            any(
+                target_os = "linux",
+                target_os = "macos",
+                target_os = "ios",
+                target_os = "windows"
+            )
         ))]
         if let Some(presenter) = self.direct_ganesh.as_mut() {
             presenter.trim_memory(pressure)?;
@@ -186,7 +241,12 @@ impl<'w> WinitPresenter<'w> {
     pub(super) fn detach(&mut self) -> fission_render::backend::BackendResult<()> {
         #[cfg(all(
             feature = "skia",
-            any(target_os = "linux", target_os = "macos", target_os = "ios")
+            any(
+                target_os = "linux",
+                target_os = "macos",
+                target_os = "ios",
+                target_os = "windows"
+            )
         ))]
         if let Some(mut presenter) = self.direct_ganesh.take() {
             presenter.detach()?;
@@ -216,7 +276,12 @@ impl<'w> WinitPresenter<'w> {
 
     #[cfg(all(
         feature = "skia",
-        any(target_os = "linux", target_os = "macos", target_os = "ios")
+        any(
+            target_os = "linux",
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "windows"
+        )
     ))]
     pub(super) fn direct_ganesh_mut(&mut self) -> Option<&mut WinitSkiaGaneshPresenter> {
         self.direct_ganesh.as_mut()
@@ -224,7 +289,12 @@ impl<'w> WinitPresenter<'w> {
 
     #[cfg(all(
         feature = "skia",
-        any(target_os = "linux", target_os = "macos", target_os = "ios")
+        any(
+            target_os = "linux",
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "windows"
+        )
     ))]
     pub(super) fn has_direct_ganesh(&self) -> bool {
         self.direct_ganesh.is_some()
@@ -232,7 +302,12 @@ impl<'w> WinitPresenter<'w> {
 
     #[cfg(all(
         feature = "skia",
-        any(target_os = "linux", target_os = "macos", target_os = "ios")
+        any(
+            target_os = "linux",
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "windows"
+        )
     ))]
     pub(super) fn attach_direct_ganesh(&mut self, presenter: WinitSkiaGaneshPresenter) {
         debug_assert!(self.state.is_none());
@@ -667,7 +742,12 @@ pub(super) fn sync_wgpu_render_state(
 
 #[cfg(all(
     feature = "skia",
-    any(target_os = "linux", target_os = "macos", target_os = "ios")
+    any(
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "windows"
+    )
 ))]
 pub(super) fn attach_or_resume_native_ganesh(
     presenter: &mut WinitPresenter<'_>,
@@ -737,11 +817,18 @@ pub(super) fn attach_or_resume_native_ganesh(
 
 #[cfg(all(
     feature = "skia",
-    any(target_os = "linux", target_os = "macos", target_os = "ios")
+    any(
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "windows"
+    )
 ))]
 fn native_ganesh_renderer_name() -> &'static str {
     if cfg!(target_os = "linux") {
         "Skia Ganesh (Vulkan direct)"
+    } else if cfg!(target_os = "windows") {
+        "Skia Ganesh (D3D12 direct)"
     } else {
         "Skia Ganesh (Metal direct)"
     }
@@ -899,13 +986,14 @@ pub(super) fn require_compiled_native_renderer(
         && !cfg!(any(
             target_os = "linux",
             target_os = "macos",
-            target_os = "ios"
+            target_os = "ios",
+            target_os = "windows"
         ))
     {
         Err(RequestedRendererInitializationError::new(
             request,
             RendererTarget::Native,
-            "native Skia Ganesh requires Linux Wayland/Xlib/XCB, macOS AppKit, or iOS UIKit",
+            "native Skia Ganesh requires Linux Wayland/Xlib/XCB, macOS AppKit, iOS UIKit, or Windows Win32",
         ))
     } else if request == RendererRequest::NativeSkiaGanesh && cfg!(feature = "three-d") {
         Err(RequestedRendererInitializationError::new(

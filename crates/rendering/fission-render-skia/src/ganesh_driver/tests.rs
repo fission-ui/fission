@@ -20,8 +20,8 @@ use fission_render::{LayoutRect, LayoutSize, RenderScene};
 use fission_skia_sys::{NativeWindow, NativeWindowKind};
 use raw_window_handle::{
     AppKitDisplayHandle, AppKitWindowHandle, RawDisplayHandle, RawWindowHandle, UiKitDisplayHandle,
-    UiKitWindowHandle, WaylandDisplayHandle, WaylandWindowHandle, XcbDisplayHandle,
-    XcbWindowHandle, XlibDisplayHandle, XlibWindowHandle,
+    UiKitWindowHandle, WaylandDisplayHandle, WaylandWindowHandle, Win32WindowHandle,
+    WindowsDisplayHandle, XcbDisplayHandle, XcbWindowHandle, XlibDisplayHandle, XlibWindowHandle,
 };
 
 use super::*;
@@ -350,6 +350,16 @@ fn uikit_target(size: PhysicalSize) -> NativeWindowTarget {
     )
 }
 
+fn win32_target(size: PhysicalSize) -> NativeWindowTarget {
+    target(
+        size,
+        RawDisplayHandle::Windows(WindowsDisplayHandle::new()),
+        RawWindowHandle::Win32(Win32WindowHandle::new(
+            std::num::NonZeroIsize::new(71).unwrap(),
+        )),
+    )
+}
+
 #[test]
 fn lowers_all_supported_native_window_routes_and_allows_unknown_visuals() {
     let size = PhysicalSize::new(640, 480);
@@ -376,6 +386,10 @@ fn lowers_all_supported_native_window_routes_and_allows_unknown_visuals() {
     assert_eq!(
         lower_native_window(&uikit_target(size)).unwrap().kind(),
         NativeWindowKind::UIKit
+    );
+    assert_eq!(
+        lower_native_window(&win32_target(size)).unwrap().kind(),
+        NativeWindowKind::Win32
     );
 }
 
@@ -429,6 +443,23 @@ fn native_window_descriptors_enforce_platform_thread_affinity() {
     assert_eq!(
         apple_session
             .attach(&wrong_apple_affinity)
+            .unwrap_err()
+            .code,
+        "skia-ganesh-thread-affinity-invalid"
+    );
+
+    let mut windows_session = session(MockApi::default());
+    let wrong_windows_affinity = target_with_affinity(
+        size,
+        RawDisplayHandle::Windows(WindowsDisplayHandle::new()),
+        RawWindowHandle::Win32(Win32WindowHandle::new(
+            std::num::NonZeroIsize::new(72).unwrap(),
+        )),
+        ThreadAffinity::MainThread,
+    );
+    assert_eq!(
+        windows_session
+            .attach(&wrong_windows_affinity)
             .unwrap_err()
             .code,
         "skia-ganesh-thread-affinity-invalid"

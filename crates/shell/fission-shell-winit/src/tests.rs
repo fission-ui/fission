@@ -219,7 +219,12 @@ fn direct_ganesh_is_the_only_native_request_that_skips_wgpu_initialization() {
 #[cfg(all(
     feature = "skia",
     feature = "three-d",
-    any(target_os = "linux", target_os = "macos", target_os = "ios")
+    any(
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "windows"
+    )
 ))]
 #[test]
 fn direct_ganesh_rejects_three_d_builds_at_selection_time() {

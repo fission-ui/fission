@@ -284,7 +284,12 @@ where
                 };
                 #[cfg(all(
                     feature = "skia",
-                    any(target_os = "linux", target_os = "macos", target_os = "ios")
+                    any(
+                        target_os = "linux",
+                        target_os = "macos",
+                        target_os = "ios",
+                        target_os = "windows"
+                    )
                 ))]
                 let direct_ganesh_attached =
                     if self.renderer_request == RendererRequest::NativeSkiaGanesh {
@@ -310,7 +315,12 @@ where
                     };
                 #[cfg(not(all(
                     feature = "skia",
-                    any(target_os = "linux", target_os = "macos", target_os = "ios")
+                    any(
+                        target_os = "linux",
+                        target_os = "macos",
+                        target_os = "ios",
+                        target_os = "windows"
+                    )
                 )))]
                 let direct_ganesh_attached = false;
                 if !direct_ganesh_attached {
@@ -355,7 +365,12 @@ where
             }
             #[cfg(all(
                 feature = "skia",
-                any(target_os = "linux", target_os = "macos", target_os = "ios")
+                any(
+                    target_os = "linux",
+                    target_os = "macos",
+                    target_os = "ios",
+                    target_os = "windows"
+                )
             ))]
             if let Some(ganesh) = self.presenter.direct_ganesh_mut() {
                 if let Err(error) = ganesh.sync_surface_metrics(
@@ -386,7 +401,12 @@ where
             }
             #[cfg(not(all(
                 feature = "skia",
-                any(target_os = "linux", target_os = "macos", target_os = "ios")
+                any(
+                    target_os = "linux",
+                    target_os = "macos",
+                    target_os = "ios",
+                    target_os = "windows"
+                )
             )))]
             if let Err(error) = sync_wgpu_render_state(
                 self.render_cx
@@ -1053,7 +1073,12 @@ where
                 {
                     #[cfg(all(
                         feature = "skia",
-                        any(target_os = "linux", target_os = "macos", target_os = "ios")
+                        any(
+                            target_os = "linux",
+                            target_os = "macos",
+                            target_os = "ios",
+                            target_os = "windows"
+                        )
                     ))]
                     if self.presenter.has_direct_ganesh() {
                         if submission.has_external_surfaces() || {

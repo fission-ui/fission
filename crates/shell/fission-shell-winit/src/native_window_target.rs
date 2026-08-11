@@ -96,6 +96,19 @@ fn validate_native_handle_pair(
     }
 }
 
+#[cfg(target_os = "windows")]
+fn validate_native_handle_pair(
+    display_handle: RawDisplayHandle,
+    window_handle: RawWindowHandle,
+) -> anyhow::Result<()> {
+    match (display_handle, window_handle) {
+        (RawDisplayHandle::Windows(_), RawWindowHandle::Win32(_)) => Ok(()),
+        _ => Err(anyhow!(
+            "native Skia presentation on Windows requires a matching Windows/Win32 display and window handle pair"
+        )),
+    }
+}
+
 pub(super) fn native_thread_affinity() -> ThreadAffinity {
     if cfg!(any(target_os = "macos", target_os = "ios")) {
         ThreadAffinity::MainThread
@@ -120,6 +133,8 @@ mod tests {
         WaylandDisplayHandle, WaylandWindowHandle, WebDisplayHandle, WebWindowHandle,
         XcbDisplayHandle, XcbWindowHandle, XlibDisplayHandle, XlibWindowHandle,
     };
+    #[cfg(target_os = "windows")]
+    use raw_window_handle::{Win32WindowHandle, WindowsDisplayHandle};
 
     use super::*;
 
@@ -194,6 +209,24 @@ mod tests {
         assert!(validate_native_handle_pair(
             RawDisplayHandle::UiKit(UiKitDisplayHandle::new()),
             RawWindowHandle::AppKit(raw_window_handle::AppKitWindowHandle::new(pointer)),
+        )
+        .is_err());
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn accepts_only_win32_handle_pairs_on_windows() {
+        let hwnd = std::num::NonZeroIsize::new(1).unwrap();
+        validate_native_handle_pair(
+            RawDisplayHandle::Windows(WindowsDisplayHandle::new()),
+            RawWindowHandle::Win32(Win32WindowHandle::new(hwnd)),
+        )
+        .unwrap();
+        assert!(validate_native_handle_pair(
+            RawDisplayHandle::Windows(WindowsDisplayHandle::new()),
+            RawWindowHandle::AppKit(raw_window_handle::AppKitWindowHandle::new(
+                NonNull::dangling(),
+            )),
         )
         .is_err());
     }

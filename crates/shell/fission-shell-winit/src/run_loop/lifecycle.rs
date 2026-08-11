@@ -58,7 +58,12 @@ where
             if let Some(render_window) = self.platform_window.active_window_arc() {
                 #[cfg(all(
                     feature = "skia",
-                    any(target_os = "linux", target_os = "macos", target_os = "ios")
+                    any(
+                        target_os = "linux",
+                        target_os = "macos",
+                        target_os = "ios",
+                        target_os = "windows"
+                    )
                 ))]
                 let direct_ganesh_attached =
                     if self.renderer_request == RendererRequest::NativeSkiaGanesh {
@@ -83,7 +88,12 @@ where
                     };
                 #[cfg(not(all(
                     feature = "skia",
-                    any(target_os = "linux", target_os = "macos", target_os = "ios")
+                    any(
+                        target_os = "linux",
+                        target_os = "macos",
+                        target_os = "ios",
+                        target_os = "windows"
+                    )
                 )))]
                 let direct_ganesh_attached = false;
                 if !direct_ganesh_attached {

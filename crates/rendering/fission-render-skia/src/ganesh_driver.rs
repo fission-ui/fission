@@ -1031,17 +1031,23 @@ fn lower_native_window(target: &NativeWindowTarget) -> Result<NativeWindow, Stri
             // attachment lifetime and declares main-thread affinity.
             Ok(unsafe { NativeWindow::uikit(window.ui_view) })
         }
+        (RawDisplayHandle::Windows(_), RawWindowHandle::Win32(window)) => {
+            // SAFETY: NativeWindowTarget's host keeps the HWND live on its
+            // creating thread for the complete attachment lifetime.
+            Ok(unsafe { NativeWindow::win32(window.hwnd) })
+        }
         (display, window) => Err(format!(
-            "native Ganesh requires a matching Linux Wayland/Xlib/XCB, macOS AppKit, or iOS UIKit handle pair, got {display:?} and {window:?}"
+            "native Ganesh requires a matching Linux Wayland/Xlib/XCB, macOS AppKit, iOS UIKit, or Windows Win32 handle pair, got {display:?} and {window:?}"
         )),
     }
 }
 
 fn native_window_thread_affinity(kind: NativeWindowKind) -> ThreadAffinity {
     match kind {
-        NativeWindowKind::Wayland | NativeWindowKind::Xlib | NativeWindowKind::Xcb => {
-            ThreadAffinity::CreatingThread
-        }
+        NativeWindowKind::Wayland
+        | NativeWindowKind::Xlib
+        | NativeWindowKind::Xcb
+        | NativeWindowKind::Win32 => ThreadAffinity::CreatingThread,
         NativeWindowKind::AppKit | NativeWindowKind::UIKit => ThreadAffinity::MainThread,
     }
 }

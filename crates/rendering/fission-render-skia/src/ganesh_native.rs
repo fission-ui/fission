@@ -16,6 +16,9 @@ const REQUIRED_GANESH_FEATURES: u64 =
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 const REQUIRED_GANESH_FEATURES: u64 =
     REQUIRED_NATIVE_GANESH_FEATURES | fission_skia_sys::ffi::FEATURE_METAL;
+#[cfg(target_os = "windows")]
+const REQUIRED_GANESH_FEATURES: u64 =
+    REQUIRED_NATIVE_GANESH_FEATURES | fission_skia_sys::ffi::FEATURE_D3D12;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct NativeGaneshApi;
@@ -37,19 +40,29 @@ impl GaneshApi for NativeGaneshApi {
         }
         #[cfg(all(
             not(feature = "test-shim"),
-            not(any(target_os = "linux", target_os = "macos", target_os = "ios"))
+            not(any(
+                target_os = "linux",
+                target_os = "macos",
+                target_os = "ios",
+                target_os = "windows"
+            ))
         ))]
         {
             return Err(ApiError::new(
                 ApiErrorKind::Unsupported,
                 "ganesh-platform-unsupported",
                 "create_ganesh_engine",
-                "native Ganesh supports Linux Vulkan, macOS Metal, and iOS Metal",
+                "native Ganesh supports Linux Vulkan, macOS/iOS Metal, and Windows D3D12",
             ));
         }
         #[cfg(all(
             not(feature = "test-shim"),
-            any(target_os = "linux", target_os = "macos", target_os = "ios")
+            any(
+                target_os = "linux",
+                target_os = "macos",
+                target_os = "ios",
+                target_os = "windows"
+            )
         ))]
         {
             let engine = Engine::new().map_err(map_error)?;
@@ -93,7 +106,21 @@ impl GaneshApi for NativeGaneshApi {
             )
             .map_err(map_error);
         }
-        #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "ios")))]
+        #[cfg(target_os = "windows")]
+        {
+            return GaneshContext::new_d3d12_with_resource_cache_limit(
+                engine,
+                compatible_window,
+                resource_cache_limit_bytes,
+            )
+            .map_err(map_error);
+        }
+        #[cfg(not(any(
+            target_os = "linux",
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "windows"
+        )))]
         {
             let _ = (engine, resource_cache_limit_bytes);
             Err(unsupported_platform_window(compatible_window.kind()))
@@ -219,6 +246,7 @@ fn require_platform_window(kind: NativeWindowKind) -> Result<(), ApiError> {
         }
         NativeWindowKind::AppKit => cfg!(target_os = "macos"),
         NativeWindowKind::UIKit => cfg!(target_os = "ios"),
+        NativeWindowKind::Win32 => cfg!(target_os = "windows"),
     };
     if supported {
         Ok(())
@@ -258,26 +286,41 @@ mod tests {
             assert!(require_platform_window(NativeWindowKind::Xcb).is_ok());
             assert!(require_platform_window(NativeWindowKind::AppKit).is_err());
             assert!(require_platform_window(NativeWindowKind::UIKit).is_err());
+            assert!(require_platform_window(NativeWindowKind::Win32).is_err());
         }
         #[cfg(target_os = "macos")]
         {
             assert!(require_platform_window(NativeWindowKind::AppKit).is_ok());
             assert!(require_platform_window(NativeWindowKind::UIKit).is_err());
             assert!(require_platform_window(NativeWindowKind::Xlib).is_err());
+            assert!(require_platform_window(NativeWindowKind::Win32).is_err());
         }
         #[cfg(target_os = "ios")]
         {
             assert!(require_platform_window(NativeWindowKind::UIKit).is_ok());
             assert!(require_platform_window(NativeWindowKind::AppKit).is_err());
             assert!(require_platform_window(NativeWindowKind::Xlib).is_err());
+            assert!(require_platform_window(NativeWindowKind::Win32).is_err());
         }
-        #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "ios")))]
+        #[cfg(target_os = "windows")]
+        {
+            assert!(require_platform_window(NativeWindowKind::Win32).is_ok());
+            assert!(require_platform_window(NativeWindowKind::Xlib).is_err());
+            assert!(require_platform_window(NativeWindowKind::AppKit).is_err());
+        }
+        #[cfg(not(any(
+            target_os = "linux",
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "windows"
+        )))]
         for kind in [
             NativeWindowKind::Wayland,
             NativeWindowKind::Xlib,
             NativeWindowKind::Xcb,
             NativeWindowKind::AppKit,
             NativeWindowKind::UIKit,
+            NativeWindowKind::Win32,
         ] {
             assert!(require_platform_window(kind).is_err());
         }

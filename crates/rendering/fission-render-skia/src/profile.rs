@@ -93,8 +93,8 @@ impl SkiaGaneshProfile {
     /// Creates a Ganesh driver paired with this profile's paragraph engine.
     ///
     /// This fails before attachment when the linked bridge does not advertise
-    /// Ganesh, native presentation, and the target platform's Vulkan or Metal
-    /// backend.
+    /// Ganesh, native presentation, and the target platform's Vulkan, Metal,
+    /// or D3D12 backend.
     pub fn ganesh_driver(&self) -> BackendResult<SkiaGaneshDriver> {
         SkiaGaneshDriver::with_draw_data_registry(Arc::clone(&self.paragraph_draw_data))
     }

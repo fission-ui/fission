@@ -107,7 +107,12 @@ where
     pub(super) skia_profile: Option<fission_render_skia::SkiaRasterProfile>,
     #[cfg(all(
         feature = "skia",
-        any(target_os = "linux", target_os = "macos", target_os = "ios")
+        any(
+            target_os = "linux",
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "windows"
+        )
     ))]
     pub(super) skia_ganesh_profile: Option<fission_render_skia::SkiaGaneshProfile>,
     #[cfg(target_arch = "wasm32")]
