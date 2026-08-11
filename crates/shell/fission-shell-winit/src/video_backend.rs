@@ -2,6 +2,8 @@
 
 use fission_shell::{VideoBackend, VideoEvent, VideoPlayer};
 use std::sync::Arc;
+#[cfg(target_arch = "wasm32")]
+use winit::platform::web::WindowExtWebSys;
 use winit::window::Window;
 
 #[cfg(target_os = "android")]
@@ -34,8 +36,8 @@ pub fn create_video_backend(window: Option<&Window>) -> Arc<dyn VideoBackend> {
 
     #[cfg(target_arch = "wasm32")]
     {
-        let _ = window;
-        return Arc::new(WebVideoBackend::new());
+        let canvas = window.and_then(|window| window.canvas());
+        return Arc::new(WebVideoBackend::new(canvas));
     }
 
     #[cfg(target_os = "windows")]
@@ -86,6 +88,21 @@ pub fn create_video_backend(window: Option<&Window>) -> Arc<dyn VideoBackend> {
     panic!("Fission Video is unsupported on this platform");
 }
 
+#[cfg(any(target_arch = "wasm32", test))]
+pub(super) fn web_video_document_position(
+    canvas_viewport_left: f64,
+    canvas_viewport_top: f64,
+    document_scroll_x: f64,
+    document_scroll_y: f64,
+    frame_x: f32,
+    frame_y: f32,
+) -> (f64, f64) {
+    (
+        canvas_viewport_left + document_scroll_x + f64::from(frame_x),
+        canvas_viewport_top + document_scroll_y + f64::from(frame_y),
+    )
+}
+
 #[cfg(target_os = "android")]
 mod android;
 #[cfg(target_os = "ios")]
@@ -104,3 +121,15 @@ mod unsupported;
 mod web;
 #[cfg(target_os = "windows")]
 mod windows;
+
+#[cfg(test)]
+mod web_position_tests {
+    use super::web_video_document_position;
+
+    #[test]
+    fn document_position_combines_canvas_scroll_and_frame_origins() {
+        let position = web_video_document_position(120.5, -350.0, 80.0, 500.0, 12.25, 42.0);
+
+        assert_eq!(position, (212.75, 192.0));
+    }
+}

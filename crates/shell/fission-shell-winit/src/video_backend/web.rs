@@ -1,4 +1,4 @@
-use super::{VideoBackend, VideoEvent, VideoPlayer};
+use super::{web_video_document_position, VideoBackend, VideoEvent, VideoPlayer};
 use fission_core::ui::VideoAudioOptions;
 use fission_shell::{PlatformSurfaceCapabilities, VideoSurfaceFrame};
 use std::collections::{HashMap, HashSet};
@@ -6,7 +6,16 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
-use web_sys::{Document, HtmlElement, HtmlVideoElement};
+use web_sys::{Document, HtmlCanvasElement, HtmlElement, HtmlVideoElement};
+
+#[derive(Clone)]
+struct DomCanvas(HtmlCanvasElement);
+
+impl DomCanvas {
+    fn element(&self) -> &HtmlCanvasElement {
+        &self.0
+    }
+}
 
 #[derive(Clone)]
 struct DomVideo(HtmlVideoElement);
@@ -18,13 +27,15 @@ impl DomVideo {
 }
 
 pub struct WebVideoBackend {
+    canvas: Option<DomCanvas>,
     next_id: AtomicU64,
     registry: Arc<Mutex<HashMap<u64, DomVideo>>>,
 }
 
 impl WebVideoBackend {
-    pub fn new() -> Self {
+    pub fn new(canvas: Option<HtmlCanvasElement>) -> Self {
         Self {
+            canvas: canvas.map(DomCanvas),
             next_id: AtomicU64::new(1),
             registry: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -33,6 +44,10 @@ impl WebVideoBackend {
 
 impl VideoBackend for WebVideoBackend {
     fn surface_capabilities(&self) -> PlatformSurfaceCapabilities {
+        if self.canvas.is_none() {
+            return PlatformSurfaceCapabilities::UNAVAILABLE;
+        }
+
         PlatformSurfaceCapabilities {
             available: true,
             rectangular_clip: true,
@@ -57,12 +72,19 @@ impl VideoBackend for WebVideoBackend {
     }
 
     fn present_surfaces(&self, frames: &[VideoSurfaceFrame]) {
-        let mut seen = HashSet::new();
         let registry = self.registry.lock().unwrap();
+        let Some(canvas) = self.canvas.as_ref() else {
+            for video in registry.values() {
+                let _ = video.element().style().set_property("display", "none");
+            }
+            return;
+        };
+
+        let mut seen = HashSet::new();
         for frame in frames {
             seen.insert(frame.surface_id);
             if let Some(video) = registry.get(&frame.surface_id) {
-                mount_and_position(video.element(), frame);
+                mount_and_position(canvas.element(), video.element(), frame);
             }
         }
         for (surface_id, video) in registry.iter() {
@@ -205,7 +227,11 @@ fn create_video_element(source: &str) -> DomVideo {
     DomVideo(element)
 }
 
-fn mount_and_position(video: &HtmlVideoElement, frame: &VideoSurfaceFrame) {
+fn mount_and_position(
+    canvas: &HtmlCanvasElement,
+    video: &HtmlVideoElement,
+    frame: &VideoSurfaceFrame,
+) {
     if video.parent_element().is_none() {
         document()
             .body()
@@ -213,10 +239,22 @@ fn mount_and_position(video: &HtmlVideoElement, frame: &VideoSurfaceFrame) {
             .append_child(video)
             .expect("failed to mount video element");
     }
+    let canvas_bounds = canvas.get_bounding_client_rect();
+    let window = web_sys::window().expect("window missing");
+    let document_scroll_x = window.scroll_x().unwrap_or(0.0);
+    let document_scroll_y = window.scroll_y().unwrap_or(0.0);
+    let (document_left, document_top) = web_video_document_position(
+        canvas_bounds.left(),
+        canvas_bounds.top(),
+        document_scroll_x,
+        document_scroll_y,
+        frame.rect.origin.x,
+        frame.rect.origin.y,
+    );
     let style = video.style();
     let _ = style.set_property("display", "block");
-    let _ = style.set_property("left", &format!("{}px", frame.rect.origin.x));
-    let _ = style.set_property("top", &format!("{}px", frame.rect.origin.y));
+    let _ = style.set_property("left", &format!("{document_left}px"));
+    let _ = style.set_property("top", &format!("{document_top}px"));
     let _ = style.set_property("width", &format!("{}px", frame.rect.size.width));
     let _ = style.set_property("height", &format!("{}px", frame.rect.size.height));
     let top = (frame.visible_rect.y() - frame.rect.y()).max(0.0);
