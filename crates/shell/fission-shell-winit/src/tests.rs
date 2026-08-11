@@ -150,6 +150,38 @@ fn native_software_auto_selection_preserves_platform_hardware_and_explicit_choic
         Cpu,
         "Microsoft Basic Render Driver"
     ));
+    assert!(!should_auto_select_native_software(
+        RendererRequest::NativeSkiaRaster,
+        true,
+        Cpu,
+        "Microsoft Basic Render Driver"
+    ));
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn vello_cpu_override_never_changes_an_explicit_skia_request() {
+    assert_eq!(
+        apply_cpu_vello_override(RendererRequest::NativeSkiaRaster, true),
+        RendererRequest::NativeSkiaRaster
+    );
+    assert_eq!(
+        apply_cpu_vello_override(RendererRequest::NativeSoftware, true),
+        RendererRequest::NativeSoftware
+    );
+    assert_eq!(
+        apply_cpu_vello_override(RendererRequest::NativeVelloGpu, true),
+        RendererRequest::NativeVelloCpu
+    );
+}
+
+#[cfg(all(not(target_arch = "wasm32"), not(feature = "skia")))]
+#[test]
+fn explicit_skia_request_fails_before_surface_initialization_when_feature_is_absent() {
+    let error = require_compiled_native_renderer(RendererRequest::NativeSkiaRaster).unwrap_err();
+
+    assert_eq!(error.request, RendererRequest::NativeSkiaRaster);
+    assert!(error.details.contains("`skia` Cargo feature"));
 }
 
 #[test]

@@ -5,11 +5,13 @@ use serde::{Deserialize, Serialize};
 pub(crate) enum RendererRequest {
     Auto,
     Vello,
+    Skia,
     Software,
     WebGpuVello,
     Canvas2dSoftware,
     NativeVelloGpu,
     NativeVelloCpu,
+    NativeSkiaRaster,
     NativeSoftware,
     Invalid,
 }
@@ -29,11 +31,13 @@ impl RendererRequest {
         match self {
             Self::Auto => "auto",
             Self::Vello => "vello",
+            Self::Skia => "skia",
             Self::Software => "software",
             Self::WebGpuVello => "webgpu-vello",
             Self::Canvas2dSoftware => "canvas2d-software",
             Self::NativeVelloGpu => "native-vello-gpu",
             Self::NativeVelloCpu => "native-vello-cpu",
+            Self::NativeSkiaRaster => "native-skia-raster",
             Self::NativeSoftware => "native-software",
             Self::Invalid => "invalid",
         }
@@ -47,12 +51,16 @@ impl RendererRequest {
         match (target, self) {
             (_, Self::Auto) => Ok(Self::Auto),
             (RendererTarget::Native, Self::Vello) => Ok(Self::NativeVelloGpu),
+            (RendererTarget::Native, Self::Skia) => Ok(Self::NativeSkiaRaster),
             (RendererTarget::Native, Self::Software) => Ok(Self::NativeSoftware),
             (RendererTarget::Web, Self::Vello) => Ok(Self::WebGpuVello),
             (RendererTarget::Web, Self::Software) => Ok(Self::Canvas2dSoftware),
             (
                 RendererTarget::Native,
-                Self::NativeVelloGpu | Self::NativeVelloCpu | Self::NativeSoftware,
+                Self::NativeVelloGpu
+                | Self::NativeVelloCpu
+                | Self::NativeSkiaRaster
+                | Self::NativeSoftware,
             )
             | (RendererTarget::Web, Self::WebGpuVello | Self::Canvas2dSoftware) => Ok(self),
             _ => Err(RendererSelectionError {
@@ -74,7 +82,7 @@ impl std::fmt::Display for RendererSelectionError {
         if self.request == RendererRequest::Invalid {
             return write!(
                 formatter,
-                "unsupported FISSION_RENDERER value; expected auto, vello, software, webgpu-vello, canvas2d-software, native-vello-gpu, native-vello-cpu, or native-software"
+                "unsupported FISSION_RENDERER value; expected auto, vello, skia, software, webgpu-vello, canvas2d-software, native-vello-gpu, native-vello-cpu, native-skia-raster, or native-software"
             );
         }
         write!(
@@ -147,8 +155,10 @@ pub(crate) fn renderer_request_from_value(value: Option<&str>) -> RendererReques
             RendererRequest::Canvas2dSoftware
         }
         "vello" | "vello-gpu" | "gpu" => RendererRequest::Vello,
+        "skia" | "skia-raster" => RendererRequest::Skia,
         "native-vello" | "native-vello-gpu" => RendererRequest::NativeVelloGpu,
         "vello-cpu" | "native-vello-cpu" | "cpu-vello" => RendererRequest::NativeVelloCpu,
+        "native-skia" | "native-skia-raster" => RendererRequest::NativeSkiaRaster,
         "software" => RendererRequest::Software,
         "native-software" => RendererRequest::NativeSoftware,
         _ => RendererRequest::Invalid,
@@ -260,6 +270,14 @@ mod tests {
             renderer_request_from_value(Some("native-vello-cpu")),
             RendererRequest::NativeVelloCpu
         );
+        assert_eq!(
+            renderer_request_from_value(Some("skia")),
+            RendererRequest::Skia
+        );
+        assert_eq!(
+            renderer_request_from_value(Some("native-skia-raster")),
+            RendererRequest::NativeSkiaRaster
+        );
     }
 
     #[test]
@@ -349,6 +367,21 @@ mod tests {
             RendererRequest::Canvas2dSoftware
         );
         assert_eq!(
+            RendererRequest::Skia
+                .for_target(RendererTarget::Native)
+                .unwrap(),
+            RendererRequest::NativeSkiaRaster
+        );
+        assert_eq!(
+            RendererRequest::Skia
+                .for_target(RendererTarget::Web)
+                .unwrap_err(),
+            RendererSelectionError {
+                request: RendererRequest::Skia,
+                target: RendererTarget::Web,
+            }
+        );
+        assert_eq!(
             RendererRequest::Auto
                 .for_target(RendererTarget::Web)
                 .unwrap(),
@@ -364,7 +397,7 @@ mod tests {
 
         assert_eq!(
             error.to_string(),
-            "unsupported FISSION_RENDERER value; expected auto, vello, software, webgpu-vello, canvas2d-software, native-vello-gpu, native-vello-cpu, or native-software"
+            "unsupported FISSION_RENDERER value; expected auto, vello, skia, software, webgpu-vello, canvas2d-software, native-vello-gpu, native-vello-cpu, native-skia-raster, or native-software"
         );
     }
 }

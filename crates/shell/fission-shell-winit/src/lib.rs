@@ -167,6 +167,8 @@ mod host_capabilities;
 use host_capabilities::*;
 mod rendering;
 use rendering::*;
+#[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+mod skia_presenter;
 mod windowing;
 use windowing::*;
 mod effects;

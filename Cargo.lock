@@ -3016,6 +3016,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "fission-render-skia"
+version = "0.10.1"
+dependencies = [
+ "fission-render",
+ "fission-skia-sys",
+]
+
+[[package]]
 name = "fission-render-software"
 version = "0.10.1"
 dependencies = [
@@ -3221,6 +3229,7 @@ dependencies = [
  "fission-layout",
  "fission-macros",
  "fission-render",
+ "fission-render-skia",
  "fission-render-software",
  "fission-render-vello",
  "fission-render-wgpu3d",
@@ -3255,6 +3264,16 @@ dependencies = [
  "web-sys",
  "web-time",
  "windows 0.58.0",
+]
+
+[[package]]
+name = "fission-skia-sys"
+version = "0.10.1"
+dependencies = [
+ "cc",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]

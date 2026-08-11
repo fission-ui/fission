@@ -354,6 +354,16 @@ where
                 }
                 render_state.target_texture_size = render_target_size;
             }
+            if let Err(error) = render_state.main_renderer.sync_surface_metrics(
+                render_target_size.0,
+                render_target_size.1,
+                scale_factor,
+            ) {
+                eprintln!("fission-shell-winit: renderer resize failed: {error}");
+                elwt.exit();
+                diag::end_frame(diag::FrameStats::default());
+                return;
+            }
         }
 
         let resize_settled = self.resize_needs_settled_frame && !self.live_resize.is_live(now);
@@ -569,15 +579,23 @@ where
                     .as_ref()
                     .expect("web renderer missing before frame submission")
                     .frame_capabilities();
+                #[cfg(target_arch = "wasm32")]
+                let allows_host_software_fallback = true;
                 #[cfg(not(target_arch = "wasm32"))]
-                let capabilities = self
-                    .presenter
-                    .attached_mut()
-                    .expect("render state missing before frame submission")
-                    .main_renderer
-                    .frame_capabilities();
-                let frame_software_fallback =
-                    required_software_fallback(retained_scene, &capabilities);
+                let (capabilities, allows_host_software_fallback) = {
+                    let renderer = &self
+                        .presenter
+                        .attached_mut()
+                        .expect("render state missing before frame submission")
+                        .main_renderer;
+                    (
+                        renderer.frame_capabilities(),
+                        renderer.allows_host_software_fallback(),
+                    )
+                };
+                let frame_software_fallback = allows_host_software_fallback
+                    .then(|| required_software_fallback(retained_scene, &capabilities))
+                    .flatten();
                 let software_fallback_capabilities =
                     frame_software_fallback.map(|_| winit_software_capabilities());
                 let validation_capabilities = software_fallback_capabilities
@@ -1241,6 +1259,32 @@ where
                                     }
                                 }
                             }
+                        }
+                        #[cfg(feature = "skia")]
+                        MainRenderer::SkiaRaster(presenter) => {
+                            let retained_scene = self
+                                .pipeline
+                                .retained_scene()
+                                .expect("retained render self.scene missing before render");
+                            let frame = submission.interactive_frame(retained_scene);
+                            let rgba = match presenter.render_to_rgba(&frame) {
+                                Ok(rgba) => rgba,
+                                Err(error) => {
+                                    eprintln!(
+                                        "fission-shell-winit: Skia frame {} failed: {error}",
+                                        submission.metadata().frame_id.0,
+                                    );
+                                    diag::end_frame(diag::FrameStats::default());
+                                    return;
+                                }
+                            };
+                            upload_software_frame(
+                                &device_handle.queue,
+                                &render_state.surface.target_texture,
+                                &rgba,
+                                render_target_size.0,
+                                render_target_size.1,
+                            );
                         }
                         MainRenderer::Software => {
                             let retained_scene = self

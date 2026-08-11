@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+use crate::skia_presenter::WinitSkiaRasterPresenter;
 use fission_render::capabilities::RenderMode;
 
 pub(super) struct ActivePlayer {
@@ -21,7 +23,7 @@ pub(super) struct RenderState<'w> {
 }
 
 /// Owns the native presentation attachment without exposing the concrete
-/// Vello/software renderer choice to the Winit event dispatcher.
+/// graphics-backend choice to the Winit event dispatcher.
 ///
 /// This is deliberately a lifecycle boundary, not a capability abstraction:
 /// attaching still uses the existing renderer construction path and detaching
@@ -58,6 +60,8 @@ pub(super) enum MainRenderer {
         texture_compositor: TextureLayerCompositor,
         render_mode: RenderMode,
     },
+    #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+    SkiaRaster(WinitSkiaRasterPresenter),
     Software,
 }
 
@@ -65,7 +69,39 @@ impl MainRenderer {
     pub(super) fn frame_capabilities(&self) -> fission_render::capabilities::GraphicsCapabilities {
         match self {
             Self::Vello { render_mode, .. } => winit_vello_capabilities(*render_mode),
+            #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+            Self::SkiaRaster(presenter) => presenter.capabilities().clone(),
             Self::Software => winit_software_capabilities(),
+        }
+    }
+
+    /// Whether the host may replace an unsupported frame with Fission's
+    /// standalone software renderer.
+    ///
+    /// The Skia option is an explicit backend request. Silently rendering a
+    /// frame with a different engine would invalidate evaluation of the Skia
+    /// path, so capability gaps remain explicit frame errors for this backend.
+    pub(super) fn allows_host_software_fallback(&self) -> bool {
+        match self {
+            Self::Vello { .. } | Self::Software => true,
+            #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+            Self::SkiaRaster(_) => false,
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(super) fn sync_surface_metrics(
+        &mut self,
+        width: u32,
+        height: u32,
+        scale_factor: f64,
+    ) -> fission_render::backend::BackendResult<()> {
+        match self {
+            #[cfg(feature = "skia")]
+            Self::SkiaRaster(presenter) => {
+                presenter.sync_surface_metrics(width, height, scale_factor)
+            }
+            Self::Vello { .. } | Self::Software => Ok(()),
         }
     }
 }
@@ -471,13 +507,44 @@ pub(super) fn native_renderer_request() -> anyhow::Result<RendererRequest> {
     let request = RendererRequest::from_env()
         .for_target(RendererTarget::Native)
         .map_err(anyhow::Error::new)?;
+    require_compiled_native_renderer(request).map_err(anyhow::Error::new)?;
     let force_cpu_vello = std::env::var("FISSION_VELLO_USE_CPU")
         .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
         .unwrap_or(false);
-    if force_cpu_vello {
-        Ok(RendererRequest::NativeVelloCpu)
+    Ok(apply_cpu_vello_override(request, force_cpu_vello))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(super) fn require_compiled_native_renderer(
+    request: RendererRequest,
+) -> Result<(), RequestedRendererInitializationError> {
+    if request == RendererRequest::NativeSkiaRaster && !cfg!(feature = "skia") {
+        Err(RequestedRendererInitializationError::new(
+            request,
+            RendererTarget::Native,
+            "this build does not include the `skia` Cargo feature",
+        ))
     } else {
-        Ok(request)
+        Ok(())
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(super) fn apply_cpu_vello_override(
+    request: RendererRequest,
+    force_cpu_vello: bool,
+) -> RendererRequest {
+    if force_cpu_vello
+        && matches!(
+            request,
+            RendererRequest::Auto
+                | RendererRequest::NativeVelloGpu
+                | RendererRequest::NativeVelloCpu
+        )
+    {
+        RendererRequest::NativeVelloCpu
+    } else {
+        request
     }
 }
 
@@ -534,6 +601,43 @@ pub(super) fn create_native_main_renderer(
         .map_err(anyhow::Error::new)?;
     let adapter_info = device_handle.adapter().get_info();
     let (backend, adapter) = adapter_labels_from_info(&adapter_info);
+    if request == RendererRequest::NativeSkiaRaster {
+        #[cfg(feature = "skia")]
+        {
+            let presenter =
+                WinitSkiaRasterPresenter::new(width, height, scale_factor).map_err(|error| {
+                    anyhow::Error::new(RequestedRendererInitializationError::new(
+                        request,
+                        RendererTarget::Native,
+                        format!("Skia raster initialization failed: {error}"),
+                    ))
+                })?;
+            let upload_backend = backend.as_deref().unwrap_or("wgpu");
+            return Ok((
+                MainRenderer::SkiaRaster(presenter),
+                RendererReport::new(
+                    "native-skia-raster",
+                    request,
+                    Some(format!("Skia Raster ({upload_backend} upload presenter)")),
+                    adapter,
+                    None,
+                    width,
+                    height,
+                    scale_factor,
+                ),
+            ));
+        }
+        #[cfg(not(feature = "skia"))]
+        {
+            return Err(anyhow::Error::new(
+                RequestedRendererInitializationError::new(
+                    request,
+                    RendererTarget::Native,
+                    "this build does not include the `skia` Cargo feature",
+                ),
+            ));
+        }
+    }
     let auto_software_adapter = should_auto_select_native_software(
         request,
         cfg!(target_os = "windows"),
