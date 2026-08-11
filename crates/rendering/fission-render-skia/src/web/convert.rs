@@ -207,7 +207,7 @@ fn path(value: &RasterPath) -> Path {
                 },
                 RasterPathCommand::Close => PathCommand::Close,
             })
-            .collect(),
+            .collect::<Vec<_>>(),
     )
 }
 
