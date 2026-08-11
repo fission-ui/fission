@@ -20,17 +20,19 @@
 extern "C" {
 #endif
 
-#define FISSION_SKIA_ABI_VERSION 6u
+#define FISSION_SKIA_ABI_VERSION 7u
 #define FISSION_SKIA_REVISION_LENGTH 41u
 #define FISSION_SKIA_PROFILE_LENGTH 32u
 #define FISSION_SKIA_ERROR_OPERATION_LENGTH 64u
 #define FISSION_SKIA_ERROR_MESSAGE_LENGTH 512u
+#define FISSION_SKIA_MAX_SVG_DOCUMENT_BYTES 8388608u
 
 typedef uint64_t fission_skia_engine_handle_t;
 typedef uint64_t fission_skia_context_handle_t;
 typedef uint64_t fission_skia_surface_handle_t;
 typedef uint64_t fission_skia_paragraph_result_handle_t;
 typedef uint64_t fission_skia_image_handle_t;
+typedef uint64_t fission_skia_svg_document_handle_t;
 
 typedef enum fission_skia_status_t {
     FISSION_SKIA_STATUS_OK = 0,
@@ -59,6 +61,7 @@ typedef enum fission_skia_feature_t {
     FISSION_SKIA_FEATURE_OPACITY_LAYER = UINT64_C(1) << 8,
     FISSION_SKIA_FEATURE_IMAGE_DECODE = UINT64_C(1) << 9,
     FISSION_SKIA_FEATURE_BACKDROP_BLUR = UINT64_C(1) << 10,
+    FISSION_SKIA_FEATURE_SVG_DOCUMENT = UINT64_C(1) << 11,
     FISSION_SKIA_FEATURE_TEST_SHIM = UINT64_C(1) << 63
 } fission_skia_feature_t;
 
@@ -228,6 +231,13 @@ typedef struct fission_skia_image_info_t {
     size_t approximate_decoded_bytes;
 } fission_skia_image_info_t;
 
+typedef struct fission_skia_svg_draw_t {
+    uint32_t struct_size;
+    uint32_t reserved;
+    fission_skia_svg_document_handle_t document;
+    fission_skia_rect_t destination;
+} fission_skia_svg_draw_t;
+
 typedef enum fission_skia_frame_op_kind_t {
     FISSION_SKIA_FRAME_CLEAR = 1,
     FISSION_SKIA_FRAME_SAVE = 2,
@@ -243,7 +253,8 @@ typedef enum fission_skia_frame_op_kind_t {
     FISSION_SKIA_FRAME_DRAW_PARAGRAPH = 12,
     FISSION_SKIA_FRAME_OPACITY_LAYER = 13,
     FISSION_SKIA_FRAME_DRAW_IMAGE = 14,
-    FISSION_SKIA_FRAME_BACKDROP_BLUR = 15
+    FISSION_SKIA_FRAME_BACKDROP_BLUR = 15,
+    FISSION_SKIA_FRAME_DRAW_SVG = 16
 } fission_skia_frame_op_kind_t;
 
 /*
@@ -276,6 +287,14 @@ typedef enum fission_skia_frame_op_kind_t {
  * are expressed in physical pixels. sigma and radius are finite and
  * non-negative; a zero sigma is a deterministic no-op. This operation does not
  * alter the frame save stack.
+ *
+ * DRAW_SVG renders one retained SkSVGDOM into svg.destination. The bridge
+ * clips to that non-empty rectangle. Documents with an intrinsic size are
+ * uniformly scaled and centered using contain semantics; percentage-sized
+ * roots receive the destination as their SkSVGDOM container size, allowing
+ * the root viewBox and preserveAspectRatio attributes to resolve the viewport.
+ * The caller must keep the document handle alive until frame execution
+ * returns.
  */
 typedef struct fission_skia_frame_op_t {
     uint32_t struct_size;
@@ -292,6 +311,7 @@ typedef struct fission_skia_frame_op_t {
     float opacity;
     float sigma;
     fission_skia_image_draw_t image;
+    fission_skia_svg_draw_t svg;
 } fission_skia_frame_op_t;
 
 typedef struct fission_skia_frame_t {
@@ -657,6 +677,24 @@ FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_image_destroy(
     fission_skia_image_handle_t image,
     fission_skia_error_t* out_error);
 
+/*
+ * SVG bytes are borrowed only for this synchronous parse. Inputs must be
+ * non-empty UTF-8, contain no embedded NUL, fit within
+ * FISSION_SKIA_MAX_SVG_DOCUMENT_BYTES, and parse to an SVG root. DTD/entity
+ * declarations are rejected, and the retained DOM has no external resource
+ * provider, so parsing cannot grant file or network access. The returned
+ * immutable document may be shared across frames; each frame must retain its
+ * handle until playback returns.
+ */
+FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_svg_document_parse(
+    const uint8_t* svg,
+    size_t svg_length,
+    fission_skia_svg_document_handle_t* out_document,
+    fission_skia_error_t* out_error);
+FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_svg_document_destroy(
+    fission_skia_svg_document_handle_t document,
+    fission_skia_error_t* out_error);
+
 FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_paragraph_capabilities(
     uint64_t* out_capabilities,
     fission_skia_error_t* out_error);
@@ -683,6 +721,7 @@ typedef struct fission_skia_test_counts_t {
     uint64_t contexts;
     uint64_t surfaces;
     uint64_t images;
+    uint64_t svg_documents;
 } fission_skia_test_counts_t;
 FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_test_live_counts(
     fission_skia_test_counts_t* out_counts,

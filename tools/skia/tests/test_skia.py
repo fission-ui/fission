@@ -30,7 +30,7 @@ class SkiaToolTests(unittest.TestCase):
         inputs = temporary / "inputs"
         inputs.mkdir()
         header = inputs / "fission_skia.h"
-        header.write_text("#define FISSION_SKIA_ABI_VERSION 6u\n", encoding="utf-8")
+        header.write_text("#define FISSION_SKIA_ABI_VERSION 7u\n", encoding="utf-8")
 
         profile = self.config["profiles"]["native-raster"]
         target = "x86_64-unknown-linux-gnu"
@@ -152,7 +152,7 @@ class SkiaToolTests(unittest.TestCase):
     def test_pin_and_all_local_profiles_are_explicitly_unqualified(self) -> None:
         self.assertRegex(self.config["source"]["revision"], r"^[0-9a-f]{40}$")
         self.assertEqual(self.config["source"]["qualification"], "unqualified")
-        self.assertEqual(self.config["bridge"]["abi_version"], 6)
+        self.assertEqual(self.config["bridge"]["abi_version"], 7)
         lock = json.loads(
             (Path(__file__).resolve().parents[1] / "artifacts.lock.json").read_text(
                 encoding="utf-8"
@@ -162,6 +162,12 @@ class SkiaToolTests(unittest.TestCase):
         self.assertEqual(lock["skia_revision"], self.config["source"]["revision"])
         self.assertEqual(lock["artifacts"], [])
         self.assertEqual(self.config["profiles"]["native-raster"]["build_recipe"], "available")
+        self.assertIs(self.config["common_native_gn_args"]["skia_enable_svg"], True)
+        self.assertIs(self.config["common_native_gn_args"]["skia_use_expat"], True)
+        self.assertEqual(
+            self.config["profiles"]["native-raster"]["upstream_libraries"],
+            ["svg", "skparagraph", "skshaper", "skunicode", "skia"],
+        )
         for profile in self.config["profiles"].values():
             self.assertIs(profile["qualified"], False)
             self.assertTrue({"fission", "skia"}.issubset(profile["required_licenses"]))

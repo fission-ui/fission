@@ -14,13 +14,17 @@
 #include "include/core/SkPathBuilder.h"
 #include "include/core/SkRRect.h"
 #include "include/core/SkSamplingOptions.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkStream.h"
+#include "include/core/SkSurface.h"
 #include "include/codec/SkCodec.h"
 #include "include/codec/SkEncodedOrigin.h"
 #include "include/effects/SkDashPathEffect.h"
 #include "include/effects/SkGradient.h"
 #include "include/effects/SkImageFilters.h"
-#include "include/core/SkSurface.h"
+#include "modules/svg/include/SkSVGDOM.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstring>
@@ -54,7 +58,8 @@ constexpr uint64_t kFeatureBits =
     FISSION_SKIA_FEATURE_PARAGRAPH |
     FISSION_SKIA_FEATURE_OPACITY_LAYER |
     FISSION_SKIA_FEATURE_IMAGE_DECODE |
-    FISSION_SKIA_FEATURE_BACKDROP_BLUR;
+    FISSION_SKIA_FEATURE_BACKDROP_BLUR |
+    FISSION_SKIA_FEATURE_SVG_DOCUMENT;
 
 struct EngineState {
     std::thread::id owner;
@@ -82,12 +87,18 @@ struct ImageState {
     sk_sp<SkImage> image;
 };
 
+struct SvgDocumentState {
+    SkSize intrinsic_size = SkSize::Make(0.0f, 0.0f);
+    sk_sp<SkSVGDOM> document;
+};
+
 struct Registry {
     std::mutex mutex;
     std::unordered_map<uint64_t, std::unique_ptr<EngineState>> engines;
     std::unordered_map<uint64_t, std::unique_ptr<ContextState>> contexts;
     std::unordered_map<uint64_t, std::unique_ptr<SurfaceState>> surfaces;
     std::unordered_map<uint64_t, std::unique_ptr<ImageState>> images;
+    std::unordered_map<uint64_t, std::unique_ptr<SvgDocumentState>> svg_documents;
     std::atomic<uint64_t> next_handle{1};
     std::atomic<uint64_t> next_error{1};
 };
@@ -143,6 +154,84 @@ fission_skia_status_t fail(
 
 bool finite(float value) {
     return std::isfinite(value);
+}
+
+uint8_t ascii_lower(uint8_t value) {
+    return value >= 'A' && value <= 'Z'
+        ? static_cast<uint8_t>(value + ('a' - 'A'))
+        : value;
+}
+
+bool contains_ascii_case_insensitive(
+    const uint8_t* bytes,
+    size_t length,
+    const char* needle) {
+    const size_t needle_length = std::strlen(needle);
+    if (needle_length == 0 || needle_length > length) return false;
+    for (size_t offset = 0; offset <= length - needle_length; ++offset) {
+        bool matches = true;
+        for (size_t index = 0; index < needle_length; ++index) {
+            if (ascii_lower(bytes[offset + index]) !=
+                ascii_lower(static_cast<uint8_t>(needle[index]))) {
+                matches = false;
+                break;
+            }
+        }
+        if (matches) return true;
+    }
+    return false;
+}
+
+bool valid_utf8_without_nul(const uint8_t* bytes, size_t length) {
+    size_t index = 0;
+    while (index < length) {
+        const uint8_t first = bytes[index];
+        if (first == 0) return false;
+        if (first <= 0x7f) {
+            index += 1;
+            continue;
+        }
+        if (first >= 0xc2 && first <= 0xdf) {
+            if (index + 1 >= length || (bytes[index + 1] & 0xc0) != 0x80) return false;
+            index += 2;
+            continue;
+        }
+        if (first >= 0xe0 && first <= 0xef) {
+            if (index + 2 >= length || (bytes[index + 2] & 0xc0) != 0x80) return false;
+            const uint8_t second = bytes[index + 1];
+            if ((first == 0xe0 && (second < 0xa0 || second > 0xbf)) ||
+                (first == 0xed && (second < 0x80 || second > 0x9f)) ||
+                (first != 0xe0 && first != 0xed && (second & 0xc0) != 0x80)) {
+                return false;
+            }
+            index += 3;
+            continue;
+        }
+        if (first >= 0xf0 && first <= 0xf4) {
+            if (index + 3 >= length || (bytes[index + 2] & 0xc0) != 0x80 ||
+                (bytes[index + 3] & 0xc0) != 0x80) {
+                return false;
+            }
+            const uint8_t second = bytes[index + 1];
+            if ((first == 0xf0 && (second < 0x90 || second > 0xbf)) ||
+                (first == 0xf4 && (second < 0x80 || second > 0x8f)) ||
+                (first != 0xf0 && first != 0xf4 && (second & 0xc0) != 0x80)) {
+                return false;
+            }
+            index += 4;
+            continue;
+        }
+        return false;
+    }
+    return true;
+}
+
+bool valid_svg_source(const uint8_t* bytes, size_t length) {
+    return bytes != nullptr && length != 0 &&
+           length <= FISSION_SKIA_MAX_SVG_DOCUMENT_BYTES &&
+           valid_utf8_without_nul(bytes, length) &&
+           !contains_ascii_case_insensitive(bytes, length, "<!doctype") &&
+           !contains_ascii_case_insensitive(bytes, length, "<!entity");
 }
 
 bool valid_color(const fission_skia_color_t& color) {
@@ -337,6 +426,24 @@ fission_skia_status_t validate_backdrop_blur(
     return FISSION_SKIA_STATUS_OK;
 }
 
+fission_skia_status_t validate_svg_draw(
+    const fission_skia_svg_draw_t& draw,
+    fission_skia_error_t* error) {
+    if (draw.struct_size != sizeof(fission_skia_svg_draw_t) || draw.reserved != 0 ||
+        !valid_non_empty_rect(draw.destination) ||
+        !finite(draw.destination.x + draw.destination.width) ||
+        !finite(draw.destination.y + draw.destination.height)) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame",
+                    "SVG draw has an invalid layout or destination", error);
+    }
+    std::lock_guard<std::mutex> lock(registry().mutex);
+    if (registry().svg_documents.find(draw.document) == registry().svg_documents.end()) {
+        return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, "execute_frame",
+                    "SVG document handle is not live", error);
+    }
+    return FISSION_SKIA_STATUS_OK;
+}
+
 fission_skia_status_t validate_path(
     const fission_skia_frame_t& frame,
     const fission_skia_frame_op_t& operation,
@@ -513,6 +620,11 @@ fission_skia_status_t validate_frame(
             }
             case FISSION_SKIA_FRAME_BACKDROP_BLUR: {
                 const auto status = validate_backdrop_blur(operation, error);
+                if (status != FISSION_SKIA_STATUS_OK) return status;
+                break;
+            }
+            case FISSION_SKIA_FRAME_DRAW_SVG: {
+                const auto status = validate_svg_draw(operation.svg, error);
                 if (status != FISSION_SKIA_STATUS_OK) return status;
                 break;
             }
@@ -739,6 +851,42 @@ bool draw_backdrop_blur(
     canvas->saveLayer(SkCanvas::SaveLayerRec(
         &device_bounds, nullptr, blur.get(), 0));
     canvas->restore();
+    canvas->restore();
+    return true;
+}
+
+bool draw_svg_document(
+    SkCanvas* canvas,
+    SvgDocumentState& state,
+    const fission_skia_rect_t& destination) {
+    if (!state.document) return false;
+
+    canvas->save();
+    canvas->clipRect(sk_rect(destination), SkClipOp::kIntersect, true);
+    const float intrinsic_width = state.intrinsic_size.width();
+    const float intrinsic_height = state.intrinsic_size.height();
+    if (intrinsic_width > 0.0f && intrinsic_height > 0.0f) {
+        const float scale = std::min(
+            destination.width / intrinsic_width,
+            destination.height / intrinsic_height);
+        const float scaled_width = intrinsic_width * scale;
+        const float scaled_height = intrinsic_height * scale;
+        if (!finite(scale) || scale <= 0.0f || !finite(scaled_width) ||
+            !finite(scaled_height)) {
+            canvas->restore();
+            return false;
+        }
+        state.document->setContainerSize(state.intrinsic_size);
+        canvas->translate(
+            destination.x + (destination.width - scaled_width) * 0.5f,
+            destination.y + (destination.height - scaled_height) * 0.5f);
+        canvas->scale(scale, scale);
+    } else {
+        state.document->setContainerSize(
+            SkSize::Make(destination.width, destination.height));
+        canvas->translate(destination.x, destination.y);
+    }
+    state.document->render(canvas);
     canvas->restore();
     return true;
 }
@@ -1123,6 +1271,22 @@ fission_skia_status_t fission_skia_surface_execute_frame(
                                 "Skia rejected validated backdrop blur", out_error);
                 }
                 break;
+            case FISSION_SKIA_FRAME_DRAW_SVG: {
+                const auto document =
+                    registry().svg_documents.find(operation.svg.document);
+                if (document == registry().svg_documents.end()) {
+                    canvas->restoreToCount(initial_save_count);
+                    return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, "execute_frame",
+                                "SVG document was destroyed before playback", out_error);
+                }
+                if (!draw_svg_document(canvas, *document->second,
+                                       operation.svg.destination)) {
+                    canvas->restoreToCount(initial_save_count);
+                    return fail(FISSION_SKIA_STATUS_INTERNAL, "execute_frame",
+                                "Skia rejected validated SVG placement", out_error);
+                }
+                break;
+            }
         }
     }
     canvas->restoreToCount(initial_save_count);
@@ -1321,6 +1485,62 @@ fission_skia_status_t fission_skia_image_destroy(
                     "image handle is not live", out_error);
     }
     registry().images.erase(found);
+    clear_error(out_error);
+    return FISSION_SKIA_STATUS_OK;
+}
+
+fission_skia_status_t fission_skia_svg_document_parse(
+    const uint8_t* svg,
+    size_t svg_length,
+    fission_skia_svg_document_handle_t* out_document,
+    fission_skia_error_t* out_error) {
+    if (out_document == nullptr || !valid_svg_source(svg, svg_length)) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "svg_document_parse",
+                    "SVG input is empty, oversized, unsafe, or invalid UTF-8", out_error);
+    }
+    *out_document = 0;
+
+    SkMemoryStream stream(svg, svg_length, false);
+    auto document = SkSVGDOM::MakeFromStream(stream);
+    if (!document || document->getRoot() == nullptr) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "svg_document_parse",
+                    "input did not parse to an SVG document root", out_error);
+    }
+    const SkSize intrinsic_size = document->containerSize();
+    if (!finite(intrinsic_size.width()) || !finite(intrinsic_size.height()) ||
+        intrinsic_size.width() < 0.0f || intrinsic_size.height() < 0.0f) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "svg_document_parse",
+                    "SVG document has an invalid intrinsic size", out_error);
+    }
+
+    auto state = std::unique_ptr<SvgDocumentState>(
+        new (std::nothrow) SvgDocumentState{});
+    if (!state) {
+        return fail(FISSION_SKIA_STATUS_OUT_OF_MEMORY, "svg_document_parse",
+                    "could not allocate SVG document state", out_error);
+    }
+    state->intrinsic_size = intrinsic_size;
+    state->document = std::move(document);
+    const auto handle = next_handle();
+    {
+        std::lock_guard<std::mutex> lock(registry().mutex);
+        registry().svg_documents.emplace(handle, std::move(state));
+    }
+    *out_document = handle;
+    clear_error(out_error);
+    return FISSION_SKIA_STATUS_OK;
+}
+
+fission_skia_status_t fission_skia_svg_document_destroy(
+    fission_skia_svg_document_handle_t document,
+    fission_skia_error_t* out_error) {
+    std::lock_guard<std::mutex> lock(registry().mutex);
+    const auto found = registry().svg_documents.find(document);
+    if (found == registry().svg_documents.end()) {
+        return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, "svg_document_destroy",
+                    "SVG document handle is not live", out_error);
+    }
+    registry().svg_documents.erase(found);
     clear_error(out_error);
     return FISSION_SKIA_STATUS_OK;
 }

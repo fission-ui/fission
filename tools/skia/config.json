@@ -9,7 +9,7 @@
     "license_file": "LICENSE"
   },
   "bridge": {
-    "abi_version": 6,
+    "abi_version": 7,
     "header": "include/fission_skia.h",
     "unix_library": "lib/fission_skia_bridge.a",
     "windows_library": "lib/fission_skia_bridge.lib"
@@ -32,6 +32,7 @@
     "skia_enable_tools": false,
     "skia_use_client_icu": false,
     "skia_use_dng_sdk": false,
+    "skia_use_expat": true,
     "skia_use_system_expat": false,
     "skia_use_harfbuzz": true,
     "skia_use_icu": true,
@@ -66,7 +67,7 @@
         "wuffs",
         "zlib"
       ],
-      "upstream_libraries": ["skia", "skparagraph", "skshaper", "skunicode", "svg"],
+      "upstream_libraries": ["svg", "skparagraph", "skshaper", "skunicode", "skia"],
       "features": {
         "gpu": "none",
         "raster_fallback": true,

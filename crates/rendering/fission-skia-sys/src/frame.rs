@@ -1,5 +1,5 @@
 use crate::paragraph::ParagraphDrawData;
-use crate::{ffi, DecodedImage, Error, ErrorKind, Result};
+use crate::{ffi, DecodedImage, Error, ErrorKind, Result, SvgDocument};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Color {
@@ -270,6 +270,13 @@ pub enum FrameOp {
         corner_radius: f32,
         sigma: f32,
     },
+    /// Renders a retained SVG document into `destination`. Intrinsically sized
+    /// documents use centered contain placement; percentage-sized roots use
+    /// the destination as their SkSVGDOM container viewport.
+    DrawSvg {
+        document: SvgDocument,
+        destination: Rect,
+    },
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -451,6 +458,29 @@ impl Frame {
                     raw.radius = non_negative(*corner_radius, "backdrop corner radius")?;
                     raw.sigma = non_negative(*sigma, "backdrop blur sigma")?;
                 }
+                FrameOp::DrawSvg {
+                    document,
+                    destination,
+                } => {
+                    raw.kind = ffi::FRAME_DRAW_SVG;
+                    let destination = raw_non_empty_rect(*destination, "SVG destination")?;
+                    if !(destination.x + destination.width).is_finite()
+                        || !(destination.y + destination.height).is_finite()
+                    {
+                        return Err(invalid("SVG destination must have finite edges"));
+                    }
+                    let handle = document.raw_handle();
+                    if handle == 0 {
+                        return Err(invalid("SVG document handle must not be null"));
+                    }
+                    raw.svg = ffi::SvgDraw {
+                        struct_size: std::mem::size_of::<ffi::SvgDraw>() as u32,
+                        reserved: 0,
+                        document: handle,
+                        destination,
+                    };
+                    encoded.svg_documents.push(document.clone());
+                }
             }
             encoded.operations.push(raw);
         }
@@ -494,6 +524,9 @@ pub(crate) struct EncodedFrame {
     // Keeps every packed native image handle alive through execution even if
     // another internal caller encodes from a temporary Frame.
     images: Vec<DecodedImage>,
+    // Keeps every packed native SVG handle alive through execution even if
+    // another internal caller encodes from a temporary Frame.
+    svg_documents: Vec<SvgDocument>,
 }
 
 impl EncodedFrame {
@@ -505,6 +538,7 @@ impl EncodedFrame {
             dash_intervals: Vec::new(),
             paragraph_draw_data: Vec::new(),
             images: Vec::new(),
+            svg_documents: Vec::new(),
         }
     }
 
@@ -836,6 +870,7 @@ fn zero_operation() -> ffi::FrameOp {
         opacity: 0.0,
         sigma: 0.0,
         image: zero_image_draw(),
+        svg: zero_svg_draw(),
     }
 }
 
@@ -845,6 +880,15 @@ fn zero_image_draw() -> ffi::ImageDraw {
         sampling: 0,
         image: 0,
         source: zero_rect(),
+        destination: zero_rect(),
+    }
+}
+
+fn zero_svg_draw() -> ffi::SvgDraw {
+    ffi::SvgDraw {
+        struct_size: 0,
+        reserved: 0,
+        document: 0,
         destination: zero_rect(),
     }
 }

@@ -5,8 +5,10 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
+#include <string>
 #include <thread>
 #include <unordered_map>
 #include <utility>
@@ -26,6 +28,7 @@ constexpr uint64_t kFeatures =
     FISSION_SKIA_FEATURE_OPACITY_LAYER |
     FISSION_SKIA_FEATURE_IMAGE_DECODE |
     FISSION_SKIA_FEATURE_BACKDROP_BLUR |
+    FISSION_SKIA_FEATURE_SVG_DOCUMENT |
     FISSION_SKIA_FEATURE_TEST_SHIM;
 
 struct Engine { std::thread::id owner; uint64_t children = 0; };
@@ -41,6 +44,10 @@ struct DecodedImage {
     uint32_t width = 0;
     uint32_t height = 0;
     std::vector<uint8_t> pixels;
+};
+struct SvgDocument {
+    float aspect_width = 1.0f;
+    float aspect_height = 1.0f;
 };
 struct PixelTarget {
     uint32_t width = 0;
@@ -60,6 +67,7 @@ struct State {
     std::unordered_map<uint64_t, Context> contexts;
     std::unordered_map<uint64_t, Surface> surfaces;
     std::unordered_map<uint64_t, DecodedImage> images;
+    std::unordered_map<uint64_t, SvgDocument> svg_documents;
     std::atomic<uint64_t> next{1};
     std::atomic<uint64_t> errors{1};
 };
@@ -119,6 +127,140 @@ bool valid_rect(const fission_skia_rect_t& rect) {
 
 bool valid_non_empty_rect(const fission_skia_rect_t& rect) {
     return valid_rect(rect) && rect.width > 0.0f && rect.height > 0.0f;
+}
+
+uint8_t ascii_lower(uint8_t value) {
+    return value >= 'A' && value <= 'Z'
+        ? static_cast<uint8_t>(value + ('a' - 'A'))
+        : value;
+}
+
+bool contains_ascii_case_insensitive(
+    const uint8_t* bytes,
+    size_t length,
+    const char* needle) {
+    const size_t needle_length = std::strlen(needle);
+    if (needle_length == 0 || needle_length > length) return false;
+    for (size_t offset = 0; offset <= length - needle_length; ++offset) {
+        bool matches = true;
+        for (size_t index = 0; index < needle_length; ++index) {
+            if (ascii_lower(bytes[offset + index]) !=
+                ascii_lower(static_cast<uint8_t>(needle[index]))) {
+                matches = false;
+                break;
+            }
+        }
+        if (matches) return true;
+    }
+    return false;
+}
+
+bool valid_utf8_without_nul(const uint8_t* bytes, size_t length) {
+    size_t index = 0;
+    while (index < length) {
+        const uint8_t first = bytes[index];
+        if (first == 0) return false;
+        if (first <= 0x7f) {
+            index += 1;
+            continue;
+        }
+        if (first >= 0xc2 && first <= 0xdf) {
+            if (index + 1 >= length || (bytes[index + 1] & 0xc0) != 0x80) return false;
+            index += 2;
+            continue;
+        }
+        if (first >= 0xe0 && first <= 0xef) {
+            if (index + 2 >= length || (bytes[index + 2] & 0xc0) != 0x80) return false;
+            const uint8_t second = bytes[index + 1];
+            if ((first == 0xe0 && (second < 0xa0 || second > 0xbf)) ||
+                (first == 0xed && (second < 0x80 || second > 0x9f)) ||
+                (first != 0xe0 && first != 0xed && (second & 0xc0) != 0x80)) {
+                return false;
+            }
+            index += 3;
+            continue;
+        }
+        if (first >= 0xf0 && first <= 0xf4) {
+            if (index + 3 >= length || (bytes[index + 2] & 0xc0) != 0x80 ||
+                (bytes[index + 3] & 0xc0) != 0x80) {
+                return false;
+            }
+            const uint8_t second = bytes[index + 1];
+            if ((first == 0xf0 && (second < 0x90 || second > 0xbf)) ||
+                (first == 0xf4 && (second < 0x80 || second > 0x8f)) ||
+                (first != 0xf0 && first != 0xf4 && (second & 0xc0) != 0x80)) {
+                return false;
+            }
+            index += 4;
+            continue;
+        }
+        return false;
+    }
+    return true;
+}
+
+bool valid_svg_source(const uint8_t* bytes, size_t length) {
+    return bytes != nullptr && length != 0 &&
+           length <= FISSION_SKIA_MAX_SVG_DOCUMENT_BYTES &&
+           valid_utf8_without_nul(bytes, length) &&
+           !contains_ascii_case_insensitive(bytes, length, "<!doctype") &&
+           !contains_ascii_case_insensitive(bytes, length, "<!entity");
+}
+
+bool parse_test_svg(
+    const uint8_t* bytes,
+    size_t length,
+    SvgDocument* document) {
+    const std::string source(reinterpret_cast<const char*>(bytes), length);
+    const size_t root = source.find("<svg");
+    if (root == std::string::npos || root + 4 >= source.size()) return false;
+    const char after_name = source[root + 4];
+    if (after_name != '>' && after_name != '/' && after_name != ' ' &&
+        after_name != '\t' && after_name != '\r' && after_name != '\n') {
+        return false;
+    }
+    const size_t root_end = source.find('>', root + 4);
+    if (root_end == std::string::npos) return false;
+    const bool self_closing = root_end != 0 && source[root_end - 1] == '/';
+    if (!self_closing && source.find("</svg>", root_end + 1) == std::string::npos) {
+        return false;
+    }
+
+    const size_t attribute = source.find("viewBox", root + 4);
+    if (attribute == std::string::npos || attribute >= root_end) return true;
+    size_t equals = source.find('=', attribute + 7);
+    if (equals == std::string::npos || equals >= root_end) return false;
+    equals += 1;
+    while (equals < root_end &&
+           (source[equals] == ' ' || source[equals] == '\t' ||
+            source[equals] == '\r' || source[equals] == '\n')) {
+        equals += 1;
+    }
+    if (equals >= root_end || (source[equals] != '"' && source[equals] != '\'')) return false;
+    const char quote = source[equals];
+    const size_t end = source.find(quote, equals + 1);
+    if (end == std::string::npos || end > root_end) return false;
+    std::string values = source.substr(equals + 1, end - equals - 1);
+    const char* cursor = values.c_str();
+    float parsed[4] = {};
+    for (float& value : parsed) {
+        while (*cursor == ' ' || *cursor == '\t' || *cursor == '\r' ||
+               *cursor == '\n' || *cursor == ',') {
+            cursor += 1;
+        }
+        char* next = nullptr;
+        value = std::strtof(cursor, &next);
+        if (next == cursor || !std::isfinite(value)) return false;
+        cursor = next;
+    }
+    while (*cursor == ' ' || *cursor == '\t' || *cursor == '\r' ||
+           *cursor == '\n' || *cursor == ',') {
+        cursor += 1;
+    }
+    if (*cursor != '\0' || parsed[2] <= 0.0f || parsed[3] <= 0.0f) return false;
+    document->aspect_width = parsed[2];
+    document->aspect_height = parsed[3];
+    return true;
 }
 
 uint32_t read_u32_le(const uint8_t* bytes) {
@@ -225,6 +367,24 @@ fission_skia_status_t validate_image_draw(
     return FISSION_SKIA_STATUS_OK;
 }
 
+fission_skia_status_t validate_svg_draw(
+    const fission_skia_svg_draw_t& draw,
+    fission_skia_error_t* error) {
+    if (draw.struct_size != sizeof(draw) || draw.reserved != 0 ||
+        !valid_non_empty_rect(draw.destination) ||
+        !std::isfinite(draw.destination.x + draw.destination.width) ||
+        !std::isfinite(draw.destination.y + draw.destination.height)) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame",
+                    "invalid SVG draw", error);
+    }
+    std::lock_guard<std::mutex> lock(state().mutex);
+    if (state().svg_documents.find(draw.document) == state().svg_documents.end()) {
+        return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, "execute_frame",
+                    "invalid SVG document handle", error);
+    }
+    return FISSION_SKIA_STATUS_OK;
+}
+
 fission_skia_color_t representative_color(
     const fission_skia_frame_t& frame,
     const fission_skia_paint_t& paint) {
@@ -318,6 +478,27 @@ void paint_rect(
             else blend_pixel(pixels.data() + offset, color);
         }
     }
+}
+
+void draw_svg_document(
+    PixelTarget& target,
+    const SvgDocument& document,
+    const fission_skia_rect_t& destination) {
+    const float scale = std::min(
+        destination.width / document.aspect_width,
+        destination.height / document.aspect_height);
+    const float width = document.aspect_width * scale;
+    const float height = document.aspect_height * scale;
+    const fission_skia_rect_t contained = {
+        destination.x + (destination.width - width) * 0.5f,
+        destination.y + (destination.height - height) * 0.5f,
+        width,
+        height,
+    };
+    // The shim renders an opaque marker rather than interpreting SVG paint.
+    // Its stable color and viewBox aspect are sufficient to exercise ABI
+    // ownership, frame pinning, clipping, and contain placement.
+    paint_rect(target, contained, {0.25f, 0.5f, 0.75f, 1.0f});
 }
 
 PixelTarget current_target(Surface& surface, std::vector<OpacityLayer>& layers) {
@@ -788,6 +969,11 @@ fission_skia_status_t fission_skia_surface_execute_frame(
                                 "invalid backdrop blur", error);
                 }
                 break;
+            case FISSION_SKIA_FRAME_DRAW_SVG: {
+                const auto status = validate_svg_draw(op.svg, error);
+                if (status != FISSION_SKIA_STATUS_OK) return status;
+                break;
+            }
             default:
                 return fail(FISSION_SKIA_STATUS_UNSUPPORTED, "execute_frame",
                             "unknown operation", error);
@@ -848,6 +1034,14 @@ fission_skia_status_t fission_skia_surface_execute_frame(
         } else if (op.kind == FISSION_SKIA_FRAME_BACKDROP_BLUR) {
             auto target = current_target(found->second, layers);
             blur_backdrop(target, op.rect, op.radius, op.sigma);
+        } else if (op.kind == FISSION_SKIA_FRAME_DRAW_SVG) {
+            const auto document = state().svg_documents.find(op.svg.document);
+            if (document == state().svg_documents.end()) {
+                return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, "execute_frame",
+                            "SVG document was destroyed before playback", error);
+            }
+            auto target = current_target(found->second, layers);
+            draw_svg_document(target, document->second, op.svg.destination);
         }
         // State, gradients, strokes, paths, and shadows are intentionally
         // validation-only in the ABI ownership test double.
@@ -992,6 +1186,45 @@ fission_skia_status_t fission_skia_image_destroy(
     return FISSION_SKIA_STATUS_OK;
 }
 
+fission_skia_status_t fission_skia_svg_document_parse(
+    const uint8_t* svg, size_t svg_length,
+    fission_skia_svg_document_handle_t* output,
+    fission_skia_error_t* error) {
+    if (!output || !valid_svg_source(svg, svg_length)) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "svg_document_parse",
+                    "invalid SVG source or output", error);
+    }
+    *output = 0;
+    SvgDocument document;
+    if (!parse_test_svg(svg, svg_length, &document)) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "svg_document_parse",
+                    "test SVG did not parse to a supported root", error);
+    }
+    const auto id = handle();
+    std::lock_guard<std::mutex> lock(state().mutex);
+    if (!state().svg_documents.emplace(id, std::move(document)).second) {
+        return fail(FISSION_SKIA_STATUS_INTERNAL, "svg_document_parse",
+                    "test SVG document handle collision", error);
+    }
+    *output = id;
+    clear(error);
+    return FISSION_SKIA_STATUS_OK;
+}
+
+fission_skia_status_t fission_skia_svg_document_destroy(
+    fission_skia_svg_document_handle_t id,
+    fission_skia_error_t* error) {
+    std::lock_guard<std::mutex> lock(state().mutex);
+    const auto found = state().svg_documents.find(id);
+    if (found == state().svg_documents.end()) {
+        return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, "svg_document_destroy",
+                    "invalid SVG document handle", error);
+    }
+    state().svg_documents.erase(found);
+    clear(error);
+    return FISSION_SKIA_STATUS_OK;
+}
+
 fission_skia_status_t fission_skia_test_live_counts(
     fission_skia_test_counts_t* counts, fission_skia_error_t* error) {
     if (!counts) return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "test_live_counts",
@@ -1001,6 +1234,7 @@ fission_skia_status_t fission_skia_test_live_counts(
     counts->contexts = state().contexts.size();
     counts->surfaces = state().surfaces.size();
     counts->images = state().images.size();
+    counts->svg_documents = state().svg_documents.size();
     clear(error);
     return FISSION_SKIA_STATUS_OK;
 }

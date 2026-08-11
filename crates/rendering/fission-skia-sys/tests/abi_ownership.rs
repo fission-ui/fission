@@ -25,6 +25,10 @@ fn abi_ownership_errors_and_raster_readback_are_coherent() {
         engine.build_info().feature_bits & ffi::FEATURE_BACKDROP_BLUR,
         0
     );
+    assert_ne!(
+        engine.build_info().feature_bits & ffi::FEATURE_SVG_DOCUMENT,
+        0
+    );
 
     let context = Context::new_raster(&engine).expect("raster context");
     context
@@ -132,5 +136,6 @@ fn counts(engines: u64, contexts: u64, surfaces: u64) -> ffi::TestCounts {
         contexts,
         surfaces,
         images: 0,
+        svg_documents: 0,
     }
 }

@@ -7,8 +7,25 @@ use std::process::Command;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-const ABI_VERSION: u32 = 6;
+const ABI_VERSION: u32 = 7;
 const SKIA_REVISION: &str = "cf5c36972b73698eb3939cda147ea47152670312";
+const PREBUILT_STATIC_LIBRARIES: &[&str] = &[
+    "fission_skia_bridge",
+    "svg",
+    "skparagraph",
+    "skshaper",
+    "skunicode",
+    "skia",
+];
+
+#[cfg(feature = "skia-build-from-source")]
+const SOURCE_NINJA_TARGETS: &[&str] = &[
+    "skia",
+    "modules/skparagraph:skparagraph",
+    "modules/skshaper:skshaper",
+    "modules/skunicode:skunicode",
+    "modules/svg:svg",
+];
 
 #[derive(Debug, Deserialize)]
 struct ArtifactManifest {
@@ -163,6 +180,17 @@ fn validate_manifest(manifest: &ArtifactManifest) {
             manifest.profile
         );
     }
+    if manifest
+        .native
+        .static_libraries
+        .iter()
+        .map(String::as_str)
+        .ne(PREBUILT_STATIC_LIBRARIES.iter().copied())
+    {
+        panic!(
+            "Skia artifact static libraries do not match the required consumer-before-dependency order"
+        );
+    }
 }
 
 fn verify_files(root: &Path, files: &[ArtifactFile]) {
@@ -252,15 +280,16 @@ fn configure_source() {
     let status = Command::new(&ninja)
         .arg("-C")
         .arg(&build)
-        .arg("skia")
+        .args(SOURCE_NINJA_TARGETS)
         .status()
         .unwrap_or_else(|error| panic!("failed to execute {ninja}: {error}"));
     if !status.success() {
-        panic!("Ninja failed to build the pinned Skia raster library");
+        panic!("Ninja failed to build the pinned Skia native-raster libraries");
     }
     compile_bridge(&source, &build, "native-raster");
     println!("cargo:rustc-link-search=native={}", build.display());
-    let links = env::var("FISSION_SKIA_LINK_LIBS").unwrap_or_else(|_| "skia".into());
+    let links = env::var("FISSION_SKIA_LINK_LIBS")
+        .unwrap_or_else(|_| "svg,skparagraph,skshaper,skunicode,skia".into());
     for library in links
         .split(',')
         .map(str::trim)

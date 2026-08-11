@@ -1,7 +1,7 @@
 # fission-skia-sys
 
 `fission-skia-sys` is Fission's sole native link authority for Skia. It exposes
-a narrow, versioned C ABI instead of C++ or Skia-owned layouts. ABI v6 contains
+a narrow, versioned C ABI instead of C++ or Skia-owned layouts. ABI v7 contains
 the production raster foundation: engine and context ownership, raster
 surfaces, batched paint state and shape execution, RGBA readback,
 memory-pressure notification, structured diagnostics, and explicit
@@ -12,6 +12,11 @@ limit, retain their oriented N32 sRGB pixels, and draw with explicit source,
 destination, and nearest-or-linear sampling semantics.
 Backdrop Gaussian blur is an atomic operation over explicit physical bounds,
 with rounded-corner clipping and deterministic identity behavior at zero sigma.
+Retained SVG documents are parsed as bounded UTF-8 into SkSVGDOM with external
+resources disabled, then rendered atomically into an explicit destination.
+Intrinsic documents use centered contain placement; percentage-sized roots use
+the destination as their SkSVGDOM container viewport so viewBox and
+preserveAspectRatio remain document-owned.
 
 The paint contract carries finite unpremultiplied sRGB values. Gradients use
 shape-resolved coordinates and ordered stops. Empty gradients are transparent,
@@ -33,7 +38,8 @@ Exactly one mode must be selected:
   `FISSION_SKIA_ARTIFACT_DIR`.
 - `skia-build-from-source` consumes the exact pinned checkout from
   `FISSION_SKIA_SOURCE_DIR` and its configured GN output from
-  `FISSION_SKIA_BUILD_DIR`, invokes Ninja for the raster library, and compiles
+  `FISSION_SKIA_BUILD_DIR`, invokes Ninja for the complete native-raster
+  library set (including SVG, paragraph, shaping, and Unicode), and compiles
   this crate's bridge against it. It never downloads or configures source
   implicitly; Fission's artifact tooling owns the reproducible GN arguments.
 - `test-shim` compiles a small ABI double for ownership/error tests. It is not a
