@@ -179,17 +179,17 @@ fn validate_external_surface_capabilities(
     let unsupported_bindings = bindings
         .iter()
         .filter_map(|(slot_id, binding)| {
-            (!capabilities.supports_external_surface_transport(binding.transport)).then_some(
-                UnsupportedExternalSurfaceBinding {
-                    slot_id: *slot_id,
-                    transport: binding.transport,
-                    provenance: placements
-                        .get(slot_id)
-                        .and_then(|placements| placements.first())
-                        .cloned()
-                        .expect("frame integrity gate requires one placement per binding"),
-                },
-            )
+            (binding.state == ExternalFrameState::Ready
+                && !capabilities.supports_external_surface_transport(binding.transport))
+            .then_some(UnsupportedExternalSurfaceBinding {
+                slot_id: *slot_id,
+                transport: binding.transport,
+                provenance: placements
+                    .get(slot_id)
+                    .and_then(|placements| placements.first())
+                    .cloned()
+                    .expect("frame integrity gate requires one placement per binding"),
+            })
         })
         .collect::<Vec<_>>();
 
@@ -662,6 +662,36 @@ mod tests {
                 operation_path: vec![0],
             }
         );
+    }
+
+    #[test]
+    fn non_ready_surface_uses_host_disposition_without_transport_support() {
+        let bounds = rect();
+        let mut list = DisplayList::new(bounds);
+        list.push(DisplayOp::DrawSurface {
+            rect: bounds,
+            surface_id: 7,
+            position: 0,
+            bounds,
+            node_id: None,
+        });
+        let scene = RenderScene::from_display_list(list);
+        let metadata = metadata();
+        let resources = ResourceSnapshot::empty(metadata.resource_epoch);
+        let mut pending = binding(7);
+        pending.state = ExternalFrameState::Pending;
+        pending.frame_token = None;
+        let mut bindings = ExternalSurfaceBindings::new();
+        bindings.insert(pending).unwrap();
+        let mut capabilities =
+            GraphicsCapabilities::empty(BackendIdentity::new("test", "1", "host-disposition"));
+        capabilities.display_ops = crate::capabilities::DisplayOpKind::ALL
+            .into_iter()
+            .collect();
+
+        InteractiveFrame::new(&scene, &metadata, &resources, &bindings)
+            .validate_for(&capabilities)
+            .unwrap();
     }
 
     #[test]
