@@ -5,6 +5,7 @@
 //! out of [`fission_layout::ParagraphResult`].
 
 mod cache_key;
+mod native;
 mod output;
 mod request;
 
@@ -18,6 +19,8 @@ use fission_layout::{
 };
 
 use self::cache_key::paragraph_cache_key;
+#[cfg(not(feature = "test-shim"))]
+use self::native::NativeParagraphApi;
 use self::output::PackedParagraphOutput;
 use self::request::PackedParagraphRequest;
 
@@ -38,17 +41,32 @@ const COMPLETE_PARAGRAPH_CAPABILITIES: ParagraphCapabilities = ParagraphCapabili
 
 /// Safe renderer-side SkParagraph adapter.
 ///
-/// The concrete batched API is injected internally. The default implementation
-/// makes unsupported state explicit until the native SkParagraph ABI is wired.
+/// The concrete batched API is injected internally. Production builds use the
+/// safe, owned `fission-skia-sys` paragraph engine. Test-shim builds keep their
+/// lack of native paragraph support explicit.
 pub struct SkiaParagraphEngine {
     api: Arc<dyn BatchedParagraphApi>,
 }
 
 impl Default for SkiaParagraphEngine {
     fn default() -> Self {
-        Self {
-            api: Arc::new(UnsupportedParagraphApi),
-        }
+        Self { api: default_api() }
+    }
+}
+
+#[cfg(feature = "test-shim")]
+fn default_api() -> Arc<dyn BatchedParagraphApi> {
+    Arc::new(UnavailableParagraphApi::new(BatchedParagraphError::new(
+        "layout",
+        "the native SkParagraph ABI has not been installed for the test shim",
+    )))
+}
+
+#[cfg(not(feature = "test-shim"))]
+fn default_api() -> Arc<dyn BatchedParagraphApi> {
+    match NativeParagraphApi::new() {
+        Ok(api) => Arc::new(api),
+        Err(error) => Arc::new(UnavailableParagraphApi::new(error)),
     }
 }
 
@@ -105,16 +123,28 @@ trait BatchedParagraphApi: Send + Sync {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct BatchedParagraphError {
-    operation: &'static str,
+    operation: String,
     details: String,
 }
 
 impl BatchedParagraphError {
-    fn new(operation: &'static str, details: impl Into<String>) -> Self {
+    fn new(operation: impl Into<String>, details: impl Into<String>) -> Self {
         Self {
-            operation,
+            operation: operation.into(),
             details: details.into(),
         }
+    }
+
+    fn native(error: fission_skia_sys::Error) -> Self {
+        let details = if error.sequence == 0 {
+            format!("{:?}: {}", error.kind, error.message)
+        } else {
+            format!(
+                "{:?} at bridge sequence {}: {}",
+                error.kind, error.sequence, error.message
+            )
+        };
+        Self::new(error.operation, details)
     }
 }
 
@@ -124,9 +154,17 @@ impl fmt::Display for BatchedParagraphError {
     }
 }
 
-struct UnsupportedParagraphApi;
+struct UnavailableParagraphApi {
+    error: BatchedParagraphError,
+}
 
-impl BatchedParagraphApi for UnsupportedParagraphApi {
+impl UnavailableParagraphApi {
+    fn new(error: BatchedParagraphError) -> Self {
+        Self { error }
+    }
+}
+
+impl BatchedParagraphApi for UnavailableParagraphApi {
     fn capabilities(&self) -> ParagraphCapabilities {
         ParagraphCapabilities::NONE
     }
@@ -135,9 +173,6 @@ impl BatchedParagraphApi for UnsupportedParagraphApi {
         &self,
         _request: PackedParagraphRequest,
     ) -> Result<PackedParagraphOutput, BatchedParagraphError> {
-        Err(BatchedParagraphError::new(
-            "layout",
-            "the native SkParagraph ABI has not been installed",
-        ))
+        Err(self.error.clone())
     }
 }
