@@ -2724,12 +2724,22 @@ dependencies = [
 name = "fission-3d"
 version = "0.10.1"
 dependencies = [
- "bincode",
- "bytemuck",
+ "fission-3d-model",
  "fission-core",
  "fission-ir",
+ "fission-render",
+ "fission-render-wgpu3d",
  "serde",
  "wgpu",
+]
+
+[[package]]
+name = "fission-3d-model"
+version = "0.10.1"
+dependencies = [
+ "bincode",
+ "fission-ir",
+ "serde",
 ]
 
 [[package]]
@@ -3006,6 +3016,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "fission-render-software"
+version = "0.10.1"
+dependencies = [
+ "anyhow",
+ "fission-ir",
+ "fission-layout",
+ "fission-render",
+ "fission-theme",
+ "fontdue",
+ "image 0.25.8",
+ "js-sys",
+ "kurbo",
+ "tiny-skia",
+ "ureq",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
 name = "fission-render-vello"
 version = "0.10.1"
 dependencies = [
@@ -3027,6 +3057,16 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "web-time",
+]
+
+[[package]]
+name = "fission-render-wgpu3d"
+version = "0.10.1"
+dependencies = [
+ "bytemuck",
+ "fission-3d-model",
+ "fission-ir",
+ "wgpu",
 ]
 
 [[package]]
