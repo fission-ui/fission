@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use fission_core::env::{VideoStateMap, VideoStatus, WebStateMap};
 use fission_ir::{CoreIR, EmbedKind, LayoutOp, Op, WidgetId};
+use fission_layout::ParagraphResultStore;
 use fission_render::capabilities::{ExternalSurfaceTransport, GraphicsCapabilities};
 use fission_render::external_surface::{
     ExternalAlphaType, ExternalColorSpace, ExternalFrameId, ExternalFrameState, ExternalOwnership,
@@ -12,6 +13,7 @@ use fission_render::frame::{
     DamageRegion, FrameId, FrameMetadata, FrameViewport, InteractiveFrame, ResourceEpoch,
     SemanticsEpoch,
 };
+use fission_render::paragraph::ParagraphFrameBindings;
 use fission_render::resource::ResourceSnapshot;
 use fission_render::surface::{PhysicalSize, ScaleFactor};
 use fission_render::{embed_surface_id, LayoutRect, LayoutSize, RenderScene};
@@ -164,6 +166,7 @@ struct ProducerDescriptor {
 pub(super) struct FrameSubmission {
     metadata: FrameMetadata,
     resources: ResourceSnapshot,
+    paragraphs: ParagraphFrameBindings,
     external_surfaces: ExternalSurfaceBindings,
     staged_surfaces: StagedSurfaceFrames,
     #[cfg(feature = "three-d")]
@@ -221,6 +224,26 @@ impl StagedSurfaceFrames {
     }
 }
 
+fn paragraph_bindings(ir: &CoreIR, store: Option<&ParagraphResultStore>) -> ParagraphFrameBindings {
+    let Some(store) = store else {
+        return ParagraphFrameBindings::new();
+    };
+    let mut bindings = ParagraphFrameBindings::new();
+    for (node_id, node) in &ir.nodes {
+        if !matches!(
+            &node.op,
+            Op::Paint(fission_ir::PaintOp::DrawText { .. })
+                | Op::Paint(fission_ir::PaintOp::DrawRichText { .. })
+        ) {
+            continue;
+        }
+        if let Some(result) = store.get(*node_id) {
+            bindings.insert(*node_id, result);
+        }
+    }
+    bindings
+}
+
 /// Legacy 3D work derived for the transitional `DirectTarget` adapter.
 ///
 /// Placement is resolved from the retained scene's matching `DrawSurface` and
@@ -269,6 +292,7 @@ impl FrameSubmission {
             &self.resources,
             &self.external_surfaces,
         )
+        .with_paragraphs(&self.paragraphs)
     }
 
     pub(super) fn has_external_surfaces(&self) -> bool {
@@ -338,6 +362,7 @@ impl FrameSubmissionState {
         &mut self,
         scene: &RenderScene,
         ir: &CoreIR,
+        paragraph_store: Option<&ParagraphResultStore>,
         video_frames: &[VideoSurfaceFrame],
         web_frames: &[WebSurfaceFrame],
         custom_frames: &[NativeSurfaceFrame],
@@ -372,6 +397,7 @@ impl FrameSubmissionState {
             resource_epoch,
             semantics_epoch,
         };
+        let paragraphs = paragraph_bindings(ir, paragraph_store);
         let descriptors = collect_producer_descriptors(ir, native_views)?;
         let CollectedSurfacePlacements {
             placements: surface_placements,
@@ -571,6 +597,7 @@ impl FrameSubmissionState {
             // neutral entries, this bridge truthfully supplies no resources
             // through the new snapshot rather than inventing payloads.
             resources: ResourceSnapshot::empty(resource_epoch),
+            paragraphs,
             metadata,
             external_surfaces,
             staged_surfaces,
@@ -596,6 +623,7 @@ impl FrameSubmissionState {
         self.prepare_with_states(
             scene,
             ir,
+            None,
             video_frames,
             web_frames,
             custom_frames,
@@ -1368,6 +1396,7 @@ mod tests {
                 .prepare_with_states(
                     &scene,
                     &ir,
+                    None,
                     &[video_frame(video_id, 99)],
                     &[],
                     &[],
@@ -1402,6 +1431,7 @@ mod tests {
             .prepare_with_states(
                 &scene,
                 &ir,
+                None,
                 &[],
                 &[web_frame(web_id)],
                 &[],

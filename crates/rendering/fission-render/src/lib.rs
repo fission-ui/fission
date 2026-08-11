@@ -22,6 +22,8 @@ pub mod external_surface;
 pub mod frame;
 mod frame_geometry;
 #[doc(hidden)]
+pub mod paragraph;
+#[doc(hidden)]
 pub mod resource;
 #[doc(hidden)]
 pub mod surface;

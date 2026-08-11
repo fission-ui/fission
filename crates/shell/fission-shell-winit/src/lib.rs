@@ -232,7 +232,7 @@ where
         let paragraph_store = Arc::new(ParagraphResultStore::new(paragraph_engine));
         self.layout_engine
             .set_paragraph_store(paragraph_store.clone());
-        self.runtime.set_paragraph_store(paragraph_store);
+        self.runtime.set_paragraph_store(paragraph_store.clone());
 
         // Build event loop with TestEvent as the user event type.
         // This allows the test control server to inject events via EventLoopProxy.
@@ -535,6 +535,7 @@ where
             retained_scene_cache,
             runtime,
             layout_engine,
+            paragraph_store,
             root_widget,
             env,
             applied_window_title,

@@ -15,6 +15,7 @@ use crate::frame_geometry::validate_frame_geometry;
 pub use crate::frame_geometry::{
     FrameGeometryElement, FrameGeometryError, FrameGeometryProblem, FrameGeometrySource,
 };
+use crate::paragraph::ParagraphFrameBindings;
 use crate::resource::{ResourceSnapshot, ResourceSnapshotError};
 use crate::surface::{PhysicalSize, ScaleFactor};
 use crate::{Color, DisplayList, DisplayOp, LayoutRect, LayoutSize, RenderNode, RenderScene};
@@ -72,6 +73,7 @@ pub struct InteractiveFrame<'a> {
     metadata: &'a FrameMetadata,
     resources: &'a ResourceSnapshot,
     external_surface_bindings: &'a ExternalSurfaceBindings,
+    paragraph_bindings: Option<&'a ParagraphFrameBindings>,
     clear_color: Color,
 }
 
@@ -87,6 +89,7 @@ impl<'a> InteractiveFrame<'a> {
             metadata,
             resources,
             external_surface_bindings,
+            paragraph_bindings: None,
             clear_color: Color {
                 r: 0,
                 g: 0,
@@ -106,6 +109,12 @@ impl<'a> InteractiveFrame<'a> {
         self
     }
 
+    /// Bind the exact final-layout paragraph results used by this frame.
+    pub fn with_paragraphs(mut self, paragraphs: &'a ParagraphFrameBindings) -> Self {
+        self.paragraph_bindings = Some(paragraphs);
+        self
+    }
+
     pub fn scene(self) -> &'a RenderScene {
         self.scene
     }
@@ -120,6 +129,10 @@ impl<'a> InteractiveFrame<'a> {
 
     pub fn external_surface_bindings(self) -> &'a ExternalSurfaceBindings {
         self.external_surface_bindings
+    }
+
+    pub fn paragraph_bindings(self) -> Option<&'a ParagraphFrameBindings> {
+        self.paragraph_bindings
     }
 
     pub fn clear_color(self) -> Color {
@@ -541,6 +554,11 @@ mod tests {
             transparent.with_clear_color(background).clear_color(),
             background
         );
+
+        let paragraphs = ParagraphFrameBindings::new();
+        let bound = transparent.with_paragraphs(&paragraphs);
+        assert!(bound.paragraph_bindings().is_some());
+        assert!(bound.paragraph_bindings().unwrap().is_empty());
     }
 
     #[test]

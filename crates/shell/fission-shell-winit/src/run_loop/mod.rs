@@ -117,6 +117,7 @@ where
     pub(super) retained_scene_cache: RetainedSceneCache,
     pub(super) runtime: Runtime,
     pub(super) layout_engine: LayoutEngine,
+    pub(super) paragraph_store: Arc<ParagraphResultStore>,
     pub(super) root_widget: W,
     pub(super) env: Env,
     pub(super) applied_window_title: String,

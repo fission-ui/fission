@@ -605,6 +605,7 @@ where
                 let submission = match self.frame_submission.prepare_with_states(
                     retained_scene,
                     ir,
+                    Some(&self.paragraph_store),
                     &self.pipeline.video_surfaces,
                     &self.pipeline.web_surfaces,
                     &self.pipeline.native_surfaces,
