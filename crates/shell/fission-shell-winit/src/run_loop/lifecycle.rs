@@ -64,6 +64,8 @@ where
                     self.renderer_request,
                     #[cfg(feature = "skia")]
                     self.skia_profile.as_ref(),
+                    #[cfg(feature = "skia")]
+                    self.presenter.suspended_skia_mut(),
                 ) {
                     Ok(mut state) => {
                         if should_present_startup_clear_frame(is_linux_wayland_event_loop(elwt)) {
@@ -109,7 +111,9 @@ where
     pub(super) fn handle_suspended(&mut self) {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            self.presenter.detach();
+            if let Err(error) = self.presenter.suspend() {
+                eprintln!("fission-shell-winit: renderer suspend failed: {error}");
+            }
         }
         #[cfg(target_arch = "wasm32")]
         {
@@ -137,6 +141,20 @@ where
     }
 
     pub(super) fn handle_loop_exiting(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Err(error) = self.presenter.detach() {
+            eprintln!("fission-shell-winit: renderer detach failed: {error}");
+        }
         self.native_surface_handlers.detach_host();
+    }
+
+    pub(super) fn handle_memory_warning(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Err(error) = self
+            .presenter
+            .trim_memory(fission_render::surface::MemoryPressure::Critical)
+        {
+            eprintln!("fission-shell-winit: renderer memory trim failed: {error}");
+        }
     }
 }

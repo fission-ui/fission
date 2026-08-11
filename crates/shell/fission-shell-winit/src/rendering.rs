@@ -25,16 +25,23 @@ pub(super) struct RenderState<'w> {
 /// Owns the native presentation attachment without exposing the concrete
 /// graphics-backend choice to the Winit event dispatcher.
 ///
-/// This is deliberately a lifecycle boundary, not a capability abstraction:
-/// attaching still uses the existing renderer construction path and detaching
-/// retains the shell's current drop-on-suspend behavior.
+/// This is deliberately a lifecycle boundary, not a capability abstraction.
+/// Vello and software retain the shell's current drop-on-suspend behavior;
+/// Skia keeps its backend session suspended while the window-bound wgpu upload
+/// surface is rebuilt independently.
 pub(super) struct WinitPresenter<'w> {
     state: Option<RenderState<'w>>,
+    #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+    suspended_skia: Option<WinitSkiaRasterPresenter>,
 }
 
 impl<'w> WinitPresenter<'w> {
     pub(super) fn detached() -> Self {
-        Self { state: None }
+        Self {
+            state: None,
+            #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+            suspended_skia: None,
+        }
     }
 
     pub(super) fn is_attached(&self) -> bool {
@@ -49,8 +56,79 @@ impl<'w> WinitPresenter<'w> {
         self.state.as_mut()
     }
 
-    pub(super) fn detach(&mut self) {
-        self.state = None;
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(super) fn suspend(&mut self) -> fission_render::backend::BackendResult<()> {
+        let Some(state) = self.state.take() else {
+            return Ok(());
+        };
+
+        #[cfg(feature = "skia")]
+        {
+            let mut state = state;
+            if let Some(mut presenter) = state.take_skia_renderer() {
+                presenter.suspend()?;
+                debug_assert!(self.suspended_skia.is_none());
+                self.suspended_skia = Some(presenter);
+            }
+        }
+        #[cfg(not(feature = "skia"))]
+        drop(state);
+        Ok(())
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(super) fn trim_memory(
+        &mut self,
+        pressure: fission_render::surface::MemoryPressure,
+    ) -> fission_render::backend::BackendResult<()> {
+        if let Some(state) = self.state.as_mut() {
+            state.main_renderer.trim_memory(pressure)?;
+        }
+        #[cfg(feature = "skia")]
+        if let Some(presenter) = self.suspended_skia.as_mut() {
+            presenter.trim_memory(pressure)?;
+        }
+        Ok(())
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(super) fn detach(&mut self) -> fission_render::backend::BackendResult<()> {
+        if let Some(state) = self.state.take() {
+            #[cfg(feature = "skia")]
+            {
+                let mut state = state;
+                if let Some(mut presenter) = state.take_skia_renderer() {
+                    presenter.detach()?;
+                }
+            }
+            #[cfg(not(feature = "skia"))]
+            drop(state);
+        }
+        #[cfg(feature = "skia")]
+        if let Some(mut presenter) = self.suspended_skia.take() {
+            presenter.detach()?;
+        }
+        Ok(())
+    }
+
+    #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+    pub(super) fn suspended_skia_mut(&mut self) -> &mut Option<WinitSkiaRasterPresenter> {
+        &mut self.suspended_skia
+    }
+}
+
+#[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+impl RenderState<'_> {
+    fn take_skia_renderer(&mut self) -> Option<WinitSkiaRasterPresenter> {
+        if !matches!(self.main_renderer, MainRenderer::SkiaRaster(_)) {
+            return None;
+        }
+        let MainRenderer::SkiaRaster(presenter) =
+            std::mem::replace(&mut self.main_renderer, MainRenderer::Software)
+        else {
+            unreachable!("the renderer variant was checked before replacement")
+        };
+        Some(presenter)
     }
 }
 
@@ -101,6 +179,18 @@ impl MainRenderer {
             Self::SkiaRaster(presenter) => {
                 presenter.sync_surface_metrics(width, height, scale_factor)
             }
+            Self::Vello { .. } | Self::Software => Ok(()),
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(super) fn trim_memory(
+        &mut self,
+        pressure: fission_render::surface::MemoryPressure,
+    ) -> fission_render::backend::BackendResult<()> {
+        match self {
+            #[cfg(feature = "skia")]
+            Self::SkiaRaster(presenter) => presenter.trim_memory(pressure),
             Self::Vello { .. } | Self::Software => Ok(()),
         }
     }
@@ -322,6 +412,7 @@ pub(super) fn create_render_state<'w>(
     linux_wayland: bool,
     request: RendererRequest,
     #[cfg(feature = "skia")] skia_profile: Option<&fission_render_skia::SkiaRasterProfile>,
+    #[cfg(feature = "skia")] suspended_skia: &mut Option<WinitSkiaRasterPresenter>,
 ) -> anyhow::Result<RenderState<'w>> {
     let mut surface = block_on(render_cx.create_surface(
         window.clone(),
@@ -374,6 +465,8 @@ pub(super) fn create_render_state<'w>(
         viewport.scale_factor,
         #[cfg(feature = "skia")]
         skia_profile,
+        #[cfg(feature = "skia")]
+        suspended_skia,
     )?;
     emit_renderer_report(&renderer_report);
 
@@ -599,6 +692,7 @@ pub(super) fn create_native_main_renderer(
     height: u32,
     scale_factor: f64,
     #[cfg(feature = "skia")] skia_profile: Option<&fission_render_skia::SkiaRasterProfile>,
+    #[cfg(feature = "skia")] suspended_skia: &mut Option<WinitSkiaRasterPresenter>,
 ) -> anyhow::Result<(MainRenderer, RendererReport)> {
     let request = request
         .for_target(RendererTarget::Native)
@@ -615,14 +709,31 @@ pub(super) fn create_native_main_renderer(
                     "the selected Skia renderer has no shared backend profile",
                 ))
             })?;
-            let presenter = WinitSkiaRasterPresenter::new(profile, width, height, scale_factor)
-                .map_err(|error| {
-                    anyhow::Error::new(RequestedRendererInitializationError::new(
-                        request,
-                        RendererTarget::Native,
-                        format!("Skia raster initialization failed: {error}"),
-                    ))
-                })?;
+            let presenter = if let Some(presenter) = suspended_skia.as_mut() {
+                if let Err(error) = presenter.resume(width, height, scale_factor) {
+                    let _ = suspended_skia.take();
+                    return Err(anyhow::Error::new(
+                        RequestedRendererInitializationError::new(
+                            request,
+                            RendererTarget::Native,
+                            format!("Skia raster resume failed: {error}"),
+                        ),
+                    ));
+                }
+                suspended_skia
+                    .take()
+                    .expect("the resumed Skia presenter remains retained")
+            } else {
+                WinitSkiaRasterPresenter::new(profile, width, height, scale_factor).map_err(
+                    |error| {
+                        anyhow::Error::new(RequestedRendererInitializationError::new(
+                            request,
+                            RendererTarget::Native,
+                            format!("Skia raster initialization failed: {error}"),
+                        ))
+                    },
+                )?
+            };
             let upload_backend = backend.as_deref().unwrap_or("wgpu");
             return Ok((
                 MainRenderer::SkiaRaster(presenter),
@@ -1099,4 +1210,29 @@ pub(super) fn web_bool_global(name: &str) -> bool {
             })
         })
         .unwrap_or(false)
+}
+
+#[cfg(all(test, feature = "skia", not(target_arch = "wasm32")))]
+mod skia_lifecycle_tests {
+    use super::*;
+    use fission_render::surface::{MemoryPressure, SessionState};
+
+    #[test]
+    fn suspended_skia_session_outlives_the_window_attachment() {
+        let profile = fission_render_skia::SkiaRasterProfile::new();
+        let mut skia = WinitSkiaRasterPresenter::new(&profile, 8, 8, 1.0).unwrap();
+        skia.suspend().unwrap();
+
+        let mut presenter = WinitPresenter::detached();
+        presenter.suspended_skia = Some(skia);
+
+        assert!(!presenter.is_attached());
+        assert_eq!(
+            presenter.suspended_skia.as_ref().unwrap().state(),
+            SessionState::Suspended
+        );
+        presenter.trim_memory(MemoryPressure::Critical).unwrap();
+        presenter.detach().unwrap();
+        assert!(presenter.suspended_skia.is_none());
+    }
 }

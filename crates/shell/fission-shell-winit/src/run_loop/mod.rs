@@ -211,6 +211,7 @@ where
             }
             Event::Resumed => self.handle_resumed(elwt),
             Event::Suspended => self.handle_suspended(),
+            Event::MemoryWarning => self.handle_memory_warning(),
             Event::LoopExiting => self.handle_loop_exiting(),
             Event::UserEvent(test_event) => {
                 #[cfg(target_os = "android")]

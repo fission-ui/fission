@@ -8,8 +8,8 @@ use fission_render::backend::{
 use fission_render::capabilities::{ColorFormat, GraphicsCapabilities};
 use fission_render::frame::InteractiveFrame;
 use fission_render::surface::{
-    PhysicalSize, ScaleFactor, SessionState, SurfaceDescriptor, SurfaceId, SurfaceKind,
-    SurfaceTarget, ThreadAffinity,
+    LossKind, MemoryPressure, PhysicalSize, Recovery, ScaleFactor, SessionState, SurfaceDescriptor,
+    SurfaceId, SurfaceKind, SurfaceTarget, ThreadAffinity,
 };
 
 static NEXT_SKIA_SURFACE_ID: AtomicU64 = AtomicU64::new(1);
@@ -42,6 +42,11 @@ impl WinitSkiaRasterPresenter {
         self.session.capabilities()
     }
 
+    #[cfg(test)]
+    pub(super) fn state(&self) -> SessionState {
+        self.session.state()
+    }
+
     pub(super) fn sync_surface_metrics(
         &mut self,
         width: u32,
@@ -62,10 +67,60 @@ impl WinitSkiaRasterPresenter {
         Ok(())
     }
 
+    pub(super) fn suspend(&mut self) -> BackendResult<()> {
+        self.session.suspend()
+    }
+
+    pub(super) fn resume(
+        &mut self,
+        width: u32,
+        height: u32,
+        scale_factor: f64,
+    ) -> BackendResult<()> {
+        let next = WinitSkiaRasterTarget::build_metrics(
+            BackendOperation::Resume,
+            width,
+            height,
+            scale_factor,
+        )?;
+        self.target.update(next);
+        self.session.resume(&self.target)
+    }
+
+    pub(super) fn recover(&mut self, loss: LossKind) -> BackendResult<Recovery> {
+        self.session.recover(loss)
+    }
+
+    pub(super) fn trim_memory(&mut self, pressure: MemoryPressure) -> BackendResult<()> {
+        self.session.trim_memory(pressure)
+    }
+
+    pub(super) fn detach(&mut self) -> BackendResult<()> {
+        if self.session.state() == SessionState::Detached {
+            return Ok(());
+        }
+        self.session.detach()
+    }
+
     pub(super) fn render_to_rgba(
         &mut self,
         frame: &InteractiveFrame<'_>,
     ) -> BackendResult<Vec<u8>> {
+        match self.render_to_rgba_once(frame) {
+            Ok(pixels) => Ok(pixels),
+            Err(error) => {
+                let Some(loss) = skia_loss_kind(&error) else {
+                    return Err(error);
+                };
+                if self.recover(loss)? == Recovery::Unrecoverable {
+                    return Err(error);
+                }
+                self.render_to_rgba_once(frame)
+            }
+        }
+    }
+
+    fn render_to_rgba_once(&mut self, frame: &InteractiveFrame<'_>) -> BackendResult<Vec<u8>> {
         let expected_frame_id = frame.metadata().frame_id;
         let render = self.session.render(frame)?;
         if render.frame_id != Some(expected_frame_id) {
@@ -101,9 +156,7 @@ impl WinitSkiaRasterPresenter {
 
 impl Drop for WinitSkiaRasterPresenter {
     fn drop(&mut self) {
-        if self.session.state() != SessionState::Detached {
-            let _ = self.session.detach();
-        }
+        let _ = self.detach();
     }
 }
 
@@ -243,6 +296,14 @@ fn backend_contract_error(
     BackendError::new(operation, code, message)
 }
 
+fn skia_loss_kind(error: &BackendError) -> Option<LossKind> {
+    match error.code.as_str() {
+        "skia-surface-lost" => Some(LossKind::Surface),
+        "skia-device-lost" => Some(LossKind::Device),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -276,5 +337,28 @@ mod tests {
 
         let error = tight_rgba(readback, PhysicalSize::new(2, 1)).unwrap_err();
         assert_eq!(error.code, "skia-readback-layout-invalid");
+    }
+
+    #[test]
+    fn only_explicit_skia_loss_diagnostics_request_recovery() {
+        let surface = BackendError::new(
+            BackendOperation::Render,
+            "skia-surface-lost",
+            "surface unavailable",
+        );
+        let device = BackendError::new(
+            BackendOperation::Render,
+            "skia-device-lost",
+            "device unavailable",
+        );
+        let presenter = BackendError::new(
+            BackendOperation::Present,
+            "surface-outdated",
+            "upload presenter changed",
+        );
+
+        assert_eq!(skia_loss_kind(&surface), Some(LossKind::Surface));
+        assert_eq!(skia_loss_kind(&device), Some(LossKind::Device));
+        assert_eq!(skia_loss_kind(&presenter), None);
     }
 }

@@ -290,6 +290,8 @@ where
                     self.renderer_request,
                     #[cfg(feature = "skia")]
                     self.skia_profile.as_ref(),
+                    #[cfg(feature = "skia")]
+                    self.presenter.suspended_skia_mut(),
                 ) {
                     Ok(state) => {
                         self.presenter.attach(state);
