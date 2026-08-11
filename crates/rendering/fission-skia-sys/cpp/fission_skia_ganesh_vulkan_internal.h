@@ -18,7 +18,6 @@
 
 namespace fission::skia::ganesh {
 
-constexpr size_t kDefaultGpuResourceBudget = 64u * 1024u * 1024u;
 constexpr size_t kMaximumAcquireSemaphores = 8u;
 constexpr uint32_t kNoImage = std::numeric_limits<uint32_t>::max();
 

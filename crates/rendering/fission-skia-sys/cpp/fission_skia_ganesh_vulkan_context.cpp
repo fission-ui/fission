@@ -663,8 +663,60 @@ Result VulkanContext::create(
             FISSION_SKIA_STATUS_UNSUPPORTED,
             "Skia could not create a Ganesh Vulkan context");
     }
-    context->impl_->ganesh->setResourceCacheLimit(kDefaultGpuResourceBudget);
     *out_context = std::move(context);
+    return Result::success();
+}
+
+Result VulkanContext::set_resource_cache_limit(uint64_t limit_bytes) {
+    if (!impl_ || !impl_->ganesh) {
+        return Result::failure(
+            FISSION_SKIA_STATUS_INVALID_STATE,
+            "the Ganesh context is not initialized");
+    }
+    if (limit_bytes > static_cast<uint64_t>(std::numeric_limits<size_t>::max())) {
+        return Result::failure(
+            FISSION_SKIA_STATUS_INVALID_ARGUMENT,
+            "the GPU resource-cache limit exceeds this platform's address range");
+    }
+    if (is_device_lost()) {
+        return Result::failure(
+            FISSION_SKIA_STATUS_DEVICE_LOST,
+            "the Ganesh Vulkan device is lost");
+    }
+    impl_->ganesh->setResourceCacheLimit(static_cast<size_t>(limit_bytes));
+    return Result::success();
+}
+
+Result VulkanContext::resource_cache_usage(
+    uint64_t* out_resource_count,
+    uint64_t* out_resource_bytes) const {
+    if (out_resource_count == nullptr || out_resource_bytes == nullptr) {
+        return Result::failure(
+            FISSION_SKIA_STATUS_INVALID_ARGUMENT,
+            "the GPU resource-cache usage outputs are null");
+    }
+    *out_resource_count = 0;
+    *out_resource_bytes = 0;
+    if (!impl_ || !impl_->ganesh) {
+        return Result::failure(
+            FISSION_SKIA_STATUS_INVALID_STATE,
+            "the Ganesh context is not initialized");
+    }
+    if (is_device_lost()) {
+        return Result::failure(
+            FISSION_SKIA_STATUS_DEVICE_LOST,
+            "the Ganesh Vulkan device is lost");
+    }
+    int resource_count = 0;
+    size_t resource_bytes = 0;
+    impl_->ganesh->getResourceCacheUsage(&resource_count, &resource_bytes);
+    if (resource_count < 0) {
+        return Result::failure(
+            FISSION_SKIA_STATUS_INTERNAL,
+            "Skia reported a negative GPU resource-cache count");
+    }
+    *out_resource_count = static_cast<uint64_t>(resource_count);
+    *out_resource_bytes = static_cast<uint64_t>(resource_bytes);
     return Result::success();
 }
 

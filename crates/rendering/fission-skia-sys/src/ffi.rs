@@ -158,6 +158,26 @@ pub struct NativeWindow {
 }
 
 #[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GpuCacheUsage {
+    pub struct_size: u32,
+    pub reserved: u32,
+    pub resource_count: u64,
+    pub resource_bytes: u64,
+}
+
+impl Default for GpuCacheUsage {
+    fn default() -> Self {
+        Self {
+            struct_size: std::mem::size_of::<Self>() as u32,
+            reserved: 0,
+            resource_count: 0,
+            resource_bytes: 0,
+        }
+    }
+}
+
+#[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct Color {
     pub red: f32,
@@ -365,6 +385,16 @@ extern "C" {
     pub fn fission_skia_context_trim_memory(
         context: ContextHandle,
         pressure: u32,
+        out_error: *mut Error,
+    ) -> Status;
+    pub fn fission_skia_context_set_resource_cache_limit(
+        context: ContextHandle,
+        limit_bytes: u64,
+        out_error: *mut Error,
+    ) -> Status;
+    pub fn fission_skia_context_get_resource_cache_usage(
+        context: ContextHandle,
+        out_usage: *mut GpuCacheUsage,
         out_error: *mut Error,
     ) -> Status;
     pub fn fission_skia_context_destroy(context: ContextHandle, out_error: *mut Error) -> Status;

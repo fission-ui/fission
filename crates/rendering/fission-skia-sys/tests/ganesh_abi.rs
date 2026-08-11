@@ -7,8 +7,8 @@ use std::sync::Mutex;
 
 use fission_skia_sys::ffi;
 use fission_skia_sys::{
-    Color, Engine, ErrorKind, Frame, FrameOp, GaneshContext, GaneshSurface, MemoryPressure,
-    NativeWindow, NativeWindowKind, ABI_VERSION,
+    Color, Engine, ErrorKind, Frame, FrameOp, GaneshCacheUsage, GaneshContext, GaneshSurface,
+    MemoryPressure, NativeWindow, NativeWindowKind, ABI_VERSION,
 };
 
 static TEST_LOCK: Mutex<()> = Mutex::new(());
@@ -34,6 +34,13 @@ fn ganesh_surface_enforces_zero_size_and_present_ordering() {
     context
         .trim_memory(MemoryPressure::Moderate)
         .expect("memory trim");
+    assert_eq!(
+        context.resource_cache_usage().expect("GPU cache usage"),
+        GaneshCacheUsage::default()
+    );
+    context
+        .set_resource_cache_limit(8 * 1024 * 1024)
+        .expect("replacement GPU cache limit");
 
     let mut display_a = Box::new(3_u8);
     let mut window_a = Box::new(4_u8);
@@ -104,6 +111,7 @@ fn ganesh_surface_enforces_zero_size_and_present_ordering() {
 fn native_window_kinds_allow_optional_visuals_and_reject_mismatches() {
     let _guard = TEST_LOCK.lock().unwrap();
     assert_eq!(std::mem::size_of::<ffi::NativeWindow>(), 32);
+    assert_eq!(std::mem::size_of::<ffi::GpuCacheUsage>(), 24);
     let engine = Engine::new().expect("test engine");
     let mut display = Box::new(7_u8);
     let xlib =

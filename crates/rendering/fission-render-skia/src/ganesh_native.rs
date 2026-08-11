@@ -4,7 +4,7 @@ use fission_skia_sys::{
 };
 
 use crate::api::{ApiError, ApiErrorKind, ApiReadback, PixelRegion, RasterFrame, RasterRect};
-use crate::ganesh_api::GaneshApi;
+use crate::ganesh_api::{GaneshApi, GaneshResourceCacheUsage};
 use crate::native::{map_error, native_frame};
 
 const REQUIRED_GANESH_FEATURES: u64 = fission_skia_sys::ffi::FEATURE_GANESH
@@ -60,8 +60,14 @@ impl GaneshApi for NativeGaneshApi {
         &self,
         engine: &Self::Engine,
         compatible_window: NativeWindow,
+        resource_cache_limit_bytes: u64,
     ) -> Result<Self::Context, ApiError> {
-        GaneshContext::new_vulkan(engine, compatible_window).map_err(map_error)
+        GaneshContext::new_vulkan_with_resource_cache_limit(
+            engine,
+            compatible_window,
+            resource_cache_limit_bytes,
+        )
+        .map_err(map_error)
     }
 
     fn create_surface(
@@ -160,6 +166,19 @@ impl GaneshApi for NativeGaneshApi {
             MemoryPressure::Critical => fission_skia_sys::MemoryPressure::Critical,
         };
         context.trim_memory(pressure).map_err(map_error)
+    }
+
+    fn resource_cache_usage(
+        &self,
+        context: &Self::Context,
+    ) -> Result<GaneshResourceCacheUsage, ApiError> {
+        context
+            .resource_cache_usage()
+            .map(|usage| GaneshResourceCacheUsage {
+                resource_count: usage.resource_count,
+                resource_bytes: usage.resource_bytes,
+            })
+            .map_err(map_error)
     }
 }
 

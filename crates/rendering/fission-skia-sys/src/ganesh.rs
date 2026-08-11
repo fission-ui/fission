@@ -10,6 +10,17 @@ use crate::{ffi, Engine, Error, ErrorKind, Frame, MemoryPressure, PixelRect, Res
 const REQUIRED_FEATURES: u64 =
     ffi::FEATURE_GANESH | ffi::FEATURE_VULKAN | ffi::FEATURE_NATIVE_PRESENTATION;
 
+/// Conservative GPU resource-cache ceiling used unless a renderer supplies a
+/// frozen profile-specific policy.
+pub const DEFAULT_GANESH_GPU_CACHE_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Current resources retained by one Ganesh `GrDirectContext` cache.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct GaneshCacheUsage {
+    pub resource_count: u64,
+    pub resource_bytes: u64,
+}
+
 /// Linux window-system route used by a Vulkan presentation surface.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeWindowKind {
@@ -127,6 +138,26 @@ struct GaneshContextInner {
 
 impl GaneshContext {
     pub fn new_vulkan(engine: &Engine, compatible_window: NativeWindow) -> Result<Self> {
+        Self::new_vulkan_with_resource_cache_limit(
+            engine,
+            compatible_window,
+            DEFAULT_GANESH_GPU_CACHE_BYTES,
+        )
+    }
+
+    /// Creates a Vulkan context and installs its sole GPU cache budget before
+    /// any surface or frame can allocate Ganesh resources.
+    pub fn new_vulkan_with_resource_cache_limit(
+        engine: &Engine,
+        compatible_window: NativeWindow,
+        limit_bytes: u64,
+    ) -> Result<Self> {
+        let context = Self::new_vulkan_unconfigured(engine, compatible_window)?;
+        context.set_resource_cache_limit(limit_bytes)?;
+        Ok(context)
+    }
+
+    fn new_vulkan_unconfigured(engine: &Engine, compatible_window: NativeWindow) -> Result<Self> {
         let raw_engine = engine.raw_for_owner("GaneshContext::new_vulkan")?;
         let missing = REQUIRED_FEATURES & !engine.build_info().feature_bits;
         if missing != 0 {
@@ -162,6 +193,47 @@ impl GaneshContext {
                 thread: ThreadAffinity::current(),
                 _engine: engine.clone(),
             }),
+        })
+    }
+
+    /// Sets the byte ceiling on this context's authoritative Ganesh resource
+    /// cache. A zero limit disables retention of unlocked cache resources.
+    pub fn set_resource_cache_limit(&self, limit_bytes: u64) -> Result<()> {
+        self.inner
+            .thread
+            .ensure_owner("GaneshContext::set_resource_cache_limit")?;
+        let mut error = ffi::Error::default();
+        // SAFETY: the context is live and owner-thread access was checked.
+        let status = unsafe {
+            ffi::fission_skia_context_set_resource_cache_limit(
+                self.inner.raw,
+                limit_bytes,
+                &mut error,
+            )
+        };
+        status_result(status, &error)
+    }
+
+    /// Returns the current count and byte use of the Ganesh resource cache.
+    pub fn resource_cache_usage(&self) -> Result<GaneshCacheUsage> {
+        self.inner
+            .thread
+            .ensure_owner("GaneshContext::resource_cache_usage")?;
+        let mut usage = ffi::GpuCacheUsage::default();
+        let mut error = ffi::Error::default();
+        // SAFETY: both outputs are initialized and the context is live on its
+        // owner thread for the complete call.
+        let status = unsafe {
+            ffi::fission_skia_context_get_resource_cache_usage(
+                self.inner.raw,
+                &mut usage,
+                &mut error,
+            )
+        };
+        status_result(status, &error)?;
+        Ok(GaneshCacheUsage {
+            resource_count: usage.resource_count,
+            resource_bytes: usage.resource_bytes,
         })
     }
 

@@ -8,7 +8,7 @@ use std::process::Command;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-const ABI_VERSION: u32 = 9;
+const ABI_VERSION: u32 = 10;
 const SKIA_REVISION: &str = "cf5c36972b73698eb3939cda147ea47152670312";
 const STATIC_LIBRARIES: &[&str] = &[
     "fission_skia_bridge",

@@ -43,6 +43,10 @@ public:
     VulkanContext(VulkanContext&&) = delete;
     VulkanContext& operator=(VulkanContext&&) = delete;
 
+    Result set_resource_cache_limit(uint64_t limit_bytes);
+    Result resource_cache_usage(
+        uint64_t* out_resource_count,
+        uint64_t* out_resource_bytes) const;
     Result trim_memory(uint32_t pressure);
     [[nodiscard]] bool is_device_lost() const;
     [[nodiscard]] uint32_t window_kind() const;

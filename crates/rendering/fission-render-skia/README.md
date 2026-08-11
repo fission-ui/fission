@@ -31,10 +31,14 @@ with `FISSION_SKIA_PICTURE_CACHE_BYTES` and
 compiler, image, SVG, picture, and authoritative SkParagraph resources while
 rendering directly into a Ganesh swapchain surface; it never routes pixels
 through wgpu or a raster readback/upload path. Its platform host must keep the
-raw native display and window handles live until detach. Ganesh readback,
-external-surface/3D interop, other image sources, other filters, and CanvasKit
-remain behind the same Fission contracts while their production implementations
-are completed.
+raw native display and window handles live until detach. Its sole Ganesh GPU
+resource cache is capped at 64 MiB by default, can be set in bytes with
+`FISSION_SKIA_GPU_CACHE_BYTES`, reports current entries and bytes through
+backend diagnostics, and purges unlocked resources on host memory pressure.
+The environment setting is read once when the driver is created and the frozen
+limit is reapplied when device recovery creates a new context. External-surface/
+3D interop, other image sources, other filters, and CanvasKit remain behind the
+same Fission contracts while their production implementations are completed.
 
 This crate deliberately reports only semantics that its current adapter can
 honor. The initial foundation profile is not advertised as a complete

@@ -5,6 +5,12 @@ use crate::api::{
     ApiError, ApiReadback, PixelRegion, RasterFrame, RasterRect, SkiaPictureRecorder,
 };
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct GaneshResourceCacheUsage {
+    pub(crate) resource_count: u64,
+    pub(crate) resource_bytes: u64,
+}
+
 /// Injectable boundary around Skia's native Ganesh presentation handles.
 ///
 /// Production uses [`crate::ganesh_native::NativeGaneshApi`]. Tests substitute
@@ -20,6 +26,7 @@ pub(crate) trait GaneshApi {
         &self,
         engine: &Self::Engine,
         compatible_window: NativeWindow,
+        resource_cache_limit_bytes: u64,
     ) -> Result<Self::Context, ApiError>;
     fn create_surface(
         &self,
@@ -56,6 +63,10 @@ pub(crate) trait GaneshApi {
         context: &Self::Context,
         pressure: MemoryPressure,
     ) -> Result<(), ApiError>;
+    fn resource_cache_usage(
+        &self,
+        context: &Self::Context,
+    ) -> Result<GaneshResourceCacheUsage, ApiError>;
 }
 
 pub(crate) struct GaneshPictureRecorder<'api, A>(&'api A);

@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-#define FISSION_SKIA_ABI_VERSION 9u
+#define FISSION_SKIA_ABI_VERSION 10u
 #define FISSION_SKIA_REVISION_LENGTH 41u
 #define FISSION_SKIA_PROFILE_LENGTH 32u
 #define FISSION_SKIA_ERROR_OPERATION_LENGTH 64u
@@ -125,6 +125,14 @@ typedef enum fission_skia_memory_pressure_t {
     FISSION_SKIA_MEMORY_PRESSURE_MODERATE = 1,
     FISSION_SKIA_MEMORY_PRESSURE_CRITICAL = 2
 } fission_skia_memory_pressure_t;
+
+/* Current resources retained by a Ganesh GrDirectContext cache. */
+typedef struct fission_skia_gpu_cache_usage_t {
+    uint32_t struct_size;
+    uint32_t reserved;
+    uint64_t resource_count;
+    uint64_t resource_bytes;
+} fission_skia_gpu_cache_usage_t;
 
 typedef struct fission_skia_color_t {
     /* Finite, unpremultiplied sRGB components in the inclusive range 0..1. */
@@ -681,6 +689,20 @@ FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_context_create_ganesh_vul
 FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_context_trim_memory(
     fission_skia_context_handle_t context,
     uint32_t pressure,
+    fission_skia_error_t* out_error);
+/*
+ * These operations apply only to a Ganesh context. The byte limit is the sole
+ * GPU resource-cache budget; zero is valid and disables unlocked retention.
+ */
+FISSION_SKIA_EXPORT fission_skia_status_t
+fission_skia_context_set_resource_cache_limit(
+    fission_skia_context_handle_t context,
+    uint64_t limit_bytes,
+    fission_skia_error_t* out_error);
+FISSION_SKIA_EXPORT fission_skia_status_t
+fission_skia_context_get_resource_cache_usage(
+    fission_skia_context_handle_t context,
+    fission_skia_gpu_cache_usage_t* out_usage,
     fission_skia_error_t* out_error);
 FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_context_destroy(
     fission_skia_context_handle_t context,

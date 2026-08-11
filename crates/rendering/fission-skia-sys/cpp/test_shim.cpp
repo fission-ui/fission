@@ -42,6 +42,9 @@ struct Context {
     uint64_t engine = 0;
     uint64_t children = 0;
     uint32_t native_window_kind = 0;
+    uint64_t gpu_cache_limit_bytes = 0;
+    uint64_t gpu_cache_resource_count = 0;
+    uint64_t gpu_cache_resource_bytes = 0;
 };
 struct Surface {
     std::thread::id owner;
@@ -940,6 +943,57 @@ fission_skia_status_t fission_skia_context_trim_memory(
         pressure != FISSION_SKIA_MEMORY_PRESSURE_CRITICAL)
         return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "context_trim_memory",
                     "invalid pressure", error);
+    clear(error);
+    return FISSION_SKIA_STATUS_OK;
+}
+
+fission_skia_status_t fission_skia_context_set_resource_cache_limit(
+    fission_skia_context_handle_t id, uint64_t limit_bytes,
+    fission_skia_error_t* error) {
+    if (limit_bytes > static_cast<uint64_t>(SIZE_MAX))
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT,
+                    "context_set_resource_cache_limit",
+                    "cache limit exceeds the platform address range", error);
+    std::lock_guard<std::mutex> lock(state().mutex);
+    auto found = state().contexts.find(id);
+    if (found == state().contexts.end())
+        return fail(FISSION_SKIA_STATUS_INVALID_HANDLE,
+                    "context_set_resource_cache_limit", "invalid context", error);
+    auto status = owner(found->second, "context_set_resource_cache_limit", error);
+    if (status) return status;
+    if (found->second.native_window_kind == 0)
+        return fail(FISSION_SKIA_STATUS_UNSUPPORTED,
+                    "context_set_resource_cache_limit",
+                    "context has no Ganesh GPU cache", error);
+    found->second.gpu_cache_limit_bytes = limit_bytes;
+    clear(error);
+    return FISSION_SKIA_STATUS_OK;
+}
+
+fission_skia_status_t fission_skia_context_get_resource_cache_usage(
+    fission_skia_context_handle_t id,
+    fission_skia_gpu_cache_usage_t* usage,
+    fission_skia_error_t* error) {
+    if (!usage || usage->struct_size != sizeof(*usage))
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT,
+                    "context_get_resource_cache_usage",
+                    "invalid cache usage output", error);
+    usage->reserved = 0;
+    usage->resource_count = 0;
+    usage->resource_bytes = 0;
+    std::lock_guard<std::mutex> lock(state().mutex);
+    auto found = state().contexts.find(id);
+    if (found == state().contexts.end())
+        return fail(FISSION_SKIA_STATUS_INVALID_HANDLE,
+                    "context_get_resource_cache_usage", "invalid context", error);
+    auto status = owner(found->second, "context_get_resource_cache_usage", error);
+    if (status) return status;
+    if (found->second.native_window_kind == 0)
+        return fail(FISSION_SKIA_STATUS_UNSUPPORTED,
+                    "context_get_resource_cache_usage",
+                    "context has no Ganesh GPU cache", error);
+    usage->resource_count = found->second.gpu_cache_resource_count;
+    usage->resource_bytes = found->second.gpu_cache_resource_bytes;
     clear(error);
     return FISSION_SKIA_STATUS_OK;
 }

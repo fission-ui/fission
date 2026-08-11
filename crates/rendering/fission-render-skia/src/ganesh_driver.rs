@@ -9,22 +9,22 @@ use fission_render::backend::{
 };
 use fission_render::capabilities::{ColorFormat, GraphicsCapabilities};
 use fission_render::diagnostics::{
-    BackendDiagnostic, BackendDiagnostics, DiagnosticCategory, DiagnosticProvenance,
-    DiagnosticSeverity,
+    BackendDiagnostic, BackendDiagnostics, CacheDiagnostics, DiagnosticCategory,
+    DiagnosticProvenance, DiagnosticSeverity,
 };
 use fission_render::frame::{FrameId, ValidatedInteractiveFrame};
 use fission_render::surface::{
     LossKind, MemoryPressure, NativeWindowTarget, PhysicalSize, Recovery, SessionState,
     SurfaceKind, SurfaceTarget,
 };
-use fission_skia_sys::{NativeWindow, NativeWindowKind};
+use fission_skia_sys::{NativeWindow, NativeWindowKind, DEFAULT_GANESH_GPU_CACHE_BYTES};
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 
 use crate::api::{ApiError, ApiErrorKind, PixelRegion};
 use crate::capabilities::skia_ganesh_capabilities;
 use crate::compiler::compile_scene_with_paragraphs;
 use crate::error::{api_error, contract_error, contract_error_with_provenance, wrong_thread};
-use crate::ganesh_api::{GaneshApi, GaneshPictureRecorder};
+use crate::ganesh_api::{GaneshApi, GaneshPictureRecorder, GaneshResourceCacheUsage};
 use crate::ganesh_native::NativeGaneshApi;
 use crate::image::SkiaImageCache;
 use crate::picture::SkiaPictureCache;
@@ -33,6 +33,8 @@ use crate::svg::SkiaSvgCache;
 use crate::thread_owner::ThreadOwner;
 
 const MAX_RECENT_EVENTS: usize = 64;
+const GPU_CACHE_NAME: &str = "skia-ganesh-gpu-resources";
+const GPU_CACHE_BYTES_ENV: &str = "FISSION_SKIA_GPU_CACHE_BYTES";
 
 /// Fission graphics driver for direct Skia Ganesh/Vulkan presentation.
 ///
@@ -135,6 +137,8 @@ struct GaneshDriver<A: GaneshApi> {
     image_cache: SkiaImageCache,
     svg_cache: SkiaSvgCache,
     picture_cache: SkiaPictureCache,
+    gpu_cache_budget_bytes: u64,
+    gpu_cache_evictions: u64,
     _not_send_or_sync: PhantomData<Rc<()>>,
 }
 
@@ -142,6 +146,14 @@ impl<A: GaneshApi> GaneshDriver<A> {
     fn try_new(
         api: A,
         paragraph_draw_data: Arc<SkiaParagraphDrawDataRegistry>,
+    ) -> BackendResult<Self> {
+        Self::try_new_with_gpu_cache_budget(api, paragraph_draw_data, configured_gpu_cache_bytes())
+    }
+
+    fn try_new_with_gpu_cache_budget(
+        api: A,
+        paragraph_draw_data: Arc<SkiaParagraphDrawDataRegistry>,
+        gpu_cache_budget_bytes: u64,
     ) -> BackendResult<Self> {
         let capabilities = skia_ganesh_capabilities();
         let engine = api
@@ -164,6 +176,8 @@ impl<A: GaneshApi> GaneshDriver<A> {
             image_cache: SkiaImageCache::new(),
             svg_cache: SkiaSvgCache::new(),
             picture_cache: SkiaPictureCache::new(),
+            gpu_cache_budget_bytes,
+            gpu_cache_evictions: 0,
             _not_send_or_sync: PhantomData,
         })
     }
@@ -295,7 +309,10 @@ impl<A: GaneshApi> GaneshDriver<A> {
             self.record_error(&error);
             return Err(error);
         };
-        match self.api.create_context(engine, window) {
+        match self
+            .api
+            .create_context(engine, window, self.gpu_cache_budget_bytes)
+        {
             Ok(context) => {
                 self.context = Some(context);
                 self.context_window_kind = Some(window.kind());
@@ -879,8 +896,15 @@ impl<A: GaneshApi> GraphicsBackendDriver for GaneshDriver<A> {
             self.picture_cache.clear();
         }
         if let Some(context) = self.context.as_ref() {
+            let before = self.api.resource_cache_usage(context).ok();
             if let Err(error) = self.api.trim_memory(context, pressure) {
                 return Err(self.handle_api_error(BackendOperation::TrimMemory, error));
+            }
+            let after = self.api.resource_cache_usage(context).ok();
+            if let (Some(before), Some(after)) = (before, after) {
+                self.gpu_cache_evictions = self
+                    .gpu_cache_evictions
+                    .saturating_add(before.resource_count.saturating_sub(after.resource_count));
             }
         }
         Ok(())
@@ -909,6 +933,37 @@ impl<A: GaneshApi> GraphicsBackendDriver for GaneshDriver<A> {
         diagnostics.caches.push(self.image_cache.diagnostics());
         diagnostics.caches.push(self.svg_cache.diagnostics());
         diagnostics.caches.push(self.picture_cache.diagnostics());
+        let usage = match self
+            .context
+            .as_ref()
+            .map(|context| self.api.resource_cache_usage(context))
+        {
+            Some(Ok(usage)) => usage,
+            Some(Err(error)) => {
+                diagnostics.recent_events.push(BackendDiagnostic {
+                    severity: DiagnosticSeverity::Warning,
+                    category: DiagnosticCategory::Resource,
+                    code: "skia-ganesh-gpu-cache-usage-unavailable".into(),
+                    message: format!(
+                        "Skia {} failed [{}]: {}",
+                        error.operation, error.code, error.message
+                    ),
+                    provenance: None,
+                });
+                if diagnostics.recent_events.len() > MAX_RECENT_EVENTS {
+                    diagnostics.recent_events.remove(0);
+                }
+                GaneshResourceCacheUsage::default()
+            }
+            None => GaneshResourceCacheUsage::default(),
+        };
+        diagnostics.caches.push(CacheDiagnostics {
+            name: GPU_CACHE_NAME.into(),
+            entries: usage.resource_count,
+            used_bytes: usage.resource_bytes,
+            budget_bytes: Some(self.gpu_cache_budget_bytes),
+            evictions: self.gpu_cache_evictions,
+        });
         diagnostics
     }
 }
@@ -955,6 +1010,16 @@ fn lower_native_window(target: &NativeWindowTarget) -> Result<NativeWindow, Stri
             "the native Ganesh Vulkan profile requires matching Linux Wayland, Xlib, or XCB handles, got {display:?} and {window:?}"
         )),
     }
+}
+
+fn configured_gpu_cache_bytes() -> u64 {
+    configured_gpu_cache_bytes_from(std::env::var(GPU_CACHE_BYTES_ENV).ok().as_deref())
+}
+
+fn configured_gpu_cache_bytes_from(value: Option<&str>) -> u64 {
+    value
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_GANESH_GPU_CACHE_BYTES)
 }
 
 #[cfg(test)]

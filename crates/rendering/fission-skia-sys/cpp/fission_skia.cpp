@@ -274,6 +274,86 @@ fission_skia_status_t fission_skia_context_trim_memory(
     return FISSION_SKIA_STATUS_OK;
 }
 
+fission_skia_status_t fission_skia_context_set_resource_cache_limit(
+    fission_skia_context_handle_t context,
+    uint64_t limit_bytes,
+    fission_skia_error_t* out_error) {
+    std::lock_guard<std::mutex> lock(registry().mutex);
+    const auto found = registry().contexts.find(context);
+    if (found == registry().contexts.end()) {
+        return fail(FISSION_SKIA_STATUS_INVALID_HANDLE,
+                    "context_set_resource_cache_limit",
+                    "context handle is not live", out_error);
+    }
+    auto status = check_owner(
+        *found->second, "context_set_resource_cache_limit", out_error);
+    if (status != FISSION_SKIA_STATUS_OK) return status;
+#if FISSION_SKIA_ENABLE_GANESH_VULKAN
+    if (found->second->backend == ContextBackend::kGaneshVulkan) {
+        if (!found->second->ganesh) {
+            return fail(FISSION_SKIA_STATUS_INTERNAL,
+                        "context_set_resource_cache_limit",
+                        "Ganesh context state has no Vulkan context", out_error);
+        }
+        const auto result =
+            found->second->ganesh->set_resource_cache_limit(limit_bytes);
+        if (!result.ok()) {
+            return fail(result.status, "context_set_resource_cache_limit",
+                        result.message, out_error);
+        }
+        clear_error(out_error);
+        return FISSION_SKIA_STATUS_OK;
+    }
+#endif
+    return fail(FISSION_SKIA_STATUS_UNSUPPORTED,
+                "context_set_resource_cache_limit",
+                "context is not backed by a Ganesh GPU cache", out_error);
+}
+
+fission_skia_status_t fission_skia_context_get_resource_cache_usage(
+    fission_skia_context_handle_t context,
+    fission_skia_gpu_cache_usage_t* out_usage,
+    fission_skia_error_t* out_error) {
+    if (out_usage == nullptr || out_usage->struct_size != sizeof(*out_usage)) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT,
+                    "context_get_resource_cache_usage",
+                    "GPU resource-cache usage output is invalid", out_error);
+    }
+    out_usage->reserved = 0;
+    out_usage->resource_count = 0;
+    out_usage->resource_bytes = 0;
+    std::lock_guard<std::mutex> lock(registry().mutex);
+    const auto found = registry().contexts.find(context);
+    if (found == registry().contexts.end()) {
+        return fail(FISSION_SKIA_STATUS_INVALID_HANDLE,
+                    "context_get_resource_cache_usage",
+                    "context handle is not live", out_error);
+    }
+    auto status = check_owner(
+        *found->second, "context_get_resource_cache_usage", out_error);
+    if (status != FISSION_SKIA_STATUS_OK) return status;
+#if FISSION_SKIA_ENABLE_GANESH_VULKAN
+    if (found->second->backend == ContextBackend::kGaneshVulkan) {
+        if (!found->second->ganesh) {
+            return fail(FISSION_SKIA_STATUS_INTERNAL,
+                        "context_get_resource_cache_usage",
+                        "Ganesh context state has no Vulkan context", out_error);
+        }
+        const auto result = found->second->ganesh->resource_cache_usage(
+            &out_usage->resource_count, &out_usage->resource_bytes);
+        if (!result.ok()) {
+            return fail(result.status, "context_get_resource_cache_usage",
+                        result.message, out_error);
+        }
+        clear_error(out_error);
+        return FISSION_SKIA_STATUS_OK;
+    }
+#endif
+    return fail(FISSION_SKIA_STATUS_UNSUPPORTED,
+                "context_get_resource_cache_usage",
+                "context is not backed by a Ganesh GPU cache", out_error);
+}
+
 fission_skia_status_t fission_skia_context_destroy(
     fission_skia_context_handle_t context,
     fission_skia_error_t* out_error) {

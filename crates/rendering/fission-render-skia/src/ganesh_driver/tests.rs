@@ -31,13 +31,14 @@ use crate::profile::new_paragraph_draw_data_registry;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MockCall {
     CreateEngine,
-    CreateContext(NativeWindowKind),
+    CreateContext(NativeWindowKind, u64),
     CreateSurface(NativeWindowKind, PhysicalSize),
     Resize(NativeWindowKind, PhysicalSize),
     Execute,
     Readback(PixelRegion),
     Present,
     Trim(MemoryPressure),
+    ResourceCacheUsage,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,6 +57,7 @@ struct MockState {
     next_id: u64,
     events: Vec<MockEvent>,
     failures: VecDeque<(MockCall, ApiError)>,
+    cache_usage: GaneshResourceCacheUsage,
 }
 
 impl MockApi {
@@ -78,6 +80,13 @@ impl MockApi {
             return Err(state.failures.pop_front().unwrap().1);
         }
         Ok(())
+    }
+
+    fn set_cache_usage(&self, resource_count: u64, resource_bytes: u64) {
+        self.state.lock().unwrap().cache_usage = GaneshResourceCacheUsage {
+            resource_count,
+            resource_bytes,
+        };
     }
 
     fn handle(&self, kind: &'static str) -> MockHandle {
@@ -124,8 +133,12 @@ impl GaneshApi for MockApi {
         &self,
         _engine: &Self::Engine,
         compatible_window: NativeWindow,
+        resource_cache_limit_bytes: u64,
     ) -> Result<Self::Context, ApiError> {
-        self.call(MockCall::CreateContext(compatible_window.kind()))?;
+        self.call(MockCall::CreateContext(
+            compatible_window.kind(),
+            resource_cache_limit_bytes,
+        ))?;
         Ok(self.handle("context"))
     }
 
@@ -185,7 +198,17 @@ impl GaneshApi for MockApi {
         _context: &Self::Context,
         pressure: MemoryPressure,
     ) -> Result<(), ApiError> {
-        self.call(MockCall::Trim(pressure))
+        self.call(MockCall::Trim(pressure))?;
+        self.state.lock().unwrap().cache_usage = GaneshResourceCacheUsage::default();
+        Ok(())
+    }
+
+    fn resource_cache_usage(
+        &self,
+        _context: &Self::Context,
+    ) -> Result<GaneshResourceCacheUsage, ApiError> {
+        self.call(MockCall::ResourceCacheUsage)?;
+        Ok(self.state.lock().unwrap().cache_usage)
     }
 }
 
@@ -233,7 +256,12 @@ impl FrameFixture {
 
 fn session(api: MockApi) -> GraphicsBackendSession<'static> {
     GraphicsBackendSession::new(
-        GaneshDriver::try_new(api, new_paragraph_draw_data_registry()).unwrap(),
+        GaneshDriver::try_new_with_gpu_cache_budget(
+            api,
+            new_paragraph_draw_data_registry(),
+            DEFAULT_GANESH_GPU_CACHE_BYTES,
+        )
+        .unwrap(),
     )
     .unwrap()
 }
@@ -376,7 +404,7 @@ fn renders_and_presents_directly_then_resizes_the_swapchain() {
             .collect::<Vec<_>>(),
         vec![
             MockCall::CreateEngine,
-            MockCall::CreateContext(NativeWindowKind::Xlib),
+            MockCall::CreateContext(NativeWindowKind::Xlib, DEFAULT_GANESH_GPU_CACHE_BYTES,),
             MockCall::CreateSurface(NativeWindowKind::Xlib, initial),
             MockCall::Execute,
             MockCall::Present,
@@ -449,9 +477,9 @@ fn suspend_resume_can_recreate_for_a_different_linux_wsi_kind() {
         calls,
         vec![
             MockCall::CreateEngine,
-            MockCall::CreateContext(NativeWindowKind::Xlib),
+            MockCall::CreateContext(NativeWindowKind::Xlib, DEFAULT_GANESH_GPU_CACHE_BYTES,),
             MockCall::CreateSurface(NativeWindowKind::Xlib, size),
-            MockCall::CreateContext(NativeWindowKind::Wayland),
+            MockCall::CreateContext(NativeWindowKind::Wayland, DEFAULT_GANESH_GPU_CACHE_BYTES,),
             MockCall::CreateSurface(NativeWindowKind::Wayland, size),
         ]
     );
@@ -492,7 +520,7 @@ fn surface_and_device_recovery_rebuild_the_required_native_owners() {
     assert_eq!(
         calls
             .iter()
-            .filter(|call| matches!(call, MockCall::CreateContext(_)))
+            .filter(|call| matches!(call, MockCall::CreateContext(..)))
             .count(),
         2
     );
@@ -504,9 +532,54 @@ fn surface_and_device_recovery_rebuild_the_required_native_owners() {
         3
     );
     assert_eq!(
-        calls.last(),
-        Some(&MockCall::Trim(MemoryPressure::Critical))
+        &calls[calls.len() - 3..],
+        &[
+            MockCall::ResourceCacheUsage,
+            MockCall::Trim(MemoryPressure::Critical),
+            MockCall::ResourceCacheUsage,
+        ]
     );
+}
+
+#[test]
+fn gpu_cache_policy_is_frozen_reported_and_trimmed_by_the_ganesh_context() {
+    assert_eq!(
+        configured_gpu_cache_bytes_from(None),
+        DEFAULT_GANESH_GPU_CACHE_BYTES
+    );
+    assert_eq!(
+        configured_gpu_cache_bytes_from(Some("not-a-number")),
+        DEFAULT_GANESH_GPU_CACHE_BYTES
+    );
+    assert_eq!(configured_gpu_cache_bytes_from(Some("0")), 0);
+
+    let api = MockApi::default();
+    let mut session = session(api.clone());
+    let size = PhysicalSize::new(640, 480);
+    session.attach(&xlib_target(size)).unwrap();
+    api.set_cache_usage(7, 12 * 1024 * 1024);
+
+    let diagnostics = session.diagnostics();
+    let cache = diagnostics
+        .caches
+        .iter()
+        .find(|cache| cache.name == GPU_CACHE_NAME)
+        .expect("Ganesh GPU cache diagnostics");
+    assert_eq!(cache.entries, 7);
+    assert_eq!(cache.used_bytes, 12 * 1024 * 1024);
+    assert_eq!(cache.budget_bytes, Some(DEFAULT_GANESH_GPU_CACHE_BYTES));
+    assert_eq!(cache.evictions, 0);
+
+    session.trim_memory(MemoryPressure::Moderate).unwrap();
+    let diagnostics = session.diagnostics();
+    let cache = diagnostics
+        .caches
+        .iter()
+        .find(|cache| cache.name == GPU_CACHE_NAME)
+        .expect("Ganesh GPU cache diagnostics after trim");
+    assert_eq!(cache.entries, 0);
+    assert_eq!(cache.used_bytes, 0);
+    assert_eq!(cache.evictions, 7);
 }
 
 #[test]
@@ -550,7 +623,7 @@ fn readback_is_allowed_only_between_render_and_present() {
         calls,
         vec![
             MockCall::CreateEngine,
-            MockCall::CreateContext(NativeWindowKind::Xlib),
+            MockCall::CreateContext(NativeWindowKind::Xlib, DEFAULT_GANESH_GPU_CACHE_BYTES,),
             MockCall::CreateSurface(NativeWindowKind::Xlib, size),
             MockCall::Execute,
             MockCall::Readback(PixelRegion::full(size)),
