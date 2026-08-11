@@ -41,6 +41,9 @@ pub const FEATURE_IMAGE_DECODE: u64 = 1 << 9;
 pub const FEATURE_BACKDROP_BLUR: u64 = 1 << 10;
 pub const FEATURE_SVG_DOCUMENT: u64 = 1 << 11;
 pub const FEATURE_RETAINED_PICTURE: u64 = 1 << 12;
+pub const FEATURE_GANESH: u64 = 1 << 13;
+pub const FEATURE_VULKAN: u64 = 1 << 14;
+pub const FEATURE_NATIVE_PRESENTATION: u64 = 1 << 15;
 pub const FEATURE_TEST_SHIM: u64 = 1 << 63;
 
 pub const PATH_MOVE: u32 = 1;
@@ -87,6 +90,10 @@ pub const IMAGE_SAMPLING_LINEAR: u32 = 2;
 
 pub const MEMORY_PRESSURE_MODERATE: u32 = 1;
 pub const MEMORY_PRESSURE_CRITICAL: u32 = 2;
+
+pub const NATIVE_WINDOW_WAYLAND: u32 = 1;
+pub const NATIVE_WINDOW_XLIB: u32 = 2;
+pub const NATIVE_WINDOW_XCB: u32 = 3;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -138,6 +145,16 @@ pub struct EngineConfig {
     pub struct_size: u32,
     pub expected_abi_version: u32,
     pub required_feature_bits: u64,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NativeWindow {
+    pub struct_size: u32,
+    pub kind: u32,
+    pub display: u64,
+    pub window: u64,
+    pub visual_id: u64,
 }
 
 #[repr(C)]
@@ -339,6 +356,12 @@ extern "C" {
         out_context: *mut ContextHandle,
         out_error: *mut Error,
     ) -> Status;
+    pub fn fission_skia_context_create_ganesh_vulkan(
+        engine: EngineHandle,
+        compatible_window: *const NativeWindow,
+        out_context: *mut ContextHandle,
+        out_error: *mut Error,
+    ) -> Status;
     pub fn fission_skia_context_trim_memory(
         context: ContextHandle,
         pressure: u32,
@@ -350,6 +373,21 @@ extern "C" {
         width: u32,
         height: u32,
         out_surface: *mut SurfaceHandle,
+        out_error: *mut Error,
+    ) -> Status;
+    pub fn fission_skia_surface_create_ganesh(
+        context: ContextHandle,
+        window: *const NativeWindow,
+        width: u32,
+        height: u32,
+        out_surface: *mut SurfaceHandle,
+        out_error: *mut Error,
+    ) -> Status;
+    pub fn fission_skia_surface_resize_ganesh(
+        surface: SurfaceHandle,
+        window: *const NativeWindow,
+        width: u32,
+        height: u32,
         out_error: *mut Error,
     ) -> Status;
     pub fn fission_skia_surface_execute_frame(
@@ -366,6 +404,7 @@ extern "C" {
         out_required_length: *mut usize,
         out_error: *mut Error,
     ) -> Status;
+    pub fn fission_skia_surface_present(surface: SurfaceHandle, out_error: *mut Error) -> Status;
     pub fn fission_skia_surface_destroy(surface: SurfaceHandle, out_error: *mut Error) -> Status;
     pub fn fission_skia_image_decode_encoded(
         encoded: *const c_uchar,

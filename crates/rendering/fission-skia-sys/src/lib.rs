@@ -9,6 +9,7 @@
 
 mod error;
 mod frame;
+mod ganesh;
 mod handles;
 mod image;
 mod paragraph;
@@ -23,6 +24,7 @@ pub use frame::{
     Affine, BoxShadow, Color, FillRule, Frame, FrameOp, GradientStop, ImageSampling, LineCap,
     LineJoin, Paint, Path, PathCommand, PixelRect, Point, Rect, Stroke,
 };
+pub use ganesh::{GaneshContext, GaneshSurface, NativeWindow, NativeWindowKind};
 pub use handles::{BuildInfo, Context, Engine, MemoryPressure, RasterSurface};
 pub use image::DecodedImage;
 pub use paragraph::{
@@ -38,7 +40,7 @@ pub use picture::RecordedPicture;
 pub use svg::{SvgDocument, MAX_SVG_DOCUMENT_BYTES};
 
 /// Exact bridge ABI accepted by this crate.
-pub const ABI_VERSION: u32 = 8;
+pub const ABI_VERSION: u32 = 9;
 
 /// Exact Skia source revision used by both source and prebuilt profiles.
 pub const SKIA_REVISION: &str = "cf5c36972b73698eb3939cda147ea47152670312";

@@ -31,10 +31,18 @@ constexpr uint64_t kFeatures =
     FISSION_SKIA_FEATURE_BACKDROP_BLUR |
     FISSION_SKIA_FEATURE_SVG_DOCUMENT |
     FISSION_SKIA_FEATURE_RETAINED_PICTURE |
+    FISSION_SKIA_FEATURE_GANESH |
+    FISSION_SKIA_FEATURE_VULKAN |
+    FISSION_SKIA_FEATURE_NATIVE_PRESENTATION |
     FISSION_SKIA_FEATURE_TEST_SHIM;
 
 struct Engine { std::thread::id owner; uint64_t children = 0; };
-struct Context { std::thread::id owner; uint64_t engine = 0; uint64_t children = 0; };
+struct Context {
+    std::thread::id owner;
+    uint64_t engine = 0;
+    uint64_t children = 0;
+    uint32_t native_window_kind = 0;
+};
 struct Surface {
     std::thread::id owner;
     uint64_t context = 0;
@@ -43,6 +51,9 @@ struct Surface {
     float origin_x = 0.0f;
     float origin_y = 0.0f;
     std::vector<uint8_t> pixels;
+    uint32_t native_window_kind = 0;
+    fission_skia_native_window_t native_window = {};
+    bool frame_ready = false;
 };
 struct DecodedImage {
     uint32_t width = 0;
@@ -140,6 +151,36 @@ bool valid_rect(const fission_skia_rect_t& rect) {
 
 bool valid_non_empty_rect(const fission_skia_rect_t& rect) {
     return valid_rect(rect) && rect.width > 0.0f && rect.height > 0.0f;
+}
+
+bool valid_native_window(const fission_skia_native_window_t* window) {
+    if (!window || window->struct_size != sizeof(*window) || !window->display ||
+        !window->window || window->display > static_cast<uint64_t>(UINTPTR_MAX)) {
+        return false;
+    }
+    switch (window->kind) {
+        case FISSION_SKIA_NATIVE_WINDOW_WAYLAND:
+            return window->window <= static_cast<uint64_t>(UINTPTR_MAX) &&
+                   window->visual_id == 0;
+        case FISSION_SKIA_NATIVE_WINDOW_XLIB:
+            return window->window <= static_cast<uint64_t>(UINTPTR_MAX) &&
+                   window->visual_id <= static_cast<uint64_t>(UINTPTR_MAX);
+        case FISSION_SKIA_NATIVE_WINDOW_XCB:
+            return window->window <= UINT32_MAX && window->visual_id <= UINT32_MAX;
+        default:
+            return false;
+    }
+}
+
+bool valid_surface_extent(uint32_t width, uint32_t height) {
+    if (width > static_cast<uint32_t>(INT32_MAX) ||
+        height > static_cast<uint32_t>(INT32_MAX)) {
+        return false;
+    }
+    if (width == 0 || height == 0) return true;
+    if (static_cast<size_t>(width) > static_cast<size_t>(-1) / height) return false;
+    const size_t pixels = static_cast<size_t>(width) * height;
+    return pixels <= static_cast<size_t>(-1) / 4;
 }
 
 uint8_t ascii_lower(uint8_t value) {
@@ -851,7 +892,36 @@ fission_skia_status_t fission_skia_context_create_raster(
     auto status = owner(parent->second, "context_create_raster", error);
     if (status) return status;
     const auto id = handle();
-    state().contexts.emplace(id, Context{std::this_thread::get_id(), engine, 0});
+    state().contexts.emplace(id, Context{std::this_thread::get_id(), engine, 0, 0});
+    parent->second.children += 1;
+    *output = id;
+    clear(error);
+    return FISSION_SKIA_STATUS_OK;
+}
+
+fission_skia_status_t fission_skia_context_create_ganesh_vulkan(
+    fission_skia_engine_handle_t engine,
+    const fission_skia_native_window_t* compatible_window,
+    fission_skia_context_handle_t* output,
+    fission_skia_error_t* error) {
+    if (!output || !valid_native_window(compatible_window)) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT,
+                    "context_create_ganesh_vulkan",
+                    "invalid output or native window descriptor", error);
+    }
+    *output = 0;
+    std::lock_guard<std::mutex> lock(state().mutex);
+    auto parent = state().engines.find(engine);
+    if (parent == state().engines.end()) {
+        return fail(FISSION_SKIA_STATUS_INVALID_HANDLE,
+                    "context_create_ganesh_vulkan", "invalid engine", error);
+    }
+    auto status = owner(parent->second, "context_create_ganesh_vulkan", error);
+    if (status) return status;
+    const auto id = handle();
+    state().contexts.emplace(
+        id,
+        Context{std::this_thread::get_id(), engine, 0, compatible_window->kind});
     parent->second.children += 1;
     *output = id;
     clear(error);
@@ -909,12 +979,104 @@ fission_skia_status_t fission_skia_surface_create_raster(
                     "invalid context", error);
     auto status = owner(parent->second, "surface_create_raster", error);
     if (status) return status;
+    if (parent->second.native_window_kind != 0) {
+        return fail(FISSION_SKIA_STATUS_INVALID_STATE, "surface_create_raster",
+                    "Ganesh context cannot create a raster-owned surface", error);
+    }
     const auto id = handle();
     state().surfaces.emplace(
         id, Surface{std::this_thread::get_id(), context, width, height, 0.0f, 0.0f,
                     std::vector<uint8_t>(pixels * 4, 0)});
     parent->second.children += 1;
     *output = id;
+    clear(error);
+    return FISSION_SKIA_STATUS_OK;
+}
+
+fission_skia_status_t fission_skia_surface_create_ganesh(
+    fission_skia_context_handle_t context,
+    const fission_skia_native_window_t* window,
+    uint32_t width,
+    uint32_t height,
+    fission_skia_surface_handle_t* output,
+    fission_skia_error_t* error) {
+    if (!output || !valid_native_window(window) || !valid_surface_extent(width, height)) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "surface_create_ganesh",
+                    "invalid output, native window, or dimensions", error);
+    }
+    *output = 0;
+    std::lock_guard<std::mutex> lock(state().mutex);
+    auto parent = state().contexts.find(context);
+    if (parent == state().contexts.end()) {
+        return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, "surface_create_ganesh",
+                    "invalid context", error);
+    }
+    auto status = owner(parent->second, "surface_create_ganesh", error);
+    if (status) return status;
+    if (parent->second.native_window_kind == 0) {
+        return fail(FISSION_SKIA_STATUS_INVALID_STATE, "surface_create_ganesh",
+                    "raster context cannot create a Ganesh surface", error);
+    }
+    if (parent->second.native_window_kind != window->kind) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "surface_create_ganesh",
+                    "native window kind does not match the Ganesh context", error);
+    }
+    Surface surface;
+    surface.owner = std::this_thread::get_id();
+    surface.context = context;
+    surface.width = width;
+    surface.height = height;
+    surface.native_window_kind = window->kind;
+    surface.native_window = *window;
+    if (width != 0 && height != 0) {
+        surface.pixels.resize(static_cast<size_t>(width) * height * 4, 0);
+    }
+    const auto id = handle();
+    state().surfaces.emplace(id, std::move(surface));
+    parent->second.children += 1;
+    *output = id;
+    clear(error);
+    return FISSION_SKIA_STATUS_OK;
+}
+
+fission_skia_status_t fission_skia_surface_resize_ganesh(
+    fission_skia_surface_handle_t id,
+    const fission_skia_native_window_t* window,
+    uint32_t width,
+    uint32_t height,
+    fission_skia_error_t* error) {
+    if (!valid_native_window(window) || !valid_surface_extent(width, height)) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "surface_resize_ganesh",
+                    "invalid native window or dimensions", error);
+    }
+    std::lock_guard<std::mutex> lock(state().mutex);
+    auto found = state().surfaces.find(id);
+    if (found == state().surfaces.end()) {
+        return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, "surface_resize_ganesh",
+                    "invalid surface", error);
+    }
+    auto status = owner(found->second, "surface_resize_ganesh", error);
+    if (status) return status;
+    if (found->second.native_window_kind == 0) {
+        return fail(FISSION_SKIA_STATUS_INVALID_STATE, "surface_resize_ganesh",
+                    "surface is not a Ganesh native surface", error);
+    }
+    if (found->second.frame_ready) {
+        return fail(FISSION_SKIA_STATUS_INVALID_STATE, "surface_resize_ganesh",
+                    "ready frame must be presented before resize", error);
+    }
+    if (found->second.native_window_kind != window->kind) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "surface_resize_ganesh",
+                    "native window kind does not match the Ganesh context", error);
+    }
+    std::vector<uint8_t> pixels;
+    if (width != 0 && height != 0) {
+        pixels.resize(static_cast<size_t>(width) * height * 4, 0);
+    }
+    found->second.width = width;
+    found->second.height = height;
+    found->second.native_window = *window;
+    found->second.pixels = std::move(pixels);
     clear(error);
     return FISSION_SKIA_STATUS_OK;
 }
@@ -1053,6 +1215,16 @@ fission_skia_status_t fission_skia_surface_execute_frame(
         return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, "execute_frame", "invalid surface", error);
     auto status = owner(found->second, "execute_frame", error);
     if (status) return status;
+    if (found->second.native_window_kind != 0) {
+        if (found->second.width == 0 || found->second.height == 0) {
+            return fail(FISSION_SKIA_STATUS_INVALID_STATE, "execute_frame",
+                        "zero-sized Ganesh surface cannot render", error);
+        }
+        if (found->second.frame_ready) {
+            return fail(FISSION_SKIA_STATUS_INVALID_STATE, "execute_frame",
+                        "previous Ganesh frame is still ready to present", error);
+        }
+    }
     std::vector<SavedKind> saved;
     std::vector<OpacityLayer> layers;
     for (size_t index = 0; index < frame->operation_count; ++index) {
@@ -1119,6 +1291,7 @@ fission_skia_status_t fission_skia_surface_execute_frame(
         // State, gradients, strokes, paths, and shadows are intentionally
         // validation-only in the ABI ownership test double.
     }
+    if (found->second.native_window_kind != 0) found->second.frame_ready = true;
     clear(error);
     return FISSION_SKIA_STATUS_OK;
 }
@@ -1152,6 +1325,34 @@ fission_skia_status_t fission_skia_surface_read_pixels_rgba8888(
         const size_t source = ((static_cast<size_t>(rect->y) + row) * found->second.width + rect->x) * 4;
         std::memcpy(destination + row * row_bytes, found->second.pixels.data() + source, tight);
     }
+    clear(error);
+    return FISSION_SKIA_STATUS_OK;
+}
+
+fission_skia_status_t fission_skia_surface_present(
+    fission_skia_surface_handle_t id,
+    fission_skia_error_t* error) {
+    std::lock_guard<std::mutex> lock(state().mutex);
+    auto found = state().surfaces.find(id);
+    if (found == state().surfaces.end()) {
+        return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, "surface_present",
+                    "invalid surface", error);
+    }
+    auto status = owner(found->second, "surface_present", error);
+    if (status) return status;
+    if (found->second.native_window_kind == 0) {
+        return fail(FISSION_SKIA_STATUS_INVALID_STATE, "surface_present",
+                    "surface is not a Ganesh native surface", error);
+    }
+    if (found->second.width == 0 || found->second.height == 0) {
+        return fail(FISSION_SKIA_STATUS_INVALID_STATE, "surface_present",
+                    "zero-sized Ganesh surface cannot present", error);
+    }
+    if (!found->second.frame_ready) {
+        return fail(FISSION_SKIA_STATUS_INVALID_STATE, "surface_present",
+                    "Ganesh surface has no frame ready to present", error);
+    }
+    found->second.frame_ready = false;
     clear(error);
     return FISSION_SKIA_STATUS_OK;
 }

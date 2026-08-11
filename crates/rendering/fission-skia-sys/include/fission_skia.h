@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-#define FISSION_SKIA_ABI_VERSION 8u
+#define FISSION_SKIA_ABI_VERSION 9u
 #define FISSION_SKIA_REVISION_LENGTH 41u
 #define FISSION_SKIA_PROFILE_LENGTH 32u
 #define FISSION_SKIA_ERROR_OPERATION_LENGTH 64u
@@ -64,6 +64,9 @@ typedef enum fission_skia_feature_t {
     FISSION_SKIA_FEATURE_BACKDROP_BLUR = UINT64_C(1) << 10,
     FISSION_SKIA_FEATURE_SVG_DOCUMENT = UINT64_C(1) << 11,
     FISSION_SKIA_FEATURE_RETAINED_PICTURE = UINT64_C(1) << 12,
+    FISSION_SKIA_FEATURE_GANESH = UINT64_C(1) << 13,
+    FISSION_SKIA_FEATURE_VULKAN = UINT64_C(1) << 14,
+    FISSION_SKIA_FEATURE_NATIVE_PRESENTATION = UINT64_C(1) << 15,
     FISSION_SKIA_FEATURE_TEST_SHIM = UINT64_C(1) << 63
 } fission_skia_feature_t;
 
@@ -88,6 +91,35 @@ typedef struct fission_skia_engine_config_t {
     uint32_t expected_abi_version;
     uint64_t required_feature_bits;
 } fission_skia_engine_config_t;
+
+typedef enum fission_skia_native_window_kind_t {
+    FISSION_SKIA_NATIVE_WINDOW_WAYLAND = 1,
+    FISSION_SKIA_NATIVE_WINDOW_XLIB = 2,
+    FISSION_SKIA_NATIVE_WINDOW_XCB = 3
+} fission_skia_native_window_kind_t;
+
+/*
+ * Fixed-width Linux native-window descriptor. display contains a wl_display*,
+ * Display*, or xcb_connection_t* encoded as uint64_t. window contains a
+ * wl_surface* encoded as uint64_t for Wayland and the integer Window/XID for
+ * Xlib/XCB. visual_id is zero for Wayland and optional metadata for Xlib/XCB;
+ * zero is valid when the platform host does not report it.
+ *
+ * The caller owns every referenced native object and must keep it valid for
+ * the synchronous context-probe call that receives it. A descriptor used to
+ * create or resize a surface must remain live for that surface attachment
+ * until another resize replaces it or the surface is destroyed. Replacement
+ * descriptors must use the context's window-system kind; display, window, and
+ * visual identity may change across host suspend/resume. The Vulkan
+ * implementation must prove presentation support for each fresh surface.
+ */
+typedef struct fission_skia_native_window_t {
+    uint32_t struct_size;
+    uint32_t kind;
+    uint64_t display;
+    uint64_t window;
+    uint64_t visual_id;
+} fission_skia_native_window_t;
 
 typedef enum fission_skia_memory_pressure_t {
     FISSION_SKIA_MEMORY_PRESSURE_MODERATE = 1,
@@ -641,6 +673,11 @@ FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_context_create_raster(
     fission_skia_engine_handle_t engine,
     fission_skia_context_handle_t* out_context,
     fission_skia_error_t* out_error);
+FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_context_create_ganesh_vulkan(
+    fission_skia_engine_handle_t engine,
+    const fission_skia_native_window_t* compatible_window,
+    fission_skia_context_handle_t* out_context,
+    fission_skia_error_t* out_error);
 FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_context_trim_memory(
     fission_skia_context_handle_t context,
     uint32_t pressure,
@@ -655,6 +692,28 @@ FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_surface_create_raster(
     uint32_t height,
     fission_skia_surface_handle_t* out_surface,
     fission_skia_error_t* out_error);
+/*
+ * A Ganesh surface may be created or resized to a zero width or height while a
+ * native window is minimized. Such a surface remains owned but rejects frame
+ * execution and presentation until resized to a non-zero extent.
+ *
+ * A successful frame execution makes exactly one frame ready to present.
+ * Executing again before present, presenting without a ready frame, and
+ * resizing while a frame is ready all return INVALID_STATE.
+ */
+FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_surface_create_ganesh(
+    fission_skia_context_handle_t context,
+    const fission_skia_native_window_t* window,
+    uint32_t width,
+    uint32_t height,
+    fission_skia_surface_handle_t* out_surface,
+    fission_skia_error_t* out_error);
+FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_surface_resize_ganesh(
+    fission_skia_surface_handle_t surface,
+    const fission_skia_native_window_t* window,
+    uint32_t width,
+    uint32_t height,
+    fission_skia_error_t* out_error);
 FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_surface_execute_frame(
     fission_skia_surface_handle_t surface,
     const fission_skia_frame_t* frame,
@@ -666,6 +725,9 @@ FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_surface_read_pixels_rgba8
     size_t destination_length,
     size_t destination_row_bytes,
     size_t* out_required_length,
+    fission_skia_error_t* out_error);
+FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_surface_present(
+    fission_skia_surface_handle_t surface,
     fission_skia_error_t* out_error);
 FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_surface_destroy(
     fission_skia_surface_handle_t surface,

@@ -120,6 +120,11 @@ impl Engine {
     pub fn build_info(&self) -> &BuildInfo {
         &self.inner.build_info
     }
+
+    pub(crate) fn raw_for_owner(&self, operation: &str) -> Result<ffi::EngineHandle> {
+        self.inner.thread.ensure_owner(operation)?;
+        Ok(self.inner.raw)
+    }
 }
 
 impl Drop for EngineInner {
@@ -157,6 +162,15 @@ pub enum MemoryPressure {
     Critical,
 }
 
+impl MemoryPressure {
+    pub(crate) fn as_ffi(self) -> u32 {
+        match self {
+            Self::Moderate => ffi::MEMORY_PRESSURE_MODERATE,
+            Self::Critical => ffi::MEMORY_PRESSURE_CRITICAL,
+        }
+    }
+}
+
 impl Context {
     pub fn new_raster(engine: &Engine) -> Result<Self> {
         engine.inner.thread.ensure_owner("Context::new_raster")?;
@@ -186,15 +200,12 @@ impl Context {
 
     pub fn trim_memory(&self, pressure: MemoryPressure) -> Result<()> {
         self.inner.thread.ensure_owner("Context::trim_memory")?;
-        let pressure = match pressure {
-            MemoryPressure::Moderate => ffi::MEMORY_PRESSURE_MODERATE,
-            MemoryPressure::Critical => ffi::MEMORY_PRESSURE_CRITICAL,
-        };
         let mut error = ffi::Error::default();
         // SAFETY: the context handle is live and owner-thread access was
         // checked immediately before entering the bridge.
-        let status =
-            unsafe { ffi::fission_skia_context_trim_memory(self.inner.raw, pressure, &mut error) };
+        let status = unsafe {
+            ffi::fission_skia_context_trim_memory(self.inner.raw, pressure.as_ffi(), &mut error)
+        };
         status_result(status, &error)
     }
 }

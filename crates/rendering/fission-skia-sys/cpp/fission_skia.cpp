@@ -261,6 +261,26 @@ bool valid_non_empty_rect(const fission_skia_rect_t& rect) {
     return valid_rect(rect) && rect.width > 0.0f && rect.height > 0.0f;
 }
 
+bool valid_native_window(const fission_skia_native_window_t* window) {
+    if (window == nullptr || window->struct_size != sizeof(*window) ||
+        window->display == 0 || window->window == 0 ||
+        window->display > static_cast<uint64_t>(UINTPTR_MAX)) {
+        return false;
+    }
+    switch (window->kind) {
+        case FISSION_SKIA_NATIVE_WINDOW_WAYLAND:
+            return window->window <= static_cast<uint64_t>(UINTPTR_MAX) &&
+                   window->visual_id == 0;
+        case FISSION_SKIA_NATIVE_WINDOW_XLIB:
+            return window->window <= static_cast<uint64_t>(UINTPTR_MAX) &&
+                   window->visual_id <= static_cast<uint64_t>(UINTPTR_MAX);
+        case FISSION_SKIA_NATIVE_WINDOW_XCB:
+            return window->window <= UINT32_MAX && window->visual_id <= UINT32_MAX;
+        default:
+            return false;
+    }
+}
+
 void write_image_info(
     const ImageState& image,
     fission_skia_image_info_t* out_info) {
@@ -1237,6 +1257,31 @@ fission_skia_status_t fission_skia_context_create_raster(
     return FISSION_SKIA_STATUS_OK;
 }
 
+fission_skia_status_t fission_skia_context_create_ganesh_vulkan(
+    fission_skia_engine_handle_t engine,
+    const fission_skia_native_window_t* compatible_window,
+    fission_skia_context_handle_t* out_context,
+    fission_skia_error_t* out_error) {
+    if (out_context == nullptr || !valid_native_window(compatible_window)) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT,
+                    "context_create_ganesh_vulkan",
+                    "context output or native window descriptor is invalid", out_error);
+    }
+    *out_context = 0;
+    std::lock_guard<std::mutex> lock(registry().mutex);
+    const auto parent = registry().engines.find(engine);
+    if (parent == registry().engines.end()) {
+        return fail(FISSION_SKIA_STATUS_INVALID_HANDLE,
+                    "context_create_ganesh_vulkan",
+                    "engine handle is not live", out_error);
+    }
+    auto status = check_owner(*parent->second, "context_create_ganesh_vulkan", out_error);
+    if (status != FISSION_SKIA_STATUS_OK) return status;
+    return fail(FISSION_SKIA_STATUS_UNSUPPORTED, "context_create_ganesh_vulkan",
+                "this bridge profile does not implement Ganesh Vulkan resources",
+                out_error);
+}
+
 fission_skia_status_t fission_skia_context_trim_memory(
     fission_skia_context_handle_t context,
     uint32_t pressure,
@@ -1329,6 +1374,57 @@ fission_skia_status_t fission_skia_surface_create_raster(
     return FISSION_SKIA_STATUS_OK;
 }
 
+fission_skia_status_t fission_skia_surface_create_ganesh(
+    fission_skia_context_handle_t context,
+    const fission_skia_native_window_t* window,
+    uint32_t width,
+    uint32_t height,
+    fission_skia_surface_handle_t* out_surface,
+    fission_skia_error_t* out_error) {
+    if (out_surface == nullptr || !valid_native_window(window) ||
+        width > static_cast<uint32_t>(std::numeric_limits<int>::max()) ||
+        height > static_cast<uint32_t>(std::numeric_limits<int>::max())) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "surface_create_ganesh",
+                    "surface output, native window, or dimensions are invalid", out_error);
+    }
+    *out_surface = 0;
+    std::lock_guard<std::mutex> lock(registry().mutex);
+    const auto parent = registry().contexts.find(context);
+    if (parent == registry().contexts.end()) {
+        return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, "surface_create_ganesh",
+                    "context handle is not live", out_error);
+    }
+    auto status = check_owner(*parent->second, "surface_create_ganesh", out_error);
+    if (status != FISSION_SKIA_STATUS_OK) return status;
+    return fail(FISSION_SKIA_STATUS_UNSUPPORTED, "surface_create_ganesh",
+                "this bridge profile does not implement Ganesh native surfaces",
+                out_error);
+}
+
+fission_skia_status_t fission_skia_surface_resize_ganesh(
+    fission_skia_surface_handle_t surface,
+    const fission_skia_native_window_t* window,
+    uint32_t width,
+    uint32_t height,
+    fission_skia_error_t* out_error) {
+    if (!valid_native_window(window) ||
+        width > static_cast<uint32_t>(std::numeric_limits<int>::max()) ||
+        height > static_cast<uint32_t>(std::numeric_limits<int>::max())) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "surface_resize_ganesh",
+                    "native window or dimensions are invalid", out_error);
+    }
+    std::lock_guard<std::mutex> lock(registry().mutex);
+    const auto found = registry().surfaces.find(surface);
+    if (found == registry().surfaces.end()) {
+        return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, "surface_resize_ganesh",
+                    "surface handle is not live", out_error);
+    }
+    auto status = check_owner(*found->second, "surface_resize_ganesh", out_error);
+    if (status != FISSION_SKIA_STATUS_OK) return status;
+    return fail(FISSION_SKIA_STATUS_INVALID_STATE, "surface_resize_ganesh",
+                "surface is not a Ganesh native surface", out_error);
+}
+
 fission_skia_status_t fission_skia_surface_execute_frame(
     fission_skia_surface_handle_t surface,
     const fission_skia_frame_t* frame,
@@ -1405,6 +1501,21 @@ fission_skia_status_t fission_skia_surface_read_pixels_rgba8888(
     }
     clear_error(out_error);
     return FISSION_SKIA_STATUS_OK;
+}
+
+fission_skia_status_t fission_skia_surface_present(
+    fission_skia_surface_handle_t surface,
+    fission_skia_error_t* out_error) {
+    std::lock_guard<std::mutex> lock(registry().mutex);
+    const auto found = registry().surfaces.find(surface);
+    if (found == registry().surfaces.end()) {
+        return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, "surface_present",
+                    "surface handle is not live", out_error);
+    }
+    auto status = check_owner(*found->second, "surface_present", out_error);
+    if (status != FISSION_SKIA_STATUS_OK) return status;
+    return fail(FISSION_SKIA_STATUS_INVALID_STATE, "surface_present",
+                "surface is not a Ganesh native surface", out_error);
 }
 
 fission_skia_status_t fission_skia_surface_destroy(
