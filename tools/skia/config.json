@@ -70,6 +70,9 @@
       "upstream_libraries": ["svg", "skparagraph", "skshaper", "skunicode", "skia"],
       "bridge_sources": [
         "cpp/fission_skia.cpp",
+        "cpp/fission_skia_registry.cpp",
+        "cpp/fission_skia_frame_validation.cpp",
+        "cpp/fission_skia_frame_playback.cpp",
         "cpp/fission_skia_paragraph.cpp"
       ],
       "bridge_defines": {},
@@ -124,6 +127,9 @@
       "upstream_libraries": ["svg", "skparagraph", "skshaper", "skunicode", "skia"],
       "bridge_sources": [
         "cpp/fission_skia.cpp",
+        "cpp/fission_skia_registry.cpp",
+        "cpp/fission_skia_frame_validation.cpp",
+        "cpp/fission_skia_frame_playback.cpp",
         "cpp/fission_skia_paragraph.cpp",
         "cpp/fission_skia_ganesh_vulkan_context.cpp",
         "cpp/fission_skia_ganesh_vulkan_surface.cpp"

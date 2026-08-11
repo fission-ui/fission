@@ -20,9 +20,18 @@ const STATIC_LIBRARIES: &[&str] = &[
 ];
 const GANESH_LINUX_TARGETS: &[&str] = &["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"];
 const GANESH_LINUX_SYSTEM_LIBRARIES: &[&str] = &["dl", "fontconfig", "vulkan"];
-const RASTER_BRIDGE_SOURCES: &[&str] = &["cpp/fission_skia.cpp", "cpp/fission_skia_paragraph.cpp"];
+const RASTER_BRIDGE_SOURCES: &[&str] = &[
+    "cpp/fission_skia.cpp",
+    "cpp/fission_skia_registry.cpp",
+    "cpp/fission_skia_frame_validation.cpp",
+    "cpp/fission_skia_frame_playback.cpp",
+    "cpp/fission_skia_paragraph.cpp",
+];
 const GANESH_BRIDGE_SOURCES: &[&str] = &[
     "cpp/fission_skia.cpp",
+    "cpp/fission_skia_registry.cpp",
+    "cpp/fission_skia_frame_validation.cpp",
+    "cpp/fission_skia_frame_playback.cpp",
     "cpp/fission_skia_paragraph.cpp",
     "cpp/fission_skia_ganesh_vulkan_context.cpp",
     "cpp/fission_skia_ganesh_vulkan_surface.cpp",
@@ -124,6 +133,10 @@ fn main() {
 fn emit_inputs() {
     println!("cargo:rerun-if-changed=include/fission_skia.h");
     println!("cargo:rerun-if-changed=cpp/fission_skia.cpp");
+    println!("cargo:rerun-if-changed=cpp/fission_skia_internal.h");
+    println!("cargo:rerun-if-changed=cpp/fission_skia_registry.cpp");
+    println!("cargo:rerun-if-changed=cpp/fission_skia_frame_validation.cpp");
+    println!("cargo:rerun-if-changed=cpp/fission_skia_frame_playback.cpp");
     println!("cargo:rerun-if-changed=cpp/fission_skia_paragraph.cpp");
     println!("cargo:rerun-if-changed=cpp/fission_skia_paragraph_internal.h");
     println!("cargo:rerun-if-changed=cpp/fission_skia_ganesh_vulkan.h");

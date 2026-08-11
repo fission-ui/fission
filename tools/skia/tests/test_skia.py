@@ -176,7 +176,13 @@ class SkiaToolTests(unittest.TestCase):
         )
         self.assertEqual(
             raster_recipe["bridge_sources"],
-            ["cpp/fission_skia.cpp", "cpp/fission_skia_paragraph.cpp"],
+            [
+                "cpp/fission_skia.cpp",
+                "cpp/fission_skia_registry.cpp",
+                "cpp/fission_skia_frame_validation.cpp",
+                "cpp/fission_skia_frame_playback.cpp",
+                "cpp/fission_skia_paragraph.cpp",
+            ],
         )
         self.assertEqual(raster_recipe["bridge_defines"], {})
         for profile in self.config["profiles"].values():
@@ -280,6 +286,9 @@ class SkiaToolTests(unittest.TestCase):
             recipe["bridge_sources"],
             [
                 "cpp/fission_skia.cpp",
+                "cpp/fission_skia_registry.cpp",
+                "cpp/fission_skia_frame_validation.cpp",
+                "cpp/fission_skia_frame_playback.cpp",
                 "cpp/fission_skia_paragraph.cpp",
                 "cpp/fission_skia_ganesh_vulkan_context.cpp",
                 "cpp/fission_skia_ganesh_vulkan_surface.cpp",

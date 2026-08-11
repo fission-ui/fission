@@ -92,7 +92,7 @@ build receipt. The receipt binds the canonical build plan, each tool's expected
 and observed digest, normalized versions, source identity, and every upstream
 output's size and SHA-256. Tool and source identities intentionally omit host
 paths. The receipt also binds the selected bridge source list and preprocessor
-defines. The Fission bridge is built from the bridge source owned by
+defines. The Fission bridge is built from the bridge sources owned by
 `fission-skia-sys` and supplied to the packaging step; packaging checks its
 header ABI and binds the header, library digest, sources, and defines into the
 artifact manifest. A raster bridge receipt therefore cannot be relabelled as a
