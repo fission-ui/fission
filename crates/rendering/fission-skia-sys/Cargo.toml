@@ -1,0 +1,31 @@
+[package]
+name = "fission-skia-sys"
+version = "0.10.1"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/fission-ui/fission"
+description = "Fission-owned, versioned native ABI for the Skia rendering engine"
+categories = ["rendering", "graphics", "gui"]
+keywords = ["fission", "skia", "rendering", "graphics", "ffi"]
+homepage = "https://fission.rs"
+documentation = "https://fission.rs"
+readme = "README.md"
+links = "fission_skia"
+build = "build.rs"
+
+[package.metadata.fission]
+platforms = ["android", "ios", "linux", "macos", "windows"]
+
+[features]
+default = ["skia-prebuilt"]
+skia-prebuilt = []
+skia-build-from-source = ["dep:cc"]
+# Compiles a deterministic ABI double. It never claims Skia capabilities and is
+# only for validating FFI ownership and error behavior.
+test-shim = ["dep:cc"]
+
+[build-dependencies]
+cc = { version = "1.2", optional = true }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
