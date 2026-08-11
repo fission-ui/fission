@@ -18,6 +18,7 @@
 #include "include/codec/SkEncodedOrigin.h"
 #include "include/effects/SkDashPathEffect.h"
 #include "include/effects/SkGradient.h"
+#include "include/effects/SkImageFilters.h"
 #include "include/core/SkSurface.h"
 
 #include <atomic>
@@ -52,7 +53,8 @@ constexpr uint64_t kFeatureBits =
     FISSION_SKIA_FEATURE_PAINT_STATE |
     FISSION_SKIA_FEATURE_PARAGRAPH |
     FISSION_SKIA_FEATURE_OPACITY_LAYER |
-    FISSION_SKIA_FEATURE_IMAGE_DECODE;
+    FISSION_SKIA_FEATURE_IMAGE_DECODE |
+    FISSION_SKIA_FEATURE_BACKDROP_BLUR;
 
 struct EngineState {
     std::thread::id owner;
@@ -320,6 +322,21 @@ fission_skia_status_t validate_image_draw(
     return FISSION_SKIA_STATUS_OK;
 }
 
+fission_skia_status_t validate_backdrop_blur(
+    const fission_skia_frame_op_t& operation,
+    fission_skia_error_t* error) {
+    if (!valid_rect(operation.rect) ||
+        !finite(operation.rect.x + operation.rect.width) ||
+        !finite(operation.rect.y + operation.rect.height) ||
+        !finite(operation.radius) ||
+        operation.radius < 0.0f || !finite(operation.sigma) ||
+        operation.sigma < 0.0f) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame",
+                    "backdrop blur has invalid bounds, radius, or sigma", error);
+    }
+    return FISSION_SKIA_STATUS_OK;
+}
+
 fission_skia_status_t validate_path(
     const fission_skia_frame_t& frame,
     const fission_skia_frame_op_t& operation,
@@ -491,6 +508,11 @@ fission_skia_status_t validate_frame(
             }
             case FISSION_SKIA_FRAME_DRAW_IMAGE: {
                 const auto status = validate_image_draw(operation.image, error);
+                if (status != FISSION_SKIA_STATUS_OK) return status;
+                break;
+            }
+            case FISSION_SKIA_FRAME_BACKDROP_BLUR: {
+                const auto status = validate_backdrop_blur(operation, error);
                 if (status != FISSION_SKIA_STATUS_OK) return status;
                 break;
             }
@@ -681,6 +703,42 @@ bool draw_box_shadow(
     outside_hole.setFillType(SkPathFillType::kInverseEvenOdd);
     outside_hole.addRRect(sk_rounded_rect(hole, hole_radius));
     canvas->drawPath(outside_hole.detach(), paint);
+    canvas->restore();
+    return true;
+}
+
+bool draw_backdrop_blur(
+    SurfaceState& surface,
+    SkCanvas* canvas,
+    const fission_skia_rect_t& rect,
+    float radius,
+    float sigma) {
+    if (sigma == 0.0f || rect.width == 0.0f || rect.height == 0.0f) return true;
+
+    SkPathBuilder local_clip;
+    local_clip.addRRect(sk_rounded_rect(rect, radius));
+    auto device_clip = local_clip.detach().tryMakeTransform(
+        canvas->getLocalToDeviceAs3x3());
+    if (!device_clip) return false;
+
+    const SkRect device_bounds = device_clip->getBounds();
+    const SkRect surface_bounds = SkRect::MakeWH(
+        static_cast<SkScalar>(surface.width),
+        static_cast<SkScalar>(surface.height));
+    auto blur = SkImageFilters::Blur(
+        sigma, sigma, SkTileMode::kClamp, nullptr, surface_bounds);
+    if (!blur) return false;
+
+    // Fission supplies device-pixel sigma and geometry. Converting the rounded
+    // clip to device space before resetting the matrix keeps the shape's full
+    // affine transform while preventing Skia from mapping sigma through the
+    // current transform a second time.
+    canvas->save();
+    canvas->resetMatrix();
+    canvas->clipPath(*device_clip, SkClipOp::kIntersect, true);
+    canvas->saveLayer(SkCanvas::SaveLayerRec(
+        &device_bounds, nullptr, blur.get(), 0));
+    canvas->restore();
     canvas->restore();
     return true;
 }
@@ -1057,6 +1115,14 @@ fission_skia_status_t fission_skia_surface_execute_frame(
                     SkCanvas::kStrict_SrcRectConstraint);
                 break;
             }
+            case FISSION_SKIA_FRAME_BACKDROP_BLUR:
+                if (!draw_backdrop_blur(*found->second, canvas, operation.rect,
+                                        operation.radius, operation.sigma)) {
+                    canvas->restoreToCount(initial_save_count);
+                    return fail(FISSION_SKIA_STATUS_INTERNAL, "execute_frame",
+                                "Skia rejected validated backdrop blur", out_error);
+                }
+                break;
         }
     }
     canvas->restoreToCount(initial_save_count);

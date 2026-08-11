@@ -34,6 +34,7 @@ pub const FEATURE_PAINT_STATE: u64 = 1 << 6;
 pub const FEATURE_PARAGRAPH: u64 = 1 << 7;
 pub const FEATURE_OPACITY_LAYER: u64 = 1 << 8;
 pub const FEATURE_IMAGE_DECODE: u64 = 1 << 9;
+pub const FEATURE_BACKDROP_BLUR: u64 = 1 << 10;
 pub const FEATURE_TEST_SHIM: u64 = 1 << 63;
 
 pub const PATH_MOVE: u32 = 1;
@@ -71,6 +72,7 @@ pub const FRAME_BOX_SHADOW: u32 = 11;
 pub const FRAME_DRAW_PARAGRAPH: u32 = 12;
 pub const FRAME_OPACITY_LAYER: u32 = 13;
 pub const FRAME_DRAW_IMAGE: u32 = 14;
+pub const FRAME_BACKDROP_BLUR: u32 = 15;
 
 pub const IMAGE_SAMPLING_NEAREST: u32 = 1;
 pub const IMAGE_SAMPLING_LINEAR: u32 = 2;
@@ -269,6 +271,7 @@ pub struct FrameOp {
     pub path_count: u32,
     pub fill_rule: u32,
     pub opacity: f32,
+    pub sigma: f32,
     pub image: ImageDraw,
 }
 

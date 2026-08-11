@@ -21,6 +21,10 @@ fn abi_ownership_errors_and_raster_readback_are_coherent() {
         engine.build_info().feature_bits & ffi::FEATURE_PAINT_STATE,
         0
     );
+    assert_ne!(
+        engine.build_info().feature_bits & ffi::FEATURE_BACKDROP_BLUR,
+        0
+    );
 
     let context = Context::new_raster(&engine).expect("raster context");
     context

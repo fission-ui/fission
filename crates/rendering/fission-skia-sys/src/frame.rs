@@ -263,6 +263,13 @@ pub enum FrameOp {
         destination: Rect,
         sampling: ImageSampling,
     },
+    /// Atomically blurs content already painted behind `bounds`, clipped to
+    /// its rounded corners. All geometry and `sigma` are physical pixels.
+    BackdropBlur {
+        bounds: Rect,
+        corner_radius: f32,
+        sigma: f32,
+    },
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -427,6 +434,22 @@ impl Frame {
                         destination,
                     };
                     encoded.images.push(image.clone());
+                }
+                FrameOp::BackdropBlur {
+                    bounds,
+                    corner_radius,
+                    sigma,
+                } => {
+                    raw.kind = ffi::FRAME_BACKDROP_BLUR;
+                    let bounds = raw_rect(*bounds)?;
+                    if !(bounds.x + bounds.width).is_finite()
+                        || !(bounds.y + bounds.height).is_finite()
+                    {
+                        return Err(invalid("backdrop bounds must have finite edges"));
+                    }
+                    raw.rect = bounds;
+                    raw.radius = non_negative(*corner_radius, "backdrop corner radius")?;
+                    raw.sigma = non_negative(*sigma, "backdrop blur sigma")?;
                 }
             }
             encoded.operations.push(raw);
@@ -811,6 +834,7 @@ fn zero_operation() -> ffi::FrameOp {
         path_count: 0,
         fill_rule: 0,
         opacity: 0.0,
+        sigma: 0.0,
         image: zero_image_draw(),
     }
 }
@@ -1025,6 +1049,45 @@ mod tests {
         ])
         .encode()
         .is_err());
+    }
+
+    #[test]
+    fn backdrop_blur_encodes_atomic_physical_geometry() {
+        let frame = Frame::new([FrameOp::BackdropBlur {
+            bounds: Rect::new(1.0, 2.0, 30.0, 40.0),
+            corner_radius: 6.0,
+            sigma: 4.5,
+        }]);
+
+        let encoded = frame.encode().unwrap();
+
+        assert_eq!(encoded.operations.len(), 1);
+        assert_eq!(encoded.operations[0].kind, ffi::FRAME_BACKDROP_BLUR);
+        assert_eq!(encoded.operations[0].rect.x, 1.0);
+        assert_eq!(encoded.operations[0].rect.y, 2.0);
+        assert_eq!(encoded.operations[0].rect.width, 30.0);
+        assert_eq!(encoded.operations[0].rect.height, 40.0);
+        assert_eq!(encoded.operations[0].radius, 6.0);
+        assert_eq!(encoded.operations[0].sigma, 4.5);
+    }
+
+    #[test]
+    fn backdrop_blur_rejects_non_finite_or_negative_inputs() {
+        for (bounds, radius, sigma) in [
+            (Rect::new(0.0, 0.0, -1.0, 1.0), 0.0, 1.0),
+            (Rect::new(0.0, 0.0, 1.0, 1.0), f32::NAN, 1.0),
+            (Rect::new(0.0, 0.0, 1.0, 1.0), 0.0, -1.0),
+            (Rect::new(0.0, 0.0, 1.0, 1.0), 0.0, f32::INFINITY),
+            (Rect::new(f32::MAX, 0.0, f32::MAX, 1.0), 0.0, 1.0),
+        ] {
+            assert!(Frame::new([FrameOp::BackdropBlur {
+                bounds,
+                corner_radius: radius,
+                sigma,
+            }])
+            .encode()
+            .is_err());
+        }
     }
 
     #[test]

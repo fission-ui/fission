@@ -4,7 +4,7 @@ This directory owns the reproducible-input and artifact-layout contract for the
 direct Fission Skia integration. It does not contain or advertise a production
 artifact yet.
 
-The current direct bridge contract is ABI v5. ABI changes are explicit artifact
+The current direct bridge contract is ABI v6. ABI changes are explicit artifact
 identity changes; the tooling will not package or verify a header from another
 bridge ABI.
 

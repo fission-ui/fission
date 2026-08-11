@@ -1,7 +1,7 @@
 # fission-skia-sys
 
 `fission-skia-sys` is Fission's sole native link authority for Skia. It exposes
-a narrow, versioned C ABI instead of C++ or Skia-owned layouts. ABI v5 contains
+a narrow, versioned C ABI instead of C++ or Skia-owned layouts. ABI v6 contains
 the production raster foundation: engine and context ownership, raster
 surfaces, batched paint state and shape execution, RGBA readback,
 memory-pressure notification, structured diagnostics, and explicit
@@ -10,6 +10,8 @@ bounded opacity layers whose contents are isolated before group alpha is
 applied once. Immutable images are decoded through a mandatory caller byte
 limit, retain their oriented N32 sRGB pixels, and draw with explicit source,
 destination, and nearest-or-linear sampling semantics.
+Backdrop Gaussian blur is an atomic operation over explicit physical bounds,
+with rounded-corner clipping and deterministic identity behavior at zero sigma.
 
 The paint contract carries finite unpremultiplied sRGB values. Gradients use
 shape-resolved coordinates and ordered stops. Empty gradients are transparent,

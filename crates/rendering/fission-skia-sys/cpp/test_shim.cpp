@@ -25,6 +25,7 @@ constexpr uint64_t kFeatures =
     FISSION_SKIA_FEATURE_PAINT_STATE | FISSION_SKIA_FEATURE_PARAGRAPH |
     FISSION_SKIA_FEATURE_OPACITY_LAYER |
     FISSION_SKIA_FEATURE_IMAGE_DECODE |
+    FISSION_SKIA_FEATURE_BACKDROP_BLUR |
     FISSION_SKIA_FEATURE_TEST_SHIM;
 
 struct Engine { std::thread::id owner; uint64_t children = 0; };
@@ -350,6 +351,112 @@ void composite_layer(PixelTarget& destination, const OpacityLayer& layer) {
     }
 }
 
+bool rounded_rect_contains(
+    const fission_skia_rect_t& rect,
+    float radius,
+    float x,
+    float y) {
+    const float right = rect.x + rect.width;
+    const float bottom = rect.y + rect.height;
+    if (x < rect.x || x >= right || y < rect.y || y >= bottom) return false;
+    const float resolved_radius = std::min(
+        radius, std::min(rect.width, rect.height) * 0.5f);
+    if (resolved_radius <= 0.0f) return true;
+    if ((x >= rect.x + resolved_radius && x < right - resolved_radius) ||
+        (y >= rect.y + resolved_radius && y < bottom - resolved_radius)) {
+        return true;
+    }
+    const float center_x = x < rect.x + resolved_radius
+        ? rect.x + resolved_radius
+        : right - resolved_radius;
+    const float center_y = y < rect.y + resolved_radius
+        ? rect.y + resolved_radius
+        : bottom - resolved_radius;
+    const float dx = x - center_x;
+    const float dy = y - center_y;
+    return dx * dx + dy * dy <= resolved_radius * resolved_radius;
+}
+
+void blur_backdrop(
+    PixelTarget& target,
+    const fission_skia_rect_t& rect,
+    float radius,
+    float sigma) {
+    if (target.pixels == nullptr || sigma == 0.0f ||
+        rect.width == 0.0f || rect.height == 0.0f) {
+        return;
+    }
+
+    // Skia caps mapped blur sigma at 532 physical pixels. Mirroring that cap
+    // keeps the deterministic ABI double bounded for hostile-but-finite input.
+    const double effective_sigma = std::min<double>(sigma, 532.0);
+    const int kernel_radius = static_cast<int>(std::ceil(effective_sigma * 3.0));
+    std::vector<double> kernel(static_cast<size_t>(kernel_radius) * 2 + 1);
+    double weight_sum = 0.0;
+    const double denominator = 2.0 * effective_sigma * effective_sigma;
+    for (int offset = -kernel_radius; offset <= kernel_radius; ++offset) {
+        const double weight = std::exp(-(static_cast<double>(offset) * offset) / denominator);
+        kernel[static_cast<size_t>(offset + kernel_radius)] = weight;
+        weight_sum += weight;
+    }
+    for (double& weight : kernel) weight /= weight_sum;
+
+    const size_t pixel_count = static_cast<size_t>(target.width) * target.height;
+    const auto source = *target.pixels;
+    std::vector<double> horizontal(pixel_count * 4, 0.0);
+    std::vector<uint8_t> blurred(pixel_count * 4, 0);
+    for (uint32_t y = 0; y < target.height; ++y) {
+        for (uint32_t x = 0; x < target.width; ++x) {
+            const size_t destination = (static_cast<size_t>(y) * target.width + x) * 4;
+            for (int offset = -kernel_radius; offset <= kernel_radius; ++offset) {
+                const int sample_x = std::clamp(
+                    static_cast<int>(x) + offset, 0, static_cast<int>(target.width) - 1);
+                const size_t sample =
+                    (static_cast<size_t>(y) * target.width + sample_x) * 4;
+                const double weight = kernel[static_cast<size_t>(offset + kernel_radius)];
+                for (size_t channel_index = 0; channel_index < 4; ++channel_index) {
+                    horizontal[destination + channel_index] +=
+                        static_cast<double>(source[sample + channel_index]) * weight;
+                }
+            }
+        }
+    }
+    for (uint32_t y = 0; y < target.height; ++y) {
+        for (uint32_t x = 0; x < target.width; ++x) {
+            const size_t destination = (static_cast<size_t>(y) * target.width + x) * 4;
+            double channels[4] = {};
+            for (int offset = -kernel_radius; offset <= kernel_radius; ++offset) {
+                const int sample_y = std::clamp(
+                    static_cast<int>(y) + offset, 0, static_cast<int>(target.height) - 1);
+                const size_t sample =
+                    (static_cast<size_t>(sample_y) * target.width + x) * 4;
+                const double weight = kernel[static_cast<size_t>(offset + kernel_radius)];
+                for (size_t channel_index = 0; channel_index < 4; ++channel_index) {
+                    channels[channel_index] += horizontal[sample + channel_index] * weight;
+                }
+            }
+            for (size_t channel_index = 0; channel_index < 4; ++channel_index) {
+                blurred[destination + channel_index] = static_cast<uint8_t>(
+                    std::clamp(std::lround(channels[channel_index]), 0L, 255L));
+            }
+        }
+    }
+
+    const PixelBounds bounds = intersected_pixel_bounds(target, rect);
+    auto& destination = *target.pixels;
+    for (int y = bounds.top; y < bounds.bottom; ++y) {
+        for (int x = bounds.left; x < bounds.right; ++x) {
+            if (!rounded_rect_contains(rect, radius,
+                                       static_cast<float>(x) + 0.5f,
+                                       static_cast<float>(y) + 0.5f)) {
+                continue;
+            }
+            const size_t pixel = (static_cast<size_t>(y) * target.width + x) * 4;
+            std::memcpy(destination.data() + pixel, blurred.data() + pixel, 4);
+        }
+    }
+}
+
 fission_skia_color_t image_pixel(const DecodedImage& image, int x, int y) {
     x = std::clamp(x, 0, static_cast<int>(image.width) - 1);
     y = std::clamp(y, 0, static_cast<int>(image.height) - 1);
@@ -671,6 +778,16 @@ fission_skia_status_t fission_skia_surface_execute_frame(
                 if (status != FISSION_SKIA_STATUS_OK) return status;
                 break;
             }
+            case FISSION_SKIA_FRAME_BACKDROP_BLUR:
+                if (!valid_rect(op.rect) ||
+                    !std::isfinite(op.rect.x + op.rect.width) ||
+                    !std::isfinite(op.rect.y + op.rect.height) ||
+                    !std::isfinite(op.radius) ||
+                    op.radius < 0.0f || !std::isfinite(op.sigma) || op.sigma < 0.0f) {
+                    return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame",
+                                "invalid backdrop blur", error);
+                }
+                break;
             default:
                 return fail(FISSION_SKIA_STATUS_UNSUPPORTED, "execute_frame",
                             "unknown operation", error);
@@ -728,6 +845,9 @@ fission_skia_status_t fission_skia_surface_execute_frame(
             }
             auto target = current_target(found->second, layers);
             draw_image(target, image->second, op.image);
+        } else if (op.kind == FISSION_SKIA_FRAME_BACKDROP_BLUR) {
+            auto target = current_target(found->second, layers);
+            blur_backdrop(target, op.rect, op.radius, op.sigma);
         }
         // State, gradients, strokes, paths, and shadows are intentionally
         // validation-only in the ABI ownership test double.

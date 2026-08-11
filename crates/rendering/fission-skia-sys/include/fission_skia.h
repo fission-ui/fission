@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-#define FISSION_SKIA_ABI_VERSION 5u
+#define FISSION_SKIA_ABI_VERSION 6u
 #define FISSION_SKIA_REVISION_LENGTH 41u
 #define FISSION_SKIA_PROFILE_LENGTH 32u
 #define FISSION_SKIA_ERROR_OPERATION_LENGTH 64u
@@ -58,6 +58,7 @@ typedef enum fission_skia_feature_t {
     FISSION_SKIA_FEATURE_PARAGRAPH = UINT64_C(1) << 7,
     FISSION_SKIA_FEATURE_OPACITY_LAYER = UINT64_C(1) << 8,
     FISSION_SKIA_FEATURE_IMAGE_DECODE = UINT64_C(1) << 9,
+    FISSION_SKIA_FEATURE_BACKDROP_BLUR = UINT64_C(1) << 10,
     FISSION_SKIA_FEATURE_TEST_SHIM = UINT64_C(1) << 63
 } fission_skia_feature_t;
 
@@ -241,7 +242,8 @@ typedef enum fission_skia_frame_op_kind_t {
     FISSION_SKIA_FRAME_BOX_SHADOW = 11,
     FISSION_SKIA_FRAME_DRAW_PARAGRAPH = 12,
     FISSION_SKIA_FRAME_OPACITY_LAYER = 13,
-    FISSION_SKIA_FRAME_DRAW_IMAGE = 14
+    FISSION_SKIA_FRAME_DRAW_IMAGE = 14,
+    FISSION_SKIA_FRAME_BACKDROP_BLUR = 15
 } fission_skia_frame_op_kind_t;
 
 /*
@@ -268,6 +270,12 @@ typedef enum fission_skia_frame_op_kind_t {
  * Sampling is nearest or bilinear with no mipmapping, and source sampling is
  * strictly constrained to that rectangle. The caller must keep the image
  * handle alive until frame execution returns.
+ *
+ * BACKDROP_BLUR atomically replaces the pixels already painted behind rect
+ * with a Gaussian blur clipped to its rounded corners. rect, radius, and sigma
+ * are expressed in physical pixels. sigma and radius are finite and
+ * non-negative; a zero sigma is a deterministic no-op. This operation does not
+ * alter the frame save stack.
  */
 typedef struct fission_skia_frame_op_t {
     uint32_t struct_size;
@@ -282,6 +290,7 @@ typedef struct fission_skia_frame_op_t {
     uint32_t path_count;
     uint32_t fill_rule;
     float opacity;
+    float sigma;
     fission_skia_image_draw_t image;
 } fission_skia_frame_op_t;
 
