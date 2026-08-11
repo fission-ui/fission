@@ -1,0 +1,35 @@
+[package]
+name = "fission-render-software"
+version = "0.10.1"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/fission-ui/fission"
+homepage = "https://fission.rs"
+documentation = "https://fission.rs"
+readme = "README.md"
+description = "Headless software rendering backend for Fission display lists"
+categories = ["rendering", "graphics", "gui"]
+keywords = ["fission", "software-renderer", "headless", "cross-platform", "2d"]
+
+[package.metadata.fission]
+platforms = ["android", "ios", "linux", "macos", "windows", "web"]
+
+[dependencies]
+fission-render = { path = "../fission-render", version = "0.10.1" }
+fission-layout = { path = "../../core/fission-layout", version = "0.10.1" }
+fission-ir = { path = "../../core/fission-ir", version = "0.10.1" }
+fission-theme = { path = "../../core/fission-theme", version = "0.10.1" }
+anyhow = "1.0"
+fontdue = "0.9.3"
+image = "0.25"
+kurbo = "0.12"
+tiny-skia = "0.11.4"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ureq = "2"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["Headers", "Request", "RequestInit", "RequestMode", "Response", "Window"] }
