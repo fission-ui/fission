@@ -9,9 +9,9 @@ mod protocol;
 mod types;
 
 pub use commands::{
-    decode_commands, encode_commands, CommandStreamError, WebCommand, COMMAND_HEADER_LEN,
-    COMMAND_MAGIC, COMMAND_VERSION, MAX_COMMANDS, MAX_COMMAND_STREAM_BYTES, MAX_DASH_INTERVALS,
-    MAX_GRADIENT_STOPS, MAX_PATH_COMMANDS,
+    decode_commands, encode_commands, CommandStreamError, WebCommand, WebImageAlignment,
+    WebImageFit, COMMAND_HEADER_LEN, COMMAND_MAGIC, COMMAND_VERSION, MAX_COMMANDS,
+    MAX_COMMAND_STREAM_BYTES, MAX_DASH_INTERVALS, MAX_GRADIENT_STOPS, MAX_PATH_COMMANDS,
 };
 pub use protocol::{
     decode, encode, DecodeLimits, ProtocolError, ProtocolSession, DEFAULT_DECODE_LIMITS,

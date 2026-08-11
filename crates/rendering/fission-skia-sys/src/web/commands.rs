@@ -23,6 +23,29 @@ pub const MAX_PATH_COMMANDS: usize = 1_048_576;
 pub const MAX_GRADIENT_STOPS: usize = 65_536;
 pub const MAX_DASH_INTERVALS: usize = 65_536;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum WebImageFit {
+    Contain = 1,
+    Cover = 2,
+    Fill = 3,
+    None = 4,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum WebImageAlignment {
+    TopStart = 1,
+    TopCenter = 2,
+    TopEnd = 3,
+    CenterStart = 4,
+    Center = 5,
+    CenterEnd = 6,
+    BottomStart = 7,
+    BottomCenter = 8,
+    BottomEnd = 9,
+}
+
 const ENTRY_HEADER_LEN: usize = 8;
 const PAINT_HEADER_LEN: usize = 44;
 const PATH_HEADER_LEN: usize = 8;
@@ -76,6 +99,18 @@ pub enum WebCommand {
         image: ResourceHandle,
         source: Rect,
         destination: Rect,
+        sampling: ImageSampling,
+    },
+    /// Places a decoded image using its CanvasKit-reported intrinsic size.
+    ///
+    /// This keeps image decoding in the selected backend while preserving
+    /// Fission's fit and alignment semantics without a synchronous metadata
+    /// round trip through JavaScript.
+    DrawImageFit {
+        image: ResourceHandle,
+        target: Rect,
+        fit: WebImageFit,
+        alignment: WebImageAlignment,
         sampling: ImageSampling,
     },
     BackdropBlur {
@@ -137,6 +172,7 @@ enum CommandKind {
     BackdropBlur = 15,
     DrawSvg = 16,
     DrawPicture = 17,
+    DrawImageFit = 18,
 }
 
 pub fn encode_commands(commands: &[WebCommand]) -> Result<Vec<u8>, CommandStreamError> {
@@ -354,6 +390,24 @@ fn encode_command(
             bytes.extend_from_slice(&[0; 3]);
             CommandKind::DrawImage
         }
+        WebCommand::DrawImageFit {
+            image,
+            target,
+            fit,
+            alignment,
+            sampling,
+        } => {
+            encode_handle(&mut bytes, *image)?;
+            encode_non_empty_rect(&mut bytes, *target, "image target")?;
+            bytes.push(*fit as u8);
+            bytes.push(*alignment as u8);
+            bytes.push(match sampling {
+                ImageSampling::Nearest => 1,
+                ImageSampling::Linear => 2,
+            });
+            bytes.push(0);
+            CommandKind::DrawImageFit
+        }
         WebCommand::BackdropBlur {
             bounds,
             corner_radius,
@@ -499,6 +553,44 @@ fn decode_command(
         17 => WebCommand::DrawPicture {
             picture: decode_handle(bytes)?,
         },
+        18 => {
+            let image = decode_handle(bytes)?;
+            let target = decode_non_empty_rect(bytes, "image target")?;
+            let fit = match bytes.u8()? {
+                1 => WebImageFit::Contain,
+                2 => WebImageFit::Cover,
+                3 => WebImageFit::Fill,
+                4 => WebImageFit::None,
+                _ => return Err(CommandStreamError::InvalidValue("image fit")),
+            };
+            let alignment = match bytes.u8()? {
+                1 => WebImageAlignment::TopStart,
+                2 => WebImageAlignment::TopCenter,
+                3 => WebImageAlignment::TopEnd,
+                4 => WebImageAlignment::CenterStart,
+                5 => WebImageAlignment::Center,
+                6 => WebImageAlignment::CenterEnd,
+                7 => WebImageAlignment::BottomStart,
+                8 => WebImageAlignment::BottomCenter,
+                9 => WebImageAlignment::BottomEnd,
+                _ => return Err(CommandStreamError::InvalidValue("image alignment")),
+            };
+            let sampling = match bytes.u8()? {
+                1 => ImageSampling::Nearest,
+                2 => ImageSampling::Linear,
+                _ => return Err(CommandStreamError::InvalidValue("image sampling")),
+            };
+            if bytes.u8()? != 0 {
+                return Err(CommandStreamError::NonZeroReserved);
+            }
+            WebCommand::DrawImageFit {
+                image,
+                target,
+                fit,
+                alignment,
+                sampling,
+            }
+        }
         other => return Err(CommandStreamError::UnknownCommand(other)),
     })
 }

@@ -120,6 +120,13 @@ fn every_command_round_trips_with_canonical_normalization() {
             destination: Rect::new(20.0, 30.0, 32.0, 32.0),
             sampling: ImageSampling::Linear,
         },
+        WebCommand::DrawImageFit {
+            image: handle(2),
+            target: Rect::new(2.0, 4.0, 80.0, 60.0),
+            fit: WebImageFit::Cover,
+            alignment: WebImageAlignment::BottomEnd,
+            sampling: ImageSampling::Linear,
+        },
         WebCommand::BackdropBlur {
             bounds: Rect::new(0.0, 0.0, 50.0, 50.0),
             corner_radius: 6.0,
