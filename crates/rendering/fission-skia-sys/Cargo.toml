@@ -20,8 +20,8 @@ platforms = ["android", "ios", "linux", "macos", "windows"]
 default = ["skia-prebuilt"]
 skia-prebuilt = []
 skia-build-from-source = ["dep:cc"]
-# Compiles a deterministic ABI double. It never claims Skia capabilities and is
-# only for validating FFI ownership and error behavior.
+# Compiles a deterministic ABI double for validating ownership, packed geometry,
+# index normalization, and structured error behavior without linking Skia.
 test-shim = ["dep:cc"]
 
 [build-dependencies]

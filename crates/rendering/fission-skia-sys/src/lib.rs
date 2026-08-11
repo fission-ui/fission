@@ -10,6 +10,7 @@
 mod error;
 mod frame;
 mod handles;
+mod paragraph;
 mod thread_affinity;
 
 pub mod ffi;
@@ -20,6 +21,14 @@ pub use frame::{
     Path, PathCommand, PixelRect, Point, Rect, Stroke,
 };
 pub use handles::{BuildInfo, Context, Engine, MemoryPressure, RasterSurface};
+pub use paragraph::{
+    ParagraphAffinity, ParagraphCapabilities, ParagraphCaret, ParagraphCluster, ParagraphColor,
+    ParagraphDirection, ParagraphEngine, ParagraphFontFeature, ParagraphFontSlant,
+    ParagraphFontVariation, ParagraphHitRegion, ParagraphInlineBox, ParagraphInlineObject,
+    ParagraphLine, ParagraphOutput, ParagraphOverflow, ParagraphPreedit, ParagraphRange,
+    ParagraphRect, ParagraphRequest, ParagraphSize, ParagraphStyle, ParagraphTextAlign,
+    ParagraphTextDirection, ParagraphTextStyleRun, ParagraphTextWidthBasis, UnresolvedGlyph,
+};
 
 /// Exact bridge ABI accepted by this crate.
 pub const ABI_VERSION: u32 = 2;

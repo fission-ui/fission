@@ -89,7 +89,9 @@ fn main() {
 fn emit_inputs() {
     println!("cargo:rerun-if-changed=include/fission_skia.h");
     println!("cargo:rerun-if-changed=cpp/fission_skia.cpp");
+    println!("cargo:rerun-if-changed=cpp/fission_skia_paragraph.cpp");
     println!("cargo:rerun-if-changed=cpp/test_shim.cpp");
+    println!("cargo:rerun-if-changed=cpp/test_shim_paragraph.cpp");
     println!("cargo:rerun-if-changed=skia_revision.txt");
     for variable in [
         "FISSION_SKIA_ARTIFACT_DIR",
@@ -292,9 +294,11 @@ fn compile_bridge(source: &Path, build: &Path, profile: &str) {
     compiler
         .cpp(true)
         .file("cpp/fission_skia.cpp")
+        .file("cpp/fission_skia_paragraph.cpp")
         .include("include")
         .include(source)
         .include(build)
+        .include(source.join("third_party/icu/source/common"))
         .define("FISSION_SKIA_BUILDING_BRIDGE", None)
         .define("FISSION_SKIA_REVISION", revision_define.as_str())
         .define("FISSION_SKIA_BUILD_PROFILE", profile_define.as_str())
@@ -312,6 +316,7 @@ fn configure_test_shim() {
     cc::Build::new()
         .cpp(true)
         .file("cpp/test_shim.cpp")
+        .file("cpp/test_shim_paragraph.cpp")
         .include("include")
         .define("FISSION_SKIA_TEST_SHIM", None)
         .define("FISSION_SKIA_REVISION", revision_define.as_str())

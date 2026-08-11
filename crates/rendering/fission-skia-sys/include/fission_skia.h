@@ -29,6 +29,7 @@ extern "C" {
 typedef uint64_t fission_skia_engine_handle_t;
 typedef uint64_t fission_skia_context_handle_t;
 typedef uint64_t fission_skia_surface_handle_t;
+typedef uint64_t fission_skia_paragraph_result_handle_t;
 
 typedef enum fission_skia_status_t {
     FISSION_SKIA_STATUS_OK = 0,
@@ -53,6 +54,7 @@ typedef enum fission_skia_feature_t {
     FISSION_SKIA_FEATURE_THREAD_AFFINITY = UINT64_C(1) << 4,
     FISSION_SKIA_FEATURE_MEMORY_PRESSURE = UINT64_C(1) << 5,
     FISSION_SKIA_FEATURE_PAINT_STATE = UINT64_C(1) << 6,
+    FISSION_SKIA_FEATURE_PARAGRAPH = UINT64_C(1) << 7,
     FISSION_SKIA_FEATURE_TEST_SHIM = UINT64_C(1) << 63
 } fission_skia_feature_t;
 
@@ -255,6 +257,281 @@ typedef struct fission_skia_pixel_rect_t {
     uint32_t height;
 } fission_skia_pixel_rect_t;
 
+/*
+ * Paragraph input strings and text ranges are UTF-8. Every range is half-open
+ * and measured in UTF-8 bytes. Input pointers are borrowed only for the
+ * duration of fission_skia_paragraph_layout; the result never retains them.
+ */
+typedef struct fission_skia_utf8_slice_t {
+    const uint8_t* data;
+    size_t length;
+} fission_skia_utf8_slice_t;
+
+typedef struct fission_skia_text_range_t {
+    uint64_t start;
+    uint64_t end;
+} fission_skia_text_range_t;
+
+typedef struct fission_skia_rgba8_t {
+    uint8_t red;
+    uint8_t green;
+    uint8_t blue;
+    uint8_t alpha;
+} fission_skia_rgba8_t;
+
+typedef struct fission_skia_font_variation_t {
+    uint32_t tag;
+    float value;
+} fission_skia_font_variation_t;
+
+typedef struct fission_skia_font_feature_t {
+    uint32_t tag;
+    uint32_t value;
+} fission_skia_font_feature_t;
+
+typedef enum fission_skia_font_slant_t {
+    FISSION_SKIA_FONT_SLANT_NORMAL = 0,
+    FISSION_SKIA_FONT_SLANT_ITALIC = 1
+} fission_skia_font_slant_t;
+
+enum fission_skia_text_style_flags_t {
+    FISSION_SKIA_TEXT_STYLE_UNDERLINE = 1u << 0,
+    FISSION_SKIA_TEXT_STYLE_HAS_LINE_HEIGHT = 1u << 1,
+    FISSION_SKIA_TEXT_STYLE_HAS_BACKGROUND = 1u << 2
+};
+
+typedef struct fission_skia_text_style_run_t {
+    uint32_t struct_size;
+    uint32_t flags;
+    fission_skia_text_range_t range;
+    float font_size;
+    fission_skia_rgba8_t color;
+    fission_skia_utf8_slice_t font_family;
+    fission_skia_utf8_slice_t locale;
+    uint16_t font_weight;
+    uint16_t font_slant;
+    float line_height;
+    float letter_spacing;
+    fission_skia_rgba8_t background_color;
+    float font_width;
+    float word_spacing;
+    const fission_skia_font_variation_t* variations;
+    size_t variation_count;
+    const fission_skia_font_feature_t* features;
+    size_t feature_count;
+} fission_skia_text_style_run_t;
+
+typedef enum fission_skia_text_align_t {
+    FISSION_SKIA_TEXT_ALIGN_LEFT = 0,
+    FISSION_SKIA_TEXT_ALIGN_RIGHT = 1,
+    FISSION_SKIA_TEXT_ALIGN_CENTER = 2,
+    FISSION_SKIA_TEXT_ALIGN_JUSTIFY = 3,
+    FISSION_SKIA_TEXT_ALIGN_START = 4,
+    FISSION_SKIA_TEXT_ALIGN_END = 5
+} fission_skia_text_align_t;
+
+typedef enum fission_skia_text_overflow_t {
+    FISSION_SKIA_TEXT_OVERFLOW_CLIP = 0,
+    FISSION_SKIA_TEXT_OVERFLOW_ELLIPSIS = 1,
+    FISSION_SKIA_TEXT_OVERFLOW_FADE = 2,
+    FISSION_SKIA_TEXT_OVERFLOW_VISIBLE = 3
+} fission_skia_text_overflow_t;
+
+typedef enum fission_skia_text_direction_t {
+    FISSION_SKIA_TEXT_DIRECTION_AUTO = 0,
+    FISSION_SKIA_TEXT_DIRECTION_LTR = 1,
+    FISSION_SKIA_TEXT_DIRECTION_RTL = 2
+} fission_skia_text_direction_t;
+
+typedef enum fission_skia_text_width_basis_t {
+    FISSION_SKIA_TEXT_WIDTH_BASIS_PARENT = 0,
+    FISSION_SKIA_TEXT_WIDTH_BASIS_LONGEST_LINE = 1
+} fission_skia_text_width_basis_t;
+
+enum fission_skia_paragraph_style_flags_t {
+    FISSION_SKIA_PARAGRAPH_STYLE_HAS_MAX_LINES = 1u << 0,
+    FISSION_SKIA_PARAGRAPH_STYLE_HAS_STRUT_HEIGHT = 1u << 1,
+    FISSION_SKIA_PARAGRAPH_STYLE_APPLY_FIRST_ASCENT = 1u << 2,
+    FISSION_SKIA_PARAGRAPH_STYLE_APPLY_LAST_DESCENT = 1u << 3
+};
+
+typedef struct fission_skia_paragraph_style_t {
+    uint32_t struct_size;
+    uint32_t flags;
+    uint32_t text_align;
+    uint32_t overflow;
+    uint32_t text_direction;
+    uint32_t text_width_basis;
+    uint64_t max_lines;
+    float strut_line_height;
+    uint32_t reserved;
+} fission_skia_paragraph_style_t;
+
+typedef struct fission_skia_inline_object_t {
+    uint32_t struct_size;
+    uint32_t reserved;
+    uint64_t id;
+    fission_skia_text_range_t range;
+    float width;
+    float height;
+    float baseline;
+    float reserved_scalar;
+} fission_skia_inline_object_t;
+
+typedef struct fission_skia_preedit_t {
+    fission_skia_text_range_t range;
+    fission_skia_text_range_t selection;
+} fission_skia_preedit_t;
+
+enum fission_skia_paragraph_request_flags_t {
+    FISSION_SKIA_PARAGRAPH_REQUEST_WRAP = 1u << 0,
+    FISSION_SKIA_PARAGRAPH_REQUEST_HAS_WIDTH = 1u << 1,
+    FISSION_SKIA_PARAGRAPH_REQUEST_HAS_SELECTION = 1u << 2,
+    FISSION_SKIA_PARAGRAPH_REQUEST_HAS_PREEDIT = 1u << 3
+};
+
+typedef struct fission_skia_paragraph_request_t {
+    uint32_t struct_size;
+    uint32_t flags;
+    fission_skia_utf8_slice_t text;
+    const fission_skia_text_style_run_t* style_runs;
+    size_t style_run_count;
+    fission_skia_paragraph_style_t paragraph_style;
+    float width_constraint;
+    uint32_t reserved;
+    fission_skia_utf8_slice_t locale;
+    const fission_skia_inline_object_t* inline_objects;
+    size_t inline_object_count;
+    fission_skia_text_range_t selection;
+    fission_skia_preedit_t preedit;
+    uint64_t font_catalog_generation;
+    const fission_skia_utf8_slice_t* fallback_families;
+    size_t fallback_family_count;
+} fission_skia_paragraph_request_t;
+
+typedef enum fission_skia_paragraph_capability_t {
+    FISSION_SKIA_PARAGRAPH_BIDIRECTIONAL_TEXT = UINT64_C(1) << 0,
+    FISSION_SKIA_PARAGRAPH_VARIABLE_FONTS = UINT64_C(1) << 1,
+    FISSION_SKIA_PARAGRAPH_FONT_FEATURES = UINT64_C(1) << 2,
+    FISSION_SKIA_PARAGRAPH_INLINE_OBJECTS = UINT64_C(1) << 3,
+    FISSION_SKIA_PARAGRAPH_CLUSTER_MAPPING = UINT64_C(1) << 4,
+    FISSION_SKIA_PARAGRAPH_HIT_TESTING = UINT64_C(1) << 5,
+    FISSION_SKIA_PARAGRAPH_CARET_GEOMETRY = UINT64_C(1) << 6,
+    FISSION_SKIA_PARAGRAPH_SELECTION_GEOMETRY = UINT64_C(1) << 7,
+    FISSION_SKIA_PARAGRAPH_UNRESOLVED_GLYPHS = UINT64_C(1) << 8
+} fission_skia_paragraph_capability_t;
+
+typedef enum fission_skia_index_encoding_t {
+    FISSION_SKIA_INDEX_UTF8 = 0,
+    FISSION_SKIA_INDEX_UTF16 = 1
+} fission_skia_index_encoding_t;
+
+typedef enum fission_skia_resolved_direction_t {
+    FISSION_SKIA_DIRECTION_LTR = 0,
+    FISSION_SKIA_DIRECTION_RTL = 1
+} fission_skia_resolved_direction_t;
+
+typedef enum fission_skia_affinity_t {
+    FISSION_SKIA_AFFINITY_UPSTREAM = 0,
+    FISSION_SKIA_AFFINITY_DOWNSTREAM = 1
+} fission_skia_affinity_t;
+
+typedef struct fission_skia_paragraph_size_t {
+    float width;
+    float height;
+} fission_skia_paragraph_size_t;
+
+typedef struct fission_skia_paragraph_rect_t {
+    float x;
+    float y;
+    float width;
+    float height;
+} fission_skia_paragraph_rect_t;
+
+typedef struct fission_skia_paragraph_line_t {
+    fission_skia_text_range_t range;
+    fission_skia_paragraph_rect_t rect;
+    float baseline;
+    float ascent;
+    float descent;
+    float leading;
+    uint32_t hard_break;
+    uint32_t direction;
+} fission_skia_paragraph_line_t;
+
+typedef struct fission_skia_paragraph_cluster_t {
+    fission_skia_text_range_t range;
+    fission_skia_paragraph_rect_t rect;
+    uint64_t line_index;
+    uint32_t direction;
+    uint32_t starts_grapheme;
+    uint32_t starts_word;
+    uint32_t reserved;
+} fission_skia_paragraph_cluster_t;
+
+typedef struct fission_skia_paragraph_caret_t {
+    uint64_t index;
+    uint32_t affinity;
+    uint32_t reserved;
+    fission_skia_paragraph_rect_t rect;
+    uint64_t line_index;
+} fission_skia_paragraph_caret_t;
+
+typedef struct fission_skia_paragraph_hit_region_t {
+    fission_skia_paragraph_rect_t rect;
+    uint64_t index;
+    uint32_t affinity;
+    uint32_t reserved;
+    uint64_t line_index;
+} fission_skia_paragraph_hit_region_t;
+
+typedef struct fission_skia_paragraph_inline_box_t {
+    uint64_t id;
+    fission_skia_text_range_t range;
+    fission_skia_paragraph_rect_t rect;
+    float baseline;
+    uint32_t reserved;
+} fission_skia_paragraph_inline_box_t;
+
+typedef struct fission_skia_unresolved_glyph_t {
+    fission_skia_text_range_t range;
+    uint64_t codepoint_start;
+    uint64_t codepoint_count;
+} fission_skia_unresolved_glyph_t;
+
+/*
+ * This view contains only C scalar records. Its pointers remain valid until
+ * the matching result handle is destroyed. The caller must not concurrently
+ * inspect and destroy the same raw handle. Safe Rust callers copy the records
+ * into owned arrays before deterministic destruction.
+ */
+typedef struct fission_skia_paragraph_result_view_t {
+    uint32_t struct_size;
+    uint32_t index_encoding;
+    uint64_t capabilities;
+    fission_skia_paragraph_size_t size;
+    float min_intrinsic_width;
+    float max_intrinsic_width;
+    float first_baseline;
+    float last_baseline;
+    uint32_t has_first_baseline;
+    uint32_t has_last_baseline;
+    const fission_skia_paragraph_line_t* lines;
+    size_t line_count;
+    const fission_skia_paragraph_cluster_t* clusters;
+    size_t cluster_count;
+    const fission_skia_paragraph_caret_t* carets;
+    size_t caret_count;
+    const fission_skia_paragraph_hit_region_t* hit_regions;
+    size_t hit_region_count;
+    const fission_skia_paragraph_inline_box_t* inline_boxes;
+    size_t inline_box_count;
+    const fission_skia_unresolved_glyph_t* unresolved_glyphs;
+    size_t unresolved_glyph_count;
+    const uint32_t* unresolved_codepoints;
+    size_t unresolved_codepoint_count;
+} fission_skia_paragraph_result_view_t;
+
 FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_get_abi_info(
     fission_skia_abi_info_t* out_info,
     fission_skia_error_t* out_error);
@@ -299,6 +576,21 @@ FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_surface_read_pixels_rgba8
     fission_skia_error_t* out_error);
 FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_surface_destroy(
     fission_skia_surface_handle_t surface,
+    fission_skia_error_t* out_error);
+
+FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_paragraph_capabilities(
+    uint64_t* out_capabilities,
+    fission_skia_error_t* out_error);
+FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_paragraph_layout(
+    const fission_skia_paragraph_request_t* request,
+    fission_skia_paragraph_result_handle_t* out_result,
+    fission_skia_error_t* out_error);
+FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_paragraph_result_get_view(
+    fission_skia_paragraph_result_handle_t result,
+    fission_skia_paragraph_result_view_t* out_view,
+    fission_skia_error_t* out_error);
+FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_paragraph_result_destroy(
+    fission_skia_paragraph_result_handle_t result,
     fission_skia_error_t* out_error);
 
 #if defined(FISSION_SKIA_TEST_SHIM)

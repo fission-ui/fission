@@ -2,6 +2,9 @@
 
 use std::ffi::{c_char, c_uchar};
 
+mod paragraph;
+pub use paragraph::*;
+
 pub type Status = u32;
 pub type EngineHandle = u64;
 pub type ContextHandle = u64;
@@ -27,6 +30,7 @@ pub const FEATURE_STRUCTURED_ERRORS: u64 = 1 << 3;
 pub const FEATURE_THREAD_AFFINITY: u64 = 1 << 4;
 pub const FEATURE_MEMORY_PRESSURE: u64 = 1 << 5;
 pub const FEATURE_PAINT_STATE: u64 = 1 << 6;
+pub const FEATURE_PARAGRAPH: u64 = 1 << 7;
 pub const FEATURE_TEST_SHIM: u64 = 1 << 63;
 
 pub const PATH_MOVE: u32 = 1;
