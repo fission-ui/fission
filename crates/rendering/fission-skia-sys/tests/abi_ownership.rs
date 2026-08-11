@@ -4,8 +4,8 @@ use std::sync::mpsc;
 
 use fission_skia_sys::ffi;
 use fission_skia_sys::{
-    Color, Context, Engine, FillRule, Frame, FrameOp, MemoryPressure, Path, PathCommand, PixelRect,
-    RasterSurface, Rect, ABI_VERSION, SKIA_REVISION,
+    Affine, Color, Context, Engine, FillRule, Frame, FrameOp, MemoryPressure, Paint, Path,
+    PathCommand, PixelRect, RasterSurface, Rect, ABI_VERSION, SKIA_REVISION,
 };
 
 #[test]
@@ -17,6 +17,10 @@ fn abi_ownership_errors_and_raster_readback_are_coherent() {
     assert_eq!(engine.build_info().skia_revision, SKIA_REVISION);
     assert_eq!(engine.build_info().profile, "test-shim");
     assert_ne!(engine.build_info().feature_bits & ffi::FEATURE_TEST_SHIM, 0);
+    assert_ne!(
+        engine.build_info().feature_bits & ffi::FEATURE_PAINT_STATE,
+        0
+    );
 
     let context = Context::new_raster(&engine).expect("raster context");
     context
@@ -30,8 +34,11 @@ fn abi_ownership_errors_and_raster_readback_are_coherent() {
             FrameOp::Clear(Color::rgba(0.0, 0.0, 0.0, 1.0)),
             FrameOp::FillRect {
                 rect: Rect::new(1.0, 1.0, 2.0, 1.0),
-                color: Color::rgba(1.0, 0.0, 0.0, 1.0),
+                radius: 0.0,
+                paint: Paint::solid(Color::rgba(1.0, 0.0, 0.0, 1.0)),
             },
+            FrameOp::Save,
+            FrameOp::ConcatAffine(Affine::translation(1.0, 0.0)),
             FrameOp::FillPath {
                 path: Path::new(
                     FillRule::EvenOdd,
@@ -42,8 +49,9 @@ fn abi_ownership_errors_and_raster_readback_are_coherent() {
                         PathCommand::Close,
                     ],
                 ),
-                color: Color::rgba(0.0, 0.0, 1.0, 1.0),
+                paint: Paint::solid(Color::rgba(0.0, 0.0, 1.0, 1.0)),
             },
+            FrameOp::Restore,
         ]))
         .expect("basic frame");
     let row = surface

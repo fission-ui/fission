@@ -1,10 +1,19 @@
 # fission-skia-sys
 
 `fission-skia-sys` is Fission's sole native link authority for Skia. It exposes
-a narrow, versioned C ABI instead of C++ or Skia-owned layouts. The initial ABI
-contains the production raster foundation: engine and context ownership,
-raster surfaces, batched basic frame execution, RGBA readback, memory-pressure
-notification, structured diagnostics, and explicit owner-thread checks.
+a narrow, versioned C ABI instead of C++ or Skia-owned layouts. ABI v2 contains
+the production raster foundation: engine and context ownership, raster
+surfaces, batched paint state and shape execution, RGBA readback,
+memory-pressure notification, structured diagnostics, and explicit
+owner-thread checks.
+
+The paint contract carries finite unpremultiplied sRGB values. Gradients use
+shape-resolved coordinates and ordered stops. Empty gradients are transparent,
+one-stop gradients are solid, coincident stops retain their hard-stop order via
+adjacent representable offsets, and zero-radius or coincident-endpoint
+gradients resolve to their terminal stop. Odd dash arrays are repeated to an
+even count; empty and all-zero arrays are solid strokes. These edge cases are
+explicit so Skia never turns an accepted paint into an accidental no-op.
 
 This crate does not use a third-party Rust Skia wrapper. Higher-level rendering,
 resource policy, and conversion from Fission's interactive frame belong in

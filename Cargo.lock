@@ -3019,8 +3019,10 @@ dependencies = [
 name = "fission-render-skia"
 version = "0.10.1"
 dependencies = [
+ "fission-ir",
  "fission-render",
  "fission-skia-sys",
+ "kurbo",
 ]
 
 [[package]]

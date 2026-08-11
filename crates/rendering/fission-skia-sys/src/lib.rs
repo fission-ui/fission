@@ -15,11 +15,14 @@ mod thread_affinity;
 pub mod ffi;
 
 pub use error::{Error, ErrorKind, Result};
-pub use frame::{Color, FillRule, Frame, FrameOp, Path, PathCommand, PixelRect, Rect};
+pub use frame::{
+    Affine, BoxShadow, Color, FillRule, Frame, FrameOp, GradientStop, LineCap, LineJoin, Paint,
+    Path, PathCommand, PixelRect, Point, Rect, Stroke,
+};
 pub use handles::{BuildInfo, Context, Engine, MemoryPressure, RasterSurface};
 
 /// Exact bridge ABI accepted by this crate.
-pub const ABI_VERSION: u32 = 1;
+pub const ABI_VERSION: u32 = 2;
 
 /// Exact Skia source revision used by both source and prebuilt profiles.
 pub const SKIA_REVISION: &str = "cf5c36972b73698eb3939cda147ea47152670312";

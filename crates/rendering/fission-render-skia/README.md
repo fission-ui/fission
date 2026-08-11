@@ -7,9 +7,12 @@ layout, or platform hosts.
 
 The first implementation profile is deterministic headless Skia raster. It
 provides explicit lifecycle, readback, recovery, memory-pressure, diagnostic,
-thread-affinity, and teardown behavior. GPU surfaces, SkParagraph, resources,
-and CanvasKit are added behind the same Fission contracts as their production
-implementations become available.
+thread-affinity, and teardown behavior together with save/restore, rectangular
+and rounded clipping, finite 2D affine transforms, complete rectangle and SVG
+path fills/strokes, gradients, dash/cap/join state, and outer or inset box
+shadows. GPU surfaces, SkParagraph, resources, and CanvasKit are added behind
+the same Fission contracts as their production implementations become
+available.
 
 This crate deliberately reports only semantics that its current adapter can
 honor. The initial foundation profile is not advertised as a complete

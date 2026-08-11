@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
+use fission_ir::WidgetId;
 use fission_render::backend::{
     BackendOperation, GraphicsBackendSession, ReadbackRequest, SurfaceMetrics,
 };
@@ -16,7 +17,7 @@ use fission_render::surface::{
     LossKind, MemoryPressure, PhysicalSize, Recovery, ScaleFactor, SurfaceDescriptor, SurfaceId,
     SurfaceKind, SurfaceTarget, ThreadAffinity,
 };
-use fission_render::{LayoutRect, LayoutSize, RenderScene};
+use fission_render::{Color, DisplayList, DisplayOp, Fill, LayoutRect, LayoutSize, RenderScene};
 
 use super::*;
 use crate::api::{ApiReadback, RasterFrame};
@@ -460,6 +461,37 @@ fn initialization_failure_drops_partial_native_ownership() {
 
     assert_eq!(error.code, "skia-out-of-memory");
     assert!(api.events().contains(&MockEvent::Dropped("engine", 1)));
+}
+
+#[test]
+fn lowering_errors_report_frame_node_and_operation_provenance() {
+    let api = MockApi::default();
+    let mut session = session(api);
+    session.attach(&TestTarget::headless(8, 8, 1.0)).unwrap();
+    let mut fixture = FrameFixture::empty(8, 8, 1.0, 91);
+    let node_id = WidgetId::explicit("invalid-skia-path");
+    let mut list = DisplayList::new(LayoutRect::new(0.0, 0.0, 8.0, 8.0));
+    list.push(DisplayOp::DrawPath {
+        path: "invalid path data".into(),
+        fill: Some(Fill::Solid(Color {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255,
+        })),
+        stroke: None,
+        bounds: LayoutRect::new(0.0, 0.0, 8.0, 8.0),
+        node_id: Some(node_id),
+    });
+    fixture.scene = RenderScene::from_display_list(list);
+
+    let error = session.render(&fixture.frame()).unwrap_err();
+
+    assert_eq!(error.code, "skia-frame-lowering-unsupported");
+    let provenance = error.diagnostic.unwrap().provenance.unwrap();
+    assert_eq!(provenance.frame_id, Some(FrameId(91)));
+    assert_eq!(provenance.node_id, Some(node_id));
+    assert_eq!(provenance.operation_index, Some(0));
 }
 
 impl<A: SkiaApi> fmt::Debug for RasterDriver<A> {

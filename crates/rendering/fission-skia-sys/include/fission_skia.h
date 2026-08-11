@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-#define FISSION_SKIA_ABI_VERSION 1u
+#define FISSION_SKIA_ABI_VERSION 2u
 #define FISSION_SKIA_REVISION_LENGTH 41u
 #define FISSION_SKIA_PROFILE_LENGTH 32u
 #define FISSION_SKIA_ERROR_OPERATION_LENGTH 64u
@@ -52,6 +52,7 @@ typedef enum fission_skia_feature_t {
     FISSION_SKIA_FEATURE_STRUCTURED_ERRORS = UINT64_C(1) << 3,
     FISSION_SKIA_FEATURE_THREAD_AFFINITY = UINT64_C(1) << 4,
     FISSION_SKIA_FEATURE_MEMORY_PRESSURE = UINT64_C(1) << 5,
+    FISSION_SKIA_FEATURE_PAINT_STATE = UINT64_C(1) << 6,
     FISSION_SKIA_FEATURE_TEST_SHIM = UINT64_C(1) << 63
 } fission_skia_feature_t;
 
@@ -97,6 +98,21 @@ typedef struct fission_skia_rect_t {
     float height;
 } fission_skia_rect_t;
 
+typedef struct fission_skia_point_t {
+    float x;
+    float y;
+} fission_skia_point_t;
+
+/* A finite two-dimensional affine matrix in Skia's six-scalar order. */
+typedef struct fission_skia_affine_t {
+    float scale_x;
+    float skew_x;
+    float translate_x;
+    float skew_y;
+    float scale_y;
+    float translate_y;
+} fission_skia_affine_t;
+
 typedef enum fission_skia_path_verb_t {
     FISSION_SKIA_PATH_MOVE = 1,
     FISSION_SKIA_PATH_LINE = 2,
@@ -121,22 +137,98 @@ typedef enum fission_skia_fill_rule_t {
     FISSION_SKIA_FILL_EVEN_ODD = 2
 } fission_skia_fill_rule_t;
 
+typedef struct fission_skia_gradient_stop_t {
+    float offset;
+    fission_skia_color_t color;
+} fission_skia_gradient_stop_t;
+
+typedef enum fission_skia_paint_kind_t {
+    FISSION_SKIA_PAINT_SOLID = 1,
+    FISSION_SKIA_PAINT_LINEAR_GRADIENT = 2,
+    FISSION_SKIA_PAINT_RADIAL_GRADIENT = 3
+} fission_skia_paint_kind_t;
+
+typedef struct fission_skia_paint_t {
+    uint32_t struct_size;
+    uint32_t kind;
+    fission_skia_color_t color;
+    fission_skia_point_t start;
+    fission_skia_point_t end;
+    float radius;
+    uint32_t stop_offset;
+    uint32_t stop_count;
+} fission_skia_paint_t;
+
+/*
+ * Gradient stops are ordered by offset. The bridge preserves coincident-stop
+ * order by separating hard-stop colors by adjacent f32 values for Skia.
+ * An empty gradient is transparent; a one-stop gradient is that solid color.
+ * A zero-radius radial gradient or a linear gradient with identical endpoints
+ * resolves to its terminal stop (or transparent when empty), so no accepted
+ * gradient silently loses its paint.
+ */
+
+typedef enum fission_skia_line_cap_t {
+    FISSION_SKIA_LINE_CAP_BUTT = 1,
+    FISSION_SKIA_LINE_CAP_ROUND = 2,
+    FISSION_SKIA_LINE_CAP_SQUARE = 3
+} fission_skia_line_cap_t;
+
+typedef enum fission_skia_line_join_t {
+    FISSION_SKIA_LINE_JOIN_MITER = 1,
+    FISSION_SKIA_LINE_JOIN_ROUND = 2,
+    FISSION_SKIA_LINE_JOIN_BEVEL = 3
+} fission_skia_line_join_t;
+
+typedef struct fission_skia_stroke_t {
+    uint32_t struct_size;
+    float width;
+    uint32_t line_cap;
+    uint32_t line_join;
+    uint32_t dash_offset;
+    uint32_t dash_count;
+} fission_skia_stroke_t;
+
+typedef struct fission_skia_box_shadow_t {
+    uint32_t struct_size;
+    uint32_t inset;
+    fission_skia_color_t color;
+    float blur_radius;
+    float spread_radius;
+    float offset_x;
+    float offset_y;
+} fission_skia_box_shadow_t;
+
 typedef enum fission_skia_frame_op_kind_t {
     FISSION_SKIA_FRAME_CLEAR = 1,
-    FISSION_SKIA_FRAME_FILL_RECT = 2,
-    FISSION_SKIA_FRAME_FILL_PATH = 3
+    FISSION_SKIA_FRAME_SAVE = 2,
+    FISSION_SKIA_FRAME_RESTORE = 3,
+    FISSION_SKIA_FRAME_CLIP_RECT = 4,
+    FISSION_SKIA_FRAME_CLIP_ROUNDED_RECT = 5,
+    FISSION_SKIA_FRAME_CONCAT_AFFINE = 6,
+    FISSION_SKIA_FRAME_FILL_RECT = 7,
+    FISSION_SKIA_FRAME_STROKE_RECT = 8,
+    FISSION_SKIA_FRAME_FILL_PATH = 9,
+    FISSION_SKIA_FRAME_STROKE_PATH = 10,
+    FISSION_SKIA_FRAME_BOX_SHADOW = 11
 } fission_skia_frame_op_kind_t;
 
 /*
- * Operations are deliberately fixed-width and pointer-free. path_offset and
- * path_count address the enclosing frame's command array. Unused fields must
- * be zero, allowing future ABI versions to give them meaning explicitly.
+ * Operations are deliberately fixed-width and pointer-free. Offset/count
+ * pairs address the enclosing frame's path, gradient, and dash arrays. Unused
+ * fields must be zero, allowing future ABI versions to give them meaning
+ * explicitly. Odd dash arrays are duplicated by the safe Rust encoder; empty
+ * and all-zero arrays are encoded as a solid stroke.
  */
 typedef struct fission_skia_frame_op_t {
     uint32_t struct_size;
     uint32_t kind;
-    fission_skia_color_t color;
+    fission_skia_paint_t paint;
+    fission_skia_stroke_t stroke;
+    fission_skia_box_shadow_t shadow;
     fission_skia_rect_t rect;
+    fission_skia_affine_t affine;
+    float radius;
     uint32_t path_offset;
     uint32_t path_count;
     uint32_t fill_rule;
@@ -150,6 +242,10 @@ typedef struct fission_skia_frame_t {
     size_t operation_count;
     const fission_skia_path_command_t* path_commands;
     size_t path_command_count;
+    const fission_skia_gradient_stop_t* gradient_stops;
+    size_t gradient_stop_count;
+    const float* dash_intervals;
+    size_t dash_interval_count;
 } fission_skia_frame_t;
 
 typedef struct fission_skia_pixel_rect_t {

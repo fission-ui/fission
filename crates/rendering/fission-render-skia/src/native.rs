@@ -1,10 +1,14 @@
 use fission_render::surface::{MemoryPressure, PhysicalSize};
 use fission_skia_sys::{
-    Color, Context, Engine, Error, ErrorKind, Frame, FrameOp, PixelRect, RasterSurface, Rect,
+    Affine, BoxShadow, Color, Context, Engine, Error, ErrorKind, FillRule, Frame, FrameOp,
+    GradientStop, LineCap, LineJoin, Paint, Path, PathCommand, PixelRect, Point, RasterSurface,
+    Rect, Stroke,
 };
 
 use crate::api::{
-    ApiError, ApiErrorKind, ApiReadback, PixelRegion, RasterCommand, RasterFrame, SkiaApi,
+    ApiError, ApiErrorKind, ApiReadback, PixelRegion, RasterAffine, RasterBoxShadow, RasterCommand,
+    RasterFillRule, RasterFrame, RasterLineCap, RasterLineJoin, RasterPaint, RasterPath,
+    RasterPathCommand, RasterPoint, RasterStroke, SkiaApi,
 };
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -53,14 +57,52 @@ impl SkiaApi for NativeSkiaApi {
                 .iter()
                 .map(|command| match command {
                     RasterCommand::Clear(color) => FrameOp::Clear(native_color(*color)),
-                    RasterCommand::FillRect { rect, color } => FrameOp::FillRect {
-                        rect: Rect::new(
-                            rect.left,
-                            rect.top,
-                            rect.right - rect.left,
-                            rect.bottom - rect.top,
-                        ),
-                        color: native_color(*color),
+                    RasterCommand::Save => FrameOp::Save,
+                    RasterCommand::Restore => FrameOp::Restore,
+                    RasterCommand::ClipRect { rect } => FrameOp::ClipRect {
+                        rect: native_rect(*rect),
+                    },
+                    RasterCommand::ClipRoundedRect { rect, radius } => FrameOp::ClipRoundedRect {
+                        rect: native_rect(*rect),
+                        radius: *radius,
+                    },
+                    RasterCommand::ConcatAffine(affine) => {
+                        FrameOp::ConcatAffine(native_affine(*affine))
+                    }
+                    RasterCommand::FillRect {
+                        rect,
+                        radius,
+                        paint,
+                    } => FrameOp::FillRect {
+                        rect: native_rect(*rect),
+                        radius: *radius,
+                        paint: native_paint(paint),
+                    },
+                    RasterCommand::StrokeRect {
+                        rect,
+                        radius,
+                        stroke,
+                    } => FrameOp::StrokeRect {
+                        rect: native_rect(*rect),
+                        radius: *radius,
+                        stroke: native_stroke(stroke),
+                    },
+                    RasterCommand::FillPath { path, paint } => FrameOp::FillPath {
+                        path: native_path(path),
+                        paint: native_paint(paint),
+                    },
+                    RasterCommand::StrokePath { path, stroke } => FrameOp::StrokePath {
+                        path: native_path(path),
+                        stroke: native_stroke(stroke),
+                    },
+                    RasterCommand::BoxShadow {
+                        rect,
+                        radius,
+                        shadow,
+                    } => FrameOp::BoxShadow {
+                        rect: native_rect(*rect),
+                        radius: *radius,
+                        shadow: native_shadow(*shadow),
                     },
                 })
                 .collect::<Vec<_>>(),
@@ -126,6 +168,122 @@ impl SkiaApi for NativeSkiaApi {
 
 fn native_color(color: crate::api::RasterColor) -> Color {
     Color::rgba(color.red, color.green, color.blue, color.alpha)
+}
+
+fn native_point(point: RasterPoint) -> Point {
+    Point::new(point.x, point.y)
+}
+
+fn native_rect(rect: crate::api::RasterRect) -> Rect {
+    Rect::new(
+        rect.left,
+        rect.top,
+        rect.right - rect.left,
+        rect.bottom - rect.top,
+    )
+}
+
+fn native_affine(affine: RasterAffine) -> Affine {
+    Affine {
+        scale_x: affine.scale_x,
+        skew_x: affine.skew_x,
+        translate_x: affine.translate_x,
+        skew_y: affine.skew_y,
+        scale_y: affine.scale_y,
+        translate_y: affine.translate_y,
+    }
+}
+
+fn native_paint(paint: &RasterPaint) -> Paint {
+    match paint {
+        RasterPaint::Solid(color) => Paint::Solid(native_color(*color)),
+        RasterPaint::LinearGradient { start, end, stops } => Paint::LinearGradient {
+            start: native_point(*start),
+            end: native_point(*end),
+            stops: stops
+                .iter()
+                .map(|stop| GradientStop::new(stop.offset, native_color(stop.color)))
+                .collect(),
+        },
+        RasterPaint::RadialGradient {
+            center,
+            radius,
+            stops,
+        } => Paint::RadialGradient {
+            center: native_point(*center),
+            radius: *radius,
+            stops: stops
+                .iter()
+                .map(|stop| GradientStop::new(stop.offset, native_color(stop.color)))
+                .collect(),
+        },
+    }
+}
+
+fn native_stroke(stroke: &RasterStroke) -> Stroke {
+    Stroke {
+        paint: native_paint(&stroke.paint),
+        width: stroke.width,
+        dash_array: stroke.dash_array.clone(),
+        line_cap: match stroke.line_cap {
+            RasterLineCap::Butt => LineCap::Butt,
+            RasterLineCap::Round => LineCap::Round,
+            RasterLineCap::Square => LineCap::Square,
+        },
+        line_join: match stroke.line_join {
+            RasterLineJoin::Miter => LineJoin::Miter,
+            RasterLineJoin::Round => LineJoin::Round,
+            RasterLineJoin::Bevel => LineJoin::Bevel,
+        },
+    }
+}
+
+fn native_path(path: &RasterPath) -> Path {
+    Path::new(
+        match path.fill_rule {
+            RasterFillRule::NonZero => FillRule::NonZero,
+            RasterFillRule::EvenOdd => FillRule::EvenOdd,
+        },
+        path.commands
+            .iter()
+            .map(|command| match command {
+                RasterPathCommand::MoveTo { x, y } => PathCommand::MoveTo { x: *x, y: *y },
+                RasterPathCommand::LineTo { x, y } => PathCommand::LineTo { x: *x, y: *y },
+                RasterPathCommand::QuadTo { cx, cy, x, y } => PathCommand::QuadTo {
+                    cx: *cx,
+                    cy: *cy,
+                    x: *x,
+                    y: *y,
+                },
+                RasterPathCommand::CubicTo {
+                    c1x,
+                    c1y,
+                    c2x,
+                    c2y,
+                    x,
+                    y,
+                } => PathCommand::CubicTo {
+                    c1x: *c1x,
+                    c1y: *c1y,
+                    c2x: *c2x,
+                    c2y: *c2y,
+                    x: *x,
+                    y: *y,
+                },
+                RasterPathCommand::Close => PathCommand::Close,
+            })
+            .collect::<Vec<_>>(),
+    )
+}
+
+fn native_shadow(shadow: RasterBoxShadow) -> BoxShadow {
+    BoxShadow {
+        color: native_color(shadow.color),
+        blur_radius: shadow.blur_radius,
+        spread_radius: shadow.spread_radius,
+        offset: native_point(shadow.offset),
+        inset: shadow.inset,
+    }
 }
 
 fn map_error(error: Error) -> ApiError {

@@ -7,7 +7,8 @@ use fission_render::backend::{
 };
 use fission_render::capabilities::{ColorFormat, GraphicsCapabilities};
 use fission_render::diagnostics::{
-    BackendDiagnostic, BackendDiagnostics, DiagnosticCategory, DiagnosticSeverity,
+    BackendDiagnostic, BackendDiagnostics, DiagnosticCategory, DiagnosticProvenance,
+    DiagnosticSeverity,
 };
 use fission_render::frame::{FrameId, ValidatedInteractiveFrame};
 use fission_render::surface::{
@@ -17,7 +18,7 @@ use fission_render::surface::{
 use crate::api::{ApiError, ApiErrorKind, PixelRegion, SkiaApi};
 use crate::capabilities::skia_raster_capabilities;
 use crate::compiler::compile_scene;
-use crate::error::{api_error, contract_error, wrong_thread};
+use crate::error::{api_error, contract_error, contract_error_with_provenance, wrong_thread};
 use crate::native::NativeSkiaApi;
 use crate::thread_owner::ThreadOwner;
 
@@ -478,14 +479,24 @@ impl<A: SkiaApi> GraphicsBackendDriver for RasterDriver<A> {
         self.check_thread(BackendOperation::Render)?;
         self.require_state(BackendOperation::Render, &[SessionState::Attached])?;
         let metrics = self.validate_frame_metrics(frame)?;
-        let compiled = match compile_scene(frame.frame().scene(), metrics.scale_factor.get()) {
+        let compiled = match compile_scene(
+            frame.frame().scene(),
+            metrics.scale_factor.get(),
+            frame.frame().clear_color(),
+        ) {
             Ok(compiled) => compiled,
             Err(error) => {
-                let error = contract_error(
+                let provenance = DiagnosticProvenance {
+                    frame_id: Some(frame.frame().metadata().frame_id),
+                    node_id: error.provenance.node_id,
+                    operation_index: error.provenance.operation_index(),
+                };
+                let error = contract_error_with_provenance(
                     BackendOperation::Render,
                     "skia-frame-lowering-unsupported",
                     DiagnosticCategory::Capability,
                     error.to_string(),
+                    provenance,
                 );
                 self.record_error(&error);
                 return Err(error);

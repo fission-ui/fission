@@ -1,5 +1,7 @@
 use fission_render::backend::{BackendError, BackendOperation};
-use fission_render::diagnostics::{BackendDiagnostic, DiagnosticCategory, DiagnosticSeverity};
+use fission_render::diagnostics::{
+    BackendDiagnostic, DiagnosticCategory, DiagnosticProvenance, DiagnosticSeverity,
+};
 
 use crate::api::{ApiError, ApiErrorKind};
 use crate::thread_owner::WrongThread;
@@ -53,5 +55,22 @@ pub(crate) fn contract_error(
         code: code.into(),
         message,
         provenance: None,
+    })
+}
+
+pub(crate) fn contract_error_with_provenance(
+    operation: BackendOperation,
+    code: &'static str,
+    category: DiagnosticCategory,
+    message: impl Into<String>,
+    provenance: DiagnosticProvenance,
+) -> BackendError {
+    let message = message.into();
+    BackendError::new(operation, code, message.clone()).with_diagnostic(BackendDiagnostic {
+        severity: DiagnosticSeverity::Error,
+        category,
+        code: code.into(),
+        message,
+        provenance: Some(provenance),
     })
 }

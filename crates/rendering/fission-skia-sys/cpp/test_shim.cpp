@@ -20,6 +20,7 @@ constexpr uint64_t kFeatures =
     FISSION_SKIA_FEATURE_RASTER_SURFACE | FISSION_SKIA_FEATURE_BASIC_FRAME |
     FISSION_SKIA_FEATURE_RGBA_READBACK | FISSION_SKIA_FEATURE_STRUCTURED_ERRORS |
     FISSION_SKIA_FEATURE_THREAD_AFFINITY | FISSION_SKIA_FEATURE_MEMORY_PRESSURE |
+    FISSION_SKIA_FEATURE_PAINT_STATE |
     FISSION_SKIA_FEATURE_TEST_SHIM;
 
 struct Engine { std::thread::id owner; uint64_t children = 0; };
@@ -85,6 +86,81 @@ bool valid_color(const fission_skia_color_t& color) {
         if (!std::isfinite(value) || value < 0.0f || value > 1.0f) return false;
     }
     return true;
+}
+
+bool valid_rect(const fission_skia_rect_t& rect) {
+    return std::isfinite(rect.x) && std::isfinite(rect.y) &&
+           std::isfinite(rect.width) && std::isfinite(rect.height) &&
+           rect.width >= 0.0f && rect.height >= 0.0f;
+}
+
+bool valid_range(uint32_t offset, uint32_t count, size_t length) {
+    const size_t start = offset;
+    const size_t amount = count;
+    return start <= length && amount <= length - start;
+}
+
+bool valid_paint(const fission_skia_frame_t& frame, const fission_skia_paint_t& paint) {
+    if (paint.struct_size != sizeof(paint)) return false;
+    if (paint.kind == FISSION_SKIA_PAINT_SOLID) return valid_color(paint.color);
+    if (paint.kind != FISSION_SKIA_PAINT_LINEAR_GRADIENT &&
+        paint.kind != FISSION_SKIA_PAINT_RADIAL_GRADIENT) return false;
+    if (!std::isfinite(paint.start.x) || !std::isfinite(paint.start.y) ||
+        !std::isfinite(paint.end.x) || !std::isfinite(paint.end.y) ||
+        !std::isfinite(paint.radius) || paint.radius < 0.0f ||
+        !valid_range(paint.stop_offset, paint.stop_count, frame.gradient_stop_count)) return false;
+    float previous = 0.0f;
+    for (uint32_t index = 0; index < paint.stop_count; ++index) {
+        const auto& stop = frame.gradient_stops[paint.stop_offset + index];
+        if (!std::isfinite(stop.offset) || stop.offset < 0.0f || stop.offset > 1.0f ||
+            !valid_color(stop.color) || (index && stop.offset < previous)) return false;
+        previous = stop.offset;
+    }
+    return true;
+}
+
+bool valid_stroke(const fission_skia_frame_t& frame, const fission_skia_stroke_t& stroke) {
+    if (stroke.struct_size != sizeof(stroke) || !std::isfinite(stroke.width) ||
+        stroke.width < 0.0f || stroke.line_cap < FISSION_SKIA_LINE_CAP_BUTT ||
+        stroke.line_cap > FISSION_SKIA_LINE_CAP_SQUARE ||
+        stroke.line_join < FISSION_SKIA_LINE_JOIN_MITER ||
+        stroke.line_join > FISSION_SKIA_LINE_JOIN_BEVEL ||
+        stroke.dash_count % 2 != 0 ||
+        !valid_range(stroke.dash_offset, stroke.dash_count, frame.dash_interval_count)) return false;
+    float sum = 0.0f;
+    for (uint32_t index = 0; index < stroke.dash_count; ++index) {
+        const float interval = frame.dash_intervals[stroke.dash_offset + index];
+        if (!std::isfinite(interval) || interval < 0.0f) return false;
+        sum += interval;
+    }
+    return stroke.dash_count == 0 || (std::isfinite(sum) && sum > 0.0f);
+}
+
+bool valid_path(const fission_skia_frame_t& frame, const fission_skia_frame_op_t& op) {
+    if (op.fill_rule != FISSION_SKIA_FILL_NON_ZERO &&
+        op.fill_rule != FISSION_SKIA_FILL_EVEN_ODD) return false;
+    if (!op.path_count || !valid_range(op.path_offset, op.path_count,
+                                       frame.path_command_count)) return false;
+    bool current = false;
+    for (uint32_t index = 0; index < op.path_count; ++index) {
+        const auto& command = frame.path_commands[op.path_offset + index];
+        if (command.struct_size != sizeof(command)) return false;
+        const float values[] = {command.x1, command.y1, command.x2,
+                                command.y2, command.x3, command.y3};
+        for (float value : values) if (!std::isfinite(value)) return false;
+        if (command.verb == FISSION_SKIA_PATH_MOVE) current = true;
+        else if (!current || command.verb < FISSION_SKIA_PATH_LINE ||
+                 command.verb > FISSION_SKIA_PATH_CLOSE) return false;
+    }
+    return true;
+}
+
+fission_skia_color_t representative_color(
+    const fission_skia_frame_t& frame,
+    const fission_skia_paint_t& paint) {
+    if (paint.kind == FISSION_SKIA_PAINT_SOLID) return paint.color;
+    if (paint.stop_count == 0) return {0.0f, 0.0f, 0.0f, 0.0f};
+    return frame.gradient_stops[paint.stop_offset + paint.stop_count - 1].color;
 }
 
 uint8_t channel(float value) {
@@ -249,24 +325,84 @@ fission_skia_status_t fission_skia_surface_execute_frame(
     fission_skia_error_t* error) {
     if (!frame || frame->struct_size != sizeof(*frame) ||
         (frame->operation_count && !frame->operations) ||
-        (frame->path_command_count && !frame->path_commands))
+        (frame->path_command_count && !frame->path_commands) ||
+        (frame->gradient_stop_count && !frame->gradient_stops) ||
+        (frame->dash_interval_count && !frame->dash_intervals))
         return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame", "invalid frame", error);
+    size_t save_depth = 0;
     for (size_t index = 0; index < frame->operation_count; ++index) {
         const auto& op = frame->operations[index];
-        if (op.struct_size != sizeof(op) || !valid_color(op.color))
+        if (op.struct_size != sizeof(op))
             return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame", "invalid operation", error);
-        if (op.kind == FISSION_SKIA_FRAME_FILL_RECT &&
-            (!std::isfinite(op.rect.x) || !std::isfinite(op.rect.y) ||
-             !std::isfinite(op.rect.width) || !std::isfinite(op.rect.height) ||
-             op.rect.width < 0 || op.rect.height < 0))
-            return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame", "invalid rect", error);
-        if (op.kind == FISSION_SKIA_FRAME_FILL_PATH &&
-            (!op.path_count || op.path_offset > frame->path_command_count ||
-             op.path_count > frame->path_command_count - op.path_offset))
-            return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame", "invalid path range", error);
-        if (op.kind < FISSION_SKIA_FRAME_CLEAR || op.kind > FISSION_SKIA_FRAME_FILL_PATH)
-            return fail(FISSION_SKIA_STATUS_UNSUPPORTED, "execute_frame", "unknown operation", error);
+        switch (op.kind) {
+            case FISSION_SKIA_FRAME_CLEAR:
+                if (!valid_paint(*frame, op.paint) ||
+                    op.paint.kind != FISSION_SKIA_PAINT_SOLID)
+                    return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame",
+                                "invalid clear paint", error);
+                break;
+            case FISSION_SKIA_FRAME_SAVE:
+                save_depth += 1;
+                break;
+            case FISSION_SKIA_FRAME_RESTORE:
+                if (!save_depth)
+                    return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame",
+                                "restore without save", error);
+                save_depth -= 1;
+                break;
+            case FISSION_SKIA_FRAME_CLIP_RECT:
+            case FISSION_SKIA_FRAME_CLIP_ROUNDED_RECT:
+                if (!valid_rect(op.rect) || !std::isfinite(op.radius) || op.radius < 0.0f)
+                    return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame",
+                                "invalid clip", error);
+                break;
+            case FISSION_SKIA_FRAME_CONCAT_AFFINE: {
+                const float values[] = {op.affine.scale_x, op.affine.skew_x,
+                                        op.affine.translate_x, op.affine.skew_y,
+                                        op.affine.scale_y, op.affine.translate_y};
+                for (float value : values)
+                    if (!std::isfinite(value))
+                        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame",
+                                    "invalid affine", error);
+                break;
+            }
+            case FISSION_SKIA_FRAME_FILL_RECT:
+                if (!valid_rect(op.rect) || !std::isfinite(op.radius) || op.radius < 0.0f ||
+                    !valid_paint(*frame, op.paint))
+                    return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame",
+                                "invalid fill rectangle", error);
+                break;
+            case FISSION_SKIA_FRAME_STROKE_RECT:
+                if (!valid_rect(op.rect) || !std::isfinite(op.radius) || op.radius < 0.0f ||
+                    !valid_paint(*frame, op.paint) || !valid_stroke(*frame, op.stroke))
+                    return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame",
+                                "invalid stroke rectangle", error);
+                break;
+            case FISSION_SKIA_FRAME_FILL_PATH:
+            case FISSION_SKIA_FRAME_STROKE_PATH:
+                if (!valid_path(*frame, op) || !valid_paint(*frame, op.paint) ||
+                    (op.kind == FISSION_SKIA_FRAME_STROKE_PATH &&
+                     !valid_stroke(*frame, op.stroke)))
+                    return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame",
+                                "invalid path paint", error);
+                break;
+            case FISSION_SKIA_FRAME_BOX_SHADOW:
+                if (!valid_rect(op.rect) || !std::isfinite(op.radius) || op.radius < 0.0f ||
+                    op.shadow.struct_size != sizeof(op.shadow) || op.shadow.inset > 1 ||
+                    !valid_color(op.shadow.color) || !std::isfinite(op.shadow.blur_radius) ||
+                    op.shadow.blur_radius < 0.0f || !std::isfinite(op.shadow.spread_radius) ||
+                    !std::isfinite(op.shadow.offset_x) || !std::isfinite(op.shadow.offset_y))
+                    return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame",
+                                "invalid box shadow", error);
+                break;
+            default:
+                return fail(FISSION_SKIA_STATUS_UNSUPPORTED, "execute_frame",
+                            "unknown operation", error);
+        }
     }
+    if (save_depth)
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame",
+                    "unrestored save", error);
     std::lock_guard<std::mutex> lock(state().mutex);
     auto found = state().surfaces.find(id);
     if (found == state().surfaces.end())
@@ -277,11 +413,12 @@ fission_skia_status_t fission_skia_surface_execute_frame(
         const auto& op = frame->operations[index];
         if (op.kind == FISSION_SKIA_FRAME_CLEAR) {
             paint_rect(found->second, {0, 0, static_cast<float>(found->second.width),
-                                      static_cast<float>(found->second.height)}, op.color);
+                                      static_cast<float>(found->second.height)}, op.paint.color);
         } else if (op.kind == FISSION_SKIA_FRAME_FILL_RECT) {
-            paint_rect(found->second, op.rect, op.color);
+            paint_rect(found->second, op.rect, representative_color(*frame, op.paint));
         }
-        // Paths are intentionally validation-only in the ABI test double.
+        // State, gradients, strokes, paths, and shadows are intentionally
+        // validation-only in the ABI ownership test double.
     }
     clear(error);
     return FISSION_SKIA_STATUS_OK;

@@ -26,6 +26,7 @@ pub const FEATURE_RGBA_READBACK: u64 = 1 << 2;
 pub const FEATURE_STRUCTURED_ERRORS: u64 = 1 << 3;
 pub const FEATURE_THREAD_AFFINITY: u64 = 1 << 4;
 pub const FEATURE_MEMORY_PRESSURE: u64 = 1 << 5;
+pub const FEATURE_PAINT_STATE: u64 = 1 << 6;
 pub const FEATURE_TEST_SHIM: u64 = 1 << 63;
 
 pub const PATH_MOVE: u32 = 1;
@@ -37,9 +38,29 @@ pub const PATH_CLOSE: u32 = 5;
 pub const FILL_NON_ZERO: u32 = 1;
 pub const FILL_EVEN_ODD: u32 = 2;
 
+pub const PAINT_SOLID: u32 = 1;
+pub const PAINT_LINEAR_GRADIENT: u32 = 2;
+pub const PAINT_RADIAL_GRADIENT: u32 = 3;
+
+pub const LINE_CAP_BUTT: u32 = 1;
+pub const LINE_CAP_ROUND: u32 = 2;
+pub const LINE_CAP_SQUARE: u32 = 3;
+
+pub const LINE_JOIN_MITER: u32 = 1;
+pub const LINE_JOIN_ROUND: u32 = 2;
+pub const LINE_JOIN_BEVEL: u32 = 3;
+
 pub const FRAME_CLEAR: u32 = 1;
-pub const FRAME_FILL_RECT: u32 = 2;
-pub const FRAME_FILL_PATH: u32 = 3;
+pub const FRAME_SAVE: u32 = 2;
+pub const FRAME_RESTORE: u32 = 3;
+pub const FRAME_CLIP_RECT: u32 = 4;
+pub const FRAME_CLIP_ROUNDED_RECT: u32 = 5;
+pub const FRAME_CONCAT_AFFINE: u32 = 6;
+pub const FRAME_FILL_RECT: u32 = 7;
+pub const FRAME_STROKE_RECT: u32 = 8;
+pub const FRAME_FILL_PATH: u32 = 9;
+pub const FRAME_STROKE_PATH: u32 = 10;
+pub const FRAME_BOX_SHADOW: u32 = 11;
 
 pub const MEMORY_PRESSURE_MODERATE: u32 = 1;
 pub const MEMORY_PRESSURE_CRITICAL: u32 = 2;
@@ -116,6 +137,24 @@ pub struct Rect {
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
+pub struct Point {
+    pub x: f32,
+    pub y: f32,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct Affine {
+    pub scale_x: f32,
+    pub skew_x: f32,
+    pub translate_x: f32,
+    pub skew_y: f32,
+    pub scale_y: f32,
+    pub translate_y: f32,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
 pub struct PathCommand {
     pub struct_size: u32,
     pub verb: u32,
@@ -129,11 +168,58 @@ pub struct PathCommand {
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-pub struct FrameOp {
+pub struct GradientStop {
+    pub offset: f32,
+    pub color: Color,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct Paint {
     pub struct_size: u32,
     pub kind: u32,
     pub color: Color,
+    pub start: Point,
+    pub end: Point,
+    pub radius: f32,
+    pub stop_offset: u32,
+    pub stop_count: u32,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct Stroke {
+    pub struct_size: u32,
+    pub width: f32,
+    pub line_cap: u32,
+    pub line_join: u32,
+    pub dash_offset: u32,
+    pub dash_count: u32,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct BoxShadow {
+    pub struct_size: u32,
+    pub inset: u32,
+    pub color: Color,
+    pub blur_radius: f32,
+    pub spread_radius: f32,
+    pub offset_x: f32,
+    pub offset_y: f32,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct FrameOp {
+    pub struct_size: u32,
+    pub kind: u32,
+    pub paint: Paint,
+    pub stroke: Stroke,
+    pub shadow: BoxShadow,
     pub rect: Rect,
+    pub affine: Affine,
+    pub radius: f32,
     pub path_offset: u32,
     pub path_count: u32,
     pub fill_rule: u32,
@@ -149,6 +235,10 @@ pub struct Frame {
     pub operation_count: usize,
     pub path_commands: *const PathCommand,
     pub path_command_count: usize,
+    pub gradient_stops: *const GradientStop,
+    pub gradient_stop_count: usize,
+    pub dash_intervals: *const f32,
+    pub dash_interval_count: usize,
 }
 
 #[repr(C)]

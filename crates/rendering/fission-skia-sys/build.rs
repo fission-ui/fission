@@ -7,7 +7,7 @@ use std::process::Command;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-const ABI_VERSION: u32 = 1;
+const ABI_VERSION: u32 = 2;
 const SKIA_REVISION: &str = "cf5c36972b73698eb3939cda147ea47152670312";
 
 #[derive(Debug, Deserialize)]
@@ -298,10 +298,10 @@ fn compile_bridge(source: &Path, build: &Path, profile: &str) {
         .define("FISSION_SKIA_BUILDING_BRIDGE", None)
         .define("FISSION_SKIA_REVISION", revision_define.as_str())
         .define("FISSION_SKIA_BUILD_PROFILE", profile_define.as_str())
-        .flag_if_supported("-std=c++17")
+        .flag_if_supported("-std=c++20")
         .flag_if_supported("-fno-exceptions")
         .flag_if_supported("-fno-rtti")
-        .flag_if_supported("/std:c++17")
+        .flag_if_supported("/std:c++20")
         .flag_if_supported("/EHs-c-")
         .compile("fission_skia_bridge");
 }
@@ -315,7 +315,7 @@ fn configure_test_shim() {
         .include("include")
         .define("FISSION_SKIA_TEST_SHIM", None)
         .define("FISSION_SKIA_REVISION", revision_define.as_str())
-        .flag_if_supported("-std=c++17")
-        .flag_if_supported("/std:c++17")
+        .flag_if_supported("-std=c++20")
+        .flag_if_supported("/std:c++20")
         .compile("fission_skia_bridge");
 }
