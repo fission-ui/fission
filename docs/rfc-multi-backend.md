@@ -157,6 +157,21 @@ renderer, text engine, GPU layer, window/event host, or other backend component.
 This RFC authorizes the architecture needed to make that possible. It does not
 authorize or schedule such an implementation today.
 
+### 3.6 Skia becomes the production software renderer
+
+The optimized Skia raster pipeline replaces Fission's existing software
+renderer in production graphical profiles. Native software rendering uses the
+same `fission-render-skia` frame compiler, SkParagraph profile, resource
+authority, lifecycle, diagnostics, and readback contracts as native Skia GPU
+rendering. Interactive Web software rendering uses Fission's CanvasKit profile
+in software mode rather than the existing Canvas 2D pixel path.
+
+This is a renderer migration, not a change to widget APIs or to non-graphical
+targets. Static-site HTML, SSR HTML, and terminal cells remain independent of
+Skia. The previous software renderer may remain temporarily as a comparison or
+conformance implementation while migration is in progress, but no completed
+production profile selects it and it is not a fallback beneath a Skia profile.
+
 ## 4. Goals
 
 - Make rendering, text, GPU presentation, and platform hosting independently
@@ -185,8 +200,7 @@ authorize or schedule such an implementation today.
 
 ## 5. Non-goals
 
-- Removing Vello, wgpu, Parley, Winit, AccessKit, or the current software
-  renderer in the near term.
+- Removing Vello, wgpu, Parley, Winit, or AccessKit in the near term.
 - Promising that any current dependency will eventually be removed.
 - Selecting Skia as the permanent default before it is fully qualified.
 - Making Vello and Skia pixel-identical.
@@ -1250,8 +1264,8 @@ measured, and the budgets a production profile must meet.
 - Introduce the paragraph result required by ADR 0001.
 - Split neutral 3D scene/model and producer contracts from the current optional
   wgpu renderer implementation.
-- Route Vello, wgpu, Parley, software presentation, and Winit through those
-  contracts.
+- Route Vello, wgpu, Parley, transitional software presentation, and Winit
+  through those contracts.
 - Keep static, SSR, and terminal dependency graphs unchanged.
 
 Exit gate: the existing backend passes its prior functional, visual, text,
@@ -1275,7 +1289,9 @@ artifact, error, and lifecycle tests. A shapes demo alone does not satisfy it.
 
 - Implement Ganesh presentation on macOS, Windows, Linux, iOS, and Android.
 - Complete text, fonts, images, SVG, filters, color, retained layers, damage,
-  cache policy, screenshots, and software fallback.
+  cache policy, screenshots, and the production Skia raster path.
+- Replace every native production selection and fallback path that uses the old
+  software renderer with Skia raster and its paired SkParagraph profile.
 - Implement suspend/resume, resize, scale change, memory pressure, surface loss,
   and device-loss behavior.
 - Integrate accessibility, IME geometry, video, web views, and 3D external
@@ -1289,8 +1305,11 @@ native targets without backend-specific application code.
 
 - Produce the Fission CanvasKit profile and release artifacts.
 - Implement batched frame/resource transfer and lifecycle management.
-- Complete Web text/font loading, images, the declared Web SVG path, software
-  fallback, semantics mirror, IME bridge, resize, context loss, and caching.
+- Complete Web text/font loading, images, the declared Web SVG path, CanvasKit
+  software rendering, semantics mirror, IME bridge, resize, context loss, and
+  caching.
+- Remove the old Canvas 2D software-buffer renderer from production selection
+  after CanvasKit software conformance passes.
 - Exercise the chosen Graphite/Dawn event-loop, asynchronous readback, and
   teardown rules when that qualification lane is enabled.
 - Qualify WebGL/Ganesh and the selected Graphite/WebGPU lane separately.
@@ -1335,8 +1354,9 @@ The architectural refactor is complete when:
 - a Skia-only 2D application does not link Vello, Parley, or wgpu; wgpu remains
   permitted when 3D or another explicitly selected wgpu backend is enabled;
 - a Vello-only application does not link Skia, and a standalone-software
-  application does not link Skia or the Vello GPU engine; any GPU dependency
-  used solely to upload/present a software buffer is reported separately;
+  application links the focused Skia raster profile without Vello, Parley, or
+  wgpu; any platform dependency used solely to upload or present its raster
+  buffer is reported separately;
 - `fission-skia-sys` is the only crate that directly touches Skia's C/C++ ABI,
   and safe-wrapper tests cover ownership, destruction, errors, and thread
   affinity;
@@ -1357,9 +1377,10 @@ The architectural refactor is complete when:
   dependencies;
 - adding a test backend does not require changes to app widgets or core layout
   semantics;
-- the required Vello and current software-renderer conformance and platform
-  suites do not regress, and no existing backend or dependency is marked
-  deprecated as a consequence of this RFC.
+- the required Vello suites do not regress, and the migrated Skia raster path
+  passes the prior software-renderer behavior and platform suites before the
+  old production path is removed; no Rust-native backend is marked deprecated
+  as a consequence of this RFC.
 
 ### 18.2 Skia production acceptance
 
