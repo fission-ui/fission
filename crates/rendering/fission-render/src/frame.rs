@@ -17,7 +17,7 @@ pub use crate::frame_geometry::{
 };
 use crate::resource::{ResourceSnapshot, ResourceSnapshotError};
 use crate::surface::{PhysicalSize, ScaleFactor};
-use crate::{DisplayList, DisplayOp, LayoutRect, LayoutSize, RenderNode, RenderScene};
+use crate::{Color, DisplayList, DisplayOp, LayoutRect, LayoutSize, RenderNode, RenderScene};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct FrameId(pub u64);
@@ -72,6 +72,7 @@ pub struct InteractiveFrame<'a> {
     metadata: &'a FrameMetadata,
     resources: &'a ResourceSnapshot,
     external_surface_bindings: &'a ExternalSurfaceBindings,
+    clear_color: Color,
 }
 
 impl<'a> InteractiveFrame<'a> {
@@ -86,7 +87,23 @@ impl<'a> InteractiveFrame<'a> {
             metadata,
             resources,
             external_surface_bindings,
+            clear_color: Color {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 0,
+            },
         }
+    }
+
+    /// Set the color used to initialize pixels not covered by scene paint.
+    ///
+    /// Headless callers keep the transparent default from [`Self::new`].
+    /// Interactive shells should pass their resolved design-system background
+    /// so every graphics backend receives the same complete-frame input.
+    pub fn with_clear_color(mut self, clear_color: Color) -> Self {
+        self.clear_color = clear_color;
+        self
     }
 
     pub fn scene(self) -> &'a RenderScene {
@@ -103,6 +120,10 @@ impl<'a> InteractiveFrame<'a> {
 
     pub fn external_surface_bindings(self) -> &'a ExternalSurfaceBindings {
         self.external_surface_bindings
+    }
+
+    pub fn clear_color(self) -> Color {
+        self.clear_color
     }
 
     pub fn validate(self) -> Result<(), FrameValidationError> {
@@ -491,6 +512,35 @@ mod tests {
             zero_copy: true,
             damaged: true,
         }
+    }
+
+    #[test]
+    fn interactive_frame_carries_the_resolved_clear_color() {
+        let scene = RenderScene::new(rect());
+        let metadata = metadata();
+        let resources = ResourceSnapshot::empty(metadata.resource_epoch);
+        let bindings = ExternalSurfaceBindings::new();
+        let background = Color {
+            r: 12,
+            g: 34,
+            b: 56,
+            a: 255,
+        };
+
+        let transparent = InteractiveFrame::new(&scene, &metadata, &resources, &bindings);
+        assert_eq!(
+            transparent.clear_color(),
+            Color {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 0,
+            }
+        );
+        assert_eq!(
+            transparent.with_clear_color(background).clear_color(),
+            background
+        );
     }
 
     #[test]

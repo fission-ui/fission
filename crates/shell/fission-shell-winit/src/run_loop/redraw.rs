@@ -1266,7 +1266,14 @@ where
                                 .pipeline
                                 .retained_scene()
                                 .expect("retained render self.scene missing before render");
-                            let frame = submission.interactive_frame(retained_scene);
+                            let frame = submission
+                                .interactive_frame(retained_scene)
+                                .with_clear_color(fission_render::Color {
+                                    r: self.env.theme.tokens.colors.background.r,
+                                    g: self.env.theme.tokens.colors.background.g,
+                                    b: self.env.theme.tokens.colors.background.b,
+                                    a: self.env.theme.tokens.colors.background.a,
+                                });
                             let rgba = match presenter.render_to_rgba(&frame) {
                                 Ok(rgba) => rgba,
                                 Err(error) => {
