@@ -42,7 +42,10 @@ for this profile; Xlib, XCB, and Wayland are declared presentation routes and
 do not require Skia's GLX integration. `skia_use_x11=false` therefore removes a
 Skia GLX dependency without narrowing that planned WSI set. The exact native
 consumer link contract is `dl`, `fontconfig`, and the Vulkan loader. Raster
-`SkSurface` remains in the same artifact as the fallback.
+`SkSurface` remains in the same artifact as the fallback. The Ganesh recipe
+compiles the two Vulkan bridge units and defines
+`FISSION_SKIA_ENABLE_GANESH_VULKAN=1`; the raster recipe names only the common
+bridge units and carries no profile define.
 
 ## Local source and vendor overrides
 
@@ -88,9 +91,12 @@ upstream static-library set and writes `fission-skia-build.json` as a strict
 build receipt. The receipt binds the canonical build plan, each tool's expected
 and observed digest, normalized versions, source identity, and every upstream
 output's size and SHA-256. Tool and source identities intentionally omit host
-paths. The Fission bridge is built from the bridge source owned by
+paths. The receipt also binds the selected bridge source list and preprocessor
+defines. The Fission bridge is built from the bridge source owned by
 `fission-skia-sys` and supplied to the packaging step; packaging checks its
-header ABI and binds the header and library digests into the artifact manifest.
+header ABI and binds the header, library digest, sources, and defines into the
+artifact manifest. A raster bridge receipt therefore cannot be relabelled as a
+Ganesh artifact.
 
 The native profiles deliberately ship one stable notice bundle across their
 supported targets. Their common required components are Fission, Skia, Expat,

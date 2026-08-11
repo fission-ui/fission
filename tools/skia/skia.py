@@ -90,6 +90,15 @@ def require_string_list(value: Any, context: str) -> list[str]:
     return list(value)
 
 
+def require_string_map(value: Any, context: str) -> dict[str, str]:
+    result = require_object(value, context)
+    for name, raw in result.items():
+        if not isinstance(name, str) or not name:
+            raise SkiaToolError(f"{context} contains an empty or non-string key")
+        require_string(raw, f"{context}.{name}")
+    return dict(result)
+
+
 def load_config(path: Path) -> dict[str, Any]:
     config = require_object(load_json(path), str(path))
     if config.get("schema_version") != 1:
@@ -120,6 +129,20 @@ def load_config(path: Path) -> dict[str, Any]:
             )
             if any(not NAME_RE.fullmatch(library) for library in libraries):
                 raise SkiaToolError(f"config.profiles.{name}.upstream_libraries has an unsafe name")
+            bridge_sources = require_string_list(
+                profile.get("bridge_sources"),
+                f"config.profiles.{name}.bridge_sources",
+            )
+            for source in bridge_sources:
+                validate_relative_path(source, f"config.profiles.{name}.bridge_sources")
+            bridge_defines = require_string_map(
+                profile.get("bridge_defines"),
+                f"config.profiles.{name}.bridge_defines",
+            )
+            if any(not GN_NAME_RE.fullmatch(define) for define in bridge_defines):
+                raise SkiaToolError(
+                    f"config.profiles.{name}.bridge_defines contains an invalid C preprocessor name"
+                )
 
     targets = require_object(config.get("targets"), "config.targets")
     for name, raw_target in targets.items():
@@ -503,6 +526,18 @@ def resolve_build_plan(
         "bridge_abi_version": config["bridge"]["abi_version"],
         "profile": profile_name,
         "target": target_name,
+        "bridge_sources": require_string_list(
+            profile.get("bridge_sources"),
+            "profile bridge_sources",
+        ),
+        "bridge_defines": dict(
+            sorted(
+                require_string_map(
+                    profile.get("bridge_defines"),
+                    "profile bridge_defines",
+                ).items()
+            )
+        ),
         "gn_args": dict(sorted(gn_args.items())),
         "ninja_targets": require_string_list(profile.get("ninja_targets"), "profile ninja_targets"),
         "upstream_libraries": require_string_list(
@@ -525,6 +560,8 @@ def validate_build_recipe(
         "bridge_abi_version",
         "profile",
         "target",
+        "bridge_sources",
+        "bridge_defines",
         "gn_args",
         "ninja_targets",
         "upstream_libraries",
@@ -1025,6 +1062,8 @@ def package_native(args: argparse.Namespace, config: dict[str, Any]) -> None:
             "abi_version": config["bridge"]["abi_version"],
             "header": payload_record(copied_header, config["bridge"]["header"]),
             "library": payload_record(output / bridge_library_path, bridge_library_path),
+            "sources": build_receipt["plan"]["recipe"]["bridge_sources"],
+            "defines": build_receipt["plan"]["recipe"]["bridge_defines"],
         },
         "build_receipt": {
             **payload_record(
@@ -1203,7 +1242,7 @@ def verify_artifact_directory(
         )
 
     bridge = require_object(manifest.get("bridge"), "manifest.bridge")
-    if set(bridge) != {"abi_version", "header", "library"}:
+    if set(bridge) != {"abi_version", "header", "library", "sources", "defines"}:
         raise SkiaToolError("manifest.bridge has unknown or missing fields")
     if bridge.get("abi_version") != config["bridge"]["abi_version"]:
         raise SkiaToolError("manifest.bridge ABI does not match the pinned configuration")
@@ -1238,6 +1277,11 @@ def verify_artifact_directory(
         profile_name,
         target_name,
     )
+    recipe = receipt["plan"]["recipe"]
+    if bridge.get("sources") != recipe["bridge_sources"]:
+        raise SkiaToolError("manifest bridge sources do not match the completed build receipt")
+    if bridge.get("defines") != recipe["bridge_defines"]:
+        raise SkiaToolError("manifest bridge defines do not match the completed build receipt")
     if build_binding.get("plan_sha256") != receipt["plan_sha256"]:
         raise SkiaToolError("manifest build receipt plan digest does not match the receipt")
     expected_link_order = [

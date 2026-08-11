@@ -168,6 +168,17 @@ class SkiaToolTests(unittest.TestCase):
             self.config["profiles"]["native-raster"]["upstream_libraries"],
             ["svg", "skparagraph", "skshaper", "skunicode", "skia"],
         )
+        raster_recipe = skia.resolve_build_plan(
+            self.config,
+            "native-raster",
+            "x86_64-unknown-linux-gnu",
+            {},
+        )
+        self.assertEqual(
+            raster_recipe["bridge_sources"],
+            ["cpp/fission_skia.cpp", "cpp/fission_skia_paragraph.cpp"],
+        )
+        self.assertEqual(raster_recipe["bridge_defines"], {})
         for profile in self.config["profiles"].values():
             self.assertIs(profile["qualified"], False)
             self.assertTrue({"fission", "skia"}.issubset(profile["required_licenses"]))
@@ -265,6 +276,19 @@ class SkiaToolTests(unittest.TestCase):
             profile["features"]["presentation"],
             ["xlib", "xcb", "wayland"],
         )
+        self.assertEqual(
+            recipe["bridge_sources"],
+            [
+                "cpp/fission_skia.cpp",
+                "cpp/fission_skia_paragraph.cpp",
+                "cpp/fission_skia_ganesh_vulkan_context.cpp",
+                "cpp/fission_skia_ganesh_vulkan_surface.cpp",
+            ],
+        )
+        self.assertEqual(
+            recipe["bridge_defines"],
+            {"FISSION_SKIA_ENABLE_GANESH_VULKAN": "1"},
+        )
         self.assertTrue(
             {"vulkan-headers", "vulkan-memory-allocator"}.issubset(
                 profile["required_licenses"]
@@ -328,6 +352,15 @@ class SkiaToolTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw_temporary:
             temporary = Path(raw_temporary)
             _, output, archive = self.package_fixture(temporary)
+            manifest = json.loads((output / skia.MANIFEST).read_text(encoding="utf-8"))
+            recipe = skia.resolve_build_plan(
+                self.config,
+                "native-raster",
+                "x86_64-unknown-linux-gnu",
+                {},
+            )
+            self.assertEqual(manifest["bridge"]["sources"], recipe["bridge_sources"])
+            self.assertEqual(manifest["bridge"]["defines"], recipe["bridge_defines"])
             manifest = skia.verify_artifact_directory(
                 output,
                 self.config,

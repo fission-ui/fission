@@ -1,5 +1,11 @@
 #include "fission_skia.h"
 #include "fission_skia_paragraph_internal.h"
+#ifndef FISSION_SKIA_ENABLE_GANESH_VULKAN
+#define FISSION_SKIA_ENABLE_GANESH_VULKAN 0
+#endif
+#if FISSION_SKIA_ENABLE_GANESH_VULKAN
+#include "fission_skia_ganesh_vulkan.h"
+#endif
 
 #include "include/core/SkCanvas.h"
 #include "include/core/SkColorSpace.h"
@@ -49,7 +55,7 @@
 
 namespace {
 
-constexpr uint64_t kFeatureBits =
+constexpr uint64_t kBaseFeatureBits =
     FISSION_SKIA_FEATURE_RASTER_SURFACE |
     FISSION_SKIA_FEATURE_BASIC_FRAME |
     FISSION_SKIA_FEATURE_RGBA_READBACK |
@@ -64,6 +70,19 @@ constexpr uint64_t kFeatureBits =
     FISSION_SKIA_FEATURE_SVG_DOCUMENT |
     FISSION_SKIA_FEATURE_RETAINED_PICTURE;
 
+#if FISSION_SKIA_ENABLE_GANESH_VULKAN
+constexpr uint64_t kGaneshFeatureBits =
+    FISSION_SKIA_FEATURE_GANESH | FISSION_SKIA_FEATURE_VULKAN |
+    FISSION_SKIA_FEATURE_NATIVE_PRESENTATION;
+#else
+constexpr uint64_t kGaneshFeatureBits = 0;
+#endif
+
+constexpr uint64_t kFeatureBits = kBaseFeatureBits | kGaneshFeatureBits;
+
+enum class ContextBackend { kRaster, kGaneshVulkan };
+enum class SurfaceBackend { kRaster, kGaneshVulkan };
+
 struct EngineState {
     std::thread::id owner;
     uint64_t live_contexts = 0;
@@ -73,6 +92,10 @@ struct ContextState {
     std::thread::id owner;
     fission_skia_engine_handle_t engine = 0;
     uint64_t live_surfaces = 0;
+    ContextBackend backend = ContextBackend::kRaster;
+#if FISSION_SKIA_ENABLE_GANESH_VULKAN
+    std::unique_ptr<fission::skia::ganesh::VulkanContext> ganesh;
+#endif
 };
 
 struct SurfaceState {
@@ -80,7 +103,11 @@ struct SurfaceState {
     fission_skia_context_handle_t context = 0;
     uint32_t width = 0;
     uint32_t height = 0;
+    SurfaceBackend backend = SurfaceBackend::kRaster;
     sk_sp<SkSurface> surface;
+#if FISSION_SKIA_ENABLE_GANESH_VULKAN
+    std::unique_ptr<fission::skia::ganesh::VulkanSurface> ganesh;
+#endif
 };
 
 struct ImageState {
@@ -994,6 +1021,18 @@ fission_skia_status_t check_owner(
     return FISSION_SKIA_STATUS_OK;
 }
 
+#if FISSION_SKIA_ENABLE_GANESH_VULKAN
+fission_skia_status_t cancel_ganesh_frame(
+    fission::skia::ganesh::VulkanSurface& surface,
+    fission_skia_status_t original_status,
+    fission_skia_error_t* error) {
+    const auto cancel = surface.cancel_frame();
+    return cancel.ok()
+        ? original_status
+        : fail(cancel.status, "execute_frame", cancel.message, error);
+}
+#endif
+
 fission_skia_status_t play_frame(
     SkCanvas* canvas,
     SurfaceState* surface,
@@ -1249,6 +1288,7 @@ fission_skia_status_t fission_skia_context_create_raster(
     }
     state->owner = std::this_thread::get_id();
     state->engine = engine;
+    state->backend = ContextBackend::kRaster;
     const auto handle = next_handle();
     registry().contexts.emplace(handle, std::move(state));
     parent->second->live_contexts += 1;
@@ -1277,9 +1317,38 @@ fission_skia_status_t fission_skia_context_create_ganesh_vulkan(
     }
     auto status = check_owner(*parent->second, "context_create_ganesh_vulkan", out_error);
     if (status != FISSION_SKIA_STATUS_OK) return status;
+#if FISSION_SKIA_ENABLE_GANESH_VULKAN
+    std::unique_ptr<fission::skia::ganesh::VulkanContext> ganesh;
+    const auto result = fission::skia::ganesh::VulkanContext::create(
+        *compatible_window, &ganesh);
+    if (!result.ok()) {
+        return fail(result.status, "context_create_ganesh_vulkan", result.message,
+                    out_error);
+    }
+    if (!ganesh) {
+        return fail(FISSION_SKIA_STATUS_INTERNAL, "context_create_ganesh_vulkan",
+                    "Ganesh Vulkan context creation returned no context", out_error);
+    }
+    auto state = std::unique_ptr<ContextState>(new (std::nothrow) ContextState{});
+    if (!state) {
+        return fail(FISSION_SKIA_STATUS_OUT_OF_MEMORY, "context_create_ganesh_vulkan",
+                    "could not allocate context state", out_error);
+    }
+    state->owner = std::this_thread::get_id();
+    state->engine = engine;
+    state->backend = ContextBackend::kGaneshVulkan;
+    state->ganesh = std::move(ganesh);
+    const auto handle = next_handle();
+    registry().contexts.emplace(handle, std::move(state));
+    parent->second->live_contexts += 1;
+    *out_context = handle;
+    clear_error(out_error);
+    return FISSION_SKIA_STATUS_OK;
+#else
     return fail(FISSION_SKIA_STATUS_UNSUPPORTED, "context_create_ganesh_vulkan",
                 "this bridge profile does not implement Ganesh Vulkan resources",
                 out_error);
+#endif
 }
 
 fission_skia_status_t fission_skia_context_trim_memory(
@@ -1299,6 +1368,18 @@ fission_skia_status_t fission_skia_context_trim_memory(
         return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "context_trim_memory",
                     "memory pressure value is unknown", out_error);
     }
+#if FISSION_SKIA_ENABLE_GANESH_VULKAN
+    if (found->second->backend == ContextBackend::kGaneshVulkan) {
+        if (!found->second->ganesh) {
+            return fail(FISSION_SKIA_STATUS_INTERNAL, "context_trim_memory",
+                        "Ganesh context state has no Vulkan context", out_error);
+        }
+        const auto result = found->second->ganesh->trim_memory(pressure);
+        if (!result.ok()) {
+            return fail(result.status, "context_trim_memory", result.message, out_error);
+        }
+    }
+#endif
     SkGraphics::PurgeAllCaches();
     clear_error(out_error);
     return FISSION_SKIA_STATUS_OK;
@@ -1348,6 +1429,10 @@ fission_skia_status_t fission_skia_surface_create_raster(
     }
     auto status = check_owner(*parent->second, "surface_create_raster", out_error);
     if (status != FISSION_SKIA_STATUS_OK) return status;
+    if (parent->second->backend != ContextBackend::kRaster) {
+        return fail(FISSION_SKIA_STATUS_INVALID_STATE, "surface_create_raster",
+                    "context is not a raster context", out_error);
+    }
     auto color_space = SkColorSpace::MakeSRGB();
     auto surface = SkSurfaces::Raster(
         SkImageInfo::MakeN32Premul(static_cast<int>(width), static_cast<int>(height),
@@ -1365,6 +1450,7 @@ fission_skia_status_t fission_skia_surface_create_raster(
     state->context = context;
     state->width = width;
     state->height = height;
+    state->backend = SurfaceBackend::kRaster;
     state->surface = std::move(surface);
     const auto handle = next_handle();
     registry().surfaces.emplace(handle, std::move(state));
@@ -1396,9 +1482,44 @@ fission_skia_status_t fission_skia_surface_create_ganesh(
     }
     auto status = check_owner(*parent->second, "surface_create_ganesh", out_error);
     if (status != FISSION_SKIA_STATUS_OK) return status;
+#if FISSION_SKIA_ENABLE_GANESH_VULKAN
+    if (parent->second->backend != ContextBackend::kGaneshVulkan ||
+        !parent->second->ganesh) {
+        return fail(FISSION_SKIA_STATUS_INVALID_STATE, "surface_create_ganesh",
+                    "context is not a live Ganesh Vulkan context", out_error);
+    }
+    std::unique_ptr<fission::skia::ganesh::VulkanSurface> ganesh;
+    const auto result = fission::skia::ganesh::VulkanSurface::create(
+        *parent->second->ganesh, *window, width, height, &ganesh);
+    if (!result.ok()) {
+        return fail(result.status, "surface_create_ganesh", result.message, out_error);
+    }
+    if (!ganesh) {
+        return fail(FISSION_SKIA_STATUS_INTERNAL, "surface_create_ganesh",
+                    "Ganesh surface creation returned no surface", out_error);
+    }
+    auto state = std::unique_ptr<SurfaceState>(new (std::nothrow) SurfaceState{});
+    if (!state) {
+        return fail(FISSION_SKIA_STATUS_OUT_OF_MEMORY, "surface_create_ganesh",
+                    "could not allocate surface state", out_error);
+    }
+    state->owner = std::this_thread::get_id();
+    state->context = context;
+    state->width = width;
+    state->height = height;
+    state->backend = SurfaceBackend::kGaneshVulkan;
+    state->ganesh = std::move(ganesh);
+    const auto handle = next_handle();
+    registry().surfaces.emplace(handle, std::move(state));
+    parent->second->live_surfaces += 1;
+    *out_surface = handle;
+    clear_error(out_error);
+    return FISSION_SKIA_STATUS_OK;
+#else
     return fail(FISSION_SKIA_STATUS_UNSUPPORTED, "surface_create_ganesh",
                 "this bridge profile does not implement Ganesh native surfaces",
                 out_error);
+#endif
 }
 
 fission_skia_status_t fission_skia_surface_resize_ganesh(
@@ -1421,8 +1542,24 @@ fission_skia_status_t fission_skia_surface_resize_ganesh(
     }
     auto status = check_owner(*found->second, "surface_resize_ganesh", out_error);
     if (status != FISSION_SKIA_STATUS_OK) return status;
+#if FISSION_SKIA_ENABLE_GANESH_VULKAN
+    if (found->second->backend != SurfaceBackend::kGaneshVulkan ||
+        !found->second->ganesh) {
+        return fail(FISSION_SKIA_STATUS_INVALID_STATE, "surface_resize_ganesh",
+                    "surface is not a Ganesh native surface", out_error);
+    }
+    const auto result = found->second->ganesh->resize(*window, width, height);
+    if (!result.ok()) {
+        return fail(result.status, "surface_resize_ganesh", result.message, out_error);
+    }
+    found->second->width = width;
+    found->second->height = height;
+    clear_error(out_error);
+    return FISSION_SKIA_STATUS_OK;
+#else
     return fail(FISSION_SKIA_STATUS_INVALID_STATE, "surface_resize_ganesh",
                 "surface is not a Ganesh native surface", out_error);
+#endif
 }
 
 fission_skia_status_t fission_skia_surface_execute_frame(
@@ -1439,6 +1576,40 @@ fission_skia_status_t fission_skia_surface_execute_frame(
     }
     status = check_owner(*found->second, "execute_frame", out_error);
     if (status != FISSION_SKIA_STATUS_OK) return status;
+#if FISSION_SKIA_ENABLE_GANESH_VULKAN
+    if (found->second->backend == SurfaceBackend::kGaneshVulkan) {
+        if (!found->second->ganesh) {
+            return fail(FISSION_SKIA_STATUS_INTERNAL, "execute_frame",
+                        "Ganesh surface state has no Vulkan surface", out_error);
+        }
+        auto acquired = found->second->ganesh->begin_frame();
+        if (!acquired.result.ok()) {
+            return fail(acquired.result.status, "execute_frame",
+                        acquired.result.message, out_error);
+        }
+        if (acquired.canvas == nullptr) {
+            status = fail(FISSION_SKIA_STATUS_INTERNAL, "execute_frame",
+                          "Ganesh began a frame without a Skia canvas", out_error);
+            return cancel_ganesh_frame(*found->second->ganesh, status, out_error);
+        }
+        status = play_frame(
+            acquired.canvas, found->second.get(), *frame, "execute_frame", out_error);
+        if (status != FISSION_SKIA_STATUS_OK) {
+            return cancel_ganesh_frame(*found->second->ganesh, status, out_error);
+        }
+        const auto finish = found->second->ganesh->finish_frame();
+        if (!finish.ok()) {
+            status = fail(finish.status, "execute_frame", finish.message, out_error);
+            return cancel_ganesh_frame(*found->second->ganesh, status, out_error);
+        }
+        clear_error(out_error);
+        return FISSION_SKIA_STATUS_OK;
+    }
+#endif
+    if (found->second->backend != SurfaceBackend::kRaster || !found->second->surface) {
+        return fail(FISSION_SKIA_STATUS_INTERNAL, "execute_frame",
+                    "raster surface state has no Skia surface", out_error);
+    }
     auto* canvas = found->second->surface->getCanvas();
     if (canvas == nullptr) {
         return fail(FISSION_SKIA_STATUS_SURFACE_LOST, "execute_frame",
@@ -1490,6 +1661,26 @@ fission_skia_status_t fission_skia_surface_read_pixels_rgba8888(
         return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "read_pixels_rgba8888",
                     "readback rectangle lies outside the surface", out_error);
     }
+#if FISSION_SKIA_ENABLE_GANESH_VULKAN
+    if (found->second->backend == SurfaceBackend::kGaneshVulkan) {
+        if (!found->second->ganesh) {
+            return fail(FISSION_SKIA_STATUS_INTERNAL, "read_pixels_rgba8888",
+                        "Ganesh surface state has no Vulkan surface", out_error);
+        }
+        const auto result = found->second->ganesh->read_pixels_rgba8888(
+            source_rect->x, source_rect->y, source_rect->width, source_rect->height,
+            destination, destination_length, destination_row_bytes);
+        if (!result.ok()) {
+            return fail(result.status, "read_pixels_rgba8888", result.message, out_error);
+        }
+        clear_error(out_error);
+        return FISSION_SKIA_STATUS_OK;
+    }
+#endif
+    if (found->second->backend != SurfaceBackend::kRaster || !found->second->surface) {
+        return fail(FISSION_SKIA_STATUS_INTERNAL, "read_pixels_rgba8888",
+                    "raster surface state has no Skia surface", out_error);
+    }
     auto srgb = SkColorSpace::MakeSRGB();
     const auto info = SkImageInfo::Make(
         static_cast<int>(source_rect->width), static_cast<int>(source_rect->height),
@@ -1514,6 +1705,20 @@ fission_skia_status_t fission_skia_surface_present(
     }
     auto status = check_owner(*found->second, "surface_present", out_error);
     if (status != FISSION_SKIA_STATUS_OK) return status;
+#if FISSION_SKIA_ENABLE_GANESH_VULKAN
+    if (found->second->backend == SurfaceBackend::kGaneshVulkan) {
+        if (!found->second->ganesh) {
+            return fail(FISSION_SKIA_STATUS_INTERNAL, "surface_present",
+                        "Ganesh surface state has no Vulkan surface", out_error);
+        }
+        const auto result = found->second->ganesh->present();
+        if (!result.ok()) {
+            return fail(result.status, "surface_present", result.message, out_error);
+        }
+        clear_error(out_error);
+        return FISSION_SKIA_STATUS_OK;
+    }
+#endif
     return fail(FISSION_SKIA_STATUS_INVALID_STATE, "surface_present",
                 "surface is not a Ganesh native surface", out_error);
 }

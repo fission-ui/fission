@@ -68,6 +68,11 @@
         "zlib"
       ],
       "upstream_libraries": ["svg", "skparagraph", "skshaper", "skunicode", "skia"],
+      "bridge_sources": [
+        "cpp/fission_skia.cpp",
+        "cpp/fission_skia_paragraph.cpp"
+      ],
+      "bridge_defines": {},
       "features": {
         "gpu": "none",
         "raster_fallback": true,
@@ -117,6 +122,15 @@
         "zlib"
       ],
       "upstream_libraries": ["svg", "skparagraph", "skshaper", "skunicode", "skia"],
+      "bridge_sources": [
+        "cpp/fission_skia.cpp",
+        "cpp/fission_skia_paragraph.cpp",
+        "cpp/fission_skia_ganesh_vulkan_context.cpp",
+        "cpp/fission_skia_ganesh_vulkan_surface.cpp"
+      ],
+      "bridge_defines": {
+        "FISSION_SKIA_ENABLE_GANESH_VULKAN": "1"
+      },
       "features": {
         "gpu": "ganesh-vulkan",
         "presentation": ["xlib", "xcb", "wayland"],

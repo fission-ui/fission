@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -19,6 +20,14 @@ const STATIC_LIBRARIES: &[&str] = &[
 ];
 const GANESH_LINUX_TARGETS: &[&str] = &["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"];
 const GANESH_LINUX_SYSTEM_LIBRARIES: &[&str] = &["dl", "fontconfig", "vulkan"];
+const RASTER_BRIDGE_SOURCES: &[&str] = &["cpp/fission_skia.cpp", "cpp/fission_skia_paragraph.cpp"];
+const GANESH_BRIDGE_SOURCES: &[&str] = &[
+    "cpp/fission_skia.cpp",
+    "cpp/fission_skia_paragraph.cpp",
+    "cpp/fission_skia_ganesh_vulkan_context.cpp",
+    "cpp/fission_skia_ganesh_vulkan_surface.cpp",
+];
+const GANESH_BRIDGE_DEFINE: &str = "FISSION_SKIA_ENABLE_GANESH_VULKAN";
 
 #[cfg(feature = "skia-build-from-source")]
 const SOURCE_NINJA_TARGETS: &[&str] = &[
@@ -39,6 +48,7 @@ struct ArtifactManifest {
     #[serde(default)]
     qualified: bool,
     files: Vec<ArtifactFile>,
+    bridge: ArtifactBridge,
     native: NativeLink,
 }
 
@@ -52,6 +62,12 @@ struct ArtifactFile {
     path: String,
     sha256: String,
     size: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct ArtifactBridge {
+    sources: Vec<String>,
+    defines: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -110,6 +126,10 @@ fn emit_inputs() {
     println!("cargo:rerun-if-changed=cpp/fission_skia.cpp");
     println!("cargo:rerun-if-changed=cpp/fission_skia_paragraph.cpp");
     println!("cargo:rerun-if-changed=cpp/fission_skia_paragraph_internal.h");
+    println!("cargo:rerun-if-changed=cpp/fission_skia_ganesh_vulkan.h");
+    println!("cargo:rerun-if-changed=cpp/fission_skia_ganesh_vulkan_internal.h");
+    println!("cargo:rerun-if-changed=cpp/fission_skia_ganesh_vulkan_context.cpp");
+    println!("cargo:rerun-if-changed=cpp/fission_skia_ganesh_vulkan_surface.cpp");
     println!("cargo:rerun-if-changed=cpp/test_shim.cpp");
     println!("cargo:rerun-if-changed=cpp/test_shim_paragraph.cpp");
     println!("cargo:rerun-if-changed=skia_revision.txt");
@@ -183,6 +203,7 @@ fn validate_manifest(manifest: &ArtifactManifest) {
             manifest.profile
         );
     }
+    validate_bridge_recipe(&profile, &manifest.bridge.sources, &manifest.bridge.defines);
     if manifest
         .native
         .static_libraries
@@ -206,6 +227,35 @@ fn validate_manifest(manifest: &ArtifactManifest) {
         panic!(
             "Skia native-ganesh artifact does not match the pinned Linux Vulkan system-link contract"
         );
+    }
+}
+
+fn bridge_sources(profile: &str) -> &'static [&'static str] {
+    match profile {
+        "native-raster" => RASTER_BRIDGE_SOURCES,
+        "native-ganesh" => GANESH_BRIDGE_SOURCES,
+        _ => unreachable!("profile was validated before selecting bridge sources"),
+    }
+}
+
+fn bridge_defines(profile: &str) -> BTreeMap<String, String> {
+    if profile == "native-ganesh" {
+        BTreeMap::from([(GANESH_BRIDGE_DEFINE.to_owned(), "1".to_owned())])
+    } else {
+        BTreeMap::new()
+    }
+}
+
+fn validate_bridge_recipe(profile: &str, sources: &[String], defines: &BTreeMap<String, String>) {
+    if sources
+        .iter()
+        .map(String::as_str)
+        .ne(bridge_sources(profile).iter().copied())
+    {
+        panic!("Skia artifact bridge sources do not match the requested {profile} profile");
+    }
+    if *defines != bridge_defines(profile) {
+        panic!("Skia artifact bridge defines do not match the requested {profile} profile");
     }
 }
 
@@ -309,6 +359,7 @@ fn configure_source() {
     let target = env::var("TARGET").expect("Cargo must set TARGET");
     let profile = env::var("FISSION_SKIA_PROFILE").unwrap_or_else(|_| "native-raster".into());
     validate_profile_target(&profile, &target);
+    verify_bridge_source_plan(&build, &profile, &target);
     if profile == "native-ganesh" {
         verify_ganesh_source_plan(&build, &target);
     }
@@ -337,6 +388,63 @@ fn configure_source() {
         for library in GANESH_LINUX_SYSTEM_LIBRARIES {
             println!("cargo:rustc-link-lib={library}");
         }
+    }
+}
+
+#[cfg(feature = "skia-build-from-source")]
+fn verify_bridge_source_plan(build: &Path, profile: &str, target: &str) {
+    let path = build.join("fission-skia-build-plan.json");
+    let raw = fs::read(&path).unwrap_or_else(|error| {
+        panic!(
+            "{profile} source builds require the pinned tool plan {}: {error}",
+            path.display()
+        )
+    });
+    let plan: serde_json::Value = serde_json::from_slice(&raw)
+        .unwrap_or_else(|error| panic!("failed to parse {}: {error}", path.display()));
+    let recipe = plan
+        .get("recipe")
+        .and_then(serde_json::Value::as_object)
+        .unwrap_or_else(|| panic!("{} has no build recipe", path.display()));
+    if recipe.get("profile").and_then(serde_json::Value::as_str) != Some(profile)
+        || recipe.get("target").and_then(serde_json::Value::as_str) != Some(target)
+    {
+        panic!("{} does not select {profile} for {target}", path.display());
+    }
+    let sources = recipe
+        .get("bridge_sources")
+        .and_then(serde_json::Value::as_array)
+        .unwrap_or_else(|| panic!("{} has no bridge source list", path.display()));
+    if sources
+        .iter()
+        .map(serde_json::Value::as_str)
+        .ne(bridge_sources(profile).iter().copied().map(Some))
+    {
+        panic!(
+            "{} has the wrong {profile} bridge source list",
+            path.display()
+        );
+    }
+    let defines = recipe
+        .get("bridge_defines")
+        .and_then(serde_json::Value::as_object)
+        .unwrap_or_else(|| panic!("{} has no bridge define map", path.display()));
+    let actual_defines = defines
+        .iter()
+        .map(|(name, value)| {
+            value
+                .as_str()
+                .map(|value| (name.clone(), value.to_owned()))
+                .unwrap_or_else(|| {
+                    panic!("{} has a non-string bridge define {name}", path.display())
+                })
+        })
+        .collect::<BTreeMap<_, _>>();
+    if actual_defines != bridge_defines(profile) {
+        panic!(
+            "{} has the wrong {profile} bridge define map",
+            path.display()
+        );
     }
 }
 
@@ -458,17 +566,22 @@ fn compile_bridge(source: &Path, build: &Path, profile: &str) {
     let revision_define = format!("\"{SKIA_REVISION}\"");
     let profile_define = format!("\"{profile}\"");
     let mut compiler = cc::Build::new();
+    compiler.cpp(true);
+    for bridge_source in bridge_sources(profile) {
+        compiler.file(bridge_source);
+    }
     compiler
-        .cpp(true)
-        .file("cpp/fission_skia.cpp")
-        .file("cpp/fission_skia_paragraph.cpp")
         .include("include")
         .include(source)
         .include(build)
         .include(source.join("third_party/icu/source/common"))
         .define("FISSION_SKIA_BUILDING_BRIDGE", None)
         .define("FISSION_SKIA_REVISION", revision_define.as_str())
-        .define("FISSION_SKIA_BUILD_PROFILE", profile_define.as_str())
+        .define("FISSION_SKIA_BUILD_PROFILE", profile_define.as_str());
+    if profile == "native-ganesh" {
+        compiler.define(GANESH_BRIDGE_DEFINE, Some("1"));
+    }
+    compiler
         .flag_if_supported("-std=c++20")
         .flag_if_supported("-fno-exceptions")
         .flag_if_supported("-fno-rtti")
