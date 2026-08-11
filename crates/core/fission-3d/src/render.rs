@@ -30,13 +30,7 @@ impl Scene3DRenderer {
         self.inner.resize(device, width, height);
     }
 
-    pub fn render(
-        &mut self,
-        device: &Device,
-        queue: &Queue,
-        view: &TextureView,
-        scene: &Scene3D,
-    ) {
+    pub fn render(&mut self, device: &Device, queue: &Queue, view: &TextureView, scene: &Scene3D) {
         self.inner.render(device, queue, view, scene);
     }
 

@@ -17,14 +17,8 @@ fn renderer_compatibility_facade_preserves_historical_method_signatures() {
     let _: fn(&mut Scene3DRenderer, &Device, u32, u32) = Scene3DRenderer::resize;
     let _: fn(&mut Scene3DRenderer, &Device, &Queue, &TextureView, &Scene3D) =
         Scene3DRenderer::render;
-    let _: fn(
-        &mut Scene3DRenderer,
-        &Device,
-        &Queue,
-        &TextureView,
-        &Scene3D,
-        Scene3DViewport,
-    ) = Scene3DRenderer::render_in_rect;
+    let _: fn(&mut Scene3DRenderer, &Device, &Queue, &TextureView, &Scene3D, Scene3DViewport) =
+        Scene3DRenderer::render_in_rect;
 }
 
 #[test]
