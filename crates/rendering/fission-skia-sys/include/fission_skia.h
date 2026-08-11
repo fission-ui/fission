@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-#define FISSION_SKIA_ABI_VERSION 12u
+#define FISSION_SKIA_ABI_VERSION 13u
 #define FISSION_SKIA_REVISION_LENGTH 41u
 #define FISSION_SKIA_PROFILE_LENGTH 32u
 #define FISSION_SKIA_ERROR_OPERATION_LENGTH 64u
@@ -100,7 +100,8 @@ typedef enum fission_skia_native_window_kind_t {
     FISSION_SKIA_NATIVE_WINDOW_XCB = 3,
     FISSION_SKIA_NATIVE_WINDOW_APPKIT = 4,
     FISSION_SKIA_NATIVE_WINDOW_UIKIT = 5,
-    FISSION_SKIA_NATIVE_WINDOW_WIN32 = 6
+    FISSION_SKIA_NATIVE_WINDOW_WIN32 = 6,
+    FISSION_SKIA_NATIVE_WINDOW_ANDROID = 7
 } fission_skia_native_window_kind_t;
 
 /*
@@ -118,13 +119,19 @@ typedef enum fission_skia_native_window_kind_t {
  * encoded as uint64_t. Native window operations must run on the thread that
  * created the HWND.
  *
+ * For Android, display and visual_id are zero. window contains a borrowed
+ * ANativeWindow* encoded as uint64_t. Context creation borrows it only for the
+ * synchronous compatibility probe. Surface creation and resize acquire their
+ * own ANativeWindow reference before returning.
+ *
  * The caller owns every referenced native object and must keep it valid for
  * the synchronous context-probe call that receives it. A descriptor used to
- * create or resize a surface must remain live for that surface attachment
- * until another resize replaces it or the surface is destroyed. Replacement
- * descriptors must use the context's window-system kind; display, window, and
- * visual identity may change across host suspend/resume. The selected native
- * backend must prove compatibility for each fresh surface attachment.
+ * create or resize a non-Android surface must remain live for that surface
+ * attachment until another resize replaces it or the surface is destroyed.
+ * Replacement descriptors must use the context's window-system kind; display,
+ * window, and visual identity may change across host suspend/resume. The
+ * selected native backend must prove compatibility for each fresh surface
+ * attachment.
  */
 typedef struct fission_skia_native_window_t {
     uint32_t struct_size;

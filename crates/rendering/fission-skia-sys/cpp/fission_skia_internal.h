@@ -15,10 +15,14 @@
 #ifndef FISSION_SKIA_ENABLE_GANESH_D3D
 #define FISSION_SKIA_ENABLE_GANESH_D3D 0
 #endif
+#ifndef FISSION_SKIA_ENABLE_GANESH_ANDROID_VULKAN
+#define FISSION_SKIA_ENABLE_GANESH_ANDROID_VULKAN 0
+#endif
 
 #if (FISSION_SKIA_ENABLE_GANESH_VULKAN + FISSION_SKIA_ENABLE_GANESH_METAL + \
      FISSION_SKIA_ENABLE_GANESH_IOS_METAL + \
-     FISSION_SKIA_ENABLE_GANESH_D3D) > 1
+     FISSION_SKIA_ENABLE_GANESH_D3D + \
+     FISSION_SKIA_ENABLE_GANESH_ANDROID_VULKAN) > 1
 #error "A native-ganesh artifact must select exactly one platform backend"
 #endif
 
@@ -26,7 +30,8 @@
     (FISSION_SKIA_ENABLE_GANESH_VULKAN || \
      FISSION_SKIA_ENABLE_GANESH_METAL || \
      FISSION_SKIA_ENABLE_GANESH_IOS_METAL || \
-     FISSION_SKIA_ENABLE_GANESH_D3D)
+     FISSION_SKIA_ENABLE_GANESH_D3D || \
+     FISSION_SKIA_ENABLE_GANESH_ANDROID_VULKAN)
 
 #if FISSION_SKIA_ENABLE_GANESH_VULKAN
 #include "fission_skia_ganesh_vulkan.h"
@@ -36,6 +41,8 @@
 #include "fission_skia_ganesh_ios_metal.h"
 #elif FISSION_SKIA_ENABLE_GANESH_D3D
 #include "fission_skia_ganesh_d3d.h"
+#elif FISSION_SKIA_ENABLE_GANESH_ANDROID_VULKAN
+#include "fission_skia_ganesh_android_vulkan.h"
 #endif
 
 #include "include/core/SkImage.h"
@@ -76,6 +83,12 @@ using NativeGaneshResult = ::fission::skia::ganesh::ios_metal::Result;
 using NativeGaneshContext = ::fission::skia::ganesh::d3d::D3DContext;
 using NativeGaneshSurface = ::fission::skia::ganesh::d3d::D3DSurface;
 using NativeGaneshResult = ::fission::skia::ganesh::d3d::Result;
+#elif FISSION_SKIA_ENABLE_GANESH_ANDROID_VULKAN
+using NativeGaneshContext =
+    ::fission::skia::ganesh::android_vulkan::AndroidVulkanContext;
+using NativeGaneshSurface =
+    ::fission::skia::ganesh::android_vulkan::AndroidVulkanSurface;
+using NativeGaneshResult = ::fission::skia::ganesh::android_vulkan::Result;
 #endif
 
 struct EngineState {

@@ -180,6 +180,7 @@ bool valid_native_window(const fission_skia_native_window_t* window) {
         case FISSION_SKIA_NATIVE_WINDOW_APPKIT:
         case FISSION_SKIA_NATIVE_WINDOW_UIKIT:
         case FISSION_SKIA_NATIVE_WINDOW_WIN32:
+        case FISSION_SKIA_NATIVE_WINDOW_ANDROID:
             return window->display == 0 && window->visual_id == 0 &&
                    window->window <= static_cast<uint64_t>(UINTPTR_MAX);
         default:

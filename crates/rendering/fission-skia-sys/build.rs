@@ -8,7 +8,7 @@ use std::process::Command;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-const ABI_VERSION: u32 = 12;
+const ABI_VERSION: u32 = 13;
 const SKIA_REVISION: &str = "cf5c36972b73698eb3939cda147ea47152670312";
 const STATIC_LIBRARIES: &[&str] = &[
     "fission_skia_bridge",
@@ -21,6 +21,7 @@ const STATIC_LIBRARIES: &[&str] = &[
 const GANESH_LINUX_SYSTEM_LIBRARIES: &[&str] = &["dl", "fontconfig", "vulkan"];
 const GANESH_APPLE_SYSTEM_LIBRARIES: &[&str] = &["c++"];
 const GANESH_WINDOWS_SYSTEM_LIBRARIES: &[&str] = &["d3d12", "dxgi", "user32", "kernel32"];
+const GANESH_ANDROID_SYSTEM_LIBRARIES: &[&str] = &["android", "vulkan", "c++_shared"];
 const GANESH_MACOS_FRAMEWORKS: &[&str] = &[
     "AppKit",
     "CoreFoundation",
@@ -80,6 +81,15 @@ const GANESH_D3D12_BRIDGE_SOURCES: &[&str] = &[
     "cpp/fission_skia_ganesh_d3d_context.cpp",
     "cpp/fission_skia_ganesh_d3d_surface.cpp",
 ];
+const GANESH_ANDROID_VULKAN_BRIDGE_SOURCES: &[&str] = &[
+    "cpp/fission_skia.cpp",
+    "cpp/fission_skia_registry.cpp",
+    "cpp/fission_skia_frame_validation.cpp",
+    "cpp/fission_skia_frame_playback.cpp",
+    "cpp/fission_skia_paragraph.cpp",
+    "cpp/fission_skia_ganesh_android_vulkan_context.cpp",
+    "cpp/fission_skia_ganesh_android_vulkan_surface.cpp",
+];
 
 #[derive(Clone, Copy)]
 enum GaneshBackend {
@@ -87,6 +97,7 @@ enum GaneshBackend {
     MacOSMetal,
     IosMetal,
     D3D12,
+    AndroidVulkan,
 }
 
 #[cfg(feature = "skia-build-from-source")]
@@ -206,6 +217,10 @@ fn emit_inputs() {
     println!("cargo:rerun-if-changed=cpp/fission_skia_ganesh_d3d_internal.h");
     println!("cargo:rerun-if-changed=cpp/fission_skia_ganesh_d3d_context.cpp");
     println!("cargo:rerun-if-changed=cpp/fission_skia_ganesh_d3d_surface.cpp");
+    println!("cargo:rerun-if-changed=cpp/fission_skia_ganesh_android_vulkan.h");
+    println!("cargo:rerun-if-changed=cpp/fission_skia_ganesh_android_vulkan_internal.h");
+    println!("cargo:rerun-if-changed=cpp/fission_skia_ganesh_android_vulkan_context.cpp");
+    println!("cargo:rerun-if-changed=cpp/fission_skia_ganesh_android_vulkan_surface.cpp");
     println!("cargo:rerun-if-changed=cpp/test_shim.cpp");
     println!("cargo:rerun-if-changed=cpp/test_shim_paragraph.cpp");
     println!("cargo:rerun-if-changed=skia_revision.txt");
@@ -326,6 +341,10 @@ fn ganesh_backend(target: &str) -> Option<GaneshBackend> {
             Some(GaneshBackend::IosMetal)
         }
         "x86_64-pc-windows-msvc" | "aarch64-pc-windows-msvc" => Some(GaneshBackend::D3D12),
+        "aarch64-linux-android"
+        | "armv7-linux-androideabi"
+        | "x86_64-linux-android"
+        | "i686-linux-android" => Some(GaneshBackend::AndroidVulkan),
         _ => None,
     }
 }
@@ -340,6 +359,7 @@ fn bridge_sources(profile: &str, target: &str) -> &'static [&'static str] {
             GaneshBackend::MacOSMetal => GANESH_MACOS_BRIDGE_SOURCES,
             GaneshBackend::IosMetal => GANESH_IOS_BRIDGE_SOURCES,
             GaneshBackend::D3D12 => GANESH_D3D12_BRIDGE_SOURCES,
+            GaneshBackend::AndroidVulkan => GANESH_ANDROID_VULKAN_BRIDGE_SOURCES,
         },
         _ => unreachable!("profile was validated before selecting bridge sources"),
     }
@@ -362,6 +382,10 @@ fn bridge_defines(profile: &str, target: &str) -> BTreeMap<String, String> {
         ("native-ganesh", Some(GaneshBackend::D3D12)) => {
             BTreeMap::from([("FISSION_SKIA_ENABLE_GANESH_D3D".to_owned(), "1".to_owned())])
         }
+        ("native-ganesh", Some(GaneshBackend::AndroidVulkan)) => BTreeMap::from([(
+            "FISSION_SKIA_ENABLE_GANESH_ANDROID_VULKAN".to_owned(),
+            "1".to_owned(),
+        )]),
         ("native-raster", _) => BTreeMap::new(),
         _ => unreachable!("profile target was validated before selecting bridge defines"),
     }
@@ -375,6 +399,7 @@ fn ganesh_link_contract(target: &str) -> (&'static [&'static str], &'static [&'s
         GaneshBackend::MacOSMetal => (GANESH_APPLE_SYSTEM_LIBRARIES, GANESH_MACOS_FRAMEWORKS),
         GaneshBackend::IosMetal => (GANESH_APPLE_SYSTEM_LIBRARIES, GANESH_IOS_FRAMEWORKS),
         GaneshBackend::D3D12 => (GANESH_WINDOWS_SYSTEM_LIBRARIES, &[]),
+        GaneshBackend::AndroidVulkan => (GANESH_ANDROID_SYSTEM_LIBRARIES, &[]),
     }
 }
 
@@ -403,7 +428,7 @@ fn validate_profile_target(profile: &str, target: &str) {
         "native-ganesh" => panic!(
             "Skia profile native-ganesh is not available for {target}; supported targets are "
             "Linux GNU x86_64/arm64, macOS x86_64/arm64, iOS device/simulator arm64/x86_64, "
-            "and Windows MSVC x86_64/arm64"
+            "Windows MSVC x86_64/arm64, and Android arm64/armv7/x86_64/x86"
         ),
         _ => panic!(
             "unsupported FISSION_SKIA_PROFILE={profile:?}; select native-raster or native-ganesh"
@@ -650,6 +675,10 @@ fn verify_ganesh_source_plan(build: &Path, target: &str) {
         "x86_64-apple-ios" => ("ios", "x64", true, false, false),
         "x86_64-pc-windows-msvc" => ("win", "x64", false, false, true),
         "aarch64-pc-windows-msvc" => ("win", "arm64", false, false, true),
+        "aarch64-linux-android" => ("android", "arm64", false, true, false),
+        "armv7-linux-androideabi" => ("android", "arm", false, true, false),
+        "x86_64-linux-android" => ("android", "x64", false, true, false),
+        "i686-linux-android" => ("android", "x86", false, true, false),
         _ => unreachable!("native-ganesh target was validated"),
     };
     for (name, expected) in [
@@ -681,6 +710,30 @@ fn verify_ganesh_source_plan(build: &Path, target: &str) {
         }
         GaneshBackend::MacOSMetal => {}
         GaneshBackend::D3D12 => {}
+        GaneshBackend::AndroidVulkan => {
+            if gn_args
+                .get("skia_use_vma")
+                .and_then(serde_json::Value::as_bool)
+                != Some(true)
+            {
+                panic!("{} does not pin skia_use_vma=true", path.display());
+            }
+            if !matches!(
+                gn_args.get("ndk").and_then(serde_json::Value::as_str),
+                Some(ndk) if !ndk.is_empty()
+            ) {
+                panic!("{} does not record an Android NDK path", path.display());
+            }
+            if !matches!(
+                gn_args.get("ndk_api").and_then(serde_json::Value::as_u64),
+                Some(api) if api >= 24
+            ) {
+                panic!(
+                    "{} does not select the Android API 24 Vulkan baseline",
+                    path.display()
+                );
+            }
+        }
         GaneshBackend::IosMetal => {
             let simulator = target != "aarch64-apple-ios";
             if gn_args
@@ -750,6 +803,11 @@ fn compile_bridge(source: &Path, build: &Path, profile: &str, target: &str) {
     let profile_define = format!("\"{profile}\"");
     let mut compiler = cc::Build::new();
     compiler.cpp(true);
+    if matches!(ganesh_backend(target), Some(GaneshBackend::AndroidVulkan)) {
+        // The exact Android C++ runtime is emitted through the pinned native
+        // link contract below; do not let cc infer a second runtime choice.
+        compiler.cpp_link_stdlib(None::<&str>);
+    }
     for bridge_source in bridge_sources(profile, target) {
         compiler.file(bridge_source);
     }

@@ -29,6 +29,7 @@ pub enum NativeWindowKind {
     AppKit,
     UIKit,
     Win32,
+    Android,
 }
 
 /// Fixed-width native window descriptor borrowed by the Skia bridge.
@@ -129,6 +130,18 @@ impl NativeWindow {
         Self::new(ffi::NATIVE_WINDOW_WIN32, 0, native_handle_bits(hwnd), 0)
     }
 
+    /// Describes an Android native window.
+    ///
+    /// # Safety
+    ///
+    /// `window` must point to a live `ANativeWindow` for the synchronous bridge
+    /// call that receives it. A surface attachment acquires its own reference
+    /// before returning and releases it on resize, suspension, or destruction.
+    /// All bridge operations must remain on the owning Android runtime thread.
+    pub unsafe fn android(window: NonNull<c_void>) -> Self {
+        Self::new(ffi::NATIVE_WINDOW_ANDROID, 0, pointer_bits(window), 0)
+    }
+
     pub fn kind(self) -> NativeWindowKind {
         match self.raw.kind {
             ffi::NATIVE_WINDOW_WAYLAND => NativeWindowKind::Wayland,
@@ -137,6 +150,7 @@ impl NativeWindow {
             ffi::NATIVE_WINDOW_APPKIT => NativeWindowKind::AppKit,
             ffi::NATIVE_WINDOW_UIKIT => NativeWindowKind::UIKit,
             ffi::NATIVE_WINDOW_WIN32 => NativeWindowKind::Win32,
+            ffi::NATIVE_WINDOW_ANDROID => NativeWindowKind::Android,
             _ => unreachable!("safe NativeWindow contains an unknown kind"),
         }
     }
@@ -208,6 +222,33 @@ impl GaneshContext {
                     NativeWindowKind::Wayland | NativeWindowKind::Xlib | NativeWindowKind::Xcb
                 )
             },
+        )?;
+        context.set_resource_cache_limit(limit_bytes)?;
+        Ok(context)
+    }
+
+    /// Creates a Vulkan context for an Android `ANativeWindow`.
+    pub fn new_android_vulkan(engine: &Engine, compatible_window: NativeWindow) -> Result<Self> {
+        Self::new_android_vulkan_with_resource_cache_limit(
+            engine,
+            compatible_window,
+            DEFAULT_GANESH_GPU_CACHE_BYTES,
+        )
+    }
+
+    /// Creates an Android Vulkan context and installs its sole GPU cache budget
+    /// before any surface or frame can allocate Ganesh resources.
+    pub fn new_android_vulkan_with_resource_cache_limit(
+        engine: &Engine,
+        compatible_window: NativeWindow,
+        limit_bytes: u64,
+    ) -> Result<Self> {
+        let context = Self::new_unconfigured(
+            engine,
+            compatible_window,
+            ffi::FEATURE_VULKAN,
+            "GaneshContext::new_android_vulkan",
+            |kind| kind == NativeWindowKind::Android,
         )?;
         context.set_resource_cache_limit(limit_bytes)?;
         Ok(context)

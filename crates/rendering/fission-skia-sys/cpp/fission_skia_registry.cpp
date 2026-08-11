@@ -182,6 +182,7 @@ bool valid_native_window(const fission_skia_native_window_t* window) {
         case FISSION_SKIA_NATIVE_WINDOW_APPKIT:
         case FISSION_SKIA_NATIVE_WINDOW_UIKIT:
         case FISSION_SKIA_NATIVE_WINDOW_WIN32:
+        case FISSION_SKIA_NATIVE_WINDOW_ANDROID:
             return window->display == 0 && window->visual_id == 0 &&
                    window->window <= static_cast<uint64_t>(UINTPTR_MAX);
         default:
@@ -201,6 +202,8 @@ bool native_ganesh_supports_window(uint32_t kind) {
     return kind == FISSION_SKIA_NATIVE_WINDOW_UIKIT;
 #elif FISSION_SKIA_ENABLE_GANESH_D3D
     return kind == FISSION_SKIA_NATIVE_WINDOW_WIN32;
+#elif FISSION_SKIA_ENABLE_GANESH_ANDROID_VULKAN
+    return kind == FISSION_SKIA_NATIVE_WINDOW_ANDROID;
 #endif
 }
 
@@ -225,6 +228,12 @@ NativeGaneshResult create_native_ganesh_context(
     const ::fission::skia::ganesh::d3d::WindowsWindow native{
         sizeof(::fission::skia::ganesh::d3d::WindowsWindow),
         reinterpret_cast<const void*>(static_cast<uintptr_t>(window.window)),
+    };
+    return NativeGaneshContext::create(native, out_context);
+#elif FISSION_SKIA_ENABLE_GANESH_ANDROID_VULKAN
+    const ::fission::skia::ganesh::android_vulkan::AndroidWindow native{
+        sizeof(::fission::skia::ganesh::android_vulkan::AndroidWindow),
+        reinterpret_cast<ANativeWindow*>(static_cast<uintptr_t>(window.window)),
     };
     return NativeGaneshContext::create(native, out_context);
 #endif
@@ -260,6 +269,13 @@ NativeGaneshResult create_native_ganesh_surface(
     };
     return NativeGaneshSurface::create(
         context, native, width, height, out_surface);
+#elif FISSION_SKIA_ENABLE_GANESH_ANDROID_VULKAN
+    const ::fission::skia::ganesh::android_vulkan::AndroidWindow native{
+        sizeof(::fission::skia::ganesh::android_vulkan::AndroidWindow),
+        reinterpret_cast<ANativeWindow*>(static_cast<uintptr_t>(window.window)),
+    };
+    return NativeGaneshSurface::create(
+        context, native, width, height, out_surface);
 #endif
 }
 
@@ -286,6 +302,12 @@ NativeGaneshResult resize_native_ganesh_surface(
     const ::fission::skia::ganesh::d3d::WindowsWindow native{
         sizeof(::fission::skia::ganesh::d3d::WindowsWindow),
         reinterpret_cast<const void*>(static_cast<uintptr_t>(window.window)),
+    };
+    return surface.resize(native, width, height);
+#elif FISSION_SKIA_ENABLE_GANESH_ANDROID_VULKAN
+    const ::fission::skia::ganesh::android_vulkan::AndroidWindow native{
+        sizeof(::fission::skia::ganesh::android_vulkan::AndroidWindow),
+        reinterpret_cast<ANativeWindow*>(static_cast<uintptr_t>(window.window)),
     };
     return surface.resize(native, width, height);
 #endif

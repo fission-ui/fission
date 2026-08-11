@@ -99,6 +99,7 @@ pub const NATIVE_WINDOW_XCB: u32 = 3;
 pub const NATIVE_WINDOW_APPKIT: u32 = 4;
 pub const NATIVE_WINDOW_UIKIT: u32 = 5;
 pub const NATIVE_WINDOW_WIN32: u32 = 6;
+pub const NATIVE_WINDOW_ANDROID: u32 = 7;
 
 #[repr(C)]
 #[derive(Clone, Copy)]

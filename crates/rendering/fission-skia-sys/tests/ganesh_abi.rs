@@ -221,6 +221,45 @@ fn d3d12_descriptors_route_win32_without_owning_hwnds() {
 }
 
 #[test]
+fn android_descriptors_use_the_explicit_vulkan_route() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    assert_eq!(live_counts(), ffi::TestCounts::default());
+    let engine = Engine::new().expect("test engine");
+    let context = {
+        let mut probe_window = Box::new(24_u8);
+        let android = unsafe { NativeWindow::android(pointer(&mut probe_window)) };
+        assert_eq!(android.kind(), NativeWindowKind::Android);
+        assert_eq!(
+            GaneshContext::new_vulkan(&engine, android)
+                .err()
+                .expect("the Linux Vulkan route must reject Android")
+                .kind,
+            ErrorKind::InvalidArgument
+        );
+        GaneshContext::new_android_vulkan(&engine, android).expect("Android Vulkan context")
+    };
+
+    let mut attached_window = Box::new(25_u8);
+    let android = unsafe { NativeWindow::android(pointer(&mut attached_window)) };
+    let mut surface = GaneshSurface::new(&context, android, 2, 2).expect("Android surface");
+    let mut display = Box::new(26_u8);
+    let mut window = Box::new(27_u8);
+    let wayland = unsafe { NativeWindow::wayland(pointer(&mut display), pointer(&mut window)) };
+    assert_eq!(
+        surface
+            .resize(wayland, 2, 2)
+            .expect_err("host kind mismatch")
+            .kind,
+        ErrorKind::InvalidArgument
+    );
+
+    drop(surface);
+    drop(context);
+    drop(engine);
+    assert_eq!(live_counts(), ffi::TestCounts::default());
+}
+
+#[test]
 fn raw_abi_rejects_malformed_descriptors_and_invalid_presentation_handles() {
     let _guard = TEST_LOCK.lock().unwrap();
     let config = ffi::EngineConfig {
@@ -258,6 +297,19 @@ fn raw_abi_rejects_malformed_descriptors_and_invalid_presentation_handles() {
     };
     let status = unsafe {
         ffi::fission_skia_context_create_ganesh(engine, &invalid_win32, &mut context, &mut error)
+    };
+    assert_eq!(status, ffi::STATUS_INVALID_ARGUMENT);
+    assert_eq!(context, 0);
+
+    let invalid_android = ffi::NativeWindow {
+        struct_size: std::mem::size_of::<ffi::NativeWindow>() as u32,
+        kind: ffi::NATIVE_WINDOW_ANDROID,
+        display: 1,
+        window: 2,
+        visual_id: 0,
+    };
+    let status = unsafe {
+        ffi::fission_skia_context_create_ganesh(engine, &invalid_android, &mut context, &mut error)
     };
     assert_eq!(status, ffi::STATUS_INVALID_ARGUMENT);
     assert_eq!(context, 0);

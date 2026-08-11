@@ -30,7 +30,7 @@ class SkiaToolTests(unittest.TestCase):
         inputs = temporary / "inputs"
         inputs.mkdir()
         header = inputs / "fission_skia.h"
-        header.write_text("#define FISSION_SKIA_ABI_VERSION 12u\n", encoding="utf-8")
+        header.write_text("#define FISSION_SKIA_ABI_VERSION 13u\n", encoding="utf-8")
 
         profile = self.config["profiles"]["native-raster"]
         target = "x86_64-unknown-linux-gnu"
@@ -152,7 +152,7 @@ class SkiaToolTests(unittest.TestCase):
     def test_pin_and_all_local_profiles_are_explicitly_unqualified(self) -> None:
         self.assertRegex(self.config["source"]["revision"], r"^[0-9a-f]{40}$")
         self.assertEqual(self.config["source"]["qualification"], "unqualified")
-        self.assertEqual(self.config["bridge"]["abi_version"], 12)
+        self.assertEqual(self.config["bridge"]["abi_version"], 13)
         lock = json.loads(
             (Path(__file__).resolve().parents[1] / "artifacts.lock.json").read_text(
                 encoding="utf-8"
@@ -280,7 +280,7 @@ class SkiaToolTests(unittest.TestCase):
         )
         self.assertEqual(
             profile["features"]["presentation"],
-            ["appkit", "uikit", "wayland", "win32", "xcb", "xlib"],
+            ["android", "appkit", "uikit", "wayland", "win32", "xcb", "xlib"],
         )
         self.assertEqual(
             recipe["bridge_sources"],
@@ -420,19 +420,71 @@ class SkiaToolTests(unittest.TestCase):
                     ["minimum_windows", "windows_sdk", "msvc_runtime"],
                 )
 
+    def test_native_ganesh_selects_exact_android_vulkan_recipes(self) -> None:
+        for target_name, target_cpu in (
+            ("aarch64-linux-android", "arm64"),
+            ("armv7-linux-androideabi", "arm"),
+            ("x86_64-linux-android", "x64"),
+            ("i686-linux-android", "x86"),
+        ):
+            with self.subTest(target=target_name):
+                recipe = skia.resolve_build_plan(
+                    self.config,
+                    "native-ganesh",
+                    target_name,
+                    {"ndk": "/explicit/ndk", "ndk_api": 24},
+                )
+                self.assertEqual(recipe["gn_args"]["target_os"], "android")
+                self.assertEqual(recipe["gn_args"]["target_cpu"], target_cpu)
+                self.assertIs(recipe["gn_args"]["skia_use_vulkan"], True)
+                self.assertIs(recipe["gn_args"]["skia_use_vma"], True)
+                self.assertIs(recipe["gn_args"]["skia_use_direct3d"], False)
+                self.assertIs(recipe["gn_args"]["skia_use_metal"], False)
+                self.assertEqual(
+                    recipe["bridge_sources"][-2:],
+                    [
+                        "cpp/fission_skia_ganesh_android_vulkan_context.cpp",
+                        "cpp/fission_skia_ganesh_android_vulkan_surface.cpp",
+                    ],
+                )
+                self.assertEqual(
+                    recipe["bridge_defines"],
+                    {"FISSION_SKIA_ENABLE_GANESH_ANDROID_VULKAN": "1"},
+                )
+                target = self.config["profiles"]["native-ganesh"]["target_recipes"][target_name]
+                self.assertEqual(
+                    target["system_libraries"],
+                    ["android", "vulkan", "c++_shared"],
+                )
+                self.assertEqual(target["frameworks"], [])
+
+    def test_android_runtime_preserves_native_and_callback_lifetimes(self) -> None:
+        repository = Path(__file__).resolve().parents[3]
+        surface = (
+            repository
+            / "crates/rendering/fission-skia-sys/cpp/fission_skia_ganesh_android_vulkan_surface.cpp"
+        ).read_text(encoding="utf-8")
+        rebuild = surface.split("Result rebuild_attachment", 1)[1].split("}  // namespace", 1)[0]
+        self.assertLess(
+            rebuild.index("ANativeWindow_acquire(replacement_window)"),
+            rebuild.index("destroy_swapchain_attachment(surface, true)"),
+        )
+        self.assertIn("context.retired_acquire_semaphores = std::move(semaphore)", surface)
+        context = (
+            repository
+            / "crates/rendering/fission-skia-sys/cpp/fission_skia_ganesh_android_vulkan_context.cpp"
+        ).read_text(encoding="utf-8")
+        self.assertLess(
+            context.index("impl_->ganesh.reset()"),
+            context.index("impl_->retired_acquire_semaphores.reset()"),
+        )
+
     def test_native_ganesh_unavailable_targets_fail_with_the_declared_reason(self) -> None:
         with self.assertRaisesRegex(skia.SkiaToolError, "unsupported.*musl"):
             skia.resolve_build_plan(
                 self.config,
                 "native-ganesh",
                 "x86_64-unknown-linux-musl",
-                {},
-            )
-        with self.assertRaisesRegex(skia.SkiaToolError, "pending.*Android"):
-            skia.resolve_build_plan(
-                self.config,
-                "native-ganesh",
-                "aarch64-linux-android",
                 {},
             )
 
@@ -499,6 +551,24 @@ class SkiaToolTests(unittest.TestCase):
                 "x86_64-pc-windows-msvc",
                 windows_links,
             )
+        android_links = {
+            "system_libraries": ["android", "vulkan", "c++_shared"],
+            "frameworks": [],
+        }
+        skia.validate_profile_target_links(
+            profile,
+            "native-ganesh",
+            "aarch64-linux-android",
+            android_links,
+        )
+        android_links["system_libraries"].append("log")
+        with self.assertRaisesRegex(skia.SkiaToolError, "system_libraries"):
+            skia.validate_profile_target_links(
+                profile,
+                "native-ganesh",
+                "aarch64-linux-android",
+                android_links,
+            )
 
     def test_gn_overrides_are_closed_to_the_target_allowlist(self) -> None:
         with self.assertRaisesRegex(skia.SkiaToolError, "not allowed"):
@@ -515,6 +585,13 @@ class SkiaToolTests(unittest.TestCase):
             {"ndk": "/explicit/ndk", "ndk_api": 26},
         )
         self.assertEqual(android["gn_args"]["ndk_api"], 26)
+        with self.assertRaisesRegex(skia.SkiaToolError, "ndk_api.*>= 24"):
+            skia.resolve_build_plan(
+                self.config,
+                "native-ganesh",
+                "aarch64-linux-android",
+                {"ndk": "/explicit/ndk", "ndk_api": 23},
+            )
 
     def test_packaging_verifies_receipts_then_detects_tampering(self) -> None:
         with tempfile.TemporaryDirectory() as raw_temporary:

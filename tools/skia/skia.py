@@ -546,6 +546,11 @@ def resolve_build_plan(
             raise SkiaToolError(
                 f"target {target_name!r} requires --gn-arg {required}=VALUE"
             )
+    if target.get("platform") == "Android":
+        require_string(gn_args.get("ndk"), "Android GN argument ndk")
+        ndk_api = gn_args.get("ndk_api")
+        if isinstance(ndk_api, bool) or not isinstance(ndk_api, int) or ndk_api < 24:
+            raise SkiaToolError("Android GN argument ndk_api must be an integer >= 24")
     bridge_source_owner = target_recipe if target_recipe is not None else profile
     bridge_define_owner = target_recipe if target_recipe is not None else profile
     return {
@@ -864,6 +869,8 @@ def load_deployment_metadata(path: Path, target: Mapping[str, Any]) -> dict[str,
     toolchain = require_object(metadata["toolchain"], "deployment metadata.toolchain")
     for required in target.get("deployment_fields", []):
         require_string(deployment.get(required), f"deployment.{required}")
+    if target.get("platform") == "Android" and deployment.get("cxx_runtime") != "libc++_shared":
+        raise SkiaToolError("Android deployment.cxx_runtime must be 'libc++_shared'")
     require_string(toolchain.get("id"), "toolchain.id")
     require_string(toolchain.get("compiler"), "toolchain.compiler")
     require_string(toolchain.get("runtime_abi"), "toolchain.runtime_abi")

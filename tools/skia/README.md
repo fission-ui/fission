@@ -4,7 +4,7 @@ This directory owns the reproducible-input and artifact-layout contract for the
 direct Fission Skia integration. It does not contain or advertise a production
 artifact yet.
 
-The current direct bridge contract is ABI v12. ABI changes are explicit artifact
+The current direct bridge contract is ABI v13. ABI changes are explicit artifact
 identity changes; the tooling will not package or verify a header from another
 bridge ABI.
 
@@ -24,7 +24,7 @@ and qualification evidence exist.
 - `native-raster`, whose foundation build recipe is available;
 - `native-ganesh`, target-selected as Vulkan on Linux GNU x86_64/arm64, Metal
   on macOS x86_64/arm64 plus iOS device/simulator slices, and Direct3D 12 on
-  Windows MSVC x86_64/arm64;
+  Windows MSVC x86_64/arm64, plus Vulkan on all four declared Android ABIs;
 - `native-graphite-qualification`, planned and never an implicit fallback;
 - `canvaskit-production`, planned WebGL plus raster fallback;
 - `canvaskit-software-qualification`, planned CPU-only Web qualification.
@@ -34,9 +34,8 @@ slices, and interactive Web target names are declared. Declared means the tools
 recognize the identity; it does not mean an artifact exists or is qualified.
 Profiles without an implemented recipe fail rather than producing a plausible
 but incomplete archive. `native-ganesh` classifies every declared native
-target: Linux musl is explicitly unsupported until its C++/fontconfig
-toolchain is reproducible, while Android remains explicitly pending its
-platform surface and presentation contract.
+target. Linux musl is explicitly unsupported until its C++/fontconfig
+toolchain is reproducible.
 
 The Linux recipe enables Vulkan and VMA while disabling GL, X11, Metal,
 Direct3D, Dawn, and Graphite. Its exact native consumer link contract is `dl`,
@@ -48,6 +47,12 @@ DXGI presenter units, and link exactly `d3d12`, `dxgi`, `user32`, and
 `kernel32`. Each target recipe owns its exact bridge sources,
 backend define, GN arguments, and native link contract; developers still
 select only `native-ganesh`, never a vendor profile.
+
+The Android recipes use Vulkan 1.0 with API 24 as the minimum deployment
+baseline. Their proven consumer link contract is `android`, `vulkan`, and the
+NDK `c++_shared` runtime; `log`, `dl`, EGL, GLES, and JNI are not inferred.
+Deployment metadata must record `cxx_runtime` as `libc++_shared`, and the final
+APK or AAB must package the matching NDK `libc++_shared.so` ABI slice.
 
 ## Local source and vendor overrides
 
@@ -77,7 +82,7 @@ pin. A source vendor directory without `.git` must contain
 `FISSION_SKIA_SOURCE_REVISION` whose only line is the exact pinned commit.
 
 Android and iOS recipes require their target-specific GN inputs explicitly,
-for example `--gn-arg ndk=/absolute/path --gn-arg ndk_api=26` or
+for example `--gn-arg ndk=/absolute/path --gn-arg ndk_api=24` or
 `--gn-arg ios_min_target=13.0`. Extra arguments
 are accepted only when the selected target declares them in
 `allowed_gn_overrides`, and are recorded in the build plan. Desktop targets
