@@ -27,6 +27,7 @@ mod error;
 #[cfg(test)]
 mod ordering_tests;
 mod placement;
+mod resources;
 mod software;
 
 pub(super) use capabilities::{winit_software_capabilities, winit_vello_capabilities};
@@ -37,6 +38,7 @@ use placement::{
     collect_surface_placements, CollectedSurfacePlacements, NativeViewGeometry,
     ResolvedSurfacePlacement, ScenePaintBounds, ScenePaintItem, SurfacePlacementIssue,
 };
+use resources::{build_resource_snapshot, FrameResourceRegistry};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ProducerDescriptorKind {
@@ -320,6 +322,7 @@ pub(super) struct FrameSubmissionState {
     next_resource_epoch: u64,
     next_semantics_epoch: u64,
     last_committed_frame_id: Option<FrameId>,
+    resources: FrameResourceRegistry,
 }
 
 impl Default for FrameSubmissionState {
@@ -329,6 +332,7 @@ impl Default for FrameSubmissionState {
             next_resource_epoch: 1,
             next_semantics_epoch: 1,
             last_committed_frame_id: None,
+            resources: FrameResourceRegistry::default(),
         }
     }
 }
@@ -398,6 +402,7 @@ impl FrameSubmissionState {
             semantics_epoch,
         };
         let paragraphs = paragraph_bindings(ir, paragraph_store);
+        let resources = build_resource_snapshot(resource_epoch, ir, &mut self.resources)?;
         let descriptors = collect_producer_descriptors(ir, native_views)?;
         let CollectedSurfacePlacements {
             placements: surface_placements,
@@ -592,11 +597,7 @@ impl FrameSubmissionState {
         )?;
 
         Ok(FrameSubmission {
-            // Image/font loading still enters the current Vello/software
-            // caches through the retained scene. Until that authority exports
-            // neutral entries, this bridge truthfully supplies no resources
-            // through the new snapshot rather than inventing payloads.
-            resources: ResourceSnapshot::empty(resource_epoch),
+            resources,
             paragraphs,
             metadata,
             external_surfaces,
