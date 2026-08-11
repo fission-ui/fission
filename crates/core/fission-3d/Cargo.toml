@@ -10,14 +10,18 @@ documentation = "https://fission.rs"
 description = "3D scene primitives and rendering data types for Fission applications"
 categories = ["rendering", "graphics"]
 keywords = ["fission", "3d", "gpu-accelerated", "rendering", "cross-platform"]
+readme = "README.md"
 
 [package.metadata.fission]
 platforms = ["android", "ios", "linux", "macos", "windows", "web"]
-readme = "README.md"
+
 [dependencies]
+fission-3d-model = { path = "../fission-3d-model", version = "0.10.1" }
 fission-core = { path = "../fission-core", version = "0.10.1" }
 fission-ir = { path = "../fission-ir", version = "0.10.1" }
+fission-render-wgpu3d = { path = "../../rendering/fission-render-wgpu3d", version = "0.10.1" }
 serde = { version = "1.0", features = ["derive"] }
 wgpu = "26.0"
-bytemuck = { version = "1.18", features = ["derive"] }
-bincode = "1.3"
+
+[dev-dependencies]
+fission-render = { path = "../../rendering/fission-render", version = "0.10.1" }

@@ -1,42 +1,21 @@
-pub mod render;
 use fission_core::internal::{InternalLowerer, InternalLoweringCx, InternalRenderNode};
-use fission_core::op::Color;
 use fission_core::ui::{Container, Widget};
 
+pub use fission_3d_model::{
+    decode_scene3d_submission, encode_scene3d_submission, try_encode_scene3d_submission,
+    validate_scene3d_primitives, validate_scene3d_source, Point3D, Primitive3D, Scene3DModel,
+    Scene3DSource, Scene3DSubmissionError, Scene3DValidationError,
+};
 use fission_ir::op::{EmbedKind, LayoutOp};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Point3D {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-}
-
-impl Point3D {
-    pub fn new(x: f32, y: f32, z: f32) -> Self {
-        Self { x, y, z }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Primitive3D {
-    Cube {
-        center: Point3D,
-        size: f32,
-        color: Color,
-    },
-    Sphere {
-        center: Point3D,
-        radius: f32,
-        color: Color,
-    },
-    Mesh {
-        vertices: Vec<Point3D>,
-        indices: Vec<u32>,
-        color: Color,
-    },
-}
+/// Compatibility exports for the existing public wgpu renderer path.
+///
+/// New host integrations should depend on `fission-render-wgpu3d` directly.
+/// This module remains unconditional so existing renderer consumers keep their
+/// API, including dependencies that previously disabled default features.
+/// Backend-neutral consumers should use `fission-3d-model`.
+pub mod render;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Scene3D {
@@ -67,6 +46,12 @@ impl Scene3D {
     pub fn add_primitive(mut self, primitive: Primitive3D) -> Self {
         self.primitives.push(primitive);
         self
+    }
+}
+
+impl Scene3DSource for Scene3D {
+    fn primitives(&self) -> &[Primitive3D] {
+        &self.primitives
     }
 }
 
@@ -116,14 +101,14 @@ impl InternalLowerer for Scene3DInternalLowerer {
             .height
             .unwrap_or_else(|| (cx.env.viewport_size.height - 200.0).max(300.0));
 
-        // In a real implementation, this would emit an EmbedKind::Surface3D
-        // and fission-shell-desktop would intercept it to render a wgpu scene
-        // For this milestone, we emit a 3D placeholder layout op.
+        // The shell recognizes this neutral payload as external 3D content.
+        // A selected general-GPU adapter owns rendering; no renderer or GPU
+        // implementation type crosses this scene-model boundary.
 
-        let payload = bincode::serialize(&self.scene.primitives).unwrap_or_default();
+        let payload = encode_scene3d_submission(&self.scene.primitives);
         let op = fission_ir::Op::Layout(LayoutOp::Embed {
             kind: EmbedKind::Custom(payload),
-            widget_id: fission_ir::WidgetId::explicit("fission_3d_scene"),
+            widget_id: node_id,
             width: Some(w),
             height: Some(h),
         });

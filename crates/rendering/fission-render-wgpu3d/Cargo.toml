@@ -1,0 +1,22 @@
+[package]
+name = "fission-render-wgpu3d"
+version = "0.10.1"
+edition = "2021"
+
+license = "MIT"
+repository = "https://github.com/fission-ui/fission"
+homepage = "https://fission.rs"
+documentation = "https://fission.rs"
+description = "Optional wgpu 3D renderer implementation for Fission"
+categories = ["rendering", "graphics"]
+keywords = ["fission", "wgpu", "3d", "rendering", "gpu-accelerated"]
+readme = "README.md"
+
+[package.metadata.fission]
+platforms = ["android", "ios", "linux", "macos", "windows", "web"]
+
+[dependencies]
+fission-3d-model = { path = "../../core/fission-3d-model", version = "0.10.1" }
+fission-ir = { path = "../../core/fission-ir", version = "0.10.1" }
+bytemuck = { version = "1.18", features = ["derive"] }
+wgpu = "26.0"

@@ -6,6 +6,26 @@ use fission_core::{
     RuntimeState,
 };
 use fission_ir::op::{EmbedKind, LayoutOp};
+use fission_render::embed_surface_id;
+
+#[test]
+fn renderer_compatibility_facade_preserves_historical_method_signatures() {
+    use fission_3d::render::{Scene3DRenderer, Scene3DViewport};
+    use wgpu::{Device, Queue, TextureFormat, TextureView};
+
+    let _: fn(&Device, u32, u32, TextureFormat) -> Scene3DRenderer = Scene3DRenderer::new;
+    let _: fn(&mut Scene3DRenderer, &Device, u32, u32) = Scene3DRenderer::resize;
+    let _: fn(&mut Scene3DRenderer, &Device, &Queue, &TextureView, &Scene3D) =
+        Scene3DRenderer::render;
+    let _: fn(
+        &mut Scene3DRenderer,
+        &Device,
+        &Queue,
+        &TextureView,
+        &Scene3D,
+        Scene3DViewport,
+    ) = Scene3DRenderer::render_in_rect;
+}
 
 #[test]
 fn test_scene3d_builder() {
@@ -59,4 +79,37 @@ fn test_scene3d_lowering() {
         }
         _ => panic!("Expected Embed LayoutOp"),
     }
+}
+
+#[test]
+fn two_scene3d_instances_lower_to_distinct_external_slots() {
+    let env = Env::default();
+    let runtime_state = RuntimeState::default();
+    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
+    let root_id = cx.next_node_id();
+    cx.push_scope(root_id);
+
+    let first_node = Scene3DInternalLowerer {
+        scene: Scene3D::new(),
+    }
+    .lower_dyn(&mut cx);
+    let second_node = Scene3DInternalLowerer {
+        scene: Scene3D::new(),
+    }
+    .lower_dyn(&mut cx);
+
+    let embed = |node_id| match &cx.ir.nodes.get(&node_id).expect("lowered 3D node").op {
+        fission_ir::Op::Layout(LayoutOp::Embed {
+            kind, widget_id, ..
+        }) => (kind, *widget_id),
+        _ => panic!("expected 3D embed"),
+    };
+    let (first_kind, first_widget_id) = embed(first_node);
+    let (second_kind, second_widget_id) = embed(second_node);
+
+    assert_ne!(first_widget_id, second_widget_id);
+    assert_ne!(
+        embed_surface_id(first_kind, first_widget_id),
+        embed_surface_id(second_kind, second_widget_id)
+    );
 }

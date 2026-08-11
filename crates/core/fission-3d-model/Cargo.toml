@@ -1,0 +1,20 @@
+[package]
+name = "fission-3d-model"
+version = "0.10.1"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/fission-ui/fission"
+homepage = "https://fission.rs"
+documentation = "https://fission.rs"
+description = "Backend-neutral 3D scene model for Fission"
+categories = ["rendering", "graphics"]
+keywords = ["fission", "3d", "rendering", "cross-platform", "scene"]
+readme = "README.md"
+
+[package.metadata.fission]
+platforms = ["android", "ios", "linux", "macos", "windows", "web"]
+
+[dependencies]
+fission-ir = { path = "../fission-ir", version = "0.10.1" }
+serde = { version = "1.0", features = ["derive"] }
+bincode = "1.3"

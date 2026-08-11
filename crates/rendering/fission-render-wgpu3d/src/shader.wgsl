@@ -1,8 +1,9 @@
 struct SceneUniforms {
     aspect: f32,
-    _pad0: f32,
-    _pad1: f32,
-    _pad2: f32,
+    opacity: f32,
+    viewport_scale: vec2<f32>,
+    viewport_offset: vec2<f32>,
+    _pad: vec2<f32>,
 };
 
 @group(0) @binding(0)
@@ -44,12 +45,10 @@ fn vs_main(model: VertexInput) -> VertexOutput {
     let far = 20.0;
     let depth = clamp((camera_z - near) / (far - near), 0.0, 1.0);
 
-    out.clip_position = vec4<f32>(
-        (p.x * focal_length) / aspect,
-        p.y * focal_length,
-        depth * camera_z,
-        camera_z,
-    );
+    let local_clip = vec2<f32>((p.x * focal_length) / aspect, p.y * focal_length);
+    let target_clip = local_clip * scene.viewport_scale
+        + scene.viewport_offset * camera_z;
+    out.clip_position = vec4<f32>(target_clip, depth * camera_z, camera_z);
     out.color = model.color;
 
     return out;
@@ -57,5 +56,5 @@ fn vs_main(model: VertexInput) -> VertexOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    return in.color;
+    return vec4<f32>(in.color.rgb, in.color.a * scene.opacity);
 }
