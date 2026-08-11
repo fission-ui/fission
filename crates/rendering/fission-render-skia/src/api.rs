@@ -194,6 +194,13 @@ pub(crate) enum RasterCommand {
         bounds: RasterRect,
         alpha: f32,
     },
+    /// Atomically filters content already painted behind `bounds`. Unlike an
+    /// opacity layer, this command does not open a save scope.
+    BackdropBlur {
+        bounds: RasterRect,
+        corner_radius: f32,
+        sigma: f32,
+    },
     ClipRect {
         rect: RasterRect,
     },

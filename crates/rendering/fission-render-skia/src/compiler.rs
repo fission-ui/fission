@@ -1,7 +1,7 @@
 use std::fmt;
 use std::sync::Arc;
 
-use fission_ir::op::{ImageAlignment, ImageRequest};
+use fission_ir::op::{BackdropFilter, ImageAlignment, ImageRequest};
 use fission_render::capabilities::{is_2d_affine_transform, DisplayOpKind};
 use fission_render::diagnostics::DiagnosticCategory;
 use fission_render::paragraph::ParagraphFrameBindings;
@@ -283,6 +283,12 @@ impl Compiler<'_> {
                 operation_path,
                 inherited_node_id,
             )?,
+            DisplayOp::BackdropFilter {
+                rect,
+                filter,
+                corner_radius,
+                ..
+            } => self.draw_backdrop_filter(*rect, *filter, *corner_radius, &provenance)?,
             DisplayOp::DrawRect {
                 rect,
                 fill,
@@ -375,6 +381,66 @@ impl Compiler<'_> {
             }
         }
         Ok(())
+    }
+
+    fn draw_backdrop_filter(
+        &mut self,
+        rect: LayoutRect,
+        filter: BackdropFilter,
+        corner_radius: f32,
+        provenance: &CompileProvenance,
+    ) -> Result<(), CompileError> {
+        let sigma = match filter {
+            BackdropFilter::Blur(sigma) => sigma,
+        };
+        if !sigma.is_finite() || sigma < 0.0 {
+            return Err(CompileError::new(
+                CompileErrorKind::InvalidBackdropBlurSigma,
+                provenance.clone(),
+            ));
+        }
+        if !corner_radius.is_finite() || corner_radius < 0.0 {
+            return Err(CompileError::new(
+                CompileErrorKind::InvalidBackdropCornerRadius,
+                provenance.clone(),
+            ));
+        }
+
+        // Validate every encoded field before recognizing the semantic no-op.
+        // This prevents zero blur from hiding malformed retained geometry.
+        let bounds = self.backdrop_bounds(rect, provenance)?;
+        let corner_radius =
+            self.scaled(corner_radius, provenance, "backdrop filter corner radius")?;
+        let sigma = self.scaled(sigma, provenance, "backdrop blur sigma")?;
+        if sigma == 0.0 {
+            return Ok(());
+        }
+
+        self.commands.push(RasterCommand::BackdropBlur {
+            bounds,
+            corner_radius,
+            sigma,
+        });
+        Ok(())
+    }
+
+    fn backdrop_bounds(
+        &self,
+        rect: LayoutRect,
+        provenance: &CompileProvenance,
+    ) -> Result<RasterRect, CompileError> {
+        if ![rect.x(), rect.y(), rect.width(), rect.height()]
+            .iter()
+            .all(|value| value.is_finite())
+            || rect.width() < 0.0
+            || rect.height() < 0.0
+        {
+            return Err(CompileError::new(
+                CompileErrorKind::InvalidBackdropBounds,
+                provenance.clone(),
+            ));
+        }
+        self.rect(rect, provenance)
     }
 
     fn draw_image(
@@ -950,6 +1016,9 @@ pub(crate) enum CompileErrorKind {
     MissingImageResources,
     Image(ImageError),
     InvalidOpacity,
+    InvalidBackdropBounds,
+    InvalidBackdropBlurSigma,
+    InvalidBackdropCornerRadius,
     UnsupportedTransform,
     InvalidPaint(String),
     InvalidPath(String),
@@ -992,6 +1061,14 @@ impl fmt::Display for CompileError {
             CompileErrorKind::InvalidOpacity => {
                 formatter.write_str("the Skia opacity must be finite and in 0..=1")?
             }
+            CompileErrorKind::InvalidBackdropBounds => formatter.write_str(
+                "the Skia backdrop bounds must be finite with non-negative dimensions",
+            )?,
+            CompileErrorKind::InvalidBackdropBlurSigma => formatter
+                .write_str("the Skia backdrop blur sigma must be finite and non-negative")?,
+            CompileErrorKind::InvalidBackdropCornerRadius => formatter.write_str(
+                "the Skia backdrop filter corner radius must be finite and non-negative",
+            )?,
             CompileErrorKind::UnsupportedTransform => formatter.write_str(
                 "the Skia raster profile supports only finite two-dimensional affine transforms",
             )?,
@@ -1044,6 +1121,9 @@ impl CompileError {
             CompileErrorKind::MissingImageNodeId => "skia-image-node-id-missing",
             CompileErrorKind::MissingImageResources => "skia-image-resources-missing",
             CompileErrorKind::Image(error) => error.diagnostic_code(),
+            CompileErrorKind::InvalidBackdropBounds => "skia-backdrop-bounds-invalid",
+            CompileErrorKind::InvalidBackdropBlurSigma => "skia-backdrop-blur-sigma-invalid",
+            CompileErrorKind::InvalidBackdropCornerRadius => "skia-backdrop-corner-radius-invalid",
             _ => "skia-frame-lowering-unsupported",
         }
     }
@@ -1114,6 +1194,23 @@ mod tests {
             request,
             fit: ImageFit::Cover,
             alignment: ImageAlignment::TopEnd,
+            bounds: rect,
+            node_id: Some(node_id),
+        });
+        RenderScene::from_display_list(list)
+    }
+
+    fn backdrop_scene(
+        rect: LayoutRect,
+        sigma: f32,
+        corner_radius: f32,
+        node_id: fission_ir::WidgetId,
+    ) -> RenderScene {
+        let mut list = DisplayList::new(rect);
+        list.push(DisplayOp::BackdropFilter {
+            rect,
+            filter: BackdropFilter::Blur(sigma),
+            corner_radius,
             bounds: rect,
             node_id: Some(node_id),
         });
@@ -1400,6 +1497,91 @@ mod tests {
         ));
         assert!(matches!(compiled.frame.commands[4], RasterCommand::Restore));
         assert!(matches!(compiled.frame.commands[5], RasterCommand::Restore));
+    }
+
+    #[test]
+    fn backdrop_blur_is_one_atomic_device_scaled_command() {
+        let node_id = fission_ir::WidgetId::explicit("backdrop.scaled");
+        let scene = backdrop_scene(LayoutRect::new(1.0, 2.0, 10.0, 16.0), 4.0, 3.0, node_id);
+
+        let compiled = compile_scene(&scene, 2.0, red()).unwrap();
+
+        assert_eq!(compiled.source_operations, 1);
+        assert_eq!(compiled.frame.commands.len(), 2);
+        assert_eq!(
+            compiled.frame.commands[1],
+            RasterCommand::BackdropBlur {
+                bounds: RasterRect {
+                    left: 2.0,
+                    top: 4.0,
+                    right: 22.0,
+                    bottom: 36.0,
+                },
+                corner_radius: 6.0,
+                sigma: 8.0,
+            }
+        );
+    }
+
+    #[test]
+    fn zero_backdrop_sigma_is_a_noop_only_after_field_validation() {
+        let node_id = fission_ir::WidgetId::explicit("backdrop.zero");
+        let scene = backdrop_scene(LayoutRect::new(1.0, 2.0, 3.0, 4.0), 0.0, 2.0, node_id);
+
+        let compiled = compile_scene(&scene, 2.0, red()).unwrap();
+
+        assert_eq!(compiled.source_operations, 1);
+        assert_eq!(compiled.frame.commands.len(), 1);
+
+        let malformed = backdrop_scene(LayoutRect::new(f32::NAN, 2.0, 3.0, 4.0), 0.0, 2.0, node_id);
+        let error = compile_scene(&malformed, 2.0, red()).unwrap_err();
+        assert_eq!(error.kind, CompileErrorKind::InvalidBackdropBounds);
+        assert_eq!(error.diagnostic_code(), "skia-backdrop-bounds-invalid");
+        assert_eq!(error.diagnostic_category(), DiagnosticCategory::Capability);
+        assert_eq!(error.provenance.node_id, Some(node_id));
+        assert_eq!(error.provenance.operation_path, vec![0]);
+
+        let negative = backdrop_scene(LayoutRect::new(1.0, 2.0, -3.0, 4.0), 0.0, 2.0, node_id);
+        let error = compile_scene(&negative, 2.0, red()).unwrap_err();
+        assert_eq!(error.kind, CompileErrorKind::InvalidBackdropBounds);
+        assert_eq!(error.provenance.node_id, Some(node_id));
+        assert_eq!(error.provenance.operation_path, vec![0]);
+    }
+
+    #[test]
+    fn invalid_backdrop_parameters_have_stable_diagnostics_and_provenance() {
+        let node_id = fission_ir::WidgetId::explicit("backdrop.invalid");
+        for sigma in [-1.0, f32::NAN, f32::INFINITY] {
+            let scene = backdrop_scene(LayoutRect::new(1.0, 2.0, 3.0, 4.0), sigma, 2.0, node_id);
+            let error = compile_scene(&scene, 1.0, red()).unwrap_err();
+            assert_eq!(error.kind, CompileErrorKind::InvalidBackdropBlurSigma);
+            assert_eq!(error.diagnostic_code(), "skia-backdrop-blur-sigma-invalid");
+            assert_eq!(error.diagnostic_category(), DiagnosticCategory::Capability);
+            assert_eq!(error.provenance.root_index, Some(0));
+            assert!(error.provenance.node_path.is_empty());
+            assert_eq!(error.provenance.operation_path, vec![0]);
+            assert_eq!(error.provenance.node_id, Some(node_id));
+        }
+
+        for corner_radius in [-1.0, f32::NAN, f32::INFINITY] {
+            let scene = backdrop_scene(
+                LayoutRect::new(1.0, 2.0, 3.0, 4.0),
+                0.0,
+                corner_radius,
+                node_id,
+            );
+            let error = compile_scene(&scene, 1.0, red()).unwrap_err();
+            assert_eq!(error.kind, CompileErrorKind::InvalidBackdropCornerRadius);
+            assert_eq!(
+                error.diagnostic_code(),
+                "skia-backdrop-corner-radius-invalid"
+            );
+            assert_eq!(error.diagnostic_category(), DiagnosticCategory::Capability);
+            assert_eq!(error.provenance.root_index, Some(0));
+            assert!(error.provenance.node_path.is_empty());
+            assert_eq!(error.provenance.operation_path, vec![0]);
+            assert_eq!(error.provenance.node_id, Some(node_id));
+        }
     }
 
     #[test]

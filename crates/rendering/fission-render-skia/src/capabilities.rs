@@ -11,8 +11,9 @@ use fission_render::capabilities::{
 /// native isolated save-layer so overlapping children receive group alpha
 /// exactly once. Text is enabled only by [`crate::SkiaRasterProfile`], which
 /// can prove that layout and paint share one draw-data registry. Memory images
-/// are decoded only from the submitted frame resource snapshot. SVG, filters,
-/// and external surfaces remain unclaimed.
+/// are decoded only from the submitted frame resource snapshot. Backdrop blur
+/// is an atomic native filter operation. SVG documents, other filters, and
+/// external surfaces remain unclaimed.
 pub fn skia_raster_capabilities() -> GraphicsCapabilities {
     raster_capabilities(false)
 }
@@ -38,6 +39,7 @@ fn raster_capabilities(paragraph_paint: bool) -> GraphicsCapabilities {
         DisplayOpKind::Translate,
         DisplayOpKind::Transform,
         DisplayOpKind::CachedScene,
+        DisplayOpKind::BackdropFilter,
         DisplayOpKind::DrawRect,
         DisplayOpKind::DrawImage,
         DisplayOpKind::DrawPath,
@@ -84,6 +86,7 @@ mod tests {
         assert!(capabilities.supports_display_op(DisplayOpKind::Translate));
         assert!(capabilities.supports_display_op(DisplayOpKind::Transform));
         assert!(capabilities.supports_display_op(DisplayOpKind::CachedScene));
+        assert!(capabilities.supports_display_op(DisplayOpKind::BackdropFilter));
         assert!(capabilities.supports_display_op(DisplayOpKind::DrawRect));
         assert!(capabilities.supports_display_op(DisplayOpKind::DrawImage));
         assert!(capabilities.supports_display_op(DisplayOpKind::DrawPath));

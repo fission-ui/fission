@@ -55,79 +55,7 @@ impl SkiaApi for NativeSkiaApi {
             frame
                 .commands
                 .iter()
-                .map(|command| match command {
-                    RasterCommand::Clear(color) => FrameOp::Clear(native_color(*color)),
-                    RasterCommand::Save => FrameOp::Save,
-                    RasterCommand::Restore => FrameOp::Restore,
-                    RasterCommand::OpacityLayer { bounds, alpha } => FrameOp::OpacityLayer {
-                        bounds: native_rect(*bounds),
-                        alpha: *alpha,
-                    },
-                    RasterCommand::ClipRect { rect } => FrameOp::ClipRect {
-                        rect: native_rect(*rect),
-                    },
-                    RasterCommand::ClipRoundedRect { rect, radius } => FrameOp::ClipRoundedRect {
-                        rect: native_rect(*rect),
-                        radius: *radius,
-                    },
-                    RasterCommand::ConcatAffine(affine) => {
-                        FrameOp::ConcatAffine(native_affine(*affine))
-                    }
-                    RasterCommand::FillRect {
-                        rect,
-                        radius,
-                        paint,
-                    } => FrameOp::FillRect {
-                        rect: native_rect(*rect),
-                        radius: *radius,
-                        paint: native_paint(paint),
-                    },
-                    RasterCommand::StrokeRect {
-                        rect,
-                        radius,
-                        stroke,
-                    } => FrameOp::StrokeRect {
-                        rect: native_rect(*rect),
-                        radius: *radius,
-                        stroke: native_stroke(stroke),
-                    },
-                    RasterCommand::FillPath { path, paint } => FrameOp::FillPath {
-                        path: native_path(path),
-                        paint: native_paint(paint),
-                    },
-                    RasterCommand::StrokePath { path, stroke } => FrameOp::StrokePath {
-                        path: native_path(path),
-                        stroke: native_stroke(stroke),
-                    },
-                    RasterCommand::BoxShadow {
-                        rect,
-                        radius,
-                        shadow,
-                    } => FrameOp::BoxShadow {
-                        rect: native_rect(*rect),
-                        radius: *radius,
-                        shadow: native_shadow(*shadow),
-                    },
-                    RasterCommand::DrawParagraph {
-                        data,
-                        origin,
-                        scale_factor,
-                    } => FrameOp::DrawParagraph {
-                        data: data.as_ref().clone(),
-                        origin: native_point(*origin),
-                        scale_factor: *scale_factor,
-                    },
-                    RasterCommand::DrawImage {
-                        image,
-                        source,
-                        destination,
-                    } => FrameOp::DrawImage {
-                        image: image.clone(),
-                        source: native_rect(*source),
-                        destination: native_rect(*destination),
-                        sampling: ImageSampling::Linear,
-                    },
-                })
+                .map(native_command)
                 .collect::<Vec<_>>(),
         );
         surface.execute_frame(&frame).map_err(map_error)
@@ -186,6 +114,89 @@ impl SkiaApi for NativeSkiaApi {
             MemoryPressure::Critical => fission_skia_sys::MemoryPressure::Critical,
         };
         context.trim_memory(pressure).map_err(map_error)
+    }
+}
+
+fn native_command(command: &RasterCommand) -> FrameOp {
+    match command {
+        RasterCommand::Clear(color) => FrameOp::Clear(native_color(*color)),
+        RasterCommand::Save => FrameOp::Save,
+        RasterCommand::Restore => FrameOp::Restore,
+        RasterCommand::OpacityLayer { bounds, alpha } => FrameOp::OpacityLayer {
+            bounds: native_rect(*bounds),
+            alpha: *alpha,
+        },
+        RasterCommand::BackdropBlur {
+            bounds,
+            corner_radius,
+            sigma,
+        } => FrameOp::BackdropBlur {
+            bounds: native_rect(*bounds),
+            corner_radius: *corner_radius,
+            sigma: *sigma,
+        },
+        RasterCommand::ClipRect { rect } => FrameOp::ClipRect {
+            rect: native_rect(*rect),
+        },
+        RasterCommand::ClipRoundedRect { rect, radius } => FrameOp::ClipRoundedRect {
+            rect: native_rect(*rect),
+            radius: *radius,
+        },
+        RasterCommand::ConcatAffine(affine) => FrameOp::ConcatAffine(native_affine(*affine)),
+        RasterCommand::FillRect {
+            rect,
+            radius,
+            paint,
+        } => FrameOp::FillRect {
+            rect: native_rect(*rect),
+            radius: *radius,
+            paint: native_paint(paint),
+        },
+        RasterCommand::StrokeRect {
+            rect,
+            radius,
+            stroke,
+        } => FrameOp::StrokeRect {
+            rect: native_rect(*rect),
+            radius: *radius,
+            stroke: native_stroke(stroke),
+        },
+        RasterCommand::FillPath { path, paint } => FrameOp::FillPath {
+            path: native_path(path),
+            paint: native_paint(paint),
+        },
+        RasterCommand::StrokePath { path, stroke } => FrameOp::StrokePath {
+            path: native_path(path),
+            stroke: native_stroke(stroke),
+        },
+        RasterCommand::BoxShadow {
+            rect,
+            radius,
+            shadow,
+        } => FrameOp::BoxShadow {
+            rect: native_rect(*rect),
+            radius: *radius,
+            shadow: native_shadow(*shadow),
+        },
+        RasterCommand::DrawParagraph {
+            data,
+            origin,
+            scale_factor,
+        } => FrameOp::DrawParagraph {
+            data: data.as_ref().clone(),
+            origin: native_point(*origin),
+            scale_factor: *scale_factor,
+        },
+        RasterCommand::DrawImage {
+            image,
+            source,
+            destination,
+        } => FrameOp::DrawImage {
+            image: image.clone(),
+            source: native_rect(*source),
+            destination: native_rect(*destination),
+            sampling: ImageSampling::Linear,
+        },
     }
 }
 
@@ -330,4 +341,32 @@ fn map_error(error: Error) -> ApiError {
         error.operation,
         error.message,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backdrop_blur_mapping_is_atomic_and_preserves_physical_values() {
+        let command = RasterCommand::BackdropBlur {
+            bounds: crate::api::RasterRect {
+                left: 2.0,
+                top: 4.0,
+                right: 22.0,
+                bottom: 36.0,
+            },
+            corner_radius: 6.0,
+            sigma: 8.0,
+        };
+
+        assert_eq!(
+            native_command(&command),
+            FrameOp::BackdropBlur {
+                bounds: Rect::new(2.0, 4.0, 20.0, 32.0),
+                corner_radius: 6.0,
+                sigma: 8.0,
+            }
+        );
+    }
 }
