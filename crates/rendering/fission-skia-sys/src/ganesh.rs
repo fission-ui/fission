@@ -7,8 +7,7 @@ use crate::error::status_result;
 use crate::thread_affinity::ThreadAffinity;
 use crate::{ffi, Engine, Error, ErrorKind, Frame, MemoryPressure, PixelRect, Result};
 
-const REQUIRED_FEATURES: u64 =
-    ffi::FEATURE_GANESH | ffi::FEATURE_VULKAN | ffi::FEATURE_NATIVE_PRESENTATION;
+const REQUIRED_NATIVE_FEATURES: u64 = ffi::FEATURE_GANESH | ffi::FEATURE_NATIVE_PRESENTATION;
 
 /// Conservative GPU resource-cache ceiling used unless a renderer supplies a
 /// frozen profile-specific policy.
@@ -21,12 +20,14 @@ pub struct GaneshCacheUsage {
     pub resource_bytes: u64,
 }
 
-/// Linux window-system route used by a Vulkan presentation surface.
+/// Platform host route used by a native Ganesh presentation surface.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeWindowKind {
     Wayland,
     Xlib,
     Xcb,
+    AppKit,
+    UIKit,
 }
 
 /// Fixed-width native window descriptor borrowed by the Skia bridge.
@@ -93,11 +94,35 @@ impl NativeWindow {
         )
     }
 
+    /// Describes a macOS AppKit view.
+    ///
+    /// # Safety
+    ///
+    /// `view` must point to a live `NSView`. AppKit operations must occur on
+    /// the main thread. A context probe borrows it only for that call; a
+    /// surface attachment requires it to remain live until resize or drop.
+    pub unsafe fn appkit(view: NonNull<c_void>) -> Self {
+        Self::new(ffi::NATIVE_WINDOW_APPKIT, 0, pointer_bits(view), 0)
+    }
+
+    /// Describes an iOS UIKit view.
+    ///
+    /// # Safety
+    ///
+    /// `view` must point to a live `UIView`. UIKit operations must occur on
+    /// the main thread. A context probe borrows it only for that call; a
+    /// surface attachment requires it to remain live until resize or drop.
+    pub unsafe fn uikit(view: NonNull<c_void>) -> Self {
+        Self::new(ffi::NATIVE_WINDOW_UIKIT, 0, pointer_bits(view), 0)
+    }
+
     pub fn kind(self) -> NativeWindowKind {
         match self.raw.kind {
             ffi::NATIVE_WINDOW_WAYLAND => NativeWindowKind::Wayland,
             ffi::NATIVE_WINDOW_XLIB => NativeWindowKind::Xlib,
             ffi::NATIVE_WINDOW_XCB => NativeWindowKind::Xcb,
+            ffi::NATIVE_WINDOW_APPKIT => NativeWindowKind::AppKit,
+            ffi::NATIVE_WINDOW_UIKIT => NativeWindowKind::UIKit,
             _ => unreachable!("safe NativeWindow contains an unknown kind"),
         }
     }
@@ -124,7 +149,7 @@ fn pointer_bits(pointer: NonNull<c_void>) -> u64 {
         .expect("Fission's fixed-width native-window ABI requires pointers no wider than 64 bits")
 }
 
-/// Owner-thread Ganesh context backed by Vulkan native presentation.
+/// Owner-thread Ganesh context backed by target-native presentation.
 #[derive(Clone)]
 pub struct GaneshContext {
     inner: Rc<GaneshContextInner>,
@@ -133,6 +158,7 @@ pub struct GaneshContext {
 struct GaneshContextInner {
     raw: ffi::ContextHandle,
     thread: ThreadAffinity,
+    native_window_kind: NativeWindowKind,
     _engine: Engine,
 }
 
@@ -152,18 +178,71 @@ impl GaneshContext {
         compatible_window: NativeWindow,
         limit_bytes: u64,
     ) -> Result<Self> {
-        let context = Self::new_vulkan_unconfigured(engine, compatible_window)?;
+        let context = Self::new_unconfigured(
+            engine,
+            compatible_window,
+            ffi::FEATURE_VULKAN,
+            "GaneshContext::new_vulkan",
+            |kind| {
+                matches!(
+                    kind,
+                    NativeWindowKind::Wayland | NativeWindowKind::Xlib | NativeWindowKind::Xcb
+                )
+            },
+        )?;
         context.set_resource_cache_limit(limit_bytes)?;
         Ok(context)
     }
 
-    fn new_vulkan_unconfigured(engine: &Engine, compatible_window: NativeWindow) -> Result<Self> {
-        let raw_engine = engine.raw_for_owner("GaneshContext::new_vulkan")?;
-        let missing = REQUIRED_FEATURES & !engine.build_info().feature_bits;
+    /// Creates a Metal context for an AppKit or UIKit host view.
+    pub fn new_metal(engine: &Engine, compatible_window: NativeWindow) -> Result<Self> {
+        Self::new_metal_with_resource_cache_limit(
+            engine,
+            compatible_window,
+            DEFAULT_GANESH_GPU_CACHE_BYTES,
+        )
+    }
+
+    /// Creates a Metal context and installs its sole GPU cache budget before
+    /// any surface or frame can allocate Ganesh resources.
+    pub fn new_metal_with_resource_cache_limit(
+        engine: &Engine,
+        compatible_window: NativeWindow,
+        limit_bytes: u64,
+    ) -> Result<Self> {
+        let context = Self::new_unconfigured(
+            engine,
+            compatible_window,
+            ffi::FEATURE_METAL,
+            "GaneshContext::new_metal",
+            |kind| matches!(kind, NativeWindowKind::AppKit | NativeWindowKind::UIKit),
+        )?;
+        context.set_resource_cache_limit(limit_bytes)?;
+        Ok(context)
+    }
+
+    fn new_unconfigured(
+        engine: &Engine,
+        compatible_window: NativeWindow,
+        backend_feature: u64,
+        operation: &'static str,
+        supports_window: impl FnOnce(NativeWindowKind) -> bool,
+    ) -> Result<Self> {
+        let kind = compatible_window.kind();
+        if !supports_window(kind) {
+            return Err(Error::local(
+                ErrorKind::InvalidArgument,
+                operation,
+                "native window kind does not match the requested Ganesh backend",
+            ));
+        }
+        let raw_engine = engine.raw_for_owner(operation)?;
+        let required = REQUIRED_NATIVE_FEATURES | backend_feature;
+        let missing = required & !engine.build_info().feature_bits;
         if missing != 0 {
             return Err(Error::local(
                 ErrorKind::Unsupported,
-                "GaneshContext::new_vulkan",
+                operation,
                 format!("bridge does not advertise required Ganesh feature bits 0x{missing:016x}"),
             ));
         }
@@ -172,7 +251,7 @@ impl GaneshContext {
         // SAFETY: the engine is live on its owner thread, the native descriptor
         // is initialized, and both outputs remain valid for the call.
         let status = unsafe {
-            ffi::fission_skia_context_create_ganesh_vulkan(
+            ffi::fission_skia_context_create_ganesh(
                 raw_engine,
                 compatible_window.as_raw(),
                 &mut raw,
@@ -183,7 +262,7 @@ impl GaneshContext {
         if raw == 0 {
             return Err(Error::local(
                 ErrorKind::Internal,
-                "GaneshContext::new_vulkan",
+                operation,
                 "bridge returned a null context handle after reporting success",
             ));
         }
@@ -191,6 +270,7 @@ impl GaneshContext {
             inner: Rc::new(GaneshContextInner {
                 raw,
                 thread: ThreadAffinity::current(),
+                native_window_kind: kind,
                 _engine: engine.clone(),
             }),
         })
@@ -286,6 +366,7 @@ impl GaneshSurface {
     ) -> Result<Self> {
         context.inner.thread.ensure_owner("GaneshSurface::new")?;
         validate_extent(width, height, "GaneshSurface::new")?;
+        context.ensure_window_kind(window, "GaneshSurface::new")?;
         let mut raw = 0;
         let mut error = ffi::Error::default();
         // SAFETY: the context and window are live on the owner thread and the
@@ -332,6 +413,8 @@ impl GaneshSurface {
     pub fn resize(&mut self, window: NativeWindow, width: u32, height: u32) -> Result<()> {
         self.thread.ensure_owner("GaneshSurface::resize")?;
         validate_extent(width, height, "GaneshSurface::resize")?;
+        self._context
+            .ensure_window_kind(window, "GaneshSurface::resize")?;
         let mut error = ffi::Error::default();
         // SAFETY: this wrapper uniquely owns the live surface, and the window
         // descriptor is initialized and valid for the bridge call.
@@ -451,6 +534,19 @@ impl GaneshSurface {
         // thread; the bridge validates its presentation state.
         let status = unsafe { ffi::fission_skia_surface_present(self.raw, &mut error) };
         status_result(status, &error)
+    }
+}
+
+impl GaneshContext {
+    fn ensure_window_kind(&self, window: NativeWindow, operation: &'static str) -> Result<()> {
+        if window.kind() != self.inner.native_window_kind {
+            return Err(Error::local(
+                ErrorKind::InvalidArgument,
+                operation,
+                "native window kind does not match the Ganesh context",
+            ));
+        }
+        Ok(())
     }
 }
 

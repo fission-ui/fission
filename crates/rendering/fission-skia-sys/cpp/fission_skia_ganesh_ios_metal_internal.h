@@ -14,8 +14,6 @@
 
 namespace fission::skia::ganesh::ios_metal {
 
-constexpr size_t kDefaultGpuResourceBudget = 64u * 1024u * 1024u;
-
 struct DeviceHealth {
     std::atomic<uint32_t> status{FISSION_SKIA_STATUS_OK};
 

@@ -8,7 +8,7 @@ use std::process::Command;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-const ABI_VERSION: u32 = 10;
+const ABI_VERSION: u32 = 11;
 const SKIA_REVISION: &str = "cf5c36972b73698eb3939cda147ea47152670312";
 const STATIC_LIBRARIES: &[&str] = &[
     "fission_skia_bridge",
@@ -18,8 +18,24 @@ const STATIC_LIBRARIES: &[&str] = &[
     "skunicode",
     "skia",
 ];
-const GANESH_LINUX_TARGETS: &[&str] = &["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"];
 const GANESH_LINUX_SYSTEM_LIBRARIES: &[&str] = &["dl", "fontconfig", "vulkan"];
+const GANESH_APPLE_SYSTEM_LIBRARIES: &[&str] = &["c++"];
+const GANESH_MACOS_FRAMEWORKS: &[&str] = &[
+    "AppKit",
+    "CoreFoundation",
+    "CoreGraphics",
+    "Foundation",
+    "Metal",
+    "QuartzCore",
+];
+const GANESH_IOS_FRAMEWORKS: &[&str] = &[
+    "CoreFoundation",
+    "CoreGraphics",
+    "Foundation",
+    "Metal",
+    "QuartzCore",
+    "UIKit",
+];
 const RASTER_BRIDGE_SOURCES: &[&str] = &[
     "cpp/fission_skia.cpp",
     "cpp/fission_skia_registry.cpp",
@@ -27,7 +43,7 @@ const RASTER_BRIDGE_SOURCES: &[&str] = &[
     "cpp/fission_skia_frame_playback.cpp",
     "cpp/fission_skia_paragraph.cpp",
 ];
-const GANESH_BRIDGE_SOURCES: &[&str] = &[
+const GANESH_VULKAN_BRIDGE_SOURCES: &[&str] = &[
     "cpp/fission_skia.cpp",
     "cpp/fission_skia_registry.cpp",
     "cpp/fission_skia_frame_validation.cpp",
@@ -36,7 +52,31 @@ const GANESH_BRIDGE_SOURCES: &[&str] = &[
     "cpp/fission_skia_ganesh_vulkan_context.cpp",
     "cpp/fission_skia_ganesh_vulkan_surface.cpp",
 ];
-const GANESH_BRIDGE_DEFINE: &str = "FISSION_SKIA_ENABLE_GANESH_VULKAN";
+const GANESH_MACOS_BRIDGE_SOURCES: &[&str] = &[
+    "cpp/fission_skia.cpp",
+    "cpp/fission_skia_registry.cpp",
+    "cpp/fission_skia_frame_validation.cpp",
+    "cpp/fission_skia_frame_playback.cpp",
+    "cpp/fission_skia_paragraph.cpp",
+    "cpp/fission_skia_ganesh_metal_context.mm",
+    "cpp/fission_skia_ganesh_metal_surface.mm",
+];
+const GANESH_IOS_BRIDGE_SOURCES: &[&str] = &[
+    "cpp/fission_skia.cpp",
+    "cpp/fission_skia_registry.cpp",
+    "cpp/fission_skia_frame_validation.cpp",
+    "cpp/fission_skia_frame_playback.cpp",
+    "cpp/fission_skia_paragraph.cpp",
+    "cpp/fission_skia_ganesh_ios_metal_context.mm",
+    "cpp/fission_skia_ganesh_ios_metal_surface.mm",
+];
+
+#[derive(Clone, Copy)]
+enum GaneshBackend {
+    Vulkan,
+    MacOSMetal,
+    IosMetal,
+}
 
 #[cfg(feature = "skia-build-from-source")]
 const SOURCE_NINJA_TARGETS: &[&str] = &[
@@ -143,6 +183,14 @@ fn emit_inputs() {
     println!("cargo:rerun-if-changed=cpp/fission_skia_ganesh_vulkan_internal.h");
     println!("cargo:rerun-if-changed=cpp/fission_skia_ganesh_vulkan_context.cpp");
     println!("cargo:rerun-if-changed=cpp/fission_skia_ganesh_vulkan_surface.cpp");
+    println!("cargo:rerun-if-changed=cpp/fission_skia_ganesh_metal.h");
+    println!("cargo:rerun-if-changed=cpp/fission_skia_ganesh_metal_internal.h");
+    println!("cargo:rerun-if-changed=cpp/fission_skia_ganesh_metal_context.mm");
+    println!("cargo:rerun-if-changed=cpp/fission_skia_ganesh_metal_surface.mm");
+    println!("cargo:rerun-if-changed=cpp/fission_skia_ganesh_ios_metal.h");
+    println!("cargo:rerun-if-changed=cpp/fission_skia_ganesh_ios_metal_internal.h");
+    println!("cargo:rerun-if-changed=cpp/fission_skia_ganesh_ios_metal_context.mm");
+    println!("cargo:rerun-if-changed=cpp/fission_skia_ganesh_ios_metal_surface.mm");
     println!("cargo:rerun-if-changed=cpp/test_shim.cpp");
     println!("cargo:rerun-if-changed=cpp/test_shim_paragraph.cpp");
     println!("cargo:rerun-if-changed=skia_revision.txt");
@@ -216,7 +264,12 @@ fn validate_manifest(manifest: &ArtifactManifest) {
             manifest.profile
         );
     }
-    validate_bridge_recipe(&profile, &manifest.bridge.sources, &manifest.bridge.defines);
+    validate_bridge_recipe(
+        &profile,
+        &target,
+        &manifest.bridge.sources,
+        &manifest.bridge.defines,
+    );
     if manifest
         .native
         .static_libraries
@@ -228,57 +281,107 @@ fn validate_manifest(manifest: &ArtifactManifest) {
             "Skia artifact static libraries do not match the required consumer-before-dependency order"
         );
     }
-    if profile == "native-ganesh"
-        && (manifest
+    if profile == "native-ganesh" {
+        let (system_libraries, frameworks) = ganesh_link_contract(&target);
+        if manifest
             .native
             .system_libraries
             .iter()
             .map(String::as_str)
-            .ne(GANESH_LINUX_SYSTEM_LIBRARIES.iter().copied())
-            || !manifest.native.frameworks.is_empty())
-    {
-        panic!(
-            "Skia native-ganesh artifact does not match the pinned Linux Vulkan system-link contract"
-        );
+            .ne(system_libraries.iter().copied())
+            || manifest
+                .native
+                .frameworks
+                .iter()
+                .map(String::as_str)
+                .ne(frameworks.iter().copied())
+        {
+            panic!(
+                "Skia native-ganesh artifact does not match the pinned {target} system-link contract"
+            );
+        }
     }
 }
 
-fn bridge_sources(profile: &str) -> &'static [&'static str] {
+fn ganesh_backend(target: &str) -> Option<GaneshBackend> {
+    match target {
+        "x86_64-unknown-linux-gnu" | "aarch64-unknown-linux-gnu" => Some(GaneshBackend::Vulkan),
+        "x86_64-apple-darwin" | "aarch64-apple-darwin" => Some(GaneshBackend::MacOSMetal),
+        "aarch64-apple-ios" | "aarch64-apple-ios-sim" | "x86_64-apple-ios" => {
+            Some(GaneshBackend::IosMetal)
+        }
+        _ => None,
+    }
+}
+
+fn bridge_sources(profile: &str, target: &str) -> &'static [&'static str] {
     match profile {
         "native-raster" => RASTER_BRIDGE_SOURCES,
-        "native-ganesh" => GANESH_BRIDGE_SOURCES,
+        "native-ganesh" => match ganesh_backend(target)
+            .expect("profile target was validated before selecting bridge sources")
+        {
+            GaneshBackend::Vulkan => GANESH_VULKAN_BRIDGE_SOURCES,
+            GaneshBackend::MacOSMetal => GANESH_MACOS_BRIDGE_SOURCES,
+            GaneshBackend::IosMetal => GANESH_IOS_BRIDGE_SOURCES,
+        },
         _ => unreachable!("profile was validated before selecting bridge sources"),
     }
 }
 
-fn bridge_defines(profile: &str) -> BTreeMap<String, String> {
-    if profile == "native-ganesh" {
-        BTreeMap::from([(GANESH_BRIDGE_DEFINE.to_owned(), "1".to_owned())])
-    } else {
-        BTreeMap::new()
+fn bridge_defines(profile: &str, target: &str) -> BTreeMap<String, String> {
+    match (profile, ganesh_backend(target)) {
+        ("native-ganesh", Some(GaneshBackend::Vulkan)) => BTreeMap::from([(
+            "FISSION_SKIA_ENABLE_GANESH_VULKAN".to_owned(),
+            "1".to_owned(),
+        )]),
+        ("native-ganesh", Some(GaneshBackend::MacOSMetal)) => BTreeMap::from([(
+            "FISSION_SKIA_ENABLE_GANESH_METAL".to_owned(),
+            "1".to_owned(),
+        )]),
+        ("native-ganesh", Some(GaneshBackend::IosMetal)) => BTreeMap::from([(
+            "FISSION_SKIA_ENABLE_GANESH_IOS_METAL".to_owned(),
+            "1".to_owned(),
+        )]),
+        ("native-raster", _) => BTreeMap::new(),
+        _ => unreachable!("profile target was validated before selecting bridge defines"),
     }
 }
 
-fn validate_bridge_recipe(profile: &str, sources: &[String], defines: &BTreeMap<String, String>) {
+fn ganesh_link_contract(target: &str) -> (&'static [&'static str], &'static [&'static str]) {
+    match ganesh_backend(target)
+        .expect("profile target was validated before selecting the link contract")
+    {
+        GaneshBackend::Vulkan => (GANESH_LINUX_SYSTEM_LIBRARIES, &[]),
+        GaneshBackend::MacOSMetal => (GANESH_APPLE_SYSTEM_LIBRARIES, GANESH_MACOS_FRAMEWORKS),
+        GaneshBackend::IosMetal => (GANESH_APPLE_SYSTEM_LIBRARIES, GANESH_IOS_FRAMEWORKS),
+    }
+}
+
+fn validate_bridge_recipe(
+    profile: &str,
+    target: &str,
+    sources: &[String],
+    defines: &BTreeMap<String, String>,
+) {
     if sources
         .iter()
         .map(String::as_str)
-        .ne(bridge_sources(profile).iter().copied())
+        .ne(bridge_sources(profile, target).iter().copied())
     {
-        panic!("Skia artifact bridge sources do not match the requested {profile} profile");
+        panic!("Skia artifact bridge sources do not match the requested {profile}/{target} recipe");
     }
-    if *defines != bridge_defines(profile) {
-        panic!("Skia artifact bridge defines do not match the requested {profile} profile");
+    if *defines != bridge_defines(profile, target) {
+        panic!("Skia artifact bridge defines do not match the requested {profile}/{target} recipe");
     }
 }
 
 fn validate_profile_target(profile: &str, target: &str) {
     match profile {
         "native-raster" => {}
-        "native-ganesh" if GANESH_LINUX_TARGETS.contains(&target) => {}
+        "native-ganesh" if ganesh_backend(target).is_some() => {}
         "native-ganesh" => panic!(
-            "Skia profile native-ganesh is not available for {target}; the current foundation "
-            "supports only x86_64-unknown-linux-gnu and aarch64-unknown-linux-gnu"
+            "Skia profile native-ganesh is not available for {target}; supported targets are "
+            "Linux GNU x86_64/arm64, macOS x86_64/arm64, and iOS device/simulator arm64/x86_64"
         ),
         _ => panic!(
             "unsupported FISSION_SKIA_PROFILE={profile:?}; select native-raster or native-ganesh"
@@ -386,7 +489,7 @@ fn configure_source() {
     if !status.success() {
         panic!("Ninja failed to build the pinned Skia {profile} libraries");
     }
-    compile_bridge(&source, &build, &profile);
+    compile_bridge(&source, &build, &profile, &target);
     println!("cargo:rustc-link-search=native={}", build.display());
     let links = env::var("FISSION_SKIA_LINK_LIBS")
         .unwrap_or_else(|_| "svg,skparagraph,skshaper,skunicode,skia".into());
@@ -398,8 +501,12 @@ fn configure_source() {
         println!("cargo:rustc-link-lib=static={library}");
     }
     if profile == "native-ganesh" {
-        for library in GANESH_LINUX_SYSTEM_LIBRARIES {
+        let (system_libraries, frameworks) = ganesh_link_contract(&target);
+        for library in system_libraries {
             println!("cargo:rustc-link-lib={library}");
+        }
+        for framework in frameworks {
+            println!("cargo:rustc-link-lib=framework={framework}");
         }
     }
 }
@@ -431,7 +538,7 @@ fn verify_bridge_source_plan(build: &Path, profile: &str, target: &str) {
     if sources
         .iter()
         .map(serde_json::Value::as_str)
-        .ne(bridge_sources(profile).iter().copied().map(Some))
+        .ne(bridge_sources(profile, target).iter().copied().map(Some))
     {
         panic!(
             "{} has the wrong {profile} bridge source list",
@@ -453,7 +560,7 @@ fn verify_bridge_source_plan(build: &Path, profile: &str, target: &str) {
                 })
         })
         .collect::<BTreeMap<_, _>>();
-    if actual_defines != bridge_defines(profile) {
+    if actual_defines != bridge_defines(profile, target) {
         panic!(
             "{} has the wrong {profile} bridge define map",
             path.display()
@@ -508,29 +615,64 @@ fn verify_ganesh_source_plan(build: &Path, target: &str) {
         ("skia_use_dawn", false),
         ("skia_use_direct3d", false),
         ("skia_use_gl", false),
-        ("skia_use_metal", false),
-        ("skia_use_vulkan", true),
-        ("skia_use_vma", true),
-        ("skia_use_x11", false),
     ] {
         if gn_args.get(name).and_then(serde_json::Value::as_bool) != Some(expected) {
             panic!("{} does not pin {name}={expected}", path.display());
         }
     }
-    if gn_args.get("target_os").and_then(serde_json::Value::as_str) != Some("linux") {
-        panic!("{} does not target Linux", path.display());
-    }
-    let expected_cpu = if target == "x86_64-unknown-linux-gnu" {
-        "x64"
-    } else {
-        "arm64"
+    let (expected_os, expected_cpu, metal, vulkan) = match target {
+        "x86_64-unknown-linux-gnu" => ("linux", "x64", false, true),
+        "aarch64-unknown-linux-gnu" => ("linux", "arm64", false, true),
+        "x86_64-apple-darwin" => ("mac", "x64", true, false),
+        "aarch64-apple-darwin" => ("mac", "arm64", true, false),
+        "aarch64-apple-ios" | "aarch64-apple-ios-sim" => ("ios", "arm64", true, false),
+        "x86_64-apple-ios" => ("ios", "x64", true, false),
+        _ => unreachable!("native-ganesh target was validated"),
     };
+    for (name, expected) in [("skia_use_metal", metal), ("skia_use_vulkan", vulkan)] {
+        if gn_args.get(name).and_then(serde_json::Value::as_bool) != Some(expected) {
+            panic!("{} does not pin {name}={expected}", path.display());
+        }
+    }
+    if gn_args.get("target_os").and_then(serde_json::Value::as_str) != Some(expected_os) {
+        panic!("{} does not target {expected_os}", path.display());
+    }
     if gn_args
         .get("target_cpu")
         .and_then(serde_json::Value::as_str)
         != Some(expected_cpu)
     {
         panic!("{} does not target CPU {expected_cpu}", path.display());
+    }
+    match ganesh_backend(target).expect("native-ganesh target was validated") {
+        GaneshBackend::Vulkan => {
+            for (name, expected) in [("skia_use_vma", true), ("skia_use_x11", false)] {
+                if gn_args.get(name).and_then(serde_json::Value::as_bool) != Some(expected) {
+                    panic!("{} does not pin {name}={expected}", path.display());
+                }
+            }
+        }
+        GaneshBackend::MacOSMetal => {}
+        GaneshBackend::IosMetal => {
+            let simulator = target != "aarch64-apple-ios";
+            if gn_args
+                .get("ios_use_simulator")
+                .and_then(serde_json::Value::as_bool)
+                != Some(simulator)
+            {
+                panic!(
+                    "{} does not pin ios_use_simulator={simulator}",
+                    path.display()
+                );
+            }
+            if gn_args
+                .get("ios_min_target")
+                .and_then(serde_json::Value::as_str)
+                .is_none()
+            {
+                panic!("{} does not record an iOS minimum target", path.display());
+            }
+        }
     }
     let expected_upstream = &STATIC_LIBRARIES[1..];
     let upstream = recipe
@@ -575,12 +717,12 @@ fn verify_source_revision(source: &Path) {
 }
 
 #[cfg(feature = "skia-build-from-source")]
-fn compile_bridge(source: &Path, build: &Path, profile: &str) {
+fn compile_bridge(source: &Path, build: &Path, profile: &str, target: &str) {
     let revision_define = format!("\"{SKIA_REVISION}\"");
     let profile_define = format!("\"{profile}\"");
     let mut compiler = cc::Build::new();
     compiler.cpp(true);
-    for bridge_source in bridge_sources(profile) {
+    for bridge_source in bridge_sources(profile, target) {
         compiler.file(bridge_source);
     }
     compiler
@@ -591,8 +733,8 @@ fn compile_bridge(source: &Path, build: &Path, profile: &str) {
         .define("FISSION_SKIA_BUILDING_BRIDGE", None)
         .define("FISSION_SKIA_REVISION", revision_define.as_str())
         .define("FISSION_SKIA_BUILD_PROFILE", profile_define.as_str());
-    if profile == "native-ganesh" {
-        compiler.define(GANESH_BRIDGE_DEFINE, Some("1"));
+    for (name, value) in bridge_defines(profile, target) {
+        compiler.define(&name, Some(value.as_str()));
     }
     compiler
         .flag_if_supported("-std=c++20")

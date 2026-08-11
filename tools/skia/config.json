@@ -9,7 +9,7 @@
     "license_file": "LICENSE"
   },
   "bridge": {
-    "abi_version": 10,
+    "abi_version": 11,
     "header": "include/fission_skia.h",
     "unix_library": "lib/fission_skia_bridge.a",
     "windows_library": "lib/fission_skia_bridge.lib"
@@ -107,7 +107,7 @@
       "status": "foundation",
       "qualified": false,
       "build_recipe": "available",
-      "description": "Ganesh using Vulkan on supported Linux GNU targets plus raster fallback.",
+      "description": "Ganesh using the target-native GPU and presentation backend plus raster fallback.",
       "required_licenses": [
         "cpu-features",
         "expat",
@@ -125,21 +125,9 @@
         "zlib"
       ],
       "upstream_libraries": ["svg", "skparagraph", "skshaper", "skunicode", "skia"],
-      "bridge_sources": [
-        "cpp/fission_skia.cpp",
-        "cpp/fission_skia_registry.cpp",
-        "cpp/fission_skia_frame_validation.cpp",
-        "cpp/fission_skia_frame_playback.cpp",
-        "cpp/fission_skia_paragraph.cpp",
-        "cpp/fission_skia_ganesh_vulkan_context.cpp",
-        "cpp/fission_skia_ganesh_vulkan_surface.cpp"
-      ],
-      "bridge_defines": {
-        "FISSION_SKIA_ENABLE_GANESH_VULKAN": "1"
-      },
       "features": {
-        "gpu": "ganesh-vulkan",
-        "presentation": ["xlib", "xcb", "wayland"],
+        "gpu": "target-native-ganesh",
+        "presentation": ["appkit", "uikit", "wayland", "xcb", "xlib"],
         "raster_fallback": true,
         "paragraph": true,
         "unicode": "icu",
@@ -152,10 +140,7 @@
         "skia_enable_graphite": false,
         "skia_use_dawn": false,
         "skia_use_direct3d": false,
-        "skia_use_gl": false,
-        "skia_use_metal": false,
-        "skia_use_vulkan": true,
-        "skia_use_vma": true
+        "skia_use_gl": false
       },
       "ninja_targets": [
         "skia",
@@ -167,13 +152,43 @@
       "target_recipes": {
         "x86_64-unknown-linux-gnu": {
           "status": "available",
-          "gn_args": {"skia_use_x11": false},
+          "bridge_sources": [
+            "cpp/fission_skia.cpp",
+            "cpp/fission_skia_registry.cpp",
+            "cpp/fission_skia_frame_validation.cpp",
+            "cpp/fission_skia_frame_playback.cpp",
+            "cpp/fission_skia_paragraph.cpp",
+            "cpp/fission_skia_ganesh_vulkan_context.cpp",
+            "cpp/fission_skia_ganesh_vulkan_surface.cpp"
+          ],
+          "bridge_defines": {"FISSION_SKIA_ENABLE_GANESH_VULKAN": "1"},
+          "gn_args": {
+            "skia_use_metal": false,
+            "skia_use_vma": true,
+            "skia_use_vulkan": true,
+            "skia_use_x11": false
+          },
           "system_libraries": ["dl", "fontconfig", "vulkan"],
           "frameworks": []
         },
         "aarch64-unknown-linux-gnu": {
           "status": "available",
-          "gn_args": {"skia_use_x11": false},
+          "bridge_sources": [
+            "cpp/fission_skia.cpp",
+            "cpp/fission_skia_registry.cpp",
+            "cpp/fission_skia_frame_validation.cpp",
+            "cpp/fission_skia_frame_playback.cpp",
+            "cpp/fission_skia_paragraph.cpp",
+            "cpp/fission_skia_ganesh_vulkan_context.cpp",
+            "cpp/fission_skia_ganesh_vulkan_surface.cpp"
+          ],
+          "bridge_defines": {"FISSION_SKIA_ENABLE_GANESH_VULKAN": "1"},
+          "gn_args": {
+            "skia_use_metal": false,
+            "skia_use_vma": true,
+            "skia_use_vulkan": true,
+            "skia_use_x11": false
+          },
           "system_libraries": ["dl", "fontconfig", "vulkan"],
           "frameworks": []
         },
@@ -182,12 +197,36 @@
           "reason": "The pinned GN target describes Linux but not a reproducible musl C++ and fontconfig toolchain contract."
         },
         "x86_64-apple-darwin": {
-          "status": "pending",
-          "reason": "The Metal Ganesh surface and presentation contract is not implemented yet."
+          "status": "available",
+          "bridge_sources": [
+            "cpp/fission_skia.cpp",
+            "cpp/fission_skia_registry.cpp",
+            "cpp/fission_skia_frame_validation.cpp",
+            "cpp/fission_skia_frame_playback.cpp",
+            "cpp/fission_skia_paragraph.cpp",
+            "cpp/fission_skia_ganesh_metal_context.mm",
+            "cpp/fission_skia_ganesh_metal_surface.mm"
+          ],
+          "bridge_defines": {"FISSION_SKIA_ENABLE_GANESH_METAL": "1"},
+          "gn_args": {"skia_use_metal": true, "skia_use_vulkan": false},
+          "system_libraries": ["c++"],
+          "frameworks": ["AppKit", "CoreFoundation", "CoreGraphics", "Foundation", "Metal", "QuartzCore"]
         },
         "aarch64-apple-darwin": {
-          "status": "pending",
-          "reason": "The Metal Ganesh surface and presentation contract is not implemented yet."
+          "status": "available",
+          "bridge_sources": [
+            "cpp/fission_skia.cpp",
+            "cpp/fission_skia_registry.cpp",
+            "cpp/fission_skia_frame_validation.cpp",
+            "cpp/fission_skia_frame_playback.cpp",
+            "cpp/fission_skia_paragraph.cpp",
+            "cpp/fission_skia_ganesh_metal_context.mm",
+            "cpp/fission_skia_ganesh_metal_surface.mm"
+          ],
+          "bridge_defines": {"FISSION_SKIA_ENABLE_GANESH_METAL": "1"},
+          "gn_args": {"skia_use_metal": true, "skia_use_vulkan": false},
+          "system_libraries": ["c++"],
+          "frameworks": ["AppKit", "CoreFoundation", "CoreGraphics", "Foundation", "Metal", "QuartzCore"]
         },
         "x86_64-pc-windows-msvc": {
           "status": "pending",
@@ -214,16 +253,52 @@
           "reason": "The Android Vulkan Ganesh surface, NDK baseline, and presentation contract are not implemented yet."
         },
         "aarch64-apple-ios": {
-          "status": "pending",
-          "reason": "The Metal Ganesh surface and iOS presentation contract is not implemented yet."
+          "status": "available",
+          "bridge_sources": [
+            "cpp/fission_skia.cpp",
+            "cpp/fission_skia_registry.cpp",
+            "cpp/fission_skia_frame_validation.cpp",
+            "cpp/fission_skia_frame_playback.cpp",
+            "cpp/fission_skia_paragraph.cpp",
+            "cpp/fission_skia_ganesh_ios_metal_context.mm",
+            "cpp/fission_skia_ganesh_ios_metal_surface.mm"
+          ],
+          "bridge_defines": {"FISSION_SKIA_ENABLE_GANESH_IOS_METAL": "1"},
+          "gn_args": {"skia_use_metal": true, "skia_use_vulkan": false},
+          "system_libraries": ["c++"],
+          "frameworks": ["CoreFoundation", "CoreGraphics", "Foundation", "Metal", "QuartzCore", "UIKit"]
         },
         "aarch64-apple-ios-sim": {
-          "status": "pending",
-          "reason": "The Metal Ganesh surface and iOS presentation contract is not implemented yet."
+          "status": "available",
+          "bridge_sources": [
+            "cpp/fission_skia.cpp",
+            "cpp/fission_skia_registry.cpp",
+            "cpp/fission_skia_frame_validation.cpp",
+            "cpp/fission_skia_frame_playback.cpp",
+            "cpp/fission_skia_paragraph.cpp",
+            "cpp/fission_skia_ganesh_ios_metal_context.mm",
+            "cpp/fission_skia_ganesh_ios_metal_surface.mm"
+          ],
+          "bridge_defines": {"FISSION_SKIA_ENABLE_GANESH_IOS_METAL": "1"},
+          "gn_args": {"skia_use_metal": true, "skia_use_vulkan": false},
+          "system_libraries": ["c++"],
+          "frameworks": ["CoreFoundation", "CoreGraphics", "Foundation", "Metal", "QuartzCore", "UIKit"]
         },
         "x86_64-apple-ios": {
-          "status": "pending",
-          "reason": "The Metal Ganesh surface and iOS presentation contract is not implemented yet."
+          "status": "available",
+          "bridge_sources": [
+            "cpp/fission_skia.cpp",
+            "cpp/fission_skia_registry.cpp",
+            "cpp/fission_skia_frame_validation.cpp",
+            "cpp/fission_skia_frame_playback.cpp",
+            "cpp/fission_skia_paragraph.cpp",
+            "cpp/fission_skia_ganesh_ios_metal_context.mm",
+            "cpp/fission_skia_ganesh_ios_metal_surface.mm"
+          ],
+          "bridge_defines": {"FISSION_SKIA_ENABLE_GANESH_IOS_METAL": "1"},
+          "gn_args": {"skia_use_metal": true, "skia_use_vulkan": false},
+          "system_libraries": ["c++"],
+          "frameworks": ["CoreFoundation", "CoreGraphics", "Foundation", "Metal", "QuartzCore", "UIKit"]
         }
       }
     },

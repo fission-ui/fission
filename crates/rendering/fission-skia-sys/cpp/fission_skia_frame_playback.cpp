@@ -304,18 +304,6 @@ SkPath sk_path(
 }
 
 
-#if FISSION_SKIA_ENABLE_GANESH_VULKAN
-fission_skia_status_t cancel_ganesh_frame(
-    ::fission::skia::ganesh::VulkanSurface& surface,
-    fission_skia_status_t original_status,
-    fission_skia_error_t* error) {
-    const auto cancel = surface.cancel_frame();
-    return cancel.ok()
-        ? original_status
-        : fail(cancel.status, "execute_frame", cancel.message, error);
-}
-#endif
-
 fission_skia_status_t play_frame(
     SkCanvas* canvas,
     SurfaceState* surface,

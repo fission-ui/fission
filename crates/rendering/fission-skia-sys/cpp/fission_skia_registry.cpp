@@ -161,23 +161,114 @@ bool valid_non_empty_rect(const fission_skia_rect_t& rect) {
 
 bool valid_native_window(const fission_skia_native_window_t* window) {
     if (window == nullptr || window->struct_size != sizeof(*window) ||
-        window->display == 0 || window->window == 0 ||
-        window->display > static_cast<uint64_t>(UINTPTR_MAX)) {
+        window->window == 0) {
         return false;
     }
     switch (window->kind) {
         case FISSION_SKIA_NATIVE_WINDOW_WAYLAND:
-            return window->window <= static_cast<uint64_t>(UINTPTR_MAX) &&
+            return window->display != 0 &&
+                   window->display <= static_cast<uint64_t>(UINTPTR_MAX) &&
+                   window->window <= static_cast<uint64_t>(UINTPTR_MAX) &&
                    window->visual_id == 0;
         case FISSION_SKIA_NATIVE_WINDOW_XLIB:
-            return window->window <= static_cast<uint64_t>(UINTPTR_MAX) &&
+            return window->display != 0 &&
+                   window->display <= static_cast<uint64_t>(UINTPTR_MAX) &&
+                   window->window <= static_cast<uint64_t>(UINTPTR_MAX) &&
                    window->visual_id <= static_cast<uint64_t>(UINTPTR_MAX);
         case FISSION_SKIA_NATIVE_WINDOW_XCB:
-            return window->window <= UINT32_MAX && window->visual_id <= UINT32_MAX;
+            return window->display != 0 &&
+                   window->display <= static_cast<uint64_t>(UINTPTR_MAX) &&
+                   window->window <= UINT32_MAX && window->visual_id <= UINT32_MAX;
+        case FISSION_SKIA_NATIVE_WINDOW_APPKIT:
+        case FISSION_SKIA_NATIVE_WINDOW_UIKIT:
+            return window->display == 0 && window->visual_id == 0 &&
+                   window->window <= static_cast<uint64_t>(UINTPTR_MAX);
         default:
             return false;
     }
 }
+
+#if FISSION_SKIA_ENABLE_GANESH_NATIVE
+bool native_ganesh_supports_window(uint32_t kind) {
+#if FISSION_SKIA_ENABLE_GANESH_VULKAN
+    return kind == FISSION_SKIA_NATIVE_WINDOW_WAYLAND ||
+           kind == FISSION_SKIA_NATIVE_WINDOW_XLIB ||
+           kind == FISSION_SKIA_NATIVE_WINDOW_XCB;
+#elif FISSION_SKIA_ENABLE_GANESH_METAL
+    return kind == FISSION_SKIA_NATIVE_WINDOW_APPKIT;
+#elif FISSION_SKIA_ENABLE_GANESH_IOS_METAL
+    return kind == FISSION_SKIA_NATIVE_WINDOW_UIKIT;
+#endif
+}
+
+NativeGaneshResult create_native_ganesh_context(
+    const fission_skia_native_window_t& window,
+    std::unique_ptr<NativeGaneshContext>* out_context) {
+#if FISSION_SKIA_ENABLE_GANESH_VULKAN
+    return NativeGaneshContext::create(window, out_context);
+#elif FISSION_SKIA_ENABLE_GANESH_METAL
+    const ::fission::skia::ganesh::metal::MacOSWindow native{
+        sizeof(::fission::skia::ganesh::metal::MacOSWindow),
+        reinterpret_cast<const void*>(static_cast<uintptr_t>(window.window)),
+    };
+    return NativeGaneshContext::create(native, out_context);
+#elif FISSION_SKIA_ENABLE_GANESH_IOS_METAL
+    const ::fission::skia::ganesh::ios_metal::IOSView native{
+        sizeof(::fission::skia::ganesh::ios_metal::IOSView),
+        reinterpret_cast<const void*>(static_cast<uintptr_t>(window.window)),
+    };
+    return NativeGaneshContext::create(native, out_context);
+#endif
+}
+
+NativeGaneshResult create_native_ganesh_surface(
+    NativeGaneshContext& context,
+    const fission_skia_native_window_t& window,
+    uint32_t width,
+    uint32_t height,
+    std::unique_ptr<NativeGaneshSurface>* out_surface) {
+#if FISSION_SKIA_ENABLE_GANESH_VULKAN
+    return NativeGaneshSurface::create(
+        context, window, width, height, out_surface);
+#elif FISSION_SKIA_ENABLE_GANESH_METAL
+    const ::fission::skia::ganesh::metal::MacOSWindow native{
+        sizeof(::fission::skia::ganesh::metal::MacOSWindow),
+        reinterpret_cast<const void*>(static_cast<uintptr_t>(window.window)),
+    };
+    return NativeGaneshSurface::create(
+        context, native, width, height, out_surface);
+#elif FISSION_SKIA_ENABLE_GANESH_IOS_METAL
+    const ::fission::skia::ganesh::ios_metal::IOSView native{
+        sizeof(::fission::skia::ganesh::ios_metal::IOSView),
+        reinterpret_cast<const void*>(static_cast<uintptr_t>(window.window)),
+    };
+    return NativeGaneshSurface::create(
+        context, native, width, height, out_surface);
+#endif
+}
+
+NativeGaneshResult resize_native_ganesh_surface(
+    NativeGaneshSurface& surface,
+    const fission_skia_native_window_t& window,
+    uint32_t width,
+    uint32_t height) {
+#if FISSION_SKIA_ENABLE_GANESH_VULKAN
+    return surface.resize(window, width, height);
+#elif FISSION_SKIA_ENABLE_GANESH_METAL
+    const ::fission::skia::ganesh::metal::MacOSWindow native{
+        sizeof(::fission::skia::ganesh::metal::MacOSWindow),
+        reinterpret_cast<const void*>(static_cast<uintptr_t>(window.window)),
+    };
+    return surface.resize(native, width, height);
+#elif FISSION_SKIA_ENABLE_GANESH_IOS_METAL
+    const ::fission::skia::ganesh::ios_metal::IOSView native{
+        sizeof(::fission::skia::ganesh::ios_metal::IOSView),
+        reinterpret_cast<const void*>(static_cast<uintptr_t>(window.window)),
+    };
+    return surface.resize(native, width, height);
+#endif
+}
+#endif
 
 void write_image_info(
     const ImageState& image,

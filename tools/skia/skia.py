@@ -129,19 +129,24 @@ def load_config(path: Path) -> dict[str, Any]:
             )
             if any(not NAME_RE.fullmatch(library) for library in libraries):
                 raise SkiaToolError(f"config.profiles.{name}.upstream_libraries has an unsafe name")
-            bridge_sources = require_string_list(
-                profile.get("bridge_sources"),
-                f"config.profiles.{name}.bridge_sources",
-            )
-            for source in bridge_sources:
-                validate_relative_path(source, f"config.profiles.{name}.bridge_sources")
-            bridge_defines = require_string_map(
-                profile.get("bridge_defines"),
-                f"config.profiles.{name}.bridge_defines",
-            )
-            if any(not GN_NAME_RE.fullmatch(define) for define in bridge_defines):
+            if profile.get("target_recipes") is None:
+                bridge_sources = require_string_list(
+                    profile.get("bridge_sources"),
+                    f"config.profiles.{name}.bridge_sources",
+                )
+                for source in bridge_sources:
+                    validate_relative_path(source, f"config.profiles.{name}.bridge_sources")
+                bridge_defines = require_string_map(
+                    profile.get("bridge_defines"),
+                    f"config.profiles.{name}.bridge_defines",
+                )
+                if any(not GN_NAME_RE.fullmatch(define) for define in bridge_defines):
+                    raise SkiaToolError(
+                        f"config.profiles.{name}.bridge_defines contains an invalid C preprocessor name"
+                    )
+            elif "bridge_sources" in profile or "bridge_defines" in profile:
                 raise SkiaToolError(
-                    f"config.profiles.{name}.bridge_defines contains an invalid C preprocessor name"
+                    f"config.profiles.{name} must keep target-selected bridge recipes only in target_recipes"
                 )
 
     targets = require_object(config.get("targets"), "config.targets")
@@ -185,8 +190,29 @@ def load_config(path: Path) -> dict[str, Any]:
             status = require_string(recipe.get("status"), f"{context}.status")
             if status == "available":
                 available += 1
-                if set(recipe) != {"status", "gn_args", "system_libraries", "frameworks"}:
+                if set(recipe) != {
+                    "status",
+                    "bridge_sources",
+                    "bridge_defines",
+                    "gn_args",
+                    "system_libraries",
+                    "frameworks",
+                }:
                     raise SkiaToolError(f"{context} has unknown or missing available-recipe fields")
+                bridge_sources = require_string_list(
+                    recipe.get("bridge_sources"),
+                    f"{context}.bridge_sources",
+                )
+                for source in bridge_sources:
+                    validate_relative_path(source, f"{context}.bridge_sources")
+                bridge_defines = require_string_map(
+                    recipe.get("bridge_defines"),
+                    f"{context}.bridge_defines",
+                )
+                if any(not GN_NAME_RE.fullmatch(define) for define in bridge_defines):
+                    raise SkiaToolError(
+                        f"{context}.bridge_defines contains an invalid C preprocessor name"
+                    )
                 gn_args = require_object(recipe.get("gn_args"), f"{context}.gn_args")
                 if any(not GN_NAME_RE.fullmatch(argument) for argument in gn_args):
                     raise SkiaToolError(f"{context}.gn_args contains an invalid GN name")
@@ -520,6 +546,8 @@ def resolve_build_plan(
             raise SkiaToolError(
                 f"target {target_name!r} requires --gn-arg {required}=VALUE"
             )
+    bridge_source_owner = target_recipe if target_recipe is not None else profile
+    bridge_define_owner = target_recipe if target_recipe is not None else profile
     return {
         "schema_version": BUILD_PLAN_SCHEMA_VERSION,
         "skia_revision": require_string(config["source"]["revision"], "source revision"),
@@ -527,14 +555,14 @@ def resolve_build_plan(
         "profile": profile_name,
         "target": target_name,
         "bridge_sources": require_string_list(
-            profile.get("bridge_sources"),
-            "profile bridge_sources",
+            bridge_source_owner.get("bridge_sources"),
+            "selected bridge_sources",
         ),
         "bridge_defines": dict(
             sorted(
                 require_string_map(
-                    profile.get("bridge_defines"),
-                    "profile bridge_defines",
+                    bridge_define_owner.get("bridge_defines"),
+                    "selected bridge_defines",
                 ).items()
             )
         ),

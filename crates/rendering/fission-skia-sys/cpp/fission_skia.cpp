@@ -48,6 +48,10 @@ constexpr uint64_t kBaseFeatureBits =
 constexpr uint64_t kGaneshFeatureBits =
     FISSION_SKIA_FEATURE_GANESH | FISSION_SKIA_FEATURE_VULKAN |
     FISSION_SKIA_FEATURE_NATIVE_PRESENTATION;
+#elif FISSION_SKIA_ENABLE_GANESH_METAL || FISSION_SKIA_ENABLE_GANESH_IOS_METAL
+constexpr uint64_t kGaneshFeatureBits =
+    FISSION_SKIA_FEATURE_GANESH | FISSION_SKIA_FEATURE_METAL |
+    FISSION_SKIA_FEATURE_NATIVE_PRESENTATION;
 #else
 constexpr uint64_t kGaneshFeatureBits = 0;
 #endif
@@ -78,8 +82,12 @@ using fission::skia::bridge::valid_non_empty_rect;
 using fission::skia::bridge::valid_svg_source;
 using fission::skia::bridge::validate_frame;
 using fission::skia::bridge::write_image_info;
-#if FISSION_SKIA_ENABLE_GANESH_VULKAN
+#if FISSION_SKIA_ENABLE_GANESH_NATIVE
 using fission::skia::bridge::cancel_ganesh_frame;
+using fission::skia::bridge::create_native_ganesh_context;
+using fission::skia::bridge::create_native_ganesh_surface;
+using fission::skia::bridge::native_ganesh_supports_window;
+using fission::skia::bridge::resize_native_ganesh_surface;
 #endif
 
 extern "C" {
@@ -186,14 +194,14 @@ fission_skia_status_t fission_skia_context_create_raster(
     return FISSION_SKIA_STATUS_OK;
 }
 
-fission_skia_status_t fission_skia_context_create_ganesh_vulkan(
+fission_skia_status_t fission_skia_context_create_ganesh(
     fission_skia_engine_handle_t engine,
     const fission_skia_native_window_t* compatible_window,
     fission_skia_context_handle_t* out_context,
     fission_skia_error_t* out_error) {
     if (out_context == nullptr || !valid_native_window(compatible_window)) {
         return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT,
-                    "context_create_ganesh_vulkan",
+                    "context_create_ganesh",
                     "context output or native window descriptor is invalid", out_error);
     }
     *out_context = 0;
@@ -201,31 +209,36 @@ fission_skia_status_t fission_skia_context_create_ganesh_vulkan(
     const auto parent = registry().engines.find(engine);
     if (parent == registry().engines.end()) {
         return fail(FISSION_SKIA_STATUS_INVALID_HANDLE,
-                    "context_create_ganesh_vulkan",
+                    "context_create_ganesh",
                     "engine handle is not live", out_error);
     }
-    auto status = check_owner(*parent->second, "context_create_ganesh_vulkan", out_error);
+    auto status = check_owner(*parent->second, "context_create_ganesh", out_error);
     if (status != FISSION_SKIA_STATUS_OK) return status;
-#if FISSION_SKIA_ENABLE_GANESH_VULKAN
-    std::unique_ptr<fission::skia::ganesh::VulkanContext> ganesh;
-    const auto result = fission::skia::ganesh::VulkanContext::create(
-        *compatible_window, &ganesh);
+#if FISSION_SKIA_ENABLE_GANESH_NATIVE
+    if (!native_ganesh_supports_window(compatible_window->kind)) {
+        return fail(FISSION_SKIA_STATUS_UNSUPPORTED, "context_create_ganesh",
+                    "native window kind is not supported by this artifact",
+                    out_error);
+    }
+    std::unique_ptr<fission::skia::bridge::NativeGaneshContext> ganesh;
+    const auto result = create_native_ganesh_context(*compatible_window, &ganesh);
     if (!result.ok()) {
-        return fail(result.status, "context_create_ganesh_vulkan", result.message,
+        return fail(result.status, "context_create_ganesh", result.message,
                     out_error);
     }
     if (!ganesh) {
-        return fail(FISSION_SKIA_STATUS_INTERNAL, "context_create_ganesh_vulkan",
-                    "Ganesh Vulkan context creation returned no context", out_error);
+        return fail(FISSION_SKIA_STATUS_INTERNAL, "context_create_ganesh",
+                    "Ganesh context creation returned no context", out_error);
     }
     auto state = std::unique_ptr<ContextState>(new (std::nothrow) ContextState{});
     if (!state) {
-        return fail(FISSION_SKIA_STATUS_OUT_OF_MEMORY, "context_create_ganesh_vulkan",
+        return fail(FISSION_SKIA_STATUS_OUT_OF_MEMORY, "context_create_ganesh",
                     "could not allocate context state", out_error);
     }
     state->owner = std::this_thread::get_id();
     state->engine = engine;
-    state->backend = ContextBackend::kGaneshVulkan;
+    state->native_window_kind = compatible_window->kind;
+    state->backend = ContextBackend::kGaneshNative;
     state->ganesh = std::move(ganesh);
     const auto handle = next_handle();
     registry().contexts.emplace(handle, std::move(state));
@@ -234,8 +247,8 @@ fission_skia_status_t fission_skia_context_create_ganesh_vulkan(
     clear_error(out_error);
     return FISSION_SKIA_STATUS_OK;
 #else
-    return fail(FISSION_SKIA_STATUS_UNSUPPORTED, "context_create_ganesh_vulkan",
-                "this bridge profile does not implement Ganesh Vulkan resources",
+    return fail(FISSION_SKIA_STATUS_UNSUPPORTED, "context_create_ganesh",
+                "this bridge profile does not implement native Ganesh resources",
                 out_error);
 #endif
 }
@@ -257,11 +270,11 @@ fission_skia_status_t fission_skia_context_trim_memory(
         return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "context_trim_memory",
                     "memory pressure value is unknown", out_error);
     }
-#if FISSION_SKIA_ENABLE_GANESH_VULKAN
-    if (found->second->backend == ContextBackend::kGaneshVulkan) {
+#if FISSION_SKIA_ENABLE_GANESH_NATIVE
+    if (found->second->backend == ContextBackend::kGaneshNative) {
         if (!found->second->ganesh) {
             return fail(FISSION_SKIA_STATUS_INTERNAL, "context_trim_memory",
-                        "Ganesh context state has no Vulkan context", out_error);
+                        "Ganesh context state has no native context", out_error);
         }
         const auto result = found->second->ganesh->trim_memory(pressure);
         if (!result.ok()) {
@@ -288,12 +301,12 @@ fission_skia_status_t fission_skia_context_set_resource_cache_limit(
     auto status = check_owner(
         *found->second, "context_set_resource_cache_limit", out_error);
     if (status != FISSION_SKIA_STATUS_OK) return status;
-#if FISSION_SKIA_ENABLE_GANESH_VULKAN
-    if (found->second->backend == ContextBackend::kGaneshVulkan) {
+#if FISSION_SKIA_ENABLE_GANESH_NATIVE
+    if (found->second->backend == ContextBackend::kGaneshNative) {
         if (!found->second->ganesh) {
             return fail(FISSION_SKIA_STATUS_INTERNAL,
                         "context_set_resource_cache_limit",
-                        "Ganesh context state has no Vulkan context", out_error);
+                        "Ganesh context state has no native context", out_error);
         }
         const auto result =
             found->second->ganesh->set_resource_cache_limit(limit_bytes);
@@ -332,12 +345,12 @@ fission_skia_status_t fission_skia_context_get_resource_cache_usage(
     auto status = check_owner(
         *found->second, "context_get_resource_cache_usage", out_error);
     if (status != FISSION_SKIA_STATUS_OK) return status;
-#if FISSION_SKIA_ENABLE_GANESH_VULKAN
-    if (found->second->backend == ContextBackend::kGaneshVulkan) {
+#if FISSION_SKIA_ENABLE_GANESH_NATIVE
+    if (found->second->backend == ContextBackend::kGaneshNative) {
         if (!found->second->ganesh) {
             return fail(FISSION_SKIA_STATUS_INTERNAL,
                         "context_get_resource_cache_usage",
-                        "Ganesh context state has no Vulkan context", out_error);
+                        "Ganesh context state has no native context", out_error);
         }
         const auto result = found->second->ganesh->resource_cache_usage(
             &out_usage->resource_count, &out_usage->resource_bytes);
@@ -451,14 +464,18 @@ fission_skia_status_t fission_skia_surface_create_ganesh(
     }
     auto status = check_owner(*parent->second, "surface_create_ganesh", out_error);
     if (status != FISSION_SKIA_STATUS_OK) return status;
-#if FISSION_SKIA_ENABLE_GANESH_VULKAN
-    if (parent->second->backend != ContextBackend::kGaneshVulkan ||
+#if FISSION_SKIA_ENABLE_GANESH_NATIVE
+    if (parent->second->backend != ContextBackend::kGaneshNative ||
         !parent->second->ganesh) {
         return fail(FISSION_SKIA_STATUS_INVALID_STATE, "surface_create_ganesh",
-                    "context is not a live Ganesh Vulkan context", out_error);
+                    "context is not a live native Ganesh context", out_error);
     }
-    std::unique_ptr<fission::skia::ganesh::VulkanSurface> ganesh;
-    const auto result = fission::skia::ganesh::VulkanSurface::create(
+    if (parent->second->native_window_kind != window->kind) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "surface_create_ganesh",
+                    "native window kind does not match the Ganesh context", out_error);
+    }
+    std::unique_ptr<fission::skia::bridge::NativeGaneshSurface> ganesh;
+    const auto result = create_native_ganesh_surface(
         *parent->second->ganesh, *window, width, height, &ganesh);
     if (!result.ok()) {
         return fail(result.status, "surface_create_ganesh", result.message, out_error);
@@ -476,7 +493,8 @@ fission_skia_status_t fission_skia_surface_create_ganesh(
     state->context = context;
     state->width = width;
     state->height = height;
-    state->backend = SurfaceBackend::kGaneshVulkan;
+    state->native_window_kind = window->kind;
+    state->backend = SurfaceBackend::kGaneshNative;
     state->ganesh = std::move(ganesh);
     const auto handle = next_handle();
     registry().surfaces.emplace(handle, std::move(state));
@@ -511,13 +529,18 @@ fission_skia_status_t fission_skia_surface_resize_ganesh(
     }
     auto status = check_owner(*found->second, "surface_resize_ganesh", out_error);
     if (status != FISSION_SKIA_STATUS_OK) return status;
-#if FISSION_SKIA_ENABLE_GANESH_VULKAN
-    if (found->second->backend != SurfaceBackend::kGaneshVulkan ||
+#if FISSION_SKIA_ENABLE_GANESH_NATIVE
+    if (found->second->backend != SurfaceBackend::kGaneshNative ||
         !found->second->ganesh) {
         return fail(FISSION_SKIA_STATUS_INVALID_STATE, "surface_resize_ganesh",
                     "surface is not a Ganesh native surface", out_error);
     }
-    const auto result = found->second->ganesh->resize(*window, width, height);
+    if (found->second->native_window_kind != window->kind) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "surface_resize_ganesh",
+                    "native window kind does not match the Ganesh surface", out_error);
+    }
+    const auto result = resize_native_ganesh_surface(
+        *found->second->ganesh, *window, width, height);
     if (!result.ok()) {
         return fail(result.status, "surface_resize_ganesh", result.message, out_error);
     }
@@ -545,11 +568,11 @@ fission_skia_status_t fission_skia_surface_execute_frame(
     }
     status = check_owner(*found->second, "execute_frame", out_error);
     if (status != FISSION_SKIA_STATUS_OK) return status;
-#if FISSION_SKIA_ENABLE_GANESH_VULKAN
-    if (found->second->backend == SurfaceBackend::kGaneshVulkan) {
+#if FISSION_SKIA_ENABLE_GANESH_NATIVE
+    if (found->second->backend == SurfaceBackend::kGaneshNative) {
         if (!found->second->ganesh) {
             return fail(FISSION_SKIA_STATUS_INTERNAL, "execute_frame",
-                        "Ganesh surface state has no Vulkan surface", out_error);
+                        "Ganesh surface state has no native surface", out_error);
         }
         auto acquired = found->second->ganesh->begin_frame();
         if (!acquired.result.ok()) {
@@ -630,11 +653,11 @@ fission_skia_status_t fission_skia_surface_read_pixels_rgba8888(
         return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "read_pixels_rgba8888",
                     "readback rectangle lies outside the surface", out_error);
     }
-#if FISSION_SKIA_ENABLE_GANESH_VULKAN
-    if (found->second->backend == SurfaceBackend::kGaneshVulkan) {
+#if FISSION_SKIA_ENABLE_GANESH_NATIVE
+    if (found->second->backend == SurfaceBackend::kGaneshNative) {
         if (!found->second->ganesh) {
             return fail(FISSION_SKIA_STATUS_INTERNAL, "read_pixels_rgba8888",
-                        "Ganesh surface state has no Vulkan surface", out_error);
+                        "Ganesh surface state has no native surface", out_error);
         }
         const auto result = found->second->ganesh->read_pixels_rgba8888(
             source_rect->x, source_rect->y, source_rect->width, source_rect->height,
@@ -674,11 +697,11 @@ fission_skia_status_t fission_skia_surface_present(
     }
     auto status = check_owner(*found->second, "surface_present", out_error);
     if (status != FISSION_SKIA_STATUS_OK) return status;
-#if FISSION_SKIA_ENABLE_GANESH_VULKAN
-    if (found->second->backend == SurfaceBackend::kGaneshVulkan) {
+#if FISSION_SKIA_ENABLE_GANESH_NATIVE
+    if (found->second->backend == SurfaceBackend::kGaneshNative) {
         if (!found->second->ganesh) {
             return fail(FISSION_SKIA_STATUS_INTERNAL, "surface_present",
-                        "Ganesh surface state has no Vulkan surface", out_error);
+                        "Ganesh surface state has no native surface", out_error);
         }
         const auto result = found->second->ganesh->present();
         if (!result.ok()) {

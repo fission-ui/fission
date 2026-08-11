@@ -14,8 +14,6 @@
 
 namespace fission::skia::ganesh::metal {
 
-constexpr size_t kDefaultGpuResourceBudget = 64u * 1024u * 1024u;
-
 // Shared with asynchronous MTLCommandBuffer completion handlers. The first
 // failure is sticky until the owning context is rebuilt, which prevents later
 // successful submissions from hiding a device or context loss.

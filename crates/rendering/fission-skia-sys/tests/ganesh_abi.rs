@@ -19,7 +19,10 @@ fn ganesh_surface_enforces_zero_size_and_present_ordering() {
     assert_eq!(live_counts(), ffi::TestCounts::default());
 
     let engine = Engine::new().expect("test engine");
-    let required = ffi::FEATURE_GANESH | ffi::FEATURE_VULKAN | ffi::FEATURE_NATIVE_PRESENTATION;
+    let required = ffi::FEATURE_GANESH
+        | ffi::FEATURE_VULKAN
+        | ffi::FEATURE_METAL
+        | ffi::FEATURE_NATIVE_PRESENTATION;
     assert_eq!(engine.build_info().feature_bits & required, required);
 
     // The context descriptor is a synchronous presentation-support probe. The
@@ -135,6 +138,49 @@ fn native_window_kinds_allow_optional_visuals_and_reject_mismatches() {
 }
 
 #[test]
+fn metal_descriptors_route_appkit_and_uikit_without_owning_views() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    assert_eq!(live_counts(), ffi::TestCounts::default());
+    let engine = Engine::new().expect("test engine");
+    let context = {
+        let mut probe_view = Box::new(9_u8);
+        let appkit = unsafe { NativeWindow::appkit(pointer(&mut probe_view)) };
+        assert_eq!(appkit.kind(), NativeWindowKind::AppKit);
+        GaneshContext::new_metal(&engine, appkit).expect("Metal context")
+    };
+
+    let mut appkit_view = Box::new(10_u8);
+    let appkit = unsafe { NativeWindow::appkit(pointer(&mut appkit_view)) };
+    let mut surface = GaneshSurface::new(&context, appkit, 2, 2).expect("AppKit surface");
+    let mut uikit_view = Box::new(11_u8);
+    let uikit = unsafe { NativeWindow::uikit(pointer(&mut uikit_view)) };
+    assert_eq!(uikit.kind(), NativeWindowKind::UIKit);
+    assert_eq!(
+        surface
+            .resize(uikit, 2, 2)
+            .expect_err("host kind mismatch")
+            .kind,
+        ErrorKind::InvalidArgument
+    );
+
+    drop(surface);
+    drop(context);
+
+    let uikit_context = {
+        let mut probe_view = Box::new(12_u8);
+        let uikit = unsafe { NativeWindow::uikit(pointer(&mut probe_view)) };
+        GaneshContext::new_metal(&engine, uikit).expect("UIKit Metal context")
+    };
+    let mut attached_view = Box::new(13_u8);
+    let uikit = unsafe { NativeWindow::uikit(pointer(&mut attached_view)) };
+    let surface = GaneshSurface::new(&uikit_context, uikit, 1, 1).expect("UIKit surface");
+    drop(surface);
+    drop(uikit_context);
+    drop(engine);
+    assert_eq!(live_counts(), ffi::TestCounts::default());
+}
+
+#[test]
 fn raw_abi_rejects_malformed_descriptors_and_invalid_presentation_handles() {
     let _guard = TEST_LOCK.lock().unwrap();
     let config = ffi::EngineConfig {
@@ -158,7 +204,7 @@ fn raw_abi_rejects_malformed_descriptors_and_invalid_presentation_handles() {
     };
     let mut context = 0;
     let status = unsafe {
-        ffi::fission_skia_context_create_ganesh_vulkan(engine, &invalid, &mut context, &mut error)
+        ffi::fission_skia_context_create_ganesh(engine, &invalid, &mut context, &mut error)
     };
     assert_eq!(status, ffi::STATUS_INVALID_ARGUMENT);
     assert_eq!(context, 0);

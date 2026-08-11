@@ -4,7 +4,7 @@ This directory owns the reproducible-input and artifact-layout contract for the
 direct Fission Skia integration. It does not contain or advertise a production
 artifact yet.
 
-The current direct bridge contract is ABI v9. ABI changes are explicit artifact
+The current direct bridge contract is ABI v11. ABI changes are explicit artifact
 identity changes; the tooling will not package or verify a header from another
 bridge ABI.
 
@@ -22,7 +22,8 @@ and qualification evidence exist.
 `config.json` declares these profiles:
 
 - `native-raster`, whose foundation build recipe is available;
-- `native-ganesh`, available for Vulkan on Linux GNU x86_64 and arm64;
+- `native-ganesh`, target-selected as Vulkan on Linux GNU x86_64/arm64 and
+  Metal on macOS x86_64/arm64 plus iOS device/simulator slices;
 - `native-graphite-qualification`, planned and never an implicit fallback;
 - `canvaskit-production`, planned WebGL plus raster fallback;
 - `canvaskit-software-qualification`, planned CPU-only Web qualification.
@@ -33,19 +34,17 @@ recognize the identity; it does not mean an artifact exists or is qualified.
 Profiles without an implemented recipe fail rather than producing a plausible
 but incomplete archive. `native-ganesh` classifies every declared native
 target: Linux musl is explicitly unsupported until its C++/fontconfig
-toolchain is reproducible, while macOS, Windows, Android, and iOS remain
-explicitly pending their platform surface and presentation contracts.
+toolchain is reproducible, while Windows and Android remain explicitly pending
+their platform surface and presentation contracts.
 
-The first Ganesh slice enables Vulkan and VMA while disabling GL, X11, Metal,
-Direct3D, Dawn, and Graphite. Fission's Vulkan surface bridge is the WSI owner
-for this profile; Xlib, XCB, and Wayland are declared presentation routes and
-do not require Skia's GLX integration. `skia_use_x11=false` therefore removes a
-Skia GLX dependency without narrowing that planned WSI set. The exact native
-consumer link contract is `dl`, `fontconfig`, and the Vulkan loader. Raster
-`SkSurface` remains in the same artifact as the fallback. The Ganesh recipe
-compiles the two Vulkan bridge units and defines
-`FISSION_SKIA_ENABLE_GANESH_VULKAN=1`; the raster recipe names only the common
-bridge units and carries no profile define.
+The Linux recipe enables Vulkan and VMA while disabling GL, X11, Metal,
+Direct3D, Dawn, and Graphite. Its exact native consumer link contract is `dl`,
+`fontconfig`, and the Vulkan loader. The macOS and iOS recipes enable Metal,
+compile their AppKit/UIKit presenter units, and bind the exact Apple framework
+set in the artifact receipt. Raster `SkSurface` remains in every native Ganesh
+artifact as the fallback. Each target recipe owns its exact bridge sources,
+backend define, GN arguments, and native link contract; developers still
+select only `native-ganesh`, never a vendor profile.
 
 ## Local source and vendor overrides
 
@@ -63,7 +62,7 @@ python3 tools/skia/skia.py build-native \
   --ninja-sha256 "$PINNED_NINJA_SHA256"
 ```
 
-Select the Linux Vulkan build by changing `--profile` to `native-ganesh`.
+Select the target-native GPU build by changing `--profile` to `native-ganesh`.
 Both source and prebuilt consumers select it with
 `FISSION_SKIA_PROFILE=native-ganesh`; omitting the variable continues to select
 `native-raster`.
@@ -75,7 +74,8 @@ pin. A source vendor directory without `.git` must contain
 `FISSION_SKIA_SOURCE_REVISION` whose only line is the exact pinned commit.
 
 Android and iOS recipes require their target-specific GN inputs explicitly,
-for example `--gn-arg ndk=/absolute/path --gn-arg ndk_api=26`. Extra arguments
+for example `--gn-arg ndk=/absolute/path --gn-arg ndk_api=26` or
+`--gn-arg ios_min_target=13.0`. Extra arguments
 are accepted only when the selected target declares them in
 `allowed_gn_overrides`, and are recorded in the build plan. Desktop targets
 currently accept no overrides. Overrides cannot replace profile-owned

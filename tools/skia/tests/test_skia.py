@@ -30,7 +30,7 @@ class SkiaToolTests(unittest.TestCase):
         inputs = temporary / "inputs"
         inputs.mkdir()
         header = inputs / "fission_skia.h"
-        header.write_text("#define FISSION_SKIA_ABI_VERSION 10u\n", encoding="utf-8")
+        header.write_text("#define FISSION_SKIA_ABI_VERSION 11u\n", encoding="utf-8")
 
         profile = self.config["profiles"]["native-raster"]
         target = "x86_64-unknown-linux-gnu"
@@ -152,7 +152,7 @@ class SkiaToolTests(unittest.TestCase):
     def test_pin_and_all_local_profiles_are_explicitly_unqualified(self) -> None:
         self.assertRegex(self.config["source"]["revision"], r"^[0-9a-f]{40}$")
         self.assertEqual(self.config["source"]["qualification"], "unqualified")
-        self.assertEqual(self.config["bridge"]["abi_version"], 10)
+        self.assertEqual(self.config["bridge"]["abi_version"], 11)
         lock = json.loads(
             (Path(__file__).resolve().parents[1] / "artifacts.lock.json").read_text(
                 encoding="utf-8"
@@ -250,7 +250,7 @@ class SkiaToolTests(unittest.TestCase):
                 )
         run_checked.assert_not_called()
 
-    def test_native_ganesh_is_explicit_linux_vulkan_profile(self) -> None:
+    def test_native_ganesh_selects_exact_linux_vulkan_recipe(self) -> None:
         profile = self.config["profiles"]["native-ganesh"]
         recipe = skia.resolve_build_plan(
             self.config,
@@ -280,7 +280,7 @@ class SkiaToolTests(unittest.TestCase):
         )
         self.assertEqual(
             profile["features"]["presentation"],
-            ["xlib", "xcb", "wayland"],
+            ["appkit", "uikit", "wayland", "xcb", "xlib"],
         )
         self.assertEqual(
             recipe["bridge_sources"],
@@ -302,6 +302,81 @@ class SkiaToolTests(unittest.TestCase):
             {"vulkan-headers", "vulkan-memory-allocator"}.issubset(
                 profile["required_licenses"]
             )
+        )
+
+    def test_native_ganesh_selects_exact_macos_metal_recipe(self) -> None:
+        recipe = skia.resolve_build_plan(
+            self.config,
+            "native-ganesh",
+            "aarch64-apple-darwin",
+            {},
+        )
+        self.assertIs(recipe["gn_args"]["skia_enable_ganesh"], True)
+        self.assertIs(recipe["gn_args"]["skia_use_metal"], True)
+        self.assertIs(recipe["gn_args"]["skia_use_vulkan"], False)
+        self.assertEqual(
+            recipe["bridge_sources"][-2:],
+            [
+                "cpp/fission_skia_ganesh_metal_context.mm",
+                "cpp/fission_skia_ganesh_metal_surface.mm",
+            ],
+        )
+        self.assertEqual(
+            recipe["bridge_defines"],
+            {"FISSION_SKIA_ENABLE_GANESH_METAL": "1"},
+        )
+        target = self.config["profiles"]["native-ganesh"]["target_recipes"][
+            "aarch64-apple-darwin"
+        ]
+        self.assertEqual(target["system_libraries"], ["c++"])
+        self.assertEqual(
+            target["frameworks"],
+            [
+                "AppKit",
+                "CoreFoundation",
+                "CoreGraphics",
+                "Foundation",
+                "Metal",
+                "QuartzCore",
+            ],
+        )
+
+    def test_native_ganesh_selects_exact_ios_metal_recipe(self) -> None:
+        recipe = skia.resolve_build_plan(
+            self.config,
+            "native-ganesh",
+            "aarch64-apple-ios-sim",
+            {"ios_min_target": "13.0"},
+        )
+        self.assertIs(recipe["gn_args"]["ios_use_simulator"], True)
+        self.assertEqual(recipe["gn_args"]["ios_min_target"], "13.0")
+        self.assertIs(recipe["gn_args"]["skia_use_metal"], True)
+        self.assertIs(recipe["gn_args"]["skia_use_vulkan"], False)
+        self.assertEqual(
+            recipe["bridge_sources"][-2:],
+            [
+                "cpp/fission_skia_ganesh_ios_metal_context.mm",
+                "cpp/fission_skia_ganesh_ios_metal_surface.mm",
+            ],
+        )
+        self.assertEqual(
+            recipe["bridge_defines"],
+            {"FISSION_SKIA_ENABLE_GANESH_IOS_METAL": "1"},
+        )
+        target = self.config["profiles"]["native-ganesh"]["target_recipes"][
+            "aarch64-apple-ios-sim"
+        ]
+        self.assertEqual(target["system_libraries"], ["c++"])
+        self.assertEqual(
+            target["frameworks"],
+            [
+                "CoreFoundation",
+                "CoreGraphics",
+                "Foundation",
+                "Metal",
+                "QuartzCore",
+                "UIKit",
+            ],
         )
 
     def test_native_ganesh_unavailable_targets_fail_with_the_declared_reason(self) -> None:
@@ -339,6 +414,31 @@ class SkiaToolTests(unittest.TestCase):
                 "native-ganesh",
                 "aarch64-unknown-linux-gnu",
                 links,
+            )
+        apple_links = {
+            "system_libraries": ["c++"],
+            "frameworks": [
+                "AppKit",
+                "CoreFoundation",
+                "CoreGraphics",
+                "Foundation",
+                "Metal",
+                "QuartzCore",
+            ],
+        }
+        skia.validate_profile_target_links(
+            profile,
+            "native-ganesh",
+            "aarch64-apple-darwin",
+            apple_links,
+        )
+        apple_links["frameworks"] = ["Metal"]
+        with self.assertRaisesRegex(skia.SkiaToolError, "frameworks"):
+            skia.validate_profile_target_links(
+                profile,
+                "native-ganesh",
+                "aarch64-apple-darwin",
+                apple_links,
             )
 
     def test_gn_overrides_are_closed_to_the_target_allowlist(self) -> None:

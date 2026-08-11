@@ -33,6 +33,7 @@ constexpr uint64_t kFeatures =
     FISSION_SKIA_FEATURE_RETAINED_PICTURE |
     FISSION_SKIA_FEATURE_GANESH |
     FISSION_SKIA_FEATURE_VULKAN |
+    FISSION_SKIA_FEATURE_METAL |
     FISSION_SKIA_FEATURE_NATIVE_PRESENTATION |
     FISSION_SKIA_FEATURE_TEST_SHIM;
 
@@ -157,19 +158,28 @@ bool valid_non_empty_rect(const fission_skia_rect_t& rect) {
 }
 
 bool valid_native_window(const fission_skia_native_window_t* window) {
-    if (!window || window->struct_size != sizeof(*window) || !window->display ||
-        !window->window || window->display > static_cast<uint64_t>(UINTPTR_MAX)) {
+    if (!window || window->struct_size != sizeof(*window) || !window->window) {
         return false;
     }
     switch (window->kind) {
         case FISSION_SKIA_NATIVE_WINDOW_WAYLAND:
-            return window->window <= static_cast<uint64_t>(UINTPTR_MAX) &&
+            return window->display != 0 &&
+                   window->display <= static_cast<uint64_t>(UINTPTR_MAX) &&
+                   window->window <= static_cast<uint64_t>(UINTPTR_MAX) &&
                    window->visual_id == 0;
         case FISSION_SKIA_NATIVE_WINDOW_XLIB:
-            return window->window <= static_cast<uint64_t>(UINTPTR_MAX) &&
+            return window->display != 0 &&
+                   window->display <= static_cast<uint64_t>(UINTPTR_MAX) &&
+                   window->window <= static_cast<uint64_t>(UINTPTR_MAX) &&
                    window->visual_id <= static_cast<uint64_t>(UINTPTR_MAX);
         case FISSION_SKIA_NATIVE_WINDOW_XCB:
-            return window->window <= UINT32_MAX && window->visual_id <= UINT32_MAX;
+            return window->display != 0 &&
+                   window->display <= static_cast<uint64_t>(UINTPTR_MAX) &&
+                   window->window <= UINT32_MAX && window->visual_id <= UINT32_MAX;
+        case FISSION_SKIA_NATIVE_WINDOW_APPKIT:
+        case FISSION_SKIA_NATIVE_WINDOW_UIKIT:
+            return window->display == 0 && window->visual_id == 0 &&
+                   window->window <= static_cast<uint64_t>(UINTPTR_MAX);
         default:
             return false;
     }
@@ -902,14 +912,14 @@ fission_skia_status_t fission_skia_context_create_raster(
     return FISSION_SKIA_STATUS_OK;
 }
 
-fission_skia_status_t fission_skia_context_create_ganesh_vulkan(
+fission_skia_status_t fission_skia_context_create_ganesh(
     fission_skia_engine_handle_t engine,
     const fission_skia_native_window_t* compatible_window,
     fission_skia_context_handle_t* output,
     fission_skia_error_t* error) {
     if (!output || !valid_native_window(compatible_window)) {
         return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT,
-                    "context_create_ganesh_vulkan",
+                    "context_create_ganesh",
                     "invalid output or native window descriptor", error);
     }
     *output = 0;
@@ -917,9 +927,9 @@ fission_skia_status_t fission_skia_context_create_ganesh_vulkan(
     auto parent = state().engines.find(engine);
     if (parent == state().engines.end()) {
         return fail(FISSION_SKIA_STATUS_INVALID_HANDLE,
-                    "context_create_ganesh_vulkan", "invalid engine", error);
+                    "context_create_ganesh", "invalid engine", error);
     }
-    auto status = owner(parent->second, "context_create_ganesh_vulkan", error);
+    auto status = owner(parent->second, "context_create_ganesh", error);
     if (status) return status;
     const auto id = handle();
     state().contexts.emplace(

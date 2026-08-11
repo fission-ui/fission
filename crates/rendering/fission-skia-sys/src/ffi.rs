@@ -44,6 +44,7 @@ pub const FEATURE_RETAINED_PICTURE: u64 = 1 << 12;
 pub const FEATURE_GANESH: u64 = 1 << 13;
 pub const FEATURE_VULKAN: u64 = 1 << 14;
 pub const FEATURE_NATIVE_PRESENTATION: u64 = 1 << 15;
+pub const FEATURE_METAL: u64 = 1 << 16;
 pub const FEATURE_TEST_SHIM: u64 = 1 << 63;
 
 pub const PATH_MOVE: u32 = 1;
@@ -94,6 +95,8 @@ pub const MEMORY_PRESSURE_CRITICAL: u32 = 2;
 pub const NATIVE_WINDOW_WAYLAND: u32 = 1;
 pub const NATIVE_WINDOW_XLIB: u32 = 2;
 pub const NATIVE_WINDOW_XCB: u32 = 3;
+pub const NATIVE_WINDOW_APPKIT: u32 = 4;
+pub const NATIVE_WINDOW_UIKIT: u32 = 5;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -376,7 +379,7 @@ extern "C" {
         out_context: *mut ContextHandle,
         out_error: *mut Error,
     ) -> Status;
-    pub fn fission_skia_context_create_ganesh_vulkan(
+    pub fn fission_skia_context_create_ganesh(
         engine: EngineHandle,
         compatible_window: *const NativeWindow,
         out_context: *mut ContextHandle,
