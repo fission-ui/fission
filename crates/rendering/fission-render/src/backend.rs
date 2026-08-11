@@ -453,17 +453,28 @@ impl<'driver> GraphicsBackendSession<'driver> {
 fn frame_gate_diagnostic(frame_id: FrameId, error: &FrameGateError) -> BackendDiagnostic {
     match error {
         FrameGateError::InvalidFrame(error) => {
-            let (category, code) = match error {
+            let (category, code, node_id, operation_index) = match error {
+                FrameValidationError::InvalidGeometry(error) => (
+                    DiagnosticCategory::Surface,
+                    "invalid-frame-geometry",
+                    error.node_id,
+                    error.source.operation_index(),
+                ),
                 FrameValidationError::InvalidResourceSnapshot(_)
-                | FrameValidationError::ResourceEpochMismatch { .. } => {
-                    (DiagnosticCategory::Resource, "invalid-resource-snapshot")
-                }
+                | FrameValidationError::ResourceEpochMismatch { .. } => (
+                    DiagnosticCategory::Resource,
+                    "invalid-resource-snapshot",
+                    None,
+                    None,
+                ),
                 FrameValidationError::InvalidSurfaceBinding(_)
                 | FrameValidationError::DuplicateSurfacePlacement(_)
                 | FrameValidationError::MissingSurfaceBinding(_)
                 | FrameValidationError::BindingWithoutPlacement(_) => (
                     DiagnosticCategory::ExternalSurface,
                     "invalid-interactive-frame",
+                    None,
+                    None,
                 ),
             };
             BackendDiagnostic {
@@ -473,8 +484,8 @@ fn frame_gate_diagnostic(frame_id: FrameId, error: &FrameGateError) -> BackendDi
                 message: error.to_string(),
                 provenance: Some(DiagnosticProvenance {
                     frame_id: Some(frame_id),
-                    node_id: None,
-                    operation_index: None,
+                    node_id,
+                    operation_index,
                 }),
             }
         }
@@ -844,6 +855,69 @@ mod tests {
         let report = session.render(&frame).unwrap();
         assert_eq!(report.frame_id, Some(FrameId(7)));
         assert_eq!(validated_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn render_gate_stops_invalid_geometry_before_backend_hook() {
+        let bounds = LayoutRect::new(0.0, 0.0, 10.0, 10.0);
+        let node_id = fission_ir::WidgetId::explicit("invalid-geometry");
+        let mut list = DisplayList::new(bounds);
+        list.push(DisplayOp::DrawSurface {
+            rect: LayoutRect::new(f32::NAN, 0.0, 10.0, 10.0),
+            surface_id: 1,
+            position: 0,
+            bounds,
+            node_id: Some(node_id),
+        });
+        let scene = RenderScene::from_display_list(list);
+        let metadata = FrameMetadata {
+            frame_id: FrameId(71),
+            viewport: FrameViewport {
+                logical_size: bounds.size,
+                physical_size: PhysicalSize::new(10, 10),
+                scale_factor: ScaleFactor::ONE,
+            },
+            damage: DamageRegion::Full,
+            resource_epoch: ResourceEpoch(1),
+            semantics_epoch: SemanticsEpoch(1),
+        };
+        let resources = ResourceSnapshot::empty(metadata.resource_epoch);
+        let bindings = ExternalSurfaceBindings::new();
+        let frame = frame_fixture(&scene, &metadata, &resources, &bindings);
+        let validated_calls = Arc::new(AtomicUsize::new(0));
+        let mut session = GraphicsBackendSession::new(RecordingDriver {
+            capabilities: GraphicsCapabilities::empty(BackendIdentity::new(
+                "recording",
+                "1",
+                "test",
+            )),
+            validated_calls: Arc::clone(&validated_calls),
+            state: SessionState::Detached,
+        })
+        .unwrap();
+        session.attach(&test_target()).unwrap();
+
+        let error = session.render(&frame).unwrap_err();
+
+        assert_eq!(validated_calls.load(Ordering::SeqCst), 0);
+        let Some(FrameGateError::InvalidFrame(FrameValidationError::InvalidGeometry(geometry))) =
+            error.frame_gate_error.as_ref()
+        else {
+            panic!("expected structured geometry error");
+        };
+        assert_eq!(geometry.node_id, Some(node_id));
+        assert_eq!(geometry.source.operation_index(), Some(0));
+        let diagnostic = error.diagnostic.as_ref().unwrap();
+        assert_eq!(diagnostic.category, DiagnosticCategory::Surface);
+        assert_eq!(diagnostic.code, "invalid-frame-geometry");
+        assert_eq!(
+            diagnostic.provenance,
+            Some(DiagnosticProvenance {
+                frame_id: Some(FrameId(71)),
+                node_id: Some(node_id),
+                operation_index: Some(0),
+            })
+        );
     }
 
     #[test]

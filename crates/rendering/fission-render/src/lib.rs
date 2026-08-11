@@ -20,6 +20,7 @@ pub mod diagnostics;
 pub mod external_surface;
 #[doc(hidden)]
 pub mod frame;
+mod frame_geometry;
 #[doc(hidden)]
 pub mod resource;
 #[doc(hidden)]

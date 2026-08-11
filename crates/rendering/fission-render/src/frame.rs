@@ -11,6 +11,10 @@ use crate::external_surface::{
     ExternalFrameState, ExternalSurfaceBindings, ExternalSurfaceSlotId,
     InvalidExternalSurfaceBinding,
 };
+use crate::frame_geometry::validate_frame_geometry;
+pub use crate::frame_geometry::{
+    FrameGeometryElement, FrameGeometryError, FrameGeometryProblem, FrameGeometrySource,
+};
 use crate::resource::{ResourceSnapshot, ResourceSnapshotError};
 use crate::surface::{PhysicalSize, ScaleFactor};
 use crate::{DisplayList, DisplayOp, LayoutRect, LayoutSize, RenderNode, RenderScene};
@@ -102,6 +106,8 @@ impl<'a> InteractiveFrame<'a> {
     }
 
     pub fn validate(self) -> Result<(), FrameValidationError> {
+        validate_frame_geometry(self.metadata, self.scene)
+            .map_err(FrameValidationError::InvalidGeometry)?;
         self.resources
             .validate()
             .map_err(FrameValidationError::InvalidResourceSnapshot)?;
@@ -321,8 +327,9 @@ fn collect_display_list_surface_placements(
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FrameValidationError {
+    InvalidGeometry(FrameGeometryError),
     InvalidResourceSnapshot(ResourceSnapshotError),
     InvalidSurfaceBinding(InvalidExternalSurfaceBinding),
     ResourceEpochMismatch {
@@ -337,6 +344,7 @@ pub enum FrameValidationError {
 impl fmt::Display for FrameValidationError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidGeometry(error) => error.fmt(formatter),
             Self::InvalidResourceSnapshot(error) => error.fmt(formatter),
             Self::InvalidSurfaceBinding(error) => error.fmt(formatter),
             Self::ResourceEpochMismatch { metadata, snapshot } => write!(
@@ -366,6 +374,7 @@ impl fmt::Display for FrameValidationError {
 impl std::error::Error for FrameValidationError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
+            Self::InvalidGeometry(error) => Some(error),
             Self::InvalidResourceSnapshot(error) => Some(error),
             Self::InvalidSurfaceBinding(error) => Some(error),
             Self::ResourceEpochMismatch { .. }
