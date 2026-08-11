@@ -48,7 +48,8 @@ pub use paragraph::{
     ParagraphDirection, ParagraphDrawDataId, ParagraphEngine, ParagraphError, ParagraphFontFeature,
     ParagraphFontVariation, ParagraphGeometry, ParagraphHitRegion, ParagraphHitTest,
     ParagraphInlineBox, ParagraphInlineObject, ParagraphLine, ParagraphPreedit, ParagraphResult,
-    ParagraphSelectionBox, ParagraphStyleRun, ParagraphUnresolvedGlyph, Utf8Index, Utf8Range,
+    ParagraphResultStore, ParagraphSelectionBox, ParagraphStyleRun, ParagraphUnresolvedGlyph,
+    Utf8Index, Utf8Range,
 };
 pub use snapshot::{LayoutInspection, LayoutNodeGeometry, LayoutSnapshot};
 pub use text::{LineMetric, RichTextInlineBox, RichTextLayoutInfo, TextMeasurer};

@@ -7,10 +7,46 @@ use super::graph::MeasureCacheKey;
 use super::LayoutEngine;
 use crate::style::{length_requires_measurement, resolve_measured_length};
 use crate::{
-    BoxConstraints, LayoutInputNode, LayoutNodeGeometry, LayoutPoint, LayoutSize, ScrollDataSource,
+    BoxConstraints, LayoutInputNode, LayoutNodeGeometry, LayoutPoint, LayoutSize,
+    RichTextInlineBox, RichTextLayoutInfo, ScrollDataSource,
 };
 
 impl LayoutEngine {
+    pub(super) fn paragraph_intrinsic_widths(
+        &self,
+        node_id: WidgetId,
+    ) -> Result<Option<(f32, f32)>> {
+        let Some(store) = self.paragraph_store.as_ref() else {
+            return Ok(None);
+        };
+        let Some(template) = self.paragraph_descriptions.get(&node_id) else {
+            if self
+                .graph_state
+                .node(node_id)
+                .is_some_and(|node| node.rich_text.is_some())
+            {
+                anyhow::bail!(
+                    "paragraph profile is active but text node {:?} has no normalized description",
+                    node_id
+                );
+            }
+            return Ok(None);
+        };
+        let mut description = template.clone();
+        description.width_constraint = None;
+        let paragraph = store.layout(&description).map_err(|error| {
+            anyhow::anyhow!(
+                "paragraph intrinsic measurement failed for node {:?}: {}",
+                node_id,
+                error
+            )
+        })?;
+        Ok(Some((
+            paragraph.geometry().min_intrinsic_width(),
+            paragraph.geometry().max_intrinsic_width(),
+        )))
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(super) fn layout_rich_text_content(
         &self,
@@ -32,9 +68,18 @@ impl LayoutEngine {
         let Some(runs) = &node.rich_text else {
             return Ok(None);
         };
-        let Some(measurer) = &self.measurer else {
+        let measurer = self.measurer.as_ref();
+        let paragraph_input = self.paragraph_descriptions.get(&node_id);
+        let paragraph_store = self.paragraph_store.as_ref();
+        if paragraph_store.is_some() && paragraph_input.is_none() {
+            anyhow::bail!(
+                "paragraph profile is active but text node {:?} has no normalized description",
+                node_id
+            );
+        }
+        if paragraph_store.is_none() && measurer.is_none() {
             return Ok(None);
-        };
+        }
         let (mut text_constraints, text_padding) = match layout_op {
             LayoutOp::Box {
                 width,
@@ -60,22 +105,70 @@ impl LayoutEngine {
         };
         let avail_w = match intrinsic_width {
             Some(Length::MaxContent) => None,
-            Some(Length::MinContent) => Some(
-                runs.iter()
-                    .flat_map(|run| {
-                        run.text.split_whitespace().map(move |word| {
-                            measurer.measure(word, run.style.font_size, None).0
-                                + run.style.letter_spacing
-                                    * word.chars().count().saturating_sub(1) as f32
-                        })
-                    })
-                    .fold(0.0, f32::max),
-            ),
+            Some(Length::MinContent) => {
+                if let (Some(store), Some(description)) = (paragraph_store, paragraph_input) {
+                    let mut intrinsic = description.clone();
+                    intrinsic.width_constraint = None;
+                    let paragraph = store.layout(&intrinsic).map_err(|error| {
+                        anyhow::anyhow!(
+                            "paragraph measurement failed for node {:?}: {}",
+                            node_id,
+                            error
+                        )
+                    })?;
+                    Some(paragraph.geometry().min_intrinsic_width())
+                } else {
+                    Some(
+                        runs.iter()
+                            .flat_map(|run| {
+                                run.text.split_whitespace().map(move |word| {
+                                    measurer
+                                        .expect("legacy paragraph measurement checked above")
+                                        .measure(word, run.style.font_size, None)
+                                        .0
+                                        + run.style.letter_spacing
+                                            * word.chars().count().saturating_sub(1) as f32
+                                })
+                            })
+                            .fold(0.0, f32::max),
+                    )
+                }
+            }
             _ => text_inner_constraints
                 .is_width_bounded()
                 .then_some(text_inner_constraints.max_w),
         };
-        let rich_layout = measurer.layout_rich_text(runs, avail_w);
+        let mut published_paragraph = None;
+        let rich_layout =
+            if let (Some(store), Some(description)) = (paragraph_store, paragraph_input) {
+                let mut description = description.clone();
+                description.width_constraint = avail_w;
+                let paragraph = store.layout(&description).map_err(|error| {
+                    anyhow::anyhow!("paragraph layout failed for node {:?}: {}", node_id, error)
+                })?;
+                let geometry = paragraph.geometry();
+                let layout = RichTextLayoutInfo {
+                    width: geometry.size().width,
+                    height: geometry.size().height,
+                    inline_boxes: geometry
+                        .inline_boxes()
+                        .iter()
+                        .map(|inline| RichTextInlineBox {
+                            id: inline.id,
+                            x: inline.rect.x(),
+                            y: inline.rect.y(),
+                            width: inline.rect.width(),
+                            height: inline.rect.height(),
+                        })
+                        .collect(),
+                };
+                published_paragraph = Some((description, paragraph));
+                layout
+            } else {
+                measurer
+                    .expect("legacy paragraph measurement checked above")
+                    .layout_rich_text(runs, avail_w)
+            };
         let text_content = LayoutSize::new(
             rich_layout.width + text_padding[0] + text_padding[1],
             rich_layout.height + text_padding[2] + text_padding[3],
@@ -110,6 +203,21 @@ impl LayoutEngine {
                 text_constraints.tighten(None, resolve_intrinsic_height(&style.height));
         }
         let measured = text_constraints.constrain(text_content);
+        if record {
+            if let (Some(store), Some((description, paragraph))) =
+                (paragraph_store, published_paragraph)
+            {
+                store
+                    .publish(node_id, description, paragraph)
+                    .map_err(|error| {
+                        anyhow::anyhow!(
+                            "paragraph publication failed for node {:?}: {}",
+                            node_id,
+                            error
+                        )
+                    })?;
+            }
+        }
         if rich_text_inline_children && rich_layout.inline_boxes.len() == flow_children.len() {
             let result = self.record_geometry(node_id, origin, measured, text_content, out, record);
             if record {

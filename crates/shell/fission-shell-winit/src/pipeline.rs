@@ -2,15 +2,17 @@ use crate::web_backend::WebSurfaceFrame;
 use anyhow::Result;
 use fission_core::diff::diff_ir;
 use fission_core::env::{Env, VideoStateMap, WebStateMap};
-use fission_core::internal::build_layout_tree;
 use fission_core::internal::downcast_render_object;
+use fission_core::internal::{build_layout_tree, build_paragraph_descriptions};
 use fission_core::scrollbar::scrollbar_geometry_for_node;
 use fission_core::{LayoutPoint, ScrollStateMap};
 use fission_core::{MotionPropertyId, MotionStateMap};
 use fission_diagnostics::prelude as diag;
 use fission_diagnostics::{SnapshotBlob, SnapshotKind, SnapshotProvider};
 use fission_ir::{CompositeScalar, CoreIR, EmbedKind, FlexDirection, LayoutOp, Op, WidgetId};
-use fission_layout::{LayoutEngine, LayoutInputNode, LayoutRect, LayoutSize, LayoutSnapshot};
+use fission_layout::{
+    LayoutEngine, LayoutInputNode, LayoutRect, LayoutSize, LayoutSnapshot, ParagraphDescription,
+};
 use fission_render::{
     embed_surface_id, BoxShadow, Color as RenderColor, DisplayList, DisplayOp, Fill, LayerClip,
     RenderLayer, RenderNode, RenderScene, Renderer, Stroke,
@@ -182,6 +184,7 @@ pub struct Pipeline {
     retained_scene: Option<RenderScene>,
     retained_dynamic_ops: RetainedDynamicOps,
     layout_input_nodes: Vec<LayoutInputNode>,
+    paragraph_descriptions: HashMap<WidgetId, ParagraphDescription>,
     pending_layout_dirty_nodes: HashSet<WidgetId>,
     pending_layout_invalidated: bool,
     pending_layout_full: bool,
@@ -218,6 +221,7 @@ impl Pipeline {
             retained_scene: None,
             retained_dynamic_ops: RetainedDynamicOps::default(),
             layout_input_nodes: Vec::new(),
+            paragraph_descriptions: HashMap::new(),
             pending_layout_dirty_nodes: HashSet::new(),
             pending_layout_invalidated: false,
             pending_layout_full: true,
@@ -270,6 +274,7 @@ impl Pipeline {
         if rebuild_layout_tree {
             self.layout_input_nodes = build_layout_tree(&next_ir, env);
         }
+        self.paragraph_descriptions = build_paragraph_descriptions(&next_ir);
 
         if invalidation.layout {
             self.pending_layout_full |= self.prev_ir.is_none();
@@ -304,6 +309,7 @@ impl Pipeline {
         layout_engine: &mut LayoutEngine,
         scroll_map: &ScrollStateMap,
     ) -> Result<usize> {
+        layout_engine.update_paragraph_descriptions(self.paragraph_descriptions.clone());
         let viewport_changed = self.last_viewport.map(|v| v != viewport).unwrap_or(true);
         let needs_full =
             self.pending_layout_full || self.last_snapshot.is_none() || viewport_changed;

@@ -7,6 +7,10 @@ use fission_layout::{LayoutInputNode, LayoutSnapshot, TextMeasurer};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+mod paragraph;
+
+pub use paragraph::build_paragraph_descriptions;
+
 pub struct InternalLoweringCx<'a> {
     pub env: &'a Env,
     pub runtime_state: &'a RuntimeState,

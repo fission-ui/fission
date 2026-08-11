@@ -13,6 +13,10 @@ use std::fmt;
 
 use crate::{LayoutPoint, LayoutRect, LayoutSize, LayoutUnit};
 
+mod store;
+
+pub use store::ParagraphResultStore;
+
 /// A byte offset at a UTF-8 code-point boundary.
 ///
 /// Fission text indices are always offsets into the UTF-8 source string. They

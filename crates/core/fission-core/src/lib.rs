@@ -91,7 +91,8 @@ pub mod view;
 pub mod internal {
     pub use crate::build_context::BuildCtx;
     pub use crate::lowering::{
-        build_layout_tree, wrap_zstack_child, InternalIrBuilder, InternalLoweringCx,
+        build_layout_tree, build_paragraph_descriptions, wrap_zstack_child, InternalIrBuilder,
+        InternalLoweringCx,
     };
     use crate::Widget;
     use fission_ir::WidgetId;

@@ -111,7 +111,12 @@ impl LayoutEngine {
             if needs_intrinsic_width {
                 let mut min_content = 0.0f32;
                 let mut max_content = 0.0f32;
-                if let (Some(runs), Some(measurer)) = (&node.rich_text, &self.measurer) {
+                if let Some((paragraph_min, paragraph_max)) =
+                    self.paragraph_intrinsic_widths(node_id)?
+                {
+                    min_content = paragraph_min;
+                    max_content = paragraph_max;
+                } else if let (Some(runs), Some(measurer)) = (&node.rich_text, &self.measurer) {
                     min_content = runs
                         .iter()
                         .flat_map(|run| {

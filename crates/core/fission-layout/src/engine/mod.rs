@@ -10,7 +10,8 @@ use crate::snapshot::{flyout_root_position, spotlight_regions};
 use crate::style::resolve_box_style;
 use crate::{
     BoxConstraints, LayoutInputNode, LayoutInspection, LayoutNodeGeometry, LayoutPoint, LayoutRect,
-    LayoutSize, LayoutSnapshot, ScrollDataSource, TextMeasurer,
+    LayoutSize, LayoutSnapshot, ParagraphDescription, ParagraphResultStore, ScrollDataSource,
+    TextMeasurer,
 };
 
 mod graph;
@@ -44,6 +45,8 @@ use graph::{IncrementalLayoutReuseState, LayoutGraphState, MeasureCacheKey};
 /// ```
 pub struct LayoutEngine {
     measurer: Option<Arc<dyn TextMeasurer>>,
+    paragraph_store: Option<Arc<ParagraphResultStore>>,
+    paragraph_descriptions: HashMap<WidgetId, ParagraphDescription>,
     graph_state: LayoutGraphState,
     next_graph_version: u64,
     incremental_reuse: Option<IncrementalLayoutReuseState>,
@@ -60,6 +63,8 @@ impl LayoutEngine {
     pub fn new() -> Self {
         Self {
             measurer: None,
+            paragraph_store: None,
+            paragraph_descriptions: HashMap::new(),
             graph_state: LayoutGraphState::default(),
             next_graph_version: 1,
             incremental_reuse: None,
@@ -73,6 +78,28 @@ impl LayoutEngine {
     pub fn with_measurer(mut self, measurer: Arc<dyn TextMeasurer>) -> Self {
         self.measurer = Some(measurer);
         self
+    }
+
+    /// Attaches the selected profile's shared paragraph-result authority.
+    #[doc(hidden)]
+    pub fn with_paragraph_store(mut self, store: Arc<ParagraphResultStore>) -> Self {
+        self.paragraph_store = Some(store);
+        self
+    }
+
+    /// Replaces the paragraph authority before laying out a backend profile.
+    #[doc(hidden)]
+    pub fn set_paragraph_store(&mut self, store: Arc<ParagraphResultStore>) {
+        self.paragraph_store = Some(store);
+    }
+
+    /// Replaces normalized paragraph inputs for the current IR generation.
+    #[doc(hidden)]
+    pub fn update_paragraph_descriptions(
+        &mut self,
+        descriptions: HashMap<WidgetId, ParagraphDescription>,
+    ) {
+        self.paragraph_descriptions = descriptions;
     }
 
     fn allocate_graph_version(&mut self) -> u64 {
@@ -417,6 +444,9 @@ impl LayoutEngine {
 
         self.graph_state.mark_layout_complete();
         self.incremental_reuse = None;
+        if let Some(store) = &self.paragraph_store {
+            store.retain_nodes(self.graph_state.node_order.iter().copied());
+        }
 
         Ok(snapshot)
     }
