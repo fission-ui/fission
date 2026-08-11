@@ -2,6 +2,7 @@
 
 use fission_ir::WidgetId;
 use fission_render::LayoutRect;
+use fission_shell::PlatformSurfaceCapabilities;
 use winit::window::Window;
 
 #[derive(Clone, Debug)]
@@ -48,6 +49,19 @@ impl PlatformWebBackend {
             #[cfg(target_os = "macos")]
             Self::Native(backend) => backend.present_surfaces(frames),
             Self::Mock(backend) => backend.present_surfaces(frames),
+        }
+    }
+
+    pub(crate) fn surface_capabilities(&self) -> PlatformSurfaceCapabilities {
+        match self {
+            #[cfg(target_os = "macos")]
+            Self::Native(_) => PlatformSurfaceCapabilities {
+                available: true,
+                opacity: true,
+                paint_order: true,
+                ..PlatformSurfaceCapabilities::UNAVAILABLE
+            },
+            Self::Mock(_) => PlatformSurfaceCapabilities::UNAVAILABLE,
         }
     }
 }

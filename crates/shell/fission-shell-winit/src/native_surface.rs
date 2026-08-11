@@ -1,4 +1,6 @@
-use fission_shell::{NativeSurfaceFrame, NativeSurfaceHandler, NativeSurfaceHost};
+use fission_shell::{
+    NativeSurfaceFrame, NativeSurfaceHandler, NativeSurfaceHost, PlatformSurfaceCapabilities,
+};
 
 /// Delivers generic custom embed frames to registered extensions.
 #[derive(Default)]
@@ -32,6 +34,33 @@ impl NativeSurfaceRegistry {
         self.host_attached = false;
     }
 
+    /// Returns whether a registered native-view handler claims this payload.
+    ///
+    /// Registration is the shell's only proof that an opaque custom embed is
+    /// backed by the `NativeSurfaceHandler` platform-view contract. Unknown
+    /// payloads must not be advertised as `NativeView` frame bindings.
+    pub(crate) fn claims_native_view_payload(&self, payload: &[u8]) -> bool {
+        self.handlers
+            .iter()
+            .any(|handler| handler.handles_payload(payload))
+    }
+
+    /// Returns whether a claimed native view has a live host to present into.
+    pub(crate) fn native_view_ready(&self, payload: &[u8]) -> bool {
+        self.native_view_capabilities(payload).available
+    }
+
+    pub(crate) fn native_view_capabilities(&self, payload: &[u8]) -> PlatformSurfaceCapabilities {
+        if !self.host_attached {
+            return PlatformSurfaceCapabilities::UNAVAILABLE;
+        }
+        self.handlers
+            .iter()
+            .find(|handler| handler.handles_payload(payload))
+            .map(|handler| handler.surface_capabilities(payload))
+            .unwrap_or(PlatformSurfaceCapabilities::UNAVAILABLE)
+    }
+
     pub(crate) fn present_surfaces(&mut self, frames: &[NativeSurfaceFrame]) {
         let mut claimed = vec![false; frames.len()];
         for handler in &mut self.handlers {
@@ -55,7 +84,9 @@ mod tests {
     use super::NativeSurfaceRegistry;
     use fission_ir::WidgetId;
     use fission_render::LayoutRect;
-    use fission_shell::{NativeSurfaceFrame, NativeSurfaceHandler, NativeSurfaceHost};
+    use fission_shell::{
+        NativeSurfaceFrame, NativeSurfaceHandler, NativeSurfaceHost, PlatformSurfaceCapabilities,
+    };
     use raw_window_handle::{RawWindowHandle, WindowHandle};
     use std::sync::{Arc, Mutex};
 
@@ -68,6 +99,10 @@ mod tests {
     impl NativeSurfaceHandler for RecordingHandler {
         fn handles_payload(&self, payload: &[u8]) -> bool {
             payload.starts_with(self.prefix)
+        }
+
+        fn surface_capabilities(&self, _payload: &[u8]) -> PlatformSurfaceCapabilities {
+            PlatformSurfaceCapabilities::FULL
         }
 
         fn attach_host(&mut self, _host: NativeSurfaceHost<'_>) {}
@@ -115,6 +150,28 @@ mod tests {
         let received = received.lock().unwrap();
         assert_eq!(received.len(), 1);
         assert_eq!(received[0].widget_id, WidgetId::from_u128(1));
+    }
+
+    #[test]
+    fn only_registered_handler_payloads_are_proven_native_views() {
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let mut registry = NativeSurfaceRegistry::default();
+        assert!(!registry.claims_native_view_payload(b"maps:payload"));
+
+        registry.register(RecordingHandler {
+            prefix: b"maps:",
+            frames: received,
+            detach_count: Arc::new(Mutex::new(0)),
+        });
+
+        assert!(registry.claims_native_view_payload(b"maps:payload"));
+        assert!(!registry.claims_native_view_payload(b"other:payload"));
+        assert!(!registry.native_view_ready(b"maps:payload"));
+
+        let raw = RawWindowHandle::Web(raw_window_handle::WebWindowHandle::new(0));
+        let handle = unsafe { WindowHandle::borrow_raw(raw) };
+        registry.attach_host(NativeSurfaceHost::from_window_handle(handle));
+        assert!(registry.native_view_ready(b"maps:payload"));
     }
 
     #[test]
