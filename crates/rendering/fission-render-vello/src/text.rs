@@ -8,7 +8,8 @@ use fission_layout::{LineMetric, RichTextInlineBox, RichTextLayoutInfo, TextMeas
 use fission_render::TextStyle as RenderTextStyle;
 use parley::layout::{Layout, PositionedLayoutItem};
 use parley::style::{
-    FontStack, FontStyle as ParleyFontStyle, FontWeight, LineHeight, StyleProperty,
+    FontFeature, FontSettings, FontStack, FontStyle as ParleyFontStyle, FontVariation, FontWeight,
+    FontWidth, LineHeight, StyleProperty,
 };
 use parley::InlineBox;
 use parley::{FontContext, LayoutContext};
@@ -55,6 +56,10 @@ struct RichStyleKey {
     line_height_bits: Option<u32>,
     letter_spacing_bits: u32,
     background_color: Option<[u8; 4]>,
+    font_width_bits: u32,
+    word_spacing_bits: u32,
+    variations: Vec<(u32, u32)>,
+    features: Vec<(u32, u16)>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -80,6 +85,35 @@ pub(crate) struct RichLayoutInput {
     pub(crate) base_color: fission_render::Color,
     pub(crate) styles: Vec<(std::ops::Range<usize>, RenderTextStyle)>,
     pub(crate) inline_boxes: Vec<RichInlineBox>,
+}
+
+/// One rich-text style span plus shaping properties that are not yet part of
+/// the renderer's legacy `TextStyle` value.
+///
+/// Both the legacy drawing path and the paragraph-engine adapter pass through
+/// the same `layout_rich_with_shaping` implementation. Keeping the additional
+/// properties here avoids creating a second Parley builder or cache authority.
+#[derive(Clone, Debug)]
+pub(crate) struct RichShapingStyle {
+    pub(crate) range: std::ops::Range<usize>,
+    pub(crate) style: RenderTextStyle,
+    pub(crate) font_width: f32,
+    pub(crate) word_spacing: f32,
+    pub(crate) variations: Vec<(u32, f32)>,
+    pub(crate) features: Vec<(u32, u16)>,
+}
+
+impl RichShapingStyle {
+    fn from_render(range: std::ops::Range<usize>, style: RenderTextStyle) -> Self {
+        Self {
+            range,
+            style,
+            font_width: 1.0,
+            word_spacing: 0.0,
+            variations: Vec::new(),
+            features: Vec::new(),
+        }
+    }
 }
 
 pub(crate) fn text_style_requires_rich_layout(style: &RenderTextStyle) -> bool {
@@ -134,6 +168,10 @@ impl VelloTextMeasurer {
 
     pub fn font_cx(&self) -> Arc<Mutex<FontContext>> {
         self.font_cx.clone()
+    }
+
+    pub(crate) fn default_family_name(&self) -> &str {
+        &self.default_family
     }
 
     fn width_bits(width: Option<f32>) -> Option<u32> {
@@ -465,21 +503,60 @@ impl VelloTextMeasurer {
         inline_boxes: &[RichInlineBox],
         width: Option<f32>,
     ) -> Arc<Layout<ParleyBrush>> {
+        let shaping_styles = styles
+            .iter()
+            .map(|(range, style)| RichShapingStyle::from_render(range.clone(), style.clone()))
+            .collect::<Vec<_>>();
+        self.layout_rich_with_shaping(
+            text,
+            base_size,
+            base_color,
+            &shaping_styles,
+            inline_boxes,
+            width,
+        )
+    }
+
+    pub(crate) fn layout_rich_with_shaping(
+        &self,
+        text: &str,
+        base_size: f32,
+        base_color: fission_render::Color,
+        styles: &[RichShapingStyle],
+        inline_boxes: &[RichInlineBox],
+        width: Option<f32>,
+    ) -> Arc<Layout<ParleyBrush>> {
         let start = Instant::now();
         let style_keys: Vec<RichStyleKey> = styles
             .iter()
-            .map(|(r, s)| RichStyleKey {
-                range: r.clone(),
-                font_size_bits: s.font_size.to_bits(),
-                color_rgba: [s.color.r, s.color.g, s.color.b, s.color.a],
-                underline: s.underline,
-                font_family: s.font_family.clone(),
-                locale: s.locale.clone(),
-                font_weight: s.font_weight,
-                font_style: s.font_style,
-                line_height_bits: s.line_height.map(f32::to_bits),
-                letter_spacing_bits: s.letter_spacing.to_bits(),
-                background_color: s.background_color.map(|c| [c.r, c.g, c.b, c.a]),
+            .map(|span| RichStyleKey {
+                range: span.range.clone(),
+                font_size_bits: span.style.font_size.to_bits(),
+                color_rgba: [
+                    span.style.color.r,
+                    span.style.color.g,
+                    span.style.color.b,
+                    span.style.color.a,
+                ],
+                underline: span.style.underline,
+                font_family: span.style.font_family.clone(),
+                locale: span.style.locale.clone(),
+                font_weight: span.style.font_weight,
+                font_style: span.style.font_style,
+                line_height_bits: span.style.line_height.map(f32::to_bits),
+                letter_spacing_bits: span.style.letter_spacing.to_bits(),
+                background_color: span
+                    .style
+                    .background_color
+                    .map(|color| [color.r, color.g, color.b, color.a]),
+                font_width_bits: span.font_width.to_bits(),
+                word_spacing_bits: span.word_spacing.to_bits(),
+                variations: span
+                    .variations
+                    .iter()
+                    .map(|(tag, value)| (*tag, value.to_bits()))
+                    .collect(),
+                features: span.features.clone(),
             })
             .collect();
         let inline_box_keys = inline_boxes
@@ -523,6 +600,73 @@ impl VelloTextMeasurer {
         ))));
         let brush = ParleyBrush([base_color.r, base_color.g, base_color.b, base_color.a]);
         builder.push_default(StyleProperty::Brush(brush));
+        if let Some(span) = styles.first().filter(|span| span.range.start == 0) {
+            let style = &span.style;
+            builder.push_default(StyleProperty::Brush(ParleyBrush([
+                style.color.r,
+                style.color.g,
+                style.color.b,
+                style.color.a,
+            ])));
+            builder.push_default(StyleProperty::FontSize(style.font_size));
+            if let Some(font_family) = &style.font_family {
+                builder.push_default(StyleProperty::FontStack(FontStack::Source(Cow::Owned(
+                    font_family.clone(),
+                ))));
+            }
+            if let Some(locale) = &style.locale {
+                builder.push_default(StyleProperty::Locale(Some(locale.as_str())));
+            }
+            builder.push_default(StyleProperty::FontWeight(FontWeight::new(
+                style.font_weight as f32,
+            )));
+            builder.push_default(StyleProperty::FontStyle(parley_font_style(
+                style.font_style,
+            )));
+            if span.font_width != 1.0 {
+                builder.push_default(StyleProperty::FontWidth(FontWidth::from_ratio(
+                    span.font_width,
+                )));
+            }
+            if !span.variations.is_empty() {
+                let variations = span
+                    .variations
+                    .iter()
+                    .map(|(tag, value)| FontVariation {
+                        tag: *tag,
+                        value: *value,
+                    })
+                    .collect::<Vec<_>>();
+                builder.push_default(StyleProperty::FontVariations(FontSettings::List(
+                    Cow::Owned(variations),
+                )));
+            }
+            if !span.features.is_empty() {
+                let features = span
+                    .features
+                    .iter()
+                    .map(|(tag, value)| FontFeature {
+                        tag: *tag,
+                        value: *value,
+                    })
+                    .collect::<Vec<_>>();
+                builder.push_default(StyleProperty::FontFeatures(FontSettings::List(Cow::Owned(
+                    features,
+                ))));
+            }
+            if let Some(line_height) = style.line_height {
+                builder.push_default(StyleProperty::LineHeight(LineHeight::Absolute(line_height)));
+            }
+            if style.letter_spacing != 0.0 {
+                builder.push_default(StyleProperty::LetterSpacing(style.letter_spacing));
+            }
+            if span.word_spacing != 0.0 {
+                builder.push_default(StyleProperty::WordSpacing(span.word_spacing));
+            }
+            if style.underline {
+                builder.push_default(StyleProperty::Underline(true));
+            }
+        }
         for inline_box in inline_boxes {
             builder.push_inline_box(InlineBox {
                 id: inline_box.id,
@@ -532,7 +676,9 @@ impl VelloTextMeasurer {
             });
         }
 
-        for (range, style) in styles {
+        for span in styles {
+            let range = &span.range;
+            let style = &span.style;
             let brush = ParleyBrush([style.color.r, style.color.g, style.color.b, style.color.a]);
             builder.push(StyleProperty::Brush(brush), range.clone());
             builder.push(StyleProperty::FontSize(style.font_size), range.clone());
@@ -553,6 +699,40 @@ impl VelloTextMeasurer {
                 StyleProperty::FontStyle(parley_font_style(style.font_style)),
                 range.clone(),
             );
+            if span.font_width != 1.0 {
+                builder.push(
+                    StyleProperty::FontWidth(FontWidth::from_ratio(span.font_width)),
+                    range.clone(),
+                );
+            }
+            if !span.variations.is_empty() {
+                let variations = span
+                    .variations
+                    .iter()
+                    .map(|(tag, value)| FontVariation {
+                        tag: *tag,
+                        value: *value,
+                    })
+                    .collect::<Vec<_>>();
+                builder.push(
+                    StyleProperty::FontVariations(FontSettings::List(Cow::Owned(variations))),
+                    range.clone(),
+                );
+            }
+            if !span.features.is_empty() {
+                let features = span
+                    .features
+                    .iter()
+                    .map(|(tag, value)| FontFeature {
+                        tag: *tag,
+                        value: *value,
+                    })
+                    .collect::<Vec<_>>();
+                builder.push(
+                    StyleProperty::FontFeatures(FontSettings::List(Cow::Owned(features))),
+                    range.clone(),
+                );
+            }
             if let Some(line_height) = style.line_height {
                 builder.push(
                     StyleProperty::LineHeight(LineHeight::Absolute(line_height)),
@@ -564,6 +744,9 @@ impl VelloTextMeasurer {
                     StyleProperty::LetterSpacing(style.letter_spacing),
                     range.clone(),
                 );
+            }
+            if span.word_spacing != 0.0 {
+                builder.push(StyleProperty::WordSpacing(span.word_spacing), range.clone());
             }
             if style.underline {
                 builder.push(StyleProperty::Underline(true), range.clone());

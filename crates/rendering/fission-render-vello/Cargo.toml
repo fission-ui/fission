@@ -7,13 +7,13 @@ repository = "https://github.com/fission-ui/fission"
 description = "Vello renderer backend for Fission display lists"
 categories = ["rendering", "graphics", "gui"]
 keywords = ["fission", "vello", "gpu-accelerated", "rendering", "cross-platform"]
+homepage = "https://fission.rs"
+documentation = "https://fission.rs"
+readme = "README.md"
 
 [package.metadata.fission]
 platforms = ["android", "ios", "linux", "macos", "windows", "web"]
 
-homepage = "https://fission.rs"
-documentation = "https://fission.rs"
-readme = "README.md"
 [dependencies]
 fission-render = { path = "../fission-render", version = "0.10.1" }
 fission-layout = { path = "../../core/fission-layout", version = "0.10.1" }
@@ -25,6 +25,7 @@ fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.1
 image = "0.24"
 lazy_static = "1.5.0"
 peniko = "0.5"
+unicode-segmentation = "1.12"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 ureq = "2"
