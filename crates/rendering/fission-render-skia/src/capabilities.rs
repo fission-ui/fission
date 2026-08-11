@@ -1,6 +1,6 @@
 use fission_render::capabilities::{
-    BackendIdentity, ColorFormat, DisplayOpKind, GraphicsCapabilities, RenderMode, TextFeature,
-    TransformSupport,
+    BackendIdentity, ColorFormat, DisplayOpKind, GraphicsCapabilities, ImageSourceKind, RenderMode,
+    TextFeature, TransformSupport,
 };
 
 /// Semantics implemented by a standalone direct-Skia raster session.
@@ -10,8 +10,9 @@ use fission_render::capabilities::{
 /// correctness-neutral cache hint and is recursively lowered. Opacity uses a
 /// native isolated save-layer so overlapping children receive group alpha
 /// exactly once. Text is enabled only by [`crate::SkiaRasterProfile`], which
-/// can prove that layout and paint share one draw-data registry. Images, SVG,
-/// filters, and external surfaces remain unclaimed.
+/// can prove that layout and paint share one draw-data registry. Memory images
+/// are decoded only from the submitted frame resource snapshot. SVG, filters,
+/// and external surfaces remain unclaimed.
 pub fn skia_raster_capabilities() -> GraphicsCapabilities {
     raster_capabilities(false)
 }
@@ -38,8 +39,10 @@ fn raster_capabilities(paragraph_paint: bool) -> GraphicsCapabilities {
         DisplayOpKind::Transform,
         DisplayOpKind::CachedScene,
         DisplayOpKind::DrawRect,
+        DisplayOpKind::DrawImage,
         DisplayOpKind::DrawPath,
     ]);
+    capabilities.image_sources.insert(ImageSourceKind::Memory);
     if paragraph_paint {
         capabilities
             .display_ops
@@ -82,9 +85,15 @@ mod tests {
         assert!(capabilities.supports_display_op(DisplayOpKind::Transform));
         assert!(capabilities.supports_display_op(DisplayOpKind::CachedScene));
         assert!(capabilities.supports_display_op(DisplayOpKind::DrawRect));
+        assert!(capabilities.supports_display_op(DisplayOpKind::DrawImage));
         assert!(capabilities.supports_display_op(DisplayOpKind::DrawPath));
         assert!(!capabilities.supports_display_op(DisplayOpKind::DrawText));
         assert!(!capabilities.supports_display_op(DisplayOpKind::DrawSurface));
+        assert!(capabilities.supports_image_source(ImageSourceKind::Memory));
+        assert!(!capabilities.supports_image_source(ImageSourceKind::Asset));
+        assert!(!capabilities.supports_image_source(ImageSourceKind::File));
+        assert!(!capabilities.supports_image_source(ImageSourceKind::Network));
+        assert!(!capabilities.supports_image_source(ImageSourceKind::SvgText));
         assert_eq!(capabilities.transform_support, TransformSupport::Affine2d);
         assert!(capabilities.headless);
         assert!(capabilities.readback);

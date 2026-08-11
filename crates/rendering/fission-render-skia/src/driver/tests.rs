@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
+use fission_ir::op::{ImageAlignment, ImageRequest, ImageSource};
 use fission_ir::WidgetId;
 use fission_render::backend::{
     BackendOperation, GraphicsBackendSession, ReadbackRequest, SurfaceMetrics,
@@ -17,7 +18,9 @@ use fission_render::surface::{
     LossKind, MemoryPressure, PhysicalSize, Recovery, ScaleFactor, SurfaceDescriptor, SurfaceId,
     SurfaceKind, SurfaceTarget, ThreadAffinity,
 };
-use fission_render::{Color, DisplayList, DisplayOp, Fill, LayoutRect, LayoutSize, RenderScene};
+use fission_render::{
+    Color, DisplayList, DisplayOp, Fill, ImageFit, LayoutRect, LayoutSize, RenderScene,
+};
 
 use super::*;
 use crate::api::{ApiReadback, RasterFrame};
@@ -492,6 +495,38 @@ fn lowering_errors_report_frame_node_and_operation_provenance() {
     assert_eq!(provenance.frame_id, Some(FrameId(91)));
     assert_eq!(provenance.node_id, Some(node_id));
     assert_eq!(provenance.operation_index, Some(0));
+}
+
+#[test]
+fn missing_image_resources_have_a_distinct_resource_diagnostic() {
+    let api = MockApi::default();
+    let mut session = session(api);
+    session.attach(&TestTarget::headless(8, 8, 1.0)).unwrap();
+    let mut fixture = FrameFixture::empty(8, 8, 1.0, 92);
+    let node_id = WidgetId::explicit("missing-skia-image");
+    let mut list = DisplayList::new(LayoutRect::new(0.0, 0.0, 8.0, 8.0));
+    list.push(DisplayOp::DrawImage {
+        rect: LayoutRect::new(0.0, 0.0, 8.0, 8.0),
+        request: ImageRequest {
+            source: ImageSource::Memory {
+                bytes: vec![1, 2, 3],
+                mime_type: Some("image/png".into()),
+            },
+            ..ImageRequest::default()
+        },
+        fit: ImageFit::Contain,
+        alignment: ImageAlignment::Center,
+        bounds: LayoutRect::new(0.0, 0.0, 8.0, 8.0),
+        node_id: Some(node_id),
+    });
+    fixture.scene = RenderScene::from_display_list(list);
+
+    let error = session.render(&fixture.frame()).unwrap_err();
+
+    assert_eq!(error.code, "skia-image-resource-missing");
+    let diagnostic = error.diagnostic.unwrap();
+    assert_eq!(diagnostic.category, DiagnosticCategory::Resource);
+    assert_eq!(diagnostic.provenance.unwrap().node_id, Some(node_id));
 }
 
 impl<A: SkiaApi> fmt::Debug for RasterDriver<A> {

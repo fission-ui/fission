@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use fission_render::surface::{MemoryPressure, PhysicalSize};
-use fission_skia_sys::ParagraphDrawData;
+use fission_skia_sys::{DecodedImage, ParagraphDrawData};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ApiErrorKind {
@@ -231,6 +231,12 @@ pub(crate) enum RasterCommand {
         data: Arc<ParagraphDrawData>,
         origin: RasterPoint,
         scale_factor: f32,
+    },
+    /// Pins one immutable decoded image through native frame execution.
+    DrawImage {
+        image: DecodedImage,
+        source: RasterRect,
+        destination: RasterRect,
     },
 }
 

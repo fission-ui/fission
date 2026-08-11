@@ -1,11 +1,14 @@
 use std::fmt;
 use std::sync::Arc;
 
+use fission_ir::op::{ImageAlignment, ImageRequest};
 use fission_render::capabilities::{is_2d_affine_transform, DisplayOpKind};
+use fission_render::diagnostics::DiagnosticCategory;
 use fission_render::paragraph::ParagraphFrameBindings;
+use fission_render::resource::ResourceSnapshot;
 use fission_render::{
-    BoxShadow, Color, DisplayList, DisplayOp, Fill, LayerClip, LayoutPoint, LayoutRect, LineCap,
-    LineJoin, RenderNode, RenderScene, Stroke,
+    BoxShadow, Color, DisplayList, DisplayOp, Fill, ImageFit, LayerClip, LayoutPoint, LayoutRect,
+    LineCap, LineJoin, RenderNode, RenderScene, Stroke,
 };
 use kurbo::{BezPath, PathEl};
 
@@ -14,6 +17,7 @@ use crate::api::{
     RasterGradientStop, RasterLineCap, RasterLineJoin, RasterPaint, RasterPath, RasterPathCommand,
     RasterPoint, RasterRect, RasterStroke,
 };
+use crate::image::{place_image, resolve_memory_image, ImageError, SkiaImageCache};
 use crate::paragraph_caret::{paragraph_caret_paint, ParagraphCaretPaint, ParagraphCaretStyle};
 use crate::paragraph_draw_data::{ParagraphDrawDataError, ParagraphFrameDrawData};
 use crate::profile::SkiaParagraphDrawDataRegistry;
@@ -29,13 +33,15 @@ pub(crate) fn compile_scene(
     scale_factor: f64,
     clear_color: Color,
 ) -> Result<CompiledRasterFrame, CompileError> {
-    compile_scene_inner(scene, scale_factor, clear_color, None)
+    compile_scene_inner(scene, scale_factor, clear_color, None, None)
 }
 
 pub(crate) fn compile_scene_with_paragraphs(
     scene: &RenderScene,
     scale_factor: f64,
     clear_color: Color,
+    resources: &ResourceSnapshot,
+    image_cache: &SkiaImageCache,
     paragraph_bindings: Option<&ParagraphFrameBindings>,
     paragraph_draw_data: &SkiaParagraphDrawDataRegistry,
 ) -> Result<CompiledRasterFrame, CompileError> {
@@ -54,14 +60,24 @@ pub(crate) fn compile_scene_with_paragraphs(
             Ok(ParagraphCompilation { frame_draw_data })
         })
         .transpose()?;
-    compile_scene_inner(scene, scale_factor, clear_color, paragraphs)
+    compile_scene_inner(
+        scene,
+        scale_factor,
+        clear_color,
+        paragraphs,
+        Some(ImageCompilation {
+            resources,
+            cache: image_cache,
+        }),
+    )
 }
 
-fn compile_scene_inner(
+fn compile_scene_inner<'a>(
     scene: &RenderScene,
     scale_factor: f64,
     clear_color: Color,
     paragraphs: Option<ParagraphCompilation>,
+    images: Option<ImageCompilation<'a>>,
 ) -> Result<CompiledRasterFrame, CompileError> {
     let scale_factor = scale_factor as f32;
     if !scale_factor.is_finite() || scale_factor <= 0.0 {
@@ -77,6 +93,7 @@ fn compile_scene_inner(
         save_scopes: Vec::new(),
         root_opacity_layers: 0,
         paragraphs,
+        images,
     };
     for (root_index, root) in scene.roots.iter().enumerate() {
         compiler.compile_node(root, root_index, &mut Vec::new(), None)?;
@@ -100,7 +117,12 @@ struct ParagraphCompilation {
     frame_draw_data: ParagraphFrameDrawData<fission_skia_sys::ParagraphDrawData>,
 }
 
-struct Compiler {
+struct ImageCompilation<'a> {
+    resources: &'a ResourceSnapshot,
+    cache: &'a SkiaImageCache,
+}
+
+struct Compiler<'a> {
     scale_factor: f32,
     commands: Vec<RasterCommand>,
     source_operations: u64,
@@ -111,9 +133,10 @@ struct Compiler {
     /// closed together by the next `Restore`, as in the existing renderers.
     root_opacity_layers: usize,
     paragraphs: Option<ParagraphCompilation>,
+    images: Option<ImageCompilation<'a>>,
 }
 
-impl Compiler {
+impl Compiler<'_> {
     fn compile_node(
         &mut self,
         node: &RenderNode,
@@ -330,6 +353,20 @@ impl Compiler {
                 },
                 &provenance,
             )?,
+            DisplayOp::DrawImage {
+                rect,
+                request,
+                fit,
+                alignment,
+                ..
+            } => self.draw_image(
+                *rect,
+                request,
+                *fit,
+                *alignment,
+                provenance.node_id,
+                &provenance,
+            )?,
             other => {
                 return Err(CompileError::new(
                     CompileErrorKind::UnsupportedOperation(other.kind()),
@@ -337,6 +374,57 @@ impl Compiler {
                 ));
             }
         }
+        Ok(())
+    }
+
+    fn draw_image(
+        &mut self,
+        rect: LayoutRect,
+        request: &ImageRequest,
+        fit: ImageFit,
+        alignment: ImageAlignment,
+        node_id: Option<fission_ir::WidgetId>,
+        provenance: &CompileProvenance,
+    ) -> Result<(), CompileError> {
+        if rect.width() <= 0.0 || rect.height() <= 0.0 {
+            return Ok(());
+        }
+        let node_id = node_id.ok_or_else(|| {
+            CompileError::new(CompileErrorKind::MissingImageNodeId, provenance.clone())
+        })?;
+        let images = self.images.as_ref().ok_or_else(|| {
+            CompileError::new(CompileErrorKind::MissingImageResources, provenance.clone())
+        })?;
+        let resource =
+            resolve_memory_image(images.resources, request, node_id).map_err(|error| {
+                CompileError::new(CompileErrorKind::Image(error), provenance.clone())
+            })?;
+        let image = images
+            .cache
+            .get_or_decode(&resource.cache_key, resource.encoded)
+            .map_err(|error| {
+                CompileError::new(CompileErrorKind::Image(error), provenance.clone())
+            })?;
+        let Some(placement) = place_image(rect, image.width(), image.height(), fit, alignment)
+        else {
+            return Ok(());
+        };
+
+        self.commands.push(RasterCommand::Save);
+        self.commands.push(RasterCommand::ClipRect {
+            rect: self.rect(placement.clip, provenance)?,
+        });
+        self.commands.push(RasterCommand::DrawImage {
+            source: RasterRect {
+                left: 0.0,
+                top: 0.0,
+                right: image.width() as f32,
+                bottom: image.height() as f32,
+            },
+            destination: self.rect(placement.destination, provenance)?,
+            image,
+        });
+        self.commands.push(RasterCommand::Restore);
         Ok(())
     }
 
@@ -858,6 +946,9 @@ pub(crate) enum CompileErrorKind {
     MissingParagraphBinding { node_id: fission_ir::WidgetId },
     InvalidParagraphDrawData(String),
     InvalidParagraphCaret(String),
+    MissingImageNodeId,
+    MissingImageResources,
+    Image(ImageError),
     InvalidOpacity,
     UnsupportedTransform,
     InvalidPaint(String),
@@ -893,6 +984,11 @@ impl fmt::Display for CompileError {
             CompileErrorKind::InvalidParagraphCaret(message) => {
                 write!(formatter, "the Skia paragraph caret is invalid: {message}")?
             }
+            CompileErrorKind::MissingImageNodeId => formatter
+                .write_str("the Skia image operation has no stable requesting-node identity")?,
+            CompileErrorKind::MissingImageResources => formatter
+                .write_str("the Skia image frame has no authoritative resource snapshot")?,
+            CompileErrorKind::Image(error) => error.fmt(formatter)?,
             CompileErrorKind::InvalidOpacity => {
                 formatter.write_str("the Skia opacity must be finite and in 0..=1")?
             }
@@ -942,6 +1038,27 @@ impl fmt::Display for CompileError {
 
 impl std::error::Error for CompileError {}
 
+impl CompileError {
+    pub(crate) fn diagnostic_code(&self) -> &'static str {
+        match &self.kind {
+            CompileErrorKind::MissingImageNodeId => "skia-image-node-id-missing",
+            CompileErrorKind::MissingImageResources => "skia-image-resources-missing",
+            CompileErrorKind::Image(error) => error.diagnostic_code(),
+            _ => "skia-frame-lowering-unsupported",
+        }
+    }
+
+    pub(crate) fn diagnostic_category(&self) -> DiagnosticCategory {
+        match &self.kind {
+            CompileErrorKind::MissingImageNodeId | CompileErrorKind::MissingImageResources => {
+                DiagnosticCategory::Resource
+            }
+            CompileErrorKind::Image(error) => error.diagnostic_category(),
+            _ => DiagnosticCategory::Capability,
+        }
+    }
+}
+
 fn paragraph_registry_error(error: ParagraphDrawDataError) -> CompileError {
     let node_id = match &error {
         ParagraphDrawDataError::MissingNodeDrawData { node_id }
@@ -962,6 +1079,12 @@ fn paragraph_registry_error(error: ParagraphDrawDataError) -> CompileError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fission_ir::op::ImageSource;
+    use fission_render::frame::ResourceEpoch;
+    use fission_render::resource::{
+        ResourceContentIdentity, ResourceEntry, ResourceId, ResourceKind, ResourcePayload,
+        ResourceProvenance, ResourceSource,
+    };
     use fission_render::{DisplayList, LayoutRect};
 
     fn red() -> Color {
@@ -971,6 +1094,30 @@ mod tests {
             b: 0,
             a: 128,
         }
+    }
+
+    fn memory_image_request(bytes: &[u8]) -> ImageRequest {
+        ImageRequest {
+            source: ImageSource::Memory {
+                bytes: bytes.to_vec(),
+                mime_type: Some("image/x-fission-test".into()),
+            },
+            ..ImageRequest::default()
+        }
+    }
+
+    fn image_scene(request: ImageRequest, node_id: fission_ir::WidgetId) -> RenderScene {
+        let rect = LayoutRect::new(10.0, 20.0, 100.0, 100.0);
+        let mut list = DisplayList::new(rect);
+        list.push(DisplayOp::DrawImage {
+            rect,
+            request,
+            fit: ImageFit::Cover,
+            alignment: ImageAlignment::TopEnd,
+            bounds: rect,
+            node_id: Some(node_id),
+        });
+        RenderScene::from_display_list(list)
     }
 
     #[test]
@@ -1253,5 +1400,128 @@ mod tests {
         ));
         assert!(matches!(compiled.frame.commands[4], RasterCommand::Restore));
         assert!(matches!(compiled.frame.commands[5], RasterCommand::Restore));
+    }
+
+    #[test]
+    fn image_lowering_reports_a_missing_authoritative_resource_distinctly() {
+        let node_id = fission_ir::WidgetId::explicit("image.missing-resource");
+        let request = memory_image_request(&[1, 2, 3]);
+        let scene = image_scene(request, node_id);
+        let resources = ResourceSnapshot::empty(ResourceEpoch(1));
+        let cache = SkiaImageCache::with_budget_bytes(1_024);
+        let paragraphs = crate::profile::new_paragraph_draw_data_registry();
+
+        let error = compile_scene_with_paragraphs(
+            &scene,
+            2.0,
+            red(),
+            &resources,
+            &cache,
+            None,
+            paragraphs.as_ref(),
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            error.kind,
+            CompileErrorKind::Image(ImageError::MissingResource { .. })
+        ));
+        assert_eq!(error.diagnostic_code(), "skia-image-resource-missing");
+        assert_eq!(error.diagnostic_category(), DiagnosticCategory::Resource);
+        assert_eq!(error.provenance.node_id, Some(node_id));
+        assert_eq!(error.provenance.operation_index(), Some(0));
+    }
+
+    #[cfg(feature = "test-shim")]
+    #[test]
+    fn image_lowering_clips_scales_and_reuses_the_driver_cache() {
+        let mut encoded = b"FSIM".to_vec();
+        encoded.extend_from_slice(&2_u32.to_le_bytes());
+        encoded.extend_from_slice(&1_u32.to_le_bytes());
+        encoded.extend_from_slice(&[255, 0, 0, 255, 0, 255, 0, 255]);
+        let node_id = fission_ir::WidgetId::explicit("image.ready");
+        let request = memory_image_request(&encoded);
+        let identity = request.source.stable_identity();
+        let scene = image_scene(request, node_id);
+        let resources = ResourceSnapshot::try_new(
+            ResourceEpoch(1),
+            [ResourceEntry::ready(
+                ResourceId(7),
+                ResourceContentIdentity::try_new(identity).unwrap(),
+                ResourceKind::Image,
+                ResourceProvenance {
+                    source: ResourceSource::Memory,
+                    locator: Some("image/x-fission-test".into()),
+                    requested_by: Some(node_id),
+                },
+                ResourcePayload::Bytes(encoded),
+            )],
+        )
+        .unwrap();
+        let cache = SkiaImageCache::with_budget_bytes(1_024);
+        let paragraphs = crate::profile::new_paragraph_draw_data_registry();
+
+        let compile = || {
+            compile_scene_with_paragraphs(
+                &scene,
+                2.0,
+                red(),
+                &resources,
+                &cache,
+                None,
+                paragraphs.as_ref(),
+            )
+            .unwrap()
+        };
+        let first = compile();
+        let second = compile();
+
+        assert!(matches!(first.frame.commands[1], RasterCommand::Save));
+        assert_eq!(
+            first.frame.commands[2],
+            RasterCommand::ClipRect {
+                rect: RasterRect {
+                    left: 20.0,
+                    top: 40.0,
+                    right: 220.0,
+                    bottom: 240.0,
+                }
+            }
+        );
+        let RasterCommand::DrawImage {
+            image: first_image,
+            source,
+            destination,
+        } = &first.frame.commands[3]
+        else {
+            panic!("expected a decoded image command")
+        };
+        assert_eq!(
+            *source,
+            RasterRect {
+                left: 0.0,
+                top: 0.0,
+                right: 2.0,
+                bottom: 1.0,
+            }
+        );
+        assert_eq!(
+            *destination,
+            RasterRect {
+                left: -180.0,
+                top: 40.0,
+                right: 220.0,
+                bottom: 240.0,
+            }
+        );
+        let RasterCommand::DrawImage {
+            image: second_image,
+            ..
+        } = &second.frame.commands[3]
+        else {
+            panic!("expected a cached decoded image command")
+        };
+        assert_eq!(first_image, second_image);
+        assert!(matches!(first.frame.commands[4], RasterCommand::Restore));
     }
 }

@@ -1,8 +1,8 @@
 use fission_render::surface::{MemoryPressure, PhysicalSize};
 use fission_skia_sys::{
     Affine, BoxShadow, Color, Context, Engine, Error, ErrorKind, FillRule, Frame, FrameOp,
-    GradientStop, LineCap, LineJoin, Paint, Path, PathCommand, PixelRect, Point, RasterSurface,
-    Rect, Stroke,
+    GradientStop, ImageSampling, LineCap, LineJoin, Paint, Path, PathCommand, PixelRect, Point,
+    RasterSurface, Rect, Stroke,
 };
 
 use crate::api::{
@@ -116,6 +116,16 @@ impl SkiaApi for NativeSkiaApi {
                         data: data.as_ref().clone(),
                         origin: native_point(*origin),
                         scale_factor: *scale_factor,
+                    },
+                    RasterCommand::DrawImage {
+                        image,
+                        source,
+                        destination,
+                    } => FrameOp::DrawImage {
+                        image: image.clone(),
+                        source: native_rect(*source),
+                        destination: native_rect(*destination),
+                        sampling: ImageSampling::Linear,
                     },
                 })
                 .collect::<Vec<_>>(),

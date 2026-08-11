@@ -20,6 +20,7 @@ use crate::api::{ApiError, ApiErrorKind, PixelRegion, SkiaApi};
 use crate::capabilities::{skia_raster_capabilities, skia_raster_profile_capabilities};
 use crate::compiler::compile_scene_with_paragraphs;
 use crate::error::{api_error, contract_error, contract_error_with_provenance, wrong_thread};
+use crate::image::SkiaImageCache;
 use crate::native::NativeSkiaApi;
 use crate::profile::{new_paragraph_draw_data_registry, SkiaParagraphDrawDataRegistry};
 use crate::thread_owner::ThreadOwner;
@@ -124,6 +125,7 @@ struct RasterDriver<A: SkiaApi> {
     last_rendered: Option<FrameId>,
     diagnostics: BackendDiagnostics,
     paragraph_draw_data: Arc<SkiaParagraphDrawDataRegistry>,
+    image_cache: SkiaImageCache,
     _not_send_or_sync: PhantomData<Rc<()>>,
 }
 
@@ -171,6 +173,7 @@ impl<A: SkiaApi> RasterDriver<A> {
             last_rendered: None,
             diagnostics: BackendDiagnostics::new(capabilities.identity, SessionState::Detached),
             paragraph_draw_data,
+            image_cache: SkiaImageCache::new(),
             _not_send_or_sync: PhantomData,
         })
     }
@@ -308,6 +311,7 @@ impl<A: SkiaApi> RasterDriver<A> {
 
     fn release_runtime(&mut self) {
         self.release_surface();
+        self.image_cache.clear();
         drop(self.context.take());
         drop(self.engine.take());
     }
@@ -520,6 +524,8 @@ impl<A: SkiaApi> GraphicsBackendDriver for RasterDriver<A> {
             frame.frame().scene(),
             metrics.scale_factor.get(),
             frame.frame().clear_color(),
+            frame.frame().resources(),
+            &self.image_cache,
             frame.frame().paragraph_bindings(),
             self.paragraph_draw_data.as_ref(),
         ) {
@@ -532,8 +538,8 @@ impl<A: SkiaApi> GraphicsBackendDriver for RasterDriver<A> {
                 };
                 let error = contract_error_with_provenance(
                     BackendOperation::Render,
-                    "skia-frame-lowering-unsupported",
-                    DiagnosticCategory::Capability,
+                    error.diagnostic_code(),
+                    error.diagnostic_category(),
                     error.to_string(),
                     provenance,
                 );
@@ -780,6 +786,9 @@ impl<A: SkiaApi> GraphicsBackendDriver for RasterDriver<A> {
 
     fn trim_memory(&mut self, pressure: MemoryPressure) -> BackendResult<()> {
         self.check_thread(BackendOperation::TrimMemory)?;
+        if pressure == MemoryPressure::Critical {
+            self.image_cache.clear();
+        }
         if let Some(context) = self.context.as_mut() {
             if let Err(error) = self.api.trim_memory(context, pressure) {
                 return Err(self.handle_api_error(BackendOperation::TrimMemory, error));
@@ -808,6 +817,7 @@ impl<A: SkiaApi> GraphicsBackendDriver for RasterDriver<A> {
     fn diagnostics(&self) -> BackendDiagnostics {
         let mut diagnostics = self.diagnostics.clone();
         diagnostics.session_state = self.state;
+        diagnostics.caches.push(self.image_cache.diagnostics());
         diagnostics
     }
 }

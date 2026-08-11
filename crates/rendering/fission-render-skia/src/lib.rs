@@ -5,6 +5,7 @@ mod capabilities;
 mod compiler;
 mod driver;
 mod error;
+mod image;
 mod native;
 mod paragraph_caret;
 mod paragraph_draw_data;
