@@ -164,6 +164,22 @@ where
         }
     }
 
+    /// Invalidates every derived image while preserving the cache's configured
+    /// budget and eviction policy for subsequent inserts.
+    pub fn invalidate_all(&self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.inner.invalidate_all();
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let mut cache = self.inner.lock().expect("image cache lock poisoned");
+            cache.entries.clear();
+            cache.total_weight = 0;
+        }
+    }
+
     pub fn values(&self) -> Vec<V> {
         #[cfg(not(target_arch = "wasm32"))]
         {
