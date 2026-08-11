@@ -18,6 +18,7 @@ mod svg;
 mod thread_affinity;
 
 pub mod ffi;
+pub mod web;
 
 pub use error::{Error, ErrorKind, Result};
 pub use frame::{
