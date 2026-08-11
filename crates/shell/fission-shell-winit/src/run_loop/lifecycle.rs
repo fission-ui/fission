@@ -56,37 +56,68 @@ where
             && current_viewport.physical_size.height > 0
         {
             if let Some(render_window) = self.platform_window.active_window_arc() {
-                match create_render_state(
-                    &mut self.render_cx,
-                    render_window,
-                    current_viewport,
-                    is_linux_wayland_event_loop(elwt),
-                    self.renderer_request,
-                    #[cfg(feature = "skia")]
-                    self.skia_profile.as_ref(),
-                    #[cfg(feature = "skia")]
-                    self.presenter.suspended_skia_mut(),
-                ) {
-                    Ok(mut state) => {
-                        if should_present_startup_clear_frame(is_linux_wayland_event_loop(elwt)) {
-                            if let Err(err) = present_startup_clear_frame(
-                                &mut state,
-                                &self.render_cx,
-                                window,
-                                theme_background_wgpu_color(&self.env),
-                            ) {
-                                eprintln!("startup clear frame failed: {err}");
-                            }
-                        }
-                        self.presenter.attach(state);
-                    }
-                    Err(err) => {
-                        if renderer_error_is_terminal(&err) {
-                            eprintln!("render initialization failed: {err}");
+                #[cfg(all(feature = "skia", target_os = "linux"))]
+                let direct_ganesh_attached =
+                    if self.renderer_request == RendererRequest::NativeSkiaGanesh {
+                        let profile = self
+                            .skia_ganesh_profile
+                            .as_ref()
+                            .expect("validated Ganesh requests own a profile");
+                        if let Err(error) = attach_or_resume_native_ganesh(
+                            &mut self.presenter,
+                            profile,
+                            render_window.clone(),
+                            current_viewport,
+                            self.renderer_request,
+                        ) {
+                            eprintln!("render initialization failed: {error}");
                             elwt.exit();
                             return;
                         }
-                        eprintln!("render surface not ready on resume: {err}");
+                        true
+                    } else {
+                        false
+                    };
+                #[cfg(not(all(feature = "skia", target_os = "linux")))]
+                let direct_ganesh_attached = false;
+                if !direct_ganesh_attached {
+                    let render_cx = self
+                        .render_cx
+                        .as_mut()
+                        .expect("wgpu render context exists for non-Ganesh requests");
+                    match create_render_state(
+                        render_cx,
+                        render_window,
+                        current_viewport,
+                        is_linux_wayland_event_loop(elwt),
+                        self.renderer_request,
+                        #[cfg(feature = "skia")]
+                        self.skia_profile.as_ref(),
+                        #[cfg(feature = "skia")]
+                        self.presenter.suspended_skia_mut(),
+                    ) {
+                        Ok(mut state) => {
+                            if should_present_startup_clear_frame(is_linux_wayland_event_loop(elwt))
+                            {
+                                if let Err(err) = present_startup_clear_frame(
+                                    &mut state,
+                                    render_cx,
+                                    window,
+                                    theme_background_wgpu_color(&self.env),
+                                ) {
+                                    eprintln!("startup clear frame failed: {err}");
+                                }
+                            }
+                            self.presenter.attach(state);
+                        }
+                        Err(err) => {
+                            if renderer_error_is_terminal(&err) {
+                                eprintln!("render initialization failed: {err}");
+                                elwt.exit();
+                                return;
+                            }
+                            eprintln!("render surface not ready on resume: {err}");
+                        }
                     }
                 }
             }

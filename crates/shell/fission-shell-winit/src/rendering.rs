@@ -1,7 +1,11 @@
 use super::*;
+#[cfg(all(feature = "skia", target_os = "linux"))]
+use crate::skia_ganesh_presenter::WinitSkiaGaneshPresenter;
 #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
 use crate::skia_presenter::WinitSkiaRasterPresenter;
 use fission_render::capabilities::RenderMode;
+#[cfg(all(feature = "skia", target_os = "linux"))]
+use fission_render::surface::SessionState;
 
 pub(super) struct ActivePlayer {
     pub(super) player: Box<dyn VideoPlayer>,
@@ -26,13 +30,16 @@ pub(super) struct RenderState<'w> {
 /// graphics-backend choice to the Winit event dispatcher.
 ///
 /// This is deliberately a lifecycle boundary, not a capability abstraction.
-/// Vello and software retain the shell's current drop-on-suspend behavior;
-/// Skia keeps its backend session suspended while the window-bound wgpu upload
-/// surface is rebuilt independently.
+/// Vello and software retain the shell's current drop-on-suspend behavior.
+/// Skia raster keeps its backend session suspended while the window-bound wgpu
+/// upload surface is rebuilt independently; Skia Ganesh owns and resumes its
+/// native-window session directly without constructing a wgpu context.
 pub(super) struct WinitPresenter<'w> {
     state: Option<RenderState<'w>>,
     #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
     suspended_skia: Option<WinitSkiaRasterPresenter>,
+    #[cfg(all(feature = "skia", target_os = "linux"))]
+    direct_ganesh: Option<WinitSkiaGaneshPresenter>,
 }
 
 impl<'w> WinitPresenter<'w> {
@@ -41,14 +48,29 @@ impl<'w> WinitPresenter<'w> {
             state: None,
             #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
             suspended_skia: None,
+            #[cfg(all(feature = "skia", target_os = "linux"))]
+            direct_ganesh: None,
         }
     }
 
     pub(super) fn is_attached(&self) -> bool {
-        self.state.is_some()
+        self.state.is_some() || {
+            #[cfg(all(feature = "skia", target_os = "linux"))]
+            {
+                self.direct_ganesh
+                    .as_ref()
+                    .is_some_and(|presenter| presenter.state() == SessionState::Attached)
+            }
+            #[cfg(not(all(feature = "skia", target_os = "linux")))]
+            {
+                false
+            }
+        }
     }
 
     pub(super) fn attach(&mut self, state: RenderState<'w>) {
+        #[cfg(all(feature = "skia", target_os = "linux"))]
+        debug_assert!(self.direct_ganesh.is_none());
         self.state = Some(state);
     }
 
@@ -57,7 +79,39 @@ impl<'w> WinitPresenter<'w> {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
+    pub(super) fn frame_capabilities(&self) -> fission_render::capabilities::GraphicsCapabilities {
+        #[cfg(all(feature = "skia", target_os = "linux"))]
+        if let Some(presenter) = self.direct_ganesh.as_ref() {
+            return presenter.capabilities().clone();
+        }
+        self.state
+            .as_ref()
+            .expect("an attached wgpu presenter owns render state")
+            .main_renderer
+            .frame_capabilities()
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(super) fn allows_host_software_fallback(&self) -> bool {
+        #[cfg(all(feature = "skia", target_os = "linux"))]
+        if self.direct_ganesh.is_some() {
+            return false;
+        }
+        self.state
+            .as_ref()
+            .expect("an attached wgpu presenter owns render state")
+            .main_renderer
+            .allows_host_software_fallback()
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn suspend(&mut self) -> fission_render::backend::BackendResult<()> {
+        #[cfg(all(feature = "skia", target_os = "linux"))]
+        if let Some(presenter) = self.direct_ganesh.as_mut() {
+            if presenter.state() == SessionState::Attached {
+                presenter.suspend()?;
+            }
+        }
         let Some(state) = self.state.take() else {
             return Ok(());
         };
@@ -84,6 +138,10 @@ impl<'w> WinitPresenter<'w> {
         if let Some(state) = self.state.as_mut() {
             state.main_renderer.trim_memory(pressure)?;
         }
+        #[cfg(all(feature = "skia", target_os = "linux"))]
+        if let Some(presenter) = self.direct_ganesh.as_mut() {
+            presenter.trim_memory(pressure)?;
+        }
         #[cfg(feature = "skia")]
         if let Some(presenter) = self.suspended_skia.as_mut() {
             presenter.trim_memory(pressure)?;
@@ -93,6 +151,10 @@ impl<'w> WinitPresenter<'w> {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn detach(&mut self) -> fission_render::backend::BackendResult<()> {
+        #[cfg(all(feature = "skia", target_os = "linux"))]
+        if let Some(mut presenter) = self.direct_ganesh.take() {
+            presenter.detach()?;
+        }
         if let Some(state) = self.state.take() {
             #[cfg(feature = "skia")]
             {
@@ -114,6 +176,22 @@ impl<'w> WinitPresenter<'w> {
     #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
     pub(super) fn suspended_skia_mut(&mut self) -> &mut Option<WinitSkiaRasterPresenter> {
         &mut self.suspended_skia
+    }
+
+    #[cfg(all(feature = "skia", target_os = "linux"))]
+    pub(super) fn direct_ganesh_mut(&mut self) -> Option<&mut WinitSkiaGaneshPresenter> {
+        self.direct_ganesh.as_mut()
+    }
+
+    #[cfg(all(feature = "skia", target_os = "linux"))]
+    pub(super) fn has_direct_ganesh(&self) -> bool {
+        self.direct_ganesh.is_some()
+    }
+
+    #[cfg(all(feature = "skia", target_os = "linux"))]
+    pub(super) fn attach_direct_ganesh(&mut self, presenter: WinitSkiaGaneshPresenter) {
+        debug_assert!(self.state.is_none());
+        self.direct_ganesh = Some(presenter);
     }
 }
 
@@ -414,6 +492,15 @@ pub(super) fn create_render_state<'w>(
     #[cfg(feature = "skia")] skia_profile: Option<&fission_render_skia::SkiaRasterProfile>,
     #[cfg(feature = "skia")] suspended_skia: &mut Option<WinitSkiaRasterPresenter>,
 ) -> anyhow::Result<RenderState<'w>> {
+    if request == RendererRequest::NativeSkiaGanesh {
+        return Err(anyhow::Error::new(
+            RequestedRendererInitializationError::new(
+                request,
+                RendererTarget::Native,
+                "native Skia Ganesh must attach through the direct native-window presenter before wgpu initialization",
+            ),
+        ));
+    }
     let mut surface = block_on(render_cx.create_surface(
         window.clone(),
         viewport.physical_size.width,
@@ -478,6 +565,126 @@ pub(super) fn create_render_state<'w>(
         main_renderer,
         renderer_report,
     })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(super) fn sync_wgpu_render_state(
+    render_cx: &mut RenderContext,
+    render_state: &mut RenderState<'_>,
+    swapchain_size: PhysicalSize<u32>,
+    render_target_size: (u32, u32),
+    scale_factor: f64,
+) -> fission_render::backend::BackendResult<()> {
+    let mut surface_target_replaced = false;
+    if swapchain_size.width != render_state.surface.config.width
+        || swapchain_size.height != render_state.surface.config.height
+    {
+        render_cx.resize_surface(
+            &mut render_state.surface,
+            swapchain_size.width,
+            swapchain_size.height,
+        );
+        let device_handle = &render_cx.devices[render_state.surface.dev_id];
+        render_state
+            .surface
+            .surface
+            .configure(&device_handle.device, &render_state.surface.config);
+        sync_tracked_target_texture_size_to_surface(
+            &mut render_state.target_texture_size,
+            swapchain_size,
+        );
+        surface_target_replaced = true;
+    }
+    if surface_target_replaced || render_target_size != render_state.target_texture_size {
+        recreate_target_texture(
+            &mut render_state.surface,
+            render_cx,
+            render_target_size.0,
+            render_target_size.1,
+        );
+        #[cfg(feature = "three-d")]
+        {
+            let device_handle = &render_cx.devices[render_state.surface.dev_id];
+            render_state.scene3d_renderer.resize(
+                &device_handle.device,
+                render_target_size.0,
+                render_target_size.1,
+            );
+        }
+        render_state.target_texture_size = render_target_size;
+    }
+    render_state.main_renderer.sync_surface_metrics(
+        render_target_size.0,
+        render_target_size.1,
+        scale_factor,
+    )
+}
+
+#[cfg(all(feature = "skia", target_os = "linux"))]
+pub(super) fn attach_or_resume_native_ganesh(
+    presenter: &mut WinitPresenter<'_>,
+    profile: &fission_render_skia::SkiaGaneshProfile,
+    window: Arc<Window>,
+    viewport: WindowViewportState,
+    request: RendererRequest,
+) -> anyhow::Result<()> {
+    let size = viewport.physical_size;
+    let result = match presenter.direct_ganesh.as_mut() {
+        Some(active) if active.state() == SessionState::Suspended => active.resume(
+            window.clone(),
+            size.width,
+            size.height,
+            viewport.scale_factor,
+        ),
+        Some(active) if active.state() == SessionState::Attached => {
+            active.sync_surface_metrics(size.width, size.height, viewport.scale_factor)
+        }
+        Some(_) => {
+            if let Some(mut stale) = presenter.direct_ganesh.take() {
+                let _ = stale.detach();
+            }
+            WinitSkiaGaneshPresenter::new(
+                profile,
+                window,
+                size.width,
+                size.height,
+                viewport.scale_factor,
+            )
+            .map(|active| presenter.attach_direct_ganesh(active))
+        }
+        None => WinitSkiaGaneshPresenter::new(
+            profile,
+            window,
+            size.width,
+            size.height,
+            viewport.scale_factor,
+        )
+        .map(|active| presenter.attach_direct_ganesh(active)),
+    };
+    if let Err(error) = result {
+        if let Some(mut failed) = presenter.direct_ganesh.take() {
+            let _ = failed.detach();
+        }
+        return Err(anyhow::Error::new(
+            RequestedRendererInitializationError::new(
+                request,
+                RendererTarget::Native,
+                format!("Skia Ganesh direct presentation failed: {error}"),
+            ),
+        ));
+    }
+
+    emit_renderer_report(&RendererReport::new(
+        "native-skia-ganesh",
+        request,
+        Some("Skia Ganesh (Vulkan direct)".to_string()),
+        None,
+        None,
+        size.width,
+        size.height,
+        viewport.scale_factor,
+    ));
+    Ok(())
 }
 
 pub(super) fn preferred_native_present_mode(
@@ -564,10 +771,14 @@ pub(super) fn present_frame_with_winit_coordination(
     // on software/composited WSI paths. Fission already schedules bounded
     // redraws, so preserve the immediate redraw behavior that winit documents
     // for applications which omit this optional hint on Wayland.
+    coordinate_winit_pre_present(linux_wayland, pre_present_notify);
+    commit_surface_frame();
+}
+
+pub(super) fn coordinate_winit_pre_present(linux_wayland: bool, pre_present_notify: impl FnOnce()) {
     if !linux_wayland {
         pre_present_notify();
     }
-    commit_surface_frame();
 }
 
 pub(super) fn should_present_startup_clear_frame(linux_wayland: bool) -> bool {
@@ -614,11 +825,27 @@ pub(super) fn native_renderer_request() -> anyhow::Result<RendererRequest> {
 pub(super) fn require_compiled_native_renderer(
     request: RendererRequest,
 ) -> Result<(), RequestedRendererInitializationError> {
-    if request == RendererRequest::NativeSkiaRaster && !cfg!(feature = "skia") {
+    if matches!(
+        request,
+        RendererRequest::NativeSkiaRaster | RendererRequest::NativeSkiaGanesh
+    ) && !cfg!(feature = "skia")
+    {
         Err(RequestedRendererInitializationError::new(
             request,
             RendererTarget::Native,
             "this build does not include the `skia` Cargo feature",
+        ))
+    } else if request == RendererRequest::NativeSkiaGanesh && !cfg!(target_os = "linux") {
+        Err(RequestedRendererInitializationError::new(
+            request,
+            RendererTarget::Native,
+            "native Skia Ganesh currently requires Linux Wayland, Xlib, or XCB",
+        ))
+    } else if request == RendererRequest::NativeSkiaGanesh && cfg!(feature = "three-d") {
+        Err(RequestedRendererInitializationError::new(
+            request,
+            RendererTarget::Native,
+            "native Skia Ganesh does not yet support Fission's wgpu 3D interoperability path; rebuild without the `three-d` feature or select another renderer",
         ))
     } else {
         Ok(())
@@ -642,6 +869,16 @@ pub(super) fn apply_cpu_vello_override(
     } else {
         request
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(super) fn native_request_requires_wgpu(request: RendererRequest) -> bool {
+    request != RendererRequest::NativeSkiaGanesh
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(super) fn native_renderer_supports_capture(request: RendererRequest) -> bool {
+    request != RendererRequest::NativeSkiaGanesh
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -697,6 +934,15 @@ pub(super) fn create_native_main_renderer(
     let request = request
         .for_target(RendererTarget::Native)
         .map_err(anyhow::Error::new)?;
+    if request == RendererRequest::NativeSkiaGanesh {
+        return Err(anyhow::Error::new(
+            RequestedRendererInitializationError::new(
+                request,
+                RendererTarget::Native,
+                "native Skia Ganesh cannot be created from a wgpu device",
+            ),
+        ));
+    }
     let adapter_info = device_handle.adapter().get_info();
     let (backend, adapter) = adapter_labels_from_info(&adapter_info);
     if request == RendererRequest::NativeSkiaRaster {

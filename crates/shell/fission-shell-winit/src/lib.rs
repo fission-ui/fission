@@ -167,10 +167,12 @@ mod host_capabilities;
 use host_capabilities::*;
 mod rendering;
 use rendering::*;
-#[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
-mod skia_presenter;
 #[cfg(target_os = "linux")]
 mod native_window_target;
+#[cfg(all(feature = "skia", target_os = "linux"))]
+mod skia_ganesh_presenter;
+#[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+mod skia_presenter;
 mod windowing;
 use windowing::*;
 mod effects;
@@ -197,6 +199,9 @@ fn paragraph_engine_for_native_renderer(
     request: RendererRequest,
     vello: Arc<VelloTextMeasurer>,
     #[cfg(feature = "skia")] skia_profile: Option<&fission_render_skia::SkiaRasterProfile>,
+    #[cfg(all(feature = "skia", target_os = "linux"))] skia_ganesh_profile: Option<
+        &fission_render_skia::SkiaGaneshProfile,
+    >,
 ) -> Arc<dyn ParagraphEngine> {
     if request == RendererRequest::NativeSkiaRaster {
         #[cfg(feature = "skia")]
@@ -209,6 +214,18 @@ fn paragraph_engine_for_native_renderer(
         }
         #[cfg(not(feature = "skia"))]
         unreachable!("native renderer validation rejects Skia when its feature is disabled");
+    }
+    if request == RendererRequest::NativeSkiaGanesh {
+        #[cfg(all(feature = "skia", target_os = "linux"))]
+        {
+            return Arc::new(
+                skia_ganesh_profile
+                    .expect("a native Ganesh request must own one Skia Ganesh profile")
+                    .paragraph_engine(),
+            );
+        }
+        #[cfg(not(all(feature = "skia", target_os = "linux")))]
+        unreachable!("native renderer validation rejects Ganesh on this build");
     }
     vello
 }
@@ -234,12 +251,17 @@ where
         #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
         let skia_profile = (renderer_request == RendererRequest::NativeSkiaRaster)
             .then(fission_render_skia::SkiaRasterProfile::new);
+        #[cfg(all(feature = "skia", target_os = "linux"))]
+        let skia_ganesh_profile = (renderer_request == RendererRequest::NativeSkiaGanesh)
+            .then(fission_render_skia::SkiaGaneshProfile::new);
         #[cfg(not(target_arch = "wasm32"))]
         let paragraph_engine = paragraph_engine_for_native_renderer(
             renderer_request,
             self.measurer.clone(),
             #[cfg(feature = "skia")]
             skia_profile.as_ref(),
+            #[cfg(all(feature = "skia", target_os = "linux"))]
+            skia_ganesh_profile.as_ref(),
         );
         #[cfg(target_arch = "wasm32")]
         let paragraph_engine: Arc<dyn ParagraphEngine> = self.measurer.clone();
@@ -338,7 +360,7 @@ where
             std::env::set_var("WGPU_BACKEND", "gl");
         }
         #[cfg(not(target_arch = "wasm32"))]
-        let mut render_cx = RenderContext::new();
+        let render_cx = native_request_requires_wgpu(renderer_request).then(RenderContext::new);
         #[cfg(not(target_arch = "wasm32"))]
         let presenter = WinitPresenter::detached();
         #[cfg(target_arch = "wasm32")]
@@ -537,6 +559,8 @@ where
             renderer_request,
             #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
             skia_profile,
+            #[cfg(all(feature = "skia", target_os = "linux"))]
+            skia_ganesh_profile,
             #[cfg(target_arch = "wasm32")]
             web_renderer,
             #[cfg(target_arch = "wasm32")]

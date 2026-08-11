@@ -829,6 +829,17 @@ where
                 );
             }
             TestEvent::Screenshot { path, response_tx } => {
+                #[cfg(not(target_arch = "wasm32"))]
+                if !native_renderer_supports_capture(self.renderer_request) {
+                    self.pending_screenshot_path = None;
+                    self.pending_screenshot_response_tx = None;
+                    self.pending_capture_settle = false;
+                    let _ = response_tx.send(fission_test_driver::TestResponse::Error {
+                        message: "native-skia-ganesh does not support screenshot/readback yet"
+                            .into(),
+                    });
+                    return;
+                }
                 let Some(window) = self.platform_window.active_window() else {
                     let _ = response_tx.send(fission_test_driver::TestResponse::Error {
                         message: "window not ready".into(),
@@ -849,6 +860,17 @@ where
                 window.request_redraw();
             }
             TestEvent::CaptureScreenshot { response_tx } => {
+                #[cfg(not(target_arch = "wasm32"))]
+                if !native_renderer_supports_capture(self.renderer_request) {
+                    self.pending_screenshot_path = None;
+                    self.pending_screenshot_response_tx = None;
+                    self.pending_capture_settle = false;
+                    let _ = response_tx.send(fission_test_driver::TestResponse::Error {
+                        message: "native-skia-ganesh does not support screenshot/readback yet"
+                            .into(),
+                    });
+                    return;
+                }
                 let Some(window) = self.platform_window.active_window() else {
                     let _ = response_tx.send(fission_test_driver::TestResponse::Error {
                         message: "window not ready".into(),
@@ -893,6 +915,17 @@ where
                 window.request_redraw();
             }
             TestEvent::CaptureAt { ms, response_tx } => {
+                #[cfg(not(target_arch = "wasm32"))]
+                if !native_renderer_supports_capture(self.renderer_request) {
+                    self.pending_screenshot_path = None;
+                    self.pending_screenshot_response_tx = None;
+                    self.pending_capture_settle = false;
+                    let _ = response_tx.send(fission_test_driver::TestResponse::Error {
+                        message: "native-skia-ganesh does not support screenshot/readback yet"
+                            .into(),
+                    });
+                    return;
+                }
                 let Some(window) = self.platform_window.active_window() else {
                     let _ = response_tx.send(fission_test_driver::TestResponse::Error {
                         message: "window not ready".into(),

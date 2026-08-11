@@ -282,86 +282,107 @@ where
                     diag::end_frame(diag::FrameStats::default());
                     return;
                 };
-                match create_render_state(
-                    &mut self.render_cx,
-                    render_window,
-                    viewport_state,
-                    is_linux_wayland_event_loop(elwt),
-                    self.renderer_request,
-                    #[cfg(feature = "skia")]
-                    self.skia_profile.as_ref(),
-                    #[cfg(feature = "skia")]
-                    self.presenter.suspended_skia_mut(),
-                ) {
-                    Ok(state) => {
-                        self.presenter.attach(state);
-                    }
-                    Err(err) => {
-                        if renderer_error_is_terminal(&err) {
-                            eprintln!("render initialization failed: {err}");
+                #[cfg(all(feature = "skia", target_os = "linux"))]
+                let direct_ganesh_attached =
+                    if self.renderer_request == RendererRequest::NativeSkiaGanesh {
+                        let profile = self
+                            .skia_ganesh_profile
+                            .as_ref()
+                            .expect("validated Ganesh requests own a profile");
+                        if let Err(error) = attach_or_resume_native_ganesh(
+                            &mut self.presenter,
+                            profile,
+                            render_window.clone(),
+                            viewport_state,
+                            self.renderer_request,
+                        ) {
+                            eprintln!("render initialization failed: {error}");
                             elwt.exit();
                             diag::end_frame(diag::FrameStats::default());
                             return;
                         }
-                        eprintln!("render surface not ready yet: {err}");
-                        request_redraw_logged(
-                            &window,
-                            elwt,
-                            &mut self.last_redraw_at,
-                            self.min_frame,
-                            &mut self.redraw_pending,
-                            &mut self.frame_trace,
-                            "render_surface_pending",
-                        );
-                        diag::end_frame(diag::FrameStats::default());
-                        return;
+                        true
+                    } else {
+                        false
+                    };
+                #[cfg(not(all(feature = "skia", target_os = "linux")))]
+                let direct_ganesh_attached = false;
+                if !direct_ganesh_attached {
+                    let render_cx = self
+                        .render_cx
+                        .as_mut()
+                        .expect("wgpu render context exists for non-Ganesh requests");
+                    match create_render_state(
+                        render_cx,
+                        render_window,
+                        viewport_state,
+                        is_linux_wayland_event_loop(elwt),
+                        self.renderer_request,
+                        #[cfg(feature = "skia")]
+                        self.skia_profile.as_ref(),
+                        #[cfg(feature = "skia")]
+                        self.presenter.suspended_skia_mut(),
+                    ) {
+                        Ok(state) => self.presenter.attach(state),
+                        Err(err) => {
+                            if renderer_error_is_terminal(&err) {
+                                eprintln!("render initialization failed: {err}");
+                                elwt.exit();
+                                diag::end_frame(diag::FrameStats::default());
+                                return;
+                            }
+                            eprintln!("render surface not ready yet: {err}");
+                            request_redraw_logged(
+                                &window,
+                                elwt,
+                                &mut self.last_redraw_at,
+                                self.min_frame,
+                                &mut self.redraw_pending,
+                                &mut self.frame_trace,
+                                "render_surface_pending",
+                            );
+                            diag::end_frame(diag::FrameStats::default());
+                            return;
+                        }
                     }
                 }
             }
-            let render_state = self.presenter.attached_mut().expect("render state");
-
-            let mut surface_target_replaced = false;
-            if swapchain_size.width != render_state.surface.config.width
-                || swapchain_size.height != render_state.surface.config.height
-            {
-                self.render_cx.resize_surface(
-                    &mut render_state.surface,
-                    swapchain_size.width,
-                    swapchain_size.height,
-                );
-                let device_handle = &self.render_cx.devices[render_state.surface.dev_id];
-                render_state
-                    .surface
-                    .surface
-                    .configure(&device_handle.device, &render_state.surface.config);
-                sync_tracked_target_texture_size_to_surface(
-                    &mut render_state.target_texture_size,
-                    swapchain_size,
-                );
-                surface_target_replaced = true;
-            }
-            if surface_target_replaced || render_target_size != render_state.target_texture_size {
-                recreate_target_texture(
-                    &mut render_state.surface,
-                    &self.render_cx,
+            #[cfg(all(feature = "skia", target_os = "linux"))]
+            if let Some(ganesh) = self.presenter.direct_ganesh_mut() {
+                if let Err(error) = ganesh.sync_surface_metrics(
                     render_target_size.0,
                     render_target_size.1,
-                );
-                #[cfg(feature = "three-d")]
-                {
-                    let device_handle = &self.render_cx.devices[render_state.surface.dev_id];
-                    // Keep the 3D depth target in lockstep with the shared render target.
-                    render_state.scene3d_renderer.resize(
-                        &device_handle.device,
-                        render_target_size.0,
-                        render_target_size.1,
-                    );
+                    scale_factor,
+                ) {
+                    eprintln!("fission-shell-winit: Ganesh resize failed: {error}");
+                    elwt.exit();
+                    diag::end_frame(diag::FrameStats::default());
+                    return;
                 }
-                render_state.target_texture_size = render_target_size;
+            } else {
+                if let Err(error) = sync_wgpu_render_state(
+                    self.render_cx
+                        .as_mut()
+                        .expect("wgpu render context exists for non-Ganesh requests"),
+                    self.presenter.attached_mut().expect("render state"),
+                    swapchain_size,
+                    render_target_size,
+                    scale_factor,
+                ) {
+                    eprintln!("fission-shell-winit: renderer resize failed: {error}");
+                    elwt.exit();
+                    diag::end_frame(diag::FrameStats::default());
+                    return;
+                }
             }
-            if let Err(error) = render_state.main_renderer.sync_surface_metrics(
-                render_target_size.0,
-                render_target_size.1,
+            #[cfg(not(all(feature = "skia", target_os = "linux")))]
+            if let Err(error) = sync_wgpu_render_state(
+                self.render_cx
+                    .as_mut()
+                    .expect("wgpu render context exists for non-Ganesh requests"),
+                self.presenter.attached_mut().expect("render state"),
+                swapchain_size,
+                render_target_size,
                 scale_factor,
             ) {
                 eprintln!("fission-shell-winit: renderer resize failed: {error}");
@@ -587,17 +608,10 @@ where
                 #[cfg(target_arch = "wasm32")]
                 let allows_host_software_fallback = true;
                 #[cfg(not(target_arch = "wasm32"))]
-                let (capabilities, allows_host_software_fallback) = {
-                    let renderer = &self
-                        .presenter
-                        .attached_mut()
-                        .expect("render state missing before frame submission")
-                        .main_renderer;
-                    (
-                        renderer.frame_capabilities(),
-                        renderer.allows_host_software_fallback(),
-                    )
-                };
+                let (capabilities, allows_host_software_fallback) = (
+                    self.presenter.frame_capabilities(),
+                    self.presenter.allows_host_software_fallback(),
+                );
                 let frame_software_fallback = allows_host_software_fallback
                     .then(|| required_software_fallback(retained_scene, &capabilities))
                     .flatten();
@@ -1025,6 +1039,94 @@ where
                 }
                 #[cfg(not(target_arch = "wasm32"))]
                 {
+                    #[cfg(all(feature = "skia", target_os = "linux"))]
+                    if self.presenter.has_direct_ganesh() {
+                        if submission.has_external_surfaces() || {
+                            #[cfg(feature = "three-d")]
+                            {
+                                !submission.direct_target_three_d().is_empty()
+                            }
+                            #[cfg(not(feature = "three-d"))]
+                            {
+                                false
+                            }
+                        } {
+                            eprintln!(
+                                "fission-shell-winit: native-skia-ganesh does not support external surfaces or 3D composition"
+                            );
+                            diag::end_frame(diag::FrameStats::default());
+                            return;
+                        }
+                        let retained_scene = self
+                            .pipeline
+                            .retained_scene()
+                            .expect("retained render scene missing before Ganesh render");
+                        let frame = submission
+                            .interactive_frame(retained_scene)
+                            .with_clear_color(fission_render::Color {
+                                r: self.env.theme.tokens.colors.background.r,
+                                g: self.env.theme.tokens.colors.background.g,
+                                b: self.env.theme.tokens.colors.background.b,
+                                a: self.env.theme.tokens.colors.background.a,
+                            });
+                        let linux_wayland = is_linux_wayland_event_loop(elwt);
+                        let result = self
+                            .presenter
+                            .direct_ganesh_mut()
+                            .expect("direct Ganesh presenter disappeared")
+                            .render_and_present(&frame, || {
+                                coordinate_winit_pre_present(linux_wayland, || {
+                                    window.pre_present_notify()
+                                });
+                            });
+                        if let Err(error) = result {
+                            eprintln!(
+                                "fission-shell-winit: direct Ganesh frame {} failed: {error}",
+                                submission.metadata().frame_id.0,
+                            );
+                            diag::end_frame(diag::FrameStats::default());
+                            return;
+                        }
+
+                        let capture_ready = !self.pending_capture_settle || resize_settled;
+                        if capture_ready {
+                            self.pending_capture_settle = false;
+                            if let Some(path) = self.pending_screenshot_path.take() {
+                                if let Some(tx) = self.pending_screenshot_response_tx.take() {
+                                    let response = if path == "__pump__" {
+                                        fission_test_driver::TestResponse::Ok {}
+                                    } else {
+                                        fission_test_driver::TestResponse::Error {
+                                            message: "native-skia-ganesh does not support screenshot/readback yet".into(),
+                                        }
+                                    };
+                                    let _ = tx.send(response);
+                                }
+                            }
+                        }
+                        self.pending_resize = None;
+                        if resize_settled {
+                            self.resize_needs_settled_frame = false;
+                        }
+                        self.invalidations = InvalidationSet::default();
+                        self.presented_frames = self.presented_frames.saturating_add(1);
+                        flush_text_traces(
+                            self.text_trace_enabled,
+                            &mut self.pending_text_traces,
+                            self.presented_frames,
+                        );
+                        diag::emit(
+                            diag::DiagCategory::Frame,
+                            diag::DiagLevel::Debug,
+                            diag::DiagEventKind::FramePerformance {
+                                renderer: "native-skia-ganesh".to_string(),
+                                total_ms: now.elapsed().as_secs_f64() * 1000.0,
+                            },
+                        );
+                        diag::end_frame(diag::FrameStats::default());
+                        return;
+                    }
+
                     let render_state = self.presenter.attached_mut().expect("render state");
                     let frame_renderer_name = frame_software_fallback.map_or_else(
                         || render_state.renderer_report.active.clone(),
@@ -1041,8 +1143,11 @@ where
                         Err(error) => {
                             match surface_acquire_recovery(&error) {
                                 SurfaceAcquireRecovery::Reconfigure => {
-                                    let device_handle =
-                                        &self.render_cx.devices[render_state.surface.dev_id];
+                                    let device_handle = &self
+                                        .render_cx
+                                        .as_ref()
+                                        .expect("wgpu context exists for wgpu presentation")
+                                        .devices[render_state.surface.dev_id];
                                     // A failed frame must discard any synthetic
                                     // or otherwise stale pending viewport. If it
                                     // remains pending, the next frame immediately
@@ -1101,7 +1206,11 @@ where
                             return;
                         }
                     };
-                    let device_handle = &self.render_cx.devices[render_state.surface.dev_id];
+                    let device_handle = &self
+                        .render_cx
+                        .as_ref()
+                        .expect("wgpu context exists for wgpu presentation")
+                        .devices[render_state.surface.dev_id];
 
                     let clear_color = vello::wgpu::Color {
                         r: self.env.theme.tokens.colors.background.r as f64 / 255.0,

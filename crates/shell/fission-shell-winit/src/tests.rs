@@ -156,6 +156,12 @@ fn native_software_auto_selection_preserves_platform_hardware_and_explicit_choic
         Cpu,
         "Microsoft Basic Render Driver"
     ));
+    assert!(!should_auto_select_native_software(
+        RendererRequest::NativeSkiaGanesh,
+        true,
+        Cpu,
+        "Microsoft Basic Render Driver"
+    ));
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -164,6 +170,10 @@ fn vello_cpu_override_never_changes_an_explicit_skia_request() {
     assert_eq!(
         apply_cpu_vello_override(RendererRequest::NativeSkiaRaster, true),
         RendererRequest::NativeSkiaRaster
+    );
+    assert_eq!(
+        apply_cpu_vello_override(RendererRequest::NativeSkiaGanesh, true),
+        RendererRequest::NativeSkiaGanesh
     );
     assert_eq!(
         apply_cpu_vello_override(RendererRequest::NativeSoftware, true),
@@ -182,6 +192,35 @@ fn explicit_skia_request_fails_before_surface_initialization_when_feature_is_abs
 
     assert_eq!(error.request, RendererRequest::NativeSkiaRaster);
     assert!(error.details.contains("`skia` Cargo feature"));
+
+    let ganesh = require_compiled_native_renderer(RendererRequest::NativeSkiaGanesh).unwrap_err();
+    assert_eq!(ganesh.request, RendererRequest::NativeSkiaGanesh);
+    assert!(ganesh.details.contains("`skia` Cargo feature"));
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn direct_ganesh_is_the_only_native_request_that_skips_wgpu_initialization() {
+    assert!(!native_request_requires_wgpu(
+        RendererRequest::NativeSkiaGanesh
+    ));
+    assert!(native_request_requires_wgpu(
+        RendererRequest::NativeSkiaRaster
+    ));
+    assert!(native_request_requires_wgpu(RendererRequest::Auto));
+    assert!(!native_renderer_supports_capture(
+        RendererRequest::NativeSkiaGanesh
+    ));
+    assert!(native_renderer_supports_capture(
+        RendererRequest::NativeSkiaRaster
+    ));
+}
+
+#[cfg(all(feature = "skia", feature = "three-d", target_os = "linux"))]
+#[test]
+fn direct_ganesh_rejects_three_d_builds_at_selection_time() {
+    let error = require_compiled_native_renderer(RendererRequest::NativeSkiaGanesh).unwrap_err();
+    assert!(error.details.contains("3D interoperability"));
 }
 
 #[test]

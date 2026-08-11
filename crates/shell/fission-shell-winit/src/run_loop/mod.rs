@@ -98,13 +98,15 @@ where
     #[cfg(target_os = "android")]
     pub(super) platform_window: Option<Arc<Window>>,
     #[cfg(not(target_arch = "wasm32"))]
-    pub(super) render_cx: RenderContext,
+    pub(super) render_cx: Option<RenderContext>,
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) presenter: WinitPresenter<'static>,
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) renderer_request: RendererRequest,
     #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
     pub(super) skia_profile: Option<fission_render_skia::SkiaRasterProfile>,
+    #[cfg(all(feature = "skia", target_os = "linux"))]
+    pub(super) skia_ganesh_profile: Option<fission_render_skia::SkiaGaneshProfile>,
     #[cfg(target_arch = "wasm32")]
     pub(super) web_renderer: Option<WebRenderer>,
     #[cfg(target_arch = "wasm32")]
