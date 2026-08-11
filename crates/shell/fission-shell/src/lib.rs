@@ -70,7 +70,13 @@ impl PlatformSurfaceCapabilities {
     };
 }
 
-pub trait VideoBackend: Send + Sync {
+/// Host-owned video integration invoked on the platform UI thread.
+///
+/// Platform video objects are generally thread-affine (for example DOM,
+/// AppKit, UIKit, and Win32 child views), so this contract intentionally does
+/// not promise `Send` or `Sync`. Shells that render on another thread must
+/// marshal commands to their UI-thread implementation.
+pub trait VideoBackend {
     /// Reports which retained placement semantics this backend can present.
     ///
     /// Existing third-party backends retain basic axis-aligned presentation;
@@ -87,7 +93,9 @@ pub trait VideoBackend: Send + Sync {
     fn present_surfaces(&self, frames: &[VideoSurfaceFrame]);
 }
 
-pub trait VideoPlayer: Send + Sync {
+/// A host-owned video player used on the same platform UI thread as its
+/// [`VideoBackend`].
+pub trait VideoPlayer {
     fn play(&mut self);
     fn pause(&mut self);
     fn stop(&mut self);
@@ -216,11 +224,28 @@ pub trait NativeSurfaceHandler {
 
 #[cfg(test)]
 mod tests {
+    use std::rc::Rc;
+
+    use fission_core::ui::VideoAudioOptions;
+
     use super::{
         NativeSurfaceFrame, NativeSurfaceHandler, NativeSurfaceHost, PlatformSurfaceCapabilities,
+        VideoBackend, VideoPlayer, VideoSurfaceFrame,
     };
 
     struct LegacyNativeSurfaceHandler;
+
+    struct MainThreadVideoBackend {
+        _marker: Rc<()>,
+    }
+
+    impl VideoBackend for MainThreadVideoBackend {
+        fn create_player(&self, _source: &str, _audio: &VideoAudioOptions) -> Box<dyn VideoPlayer> {
+            unimplemented!("the affinity contract test never creates a player")
+        }
+
+        fn present_surfaces(&self, _frames: &[VideoSurfaceFrame]) {}
+    }
 
     impl NativeSurfaceHandler for LegacyNativeSurfaceHandler {
         fn handles_payload(&self, _payload: &[u8]) -> bool {
@@ -246,5 +271,17 @@ mod tests {
         assert!(!PlatformSurfaceCapabilities::BASIC.rectangular_clip);
         assert!(!PlatformSurfaceCapabilities::BASIC.opacity);
         assert!(!PlatformSurfaceCapabilities::BASIC.paint_order);
+    }
+
+    #[test]
+    fn video_backends_can_retain_main_thread_only_state() {
+        let marker = Rc::new(());
+        let backend: Box<dyn VideoBackend> = Box::new(MainThreadVideoBackend {
+            _marker: marker.clone(),
+        });
+
+        assert_eq!(Rc::strong_count(&marker), 2);
+        drop(backend);
+        assert_eq!(Rc::strong_count(&marker), 1);
     }
 }

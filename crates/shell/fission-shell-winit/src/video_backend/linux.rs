@@ -106,9 +106,6 @@ struct PlayerEntry {
     window_handle_set: bool,
 }
 
-unsafe impl Send for PlayerEntry {}
-unsafe impl Sync for PlayerEntry {}
-
 impl PlayerEntry {
     fn new(uri: &str) -> Result<Self, String> {
         let playbin = gst::ElementFactory::make("playbin")

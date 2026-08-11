@@ -22,9 +22,6 @@ use winit::window::Window;
 #[derive(Clone)]
 struct RetainedId(StrongPtr);
 
-unsafe impl Send for RetainedId {}
-unsafe impl Sync for RetainedId {}
-
 impl RetainedId {
     unsafe fn new(ptr: id) -> Self {
         // Take a strong reference to an Objective-C object that may be

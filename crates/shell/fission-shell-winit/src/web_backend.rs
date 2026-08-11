@@ -88,9 +88,6 @@ mod mac {
 
     struct RetainedId(StrongPtr);
 
-    unsafe impl Send for RetainedId {}
-    unsafe impl Sync for RetainedId {}
-
     impl RetainedId {
         unsafe fn new_owned(ptr: id) -> Self {
             Self(StrongPtr::new(ptr))

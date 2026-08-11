@@ -36,9 +36,6 @@ extern "C" {}
 #[derive(Clone)]
 struct RetainedId(StrongPtr);
 
-unsafe impl Send for RetainedId {}
-unsafe impl Sync for RetainedId {}
-
 impl RetainedId {
     unsafe fn retain(ptr: Id) -> Self {
         Self(StrongPtr::retain(ptr))

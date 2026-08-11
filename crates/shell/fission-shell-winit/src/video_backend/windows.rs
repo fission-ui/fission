@@ -25,14 +25,8 @@ use ::windows::Win32::UI::WindowsAndMessaging::{
 #[derive(Clone, Copy)]
 struct NativeHwnd(HWND);
 
-unsafe impl Send for NativeHwnd {}
-unsafe impl Sync for NativeHwnd {}
-
 #[derive(Clone, Copy)]
 struct NativeHinstance(HINSTANCE);
-
-unsafe impl Send for NativeHinstance {}
-unsafe impl Sync for NativeHinstance {}
 
 pub struct WindowsVideoBackend {
     parent: NativeHwnd,
@@ -125,9 +119,6 @@ struct PlayerEntry {
     player: Option<IMFPMediaPlayer>,
     creation_error: Option<String>,
 }
-
-unsafe impl Send for PlayerEntry {}
-unsafe impl Sync for PlayerEntry {}
 
 impl PlayerEntry {
     fn new(

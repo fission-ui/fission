@@ -11,9 +11,6 @@ use web_sys::{Document, HtmlElement, HtmlVideoElement};
 #[derive(Clone)]
 struct DomVideo(HtmlVideoElement);
 
-unsafe impl Send for DomVideo {}
-unsafe impl Sync for DomVideo {}
-
 impl DomVideo {
     fn element(&self) -> &HtmlVideoElement {
         &self.0
