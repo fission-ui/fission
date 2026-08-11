@@ -5,18 +5,17 @@ impl TextInputController {
         ctx: &mut ControllerContext,
         text_root: WidgetId,
     ) -> Option<fission_layout::LayoutRect> {
-        let measurer = ctx.measurer?;
         let node = ctx.ir.nodes.get(&text_root)?;
         let semantics = match &node.op {
             Op::Semantics(semantics) => semantics,
             _ => return None,
         };
 
-        let (scroll_id, _text_op_node_id, scroll_direction) =
+        let (scroll_id, text_node_id, scroll_direction) =
             Self::find_scroll_container_and_text_op(ctx.ir, text_root, semantics.multiline)?;
         let scroll_geom = ctx.layout.get_node_geometry(scroll_id)?;
+        let text_geom = ctx.layout.get_node_geometry(text_node_id)?;
         let viewport_size = scroll_geom.rect.size;
-        let font_size = Self::extract_font_size(ctx.ir, text_root).unwrap_or(16.0);
         let display_value = Self::display_value_for_metrics(
             ctx,
             text_root,
@@ -44,67 +43,70 @@ impl TextInputController {
             caret_idx
         };
 
-        let paragraph = Self::extract_paragraph_style(ctx.ir, text_root).unwrap_or_default();
-        let render_width = if scroll_direction == op::FlexDirection::Column {
-            Some(viewport_size.width)
+        let (caret_x, caret_y, line_height) = if let Some(store) = ctx.paragraphs {
+            let paragraph = store
+                .get(text_node_id)
+                .filter(|paragraph| paragraph.text() == metric_text)?;
+            let caret = paragraph
+                .caret(
+                    fission_layout::Utf8Index::new(metric_caret_idx.min(metric_text.len())),
+                    fission_layout::ParagraphAffinity::Downstream,
+                )
+                .ok()??;
+            (caret.rect.x(), caret.rect.y(), caret.rect.height().max(1.0))
         } else {
-            None
-        };
-        let (caret_x, caret_y) =
-            measurer.get_caret_position(&metric_text, font_size, render_width, metric_caret_idx);
-
-        let line_metrics = measurer.get_line_metrics(&metric_text, font_size, render_width);
-        let line = Self::line_metric_for_index(&line_metrics, metric_caret_idx)
-            .map(|(_, line)| line)
-            .or_else(|| Self::line_metric_for_local_y(&line_metrics, caret_y));
-        let line_width = line
-            .map(|line| line.width)
-            .unwrap_or_else(|| measurer.measure(&metric_text, font_size, render_width).0);
-        let line_height = line
-            .map(|line| line.height.max(1.0))
-            .unwrap_or_else(|| measurer.measure("Tg", font_size, render_width).1.max(1.0));
-        let is_last_line = line_metrics
-            .last()
-            .is_some_and(|last| last.end_index <= metric_caret_idx);
-        let line_x =
-            Self::paragraph_line_x_offset(paragraph, viewport_size.width, line_width, is_last_line);
-
-        let mut origin_x = scroll_geom.rect.origin.x;
-        let mut origin_y = scroll_geom.rect.origin.y;
-        let mut walk = ctx.ir.nodes.get(&scroll_id).and_then(|node| node.parent);
-        while let Some(parent_id) = walk {
-            let Some(parent) = ctx.ir.nodes.get(&parent_id) else {
-                break;
+            let measurer = ctx.measurer?;
+            let font_size = Self::extract_font_size(ctx.ir, text_root).unwrap_or(16.0);
+            let paragraph = Self::extract_paragraph_style(ctx.ir, text_root).unwrap_or_default();
+            let render_width = if scroll_direction == op::FlexDirection::Column {
+                Some(viewport_size.width)
+            } else {
+                None
             };
-            if let Op::Layout(LayoutOp::Scroll { direction, .. }) = &parent.op {
-                let offset = ctx.scroll.get_offset(parent_id);
-                match direction {
-                    FlexDirection::Row => origin_x -= offset,
-                    FlexDirection::Column => origin_y -= offset,
-                }
-            }
-            walk = parent.parent;
-        }
+            let (mut caret_x, caret_y) = measurer.get_caret_position(
+                &metric_text,
+                font_size,
+                render_width,
+                metric_caret_idx,
+            );
+            let line_metrics = measurer.get_line_metrics(&metric_text, font_size, render_width);
+            let line = Self::line_metric_for_index(&line_metrics, metric_caret_idx)
+                .map(|(_, line)| line)
+                .or_else(|| Self::line_metric_for_local_y(&line_metrics, caret_y));
+            let line_width = line
+                .map(|line| line.width)
+                .unwrap_or_else(|| measurer.measure(&metric_text, font_size, render_width).0);
+            let line_height = line
+                .map(|line| line.height.max(1.0))
+                .unwrap_or_else(|| measurer.measure("Tg", font_size, render_width).1.max(1.0));
+            let is_last_line = line_metrics
+                .last()
+                .is_some_and(|last| last.end_index <= metric_caret_idx);
+            caret_x += Self::paragraph_line_x_offset(
+                paragraph,
+                viewport_size.width,
+                line_width,
+                is_last_line,
+            );
+            (caret_x, caret_y, line_height)
+        };
 
-        let own_offset = ctx.scroll.get_offset(scroll_id);
-        let mut x = origin_x + line_x + caret_x;
-        let mut y = origin_y + caret_y;
-        match scroll_direction {
-            op::FlexDirection::Row => x -= own_offset,
-            op::FlexDirection::Column => y -= own_offset,
-        }
+        let text_origin = Self::visual_origin_for_node(ctx, text_node_id, text_geom);
+        let viewport_origin = Self::visual_origin_for_node(ctx, scroll_id, scroll_geom);
+        let mut x = text_origin.x + caret_x;
+        let mut y = text_origin.y + caret_y;
 
         if !(x.is_finite() && y.is_finite() && line_height.is_finite()) {
             return None;
         }
 
-        let right_limit = origin_x + viewport_size.width - 2.0;
-        let bottom_limit = origin_y + viewport_size.height - line_height;
-        if right_limit >= origin_x {
-            x = x.clamp(origin_x, right_limit);
+        let right_limit = viewport_origin.x + viewport_size.width - 2.0;
+        let bottom_limit = viewport_origin.y + viewport_size.height - line_height;
+        if right_limit >= viewport_origin.x {
+            x = x.clamp(viewport_origin.x, right_limit);
         }
-        if bottom_limit >= origin_y {
-            y = y.clamp(origin_y, bottom_limit);
+        if bottom_limit >= viewport_origin.y {
+            y = y.clamp(viewport_origin.y, bottom_limit);
         }
 
         Some(fission_layout::LayoutRect::new(x, y, 2.0, line_height))
@@ -112,145 +114,151 @@ impl TextInputController {
 
     pub(super) fn auto_scroll_textinput(ctx: &mut ControllerContext, text_root: WidgetId) {
         let font_size = Self::extract_font_size(ctx.ir, text_root).unwrap_or(16.0);
-        if let Some(measurer) = ctx.measurer {
-            // Need to get multiline status from semantics here
-            let is_multiline = if let Some(node) = ctx.ir.nodes.get(&text_root) {
-                if let Op::Semantics(sem) = &node.op {
-                    sem.multiline
-                } else {
-                    false
-                }
-            } else {
-                false
+        let Some((is_multiline, masked, scroll_padding, semantic_value)) = ctx
+            .ir
+            .nodes
+            .get(&text_root)
+            .and_then(|node| match &node.op {
+                Op::Semantics(semantics) => Some((
+                    semantics.multiline,
+                    semantics.masked,
+                    semantics.scroll_padding.unwrap_or([2.0, 3.0, 2.0, 3.0]),
+                    semantics.value.clone().unwrap_or_default(),
+                )),
+                _ => None,
+            })
+        else {
+            return;
+        };
+        let Some((scroll_id, text_node_id, scroll_direction)) =
+            Self::find_scroll_container_and_text_op(ctx.ir, text_root, is_multiline)
+        else {
+            return;
+        };
+        let Some(scroll_geom) = ctx.layout.get_node_geometry(scroll_id) else {
+            return;
+        };
+        let viewport_size = scroll_geom.rect.size;
+        let text_offset = ctx
+            .layout
+            .get_node_geometry(text_node_id)
+            .map(|geometry| {
+                fission_layout::LayoutPoint::new(
+                    geometry.rect.origin.x - scroll_geom.rect.origin.x,
+                    geometry.rect.origin.y - scroll_geom.rect.origin.y,
+                )
+            })
+            .unwrap_or_default();
+        let display_value =
+            Self::display_value_for_metrics(ctx, text_root, semantic_value.as_str());
+        let metric_text = if masked {
+            Self::mask_text_for_metrics(&display_value)
+        } else {
+            display_value.clone()
+        };
+        let current_caret_idx = ctx
+            .text_edit
+            .get(text_root)
+            .map(|state| {
+                state
+                    .display_preedit_cursor_range()
+                    .map(|(_, end)| end)
+                    .unwrap_or(state.caret)
+            })
+            .unwrap_or(0);
+        let metric_caret_idx = if masked {
+            Self::masked_byte_offset_from_source(&display_value, &metric_text, current_caret_idx)
+        } else {
+            current_caret_idx
+        };
+
+        let (caret_x, caret_y, caret_width, caret_height) = if let Some(store) = ctx.paragraphs {
+            let Some(paragraph) = store
+                .get(text_node_id)
+                .filter(|paragraph| paragraph.text() == metric_text)
+            else {
+                return;
             };
-
-            if let Some((scroll_id, _text_op_node_id, scroll_direction)) =
-                Self::find_scroll_container_and_text_op(ctx.ir, text_root, is_multiline)
-            {
-                if let Some(scroll_geom) = ctx.layout.get_node_geometry(scroll_id) {
-                    let viewport_size = scroll_geom.rect.size;
-
-                    let (current_text_value, metric_text, masked, scroll_padding) =
-                        if let Some(node) = ctx.ir.nodes.get(&text_root) {
-                            if let Op::Semantics(sem) = &node.op {
-                                let display_value = Self::display_value_for_metrics(
-                                    ctx,
-                                    text_root,
-                                    sem.value.as_deref().unwrap_or(""),
-                                );
-                                let metric_text = if sem.masked {
-                                    Self::mask_text_for_metrics(&display_value)
-                                } else {
-                                    display_value.clone()
-                                };
-                                (
-                                    display_value,
-                                    metric_text,
-                                    sem.masked,
-                                    sem.scroll_padding.unwrap_or([2.0, 3.0, 2.0, 3.0]),
-                                )
-                            } else {
-                                (String::new(), String::new(), false, [2.0, 3.0, 2.0, 3.0])
-                            }
-                        } else {
-                            (String::new(), String::new(), false, [2.0, 3.0, 2.0, 3.0])
-                        };
-
-                    let current_caret_idx = if let Some(st) = ctx.text_edit.get(text_root) {
-                        st.display_preedit_cursor_range()
-                            .map(|(_, end)| end)
-                            .unwrap_or(st.caret)
-                    } else {
-                        0
-                    };
-                    let metric_caret_idx = if masked {
-                        Self::masked_byte_offset_from_source(
-                            &current_text_value,
-                            &metric_text,
-                            current_caret_idx,
-                        )
-                    } else {
-                        current_caret_idx
-                    };
-                    let paragraph =
-                        Self::extract_paragraph_style(ctx.ir, text_root).unwrap_or_default();
-                    let measurer_width = if scroll_direction == op::FlexDirection::Column {
-                        Some(viewport_size.width)
-                    } else {
-                        None
-                    };
-
-                    let (caret_x, caret_y) = measurer.get_caret_position(
-                        &metric_text,
-                        font_size,
-                        measurer_width,
-                        metric_caret_idx,
-                    );
-
-                    let mut offset = ctx.scroll.get_offset(scroll_id);
-
-                    if scroll_direction == op::FlexDirection::Row {
-                        // Handle horizontal scrolling for single-line text
-                        let line_width = measurer
-                            .get_line_metrics(&metric_text, font_size, None)
-                            .first()
-                            .map(|line| line.width)
-                            .unwrap_or_else(|| measurer.measure(&metric_text, font_size, None).0);
-                        let caret_left = caret_x
-                            + Self::paragraph_line_x_offset(
-                                paragraph,
-                                viewport_size.width,
-                                line_width,
-                                false,
-                            );
-                        let caret_width = 2.0f32;
-                        let caret_right = caret_left + caret_width;
-
-                        let margin_left = scroll_padding[0].max(0.0);
-                        let margin_right = scroll_padding[1].max(0.0);
-
-                        let visible_left = caret_left - offset;
-                        let visible_right = caret_right - offset;
-
-                        if visible_right > (viewport_size.width - margin_right) {
-                            offset =
-                                (caret_right - (viewport_size.width - margin_right)).max(0.0f32);
-                        } else if visible_left < margin_left {
-                            offset = (caret_left - margin_left).max(0.0f32);
-                        }
-                        let content_w = scroll_geom.content_size.width.max(viewport_size.width);
-                        let max_offset = (content_w - viewport_size.width).max(0.0f32);
-                        offset = offset.clamp(0.0f32, max_offset);
-                        ctx.scroll.set_offset(scroll_id, offset);
-                    } else {
-                        // op::FlexDirection::Column
-                        // Handle vertical scrolling for multi-line text
-                        let caret_top = caret_y;
-                        let caret_height = measurer
-                            .measure("Tg", font_size, Some(viewport_size.width))
-                            .1;
-                        let caret_bottom = caret_top + caret_height;
-
-                        let margin_top = scroll_padding[2].max(0.0);
-                        let margin_bottom = scroll_padding[3].max(0.0);
-
-                        let visible_top = caret_top - offset;
-                        let visible_bottom = caret_bottom - offset;
-
-                        if visible_bottom > (viewport_size.height - margin_bottom) {
-                            offset =
-                                (caret_bottom - (viewport_size.height - margin_bottom)).max(0.0f32);
-                        } else if visible_top < margin_top {
-                            offset = (caret_top - margin_top).max(0.0f32);
-                        }
-                        let content_h = scroll_geom.content_size.height.max(viewport_size.height);
-                        let max_offset = (content_h - viewport_size.height).max(0.0f32);
-                        offset = offset.clamp(0.0f32, max_offset);
-                        ctx.scroll.set_offset(scroll_id, offset);
-                    }
-                }
+            let Ok(Some(caret)) = paragraph.caret(
+                fission_layout::Utf8Index::new(metric_caret_idx.min(metric_text.len())),
+                fission_layout::ParagraphAffinity::Downstream,
+            ) else {
+                return;
+            };
+            (
+                caret.rect.x(),
+                caret.rect.y(),
+                caret.rect.width().max(2.0),
+                caret.rect.height().max(1.0),
+            )
+        } else {
+            let Some(measurer) = ctx.measurer else {
+                return;
+            };
+            let paragraph = Self::extract_paragraph_style(ctx.ir, text_root).unwrap_or_default();
+            let measurer_width =
+                (scroll_direction == op::FlexDirection::Column).then_some(viewport_size.width);
+            let (mut caret_x, caret_y) = measurer.get_caret_position(
+                &metric_text,
+                font_size,
+                measurer_width,
+                metric_caret_idx,
+            );
+            if scroll_direction == op::FlexDirection::Row {
+                let line_width = measurer
+                    .get_line_metrics(&metric_text, font_size, None)
+                    .first()
+                    .map(|line| line.width)
+                    .unwrap_or_else(|| measurer.measure(&metric_text, font_size, None).0);
+                caret_x += Self::paragraph_line_x_offset(
+                    paragraph,
+                    viewport_size.width,
+                    line_width,
+                    false,
+                );
             }
+            (
+                caret_x,
+                caret_y,
+                2.0,
+                measurer
+                    .measure("Tg", font_size, Some(viewport_size.width))
+                    .1
+                    .max(1.0),
+            )
+        };
+
+        let mut offset = ctx.scroll.get_offset(scroll_id);
+        if scroll_direction == op::FlexDirection::Row {
+            let caret_left = text_offset.x + caret_x;
+            let caret_right = caret_left + caret_width;
+            let margin_left = scroll_padding[0].max(0.0);
+            let margin_right = scroll_padding[1].max(0.0);
+            let visible_left = caret_left - offset;
+            let visible_right = caret_right - offset;
+            if visible_right > viewport_size.width - margin_right {
+                offset = (caret_right - (viewport_size.width - margin_right)).max(0.0);
+            } else if visible_left < margin_left {
+                offset = (caret_left - margin_left).max(0.0);
+            }
+            let content_width = scroll_geom.content_size.width.max(viewport_size.width);
+            offset = offset.clamp(0.0, (content_width - viewport_size.width).max(0.0));
+        } else {
+            let caret_top = text_offset.y + caret_y;
+            let caret_bottom = caret_top + caret_height;
+            let margin_top = scroll_padding[2].max(0.0);
+            let margin_bottom = scroll_padding[3].max(0.0);
+            let visible_top = caret_top - offset;
+            let visible_bottom = caret_bottom - offset;
+            if visible_bottom > viewport_size.height - margin_bottom {
+                offset = (caret_bottom - (viewport_size.height - margin_bottom)).max(0.0);
+            } else if visible_top < margin_top {
+                offset = (caret_top - margin_top).max(0.0);
+            }
+            let content_height = scroll_geom.content_size.height.max(viewport_size.height);
+            offset = offset.clamp(0.0, (content_height - viewport_size.height).max(0.0));
         }
+        ctx.scroll.set_offset(scroll_id, offset);
     }
 
     pub(super) fn handle_vertical_navigation(
@@ -263,6 +271,58 @@ impl TextInputController {
         modifiers: u8,
         is_up: bool,
     ) {
+        if let Some(store) = ctx.paragraphs {
+            let Some((_scroll_id, text_node_id, _scroll_direction)) =
+                Self::find_scroll_container_and_text_op(ctx.ir, focused_id, semantics.multiline)
+            else {
+                return;
+            };
+            let Some(paragraph) = store
+                .get(text_node_id)
+                .filter(|paragraph| paragraph.text() == value)
+            else {
+                return;
+            };
+            let index = fission_layout::Utf8Index::new(caret.min(value.len()));
+            let Ok(Some(current_caret)) =
+                paragraph.caret(index, fission_layout::ParagraphAffinity::Downstream)
+            else {
+                return;
+            };
+            let lines = paragraph.geometry().lines();
+            let target_line_index = if is_up {
+                current_caret.line_index.saturating_sub(1)
+            } else {
+                (current_caret.line_index + 1).min(lines.len().saturating_sub(1))
+            };
+            let Some(target_line) = lines.get(target_line_index) else {
+                return;
+            };
+            let Ok(hit) = paragraph.hit_test(fission_layout::LayoutPoint::new(
+                current_caret.rect.x(),
+                target_line.rect.y() + target_line.rect.height() * 0.5,
+            )) else {
+                return;
+            };
+            let new_caret = hit.index.byte_offset().clamp(
+                target_line.range.start().byte_offset(),
+                target_line
+                    .range
+                    .end()
+                    .byte_offset()
+                    .max(target_line.range.start().byte_offset()),
+            );
+            let state = ctx.text_edit.get_mut_or_default(focused_id);
+            state.caret = new_caret;
+            if !Self::has_shift(modifiers) {
+                state.anchor = new_caret;
+            }
+            let final_anchor = state.anchor;
+            Self::auto_scroll_textinput(ctx, focused_id);
+            Self::dispatch_cursor_change(ctx, semantics, focused_id, new_caret, final_anchor);
+            return;
+        }
+
         if let Some(measurer) = ctx.measurer {
             if let Some((scroll_id, _text_op_node_id, _scroll_direction)) =
                 Self::find_scroll_container_and_text_op(ctx.ir, focused_id, semantics.multiline)
@@ -343,6 +403,69 @@ impl TextInputController {
         modifiers: u8,
         is_page_up: bool,
     ) {
+        if let Some(store) = ctx.paragraphs {
+            let Some((scroll_id, text_node_id, _scroll_direction)) =
+                Self::find_scroll_container_and_text_op(ctx.ir, focused_id, semantics.multiline)
+            else {
+                return;
+            };
+            let Some(scroll_geometry) = ctx.layout.get_node_geometry(scroll_id) else {
+                return;
+            };
+            let Some(paragraph) = store
+                .get(text_node_id)
+                .filter(|paragraph| paragraph.text() == value)
+            else {
+                return;
+            };
+            let index = fission_layout::Utf8Index::new(caret.min(value.len()));
+            let Ok(Some(current_caret)) =
+                paragraph.caret(index, fission_layout::ParagraphAffinity::Downstream)
+            else {
+                return;
+            };
+            let lines = paragraph.geometry().lines();
+            let Some(current_line) = lines.get(current_caret.line_index) else {
+                return;
+            };
+            let lines_per_page = (scroll_geometry.rect.size.height.max(1.0)
+                / current_line.rect.height().max(1.0))
+            .floor()
+            .max(1.0) as isize;
+            let delta = if is_page_up {
+                -lines_per_page
+            } else {
+                lines_per_page
+            };
+            let target_line_index = current_caret
+                .line_index
+                .saturating_add_signed(delta)
+                .min(lines.len().saturating_sub(1));
+            let Some(target_line) = lines.get(target_line_index) else {
+                return;
+            };
+            let Ok(hit) = paragraph.hit_test(fission_layout::LayoutPoint::new(
+                current_caret.rect.x(),
+                target_line.rect.y() + target_line.rect.height() * 0.5,
+            )) else {
+                return;
+            };
+            let target_end = Self::trim_line_end(value, target_line.range.end().byte_offset());
+            let new_caret = hit.index.byte_offset().clamp(
+                target_line.range.start().byte_offset(),
+                target_end.max(target_line.range.start().byte_offset()),
+            );
+            let state = ctx.text_edit.get_mut_or_default(focused_id);
+            state.caret = new_caret;
+            if !Self::has_shift(modifiers) {
+                state.anchor = new_caret;
+            }
+            let final_anchor = state.anchor;
+            Self::auto_scroll_textinput(ctx, focused_id);
+            Self::dispatch_cursor_change(ctx, semantics, focused_id, new_caret, final_anchor);
+            return;
+        }
+
         if let Some(measurer) = ctx.measurer {
             if let Some((scroll_id, _text_op_node_id, _scroll_direction)) =
                 Self::find_scroll_container_and_text_op(ctx.ir, focused_id, semantics.multiline)

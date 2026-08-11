@@ -5,7 +5,7 @@ use crate::env::{
 use crate::event::InputEvent;
 use crate::{ActionEnvelope, ActionInput};
 use fission_ir::{CoreIR, Op, WidgetId};
-use fission_layout::{LayoutSnapshot, TextMeasurer};
+use fission_layout::{LayoutSnapshot, ParagraphResultStore, TextMeasurer};
 use std::sync::Arc;
 
 pub mod gesture;
@@ -25,6 +25,9 @@ pub struct ControllerContext<'a> {
     pub gesture: &'a mut crate::env::GestureState,
     pub clipboard: Option<&'a Arc<dyn Clipboard>>,
     pub measurer: Option<&'a Arc<dyn TextMeasurer>>,
+    /// Paragraph results from the same final layout snapshot.
+    #[doc(hidden)]
+    pub paragraphs: Option<&'a Arc<ParagraphResultStore>>,
     // We queue actions here instead of dispatching immediately to keep Controller pure logic
     pub dispatched_actions: Vec<(WidgetId, ActionEnvelope, ActionInput)>,
 }

@@ -229,7 +229,7 @@ impl InputController for TextInputController {
                                     focused_id,
                                     sem.multiline,
                                 );
-                                if let Some((scroll_id, _text_op_node_id, scroll_direction)) =
+                                if let Some((scroll_id, text_op_node_id, scroll_direction)) =
                                     scroll_result
                                 {
                                     if let Some(scroll_geom) =
@@ -249,9 +249,12 @@ impl InputController for TextInputController {
                                             display_value.clone()
                                         };
 
-                                        let caret = if let Some(measurer) = ctx.measurer {
+                                        let caret = if ctx.paragraphs.is_some()
+                                            || ctx.measurer.is_some()
+                                        {
                                             let local_point = Self::text_local_point_from_screen(
                                                 ctx,
+                                                text_op_node_id,
                                                 scroll_id,
                                                 scroll_direction,
                                                 scroll_geom,
@@ -259,9 +262,9 @@ impl InputController for TextInputController {
                                             );
 
                                             let masked_caret = Self::hit_test_text(
-                                                measurer,
-                                                ctx.ir,
+                                                ctx,
                                                 focused_id,
+                                                text_op_node_id,
                                                 sem.masked,
                                                 &metric_text,
                                                 scroll_geom,
@@ -326,7 +329,7 @@ impl InputController for TextInputController {
                                     .get(&focused_id)
                                     .and_then(|state| state.affordances.active_handle);
                                 if let Some(active_handle) = active_handle {
-                                    if let Some((scroll_id, _text_op_node_id, scroll_direction)) =
+                                    if let Some((scroll_id, text_op_node_id, scroll_direction)) =
                                         Self::find_scroll_container_and_text_op(
                                             ctx.ir,
                                             focused_id,
@@ -345,19 +348,22 @@ impl InputController for TextInputController {
                                             } else {
                                                 display_value.clone()
                                             };
-                                            let new_caret = if let Some(measurer) = ctx.measurer {
+                                            let new_caret = if ctx.paragraphs.is_some()
+                                                || ctx.measurer.is_some()
+                                            {
                                                 let local_point =
                                                     Self::text_local_point_from_screen(
                                                         ctx,
+                                                        text_op_node_id,
                                                         scroll_id,
                                                         scroll_direction,
                                                         scroll_geom,
                                                         *point,
                                                     );
                                                 let masked_caret = Self::hit_test_text(
-                                                    measurer,
-                                                    ctx.ir,
+                                                    ctx,
                                                     focused_id,
+                                                    text_op_node_id,
                                                     sem.masked,
                                                     &metric_text,
                                                     scroll_geom,
@@ -433,7 +439,7 @@ impl InputController for TextInputController {
                                     if moved_enough {
                                         if let Some((
                                             scroll_id,
-                                            _text_op_node_id,
+                                            text_op_node_id,
                                             scroll_direction,
                                         )) = Self::find_scroll_container_and_text_op(
                                             ctx.ir,
@@ -452,11 +458,13 @@ impl InputController for TextInputController {
                                                 } else {
                                                     display_value.clone()
                                                 };
-                                                let new_caret = if let Some(measurer) = ctx.measurer
+                                                let new_caret = if ctx.paragraphs.is_some()
+                                                    || ctx.measurer.is_some()
                                                 {
                                                     let local_point =
                                                         Self::text_local_point_from_screen(
                                                             ctx,
+                                                            text_op_node_id,
                                                             scroll_id,
                                                             scroll_direction,
                                                             scroll_geom,
@@ -464,9 +472,9 @@ impl InputController for TextInputController {
                                                         );
 
                                                     let masked_caret = Self::hit_test_text(
-                                                        measurer,
-                                                        ctx.ir,
+                                                        ctx,
                                                         focused_id,
+                                                        text_op_node_id,
                                                         sem.masked,
                                                         &metric_text,
                                                         scroll_geom,

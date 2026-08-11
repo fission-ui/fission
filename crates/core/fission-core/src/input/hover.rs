@@ -175,8 +175,6 @@ pub(crate) fn resolve_rich_text_annotation_at_point(
     hover_path: &[WidgetId],
     point: LayoutPoint,
 ) -> Option<ResolvedRichTextAnnotation> {
-    let measurer = ctx.measurer?;
-
     for node_id in hover_path {
         let Some(any_annotations) = ctx.ir.custom_render_objects.get(node_id) else {
             continue;
@@ -207,19 +205,123 @@ pub(crate) fn resolve_rich_text_annotation_at_point(
             None
         };
 
-        if let Some(annotation) = measurer.resolve_rich_text_annotation_at_point(
-            runs,
-            available_width,
-            local_x,
-            local_y,
-            paragraph_style.unwrap_or_default(),
-            annotations,
-        ) {
+        let annotation = if let Some(store) = ctx.paragraphs {
+            let paragraph = store.get(*node_id)?;
+            let (source_text, source_index) = annotation_source_index(
+                runs,
+                paragraph.text(),
+                paragraph
+                    .hit_test(LayoutPoint::new(local_x, local_y))
+                    .ok()?
+                    .index
+                    .byte_offset(),
+            )?;
+            resolve_annotation_at_index(&source_text, annotations, source_index)
+        } else {
+            ctx.measurer?.resolve_rich_text_annotation_at_point(
+                runs,
+                available_width,
+                local_x,
+                local_y,
+                paragraph_style.unwrap_or_default(),
+                annotations,
+            )
+        };
+        if let Some(annotation) = annotation {
             return Some((*node_id, annotation));
         }
     }
 
     None
+}
+
+fn annotation_source_index(
+    runs: &[fission_ir::op::TextRun],
+    paragraph_text: &str,
+    paragraph_index: usize,
+) -> Option<(String, usize)> {
+    let mut normalized = String::new();
+    let mut source = String::new();
+    let mut source_index = 0;
+    let mut found = false;
+    for run in runs {
+        if run.text.is_empty()
+            && fission_ir::op::decode_inline_widget_marker(run.style.font_family.as_deref())
+                .is_some()
+        {
+            let start = normalized.len();
+            normalized.push('\u{fffc}');
+            if paragraph_index > start && paragraph_index < normalized.len() {
+                return None;
+            }
+            if paragraph_index >= normalized.len() {
+                source_index = source.len();
+            }
+            continue;
+        }
+        let normalized_start = normalized.len();
+        let source_start = source.len();
+        normalized.push_str(&run.text);
+        source.push_str(&run.text);
+        if !found && paragraph_index <= normalized.len() {
+            source_index = source_start + paragraph_index.saturating_sub(normalized_start);
+            found = true;
+        }
+    }
+    if normalized != paragraph_text {
+        return None;
+    }
+    let source_index = source_index.min(source.len());
+    Some((source, source_index))
+}
+
+fn resolve_annotation_at_index(
+    text: &str,
+    annotations: &[RichTextAnnotation],
+    index: usize,
+) -> Option<RichTextAnnotation> {
+    let contains = |annotation: &&RichTextAnnotation| {
+        annotation.range.contains(&index)
+            || (index == annotation.range.end
+                && text[..index.min(text.len())]
+                    .char_indices()
+                    .next_back()
+                    .is_some_and(|(previous, _)| annotation.range.contains(&previous)))
+    };
+    let mut matches = annotations.iter().filter(contains).collect::<Vec<_>>();
+    matches.sort_by_key(|annotation| {
+        (
+            std::cmp::Reverse(annotation.range.end.saturating_sub(annotation.range.start)),
+            annotation.range.start,
+        )
+    });
+    let mut resolved = RichTextAnnotation {
+        range: matches.last()?.range.clone(),
+        semantics_label: None,
+        semantics_identifier: None,
+        spell_out: None,
+        mouse_cursor: None,
+        actions: Vec::new(),
+    };
+    for annotation in matches {
+        resolved.semantics_label = annotation
+            .semantics_label
+            .clone()
+            .or(resolved.semantics_label);
+        resolved.semantics_identifier = annotation
+            .semantics_identifier
+            .clone()
+            .or(resolved.semantics_identifier);
+        resolved.spell_out = annotation.spell_out.or(resolved.spell_out);
+        resolved.mouse_cursor = annotation.mouse_cursor.or(resolved.mouse_cursor);
+        for action in &annotation.actions {
+            resolved
+                .actions
+                .retain(|existing| existing.trigger != action.trigger);
+            resolved.actions.push(action.clone());
+        }
+    }
+    Some(resolved)
 }
 
 fn visual_rect_for_node(ctx: &ControllerContext, node_id: WidgetId) -> Option<LayoutRect> {

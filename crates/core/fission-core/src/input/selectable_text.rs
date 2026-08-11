@@ -216,10 +216,19 @@ impl SelectableTextController {
         point: LayoutPoint,
     ) -> usize {
         let value = semantics.value.as_deref().unwrap_or("");
-        let Some((layout_id, geom)) = Self::layout_geometry(ctx, owner) else {
+        let Some((text_node_id, geom)) = Self::text_geometry(ctx, owner) else {
             return 0;
         };
-        let local = Self::local_point(ctx, layout_id, geom, point);
+        let local = Self::local_point(ctx, text_node_id, geom, point);
+        if let Some(store) = ctx.paragraphs {
+            let caret = store
+                .get(text_node_id)
+                .filter(|paragraph| paragraph.text() == value)
+                .and_then(|paragraph| paragraph.hit_test(local).ok())
+                .map(|hit| hit.index.byte_offset())
+                .unwrap_or(0);
+            return Self::clamp_to_char_boundary(value, caret.min(value.len()));
+        }
         let Some(measurer) = ctx.measurer else {
             return 0;
         };
@@ -233,7 +242,7 @@ impl SelectableTextController {
         Self::clamp_to_char_boundary(value, caret.min(value.len()))
     }
 
-    fn layout_geometry<'a>(
+    fn text_geometry<'a>(
         ctx: &'a ControllerContext,
         owner: WidgetId,
     ) -> Option<(WidgetId, &'a LayoutNodeGeometry)> {
@@ -241,10 +250,17 @@ impl SelectableTextController {
             ctx: &'a ControllerContext,
             node_id: WidgetId,
         ) -> Option<(WidgetId, &'a LayoutNodeGeometry)> {
-            if let Some(geom) = ctx.layout.get_node_geometry(node_id) {
-                return Some((node_id, geom));
+            let node = ctx.ir.nodes.get(&node_id)?;
+            if matches!(
+                node.op,
+                Op::Paint(fission_ir::PaintOp::DrawText { .. })
+                    | Op::Paint(fission_ir::PaintOp::DrawRichText { .. })
+            ) {
+                if let Some(geometry) = ctx.layout.get_node_geometry(node_id) {
+                    return Some((node_id, geometry));
+                }
             }
-            for child in &ctx.ir.nodes.get(&node_id)?.children {
+            for child in &node.children {
                 if let Some(found) = walk(ctx, *child) {
                     return Some(found);
                 }

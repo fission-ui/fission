@@ -385,6 +385,7 @@ fn setup_ctx<'a>(
         gesture,
         clipboard: Some(clipboard),
         measurer,
+        paragraphs: None,
         dispatched_actions: Vec::new(),
     }
 }

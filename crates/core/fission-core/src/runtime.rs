@@ -126,6 +126,8 @@ pub struct Runtime {
     pub runtime_state: RuntimeState,
     /// Platform-provided text measurer for layout.
     pub measurer: Option<Arc<dyn TextMeasurer>>,
+    /// Shared paragraph results published by the selected layout profile.
+    paragraph_store: Option<Arc<fission_layout::ParagraphResultStore>>,
     /// Platform-provided clipboard backend.
     pub clipboard_backend: Option<Arc<dyn Clipboard>>,
     /// Platform-provided IME (Input Method Editor) handler.
@@ -153,6 +155,7 @@ impl Default for Runtime {
             app_states: HashMap::new(),
             runtime_state: RuntimeState::default(),
             measurer: None,
+            paragraph_store: None,
             clipboard_backend: None,
             ime_handler: None,
             pending_effects: Vec::new(),
@@ -181,6 +184,22 @@ impl Runtime {
     pub fn with_measurer(mut self, measurer: Arc<dyn TextMeasurer>) -> Self {
         self.measurer = Some(measurer);
         self
+    }
+
+    /// Attaches the paragraph-result authority shared with layout and paint.
+    #[doc(hidden)]
+    pub fn with_paragraph_store(
+        mut self,
+        store: Arc<fission_layout::ParagraphResultStore>,
+    ) -> Self {
+        self.paragraph_store = Some(store);
+        self
+    }
+
+    /// Replaces the paragraph authority before a backend profile starts.
+    #[doc(hidden)]
+    pub fn set_paragraph_store(&mut self, store: Arc<fission_layout::ParagraphResultStore>) {
+        self.paragraph_store = Some(store);
     }
 
     pub fn with_clipboard(mut self, backend: Arc<dyn Clipboard>) -> Self {
@@ -835,6 +854,7 @@ impl Runtime {
                     gesture: &mut self.runtime_state.gesture,
                     clipboard: self.clipboard_backend.as_ref(),
                     measurer: self.measurer.as_ref(),
+                    paragraphs: self.paragraph_store.as_ref(),
                     dispatched_actions: Vec::new(),
                 };
                 let mut hover_controller = HoverController;
@@ -1003,6 +1023,7 @@ impl Runtime {
                 gesture: &mut self.runtime_state.gesture,
                 clipboard: self.clipboard_backend.as_ref(),
                 measurer: self.measurer.as_ref(),
+                paragraphs: self.paragraph_store.as_ref(),
                 dispatched_actions: Vec::new(),
             };
 
@@ -1398,6 +1419,7 @@ impl Runtime {
                 gesture: &mut self.runtime_state.gesture,
                 clipboard: self.clipboard_backend.as_ref(),
                 measurer: self.measurer.as_ref(),
+                paragraphs: self.paragraph_store.as_ref(),
                 dispatched_actions: Vec::new(),
             };
             let changed = HoverController::clear(&mut ctx, point);
@@ -1471,6 +1493,7 @@ impl Runtime {
                     gesture: &mut self.runtime_state.gesture,
                     clipboard: self.clipboard_backend.as_ref(),
                     measurer: self.measurer.as_ref(),
+                    paragraphs: self.paragraph_store.as_ref(),
                     dispatched_actions: Vec::new(),
                 };
                 crate::input::text::TextInputController::ime_cursor_area(&mut ctx, focused_id)

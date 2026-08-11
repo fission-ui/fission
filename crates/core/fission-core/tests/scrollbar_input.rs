@@ -52,6 +52,7 @@ fn dragging_scrollbar_thumb_updates_scroll_offset_directly() {
         gesture: &mut gesture,
         clipboard: Some(&clipboard),
         measurer: None,
+        paragraphs: None,
         dispatched_actions: Vec::new(),
     };
 
@@ -160,6 +161,7 @@ fn dragging_nested_scrollbar_uses_visual_pointer_coordinates() {
         gesture: &mut gesture,
         clipboard: Some(&clipboard),
         measurer: None,
+        paragraphs: None,
         dispatched_actions: Vec::new(),
     };
 

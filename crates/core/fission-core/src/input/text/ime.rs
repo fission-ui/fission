@@ -454,23 +454,39 @@ impl TextInputController {
     /// and X-to-glyph mapping in hit-testing matches the rendered text without
     /// coupling core input handling to a particular text engine.
     pub(super) fn hit_test_text(
-        measurer: &std::sync::Arc<dyn fission_layout::TextMeasurer>,
-        ir: &fission_ir::CoreIR,
+        ctx: &ControllerContext,
         focused_id: WidgetId,
+        text_node_id: WidgetId,
         prefer_plain_text: bool,
         text: &str,
         scroll_geom: &fission_layout::LayoutNodeGeometry,
         local_x: f32,
         local_y: f32,
     ) -> usize {
+        if let Some(store) = ctx.paragraphs {
+            return store
+                .get(text_node_id)
+                .filter(|paragraph| paragraph.text() == text)
+                .and_then(|paragraph| {
+                    paragraph
+                        .hit_test(fission_layout::LayoutPoint::new(local_x, local_y))
+                        .ok()
+                })
+                .map(|hit| hit.index.byte_offset())
+                .unwrap_or(0);
+        }
+
+        let Some(measurer) = ctx.measurer else {
+            return 0;
+        };
         let viewport_width = if scroll_geom.rect.size.width > 0.0 {
             Some(scroll_geom.rect.size.width)
         } else {
             None
         };
         let render_width = viewport_width;
-        let font_size = Self::extract_font_size(ir, focused_id).unwrap_or(13.0);
-        let paragraph = Self::extract_paragraph_style(ir, focused_id).unwrap_or_default();
+        let font_size = Self::extract_font_size(ctx.ir, focused_id).unwrap_or(13.0);
+        let paragraph = Self::extract_paragraph_style(ctx.ir, focused_id).unwrap_or_default();
 
         if paragraph.text_align != TextAlign::Start {
             let line_metrics = measurer.get_line_metrics(text, font_size, render_width);
@@ -485,7 +501,7 @@ impl TextInputController {
         }
 
         if !prefer_plain_text {
-            if let Some(runs) = Self::extract_rich_runs(ir, focused_id) {
+            if let Some(runs) = Self::extract_rich_runs(ctx.ir, focused_id) {
                 return measurer.hit_test_rich(&runs, render_width, local_x, local_y);
             }
         }
@@ -504,5 +520,69 @@ impl TextInputController {
         // Simplified fallback: always return 0 if no proper measurer is available.
         // In a real scenario, this would ideally not be hit in interactive UIs.
         0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn text_input_lookup_and_paragraph_lowering_share_the_paint_node_id() {
+        let input_id = WidgetId::explicit("input");
+        let scroll_id = WidgetId::explicit("scroll");
+        let text_id = WidgetId::explicit("text-paint");
+        let mut ir = fission_ir::CoreIR::new();
+        ir.add_node(
+            text_id,
+            Op::Paint(fission_ir::PaintOp::DrawText {
+                text: "hello".into(),
+                size: 14.0,
+                color: fission_ir::op::Color::BLACK,
+                underline: false,
+                wrap: false,
+                caret_index: None,
+                caret_color: None,
+                caret_width: None,
+                caret_height: None,
+                caret_radius: None,
+                paragraph_style: None,
+            }),
+            Vec::new(),
+        );
+        ir.add_node(
+            scroll_id,
+            Op::Layout(LayoutOp::Scroll {
+                direction: FlexDirection::Row,
+                show_scrollbar: false,
+                width: None,
+                height: None,
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
+            }),
+            vec![text_id],
+        );
+        ir.add_node(
+            input_id,
+            Op::Semantics(Semantics {
+                multiline: false,
+                ..Default::default()
+            }),
+            vec![scroll_id],
+        );
+
+        let (_, input_text_id, _) =
+            TextInputController::find_scroll_container_and_text_op(&ir, input_id, false).unwrap();
+        let paragraph_descriptions = crate::lowering::build_paragraph_descriptions(&ir);
+
+        assert_eq!(input_text_id, text_id);
+        assert!(paragraph_descriptions.contains_key(&input_text_id));
+        assert!(!paragraph_descriptions.contains_key(&input_id));
+        assert!(!paragraph_descriptions.contains_key(&scroll_id));
     }
 }

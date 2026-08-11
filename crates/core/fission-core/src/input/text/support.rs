@@ -182,11 +182,17 @@ impl TextInputController {
 
     pub(super) fn text_local_point_from_screen(
         ctx: &ControllerContext<'_>,
+        text_node_id: WidgetId,
         scroll_id: WidgetId,
         scroll_direction: FlexDirection,
         scroll_geom: &fission_layout::LayoutNodeGeometry,
         point: fission_layout::LayoutPoint,
     ) -> fission_layout::LayoutPoint {
+        if let Some(text_geom) = ctx.layout.get_node_geometry(text_node_id) {
+            let origin = Self::visual_origin_for_node(ctx, text_node_id, text_geom);
+            return fission_layout::LayoutPoint::new(point.x - origin.x, point.y - origin.y);
+        }
+
         let mut ancestor_scroll_x = 0.0f32;
         let mut ancestor_scroll_y = 0.0f32;
         let mut walk = ctx.ir.nodes.get(&scroll_id).and_then(|node| node.parent);
@@ -216,6 +222,29 @@ impl TextInputController {
         fission_layout::LayoutPoint::new(local_x, local_y)
     }
 
+    pub(super) fn visual_origin_for_node(
+        ctx: &ControllerContext<'_>,
+        node_id: WidgetId,
+        geometry: &fission_layout::LayoutNodeGeometry,
+    ) -> fission_layout::LayoutPoint {
+        let mut origin = geometry.rect.origin;
+        let mut walk = ctx.ir.nodes.get(&node_id).and_then(|node| node.parent);
+        while let Some(parent_id) = walk {
+            let Some(parent) = ctx.ir.nodes.get(&parent_id) else {
+                break;
+            };
+            if let Op::Layout(LayoutOp::Scroll { direction, .. }) = &parent.op {
+                let offset = ctx.scroll.get_offset(parent_id);
+                match direction {
+                    FlexDirection::Row => origin.x -= offset,
+                    FlexDirection::Column => origin.y -= offset,
+                }
+            }
+            walk = parent.parent;
+        }
+        origin
+    }
+
     pub(super) fn line_metric_for_index<'a>(
         line_metrics: &'a [fission_layout::LineMetric],
         caret_index: usize,
@@ -228,9 +257,9 @@ impl TextInputController {
     }
 
     pub(super) fn local_text_point_for_index(
-        measurer: &std::sync::Arc<dyn fission_layout::TextMeasurer>,
-        ir: &fission_ir::CoreIR,
+        ctx: &ControllerContext,
         focused_id: WidgetId,
+        text_node_id: WidgetId,
         wrapper_geom: &fission_layout::LayoutNodeGeometry,
         scroll_geom: &fission_layout::LayoutNodeGeometry,
         scroll_direction: FlexDirection,
@@ -238,22 +267,40 @@ impl TextInputController {
         metric_text: &str,
         metric_index: usize,
     ) -> Option<fission_layout::LayoutPoint> {
-        let font_size = Self::extract_font_size(ir, focused_id).unwrap_or(16.0);
-        let paragraph = Self::extract_paragraph_style(ir, focused_id).unwrap_or_default();
-        let render_width = if scroll_direction == FlexDirection::Column {
-            Some(scroll_geom.rect.size.width)
+        let (caret_x, caret_y, caret_height) = if let Some(store) = ctx.paragraphs {
+            let paragraph = store
+                .get(text_node_id)
+                .filter(|paragraph| paragraph.text() == metric_text)?;
+            let index = fission_layout::Utf8Index::new(metric_index.min(metric_text.len()));
+            let caret = paragraph
+                .caret(index, fission_layout::ParagraphAffinity::Downstream)
+                .ok()??;
+            (caret.rect.x(), caret.rect.y(), caret.rect.height().max(1.0))
         } else {
-            None
+            let measurer = ctx.measurer?;
+            let font_size = Self::extract_font_size(ctx.ir, focused_id).unwrap_or(16.0);
+            let paragraph = Self::extract_paragraph_style(ctx.ir, focused_id).unwrap_or_default();
+            let render_width = if scroll_direction == FlexDirection::Column {
+                Some(scroll_geom.rect.size.width)
+            } else {
+                None
+            };
+            let (mut caret_x, caret_y) =
+                measurer.get_caret_position(metric_text, font_size, render_width, metric_index);
+            let line_metrics = measurer.get_line_metrics(metric_text, font_size, render_width);
+            let (line_index, line_metric) =
+                Self::line_metric_for_index(&line_metrics, metric_index)?;
+            let is_last_line = line_index + 1 == line_metrics.len();
+            if let Some(width) = render_width {
+                caret_x += Self::paragraph_line_x_offset(
+                    paragraph,
+                    width,
+                    line_metric.width,
+                    is_last_line,
+                );
+            }
+            (caret_x, caret_y, line_metric.height.max(1.0))
         };
-        let (mut caret_x, caret_y) =
-            measurer.get_caret_position(metric_text, font_size, render_width, metric_index);
-        let line_metrics = measurer.get_line_metrics(metric_text, font_size, render_width);
-        let (line_index, line_metric) = Self::line_metric_for_index(&line_metrics, metric_index)?;
-        let is_last_line = line_index + 1 == line_metrics.len();
-        if let Some(width) = render_width {
-            caret_x +=
-                Self::paragraph_line_x_offset(paragraph, width, line_metric.width, is_last_line);
-        }
 
         let visible_x = if scroll_direction == FlexDirection::Row {
             caret_x - scroll_offset
@@ -267,9 +314,8 @@ impl TextInputController {
         };
 
         let local_x = (scroll_geom.rect.origin.x - wrapper_geom.rect.origin.x) + visible_x;
-        let local_y = (scroll_geom.rect.origin.y - wrapper_geom.rect.origin.y)
-            + visible_y
-            + line_metric.height.max(1.0);
+        let local_y =
+            (scroll_geom.rect.origin.y - wrapper_geom.rect.origin.y) + visible_y + caret_height;
 
         Some(fission_layout::LayoutPoint::new(local_x, local_y))
     }
@@ -288,15 +334,15 @@ impl TextInputController {
         toolbar_visible: bool,
         toolbar_anchor_override: Option<fission_layout::LayoutPoint>,
     ) {
-        let Some(measurer) = ctx.measurer else {
+        if ctx.paragraphs.is_none() && ctx.measurer.is_none() {
             Self::clear_text_input_affordances(ctx, focused_id);
             return;
-        };
+        }
         let Some(wrapper_geom) = Self::input_wrapper_geometry(ctx, focused_id).cloned() else {
             Self::clear_text_input_affordances(ctx, focused_id);
             return;
         };
-        let Some((scroll_id, _text_node_id, scroll_direction)) =
+        let Some((scroll_id, text_node_id, scroll_direction)) =
             Self::find_scroll_container_and_text_op(ctx.ir, focused_id, semantics.multiline)
         else {
             Self::clear_text_input_affordances(ctx, focused_id);
@@ -332,9 +378,9 @@ impl TextInputController {
 
         let scroll_offset = ctx.scroll.get_offset(scroll_id);
         let caret_point = Self::local_text_point_for_index(
-            measurer,
-            ctx.ir,
+            ctx,
             focused_id,
+            text_node_id,
             &wrapper_geom,
             &scroll_geom,
             scroll_direction,
@@ -343,9 +389,9 @@ impl TextInputController {
             map_metric_index(caret),
         );
         let anchor_point = Self::local_text_point_for_index(
-            measurer,
-            ctx.ir,
+            ctx,
             focused_id,
+            text_node_id,
             &wrapper_geom,
             &scroll_geom,
             scroll_direction,
@@ -419,26 +465,46 @@ impl TextInputController {
     ) -> (usize, usize) {
         let caret = caret.min(value.len());
         if semantics.multiline {
-            if let Some(measurer) = ctx.measurer {
-                if let Some((scroll_id, _text_op_node_id, _scroll_direction)) =
-                    Self::find_scroll_container_and_text_op(ctx.ir, focused_id, semantics.multiline)
-                {
-                    if let Some(scroll_geom) = ctx.layout.get_node_geometry(scroll_id) {
-                        let font_size = Self::extract_font_size(ctx.ir, focused_id).unwrap_or(16.0);
-                        let line_metrics = measurer.get_line_metrics(
-                            value,
-                            font_size,
-                            Some(scroll_geom.rect.size.width),
-                        );
-                        if let Some(line) = line_metrics
+            if let Some((scroll_id, text_node_id, _scroll_direction)) =
+                Self::find_scroll_container_and_text_op(ctx.ir, focused_id, semantics.multiline)
+            {
+                if let Some(store) = ctx.paragraphs {
+                    if let Some(paragraph) = store
+                        .get(text_node_id)
+                        .filter(|paragraph| paragraph.text() == value)
+                    {
+                        if let Some(line) = paragraph
+                            .geometry()
+                            .lines()
                             .iter()
-                            .find(|line| caret >= line.start_index && caret <= line.end_index)
-                            .or_else(|| line_metrics.last())
+                            .find(|line| {
+                                caret >= line.range.start().byte_offset()
+                                    && caret <= line.range.end().byte_offset()
+                            })
+                            .or_else(|| paragraph.geometry().lines().last())
                         {
-                            let start = line.start_index.min(value.len());
-                            let end = Self::trim_line_end(value, line.end_index);
+                            let start = line.range.start().byte_offset().min(value.len());
+                            let end = Self::trim_line_end(value, line.range.end().byte_offset());
                             return (start.min(end), end);
                         }
+                    }
+                } else if let (Some(measurer), Some(scroll_geom)) =
+                    (ctx.measurer, ctx.layout.get_node_geometry(scroll_id))
+                {
+                    let font_size = Self::extract_font_size(ctx.ir, focused_id).unwrap_or(16.0);
+                    let line_metrics = measurer.get_line_metrics(
+                        value,
+                        font_size,
+                        Some(scroll_geom.rect.size.width),
+                    );
+                    if let Some(line) = line_metrics
+                        .iter()
+                        .find(|line| caret >= line.start_index && caret <= line.end_index)
+                        .or_else(|| line_metrics.last())
+                    {
+                        let start = line.start_index.min(value.len());
+                        let end = Self::trim_line_end(value, line.end_index);
+                        return (start.min(end), end);
                     }
                 }
             }
