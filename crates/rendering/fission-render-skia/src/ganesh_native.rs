@@ -1,7 +1,9 @@
 use fission_render::surface::{MemoryPressure, PhysicalSize};
-use fission_skia_sys::{Engine, GaneshContext, GaneshSurface, NativeWindow, RecordedPicture};
+use fission_skia_sys::{
+    Engine, GaneshContext, GaneshSurface, NativeWindow, PixelRect, RecordedPicture,
+};
 
-use crate::api::{ApiError, ApiErrorKind, RasterFrame, RasterRect};
+use crate::api::{ApiError, ApiErrorKind, ApiReadback, PixelRegion, RasterFrame, RasterRect};
 use crate::ganesh_api::GaneshApi;
 use crate::native::{map_error, native_frame};
 
@@ -100,6 +102,48 @@ impl GaneshApi for NativeGaneshApi {
     ) -> Result<(), ApiError> {
         let frame = native_frame(frame);
         surface.execute_frame(&frame).map_err(map_error)
+    }
+
+    fn read_pixels_rgba8888(
+        &self,
+        surface: &mut Self::Surface,
+        region: PixelRegion,
+    ) -> Result<ApiReadback, ApiError> {
+        let x = i32::try_from(region.x).map_err(|_| {
+            ApiError::new(
+                ApiErrorKind::InvalidArgument,
+                "pixel-origin-overflow",
+                "read_pixels_rgba8888",
+                "readback x origin exceeds the native ABI range",
+            )
+        })?;
+        let y = i32::try_from(region.y).map_err(|_| {
+            ApiError::new(
+                ApiErrorKind::InvalidArgument,
+                "pixel-origin-overflow",
+                "read_pixels_rgba8888",
+                "readback y origin exceeds the native ABI range",
+            )
+        })?;
+        let pixels = surface
+            .read_pixels_rgba8888(Some(PixelRect::new(x, y, region.width, region.height)))
+            .map_err(map_error)?;
+        let row_bytes = usize::try_from(region.width)
+            .ok()
+            .and_then(|width| width.checked_mul(4))
+            .ok_or_else(|| {
+                ApiError::new(
+                    ApiErrorKind::InvalidArgument,
+                    "readback-size-overflow",
+                    "read_pixels_rgba8888",
+                    "readback row byte count overflows this platform",
+                )
+            })?;
+        Ok(ApiReadback {
+            size: region.size(),
+            row_bytes,
+            pixels,
+        })
     }
 
     fn present(&self, surface: &mut Self::Surface) -> Result<(), ApiError> {

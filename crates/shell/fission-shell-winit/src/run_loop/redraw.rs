@@ -1069,26 +1069,34 @@ where
                                 b: self.env.theme.tokens.colors.background.b,
                                 a: self.env.theme.tokens.colors.background.a,
                             });
+                        let capture_ready = !self.pending_capture_settle || resize_settled;
+                        let capture_requested = capture_ready
+                            && self
+                                .pending_screenshot_path
+                                .as_deref()
+                                .is_some_and(|path| path != "__pump__");
                         let linux_wayland = is_linux_wayland_event_loop(elwt);
                         let result = self
                             .presenter
                             .direct_ganesh_mut()
                             .expect("direct Ganesh presenter disappeared")
-                            .render_and_present(&frame, || {
+                            .render_and_present(&frame, capture_requested, || {
                                 coordinate_winit_pre_present(linux_wayland, || {
                                     window.pre_present_notify()
                                 });
                             });
-                        if let Err(error) = result {
-                            eprintln!(
-                                "fission-shell-winit: direct Ganesh frame {} failed: {error}",
-                                submission.metadata().frame_id.0,
-                            );
-                            diag::end_frame(diag::FrameStats::default());
-                            return;
-                        }
+                        let capture = match result {
+                            Ok(capture) => capture,
+                            Err(error) => {
+                                eprintln!(
+                                    "fission-shell-winit: direct Ganesh frame {} failed: {error}",
+                                    submission.metadata().frame_id.0,
+                                );
+                                diag::end_frame(diag::FrameStats::default());
+                                return;
+                            }
+                        };
 
-                        let capture_ready = !self.pending_capture_settle || resize_settled;
                         if capture_ready {
                             self.pending_capture_settle = false;
                             if let Some(path) = self.pending_screenshot_path.take() {
@@ -1096,8 +1104,35 @@ where
                                     let response = if path == "__pump__" {
                                         fission_test_driver::TestResponse::Ok {}
                                     } else {
-                                        fission_test_driver::TestResponse::Error {
-                                            message: "native-skia-ganesh does not support screenshot/readback yet".into(),
+                                        match capture {
+                                            crate::skia_ganesh_presenter::GaneshCapture::Pixels(
+                                                rgba,
+                                            ) => {
+                                                let output = layout_size_to_image_dimensions(
+                                                    target_viewport,
+                                                );
+                                                rgba_screenshot(
+                                                    rgba,
+                                                    render_target_size.0,
+                                                    render_target_size.1,
+                                                    output.0,
+                                                    output.1,
+                                                    (path != "__capture__")
+                                                        .then_some(path.as_str()),
+                                                )
+                                            }
+                                            crate::skia_ganesh_presenter::GaneshCapture::Failed(
+                                                error,
+                                            ) => fission_test_driver::TestResponse::Error {
+                                                message: format!(
+                                                    "direct Ganesh screenshot failed: {error}"
+                                                ),
+                                            },
+                                            crate::skia_ganesh_presenter::GaneshCapture::NotRequested => {
+                                                fission_test_driver::TestResponse::Error {
+                                                    message: "direct Ganesh screenshot was not captured".into(),
+                                                }
+                                            }
                                         }
                                     };
                                     let _ = tx.send(response);

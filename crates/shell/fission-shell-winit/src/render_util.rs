@@ -167,19 +167,62 @@ pub(super) fn gpu_screenshot(
     drop(data);
     staging.unmap();
 
-    let (rgba, width, height) = if texture_width == output_width && texture_height == output_height
-    {
-        (rgba, texture_width, texture_height)
-    } else if let Some(resized) = downscale_rgba_box(
-        &rgba,
+    rgba_screenshot(
+        rgba,
         texture_width,
         texture_height,
+        output_width,
+        output_height,
+        path,
+    )
+}
+
+/// Encodes a tightly packed RGBA8 frame using the same output sizing and
+/// response contract as the wgpu screenshot path.
+pub(super) fn rgba_screenshot(
+    rgba: Vec<u8>,
+    input_width: u32,
+    input_height: u32,
+    output_width: u32,
+    output_height: u32,
+    path: Option<&str>,
+) -> fission_test_driver::TestResponse {
+    if input_width == 0 || input_height == 0 || output_width == 0 || output_height == 0 {
+        return fission_test_driver::TestResponse::Error {
+            message: "zero-size viewport".into(),
+        };
+    }
+    let expected_len = usize::try_from(input_width)
+        .ok()
+        .and_then(|width| width.checked_mul(4))
+        .and_then(|row_bytes| {
+            usize::try_from(input_height)
+                .ok()
+                .and_then(|height| row_bytes.checked_mul(height))
+        });
+    if expected_len != Some(rgba.len()) {
+        return fission_test_driver::TestResponse::Error {
+            message: format!(
+                "invalid screenshot RGBA buffer: {} bytes for {}x{}",
+                rgba.len(),
+                input_width,
+                input_height
+            ),
+        };
+    }
+
+    let (rgba, width, height) = if input_width == output_width && input_height == output_height {
+        (rgba, input_width, input_height)
+    } else if let Some(resized) = downscale_rgba_box(
+        &rgba,
+        input_width,
+        input_height,
         output_width,
         output_height,
     ) {
         (resized, output_width, output_height)
     } else {
-        let Some(image) = image::RgbaImage::from_raw(texture_width, texture_height, rgba) else {
+        let Some(image) = image::RgbaImage::from_raw(input_width, input_height, rgba) else {
             return fission_test_driver::TestResponse::Error {
                 message: "failed to decode screenshot RGBA buffer".into(),
             };

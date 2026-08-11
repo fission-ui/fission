@@ -2,7 +2,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use fission_render::backend::{
-    BackendError, BackendOperation, BackendResult, GraphicsBackendSession, SurfaceMetrics,
+    BackendError, BackendOperation, BackendResult, GraphicsBackendSession, ReadbackRequest,
+    SurfaceMetrics,
 };
 use fission_render::capabilities::{ColorFormat, GraphicsCapabilities};
 use fission_render::frame::InteractiveFrame;
@@ -13,8 +14,20 @@ use fission_render::surface::{
 use winit::window::Window;
 
 use crate::native_window_target::WinitNativeWindowTarget;
+use crate::skia_presenter::tight_rgba;
 
 static NEXT_GANESH_SURFACE_ID: AtomicU64 = AtomicU64::new(1);
+
+/// Capture result for a frame that was successfully presented.
+///
+/// A non-loss readback failure does not strand the acquired swapchain image:
+/// the presenter still completes presentation and reports that failure only to
+/// the capture requester.
+pub(super) enum GaneshCapture {
+    NotRequested,
+    Pixels(Vec<u8>),
+    Failed(BackendError),
+}
 
 /// Direct Linux native-window presenter for Skia Ganesh/Vulkan.
 ///
@@ -102,23 +115,25 @@ impl WinitSkiaGaneshPresenter {
         self.session.detach()
     }
 
-    /// Render and directly present one frame. `before_present` performs Winit's
+    /// Render and directly present one frame, optionally reading its RGBA
+    /// pixels between those operations. `before_present` performs Winit's
     /// platform presentation notification immediately before the Vulkan queue
     /// commits the acquired image.
     pub(super) fn render_and_present(
         &mut self,
         frame: &InteractiveFrame<'_>,
+        capture: bool,
         mut before_present: impl FnMut(),
-    ) -> BackendResult<()> {
-        match self.render_and_present_once(frame, &mut before_present) {
-            Ok(()) => Ok(()),
+    ) -> BackendResult<GaneshCapture> {
+        match self.render_and_present_once(frame, capture, &mut before_present) {
+            Ok(capture) => Ok(capture),
             Err(error) => {
                 let Some(loss) = skia_loss_kind(&error) else {
                     return Err(error);
                 };
                 match self.session.recover(loss)? {
                     Recovery::Reattached | Recovery::DeviceRecreated => {
-                        self.render_and_present_once(frame, &mut before_present)
+                        self.render_and_present_once(frame, capture, &mut before_present)
                     }
                     Recovery::SwitchedToSoftware | Recovery::Unrecoverable => Err(error),
                 }
@@ -129,8 +144,9 @@ impl WinitSkiaGaneshPresenter {
     fn render_and_present_once(
         &mut self,
         frame: &InteractiveFrame<'_>,
+        capture: bool,
         before_present: &mut impl FnMut(),
-    ) -> BackendResult<()> {
+    ) -> BackendResult<GaneshCapture> {
         let expected_frame_id = frame.metadata().frame_id;
         let render = self.session.render(frame)?;
         if render.frame_id != Some(expected_frame_id) {
@@ -144,6 +160,22 @@ impl WinitSkiaGaneshPresenter {
             ));
         }
 
+        let capture = if capture {
+            match self.session.readback(ReadbackRequest {
+                region: None,
+                color_format: ColorFormat::Rgba8Srgb,
+            }) {
+                Ok(readback) => match tight_rgba(readback, self.metrics.size) {
+                    Ok(pixels) => GaneshCapture::Pixels(pixels),
+                    Err(error) => GaneshCapture::Failed(error),
+                },
+                Err(error) if skia_loss_kind(&error).is_some() => return Err(error),
+                Err(error) => GaneshCapture::Failed(error),
+            }
+        } else {
+            GaneshCapture::NotRequested
+        };
+
         before_present();
         let present = self.session.present()?;
         if present.frame_id != Some(expected_frame_id) {
@@ -156,7 +188,7 @@ impl WinitSkiaGaneshPresenter {
                 ),
             ));
         }
-        Ok(())
+        Ok(capture)
     }
 }
 

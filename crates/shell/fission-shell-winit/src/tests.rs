@@ -8,7 +8,7 @@ use super::{
     physical_size_to_layout_size, preferred_native_present_mode, preferred_surface_alpha_mode,
     present_frame_with_winit_coordination, rect_visible_in_scroll_ancestors,
     repeating_animation_redraw_interval, resize_is_unsettled, resolve_build_viewport,
-    resolve_selector_record, should_auto_select_native_software,
+    resolve_selector_record, rgba_screenshot, should_auto_select_native_software,
     should_present_startup_clear_frame, surface_acquire_recovery,
     sync_tracked_target_texture_size_to_surface, texture_plans_fit_device_limits,
     visual_rect_for_node, window_insets_from_safe_area_frames, windows_shell_execute_succeeded,
@@ -208,7 +208,7 @@ fn direct_ganesh_is_the_only_native_request_that_skips_wgpu_initialization() {
         RendererRequest::NativeSkiaRaster
     ));
     assert!(native_request_requires_wgpu(RendererRequest::Auto));
-    assert!(!native_renderer_supports_capture(
+    assert!(native_renderer_supports_capture(
         RendererRequest::NativeSkiaGanesh
     ));
     assert!(native_renderer_supports_capture(
@@ -994,6 +994,27 @@ fn integer_downscale_uses_fast_box_path() {
     ];
     let downscaled = downscale_rgba_box(&rgba, 2, 2, 1, 1).expect("downscale");
     assert_eq!(downscaled, vec![40, 50, 60, 255]);
+}
+
+#[test]
+fn tightly_packed_rgba_capture_uses_the_standard_screenshot_response() {
+    let response = rgba_screenshot(vec![10, 20, 30, 255, 40, 50, 60, 255], 2, 1, 2, 1, None);
+    match response {
+        fission_test_driver::TestResponse::Screenshot {
+            png_base64,
+            width,
+            height,
+        } => {
+            assert!(!png_base64.is_empty());
+            assert_eq!((width, height), (2, 1));
+        }
+        response => panic!("expected screenshot response, got {response:?}"),
+    }
+
+    assert!(matches!(
+        rgba_screenshot(vec![0; 7], 2, 1, 2, 1, None),
+        fission_test_driver::TestResponse::Error { .. }
+    ));
 }
 
 #[test]

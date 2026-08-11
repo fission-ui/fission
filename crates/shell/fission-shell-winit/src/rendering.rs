@@ -877,8 +877,8 @@ pub(super) fn native_request_requires_wgpu(request: RendererRequest) -> bool {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub(super) fn native_renderer_supports_capture(request: RendererRequest) -> bool {
-    request != RendererRequest::NativeSkiaGanesh
+pub(super) fn native_renderer_supports_capture(_request: RendererRequest) -> bool {
+    true
 }
 
 #[cfg(target_arch = "wasm32")]

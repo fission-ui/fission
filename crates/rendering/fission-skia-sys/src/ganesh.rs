@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use crate::error::status_result;
 use crate::thread_affinity::ThreadAffinity;
-use crate::{ffi, Engine, Error, ErrorKind, Frame, MemoryPressure, Result};
+use crate::{ffi, Engine, Error, ErrorKind, Frame, MemoryPressure, PixelRect, Result};
 
 const REQUIRED_FEATURES: u64 =
     ffi::FEATURE_GANESH | ffi::FEATURE_VULKAN | ffi::FEATURE_NATIVE_PRESENTATION;
@@ -290,6 +290,87 @@ impl GaneshSurface {
         status_result(status, &error)
     }
 
+    /// Reads sRGB, premultiplied RGBA8888 pixels from the completed frame.
+    ///
+    /// Ganesh presentation surfaces permit readback only after a successful
+    /// [`Self::execute_frame`] and before [`Self::present`]. The native bridge
+    /// enforces that ordering in addition to the bounds and owner-thread checks
+    /// performed here.
+    pub fn read_pixels_rgba8888(&mut self, region: Option<PixelRect>) -> Result<Vec<u8>> {
+        const OPERATION: &str = "GaneshSurface::read_pixels_rgba8888";
+
+        self.thread.ensure_owner(OPERATION)?;
+        let region = region.unwrap_or(PixelRect::new(0, 0, self.width, self.height));
+        self.validate_readback_region(region)?;
+        let row_bytes = usize::try_from(region.width)
+            .ok()
+            .and_then(|width| width.checked_mul(4))
+            .ok_or_else(|| ganesh_readback_overflow("row byte count overflows this platform"))?;
+        let length = row_bytes
+            .checked_mul(usize::try_from(region.height).unwrap_or(usize::MAX))
+            .ok_or_else(|| ganesh_readback_overflow("pixel byte length overflows this platform"))?;
+        let raw_region = ffi::PixelRect {
+            x: region.x,
+            y: region.y,
+            width: region.width,
+            height: region.height,
+        };
+        let mut pixels = vec![0; length];
+        let mut required = 0;
+        let mut error = ffi::Error::default();
+        // SAFETY: the destination allocation is `length` bytes, its tight row
+        // stride is derived from the requested width, and `raw_region` remains
+        // alive for the complete bridge call.
+        let status = unsafe {
+            ffi::fission_skia_surface_read_pixels_rgba8888(
+                self.raw,
+                &raw_region,
+                pixels.as_mut_ptr(),
+                pixels.len(),
+                row_bytes,
+                &mut required,
+                &mut error,
+            )
+        };
+        status_result(status, &error)?;
+        if required != length {
+            return Err(Error::local(
+                ErrorKind::Internal,
+                OPERATION,
+                format!("bridge reported {required} bytes for a {length}-byte readback"),
+            ));
+        }
+        Ok(pixels)
+    }
+
+    fn validate_readback_region(&self, region: PixelRect) -> Result<()> {
+        const OPERATION: &str = "GaneshSurface::read_pixels_rgba8888";
+
+        if region.width == 0 || region.height == 0 || region.x < 0 || region.y < 0 {
+            return Err(Error::local(
+                ErrorKind::InvalidArgument,
+                OPERATION,
+                "readback rectangle must be non-empty and have non-negative origin",
+            ));
+        }
+        let right = u32::try_from(region.x)
+            .ok()
+            .and_then(|x| x.checked_add(region.width));
+        let bottom = u32::try_from(region.y)
+            .ok()
+            .and_then(|y| y.checked_add(region.height));
+        if !matches!(right, Some(right) if right <= self.width)
+            || !matches!(bottom, Some(bottom) if bottom <= self.height)
+        {
+            return Err(Error::local(
+                ErrorKind::InvalidArgument,
+                OPERATION,
+                "readback rectangle lies outside the Ganesh surface",
+            ));
+        }
+        Ok(())
+    }
+
     /// Presents the frame made ready by the preceding successful execution.
     pub fn present(&mut self) -> Result<()> {
         self.thread.ensure_owner("GaneshSurface::present")?;
@@ -328,4 +409,12 @@ fn validate_extent(width: u32, height: u32, operation: &str) -> Result<()> {
     } else {
         Ok(())
     }
+}
+
+fn ganesh_readback_overflow(message: &str) -> Error {
+    Error::local(
+        ErrorKind::InvalidArgument,
+        "GaneshSurface::read_pixels_rgba8888",
+        message,
+    )
 }

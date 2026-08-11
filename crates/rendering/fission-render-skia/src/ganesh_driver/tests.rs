@@ -24,7 +24,7 @@ use raw_window_handle::{
 };
 
 use super::*;
-use crate::api::{RasterFrame, RasterRect};
+use crate::api::{ApiReadback, PixelRegion, RasterFrame, RasterRect};
 use crate::ganesh_api::GaneshApi;
 use crate::profile::new_paragraph_draw_data_registry;
 
@@ -35,6 +35,7 @@ enum MockCall {
     CreateSurface(NativeWindowKind, PhysicalSize),
     Resize(NativeWindowKind, PhysicalSize),
     Execute,
+    Readback(PixelRegion),
     Present,
     Trim(MemoryPressure),
 }
@@ -155,6 +156,26 @@ impl GaneshApi for MockApi {
         self.call(MockCall::Execute)
     }
 
+    fn read_pixels_rgba8888(
+        &self,
+        _surface: &mut Self::Surface,
+        region: PixelRegion,
+    ) -> Result<ApiReadback, ApiError> {
+        self.call(MockCall::Readback(region))?;
+        let row_bytes = usize::try_from(region.width)
+            .unwrap()
+            .checked_mul(4)
+            .unwrap();
+        let pixel_len = row_bytes
+            .checked_mul(usize::try_from(region.height).unwrap())
+            .unwrap();
+        Ok(ApiReadback {
+            size: region.size(),
+            row_bytes,
+            pixels: vec![0x5a; pixel_len],
+        })
+    }
+
     fn present(&self, _surface: &mut Self::Surface) -> Result<(), ApiError> {
         self.call(MockCall::Present)
     }
@@ -222,12 +243,16 @@ fn pointer() -> NonNull<c_void> {
 }
 
 fn descriptor(size: PhysicalSize) -> SurfaceDescriptor {
+    descriptor_with_color(size, ColorFormat::Bgra8Srgb)
+}
+
+fn descriptor_with_color(size: PhysicalSize, color_format: ColorFormat) -> SurfaceDescriptor {
     SurfaceDescriptor {
         id: SurfaceId(44),
         kind: SurfaceKind::NativeWindow,
         size,
         scale_factor: ScaleFactor::ONE,
-        color_format: ColorFormat::Bgra8Srgb,
+        color_format,
         thread_affinity: ThreadAffinity::CreatingThread,
     }
 }
@@ -485,20 +510,124 @@ fn surface_and_device_recovery_rebuild_the_required_native_owners() {
 }
 
 #[test]
-fn readback_is_explicitly_unavailable_at_the_session_gate() {
+fn readback_is_allowed_only_between_render_and_present() {
+    let api = MockApi::default();
+    let mut session = session(api.clone());
+    let size = PhysicalSize::new(64, 32);
+    session.attach(&xlib_target(size)).unwrap();
+
+    let request = ReadbackRequest {
+        region: None,
+        color_format: ColorFormat::Rgba8Srgb,
+    };
+    assert_eq!(
+        session.readback(request).unwrap_err().code,
+        "skia-ganesh-readback-outside-frame"
+    );
+
+    let frame = FrameFixture::empty(size, 1.0, 91);
+    session.render(&frame.frame()).unwrap();
+    let readback = session.readback(request).unwrap();
+    assert_eq!(readback.size, size);
+    assert_eq!(readback.color_format, ColorFormat::Rgba8Srgb);
+    assert_eq!(readback.row_bytes, 64 * 4);
+    assert_eq!(readback.pixels, vec![0x5a; 64 * 32 * 4]);
+    session.present().unwrap();
+
+    assert_eq!(
+        session.readback(request).unwrap_err().code,
+        "skia-ganesh-readback-outside-frame"
+    );
+    let calls = api
+        .events()
+        .into_iter()
+        .filter_map(|event| match event {
+            MockEvent::Call(call) => Some(call),
+            MockEvent::Drop(_, _) => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        calls,
+        vec![
+            MockCall::CreateEngine,
+            MockCall::CreateContext(NativeWindowKind::Xlib),
+            MockCall::CreateSurface(NativeWindowKind::Xlib, size),
+            MockCall::Execute,
+            MockCall::Readback(PixelRegion::full(size)),
+            MockCall::Present,
+        ]
+    );
+}
+
+#[test]
+fn readback_scales_and_rounds_logical_regions_outward() {
+    let api = MockApi::default();
+    let mut session = session(api.clone());
+    let size = PhysicalSize::new(8, 6);
+    let mut target = xlib_target(size);
+    let mut descriptor = target.descriptor().clone();
+    descriptor.scale_factor = ScaleFactor::new(2.0).unwrap();
+    // SAFETY: this replacement uses the same inert, leaked Xlib handle pair
+    // as the original test target and never reaches the native bridge.
+    target = unsafe {
+        NativeWindowTarget::from_raw_handles(
+            descriptor,
+            target.raw_display_handle(),
+            target.raw_window_handle(),
+        )
+        .unwrap()
+    };
+    session.attach(&target).unwrap();
+    let frame = FrameFixture::empty(size, 2.0, 92);
+    session.render(&frame.frame()).unwrap();
+
+    let readback = session
+        .readback(ReadbackRequest {
+            region: Some(LayoutRect::new(0.25, 0.5, 1.5, 1.0)),
+            color_format: ColorFormat::Rgba8Srgb,
+        })
+        .unwrap();
+    assert_eq!(readback.size, PhysicalSize::new(4, 2));
+    assert_eq!(readback.row_bytes, 16);
+    assert!(api
+        .events()
+        .contains(&MockEvent::Call(MockCall::Readback(PixelRegion {
+            x: 0,
+            y: 1,
+            width: 4,
+            height: 2,
+        }))));
+}
+
+#[test]
+fn readback_rejects_invalid_regions_and_non_rgba_output() {
     let api = MockApi::default();
     let mut session = session(api);
-    session
-        .attach(&xlib_target(PhysicalSize::new(64, 64)))
-        .unwrap();
+    let size = PhysicalSize::new(64, 32);
+    session.attach(&xlib_target(size)).unwrap();
+    let frame = FrameFixture::empty(size, 1.0, 93);
+    session.render(&frame.frame()).unwrap();
 
-    let error = session
-        .readback(ReadbackRequest {
-            region: None,
-            color_format: ColorFormat::Bgra8Srgb,
-        })
-        .unwrap_err();
-    assert_eq!(error.code, "readback-unsupported");
+    assert_eq!(
+        session
+            .readback(ReadbackRequest {
+                region: None,
+                color_format: ColorFormat::Bgra8Srgb,
+            })
+            .unwrap_err()
+            .code,
+        "skia-ganesh-readback-color-format-unsupported"
+    );
+    assert_eq!(
+        session
+            .readback(ReadbackRequest {
+                region: Some(LayoutRect::new(63.0, 0.0, 2.0, 1.0)),
+                color_format: ColorFormat::Rgba8Srgb,
+            })
+            .unwrap_err()
+            .code,
+        "skia-ganesh-readback-region-invalid"
+    );
 }
 
 #[derive(Debug)]
@@ -527,6 +656,30 @@ fn rejects_native_descriptors_without_the_typed_handle_carrier() {
     assert_eq!(
         session.attach(&target).unwrap_err().code,
         "skia-ganesh-target-type-invalid"
+    );
+}
+
+#[test]
+fn target_attachment_still_requires_bgra_presentation() {
+    let api = MockApi::default();
+    let mut session = session(api);
+    let size = PhysicalSize::new(64, 64);
+    let display = RawDisplayHandle::Xlib(XlibDisplayHandle::new(Some(pointer()), 0));
+    let window = RawWindowHandle::Xlib(XlibWindowHandle::new(71));
+    // SAFETY: this inert target is rejected on its descriptor before the raw
+    // handles can reach the native bridge.
+    let target = unsafe {
+        NativeWindowTarget::from_raw_handles(
+            descriptor_with_color(size, ColorFormat::Rgba8Srgb),
+            display,
+            window,
+        )
+        .unwrap()
+    };
+
+    assert_eq!(
+        session.attach(&target).unwrap_err().code,
+        "skia-ganesh-color-format-unsupported"
     );
 }
 

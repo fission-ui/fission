@@ -218,7 +218,7 @@ impl SurfaceTarget for WinitSkiaRasterTarget {
     }
 }
 
-fn tight_rgba(readback: Readback, expected: PhysicalSize) -> BackendResult<Vec<u8>> {
+pub(super) fn tight_rgba(readback: Readback, expected: PhysicalSize) -> BackendResult<Vec<u8>> {
     if readback.size != expected || readback.color_format != ColorFormat::Rgba8Srgb {
         return Err(backend_contract_error(
             BackendOperation::Readback,

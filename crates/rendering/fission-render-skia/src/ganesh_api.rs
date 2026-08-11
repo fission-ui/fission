@@ -1,7 +1,9 @@
 use fission_render::surface::{MemoryPressure, PhysicalSize};
 use fission_skia_sys::{NativeWindow, RecordedPicture};
 
-use crate::api::{ApiError, RasterFrame, RasterRect, SkiaPictureRecorder};
+use crate::api::{
+    ApiError, ApiReadback, PixelRegion, RasterFrame, RasterRect, SkiaPictureRecorder,
+};
 
 /// Injectable boundary around Skia's native Ganesh presentation handles.
 ///
@@ -43,6 +45,11 @@ pub(crate) trait GaneshApi {
         surface: &mut Self::Surface,
         frame: &RasterFrame,
     ) -> Result<(), ApiError>;
+    fn read_pixels_rgba8888(
+        &self,
+        surface: &mut Self::Surface,
+        region: PixelRegion,
+    ) -> Result<ApiReadback, ApiError>;
     fn present(&self, surface: &mut Self::Surface) -> Result<(), ApiError>;
     fn trim_memory(
         &self,

@@ -14,13 +14,13 @@ use fission_render::diagnostics::{
 };
 use fission_render::frame::{FrameId, ValidatedInteractiveFrame};
 use fission_render::surface::{
-    LossKind, MemoryPressure, NativeWindowTarget, Recovery, SessionState, SurfaceKind,
-    SurfaceTarget,
+    LossKind, MemoryPressure, NativeWindowTarget, PhysicalSize, Recovery, SessionState,
+    SurfaceKind, SurfaceTarget,
 };
 use fission_skia_sys::{NativeWindow, NativeWindowKind};
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 
-use crate::api::{ApiError, ApiErrorKind};
+use crate::api::{ApiError, ApiErrorKind, PixelRegion};
 use crate::capabilities::skia_ganesh_capabilities;
 use crate::compiler::compile_scene_with_paragraphs;
 use crate::error::{api_error, contract_error, contract_error_with_provenance, wrong_thread};
@@ -442,6 +442,83 @@ impl<A: GaneshApi> GaneshDriver<A> {
         self.record_error(&error);
         Err(error)
     }
+
+    fn readback_region(
+        &mut self,
+        request: &ReadbackRequest,
+        metrics: SurfaceMetrics,
+    ) -> BackendResult<PixelRegion> {
+        let Some(region) = request.region else {
+            return Ok(PixelRegion::full(metrics.size));
+        };
+        let scale = metrics.scale_factor.get();
+        let left = f64::from(region.x()) * scale;
+        let top = f64::from(region.y()) * scale;
+        let right = f64::from(region.right()) * scale;
+        let bottom = f64::from(region.bottom()) * scale;
+        let values = [left, top, right, bottom];
+        if values.iter().any(|value| !value.is_finite())
+            || left < 0.0
+            || top < 0.0
+            || right < left
+            || bottom < top
+            || right > f64::from(metrics.size.width)
+            || bottom > f64::from(metrics.size.height)
+        {
+            let error = contract_error(
+                BackendOperation::Readback,
+                "skia-ganesh-readback-region-invalid",
+                DiagnosticCategory::Surface,
+                format!(
+                    "logical readback region {region:?} falls outside physical Ganesh surface {:?}",
+                    metrics.size
+                ),
+            );
+            self.record_error(&error);
+            return Err(error);
+        }
+        let x = left.floor() as u32;
+        let y = top.floor() as u32;
+        let right = right.ceil() as u32;
+        let bottom = bottom.ceil() as u32;
+        Ok(PixelRegion {
+            x,
+            y,
+            width: right - x,
+            height: bottom - y,
+        })
+    }
+
+    fn validate_readback(
+        &mut self,
+        expected: PixelRegion,
+        actual_size: PhysicalSize,
+        row_bytes: usize,
+        pixel_len: usize,
+    ) -> BackendResult<()> {
+        let minimum_row_bytes = usize::try_from(expected.width)
+            .ok()
+            .and_then(|width| width.checked_mul(4));
+        let required_bytes = usize::try_from(expected.height)
+            .ok()
+            .and_then(|height| row_bytes.checked_mul(height));
+        if actual_size != expected.size()
+            || minimum_row_bytes.map_or(true, |minimum| row_bytes < minimum)
+            || required_bytes != Some(pixel_len)
+        {
+            let error = contract_error(
+                BackendOperation::Readback,
+                "skia-ganesh-readback-contract-violation",
+                DiagnosticCategory::Device,
+                format!(
+                    "Skia Ganesh returned size {actual_size:?}, row_bytes {row_bytes}, and {pixel_len} bytes for {expected:?}"
+                ),
+            );
+            self.record_error(&error);
+            return Err(error);
+        }
+        Ok(())
+    }
 }
 
 impl<A: GaneshApi> GraphicsBackendDriver for GaneshDriver<A> {
@@ -618,17 +695,90 @@ impl<A: GaneshApi> GraphicsBackendDriver for GaneshDriver<A> {
         })
     }
 
-    fn readback(&mut self, _request: ReadbackRequest) -> BackendResult<Readback> {
+    fn readback(&mut self, request: ReadbackRequest) -> BackendResult<Readback> {
         self.check_thread(BackendOperation::Readback)?;
         self.require_state(BackendOperation::Readback, &[SessionState::Attached])?;
-        let error = contract_error(
-            BackendOperation::Readback,
-            "skia-ganesh-readback-unsupported",
-            DiagnosticCategory::Capability,
-            "native Ganesh readback is not implemented",
-        );
-        self.record_error(&error);
-        Err(error)
+        if request.color_format != ColorFormat::Rgba8Srgb {
+            let error = contract_error(
+                BackendOperation::Readback,
+                "skia-ganesh-readback-color-format-unsupported",
+                DiagnosticCategory::Capability,
+                format!(
+                    "Skia Ganesh produces Rgba8Srgb readback, not {:?}",
+                    request.color_format
+                ),
+            );
+            self.record_error(&error);
+            return Err(error);
+        }
+        let Some(pending) = self.pending_frame else {
+            let error = contract_error(
+                BackendOperation::Readback,
+                "skia-ganesh-readback-outside-frame",
+                DiagnosticCategory::Lifecycle,
+                "Ganesh readback is valid only after render and before present",
+            );
+            self.record_error(&error);
+            return Err(error);
+        };
+        let Some(metrics) = self.metrics else {
+            let error = contract_error(
+                BackendOperation::Readback,
+                "skia-ganesh-surface-missing",
+                DiagnosticCategory::Lifecycle,
+                "cannot read back without attached Ganesh surface metrics",
+            );
+            self.record_error(&error);
+            return Err(error);
+        };
+        let region = self.readback_region(&request, metrics)?;
+        if region.width == 0 || region.height == 0 {
+            return Ok(Readback {
+                size: region.size(),
+                color_format: request.color_format,
+                row_bytes: 0,
+                pixels: Vec::new(),
+            });
+        }
+        if !pending.native_ready {
+            let error = contract_error(
+                BackendOperation::Readback,
+                "skia-ganesh-readback-surface-suspended",
+                DiagnosticCategory::Surface,
+                "cannot read non-empty pixels from a zero-sized Ganesh frame",
+            );
+            self.record_error(&error);
+            return Err(error);
+        }
+        let readback = match self.surface.as_mut() {
+            Some(surface) => self.api.read_pixels_rgba8888(surface, region),
+            None => {
+                let error = contract_error(
+                    BackendOperation::Readback,
+                    "skia-ganesh-surface-missing",
+                    DiagnosticCategory::Lifecycle,
+                    "cannot read back without an attached Ganesh surface",
+                );
+                self.record_error(&error);
+                return Err(error);
+            }
+        };
+        let readback = match readback {
+            Ok(readback) => readback,
+            Err(error) => return Err(self.handle_api_error(BackendOperation::Readback, error)),
+        };
+        self.validate_readback(
+            region,
+            readback.size,
+            readback.row_bytes,
+            readback.pixels.len(),
+        )?;
+        Ok(Readback {
+            size: readback.size,
+            color_format: request.color_format,
+            row_bytes: readback.row_bytes,
+            pixels: readback.pixels,
+        })
     }
 
     fn suspend(&mut self) -> BackendResult<()> {

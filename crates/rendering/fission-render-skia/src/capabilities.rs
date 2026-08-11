@@ -28,15 +28,20 @@ pub(crate) fn skia_raster_profile_capabilities() -> GraphicsCapabilities {
 /// Complete semantics of the paired native Ganesh/Vulkan profile.
 ///
 /// The profile presents directly to a host-owned Linux native window. It does
-/// not advertise headless rendering, readback, external surfaces, or 3D
-/// interop.
+/// not advertise headless rendering, external surfaces, or 3D interop. The
+/// shared color-format set is the union of the required BGRA presentation
+/// format and the RGBA readback format; attaching a Ganesh target still
+/// requires `Bgra8Srgb`.
 pub fn skia_ganesh_capabilities() -> GraphicsCapabilities {
     let mut capabilities = paint_capabilities(
         BackendIdentity::new("skia", env!("CARGO_PKG_VERSION"), "native-ganesh"),
         true,
     );
     capabilities.render_modes.insert(RenderMode::Gpu);
-    capabilities.color_formats.insert(ColorFormat::Bgra8Srgb);
+    capabilities
+        .color_formats
+        .extend([ColorFormat::Bgra8Srgb, ColorFormat::Rgba8Srgb]);
+    capabilities.readback = true;
     capabilities.surface_loss_recovery = true;
     capabilities.device_loss_recovery = true;
     capabilities
@@ -145,7 +150,7 @@ mod tests {
     }
 
     #[test]
-    fn ganesh_profile_claims_gpu_native_presentation_without_readback_or_interop() {
+    fn ganesh_profile_claims_gpu_native_presentation_and_rgba_readback_without_interop() {
         let capabilities = skia_ganesh_capabilities();
 
         assert_eq!(capabilities.identity.profile, "native-ganesh");
@@ -155,7 +160,9 @@ mod tests {
         );
         assert_eq!(
             capabilities.color_formats,
-            [ColorFormat::Bgra8Srgb].into_iter().collect()
+            [ColorFormat::Bgra8Srgb, ColorFormat::Rgba8Srgb]
+                .into_iter()
+                .collect()
         );
         assert!(capabilities.supports_display_op(DisplayOpKind::DrawText));
         assert!(capabilities.supports_display_op(DisplayOpKind::DrawRichText));
@@ -164,7 +171,7 @@ mod tests {
         assert!(!capabilities.supports_display_op(DisplayOpKind::DrawSurface));
         assert!(capabilities.external_surface_transports.is_empty());
         assert!(!capabilities.headless);
-        assert!(!capabilities.readback);
+        assert!(capabilities.readback);
         assert!(capabilities.surface_loss_recovery);
         assert!(capabilities.device_loss_recovery);
     }
