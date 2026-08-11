@@ -62,6 +62,8 @@ where
                     current_viewport,
                     is_linux_wayland_event_loop(elwt),
                     self.renderer_request,
+                    #[cfg(feature = "skia")]
+                    self.skia_profile.as_ref(),
                 ) {
                     Ok(mut state) => {
                         if should_present_startup_clear_frame(is_linux_wayland_event_loop(elwt)) {

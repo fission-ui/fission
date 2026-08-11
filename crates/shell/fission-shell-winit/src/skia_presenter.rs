@@ -26,9 +26,14 @@ pub(super) struct WinitSkiaRasterPresenter {
 }
 
 impl WinitSkiaRasterPresenter {
-    pub(super) fn new(width: u32, height: u32, scale_factor: f64) -> BackendResult<Self> {
+    pub(super) fn new(
+        profile: &fission_render_skia::SkiaRasterProfile,
+        width: u32,
+        height: u32,
+        scale_factor: f64,
+    ) -> BackendResult<Self> {
         let target = WinitSkiaRasterTarget::new(width, height, scale_factor)?;
-        let mut session = fission_render_skia::create_raster_session()?;
+        let mut session = profile.create_session()?;
         session.attach(&target)?;
         Ok(Self { session, target })
     }

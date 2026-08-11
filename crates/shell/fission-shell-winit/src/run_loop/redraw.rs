@@ -288,6 +288,8 @@ where
                     viewport_state,
                     is_linux_wayland_event_loop(elwt),
                     self.renderer_request,
+                    #[cfg(feature = "skia")]
+                    self.skia_profile.as_ref(),
                 ) {
                     Ok(state) => {
                         self.presenter.attach(state);

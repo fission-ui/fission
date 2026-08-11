@@ -321,6 +321,7 @@ pub(super) fn create_render_state<'w>(
     viewport: WindowViewportState,
     linux_wayland: bool,
     request: RendererRequest,
+    #[cfg(feature = "skia")] skia_profile: Option<&fission_render_skia::SkiaRasterProfile>,
 ) -> anyhow::Result<RenderState<'w>> {
     let mut surface = block_on(render_cx.create_surface(
         window.clone(),
@@ -371,6 +372,8 @@ pub(super) fn create_render_state<'w>(
         viewport.physical_size.width,
         viewport.physical_size.height,
         viewport.scale_factor,
+        #[cfg(feature = "skia")]
+        skia_profile,
     )?;
     emit_renderer_report(&renderer_report);
 
@@ -595,6 +598,7 @@ pub(super) fn create_native_main_renderer(
     width: u32,
     height: u32,
     scale_factor: f64,
+    #[cfg(feature = "skia")] skia_profile: Option<&fission_render_skia::SkiaRasterProfile>,
 ) -> anyhow::Result<(MainRenderer, RendererReport)> {
     let request = request
         .for_target(RendererTarget::Native)
@@ -604,8 +608,15 @@ pub(super) fn create_native_main_renderer(
     if request == RendererRequest::NativeSkiaRaster {
         #[cfg(feature = "skia")]
         {
-            let presenter =
-                WinitSkiaRasterPresenter::new(width, height, scale_factor).map_err(|error| {
+            let profile = skia_profile.ok_or_else(|| {
+                anyhow::Error::new(RequestedRendererInitializationError::new(
+                    request,
+                    RendererTarget::Native,
+                    "the selected Skia renderer has no shared backend profile",
+                ))
+            })?;
+            let presenter = WinitSkiaRasterPresenter::new(profile, width, height, scale_factor)
+                .map_err(|error| {
                     anyhow::Error::new(RequestedRendererInitializationError::new(
                         request,
                         RendererTarget::Native,

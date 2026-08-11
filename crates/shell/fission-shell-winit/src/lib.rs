@@ -194,11 +194,16 @@ mod tests;
 fn paragraph_engine_for_native_renderer(
     request: RendererRequest,
     vello: Arc<VelloTextMeasurer>,
+    #[cfg(feature = "skia")] skia_profile: Option<&fission_render_skia::SkiaRasterProfile>,
 ) -> Arc<dyn ParagraphEngine> {
     if request == RendererRequest::NativeSkiaRaster {
         #[cfg(feature = "skia")]
         {
-            return Arc::new(fission_render_skia::SkiaParagraphEngine::default());
+            return Arc::new(
+                skia_profile
+                    .expect("a native Skia request must own one Skia raster profile")
+                    .paragraph_engine(),
+            );
         }
         #[cfg(not(feature = "skia"))]
         unreachable!("native renderer validation rejects Skia when its feature is disabled");
@@ -224,9 +229,16 @@ where
 
         #[cfg(not(target_arch = "wasm32"))]
         let renderer_request = native_renderer_request()?;
+        #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+        let skia_profile = (renderer_request == RendererRequest::NativeSkiaRaster)
+            .then(fission_render_skia::SkiaRasterProfile::new);
         #[cfg(not(target_arch = "wasm32"))]
-        let paragraph_engine =
-            paragraph_engine_for_native_renderer(renderer_request, self.measurer.clone());
+        let paragraph_engine = paragraph_engine_for_native_renderer(
+            renderer_request,
+            self.measurer.clone(),
+            #[cfg(feature = "skia")]
+            skia_profile.as_ref(),
+        );
         #[cfg(target_arch = "wasm32")]
         let paragraph_engine: Arc<dyn ParagraphEngine> = self.measurer.clone();
         let paragraph_store = Arc::new(ParagraphResultStore::new(paragraph_engine));
@@ -521,6 +533,8 @@ where
             presenter,
             #[cfg(not(target_arch = "wasm32"))]
             renderer_request,
+            #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+            skia_profile,
             #[cfg(target_arch = "wasm32")]
             web_renderer,
             #[cfg(target_arch = "wasm32")]
