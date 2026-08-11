@@ -21,6 +21,9 @@ use crate::image::{place_image, resolve_memory_image, ImageError, SkiaImageCache
 use crate::paragraph_caret::{paragraph_caret_paint, ParagraphCaretPaint, ParagraphCaretStyle};
 use crate::paragraph_draw_data::{ParagraphDrawDataError, ParagraphFrameDrawData};
 use crate::profile::SkiaParagraphDrawDataRegistry;
+use crate::svg::{
+    parse_svg_geometry, place_svg_geometry, validate_svg_bounds, SkiaSvgCache, SvgError,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct CompiledRasterFrame {
@@ -33,7 +36,8 @@ pub(crate) fn compile_scene(
     scale_factor: f64,
     clear_color: Color,
 ) -> Result<CompiledRasterFrame, CompileError> {
-    compile_scene_inner(scene, scale_factor, clear_color, None, None)
+    let svg_cache = SkiaSvgCache::new();
+    compile_scene_inner(scene, scale_factor, clear_color, None, None, &svg_cache)
 }
 
 pub(crate) fn compile_scene_with_paragraphs(
@@ -42,6 +46,7 @@ pub(crate) fn compile_scene_with_paragraphs(
     clear_color: Color,
     resources: &ResourceSnapshot,
     image_cache: &SkiaImageCache,
+    svg_cache: &SkiaSvgCache,
     paragraph_bindings: Option<&ParagraphFrameBindings>,
     paragraph_draw_data: &SkiaParagraphDrawDataRegistry,
 ) -> Result<CompiledRasterFrame, CompileError> {
@@ -69,6 +74,7 @@ pub(crate) fn compile_scene_with_paragraphs(
             resources,
             cache: image_cache,
         }),
+        svg_cache,
     )
 }
 
@@ -78,6 +84,7 @@ fn compile_scene_inner<'a>(
     clear_color: Color,
     paragraphs: Option<ParagraphCompilation>,
     images: Option<ImageCompilation<'a>>,
+    svg_cache: &'a SkiaSvgCache,
 ) -> Result<CompiledRasterFrame, CompileError> {
     let scale_factor = scale_factor as f32;
     if !scale_factor.is_finite() || scale_factor <= 0.0 {
@@ -94,6 +101,7 @@ fn compile_scene_inner<'a>(
         root_opacity_layers: 0,
         paragraphs,
         images,
+        svg_cache,
     };
     for (root_index, root) in scene.roots.iter().enumerate() {
         compiler.compile_node(root, root_index, &mut Vec::new(), None)?;
@@ -134,6 +142,7 @@ struct Compiler<'a> {
     root_opacity_layers: usize,
     paragraphs: Option<ParagraphCompilation>,
     images: Option<ImageCompilation<'a>>,
+    svg_cache: &'a SkiaSvgCache,
 }
 
 impl Compiler<'_> {
@@ -373,6 +382,19 @@ impl Compiler<'_> {
                 provenance.node_id,
                 &provenance,
             )?,
+            DisplayOp::DrawSvg {
+                content,
+                fill,
+                stroke,
+                bounds,
+                ..
+            } => self.draw_svg(
+                content,
+                fill.as_ref(),
+                stroke.as_ref(),
+                *bounds,
+                &provenance,
+            )?,
             other => {
                 return Err(CompileError::new(
                     CompileErrorKind::UnsupportedOperation(other.kind()),
@@ -380,6 +402,75 @@ impl Compiler<'_> {
                 ));
             }
         }
+        Ok(())
+    }
+
+    fn draw_svg(
+        &mut self,
+        content: &str,
+        fill: Option<&Fill>,
+        stroke: Option<&Stroke>,
+        bounds: LayoutRect,
+        provenance: &CompileProvenance,
+    ) -> Result<(), CompileError> {
+        validate_svg_bounds(bounds)
+            .map_err(|error| CompileError::new(CompileErrorKind::Svg(error), provenance.clone()))?;
+        if bounds.width() == 0.0 || bounds.height() == 0.0 {
+            return Ok(());
+        }
+
+        if fill.is_none() && stroke.is_none() {
+            let document = self.svg_cache.get_or_parse(content).map_err(|error| {
+                CompileError::new(CompileErrorKind::Svg(error), provenance.clone())
+            })?;
+            self.commands.push(RasterCommand::DrawSvg {
+                document,
+                destination: self.rect(bounds, provenance)?,
+            });
+            return Ok(());
+        }
+
+        let geometry = parse_svg_geometry(content)
+            .map_err(|error| CompileError::new(CompileErrorKind::Svg(error), provenance.clone()))?;
+        let placement = place_svg_geometry(&geometry, bounds)
+            .map_err(|error| CompileError::new(CompileErrorKind::Svg(error), provenance.clone()))?;
+        let paths = geometry
+            .paths
+            .iter()
+            .map(|path| self.path(path, LayoutPoint::new(0.0, 0.0), provenance))
+            .collect::<Result<Vec<_>, _>>()?;
+        let fill = fill
+            .map(|fill| self.paint(fill, placement.source_bounds, provenance))
+            .transpose()?;
+        let stroke = stroke
+            .map(|stroke| self.stroke(stroke, placement.source_bounds, provenance))
+            .transpose()?;
+        let transform = RasterAffine {
+            scale_x: placement.scale,
+            skew_x: 0.0,
+            translate_x: self.scaled(placement.translation.x, provenance, "SVG x translation")?,
+            skew_y: 0.0,
+            scale_y: placement.scale,
+            translate_y: self.scaled(placement.translation.y, provenance, "SVG y translation")?,
+        };
+
+        self.commands.push(RasterCommand::Save);
+        self.commands.push(RasterCommand::ConcatAffine(transform));
+        for path in paths {
+            if let Some(paint) = fill.as_ref() {
+                self.commands.push(RasterCommand::FillPath {
+                    path: path.clone(),
+                    paint: paint.clone(),
+                });
+            }
+            if let Some(stroke) = stroke.as_ref() {
+                self.commands.push(RasterCommand::StrokePath {
+                    path,
+                    stroke: stroke.clone(),
+                });
+            }
+        }
+        self.commands.push(RasterCommand::Restore);
         Ok(())
     }
 
@@ -1015,6 +1106,7 @@ pub(crate) enum CompileErrorKind {
     MissingImageNodeId,
     MissingImageResources,
     Image(ImageError),
+    Svg(SvgError),
     InvalidOpacity,
     InvalidBackdropBounds,
     InvalidBackdropBlurSigma,
@@ -1058,6 +1150,7 @@ impl fmt::Display for CompileError {
             CompileErrorKind::MissingImageResources => formatter
                 .write_str("the Skia image frame has no authoritative resource snapshot")?,
             CompileErrorKind::Image(error) => error.fmt(formatter)?,
+            CompileErrorKind::Svg(error) => error.fmt(formatter)?,
             CompileErrorKind::InvalidOpacity => {
                 formatter.write_str("the Skia opacity must be finite and in 0..=1")?
             }
@@ -1121,6 +1214,7 @@ impl CompileError {
             CompileErrorKind::MissingImageNodeId => "skia-image-node-id-missing",
             CompileErrorKind::MissingImageResources => "skia-image-resources-missing",
             CompileErrorKind::Image(error) => error.diagnostic_code(),
+            CompileErrorKind::Svg(error) => error.diagnostic_code(),
             CompileErrorKind::InvalidBackdropBounds => "skia-backdrop-bounds-invalid",
             CompileErrorKind::InvalidBackdropBlurSigma => "skia-backdrop-blur-sigma-invalid",
             CompileErrorKind::InvalidBackdropCornerRadius => "skia-backdrop-corner-radius-invalid",
@@ -1134,6 +1228,7 @@ impl CompileError {
                 DiagnosticCategory::Resource
             }
             CompileErrorKind::Image(error) => error.diagnostic_category(),
+            CompileErrorKind::Svg(error) => error.diagnostic_category(),
             _ => DiagnosticCategory::Capability,
         }
     }
@@ -1591,6 +1686,7 @@ mod tests {
         let scene = image_scene(request, node_id);
         let resources = ResourceSnapshot::empty(ResourceEpoch(1));
         let cache = SkiaImageCache::with_budget_bytes(1_024);
+        let svg_cache = SkiaSvgCache::with_budget_bytes(8_192);
         let paragraphs = crate::profile::new_paragraph_draw_data_registry();
 
         let error = compile_scene_with_paragraphs(
@@ -1599,6 +1695,7 @@ mod tests {
             red(),
             &resources,
             &cache,
+            &svg_cache,
             None,
             paragraphs.as_ref(),
         )
@@ -1641,6 +1738,7 @@ mod tests {
         )
         .unwrap();
         let cache = SkiaImageCache::with_budget_bytes(1_024);
+        let svg_cache = SkiaSvgCache::with_budget_bytes(8_192);
         let paragraphs = crate::profile::new_paragraph_draw_data_registry();
 
         let compile = || {
@@ -1650,6 +1748,7 @@ mod tests {
                 red(),
                 &resources,
                 &cache,
+                &svg_cache,
                 None,
                 paragraphs.as_ref(),
             )
@@ -1707,3 +1806,7 @@ mod tests {
         assert!(matches!(first.frame.commands[4], RasterCommand::Restore));
     }
 }
+
+#[cfg(test)]
+#[path = "compiler_svg_tests.rs"]
+mod svg_tests;

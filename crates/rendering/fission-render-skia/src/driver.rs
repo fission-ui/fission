@@ -23,6 +23,7 @@ use crate::error::{api_error, contract_error, contract_error_with_provenance, wr
 use crate::image::SkiaImageCache;
 use crate::native::NativeSkiaApi;
 use crate::profile::{new_paragraph_draw_data_registry, SkiaParagraphDrawDataRegistry};
+use crate::svg::SkiaSvgCache;
 use crate::thread_owner::ThreadOwner;
 
 const MAX_RECENT_EVENTS: usize = 64;
@@ -126,6 +127,7 @@ struct RasterDriver<A: SkiaApi> {
     diagnostics: BackendDiagnostics,
     paragraph_draw_data: Arc<SkiaParagraphDrawDataRegistry>,
     image_cache: SkiaImageCache,
+    svg_cache: SkiaSvgCache,
     _not_send_or_sync: PhantomData<Rc<()>>,
 }
 
@@ -174,6 +176,7 @@ impl<A: SkiaApi> RasterDriver<A> {
             diagnostics: BackendDiagnostics::new(capabilities.identity, SessionState::Detached),
             paragraph_draw_data,
             image_cache: SkiaImageCache::new(),
+            svg_cache: SkiaSvgCache::new(),
             _not_send_or_sync: PhantomData,
         })
     }
@@ -312,6 +315,7 @@ impl<A: SkiaApi> RasterDriver<A> {
     fn release_runtime(&mut self) {
         self.release_surface();
         self.image_cache.clear();
+        self.svg_cache.clear();
         drop(self.context.take());
         drop(self.engine.take());
     }
@@ -526,6 +530,7 @@ impl<A: SkiaApi> GraphicsBackendDriver for RasterDriver<A> {
             frame.frame().clear_color(),
             frame.frame().resources(),
             &self.image_cache,
+            &self.svg_cache,
             frame.frame().paragraph_bindings(),
             self.paragraph_draw_data.as_ref(),
         ) {
@@ -788,6 +793,7 @@ impl<A: SkiaApi> GraphicsBackendDriver for RasterDriver<A> {
         self.check_thread(BackendOperation::TrimMemory)?;
         if pressure == MemoryPressure::Critical {
             self.image_cache.clear();
+            self.svg_cache.clear();
         }
         if let Some(context) = self.context.as_mut() {
             if let Err(error) = self.api.trim_memory(context, pressure) {
@@ -818,6 +824,7 @@ impl<A: SkiaApi> GraphicsBackendDriver for RasterDriver<A> {
         let mut diagnostics = self.diagnostics.clone();
         diagnostics.session_state = self.state;
         diagnostics.caches.push(self.image_cache.diagnostics());
+        diagnostics.caches.push(self.svg_cache.diagnostics());
         diagnostics
     }
 }

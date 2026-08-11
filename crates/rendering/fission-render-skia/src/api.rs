@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use fission_render::surface::{MemoryPressure, PhysicalSize};
-use fission_skia_sys::{DecodedImage, ParagraphDrawData};
+use fission_skia_sys::{DecodedImage, ParagraphDrawData, SvgDocument};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ApiErrorKind {
@@ -243,6 +243,12 @@ pub(crate) enum RasterCommand {
     DrawImage {
         image: DecodedImage,
         source: RasterRect,
+        destination: RasterRect,
+    },
+    /// Pins one immutable parsed SVG document through native frame execution.
+    /// Fission paint overrides are lowered to ordinary path commands instead.
+    DrawSvg {
+        document: SvgDocument,
         destination: RasterRect,
     },
 }

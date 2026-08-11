@@ -1,6 +1,6 @@
 use fission_render::capabilities::{
     BackendIdentity, ColorFormat, DisplayOpKind, GraphicsCapabilities, ImageSourceKind, RenderMode,
-    TextFeature, TransformSupport,
+    SvgProfile, TextFeature, TransformSupport,
 };
 
 /// Semantics implemented by a standalone direct-Skia raster session.
@@ -12,8 +12,10 @@ use fission_render::capabilities::{
 /// exactly once. Text is enabled only by [`crate::SkiaRasterProfile`], which
 /// can prove that layout and paint share one draw-data registry. Memory images
 /// are decoded only from the submitted frame resource snapshot. Backdrop blur
-/// is an atomic native filter operation. SVG documents, other filters, and
-/// external surfaces remain unclaimed.
+/// is an atomic native filter operation. SVG document paint is retained by
+/// SkSVGDOM, while Fission fill/stroke overrides use the established geometry
+/// subset and ordinary path paint machinery. Other filters and external
+/// surfaces remain unclaimed.
 pub fn skia_raster_capabilities() -> GraphicsCapabilities {
     raster_capabilities(false)
 }
@@ -43,8 +45,10 @@ fn raster_capabilities(paragraph_paint: bool) -> GraphicsCapabilities {
         DisplayOpKind::DrawRect,
         DisplayOpKind::DrawImage,
         DisplayOpKind::DrawPath,
+        DisplayOpKind::DrawSvg,
     ]);
     capabilities.image_sources.insert(ImageSourceKind::Memory);
+    capabilities.svg_profile = SvgProfile::FullDocument;
     if paragraph_paint {
         capabilities
             .display_ops
@@ -90,6 +94,7 @@ mod tests {
         assert!(capabilities.supports_display_op(DisplayOpKind::DrawRect));
         assert!(capabilities.supports_display_op(DisplayOpKind::DrawImage));
         assert!(capabilities.supports_display_op(DisplayOpKind::DrawPath));
+        assert!(capabilities.supports_display_op(DisplayOpKind::DrawSvg));
         assert!(!capabilities.supports_display_op(DisplayOpKind::DrawText));
         assert!(!capabilities.supports_display_op(DisplayOpKind::DrawSurface));
         assert!(capabilities.supports_image_source(ImageSourceKind::Memory));
@@ -97,6 +102,7 @@ mod tests {
         assert!(!capabilities.supports_image_source(ImageSourceKind::File));
         assert!(!capabilities.supports_image_source(ImageSourceKind::Network));
         assert!(!capabilities.supports_image_source(ImageSourceKind::SvgText));
+        assert_eq!(capabilities.svg_profile, SvgProfile::FullDocument);
         assert_eq!(capabilities.transform_support, TransformSupport::Affine2d);
         assert!(capabilities.headless);
         assert!(capabilities.readback);

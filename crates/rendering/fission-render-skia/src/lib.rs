@@ -11,6 +11,7 @@ mod paragraph_caret;
 mod paragraph_draw_data;
 mod paragraph_engine;
 mod profile;
+mod svg;
 mod thread_owner;
 
 pub use capabilities::skia_raster_capabilities;

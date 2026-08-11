@@ -16,9 +16,12 @@ coordinates, including rounded bounds and device-scaled blur sigma. A paired
 result. In-memory images are resolved only from each submitted frame's resource
 snapshot, decoded through SkCodec under a bounded driver-owned cache, and
 painted with all current fit, alignment, clipping, and device-scale semantics.
-Other image sources, GPU surfaces, SVG documents, other filters, and CanvasKit
-remain behind the same Fission contracts while their production implementations
-are completed.
+Document-paint SVG is retained in bounded, driver-owned SkSVGDOM cache entries,
+while Fission fill/stroke overrides retain the existing path,
+rectangle, polygon, viewBox, gradient, dash, cap, and join semantics through
+the backend-neutral paint commands. Other image sources, GPU surfaces, other
+filters, and CanvasKit remain behind the same Fission contracts while their
+production implementations are completed.
 
 This crate deliberately reports only semantics that its current adapter can
 honor. The initial foundation profile is not advertised as a complete

@@ -197,6 +197,13 @@ fn native_command(command: &RasterCommand) -> FrameOp {
             destination: native_rect(*destination),
             sampling: ImageSampling::Linear,
         },
+        RasterCommand::DrawSvg {
+            document,
+            destination,
+        } => FrameOp::DrawSvg {
+            document: document.clone(),
+            destination: native_rect(*destination),
+        },
     }
 }
 
@@ -366,6 +373,30 @@ mod tests {
                 bounds: Rect::new(2.0, 4.0, 20.0, 32.0),
                 corner_radius: 6.0,
                 sigma: 8.0,
+            }
+        );
+    }
+
+    #[cfg(feature = "test-shim")]
+    #[test]
+    fn svg_mapping_pins_the_document_and_preserves_the_destination() {
+        let content = b"<svg viewBox='0 0 2 1'><rect width='2' height='1'/></svg>";
+        let document = fission_skia_sys::SvgDocument::parse(content).unwrap();
+        let destination = crate::api::RasterRect {
+            left: 2.0,
+            top: 4.0,
+            right: 22.0,
+            bottom: 14.0,
+        };
+
+        assert_eq!(
+            native_command(&RasterCommand::DrawSvg {
+                document: document.clone(),
+                destination,
+            }),
+            FrameOp::DrawSvg {
+                document,
+                destination: Rect::new(2.0, 4.0, 20.0, 10.0),
             }
         );
     }
