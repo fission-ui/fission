@@ -65,6 +65,7 @@ pub const FRAME_STROKE_RECT: u32 = 8;
 pub const FRAME_FILL_PATH: u32 = 9;
 pub const FRAME_STROKE_PATH: u32 = 10;
 pub const FRAME_BOX_SHADOW: u32 = 11;
+pub const FRAME_DRAW_PARAGRAPH: u32 = 12;
 
 pub const MEMORY_PRESSURE_MODERATE: u32 = 1;
 pub const MEMORY_PRESSURE_CRITICAL: u32 = 2;

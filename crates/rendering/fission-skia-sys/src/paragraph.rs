@@ -3,6 +3,7 @@
 use std::mem;
 use std::ptr;
 use std::slice;
+use std::sync::Arc;
 
 use crate::error::status_result;
 use crate::{ffi, BuildInfo, Error, ErrorKind, Result, ABI_VERSION, SKIA_REVISION};
@@ -266,10 +267,50 @@ pub struct ParagraphOutput {
     pub unresolved_codepoints: Box<[u32]>,
 }
 
+/// Immutable native paint data produced by the same layout as its geometry.
+///
+/// Clones share one RAII-owned SkPicture handle. The data may move between
+/// threads and its final clone may be dropped on any thread; playback still
+/// occurs through a thread-affine raster surface on that surface's owner
+/// thread. Native lookup, cloning, and destruction are synchronized.
+#[derive(Debug, Clone)]
+pub struct ParagraphDrawData {
+    inner: Arc<RawResult>,
+}
+
+impl ParagraphDrawData {
+    /// Approximate retained picture storage reported by Skia.
+    ///
+    /// As with `SkPicture::approximateBytesUsed`, this excludes large objects
+    /// referenced by the picture and is intended for cache budgeting.
+    pub fn approximate_bytes(&self) -> usize {
+        self.inner.approximate_bytes
+    }
+
+    pub(crate) fn raw_handle(&self) -> ffi::ParagraphResultHandle {
+        self.inner.handle
+    }
+}
+
+impl PartialEq for ParagraphDrawData {
+    fn eq(&self, other: &Self) -> bool {
+        self.inner.handle == other.inner.handle
+    }
+}
+
+impl Eq for ParagraphDrawData {}
+
+/// Geometry and immutable paint data from one native paragraph layout.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RetainedParagraphOutput {
+    pub output: ParagraphOutput,
+    pub draw_data: ParagraphDrawData,
+}
+
 /// Stateless, thread-safe entrypoint to the synchronous native paragraph ABI.
 ///
-/// Native Skia objects are created and consumed entirely inside each call. No
-/// native pointer or thread-affine graphics handle is retained by this value.
+/// Native Skia objects never escape as pointers. [`ParagraphDrawData`] retains
+/// immutable paint data independently of this engine when requested.
 #[derive(Debug, Clone, Copy)]
 pub struct ParagraphEngine {
     capabilities: ParagraphCapabilities,
@@ -315,6 +356,12 @@ impl ParagraphEngine {
     }
 
     pub fn layout(&self, request: &ParagraphRequest) -> Result<ParagraphOutput> {
+        self.layout_retained(request)
+            .map(|retained| retained.output)
+    }
+
+    /// Lays out once and retains the exact immutable picture painted later.
+    pub fn layout_retained(&self, request: &ParagraphRequest) -> Result<RetainedParagraphOutput> {
         let encoded = EncodedRequest::new(request)?;
         let mut handle = 0;
         let mut error = ffi::Error::default();
@@ -330,12 +377,16 @@ impl ParagraphEngine {
                 "bridge reported success with a null paragraph result handle",
             ));
         }
-        let result = RawResult(handle);
+        let mut result = RawResult {
+            handle,
+            approximate_bytes: 0,
+        };
         let mut view = ffi::ParagraphResultView::default();
         let mut error = ffi::Error::default();
         // SAFETY: result owns a live handle and view is initialized for writes.
-        let status =
-            unsafe { ffi::fission_skia_paragraph_result_get_view(result.0, &mut view, &mut error) };
+        let status = unsafe {
+            ffi::fission_skia_paragraph_result_get_view(result.handle, &mut view, &mut error)
+        };
         status_result(status, &error)?;
         if view.index_encoding != ffi::INDEX_UTF8 {
             return Err(Error::local(
@@ -354,19 +405,41 @@ impl ParagraphEngine {
                 "paragraph result capability mask differs from the queried bridge mask",
             ));
         }
+        let mut approximate_bytes = 0;
+        let mut error = ffi::Error::default();
+        // SAFETY: result owns a live handle and the scalar output is writable.
+        let status = unsafe {
+            ffi::fission_skia_paragraph_result_get_approximate_bytes(
+                result.handle,
+                &mut approximate_bytes,
+                &mut error,
+            )
+        };
+        status_result(status, &error)?;
+        result.approximate_bytes = approximate_bytes;
         // SAFETY: the opaque result keeps every scalar array alive and immutable
-        // until `result` is dropped after these copies complete.
-        unsafe { owned_output(&view) }
+        // while the geometry is copied. Its picture remains owned by draw_data.
+        let output = unsafe { owned_output(&view)? };
+        Ok(RetainedParagraphOutput {
+            output,
+            draw_data: ParagraphDrawData {
+                inner: Arc::new(result),
+            },
+        })
     }
 }
 
-struct RawResult(ffi::ParagraphResultHandle);
+#[derive(Debug)]
+struct RawResult {
+    handle: ffi::ParagraphResultHandle,
+    approximate_bytes: usize,
+}
 
 impl Drop for RawResult {
     fn drop(&mut self) {
         let mut error = ffi::Error::default();
         // SAFETY: this guard is the sole safe owner and destroys the handle once.
-        let status = unsafe { ffi::fission_skia_paragraph_result_destroy(self.0, &mut error) };
+        let status = unsafe { ffi::fission_skia_paragraph_result_destroy(self.handle, &mut error) };
         debug_assert_eq!(
             status,
             ffi::STATUS_OK,

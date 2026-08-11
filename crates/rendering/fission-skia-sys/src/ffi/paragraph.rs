@@ -338,6 +338,11 @@ extern "C" {
         out_view: *mut ParagraphResultView,
         out_error: *mut Error,
     ) -> Status;
+    pub fn fission_skia_paragraph_result_get_approximate_bytes(
+        result: ParagraphResultHandle,
+        out_approximate_bytes: *mut usize,
+        out_error: *mut Error,
+    ) -> Status;
     pub fn fission_skia_paragraph_result_destroy(
         result: ParagraphResultHandle,
         out_error: *mut Error,

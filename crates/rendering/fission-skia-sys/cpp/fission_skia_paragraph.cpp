@@ -1,11 +1,15 @@
 #include "fission_skia.h"
+#include "fission_skia_paragraph_internal.h"
 
+#include "include/core/SkCanvas.h"
 #include "include/core/SkColor.h"
 #include "include/core/SkFont.h"
 #include "include/core/SkFontArguments.h"
 #include "include/core/SkFontMgr.h"
 #include "include/core/SkFontStyle.h"
 #include "include/core/SkPaint.h"
+#include "include/core/SkPicture.h"
+#include "include/core/SkPictureRecorder.h"
 #include "include/core/SkString.h"
 #include "include/ports/SkFontScanner_FreeType.h"
 #include "modules/skparagraph/include/FontCollection.h"
@@ -103,6 +107,8 @@ struct DecodedScalar {
 };
 
 struct ParagraphResultState {
+    sk_sp<SkPicture> picture;
+    size_t approximate_bytes = 0;
     fission_skia_paragraph_size_t size{};
     float min_intrinsic_width = 0.0f;
     float max_intrinsic_width = 0.0f;
@@ -1081,6 +1087,25 @@ fission_skia_status_t fission_skia_paragraph_layout(
                     "SkParagraph returned incomplete or invalid immutable geometry", out_error);
     }
 
+    // Record the exact laid-out paragraph once. Playback later consumes this
+    // immutable picture and cannot accidentally shape or lay out a second time.
+    // The broad finite cull avoids discarding pathological font overhangs while
+    // keeping SkPicture's scalar calculations finite.
+    SkPictureRecorder recorder;
+    SkCanvas* recording_canvas = recorder.beginRecording(SkRect::MakeLTRB(
+        -kProbeWidth, -kProbeWidth, kProbeWidth, kProbeWidth));
+    if (recording_canvas == nullptr) {
+        return fail(FISSION_SKIA_STATUS_OUT_OF_MEMORY, "paragraph_layout",
+                    "SkPicture recording canvas allocation failed", out_error);
+    }
+    paragraph->paint(recording_canvas, 0.0f, 0.0f);
+    result->picture = recorder.finishRecordingAsPicture();
+    if (result->picture == nullptr) {
+        return fail(FISSION_SKIA_STATUS_OUT_OF_MEMORY, "paragraph_layout",
+                    "SkParagraph picture recording failed", out_error);
+    }
+    result->approximate_bytes = result->picture->approximateBytesUsed();
+
     uint64_t handle = 0;
     {
         std::lock_guard<std::mutex> lock(paragraph_registry().mutex);
@@ -1140,6 +1165,28 @@ fission_skia_status_t fission_skia_paragraph_result_get_view(
     return FISSION_SKIA_STATUS_OK;
 }
 
+fission_skia_status_t fission_skia_paragraph_result_get_approximate_bytes(
+    fission_skia_paragraph_result_handle_t result,
+    size_t* out_approximate_bytes,
+    fission_skia_error_t* out_error) {
+    if (out_approximate_bytes == nullptr) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT,
+                    "paragraph_result_get_approximate_bytes",
+                    "approximate byte output pointer is null", out_error);
+    }
+    *out_approximate_bytes = 0;
+    std::lock_guard<std::mutex> lock(paragraph_registry().mutex);
+    const auto found = paragraph_registry().results.find(result);
+    if (found == paragraph_registry().results.end()) {
+        return fail(FISSION_SKIA_STATUS_INVALID_HANDLE,
+                    "paragraph_result_get_approximate_bytes",
+                    "paragraph result handle is not live", out_error);
+    }
+    *out_approximate_bytes = found->second->approximate_bytes;
+    clear_error(out_error);
+    return FISSION_SKIA_STATUS_OK;
+}
+
 fission_skia_status_t fission_skia_paragraph_result_destroy(
     fission_skia_paragraph_result_handle_t result,
     fission_skia_error_t* out_error) {
@@ -1155,3 +1202,54 @@ fission_skia_status_t fission_skia_paragraph_result_destroy(
 }
 
 }  // extern "C"
+
+fission_skia_status_t fission_skia_paragraph_validate_draw(
+    fission_skia_paragraph_result_handle_t result,
+    float x,
+    float y,
+    float scale_factor,
+    fission_skia_error_t* out_error) {
+    if (!finite(x) || !finite(y) || !finite(scale_factor) || scale_factor <= 0.0f) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "draw_paragraph",
+                    "paragraph origin or scale factor is invalid", out_error);
+    }
+    std::lock_guard<std::mutex> lock(paragraph_registry().mutex);
+    const auto found = paragraph_registry().results.find(result);
+    if (found == paragraph_registry().results.end() || found->second->picture == nullptr) {
+        return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, "draw_paragraph",
+                    "paragraph draw handle is not live", out_error);
+    }
+    clear_error(out_error);
+    return FISSION_SKIA_STATUS_OK;
+}
+
+fission_skia_status_t fission_skia_paragraph_draw_picture(
+    fission_skia_paragraph_result_handle_t result,
+    SkCanvas* canvas,
+    float x,
+    float y,
+    float scale_factor,
+    fission_skia_error_t* out_error) {
+    if (canvas == nullptr || !finite(x) || !finite(y) || !finite(scale_factor) ||
+        scale_factor <= 0.0f) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "draw_paragraph",
+                    "paragraph canvas, origin, or scale factor is invalid", out_error);
+    }
+    sk_sp<SkPicture> picture;
+    {
+        std::lock_guard<std::mutex> lock(paragraph_registry().mutex);
+        const auto found = paragraph_registry().results.find(result);
+        if (found == paragraph_registry().results.end() || found->second->picture == nullptr) {
+            return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, "draw_paragraph",
+                        "paragraph draw handle is not live", out_error);
+        }
+        picture = found->second->picture;
+    }
+    canvas->save();
+    canvas->translate(x, y);
+    canvas->scale(scale_factor, scale_factor);
+    canvas->drawPicture(picture);
+    canvas->restore();
+    clear_error(out_error);
+    return FISSION_SKIA_STATUS_OK;
+}

@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-#define FISSION_SKIA_ABI_VERSION 2u
+#define FISSION_SKIA_ABI_VERSION 3u
 #define FISSION_SKIA_REVISION_LENGTH 41u
 #define FISSION_SKIA_PROFILE_LENGTH 32u
 #define FISSION_SKIA_ERROR_OPERATION_LENGTH 64u
@@ -212,7 +212,8 @@ typedef enum fission_skia_frame_op_kind_t {
     FISSION_SKIA_FRAME_STROKE_RECT = 8,
     FISSION_SKIA_FRAME_FILL_PATH = 9,
     FISSION_SKIA_FRAME_STROKE_PATH = 10,
-    FISSION_SKIA_FRAME_BOX_SHADOW = 11
+    FISSION_SKIA_FRAME_BOX_SHADOW = 11,
+    FISSION_SKIA_FRAME_DRAW_PARAGRAPH = 12
 } fission_skia_frame_op_kind_t;
 
 /*
@@ -221,6 +222,13 @@ typedef enum fission_skia_frame_op_kind_t {
  * fields must be zero, allowing future ABI versions to give them meaning
  * explicitly. Odd dash arrays are duplicated by the safe Rust encoder; empty
  * and all-zero arrays are encoded as a solid stroke.
+ *
+ * DRAW_PARAGRAPH is the sole exception to the path offset/count meaning:
+ * path_offset contains the low 32 bits and path_count the high 32 bits of an
+ * immutable paragraph result handle. rect.x and rect.y contain its origin;
+ * the remaining rect fields are zero. radius contains the finite, positive
+ * logical-to-physical scale factor. The caller must keep that result handle
+ * alive until frame execution returns.
  */
 typedef struct fission_skia_frame_op_t {
     uint32_t struct_size;
@@ -588,6 +596,11 @@ FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_paragraph_layout(
 FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_paragraph_result_get_view(
     fission_skia_paragraph_result_handle_t result,
     fission_skia_paragraph_result_view_t* out_view,
+    fission_skia_error_t* out_error);
+FISSION_SKIA_EXPORT fission_skia_status_t
+fission_skia_paragraph_result_get_approximate_bytes(
+    fission_skia_paragraph_result_handle_t result,
+    size_t* out_approximate_bytes,
     fission_skia_error_t* out_error);
 FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_paragraph_result_destroy(
     fission_skia_paragraph_result_handle_t result,

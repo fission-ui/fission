@@ -7,7 +7,7 @@ use std::process::Command;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-const ABI_VERSION: u32 = 2;
+const ABI_VERSION: u32 = 3;
 const SKIA_REVISION: &str = "cf5c36972b73698eb3939cda147ea47152670312";
 
 #[derive(Debug, Deserialize)]
@@ -90,6 +90,7 @@ fn emit_inputs() {
     println!("cargo:rerun-if-changed=include/fission_skia.h");
     println!("cargo:rerun-if-changed=cpp/fission_skia.cpp");
     println!("cargo:rerun-if-changed=cpp/fission_skia_paragraph.cpp");
+    println!("cargo:rerun-if-changed=cpp/fission_skia_paragraph_internal.h");
     println!("cargo:rerun-if-changed=cpp/test_shim.cpp");
     println!("cargo:rerun-if-changed=cpp/test_shim_paragraph.cpp");
     println!("cargo:rerun-if-changed=skia_revision.txt");

@@ -23,15 +23,16 @@ pub use frame::{
 pub use handles::{BuildInfo, Context, Engine, MemoryPressure, RasterSurface};
 pub use paragraph::{
     ParagraphAffinity, ParagraphCapabilities, ParagraphCaret, ParagraphCluster, ParagraphColor,
-    ParagraphDirection, ParagraphEngine, ParagraphFontFeature, ParagraphFontSlant,
-    ParagraphFontVariation, ParagraphHitRegion, ParagraphInlineBox, ParagraphInlineObject,
-    ParagraphLine, ParagraphOutput, ParagraphOverflow, ParagraphPreedit, ParagraphRange,
-    ParagraphRect, ParagraphRequest, ParagraphSize, ParagraphStyle, ParagraphTextAlign,
-    ParagraphTextDirection, ParagraphTextStyleRun, ParagraphTextWidthBasis, UnresolvedGlyph,
+    ParagraphDirection, ParagraphDrawData, ParagraphEngine, ParagraphFontFeature,
+    ParagraphFontSlant, ParagraphFontVariation, ParagraphHitRegion, ParagraphInlineBox,
+    ParagraphInlineObject, ParagraphLine, ParagraphOutput, ParagraphOverflow, ParagraphPreedit,
+    ParagraphRange, ParagraphRect, ParagraphRequest, ParagraphSize, ParagraphStyle,
+    ParagraphTextAlign, ParagraphTextDirection, ParagraphTextStyleRun, ParagraphTextWidthBasis,
+    RetainedParagraphOutput, UnresolvedGlyph,
 };
 
 /// Exact bridge ABI accepted by this crate.
-pub const ABI_VERSION: u32 = 2;
+pub const ABI_VERSION: u32 = 3;
 
 /// Exact Skia source revision used by both source and prebuilt profiles.
 pub const SKIA_REVISION: &str = "cf5c36972b73698eb3939cda147ea47152670312";

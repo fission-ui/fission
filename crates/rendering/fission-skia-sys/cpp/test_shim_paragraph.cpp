@@ -1,5 +1,6 @@
 #define FISSION_SKIA_TEST_SHIM 1
 #include "fission_skia.h"
+#include "fission_skia_paragraph_internal.h"
 
 #include <algorithm>
 #include <atomic>
@@ -49,7 +50,14 @@ struct Scalar {
     size_t end;
 };
 
+struct PictureRect {
+    fission_skia_paragraph_rect_t rect{};
+    fission_skia_color_t color{};
+};
+
 struct Result {
+    size_t approximate_bytes = 0;
+    std::vector<PictureRect> picture;
     fission_skia_paragraph_size_t size{};
     float min_intrinsic = 0.0f;
     float max_intrinsic = 0.0f;
@@ -350,6 +358,26 @@ const fission_skia_inline_object_t* inline_at(
     return nullptr;
 }
 
+const fission_skia_text_style_run_t* style_at(
+    const fission_skia_paragraph_request_t& request,
+    size_t byte_index) {
+    for (size_t index = 0; index < request.style_run_count; ++index) {
+        const auto& style = request.style_runs[index];
+        if (style.range.start <= byte_index && byte_index < style.range.end) return &style;
+    }
+    return nullptr;
+}
+
+fission_skia_color_t color_from_rgba8(const fission_skia_rgba8_t& color) {
+    constexpr float kChannelScale = 1.0f / 255.0f;
+    return {
+        color.red * kChannelScale,
+        color.green * kChannelScale,
+        color.blue * kChannelScale,
+        color.alpha * kChannelScale,
+    };
+}
+
 std::unique_ptr<Result> shape(
     const fission_skia_paragraph_request_t& request,
     const std::vector<Scalar>& scalars) {
@@ -419,6 +447,12 @@ std::unique_ptr<Result> shape(
                 1,
                 0,
             });
+            const auto* style = style_at(request, range.first);
+            if (style == nullptr) return nullptr;
+            result->picture.push_back({
+                {x, y, width, height},
+                color_from_rgba8(style->color),
+            });
         } else {
             result->inline_boxes.push_back({
                 object->id,
@@ -479,6 +513,7 @@ std::unique_ptr<Result> shape(
         result->first_baseline = result->lines.front().baseline;
         result->last_baseline = result->lines.back().baseline;
     }
+    result->approximate_bytes = result->picture.size() * sizeof(PictureRect);
     return result;
 }
 
@@ -578,6 +613,28 @@ fission_skia_status_t fission_skia_paragraph_result_get_view(
     return FISSION_SKIA_STATUS_OK;
 }
 
+fission_skia_status_t fission_skia_paragraph_result_get_approximate_bytes(
+    fission_skia_paragraph_result_handle_t result,
+    size_t* out_approximate_bytes,
+    fission_skia_error_t* out_error) {
+    if (out_approximate_bytes == nullptr) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT,
+                    "paragraph_result_get_approximate_bytes",
+                    "null test approximate byte output", out_error);
+    }
+    *out_approximate_bytes = 0;
+    std::lock_guard<std::mutex> lock(state().mutex);
+    const auto found = state().results.find(result);
+    if (found == state().results.end()) {
+        return fail(FISSION_SKIA_STATUS_INVALID_HANDLE,
+                    "paragraph_result_get_approximate_bytes",
+                    "invalid test paragraph result", out_error);
+    }
+    *out_approximate_bytes = found->second->approximate_bytes;
+    clear_error(out_error);
+    return FISSION_SKIA_STATUS_OK;
+}
+
 fission_skia_status_t fission_skia_paragraph_result_destroy(
     fission_skia_paragraph_result_handle_t result,
     fission_skia_error_t* out_error) {
@@ -593,3 +650,59 @@ fission_skia_status_t fission_skia_paragraph_result_destroy(
 }
 
 }  // extern "C"
+
+fission_skia_status_t fission_skia_paragraph_validate_draw(
+    fission_skia_paragraph_result_handle_t result,
+    float x,
+    float y,
+    float scale_factor,
+    fission_skia_error_t* out_error) {
+    if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(scale_factor) ||
+        scale_factor <= 0.0f) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "draw_paragraph",
+                    "invalid test paragraph origin or scale factor", out_error);
+    }
+    std::lock_guard<std::mutex> lock(state().mutex);
+    if (state().results.find(result) == state().results.end()) {
+        return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, "draw_paragraph",
+                    "test paragraph draw handle is not live", out_error);
+    }
+    clear_error(out_error);
+    return FISSION_SKIA_STATUS_OK;
+}
+
+fission_skia_status_t fission_skia_paragraph_draw_test_picture(
+    fission_skia_paragraph_result_handle_t result,
+    float x,
+    float y,
+    float scale_factor,
+    void* context,
+    fission_skia_test_paragraph_rect_callback_t draw_rect,
+    fission_skia_error_t* out_error) {
+    if (context == nullptr || draw_rect == nullptr || !std::isfinite(x) ||
+        !std::isfinite(y) || !std::isfinite(scale_factor) || scale_factor <= 0.0f) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "draw_paragraph",
+                    "invalid test paragraph playback arguments", out_error);
+    }
+    std::vector<PictureRect> picture;
+    {
+        std::lock_guard<std::mutex> lock(state().mutex);
+        const auto found = state().results.find(result);
+        if (found == state().results.end()) {
+            return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, "draw_paragraph",
+                        "test paragraph draw handle is not live", out_error);
+        }
+        picture = found->second->picture;
+    }
+    for (const auto& command : picture) {
+        const fission_skia_paragraph_rect_t rect = {
+            x + command.rect.x * scale_factor,
+            y + command.rect.y * scale_factor,
+            command.rect.width * scale_factor,
+            command.rect.height * scale_factor,
+        };
+        draw_rect(context, rect, command.color);
+    }
+    clear_error(out_error);
+    return FISSION_SKIA_STATUS_OK;
+}

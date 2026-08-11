@@ -2,9 +2,10 @@
 
 use fission_skia_sys::ffi;
 use fission_skia_sys::{
-    ErrorKind, ParagraphCapabilities, ParagraphColor, ParagraphEngine, ParagraphInlineObject,
-    ParagraphPreedit, ParagraphRange, ParagraphRequest, ParagraphTextDirection,
-    ParagraphTextStyleRun,
+    Color, Context, Engine, ErrorKind, Frame, FrameOp, ParagraphCapabilities, ParagraphColor,
+    ParagraphDrawData, ParagraphEngine, ParagraphInlineObject, ParagraphPreedit, ParagraphRange,
+    ParagraphRequest, ParagraphTextDirection, ParagraphTextStyleRun, PixelRect, Point,
+    RasterSurface,
 };
 
 fn rich_request() -> ParagraphRequest {
@@ -102,6 +103,46 @@ fn font_catalog_without_an_owned_payload_is_rejected_structurally() {
 }
 
 #[test]
+fn retained_paragraph_picture_survives_layout_owner_and_scales_at_playback() {
+    fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<ParagraphDrawData>();
+
+    let paragraph_engine = ParagraphEngine::new().expect("paragraph test engine");
+    let retained = paragraph_engine
+        .layout_retained(&rich_request())
+        .expect("retained paragraph output");
+    assert!(retained.draw_data.approximate_bytes() > 0);
+    let logical_width = retained.output.size.width;
+    let frame = Frame::new([FrameOp::DrawParagraph {
+        data: retained.draw_data.clone(),
+        origin: Point::new(2.0, 3.0),
+        scale_factor: 2.0,
+    }]);
+    drop(retained);
+
+    let engine = Engine::new().expect("raster engine");
+    let context = Context::new_raster(&engine).expect("raster context");
+    let mut surface = RasterSurface::new(&context, 48, 48).expect("raster surface");
+    surface
+        .execute_frame(&Frame::new([FrameOp::Clear(Color::TRANSPARENT)]))
+        .expect("clear frame");
+    surface.execute_frame(&frame).expect("paragraph frame");
+    let pixel = surface
+        .read_pixels_rgba8888(Some(PixelRect::new(2, 3, 1, 1)))
+        .expect("paragraph pixel");
+    assert_eq!(pixel, [10, 20, 30, 255]);
+    let scaled_only_pixel = surface
+        .read_pixels_rgba8888(Some(PixelRect::new(18, 3, 1, 1)))
+        .expect("scaled paragraph pixel");
+    assert_eq!(scaled_only_pixel, [10, 20, 30, 255]);
+    let outside_scaled_height = surface
+        .read_pixels_rgba8888(Some(PixelRect::new(2, 43, 1, 1)))
+        .expect("pixel below scaled paragraph");
+    assert_eq!(outside_scaled_height, [0, 0, 0, 0]);
+    assert_eq!(logical_width, 300.0);
+}
+
+#[test]
 fn raw_contract_rejects_unknown_flags_and_destroyed_results() {
     let text = b"ok";
     let style = ffi::TextStyleRun {
@@ -191,6 +232,38 @@ fn raw_contract_rejects_unknown_flags_and_destroyed_results() {
         unsafe { ffi::fission_skia_paragraph_result_get_view(handle, &mut view, &mut error) },
         ffi::STATUS_INVALID_HANDLE
     );
+
+    // A raw frame cannot turn a stale paragraph handle into a silent no-op.
+    // SAFETY: FrameOp contains only C scalar records and all-zero is a valid
+    // starting representation before the required fields are initialized.
+    let mut operation: ffi::FrameOp = unsafe { std::mem::zeroed() };
+    operation.struct_size = std::mem::size_of::<ffi::FrameOp>() as u32;
+    operation.kind = ffi::FRAME_DRAW_PARAGRAPH;
+    operation.rect.x = 0.0;
+    operation.rect.y = 0.0;
+    operation.radius = 1.0;
+    operation.path_offset = handle as u32;
+    operation.path_count = (handle >> 32) as u32;
+    let frame = ffi::Frame {
+        struct_size: std::mem::size_of::<ffi::Frame>() as u32,
+        reserved: 0,
+        operations: &operation,
+        operation_count: 1,
+        path_commands: std::ptr::null(),
+        path_command_count: 0,
+        gradient_stops: std::ptr::null(),
+        gradient_stop_count: 0,
+        dash_intervals: std::ptr::null(),
+        dash_interval_count: 0,
+    };
+    // SAFETY: the frame arrays remain alive; both numeric handles are
+    // deliberately stale/invalid and must be diagnosed structurally.
+    assert_eq!(
+        unsafe { ffi::fission_skia_surface_execute_frame(u64::MAX, &frame, &mut error) },
+        ffi::STATUS_INVALID_HANDLE
+    );
+    assert_eq!(error.code, ffi::STATUS_INVALID_HANDLE);
+    assert_eq!(error.operation[0] as u8, b'd');
 }
 
 fn empty_utf8() -> ffi::Utf8Slice {

@@ -1,5 +1,6 @@
 #define FISSION_SKIA_TEST_SHIM 1
 #include "fission_skia.h"
+#include "fission_skia_paragraph_internal.h"
 
 #include <algorithm>
 #include <atomic>
@@ -184,6 +185,12 @@ void paint_rect(Surface& surface, const fission_skia_rect_t& rect,
             surface.pixels[offset + 3] = channel(color.alpha);
         }
     }
+}
+
+void paint_paragraph_rect(void* context, const fission_skia_paragraph_rect_t& rect,
+                          const fission_skia_color_t& color) {
+    auto& surface = *static_cast<Surface*>(context);
+    paint_rect(surface, {rect.x, rect.y, rect.width, rect.height}, color);
 }
 
 }  // namespace
@@ -395,6 +402,19 @@ fission_skia_status_t fission_skia_surface_execute_frame(
                     return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame",
                                 "invalid box shadow", error);
                 break;
+            case FISSION_SKIA_FRAME_DRAW_PARAGRAPH: {
+                if (!std::isfinite(op.rect.x) || !std::isfinite(op.rect.y) ||
+                    op.rect.width != 0.0f || op.rect.height != 0.0f ||
+                    !std::isfinite(op.radius) || op.radius <= 0.0f) {
+                    return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame",
+                                "invalid paragraph draw", error);
+                }
+                const auto status = fission_skia_paragraph_validate_draw(
+                    fission_skia_paragraph_handle_from_frame_op(op), op.rect.x, op.rect.y,
+                    op.radius, error);
+                if (status != FISSION_SKIA_STATUS_OK) return status;
+                break;
+            }
             default:
                 return fail(FISSION_SKIA_STATUS_UNSUPPORTED, "execute_frame",
                             "unknown operation", error);
@@ -416,6 +436,11 @@ fission_skia_status_t fission_skia_surface_execute_frame(
                                       static_cast<float>(found->second.height)}, op.paint.color);
         } else if (op.kind == FISSION_SKIA_FRAME_FILL_RECT) {
             paint_rect(found->second, op.rect, representative_color(*frame, op.paint));
+        } else if (op.kind == FISSION_SKIA_FRAME_DRAW_PARAGRAPH) {
+            status = fission_skia_paragraph_draw_test_picture(
+                fission_skia_paragraph_handle_from_frame_op(op), op.rect.x, op.rect.y,
+                op.radius, &found->second, paint_paragraph_rect, error);
+            if (status != FISSION_SKIA_STATUS_OK) return status;
         }
         // State, gradients, strokes, paths, and shadows are intentionally
         // validation-only in the ABI ownership test double.

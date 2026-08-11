@@ -1,3 +1,4 @@
+use crate::paragraph::ParagraphDrawData;
 use crate::{ffi, Error, ErrorKind, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -230,6 +231,14 @@ pub enum FrameOp {
         radius: f32,
         shadow: BoxShadow,
     },
+    /// Paints immutable data from the exact paragraph layout that produced its
+    /// geometry. `origin` is physical and `scale_factor` converts the retained
+    /// logical picture into physical pixels without reshaping it.
+    DrawParagraph {
+        data: ParagraphDrawData,
+        origin: Point,
+        scale_factor: f32,
+    },
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -336,6 +345,23 @@ impl Frame {
                     raw.radius = non_negative(*radius, "shadow corner radius")?;
                     raw.shadow = raw_shadow(*shadow)?;
                 }
+                FrameOp::DrawParagraph {
+                    data,
+                    origin,
+                    scale_factor,
+                } => {
+                    raw.kind = ffi::FRAME_DRAW_PARAGRAPH;
+                    raw.rect.x = finite(origin.x, "paragraph origin x")?;
+                    raw.rect.y = finite(origin.y, "paragraph origin y")?;
+                    raw.radius = positive(*scale_factor, "paragraph scale factor")?;
+                    let handle = data.raw_handle();
+                    if handle == 0 {
+                        return Err(invalid("paragraph draw handle must not be null"));
+                    }
+                    raw.path_offset = handle as u32;
+                    raw.path_count = (handle >> 32) as u32;
+                    encoded.paragraph_draw_data.push(data.clone());
+                }
             }
             encoded.operations.push(raw);
         }
@@ -373,6 +399,9 @@ pub(crate) struct EncodedFrame {
     path_commands: Vec<ffi::PathCommand>,
     gradient_stops: Vec<ffi::GradientStop>,
     dash_intervals: Vec<f32>,
+    // Keeps every packed native paragraph handle alive through execution even
+    // if another internal caller encodes from a temporary Frame.
+    paragraph_draw_data: Vec<ParagraphDrawData>,
 }
 
 impl EncodedFrame {
@@ -382,6 +411,7 @@ impl EncodedFrame {
             path_commands: Vec::new(),
             gradient_stops: Vec::new(),
             dash_intervals: Vec::new(),
+            paragraph_draw_data: Vec::new(),
         }
     }
 
@@ -788,6 +818,14 @@ fn non_negative(value: f32, label: &str) -> Result<f32> {
         Ok(value)
     } else {
         Err(invalid(format!("{label} must be finite and non-negative")))
+    }
+}
+
+fn positive(value: f32, label: &str) -> Result<f32> {
+    if value.is_finite() && value > 0.0 {
+        Ok(value)
+    } else {
+        Err(invalid(format!("{label} must be finite and positive")))
     }
 }
 

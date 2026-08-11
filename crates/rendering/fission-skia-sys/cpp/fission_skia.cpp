@@ -1,4 +1,5 @@
 #include "fission_skia.h"
+#include "fission_skia_paragraph_internal.h"
 
 #include "include/core/SkCanvas.h"
 #include "include/core/SkColorSpace.h"
@@ -407,6 +408,19 @@ fission_skia_status_t validate_frame(
                                 "shadow rectangle has invalid geometry", error);
                 }
                 const auto status = validate_shadow(operation.shadow, error);
+                if (status != FISSION_SKIA_STATUS_OK) return status;
+                break;
+            }
+            case FISSION_SKIA_FRAME_DRAW_PARAGRAPH: {
+                if (!finite(operation.rect.x) || !finite(operation.rect.y) ||
+                    operation.rect.width != 0.0f || operation.rect.height != 0.0f ||
+                    !finite(operation.radius) || operation.radius <= 0.0f) {
+                    return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame",
+                                "paragraph draw has an invalid origin or scale factor", error);
+                }
+                const auto status = fission_skia_paragraph_validate_draw(
+                    fission_skia_paragraph_handle_from_frame_op(operation), operation.rect.x,
+                    operation.rect.y, operation.radius, error);
                 if (status != FISSION_SKIA_STATUS_OK) return status;
                 break;
             }
@@ -935,6 +949,15 @@ fission_skia_status_t fission_skia_surface_execute_frame(
                     canvas->restoreToCount(initial_save_count);
                     return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "execute_frame",
                                 "box shadow produced invalid derived geometry", out_error);
+                }
+                break;
+            case FISSION_SKIA_FRAME_DRAW_PARAGRAPH:
+                status = fission_skia_paragraph_draw_picture(
+                    fission_skia_paragraph_handle_from_frame_op(operation), canvas,
+                    operation.rect.x, operation.rect.y, operation.radius, out_error);
+                if (status != FISSION_SKIA_STATUS_OK) {
+                    canvas->restoreToCount(initial_save_count);
+                    return status;
                 }
                 break;
         }
