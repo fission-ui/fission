@@ -15,6 +15,35 @@ export const PacketKind = Object.freeze({
   ERROR: 7,
 });
 
+export const BackendPreference = Object.freeze({
+  AUTO: 0,
+  WEB_GL: 1,
+  GRAPHITE: 2,
+  SOFTWARE: 3,
+});
+
+export const ResourceKind = Object.freeze({
+  IMAGE: 1,
+  SVG: 2,
+  FONT: 3,
+  TEXT: 4,
+  BINARY: 5,
+});
+
+export const ResourceOperation = Object.freeze({
+  UPSERT: 1,
+  RELEASE: 2,
+});
+
+export const ErrorCode = Object.freeze({
+  INVALID_PACKET: 1,
+  UNSUPPORTED_VERSION: 2,
+  INVALID_STATE: 3,
+  RESOURCE_FAILURE: 4,
+  SURFACE_LOST: 5,
+  INTERNAL: 6,
+});
+
 export const DEFAULT_LIMITS = Object.freeze({
   maxPacketBytes: 64 * 1024 * 1024,
   maxResourceUpdates: 4096,
@@ -27,13 +56,14 @@ export const DEFAULT_LIMITS = Object.freeze({
   maxScaleFactor: 16,
 });
 
-const RESOURCE_KIND = new Set([1, 2, 3, 4, 5]);
-const BACKEND_PREFERENCE = new Set([0, 1, 2, 3]);
+const RESOURCE_KIND = new Set(Object.values(ResourceKind));
+const BACKEND_PREFERENCE = new Set(Object.values(BackendPreference));
 const COLOR_SPACE = new Set([1, 2]);
 const ALPHA_MODE = new Set([1, 2]);
 const DESTROY_REASON = new Set([0, 1, 2, 3]);
-const ERROR_CODE = new Set([1, 2, 3, 4, 5, 6]);
+const ERROR_CODE = new Set(Object.values(ErrorCode));
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
+const utf8Encoder = new TextEncoder();
 
 export class ProtocolError extends Error {
   constructor(code, message) {
@@ -427,6 +457,87 @@ export function decodeMessage(input, limits = DEFAULT_LIMITS) {
   });
 }
 
+function requireWireU64(field, value) {
+  if (
+    typeof value !== "bigint" ||
+    value <= 0n ||
+    value > 0xffffffffffffffffn
+  ) {
+    reject("invalid-value", `${field} must be a non-zero u64 BigInt`);
+  }
+  return value;
+}
+
+function encodeEnvelope(kind, payloadLength, session, sequence) {
+  requireEnum("packet kind", kind, new Set(Object.values(PacketKind)));
+  requireWireU64("session", session);
+  requireWireU64("sequence", sequence);
+  const packetLength = HEADER_LEN + payloadLength;
+  requireLimit("packet bytes", packetLength, DEFAULT_LIMITS.maxPacketBytes);
+  const bytes = new Uint8Array(packetLength);
+  bytes.set(MAGIC, 0);
+  const view = new DataView(bytes.buffer);
+  view.setUint16(4, PROTOCOL_VERSION, true);
+  view.setUint16(6, kind, true);
+  view.setUint32(8, packetLength, true);
+  view.setUint32(12, 0, true);
+  view.setBigUint64(16, session, true);
+  view.setBigUint64(24, sequence, true);
+  return { bytes, view };
+}
+
+function encodeBoundedUtf8(message, maximum) {
+  const value = typeof message === "string" ? message : String(message);
+  const destination = new Uint8Array(maximum);
+  const { written } = utf8Encoder.encodeInto(value, destination);
+  return destination.subarray(0, written);
+}
+
+/** Encode one canonical acknowledgement packet. */
+export function encodeAck({ session, sequence, acknowledgedSequence }) {
+  requireWireU64("acknowledged sequence", acknowledgedSequence);
+  const { bytes, view } = encodeEnvelope(
+    PacketKind.ACK,
+    8,
+    session,
+    sequence,
+  );
+  view.setBigUint64(HEADER_LEN, acknowledgedSequence, true);
+  return bytes;
+}
+
+/**
+ * Encode one canonical bounded error packet. Messages longer than the protocol
+ * limit are truncated at a complete UTF-8 scalar boundary by `encodeInto`.
+ */
+export function encodeError({
+  session,
+  sequence,
+  failedSequence,
+  code,
+  message,
+  limits = DEFAULT_LIMITS,
+}) {
+  requireWireU64("failed sequence", failedSequence);
+  requireEnum("error code", code, ERROR_CODE);
+  const messageBytes = encodeBoundedUtf8(
+    message,
+    limits.maxErrorMessageBytes,
+  );
+  const { bytes, view } = encodeEnvelope(
+    PacketKind.ERROR,
+    16 + messageBytes.byteLength,
+    session,
+    sequence,
+  );
+  view.setBigUint64(HEADER_LEN, failedSequence, true);
+  view.setUint16(HEADER_LEN + 8, code, true);
+  view.setUint16(HEADER_LEN + 10, 0, true);
+  view.setUint32(HEADER_LEN + 12, messageBytes.byteLength, true);
+  bytes.set(messageBytes, HEADER_LEN + 16);
+  return bytes;
+}
+
 function cloneResources(resources) {
   return new Map(
     Array.from(resources, ([slot, state]) => [slot, { ...state }]),
@@ -494,6 +605,19 @@ export class ProtocolSession {
       if (state.live) count += 1;
     }
     return count;
+  }
+
+  /** Create an isolated transactional candidate for a prospective command. */
+  fork() {
+    const candidate = new ProtocolSession(this.limits);
+    candidate.latestSession = this.latestSession;
+    candidate.active = this.active
+      ? {
+          ...this.active,
+          resources: cloneResources(this.active.resources),
+        }
+      : null;
+    return candidate;
   }
 
   accept(message) {
