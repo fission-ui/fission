@@ -7,7 +7,10 @@ pub(super) fn focused_text_input_id(runtime: &Runtime, ir: Option<&CoreIR>) -> O
     while let Some(id) = current {
         let node = ir.nodes.get(&id)?;
         if let Op::Semantics(sem) = &node.op {
-            if sem.role == fission_ir::Role::TextInput {
+            if matches!(
+                sem.role,
+                fission_ir::Role::TextInput | fission_ir::Role::Input
+            ) {
                 return Some(id);
             }
         }
@@ -24,7 +27,20 @@ pub(super) fn focused_text_input_config(
     let ir = ir?;
     let node = ir.nodes.get(&id)?;
     match &node.op {
-        Op::Semantics(semantics) => Some(TextInputConfig::from_semantics(semantics)),
+        Op::Semantics(semantics) => {
+            let config = TextInputConfig::from_semantics(semantics);
+            #[cfg(target_os = "android")]
+            let config = {
+                let mut config = config;
+                if let Some(state) = runtime.runtime_state.text_edit.get(id) {
+                    config.value = state.committed_text();
+                    config.selection = (state.anchor, state.caret);
+                    config.preedit_active = state.preedit.is_some();
+                }
+                config
+            };
+            Some(config)
+        }
         _ => None,
     }
 }

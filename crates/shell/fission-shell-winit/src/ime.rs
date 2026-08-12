@@ -1,4 +1,6 @@
 use fission_core::env::ImeHandler;
+#[cfg(target_os = "android")]
+use fission_ir::semantics::TextCapitalization;
 use fission_ir::semantics::{TextInputAction, TextInputType};
 use fission_ir::Semantics;
 use fission_render::LayoutRect;
@@ -7,8 +9,20 @@ use winit::window::{ImePurpose, Window};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct TextInputConfig {
+    #[cfg(target_os = "android")]
+    pub value: String,
+    #[cfg(target_os = "android")]
+    pub selection: (usize, usize),
     pub text_input_type: TextInputType,
     pub text_input_action: TextInputAction,
+    #[cfg(target_os = "android")]
+    pub text_capitalization: TextCapitalization,
+    #[cfg(target_os = "android")]
+    pub multiline: bool,
+    #[cfg(target_os = "android")]
+    pub masked: bool,
+    #[cfg(target_os = "android")]
+    pub preedit_active: bool,
     pub read_only: bool,
     pub disabled: bool,
     pub autocorrect: bool,
@@ -23,8 +37,20 @@ pub(crate) struct TextInputConfig {
 impl TextInputConfig {
     pub(crate) fn from_semantics(semantics: &Semantics) -> Self {
         Self {
+            #[cfg(target_os = "android")]
+            value: semantics.value.clone().unwrap_or_default(),
+            #[cfg(target_os = "android")]
+            selection: semantics.text_selection.unwrap_or((0, 0)),
             text_input_type: semantics.text_input_type,
             text_input_action: semantics.text_input_action,
+            #[cfg(target_os = "android")]
+            text_capitalization: semantics.text_capitalization,
+            #[cfg(target_os = "android")]
+            multiline: semantics.multiline,
+            #[cfg(target_os = "android")]
+            masked: semantics.masked,
+            #[cfg(target_os = "android")]
+            preedit_active: semantics.ime_preedit_range.is_some(),
             read_only: semantics.read_only,
             disabled: semantics.disabled,
             autocorrect: semantics.autocorrect,
@@ -72,13 +98,29 @@ struct ImeHandlerState {
 #[derive(Default)]
 pub struct DesktopImeHandler {
     state: Mutex<ImeHandlerState>,
+    #[cfg(target_os = "android")]
+    android_host: Option<Arc<crate::android_host::AndroidHostBridge>>,
 }
 
 impl DesktopImeHandler {
+    #[cfg(target_os = "android")]
+    pub(crate) fn with_android_host(
+        android_host: Arc<crate::android_host::AndroidHostBridge>,
+    ) -> Self {
+        Self {
+            state: Mutex::new(ImeHandlerState::default()),
+            android_host: Some(android_host),
+        }
+    }
+
     pub fn set_window(&self, window: Option<Arc<Window>>) {
         let mut state = self.state.lock().expect("ime handler lock poisoned");
         state.window = window;
-        sync_text_input_config(&mut state);
+        sync_text_input_config(
+            &mut state,
+            #[cfg(target_os = "android")]
+            self.android_host.as_deref(),
+        );
     }
 
     pub fn set_text_input_config(&self, config: Option<TextInputConfig>) {
@@ -87,7 +129,11 @@ impl DesktopImeHandler {
             return;
         }
         state.text_input_config = config;
-        sync_text_input_config(&mut state);
+        sync_text_input_config(
+            &mut state,
+            #[cfg(target_os = "android")]
+            self.android_host.as_deref(),
+        );
     }
 }
 
@@ -107,7 +153,11 @@ impl ImeHandler for DesktopImeHandler {
             return;
         }
         state.ime_allowed_requested = allowed;
-        sync_text_input_config(&mut state);
+        sync_text_input_config(
+            &mut state,
+            #[cfg(target_os = "android")]
+            self.android_host.as_deref(),
+        );
     }
 
     fn set_ime_cursor_area(&self, rect: LayoutRect) {
@@ -116,6 +166,15 @@ impl ImeHandler for DesktopImeHandler {
             state.ime_allowed_requested,
             state.text_input_config.as_ref(),
         ) {
+            return;
+        }
+        #[cfg(target_os = "android")]
+        if let Some(host) = self.android_host.as_deref() {
+            if let Err(error) =
+                host.set_ime_caret([rect.x(), rect.y(), rect.width(), rect.height()])
+            {
+                eprintln!("fission-shell-winit: Android IME caret update failed: {error}");
+            }
             return;
         }
         if let Some(window) = state.window.as_ref() {
@@ -128,7 +187,23 @@ impl ImeHandler for DesktopImeHandler {
     }
 }
 
-fn sync_text_input_config(state: &mut ImeHandlerState) {
+fn sync_text_input_config(
+    state: &mut ImeHandlerState,
+    #[cfg(target_os = "android")] android_host: Option<&crate::android_host::AndroidHostBridge>,
+) {
+    #[cfg(target_os = "android")]
+    if let Some(host) = android_host {
+        let active = state.window.is_some()
+            && effective_ime_allowed(
+                state.ime_allowed_requested,
+                state.text_input_config.as_ref(),
+            );
+        let android_state = android_ime_state(active, state.text_input_config.as_ref());
+        if let Err(error) = host.update_ime(&android_state) {
+            eprintln!("fission-shell-winit: Android IME state update failed: {error}");
+        }
+        return;
+    }
     if let Some(window) = state.window.as_ref() {
         window.set_ime_allowed(effective_ime_allowed(
             state.ime_allowed_requested,
@@ -144,6 +219,94 @@ fn sync_text_input_config(state: &mut ImeHandlerState) {
         #[cfg(target_os = "macos")]
         macos::clear_text_input_traits(state.mac_view_id.take());
     }
+}
+
+#[cfg(target_os = "android")]
+fn android_ime_state(
+    active: bool,
+    config: Option<&TextInputConfig>,
+) -> crate::android_host::AndroidImeState {
+    const FLAG_MASKED: i32 = 1 << 0;
+    const FLAG_MULTILINE: i32 = 1 << 1;
+    const FLAG_AUTOCORRECT: i32 = 1 << 2;
+    const FLAG_SUGGESTIONS: i32 = 1 << 3;
+    const FLAG_SPELL_CHECK: i32 = 1 << 4;
+    const FLAG_COMPOSING: i32 = 1 << 5;
+    const CAPITALIZATION_SHIFT: i32 = 8;
+
+    let config = config.cloned().unwrap_or_default();
+    let mut flags = 0;
+    if config.masked {
+        flags |= FLAG_MASKED;
+    }
+    if config.multiline || config.text_input_type == TextInputType::Multiline {
+        flags |= FLAG_MULTILINE;
+    }
+    if config.autocorrect {
+        flags |= FLAG_AUTOCORRECT;
+    }
+    if config.enable_suggestions {
+        flags |= FLAG_SUGGESTIONS;
+    }
+    if config.spell_check {
+        flags |= FLAG_SPELL_CHECK;
+    }
+    if config.preedit_active {
+        flags |= FLAG_COMPOSING;
+    }
+    let capitalization = match config.text_capitalization {
+        TextCapitalization::None => 0,
+        TextCapitalization::Characters => 1,
+        TextCapitalization::Words => 2,
+        TextCapitalization::Sentences => 3,
+    };
+    flags |= capitalization << CAPITALIZATION_SHIFT;
+
+    crate::android_host::AndroidImeState {
+        active,
+        selection_utf16: [
+            utf16_i32(&config.value, config.selection.0),
+            utf16_i32(&config.value, config.selection.1),
+        ],
+        value: config.value,
+        input_kind: match config.text_input_type {
+            TextInputType::Text => 0,
+            TextInputType::Multiline => 1,
+            TextInputType::Number => 2,
+            TextInputType::EmailAddress => 3,
+            TextInputType::Url => 4,
+            TextInputType::Phone => 5,
+            TextInputType::Name => 6,
+        },
+        action: match config.text_input_action {
+            TextInputAction::Done => 0,
+            TextInputAction::Go => 1,
+            TextInputAction::Search => 2,
+            TextInputAction::Send => 3,
+            TextInputAction::Next => 4,
+            TextInputAction::Previous => 5,
+            TextInputAction::Continue => 6,
+            TextInputAction::Join => 7,
+            TextInputAction::Route => 8,
+            TextInputAction::EmergencyCall => 9,
+            TextInputAction::Newline => 10,
+        },
+        flags,
+    }
+}
+
+#[cfg(target_os = "android")]
+fn byte_to_utf16(value: &str, byte_offset: usize) -> usize {
+    let mut clamped = byte_offset.min(value.len());
+    while clamped > 0 && !value.is_char_boundary(clamped) {
+        clamped -= 1;
+    }
+    value[..clamped].encode_utf16().count()
+}
+
+#[cfg(target_os = "android")]
+fn utf16_i32(value: &str, byte_offset: usize) -> i32 {
+    i32::try_from(byte_to_utf16(value, byte_offset)).unwrap_or(i32::MAX)
 }
 
 fn effective_ime_allowed(requested: bool, config: Option<&TextInputConfig>) -> bool {

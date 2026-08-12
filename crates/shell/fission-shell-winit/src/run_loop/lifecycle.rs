@@ -175,6 +175,7 @@ where
         }
         #[cfg(target_os = "android")]
         {
+            self.accessibility_bridge.suspend();
             self.native_surface_handlers.detach_host();
             self.ime_handler.set_window(None);
             self.platform_window = None;
@@ -190,6 +191,7 @@ where
     }
 
     pub(super) fn handle_loop_exiting(&mut self) {
+        self.accessibility_bridge.shutdown();
         #[cfg(not(target_arch = "wasm32"))]
         if let Err(error) = self.presenter.detach() {
             eprintln!("fission-shell-winit: renderer detach failed: {error}");

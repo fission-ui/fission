@@ -261,20 +261,56 @@ pub(super) fn render_android_activity_java() -> &'static str {
     r#"package rs.fission.runtime;
 
 import android.app.NativeActivity;
+import android.content.Context;
+import android.graphics.Rect;
 import android.media.MediaPlayer;
 import android.media.PlaybackParams;
 import android.os.Bundle;
+import android.os.Looper;
+import android.text.Editable;
+import android.text.InputType;
+import android.text.Selection;
+import android.text.SpannableStringBuilder;
+import android.util.Base64;
+import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.accessibility.AccessibilityEvent;
+import android.view.accessibility.AccessibilityManager;
+import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.accessibility.AccessibilityNodeProvider;
+import android.view.inputmethod.BaseInputConnection;
+import android.view.inputmethod.CursorAnchorInfo;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.ExtractedText;
+import android.view.inputmethod.ExtractedTextRequest;
+import android.view.inputmethod.InputConnection;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.FrameLayout;
 import android.widget.VideoView;
 
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 public final class FissionActivity extends NativeActivity {
+    private static final int FISSION_HOST_CONTRACT_VERSION = 1;
     private static volatile FissionActivity INSTANCE;
     private static final Map<Long, FissionVideoSlot> VIDEOS = new HashMap<>();
+    private volatile FissionHostView fissionHostView;
+    private volatile String fissionHostError;
+
+    private static native void fissionNativeWake(long token);
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -284,6 +320,11 @@ public final class FissionActivity extends NativeActivity {
 
     @Override
     protected void onDestroy() {
+        FissionHostView host = fissionHostView;
+        fissionHostView = null;
+        if (host != null) {
+            host.destroy();
+        }
         runOnUiThread(() -> {
             synchronized (VIDEOS) {
                 for (FissionVideoSlot slot : VIDEOS.values()) {
@@ -294,6 +335,161 @@ public final class FissionActivity extends NativeActivity {
         });
         INSTANCE = null;
         super.onDestroy();
+    }
+
+    public int fissionHostContractVersion() {
+        return FISSION_HOST_CONTRACT_VERSION;
+    }
+
+    public boolean fissionInstallHost(long token) {
+        try {
+            runOnUiThreadSync(() -> {
+                FissionHostView previous = fissionHostView;
+                if (previous != null) {
+                    previous.destroy();
+                }
+                FissionHostView host = new FissionHostView(this, token);
+                FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                );
+                addContentView(host, params);
+                fissionHostView = host;
+            });
+            fissionHostError = null;
+            return true;
+        } catch (Throwable error) {
+            fissionHostError = "Android accessibility/IME host installation failed: " + error;
+            return false;
+        }
+    }
+
+    public String fissionHostError() {
+        return fissionHostError;
+    }
+
+    public void fissionSetHostActive(boolean active) {
+        FissionHostView host = requireFissionHost("lifecycle update");
+        if (host != null) {
+            runHostUi(host, "lifecycle update", () -> host.setHostActive(active));
+        }
+    }
+
+    public void fissionUpdateSemantics(
+            int[] ids,
+            int[] parents,
+            int[] roles,
+            int[] flags,
+            int[] actions,
+            int[] bounds,
+            String[] labels,
+            String[] values,
+            int[] selections,
+            float[] numerics,
+            int focusedId
+    ) {
+        FissionHostView host = requireFissionHost("semantics update");
+        if (host != null) {
+            host.updateSemantics(
+                    ids, parents, roles, flags, actions, bounds, labels, values, selections,
+                    numerics,
+                    focusedId
+            );
+        }
+    }
+
+    public void fissionUpdateIme(
+            boolean active,
+            String value,
+            int selectionStart,
+            int selectionEnd,
+            int inputKind,
+            int action,
+            int flags
+    ) {
+        FissionHostView host = requireFissionHost("IME update");
+        if (host != null) {
+            runHostUi(host, "IME update", () -> host.updateIme(
+                    active, value, selectionStart, selectionEnd, inputKind, action, flags
+            ));
+        }
+    }
+
+    public void fissionSetImeCaret(float left, float top, float width, float height) {
+        FissionHostView host = requireFissionHost("IME caret update");
+        if (host != null) {
+            runHostUi(host, "IME caret update", () ->
+                    host.setImeCaret(left, top, width, height));
+        }
+    }
+
+    public String[] fissionDrainHostEvents() {
+        FissionHostView host = fissionHostView;
+        return host == null ? new String[0] : host.drainEvents();
+    }
+
+    public void fissionUninstallHost(long token) {
+        FissionHostView host = fissionHostView;
+        if (host == null || host.token != token) {
+            return;
+        }
+        try {
+            runOnUiThreadSync(() -> {
+                FissionHostView current = fissionHostView;
+                if (current != null && current.token == token) {
+                    fissionHostView = null;
+                    current.destroy();
+                }
+            });
+        } catch (Throwable error) {
+            fissionHostError = "Android host uninstallation failed: " + error;
+            throw new IllegalStateException(fissionHostError, error);
+        }
+    }
+
+    private FissionHostView requireFissionHost(String operation) {
+        FissionHostView host = fissionHostView;
+        if (host == null) {
+            fissionHostError = "Android host is unavailable during " + operation;
+            throw new IllegalStateException(fissionHostError);
+        }
+        return host;
+    }
+
+    private void runHostUi(FissionHostView host, String operation, Runnable action) {
+        runOnUiThread(() -> {
+            try {
+                action.run();
+            } catch (Throwable error) {
+                String message = "Android host " + operation + " failed: " + error;
+                fissionHostError = message;
+                host.enqueueError(message);
+            }
+        });
+    }
+
+    private void runOnUiThreadSync(Runnable action) throws Exception {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            action.run();
+            return;
+        }
+        CountDownLatch completed = new CountDownLatch(1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        runOnUiThread(() -> {
+            try {
+                action.run();
+            } catch (Throwable error) {
+                failure.set(error);
+            } finally {
+                completed.countDown();
+            }
+        });
+        if (!completed.await(5, TimeUnit.SECONDS)) {
+            throw new IllegalStateException("timed out waiting for the Fission Android UI thread");
+        }
+        if (failure.get() != null) {
+            throw new IllegalStateException(failure.get());
+        }
     }
 
     public static void fissionCreateVideo(long id, String source) {
@@ -469,6 +665,1013 @@ public final class FissionActivity extends NativeActivity {
             } else {
                 slot.error = error;
             }
+        }
+    }
+
+    private static final class HostNode {
+        final int id;
+        final int parentId;
+        final int role;
+        final int flags;
+        final int actions;
+        final Rect bounds;
+        final String label;
+        final String value;
+        final int selectionStart;
+        final int selectionEnd;
+        final float currentValue;
+        final float minValue;
+        final float maxValue;
+
+        HostNode(
+                int id,
+                int parentId,
+                int role,
+                int flags,
+                int actions,
+                Rect bounds,
+                String label,
+                String value,
+                int selectionStart,
+                int selectionEnd,
+                float currentValue,
+                float minValue,
+                float maxValue
+        ) {
+            this.id = id;
+            this.parentId = parentId;
+            this.role = role;
+            this.flags = flags;
+            this.actions = actions;
+            this.bounds = bounds;
+            this.label = label;
+            this.value = value;
+            this.selectionStart = selectionStart;
+            this.selectionEnd = selectionEnd;
+            this.currentValue = currentValue;
+            this.minValue = minValue;
+            this.maxValue = maxValue;
+        }
+    }
+
+    private static final class FissionHostView extends View {
+        private static final int FLAG_ENABLED = 1 << 0;
+        private static final int FLAG_FOCUSABLE = 1 << 1;
+        private static final int FLAG_FOCUSED = 1 << 2;
+        private static final int FLAG_CHECKABLE = 1 << 3;
+        private static final int FLAG_CHECKED = 1 << 4;
+        private static final int FLAG_EDITABLE = 1 << 5;
+        private static final int FLAG_PASSWORD = 1 << 6;
+        private static final int FLAG_MULTILINE = 1 << 7;
+        private static final int FLAG_SCROLL_X = 1 << 8;
+        private static final int FLAG_SCROLL_Y = 1 << 9;
+        private static final int FLAG_READ_ONLY = 1 << 10;
+
+        private static final int ACTION_CLICK = 1 << 0;
+        private static final int ACTION_FOCUS = 1 << 1;
+        private static final int ACTION_SET_TEXT = 1 << 2;
+        private static final int ACTION_SET_SELECTION = 1 << 3;
+        private static final int ACTION_SCROLL_X = 1 << 4;
+        private static final int ACTION_SCROLL_Y = 1 << 5;
+        private static final int ACTION_INCREMENT = 1 << 6;
+        private static final int ACTION_DECREMENT = 1 << 7;
+
+        private final FissionActivity activity;
+        private final long token;
+        private final ConcurrentLinkedQueue<String> events = new ConcurrentLinkedQueue<>();
+        private final Object semanticsLock = new Object();
+        private final FissionAccessibilityProvider accessibilityProvider;
+        private final InputMethodManager inputMethodManager;
+        private Map<Integer, HostNode> nodes = Collections.emptyMap();
+        private int focusedId;
+        private int accessibilityFocusedId;
+        private int hoveredId;
+        private boolean hostActive;
+        private boolean imeRequested;
+        private boolean imeActive;
+        private String imeValue = "";
+        private int imeSelectionStart;
+        private int imeSelectionEnd;
+        private int imeInputKind;
+        private int imeAction;
+        private int imeFlags;
+        private final Rect imeCaret = new Rect();
+        private FissionInputConnection inputConnection;
+
+        FissionHostView(FissionActivity activity, long token) {
+            super(activity);
+            this.activity = activity;
+            this.token = token;
+            this.accessibilityProvider = new FissionAccessibilityProvider(this);
+            this.inputMethodManager = (InputMethodManager)activity.getSystemService(
+                    Context.INPUT_METHOD_SERVICE
+            );
+            if (inputMethodManager == null) {
+                throw new IllegalStateException("Android InputMethodManager is unavailable");
+            }
+            setBackgroundColor(0x00000000);
+            setWillNotDraw(true);
+            setClickable(false);
+            setFocusableInTouchMode(true);
+            setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
+        }
+
+        void destroy() {
+            setHostActive(false);
+            events.clear();
+            ViewGroup parent = (ViewGroup)getParent();
+            if (parent != null) {
+                parent.removeView(this);
+            }
+        }
+
+        void setHostActive(boolean active) {
+            hostActive = active;
+            setImportantForAccessibility(active
+                    ? View.IMPORTANT_FOR_ACCESSIBILITY_YES
+                    : View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+            updateIme(imeRequested, imeValue, imeSelectionStart, imeSelectionEnd,
+                    imeInputKind, imeAction, imeFlags);
+            if (!active) {
+                synchronized (semanticsLock) {
+                    accessibilityFocusedId = 0;
+                }
+                hoveredId = 0;
+            } else {
+                sendAccessibilityEvent(AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED);
+            }
+        }
+
+        void updateSemantics(
+                int[] ids,
+                int[] parents,
+                int[] roles,
+                int[] flags,
+                int[] actions,
+                int[] bounds,
+                String[] labels,
+                String[] values,
+                int[] selections,
+                float[] numerics,
+                int focusedId
+        ) {
+            int count = ids == null ? 0 : ids.length;
+            if (parents == null || roles == null || flags == null || actions == null
+                    || bounds == null || labels == null || values == null || selections == null
+                    || numerics == null
+                    || parents.length != count || roles.length != count || flags.length != count
+                    || actions.length != count || labels.length != count || values.length != count
+                    || bounds.length != count * 4 || selections.length != count * 2
+                    || numerics.length != count * 3) {
+                throw new IllegalArgumentException("invalid Fission semantics array lengths");
+            }
+            Map<Integer, HostNode> next = new LinkedHashMap<>();
+            for (int index = 0; index < count; index++) {
+                int id = ids[index];
+                if (id <= 0 || next.containsKey(id)) {
+                    throw new IllegalArgumentException("invalid or duplicate semantics node " + id);
+                }
+                int boundsOffset = index * 4;
+                int selectionOffset = index * 2;
+                int numericOffset = index * 3;
+                next.put(id, new HostNode(
+                        id,
+                        parents[index],
+                        roles[index],
+                        flags[index],
+                        actions[index],
+                        new Rect(
+                                bounds[boundsOffset],
+                                bounds[boundsOffset + 1],
+                                bounds[boundsOffset + 2],
+                                bounds[boundsOffset + 3]
+                        ),
+                        labels[index],
+                        values[index],
+                        selections[selectionOffset],
+                        selections[selectionOffset + 1],
+                        numerics[numericOffset],
+                        numerics[numericOffset + 1],
+                        numerics[numericOffset + 2]
+                ));
+            }
+            for (HostNode node : next.values()) {
+                if (node.parentId < 0 || node.parentId == node.id
+                        || (node.parentId != 0 && !next.containsKey(node.parentId))) {
+                    throw new IllegalArgumentException(
+                            "invalid parent " + node.parentId + " for semantics node " + node.id
+                    );
+                }
+            }
+            for (HostNode node : next.values()) {
+                int ancestor = node.parentId;
+                for (int depth = 0; ancestor != 0; depth++) {
+                    if (depth >= count) {
+                        throw new IllegalArgumentException(
+                                "semantics parent cycle at node " + node.id
+                        );
+                    }
+                    ancestor = next.get(ancestor).parentId;
+                }
+            }
+            synchronized (semanticsLock) {
+                nodes = Collections.unmodifiableMap(next);
+                this.focusedId = next.containsKey(focusedId) ? focusedId : 0;
+                if (!next.containsKey(accessibilityFocusedId)) {
+                    accessibilityFocusedId = 0;
+                }
+            }
+            post(() -> sendAccessibilityEvent(AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED));
+        }
+
+        void updateIme(
+                boolean active,
+                String value,
+                int selectionStart,
+                int selectionEnd,
+                int inputKind,
+                int action,
+                int flags
+        ) {
+            String nextValue = value == null ? "" : value;
+            int nextStart = clamp(selectionStart, 0, nextValue.length());
+            int nextEnd = clamp(selectionEnd, 0, nextValue.length());
+            boolean configurationChanged = imeInputKind != inputKind
+                    || imeAction != action
+                    || (imeFlags & ~(1 << 5)) != (flags & ~(1 << 5));
+            imeRequested = active;
+            boolean nextActive = active && hostActive;
+            boolean activationChanged = imeActive != nextActive;
+            imeActive = nextActive;
+            imeValue = nextValue;
+            imeSelectionStart = nextStart;
+            imeSelectionEnd = nextEnd;
+            imeInputKind = inputKind;
+            imeAction = action;
+            imeFlags = flags;
+            boolean frameworkHasComposition = (flags & (1 << 5)) != 0;
+            if (inputConnection != null) {
+                if (frameworkHasComposition && inputConnection.hasComposingText()) {
+                    imeSelectionStart = inputConnection.selectionStart();
+                    imeSelectionEnd = inputConnection.selectionEnd();
+                } else {
+                    inputConnection.syncFromFramework(nextValue, nextStart, nextEnd);
+                }
+            }
+            if (imeActive) {
+                requestFocus();
+                if (activationChanged || configurationChanged) {
+                    inputMethodManager.restartInput(this);
+                }
+                inputMethodManager.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT);
+                inputMethodManager.updateSelection(
+                        this, imeSelectionStart, imeSelectionEnd, -1, -1
+                );
+                updateCursorAnchor();
+            } else if (activationChanged) {
+                inputMethodManager.hideSoftInputFromWindow(getWindowToken(), 0);
+                clearFocus();
+            }
+        }
+
+        void setImeCaret(float left, float top, float width, float height) {
+            float density = getResources().getDisplayMetrics().density;
+            int pixelLeft = Math.round(left * density);
+            int pixelTop = Math.round(top * density);
+            imeCaret.set(
+                    pixelLeft,
+                    pixelTop,
+                    pixelLeft + Math.max(1, Math.round(width * density)),
+                    pixelTop + Math.max(1, Math.round(height * density))
+            );
+            requestRectangleOnScreen(new Rect(imeCaret));
+            updateCursorAnchor();
+        }
+
+        String[] drainEvents() {
+            ArrayList<String> drained = new ArrayList<>();
+            for (String event = events.poll(); event != null; event = events.poll()) {
+                drained.add(event);
+            }
+            return drained.toArray(new String[0]);
+        }
+
+        void enqueue(String event) {
+            if (!hostActive) {
+                return;
+            }
+            events.add(event);
+            try {
+                fissionNativeWake(token);
+            } catch (Throwable error) {
+                activity.fissionHostError = "Android host wake callback failed: " + error;
+            }
+        }
+
+        void enqueueError(String error) {
+            events.add("host_error|" + encoded(error));
+            try {
+                fissionNativeWake(token);
+            } catch (Throwable wakeError) {
+                activity.fissionHostError = error + "; wake callback failed: " + wakeError;
+            }
+        }
+
+        @Override
+        public AccessibilityNodeProvider getAccessibilityNodeProvider() {
+            return accessibilityProvider;
+        }
+
+        @Override
+        public boolean onCheckIsTextEditor() {
+            return imeActive;
+        }
+
+        @Override
+        public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
+            if (!imeActive) {
+                return null;
+            }
+            configureEditorInfo(outAttrs);
+            inputConnection = new FissionInputConnection(this);
+            inputConnection.syncFromFramework(
+                    imeValue, imeSelectionStart, imeSelectionEnd
+            );
+            return inputConnection;
+        }
+
+        @Override
+        public boolean onTouchEvent(MotionEvent event) {
+            return false;
+        }
+
+        @Override
+        public boolean onHoverEvent(MotionEvent event) {
+            AccessibilityManager manager = (AccessibilityManager)activity.getSystemService(
+                    Context.ACCESSIBILITY_SERVICE
+            );
+            if (manager == null || !manager.isTouchExplorationEnabled()) {
+                return false;
+            }
+            int next = event.getActionMasked() == MotionEvent.ACTION_HOVER_EXIT
+                    ? 0 : hitTest(Math.round(event.getX()), Math.round(event.getY()));
+            if (next != hoveredId) {
+                if (hoveredId != 0) {
+                    accessibilityProvider.sendVirtualEvent(
+                            hoveredId, AccessibilityEvent.TYPE_VIEW_HOVER_EXIT
+                    );
+                }
+                hoveredId = next;
+                if (hoveredId != 0) {
+                    accessibilityProvider.sendVirtualEvent(
+                            hoveredId, AccessibilityEvent.TYPE_VIEW_HOVER_ENTER
+                    );
+                }
+            }
+            return true;
+        }
+
+        private int hitTest(int x, int y) {
+            synchronized (semanticsLock) {
+                int hit = 0;
+                for (HostNode node : nodes.values()) {
+                    if (node.bounds.contains(x, y)) {
+                        hit = node.id;
+                    }
+                }
+                return hit;
+            }
+        }
+
+        private void configureEditorInfo(EditorInfo info) {
+            info.inputType = androidInputType(imeInputKind, imeFlags);
+            info.imeOptions = androidImeAction(imeAction);
+            info.initialSelStart = imeSelectionStart;
+            info.initialSelEnd = imeSelectionEnd;
+        }
+
+        private int androidInputType(int kind, int flags) {
+            boolean masked = (flags & (1 << 0)) != 0;
+            boolean multiline = (flags & (1 << 1)) != 0 || kind == 1;
+            boolean autocorrect = (flags & (1 << 2)) != 0;
+            boolean suggestions = (flags & (1 << 3)) != 0;
+            boolean spellCheck = (flags & (1 << 4)) != 0;
+            int type;
+            switch (kind) {
+                case 2:
+                    type = InputType.TYPE_CLASS_NUMBER
+                            | InputType.TYPE_NUMBER_FLAG_DECIMAL
+                            | InputType.TYPE_NUMBER_FLAG_SIGNED;
+                    break;
+                case 3:
+                    type = InputType.TYPE_CLASS_TEXT
+                            | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS;
+                    break;
+                case 4:
+                    type = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI;
+                    break;
+                case 5:
+                    type = InputType.TYPE_CLASS_PHONE;
+                    break;
+                case 6:
+                    type = InputType.TYPE_CLASS_TEXT
+                            | InputType.TYPE_TEXT_VARIATION_PERSON_NAME;
+                    break;
+                default:
+                    type = InputType.TYPE_CLASS_TEXT;
+                    break;
+            }
+            if (masked) {
+                type = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD;
+            }
+            if (multiline) {
+                type |= InputType.TYPE_TEXT_FLAG_MULTI_LINE;
+            }
+            if (autocorrect || spellCheck) {
+                type |= InputType.TYPE_TEXT_FLAG_AUTO_CORRECT;
+            }
+            if (!suggestions) {
+                type |= InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
+            }
+            switch ((flags >> 8) & 0x03) {
+                case 1:
+                    type |= InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS;
+                    break;
+                case 2:
+                    type |= InputType.TYPE_TEXT_FLAG_CAP_WORDS;
+                    break;
+                case 3:
+                    type |= InputType.TYPE_TEXT_FLAG_CAP_SENTENCES;
+                    break;
+                default:
+                    break;
+            }
+            return type;
+        }
+
+        private int androidImeAction(int action) {
+            switch (action) {
+                case 1: return EditorInfo.IME_ACTION_GO;
+                case 2: return EditorInfo.IME_ACTION_SEARCH;
+                case 3: return EditorInfo.IME_ACTION_SEND;
+                case 4: return EditorInfo.IME_ACTION_NEXT;
+                case 5: return EditorInfo.IME_ACTION_PREVIOUS;
+                case 10: return EditorInfo.IME_ACTION_NONE;
+                default: return EditorInfo.IME_ACTION_DONE;
+            }
+        }
+
+        private void updateCursorAnchor() {
+            if (!imeActive || inputMethodManager == null) {
+                return;
+            }
+            CursorAnchorInfo.Builder builder = new CursorAnchorInfo.Builder()
+                    .setSelectionRange(imeSelectionStart, imeSelectionEnd)
+                    .setInsertionMarkerLocation(
+                            imeCaret.left,
+                            imeCaret.top,
+                            imeCaret.bottom,
+                            imeCaret.bottom,
+                            CursorAnchorInfo.FLAG_HAS_VISIBLE_REGION
+                    );
+            inputMethodManager.updateCursorAnchorInfo(this, builder.build());
+        }
+
+        private static int clamp(int value, int min, int max) {
+            return Math.max(min, Math.min(value, max));
+        }
+
+        private static String encoded(CharSequence value) {
+            return Base64.encodeToString(
+                    value.toString().getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP
+            );
+        }
+    }
+
+    private static final class FissionAccessibilityProvider extends AccessibilityNodeProvider {
+        private final FissionHostView host;
+
+        FissionAccessibilityProvider(FissionHostView host) {
+            this.host = host;
+        }
+
+        @Override
+        public AccessibilityNodeInfo createAccessibilityNodeInfo(int virtualViewId) {
+            Map<Integer, HostNode> snapshot;
+            int accessibilityFocus;
+            synchronized (host.semanticsLock) {
+                snapshot = host.nodes;
+                accessibilityFocus = host.accessibilityFocusedId;
+            }
+            if (virtualViewId == View.NO_ID) {
+                AccessibilityNodeInfo info = AccessibilityNodeInfo.obtain(host);
+                host.onInitializeAccessibilityNodeInfo(info);
+                info.setClassName("rs.fission.runtime.FissionView");
+                for (HostNode node : snapshot.values()) {
+                    if (node.parentId == 0) {
+                        info.addChild(host, node.id);
+                    }
+                }
+                return info;
+            }
+            HostNode node = snapshot.get(virtualViewId);
+            if (node == null) {
+                return null;
+            }
+            AccessibilityNodeInfo info = AccessibilityNodeInfo.obtain();
+            info.setSource(host, node.id);
+            info.setPackageName(host.activity.getPackageName());
+            info.setClassName(className(node.role));
+            if (node.parentId == 0) {
+                info.setParent(host);
+            } else {
+                info.setParent(host, node.parentId);
+            }
+            for (HostNode child : snapshot.values()) {
+                if (child.parentId == node.id) {
+                    info.addChild(host, child.id);
+                }
+            }
+            Rect parentBounds = node.parentId == 0
+                    ? new Rect()
+                    : snapshot.get(node.parentId).bounds;
+            Rect boundsInParent = new Rect(node.bounds);
+            boundsInParent.offset(-parentBounds.left, -parentBounds.top);
+            info.setBoundsInParent(boundsInParent);
+            Rect screen = new Rect(node.bounds);
+            int[] location = new int[2];
+            host.getLocationOnScreen(location);
+            screen.offset(location[0], location[1]);
+            info.setBoundsInScreen(screen);
+            info.setVisibleToUser(host.hostActive && host.isShown());
+            info.setEnabled((node.flags & FissionHostView.FLAG_ENABLED) != 0);
+            info.setFocusable((node.flags & FissionHostView.FLAG_FOCUSABLE) != 0);
+            info.setFocused((node.flags & FissionHostView.FLAG_FOCUSED) != 0);
+            info.setAccessibilityFocused(accessibilityFocus == node.id);
+            info.setCheckable((node.flags & FissionHostView.FLAG_CHECKABLE) != 0);
+            info.setChecked((node.flags & FissionHostView.FLAG_CHECKED) != 0);
+            info.setEditable((node.flags & FissionHostView.FLAG_EDITABLE) != 0
+                    && (node.flags & FissionHostView.FLAG_READ_ONLY) == 0);
+            info.setPassword((node.flags & FissionHostView.FLAG_PASSWORD) != 0);
+            info.setMultiLine((node.flags & FissionHostView.FLAG_MULTILINE) != 0);
+            info.setScrollable((node.flags
+                    & (FissionHostView.FLAG_SCROLL_X | FissionHostView.FLAG_SCROLL_Y)) != 0);
+            if (node.label != null) {
+                info.setContentDescription(node.label);
+            }
+            if (node.value != null) {
+                info.setText(node.value);
+            }
+            if (node.selectionStart >= 0 && node.selectionEnd >= 0) {
+                info.setTextSelection(node.selectionStart, node.selectionEnd);
+            }
+            if (!Float.isNaN(node.currentValue)) {
+                info.setRangeInfo(AccessibilityNodeInfo.RangeInfo.obtain(
+                        AccessibilityNodeInfo.RangeInfo.RANGE_TYPE_FLOAT,
+                        node.minValue,
+                        node.maxValue,
+                        node.currentValue
+                ));
+            }
+            addActions(info, node);
+            return info;
+        }
+
+        @Override
+        public List<AccessibilityNodeInfo> findAccessibilityNodeInfosByText(
+                String searched, int virtualViewId
+        ) {
+            if (searched == null) {
+                return Collections.emptyList();
+            }
+            String needle = searched.toLowerCase(Locale.ROOT);
+            ArrayList<AccessibilityNodeInfo> matches = new ArrayList<>();
+            Map<Integer, HostNode> snapshot;
+            synchronized (host.semanticsLock) {
+                snapshot = host.nodes;
+            }
+            for (HostNode node : snapshot.values()) {
+                if (virtualViewId != View.NO_ID && node.id != virtualViewId
+                        && !hasAncestor(snapshot, node, virtualViewId)) {
+                    continue;
+                }
+                if ((node.label != null
+                        && node.label.toLowerCase(Locale.ROOT).contains(needle))
+                        || (node.value != null
+                        && node.value.toLowerCase(Locale.ROOT).contains(needle))) {
+                    AccessibilityNodeInfo info = createAccessibilityNodeInfo(node.id);
+                    if (info != null) {
+                        matches.add(info);
+                    }
+                }
+            }
+            return matches;
+        }
+
+        @Override
+        public AccessibilityNodeInfo findFocus(int focus) {
+            int id;
+            synchronized (host.semanticsLock) {
+                id = focus == AccessibilityNodeInfo.FOCUS_ACCESSIBILITY
+                        ? host.accessibilityFocusedId : host.focusedId;
+            }
+            return id == 0 ? null : createAccessibilityNodeInfo(id);
+        }
+
+        @Override
+        public boolean performAction(int id, int action, Bundle arguments) {
+            HostNode node;
+            synchronized (host.semanticsLock) {
+                node = host.nodes.get(id);
+            }
+            if (node == null || !host.hostActive) {
+                return false;
+            }
+            if (action == AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS) {
+                int previous;
+                synchronized (host.semanticsLock) {
+                    if (host.accessibilityFocusedId == id) {
+                        return false;
+                    }
+                    previous = host.accessibilityFocusedId;
+                    host.accessibilityFocusedId = id;
+                }
+                if (previous != 0) {
+                    sendVirtualEvent(previous,
+                            AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUS_CLEARED);
+                }
+                sendVirtualEvent(id, AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUSED);
+                return true;
+            }
+            if (action == AccessibilityNodeInfo.ACTION_CLEAR_ACCESSIBILITY_FOCUS) {
+                synchronized (host.semanticsLock) {
+                    if (host.accessibilityFocusedId != id) {
+                        return false;
+                    }
+                    host.accessibilityFocusedId = 0;
+                }
+                sendVirtualEvent(id,
+                        AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUS_CLEARED);
+                return true;
+            }
+            if (action == AccessibilityNodeInfo.ACTION_FOCUS
+                    && (node.actions & FissionHostView.ACTION_FOCUS) != 0) {
+                host.enqueue("a_focus|" + id);
+                return true;
+            }
+            if (action == AccessibilityNodeInfo.ACTION_CLEAR_FOCUS
+                    && (node.actions & FissionHostView.ACTION_FOCUS) != 0) {
+                host.enqueue("a_blur|" + id);
+                return true;
+            }
+            if (action == AccessibilityNodeInfo.ACTION_CLICK
+                    && (node.actions & FissionHostView.ACTION_CLICK) != 0) {
+                host.enqueue("a_click|" + id);
+                sendVirtualEvent(id, AccessibilityEvent.TYPE_VIEW_CLICKED);
+                return true;
+            }
+            if (action == AccessibilityNodeInfo.ACTION_SET_TEXT
+                    && (node.actions & FissionHostView.ACTION_SET_TEXT) != 0) {
+                CharSequence value = arguments == null ? null : arguments.getCharSequence(
+                        AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE
+                );
+                if (value == null) {
+                    return false;
+                }
+                host.enqueue("a_set_text|" + id + "|" + FissionHostView.encoded(value));
+                return true;
+            }
+            if (action == AccessibilityNodeInfo.ACTION_SET_SELECTION
+                    && (node.actions & FissionHostView.ACTION_SET_SELECTION) != 0) {
+                if (arguments == null) {
+                    return false;
+                }
+                int start = arguments.getInt(
+                        AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, -1
+                );
+                int end = arguments.getInt(
+                        AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, -1
+                );
+                if (start < 0 || end < 0) {
+                    return false;
+                }
+                host.enqueue("a_set_selection|" + id + "|" + start + "|" + end);
+                return true;
+            }
+            if (action == AccessibilityNodeInfo.ACTION_SCROLL_FORWARD) {
+                return performScrollOrIncrement(node, 1);
+            }
+            if (action == AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD) {
+                return performScrollOrIncrement(node, -1);
+            }
+            if (action == AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.getId()
+                    && !Float.isNaN(node.currentValue) && arguments != null) {
+                float value = arguments.getFloat(
+                        AccessibilityNodeInfo.ACTION_ARGUMENT_PROGRESS_VALUE, Float.NaN
+                );
+                if (Float.isNaN(value) || Float.isInfinite(value)) {
+                    return false;
+                }
+                host.enqueue("a_set_numeric|" + id + "|" + Float.toString(value));
+                return true;
+            }
+            if (action == AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_UP.getId()
+                    && (node.actions & FissionHostView.ACTION_SCROLL_Y) != 0) {
+                host.enqueue("a_scroll|" + id + "|-1");
+                return true;
+            }
+            if (action == AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_DOWN.getId()
+                    && (node.actions & FissionHostView.ACTION_SCROLL_Y) != 0) {
+                host.enqueue("a_scroll|" + id + "|1");
+                return true;
+            }
+            if (action == AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_LEFT.getId()
+                    && (node.actions & FissionHostView.ACTION_SCROLL_X) != 0) {
+                host.enqueue("a_scroll|" + id + "|-2");
+                return true;
+            }
+            if (action == AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_RIGHT.getId()
+                    && (node.actions & FissionHostView.ACTION_SCROLL_X) != 0) {
+                host.enqueue("a_scroll|" + id + "|2");
+                return true;
+            }
+            return false;
+        }
+
+        void sendVirtualEvent(int id, int eventType) {
+            if (!host.hostActive || host.getParent() == null) {
+                return;
+            }
+            AccessibilityEvent event = AccessibilityEvent.obtain(eventType);
+            event.setPackageName(host.activity.getPackageName());
+            event.setClassName("rs.fission.runtime.FissionView");
+            event.setSource(host, id);
+            host.getParent().requestSendAccessibilityEvent(host, event);
+        }
+
+        private boolean performScrollOrIncrement(HostNode node, int direction) {
+            if ((node.actions & (FissionHostView.ACTION_SCROLL_X
+                    | FissionHostView.ACTION_SCROLL_Y)) != 0) {
+                int encodedDirection = (node.actions & FissionHostView.ACTION_SCROLL_Y) != 0
+                        ? direction : direction * 2;
+                host.enqueue("a_scroll|" + node.id + "|" + encodedDirection);
+                return true;
+            }
+            if ((node.actions & (FissionHostView.ACTION_INCREMENT
+                    | FissionHostView.ACTION_DECREMENT)) != 0) {
+                host.enqueue("a_increment|" + node.id + "|" + direction);
+                return true;
+            }
+            return false;
+        }
+
+        private static void addActions(AccessibilityNodeInfo info, HostNode node) {
+            info.addAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS);
+            info.addAction(AccessibilityNodeInfo.ACTION_CLEAR_ACCESSIBILITY_FOCUS);
+            if ((node.actions & FissionHostView.ACTION_CLICK) != 0) {
+                info.addAction(AccessibilityNodeInfo.ACTION_CLICK);
+            }
+            if ((node.actions & FissionHostView.ACTION_FOCUS) != 0) {
+                info.addAction(AccessibilityNodeInfo.ACTION_FOCUS);
+                info.addAction(AccessibilityNodeInfo.ACTION_CLEAR_FOCUS);
+            }
+            if ((node.actions & FissionHostView.ACTION_SET_TEXT) != 0) {
+                info.addAction(AccessibilityNodeInfo.ACTION_SET_TEXT);
+            }
+            if ((node.actions & FissionHostView.ACTION_SET_SELECTION) != 0) {
+                info.addAction(AccessibilityNodeInfo.ACTION_SET_SELECTION);
+            }
+            if ((node.actions & FissionHostView.ACTION_SCROLL_Y) != 0) {
+                info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_UP);
+                info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_DOWN);
+            }
+            if ((node.actions & FissionHostView.ACTION_SCROLL_X) != 0) {
+                info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_LEFT);
+                info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_RIGHT);
+            }
+            if ((node.actions & (FissionHostView.ACTION_SCROLL_X
+                    | FissionHostView.ACTION_SCROLL_Y | FissionHostView.ACTION_INCREMENT
+                    | FissionHostView.ACTION_DECREMENT)) != 0) {
+                info.addAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD);
+                info.addAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD);
+            }
+            if (!Float.isNaN(node.currentValue)) {
+                info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS);
+            }
+        }
+
+        private static boolean hasAncestor(
+                Map<Integer, HostNode> nodes, HostNode node, int ancestorId
+        ) {
+            int parentId = node.parentId;
+            while (parentId != 0) {
+                if (parentId == ancestorId) {
+                    return true;
+                }
+                HostNode parent = nodes.get(parentId);
+                if (parent == null) {
+                    return false;
+                }
+                parentId = parent.parentId;
+            }
+            return false;
+        }
+
+        private static String className(int role) {
+            switch (role) {
+                case 1: return "android.widget.Button";
+                case 2: return "android.widget.TextView";
+                case 3: return "android.view.MenuItem";
+                case 4: return "android.widget.TextView";
+                case 5: return "android.widget.EditText";
+                case 6: return "android.widget.ImageView";
+                case 7: return "android.widget.CheckBox";
+                case 8: return "android.widget.RadioButton";
+                case 9: return "android.widget.Switch";
+                case 10: return "android.app.Dialog";
+                case 11: return "android.widget.SeekBar";
+                case 12: return "android.widget.ListView";
+                case 13: return "android.view.ViewGroup";
+                default: return "android.view.View";
+            }
+        }
+    }
+
+    private static final class FissionInputConnection extends BaseInputConnection {
+        private final FissionHostView host;
+        private final SpannableStringBuilder editable = new SpannableStringBuilder();
+        private boolean syncing;
+        private String lastComposingText = "";
+
+        FissionInputConnection(FissionHostView host) {
+            super(host, true);
+            this.host = host;
+        }
+
+        @Override
+        public Editable getEditable() {
+            return editable;
+        }
+
+        void syncFromFramework(String value, int selectionStart, int selectionEnd) {
+            syncing = true;
+            try {
+                if (!editable.toString().equals(value)) {
+                    editable.replace(0, editable.length(), value);
+                }
+                Selection.setSelection(
+                        editable,
+                        FissionHostView.clamp(selectionStart, 0, editable.length()),
+                        FissionHostView.clamp(selectionEnd, 0, editable.length())
+                );
+                lastComposingText = "";
+            } finally {
+                syncing = false;
+            }
+        }
+
+        boolean hasComposingText() {
+            return BaseInputConnection.getComposingSpanStart(editable) >= 0
+                    && BaseInputConnection.getComposingSpanEnd(editable) >= 0;
+        }
+
+        int selectionStart() {
+            return Math.max(0, Selection.getSelectionStart(editable));
+        }
+
+        int selectionEnd() {
+            return Math.max(0, Selection.getSelectionEnd(editable));
+        }
+
+        @Override
+        public boolean commitText(CharSequence text, int newCursorPosition) {
+            boolean handled = super.commitText(text, newCursorPosition);
+            if (!syncing) {
+                host.enqueue("i_commit|" + FissionHostView.encoded(text));
+                enqueueSelection();
+            }
+            lastComposingText = "";
+            return handled;
+        }
+
+        @Override
+        public boolean setComposingText(CharSequence text, int newCursorPosition) {
+            boolean handled = super.setComposingText(text, newCursorPosition);
+            if (!syncing) {
+                lastComposingText = text.toString();
+                int start = BaseInputConnection.getComposingSpanStart(editable);
+                int end = BaseInputConnection.getComposingSpanEnd(editable);
+                int cursor = Selection.getSelectionEnd(editable);
+                int relative = start >= 0 ? Math.max(0, cursor - start) : -1;
+                host.enqueue("i_preedit|" + relative + "|" + relative + "|"
+                        + FissionHostView.encoded(text));
+                if (start < 0 || end < start) {
+                    host.enqueue("i_cancel");
+                }
+            }
+            return handled;
+        }
+
+        @Override
+        public boolean setComposingRegion(int start, int end) {
+            boolean handled = super.setComposingRegion(start, end);
+            if (!syncing) {
+                int safeStart = FissionHostView.clamp(start, 0, editable.length());
+                int safeEnd = FissionHostView.clamp(end, safeStart, editable.length());
+                int cursor = Selection.getSelectionEnd(editable);
+                int relative = Math.max(0, cursor - safeStart);
+                lastComposingText = editable.subSequence(safeStart, safeEnd).toString();
+                host.enqueue("i_preedit|" + relative + "|" + relative + "|"
+                        + FissionHostView.encoded(lastComposingText));
+            }
+            return handled;
+        }
+
+        @Override
+        public boolean finishComposingText() {
+            String committed = lastComposingText;
+            boolean handled = super.finishComposingText();
+            if (!syncing) {
+                if (committed.isEmpty()) {
+                    host.enqueue("i_cancel");
+                } else {
+                    host.enqueue("i_commit|" + FissionHostView.encoded(committed));
+                    enqueueSelection();
+                }
+            }
+            lastComposingText = "";
+            return handled;
+        }
+
+        @Override
+        public boolean deleteSurroundingText(int beforeLength, int afterLength) {
+            boolean handled = super.deleteSurroundingText(beforeLength, afterLength);
+            if (!syncing) {
+                enqueueReplacement();
+            }
+            return handled;
+        }
+
+        @Override
+        public boolean deleteSurroundingTextInCodePoints(int beforeLength, int afterLength) {
+            boolean handled = super.deleteSurroundingTextInCodePoints(beforeLength, afterLength);
+            if (!syncing) {
+                enqueueReplacement();
+            }
+            return handled;
+        }
+
+        @Override
+        public boolean setSelection(int start, int end) {
+            boolean handled = super.setSelection(start, end);
+            if (!syncing) {
+                enqueueSelection();
+            }
+            return handled;
+        }
+
+        @Override
+        public boolean sendKeyEvent(KeyEvent event) {
+            boolean handled = super.sendKeyEvent(event);
+            if (!syncing && event.getAction() == KeyEvent.ACTION_UP) {
+                enqueueReplacement();
+            }
+            return handled;
+        }
+
+        @Override
+        public boolean performEditorAction(int actionCode) {
+            host.enqueue("i_action");
+            return true;
+        }
+
+        @Override
+        public ExtractedText getExtractedText(ExtractedTextRequest request, int flags) {
+            ExtractedText result = new ExtractedText();
+            result.text = editable.toString();
+            result.startOffset = 0;
+            result.selectionStart = Math.max(0, Selection.getSelectionStart(editable));
+            result.selectionEnd = Math.max(0, Selection.getSelectionEnd(editable));
+            return result;
+        }
+
+        @Override
+        public boolean requestCursorUpdates(int cursorUpdateMode) {
+            host.updateCursorAnchor();
+            return true;
+        }
+
+        private void enqueueReplacement() {
+            int start = Math.max(0, Selection.getSelectionStart(editable));
+            int end = Math.max(0, Selection.getSelectionEnd(editable));
+            host.enqueue("i_replace|" + start + "|" + end + "|"
+                    + FissionHostView.encoded(editable));
+        }
+
+        private void enqueueSelection() {
+            int start = Math.max(0, Selection.getSelectionStart(editable));
+            int end = Math.max(0, Selection.getSelectionEnd(editable));
+            host.enqueue("i_selection|" + start + "|" + end);
         }
     }
 

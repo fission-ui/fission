@@ -185,6 +185,12 @@ mod imp {
             changed
         }
 
+        pub fn resume(&mut self) {}
+
+        pub fn suspend(&mut self) {}
+
+        pub fn shutdown(&mut self) {}
+
         fn handle_action_request(
             &mut self,
             request: ActionRequest,
@@ -1196,7 +1202,11 @@ mod imp {
     }
 }
 
-#[cfg(any(target_arch = "wasm32", target_os = "android"))]
+#[cfg(target_os = "android")]
+#[path = "accessibility/android.rs"]
+mod imp;
+
+#[cfg(all(target_arch = "wasm32", not(target_os = "android")))]
 mod imp {
     use fission_core::Runtime;
     use fission_ir::CoreIR;
@@ -1234,6 +1244,12 @@ mod imp {
         ) -> bool {
             false
         }
+
+        pub fn resume(&mut self) {}
+
+        pub fn suspend(&mut self) {}
+
+        pub fn shutdown(&mut self) {}
     }
 
     pub fn window_must_start_hidden() -> bool {

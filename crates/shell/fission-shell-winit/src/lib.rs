@@ -90,6 +90,8 @@ mod compositor;
 use compositor::TextureLayerCompositor;
 mod accessibility;
 use accessibility::AccessibilityBridge;
+#[cfg(target_os = "android")]
+mod android_host;
 mod pipeline;
 pub use pipeline::{InvalidationSet, Pipeline};
 mod frame_submission;
@@ -341,6 +343,11 @@ where
             );
         }
         #[cfg(target_os = "android")]
+        let android_host_app = android_app
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("Android runtime requires an AndroidApp host"))?;
+        #[cfg(target_os = "android")]
         if let Some(app) = android_app {
             event_loop_builder.with_android_app(app);
         }
@@ -370,6 +377,10 @@ where
             .build()
             .map_err(|e| anyhow::anyhow!("Event loop error: {}", e))?;
         let event_proxy = event_loop.create_proxy();
+        #[cfg(target_os = "android")]
+        let android_host =
+            android_host::AndroidHostBridge::install(&android_host_app, event_proxy.clone())
+                .map_err(anyhow::Error::msg)?;
         #[cfg(target_os = "macos")]
         let notification_response_queue = Arc::new(Mutex::new(VecDeque::new()));
         #[cfg(target_os = "macos")]
@@ -383,7 +394,11 @@ where
                 let _ = proxy.send_event(TestEvent::Wake);
             })
         });
+        #[cfg(not(target_os = "android"))]
         let mut accessibility_bridge = AccessibilityBridge::new(event_proxy.clone());
+        #[cfg(target_os = "android")]
+        let mut accessibility_bridge =
+            AccessibilityBridge::new(event_proxy.clone(), android_host.clone());
         #[cfg(feature = "tray")]
         let tray_event_rx = self
             .tray_config

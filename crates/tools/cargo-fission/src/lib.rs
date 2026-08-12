@@ -1114,6 +1114,15 @@ mkdir -p "$(dirname "$artifact")"
         assert!(android_manifest.contains("android:targetSdkVersion=\"35\""));
         assert!(android_manifest.contains("android:theme=\"@style/FissionLaunchTheme\""));
         assert!(android_manifest.contains("rs.fission.runtime.FissionActivity"));
+        let android_activity = std::fs::read_to_string(
+            dir.join("platforms/android/java/rs/fission/runtime/FissionActivity.java"),
+        )
+        .unwrap();
+        assert!(android_activity.contains("FISSION_HOST_CONTRACT_VERSION = 1"));
+        assert!(android_activity.contains("fissionInstallHost(long token)"));
+        assert!(android_activity.contains("getAccessibilityNodeProvider()"));
+        assert!(android_activity.contains("onCreateInputConnection(EditorInfo outAttrs)"));
+        assert!(android_activity.contains("fissionDrainHostEvents()"));
         let android_styles =
             std::fs::read_to_string(dir.join("platforms/android/res/values/styles.xml")).unwrap();
         assert!(android_styles.contains("android:windowBackground"));
