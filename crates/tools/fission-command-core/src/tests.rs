@@ -342,3 +342,13 @@ fn web_bootstrap_initializes_canvaskit_before_application_wasm() {
     assert!(bootstrap.contains("./canvaskit/web/fission_skia_executor.js"));
     assert!(bootstrap.contains("new URL(`./canvaskit/web/${file}`"));
 }
+
+#[test]
+fn web_helper_build_uses_fission_artifact_staging_path() {
+    let script = render_web_build_script();
+
+    assert!(script.contains("build --target web --project-dir"));
+    assert!(script.contains("FISSION_BIN"));
+    assert!(!script.contains("wasm-pack"));
+    assert!(!script.contains("--out-dir"));
+}
