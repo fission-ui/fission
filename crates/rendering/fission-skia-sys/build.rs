@@ -9,8 +9,6 @@ use std::process::Command;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-#[path = "build_support/artifact_resolver.rs"]
-mod artifact_resolver;
 #[path = "build_support/native_contract.rs"]
 mod native_contract;
 
@@ -160,6 +158,12 @@ struct NativeLink {
 }
 
 fn main() {
+    if fission_skia_artifacts::BRIDGE_ABI_VERSION != ABI_VERSION
+        || fission_skia_artifacts::SKIA_REVISION != SKIA_REVISION
+        || env!("CARGO_PKG_VERSION") != fission_skia_artifacts::VERSION
+    {
+        panic!("fission-skia-sys and fission-skia-artifacts release identities are misaligned");
+    }
     emit_inputs();
     let prebuilt = env::var_os("CARGO_FEATURE_SKIA_PREBUILT").is_some();
     let source = env::var_os("CARGO_FEATURE_SKIA_BUILD_FROM_SOURCE").is_some();
@@ -234,7 +238,6 @@ fn emit_inputs() {
     println!("cargo:rerun-if-changed=cpp/test_shim.cpp");
     println!("cargo:rerun-if-changed=cpp/test_shim_paragraph.cpp");
     println!("cargo:rerun-if-changed=skia_revision.txt");
-    println!("cargo:rerun-if-changed=artifacts.lock.json");
     for variable in [
         "FISSION_SKIA_ARTIFACT_DIR",
         "FISSION_SKIA_CACHE_DIR",
@@ -269,20 +272,17 @@ fn configure_prebuilt() {
     let root = if local_override {
         required_real_dir("FISSION_SKIA_ARTIFACT_DIR")
     } else {
-        let cache_root = artifact_resolver::cache_root_from_environment()
+        let cache_root = fission_skia_artifacts::cache_root_from_environment()
             .unwrap_or_else(|error| panic!("failed to select the Skia artifact cache: {error}"));
-        let offline = artifact_resolver::offline_from_environment()
+        let offline = fission_skia_artifacts::offline_from_environment()
             .unwrap_or_else(|error| panic!("failed to read Skia offline configuration: {error}"));
-        artifact_resolver::resolve(artifact_resolver::ResolveRequest {
-            lock_json: include_bytes!("artifacts.lock.json"),
-            fission_version: env!("CARGO_PKG_VERSION"),
-            skia_revision: SKIA_REVISION,
-            bridge_abi_version: ABI_VERSION,
-            target: &target,
-            profile: &profile,
-            cache_root: &cache_root,
+        fission_skia_artifacts::resolve_bundled(
+            fission_skia_artifacts::ArtifactKind::Native,
+            &target,
+            &profile,
+            &cache_root,
             offline,
-        })
+        )
         .unwrap_or_else(|error| panic!("failed to resolve the Skia artifact: {error}"))
     };
     let artifact_files = native_contract::inspect_artifact_tree(&root)

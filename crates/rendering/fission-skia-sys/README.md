@@ -39,7 +39,7 @@ resource policy, and conversion from Fission's interactive frame belong in
 Exactly one mode must be selected:
 
 - `skia-prebuilt` (default) selects the exact target/profile entry from the
-  immutable `artifacts.lock.json` shipped in this crate. It downloads that
+  immutable `artifacts.lock.json` shipped by `fission-skia-artifacts`. It downloads that
   archive over HTTPS once, verifies the locked archive and manifest SHA-256,
   safely extracts it into a content-addressed Cargo cache, verifies every
   payload file plus the Fission version, Skia revision, bridge ABI, target,

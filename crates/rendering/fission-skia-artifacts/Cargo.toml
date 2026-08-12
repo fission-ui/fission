@@ -1,0 +1,26 @@
+[package]
+name = "fission-skia-artifacts"
+version = "0.10.1"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/fission-ui/fission"
+description = "Verified prebuilt Skia and CanvasKit artifact delivery for Fission"
+categories = ["rendering", "graphics", "gui"]
+keywords = ["fission", "skia", "canvaskit", "rendering", "artifacts"]
+homepage = "https://fission.rs"
+documentation = "https://fission.rs"
+readme = "README.md"
+
+[package.metadata.fission]
+platforms = ["android", "ios", "linux", "macos", "web", "windows"]
+
+[dependencies]
+flate2 = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+tar = "0.4"
+ureq = "2"
+
+[dev-dependencies]
+tempfile = "3"

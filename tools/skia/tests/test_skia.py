@@ -156,7 +156,7 @@ class SkiaToolTests(unittest.TestCase):
         lock = json.loads(
             (
                 Path(__file__).resolve().parents[3]
-                / "crates/rendering/fission-skia-sys/artifacts.lock.json"
+                / "crates/rendering/fission-skia-artifacts/artifacts.lock.json"
             ).read_text(encoding="utf-8")
         )
         self.assertEqual(lock["fission_version"], "0.10.1")

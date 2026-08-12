@@ -1124,6 +1124,7 @@ fn build_web(project_dir: &Path, release: bool) -> Result<()> {
             project_dir.display()
         )
     })?;
+    web_artifacts::stage_canvaskit(&project_dir)?;
     let out_dir = project_dir.join("platforms/web/pkg");
     let mut command = Command::new("wasm-pack");
     command
@@ -1900,6 +1901,8 @@ fn open_log(path: &Path) -> Result<File> {
 #[path = "platform_support.rs"]
 mod platform_support;
 use platform_support::*;
+
+mod web_artifacts;
 
 #[cfg(test)]
 #[path = "tests.rs"]

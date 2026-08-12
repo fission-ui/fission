@@ -19,6 +19,7 @@ members = [
     # Prototype parked for later; keep the crate in-tree but out of the release workspace.
     # "crates/rendering/fission-render-wgpu2d",
     "crates/rendering/fission-render-vello",
+    "crates/rendering/fission-skia-artifacts",
     "crates/rendering/fission-skia-sys",
     "crates/rendering/fission-render-skia",
     "crates/shell/fission-shell",

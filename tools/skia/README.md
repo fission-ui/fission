@@ -13,7 +13,7 @@ The source pin is the immutable upstream commit
 `canvaskit/0.41.0` tag and milestone 148 are recorded only as useful review
 hints. They are not selection inputs and the pin is explicitly unqualified.
 
-`crates/rendering/fission-skia-sys/artifacts.lock.json` is intentionally empty.
+`crates/rendering/fission-skia-artifacts/artifacts.lock.json` is intentionally empty.
 It is the single artifact-selection authority bundled into the published crate.
 Adding an entry is a release operation that must happen only after the
 corresponding archive, provenance, and qualification evidence exist.
@@ -323,7 +323,7 @@ These foundation packages are always emitted as `origin: local-build` and
 `qualified: false`. Digests bind the inputs and outputs together but do not
 authenticate who built them. Release promotion, signatures, trusted provenance,
 and population of
-`crates/rendering/fission-skia-sys/artifacts.lock.json` remain fail-closed
+`crates/rendering/fission-skia-artifacts/artifacts.lock.json` remains fail-closed
 release-pipeline work; this tool does not imply they happened. Promotion must
 produce the final `qualified: true` archive, attach GitHub build provenance for
 that exact archive digest, verify it for the `fission-ui/fission` repository,

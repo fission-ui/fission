@@ -2838,9 +2838,12 @@ dependencies = [
  "fission-command-core",
  "fission-command-server",
  "fission-command-site",
+ "fission-skia-artifacts",
  "fission-test-driver",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
  "ureq",
 ]
 
@@ -3008,6 +3011,7 @@ name = "fission-render"
 version = "0.10.1"
 dependencies = [
  "anyhow",
+ "blake3",
  "fission-ir",
  "fission-layout",
  "moka",
@@ -3273,10 +3277,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "fission-skia-sys"
+name = "fission-skia-artifacts"
 version = "0.10.1"
 dependencies = [
- "cc",
  "flate2",
  "serde",
  "serde_json",
@@ -3284,6 +3287,17 @@ dependencies = [
  "tar",
  "tempfile",
  "ureq",
+]
+
+[[package]]
+name = "fission-skia-sys"
+version = "0.10.1"
+dependencies = [
+ "cc",
+ "fission-skia-artifacts",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]

@@ -1,4 +1,6 @@
-use std::collections::BTreeSet;
+//! Exact, verified delivery of Fission-maintained Skia and CanvasKit artifacts.
+
+use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufReader, Read};
@@ -18,6 +20,53 @@ const MAX_EXPANDED_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 const MAX_ARTIFACT_FILES: usize = 8_192;
 const MAX_MANIFEST_BYTES: u64 = 4 * 1024 * 1024;
 static TEMPORARY_ID: AtomicU64 = AtomicU64::new(0);
+
+/// Exact Skia source revision selected by this Fission release.
+pub const SKIA_REVISION: &str = "cf5c36972b73698eb3939cda147ea47152670312";
+/// Exact native bridge ABI selected by this Fission release.
+pub const BRIDGE_ABI_VERSION: u32 = 13;
+/// CanvasKit wire protocol consumed by this Fission release.
+pub const CANVASKIT_PROTOCOL_VERSION: u32 = 1;
+/// Production CanvasKit artifact profile served by interactive Web apps.
+pub const CANVASKIT_PROFILE: &str = "canvaskit-production";
+/// Interactive Web target used by CanvasKit artifacts.
+pub const CANVASKIT_TARGET: &str = "wasm32-unknown-unknown";
+/// Fission release version whose artifact identities this crate accepts.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+const BUNDLED_LOCK_JSON: &[u8] = include_bytes!("../artifacts.lock.json");
+
+/// Selects the native or browser artifact contract.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+pub enum ArtifactKind {
+    #[serde(rename = "native")]
+    Native,
+    #[serde(rename = "canvaskit")]
+    CanvasKit,
+}
+
+impl ArtifactKind {
+    fn cache_key(self) -> &'static str {
+        match self {
+            Self::Native => "native",
+            Self::CanvasKit => "canvaskit",
+        }
+    }
+
+    fn display_name(self) -> &'static str {
+        match self {
+            Self::Native => "Skia",
+            Self::CanvasKit => "CanvasKit",
+        }
+    }
+
+    fn local_override(self) -> &'static str {
+        match self {
+            Self::Native => "FISSION_SKIA_ARTIFACT_DIR",
+            Self::CanvasKit => "FISSION_CANVASKIT_ARTIFACT_DIR",
+        }
+    }
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -40,6 +89,7 @@ struct ProvenancePolicy {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LockedArtifact {
+    kind: ArtifactKind,
     artifact_id: String,
     target: String,
     profile: String,
@@ -48,10 +98,12 @@ struct LockedArtifact {
     archive_sha256: String,
     archive_size: u64,
     manifest_sha256: String,
+    #[serde(default)]
+    web_protocol_version: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
-struct InstalledManifest {
+struct InstalledNativeManifest {
     schema_version: u32,
     artifact_id: String,
     qualified: bool,
@@ -69,6 +121,38 @@ struct InstalledSkia {
 }
 
 #[derive(Debug, Deserialize)]
+struct InstalledCanvasKitManifest {
+    schema_version: u32,
+    artifact_id: String,
+    qualified: bool,
+    fission_version: String,
+    source: InstalledSource,
+    abi: InstalledWebAbi,
+    target: String,
+    profile: String,
+    assets: BTreeMap<String, InstalledAsset>,
+    files: Vec<InstalledFile>,
+}
+
+#[derive(Debug, Deserialize)]
+struct InstalledSource {
+    revision: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct InstalledWebAbi {
+    bridge_abi_version: u32,
+    web_protocol_version: u32,
+}
+
+#[derive(Debug, Deserialize)]
+struct InstalledAsset {
+    path: String,
+    sha256: String,
+    size: u64,
+}
+
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct InstalledFile {
     path: String,
@@ -76,20 +160,110 @@ struct InstalledFile {
     size: u64,
 }
 
-#[derive(Clone, Copy)]
-pub(crate) struct ResolveRequest<'a> {
-    pub(crate) lock_json: &'a [u8],
-    pub(crate) fission_version: &'a str,
-    pub(crate) skia_revision: &'a str,
-    pub(crate) bridge_abi_version: u32,
-    pub(crate) target: &'a str,
-    pub(crate) profile: &'a str,
-    pub(crate) cache_root: &'a Path,
-    pub(crate) offline: bool,
+#[derive(Clone, Copy, Debug)]
+struct ResolveRequest<'a> {
+    kind: ArtifactKind,
+    lock_json: &'a [u8],
+    fission_version: &'a str,
+    skia_revision: &'a str,
+    bridge_abi_version: u32,
+    target: &'a str,
+    profile: &'a str,
+    cache_root: &'a Path,
+    offline: bool,
 }
 
-pub(crate) fn resolve(request: ResolveRequest<'_>) -> Result<PathBuf, String> {
+fn resolve(request: ResolveRequest<'_>) -> Result<PathBuf, String> {
     resolve_with(request, download_https)
+}
+
+/// Resolves an exact artifact from the lock bundled with this crate release.
+pub fn resolve_bundled(
+    kind: ArtifactKind,
+    target: &str,
+    profile: &str,
+    cache_root: &Path,
+    offline: bool,
+) -> Result<PathBuf, String> {
+    resolve(ResolveRequest {
+        kind,
+        lock_json: BUNDLED_LOCK_JSON,
+        fission_version: env!("CARGO_PKG_VERSION"),
+        skia_revision: SKIA_REVISION,
+        bridge_abi_version: BRIDGE_ABI_VERSION,
+        target,
+        profile,
+        cache_root,
+        offline,
+    })
+}
+
+/// Verifies an explicit local artifact tree against this release's identity.
+///
+/// Callers must require an explicit development opt-in before passing
+/// `allow_unqualified = true`.
+pub fn verify_local(
+    root: &Path,
+    kind: ArtifactKind,
+    target: &str,
+    profile: &str,
+    allow_unqualified: bool,
+) -> Result<(), String> {
+    let cache_root = Path::new(".");
+    let request = ResolveRequest {
+        kind,
+        lock_json: BUNDLED_LOCK_JSON,
+        fission_version: env!("CARGO_PKG_VERSION"),
+        skia_revision: SKIA_REVISION,
+        bridge_abi_version: BRIDGE_ABI_VERSION,
+        target,
+        profile,
+        cache_root,
+        offline: true,
+    };
+    verify_installed(root, request, None, !allow_unqualified)
+}
+
+/// Checks the bundled selection document without resolving an artifact.
+pub fn validate_bundled_lock() -> Result<(), String> {
+    let lock = parse_lock(
+        BUNDLED_LOCK_JSON,
+        env!("CARGO_PKG_VERSION"),
+        SKIA_REVISION,
+        BRIDGE_ABI_VERSION,
+    )?;
+    let cache_root = Path::new(".");
+    let mut identities = BTreeSet::new();
+    for entry in &lock.artifacts {
+        let identity = (
+            entry.kind.cache_key(),
+            entry.target.as_str(),
+            entry.profile.as_str(),
+        );
+        if !identities.insert(identity) {
+            return Err(format!(
+                "bundled artifact lock contains duplicate {} entries for {}/{}",
+                entry.kind.display_name(),
+                entry.profile,
+                entry.target
+            ));
+        }
+        validate_locked_artifact(
+            entry,
+            ResolveRequest {
+                kind: entry.kind,
+                lock_json: BUNDLED_LOCK_JSON,
+                fission_version: env!("CARGO_PKG_VERSION"),
+                skia_revision: SKIA_REVISION,
+                bridge_abi_version: BRIDGE_ABI_VERSION,
+                target: &entry.target,
+                profile: &entry.profile,
+                cache_root,
+                offline: true,
+            },
+        )?;
+    }
+    Ok(())
 }
 
 fn resolve_with<F>(request: ResolveRequest<'_>, fetch: F) -> Result<PathBuf, String>
@@ -99,9 +273,10 @@ where
     let entry = select_locked_artifact(request)?;
     let cache_path = cache_path(request, &entry)?;
     if cache_path.exists() {
-        verify_installed(&cache_path, request, &entry).map_err(|error| {
+        verify_installed(&cache_path, request, Some(&entry), true).map_err(|error| {
             format!(
-                "cached Skia artifact {} is corrupt: {error}; remove only this cache entry and retry: {}",
+                "cached {} artifact {} is corrupt: {error}; remove only this cache entry and retry: {}",
+                request.kind.display_name(),
                 entry.artifact_id,
                 cache_path.display()
             )
@@ -110,19 +285,21 @@ where
     }
     if request.offline {
         return Err(format!(
-            "offline mode has no exact verified Skia artifact for {}/{} at {}; pre-populate that cache entry or set FISSION_SKIA_ARTIFACT_DIR to a verified local artifact",
+            "offline mode has no exact verified {} artifact for {}/{} at {}; pre-populate that cache entry or set {} to a verified local artifact",
+            request.kind.display_name(),
             request.profile,
             request.target,
-            cache_path.display()
+            cache_path.display(),
+            request.kind.local_override(),
         ));
     }
 
     let cache_parent = cache_path
         .parent()
-        .ok_or_else(|| "Skia cache path has no parent".to_owned())?;
+        .ok_or_else(|| "artifact cache path has no parent".to_owned())?;
     fs::create_dir_all(cache_parent).map_err(|error| {
         format!(
-            "failed to create Skia artifact cache {}: {error}",
+            "failed to create artifact cache {}: {error}",
             cache_parent.display()
         )
     })?;
@@ -134,17 +311,17 @@ where
     let extracted = staging.path().join("unpacked");
     fs::create_dir(&extracted).map_err(|error| {
         format!(
-            "failed to create private Skia extraction directory {}: {error}",
+            "failed to create private artifact extraction directory {}: {error}",
             extracted.display()
         )
     })?;
     let artifact_root = extract_archive(&archive_path, &extracted, &entry.artifact_id)?;
-    verify_installed(&artifact_root, request, &entry)?;
+    verify_installed(&artifact_root, request, Some(&entry), true)?;
 
     match fs::rename(&artifact_root, &cache_path) {
         Ok(()) => {}
         Err(error) if cache_path.exists() => {
-            verify_installed(&cache_path, request, &entry).map_err(|winner_error| {
+            verify_installed(&cache_path, request, Some(&entry), true).map_err(|winner_error| {
                 format!(
                     "another process populated {} while this build was resolving it, but the published cache entry is invalid: {winner_error} (rename error: {error})",
                     cache_path.display()
@@ -153,7 +330,7 @@ where
         }
         Err(error) => {
             return Err(format!(
-                "failed to atomically publish verified Skia artifact to {}: {error}",
+                "failed to atomically publish verified artifact to {}: {error}",
                 cache_path.display()
             ));
         }
@@ -161,7 +338,7 @@ where
     Ok(cache_path)
 }
 
-pub(crate) fn cache_root_from_environment() -> Result<PathBuf, String> {
+pub fn cache_root_from_environment() -> Result<PathBuf, String> {
     if let Some(explicit) = env::var_os("FISSION_SKIA_CACHE_DIR") {
         return nonempty_path(explicit, "FISSION_SKIA_CACHE_DIR");
     }
@@ -180,9 +357,13 @@ pub(crate) fn cache_root_from_environment() -> Result<PathBuf, String> {
     )
 }
 
-pub(crate) fn offline_from_environment() -> Result<bool, String> {
+pub fn offline_from_environment() -> Result<bool, String> {
     let mut offline = false;
-    for variable in ["FISSION_SKIA_OFFLINE", "CARGO_NET_OFFLINE"] {
+    for variable in [
+        "FISSION_SKIA_OFFLINE",
+        "FISSION_CANVASKIT_OFFLINE",
+        "CARGO_NET_OFFLINE",
+    ] {
         if let Some(value) = env::var_os(variable) {
             let value = value
                 .to_str()
@@ -199,8 +380,64 @@ pub(crate) fn offline_from_environment() -> Result<bool, String> {
     Ok(offline)
 }
 
+/// Reads one optional boolean environment switch using the resolver vocabulary.
+pub fn boolean_from_environment(variable: &str) -> Result<bool, String> {
+    let Some(value) = env::var_os(variable) else {
+        return Ok(false);
+    };
+    let value = value
+        .to_str()
+        .ok_or_else(|| format!("{variable} is not valid UTF-8"))?;
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" => Ok(true),
+        "0" | "false" | "no" => Ok(false),
+        _ => Err(format!(
+            "{variable} must be one of 1, 0, true, false, yes, or no"
+        )),
+    }
+}
+
 fn select_locked_artifact(request: ResolveRequest<'_>) -> Result<LockedArtifact, String> {
-    let lock: ArtifactLock = serde_json::from_slice(request.lock_json)
+    let lock = parse_lock(
+        request.lock_json,
+        request.fission_version,
+        request.skia_revision,
+        request.bridge_abi_version,
+    )?;
+    let mut matches = lock.artifacts.into_iter().filter(|entry| {
+        entry.kind == request.kind
+            && entry.target == request.target
+            && entry.profile == request.profile
+    });
+    let entry = matches.next().ok_or_else(|| {
+        format!(
+            "no published {} artifact is locked for {}/{} in fission-skia-artifacts {}; use an explicitly verified {} or the documented source-build path",
+            request.kind.display_name(),
+            request.profile,
+            request.target,
+            request.fission_version,
+            request.kind.local_override(),
+        )
+    })?;
+    if matches.next().is_some() {
+        return Err(format!(
+            "bundled artifact lock contains duplicate {} entries for {}/{}",
+            request.kind.display_name(),
+            request.profile,
+            request.target
+        ));
+    }
+    validate_locked_artifact(&entry, request)?;
+    Ok(entry)
+}
+
+fn parse_lock(
+    raw: &[u8],
+    fission_version: &str,
+    skia_revision: &str,
+    bridge_abi_version: u32,
+) -> Result<ArtifactLock, String> {
+    let lock: ArtifactLock = serde_json::from_slice(raw)
         .map_err(|error| format!("failed to parse the bundled Skia artifact lock: {error}"))?;
     if lock.schema_version != LOCK_SCHEMA_VERSION {
         return Err(format!(
@@ -208,19 +445,19 @@ fn select_locked_artifact(request: ResolveRequest<'_>) -> Result<LockedArtifact,
             lock.schema_version
         ));
     }
-    if lock.fission_version != request.fission_version {
+    if lock.fission_version != fission_version {
         return Err(format!(
             "bundled Skia artifact lock is for Fission {}, not {}",
-            lock.fission_version, request.fission_version
+            lock.fission_version, fission_version
         ));
     }
-    if lock.skia_revision != request.skia_revision {
+    if lock.skia_revision != skia_revision {
         return Err("bundled Skia artifact lock has the wrong pinned Skia revision".to_owned());
     }
-    if lock.bridge_abi_version != request.bridge_abi_version {
+    if lock.bridge_abi_version != bridge_abi_version {
         return Err(format!(
             "bundled Skia artifact lock has bridge ABI {}, not {}",
-            lock.bridge_abi_version, request.bridge_abi_version
+            lock.bridge_abi_version, bridge_abi_version
         ));
     }
     if lock.provenance.repository != "fission-ui/fission"
@@ -232,24 +469,7 @@ fn select_locked_artifact(request: ResolveRequest<'_>) -> Result<LockedArtifact,
         );
     }
 
-    let mut matches = lock
-        .artifacts
-        .into_iter()
-        .filter(|entry| entry.target == request.target && entry.profile == request.profile);
-    let entry = matches.next().ok_or_else(|| {
-        format!(
-            "no published Skia artifact is locked for {}/{} in fission-skia-sys {}; use an explicitly verified FISSION_SKIA_ARTIFACT_DIR or opt into skia-build-from-source",
-            request.profile, request.target, request.fission_version
-        )
-    })?;
-    if matches.next().is_some() {
-        return Err(format!(
-            "bundled Skia artifact lock contains duplicate entries for {}/{}",
-            request.profile, request.target
-        ));
-    }
-    validate_locked_artifact(&entry, request)?;
-    Ok(entry)
+    Ok(lock)
 }
 
 fn validate_locked_artifact(
@@ -258,17 +478,16 @@ fn validate_locked_artifact(
 ) -> Result<(), String> {
     if !entry.qualified {
         return Err(format!(
-            "published Skia artifact {} is not marked production-qualified in the bundled lock",
+            "published {} artifact {} is not marked production-qualified in the bundled lock",
+            request.kind.display_name(),
             entry.artifact_id
         ));
     }
-    let expected_id = format!(
-        "fission-skia-{}-abi{}-{}-{}",
-        request.fission_version, request.bridge_abi_version, request.profile, request.target
-    );
+    let expected_id = expected_artifact_id(request, entry.web_protocol_version)?;
     if entry.artifact_id != expected_id {
         return Err(format!(
-            "locked Skia artifact id {} does not match expected {expected_id}",
+            "locked {} artifact id {} does not match expected {expected_id}",
+            request.kind.display_name(),
             entry.artifact_id
         ));
     }
@@ -277,7 +496,7 @@ fn validate_locked_artifact(
         || entry.url.contains('#')
     {
         return Err(format!(
-            "locked Skia artifact {} must use a canonical HTTPS URL without whitespace or a fragment",
+            "locked artifact {} must use a canonical HTTPS URL without whitespace or a fragment",
             entry.artifact_id
         ));
     }
@@ -285,17 +504,56 @@ fn validate_locked_artifact(
     validate_sha256(&entry.manifest_sha256, "locked artifact manifest")?;
     if entry.archive_size == 0 || entry.archive_size > MAX_ARCHIVE_BYTES {
         return Err(format!(
-            "locked Skia archive size {} is outside the supported 1..={MAX_ARCHIVE_BYTES} byte range",
+            "locked artifact archive size {} is outside the supported 1..={MAX_ARCHIVE_BYTES} byte range",
             entry.archive_size
         ));
     }
     Ok(())
 }
 
+fn expected_artifact_id(
+    request: ResolveRequest<'_>,
+    web_protocol_version: Option<u32>,
+) -> Result<String, String> {
+    match request.kind {
+        ArtifactKind::Native => {
+            if web_protocol_version.is_some() {
+                return Err("native artifact lock entry must not declare a Web protocol".to_owned());
+            }
+            Ok(format!(
+                "fission-skia-{}-abi{}-{}-{}",
+                request.fission_version,
+                request.bridge_abi_version,
+                request.profile,
+                request.target
+            ))
+        }
+        ArtifactKind::CanvasKit => {
+            let protocol = web_protocol_version.ok_or_else(|| {
+                "CanvasKit artifact lock entry must declare web_protocol_version".to_owned()
+            })?;
+            if protocol != CANVASKIT_PROTOCOL_VERSION {
+                return Err(format!(
+                    "CanvasKit artifact uses wire protocol {protocol}, not {CANVASKIT_PROTOCOL_VERSION}"
+                ));
+            }
+            Ok(format!(
+                "fission-canvaskit-{}-{}-{}-abi{}-wire{}",
+                request.fission_version,
+                request.target,
+                request.profile,
+                request.bridge_abi_version,
+                protocol
+            ))
+        }
+    }
+}
+
 fn cache_path(request: ResolveRequest<'_>, entry: &LockedArtifact) -> Result<PathBuf, String> {
     for (name, component) in [
         ("Fission version", request.fission_version),
         ("Skia revision", request.skia_revision),
+        ("artifact kind", request.kind.cache_key()),
         ("target", request.target),
         ("profile", request.profile),
         ("archive digest", entry.archive_sha256.as_str()),
@@ -308,6 +566,7 @@ fn cache_path(request: ResolveRequest<'_>, entry: &LockedArtifact) -> Result<Pat
         .join(request.fission_version)
         .join(request.skia_revision)
         .join(format!("abi{}", request.bridge_abi_version))
+        .join(request.kind.cache_key())
         .join(request.target)
         .join(request.profile)
         .join(&entry.archive_sha256))
@@ -316,7 +575,8 @@ fn cache_path(request: ResolveRequest<'_>, entry: &LockedArtifact) -> Result<Pat
 fn verify_installed(
     root: &Path,
     request: ResolveRequest<'_>,
-    entry: &LockedArtifact,
+    entry: Option<&LockedArtifact>,
+    require_qualified: bool,
 ) -> Result<(), String> {
     let metadata = fs::symlink_metadata(root)
         .map_err(|error| format!("failed to inspect {}: {error}", root.display()))?;
@@ -337,28 +597,154 @@ fn verify_installed(
         return Err("artifact manifest is not a bounded regular file".to_owned());
     }
     let manifest_digest = sha256_file(&manifest_path)?;
-    if manifest_digest != entry.manifest_sha256 {
-        return Err("artifact manifest failed the digest pinned in the bundled lock".to_owned());
+    if let Some(entry) = entry {
+        if manifest_digest != entry.manifest_sha256 {
+            return Err(
+                "artifact manifest failed the digest pinned in the bundled lock".to_owned(),
+            );
+        }
     }
     let raw = fs::read(&manifest_path)
         .map_err(|error| format!("failed to read {}: {error}", manifest_path.display()))?;
-    let manifest: InstalledManifest = serde_json::from_slice(&raw)
-        .map_err(|error| format!("failed to parse {}: {error}", manifest_path.display()))?;
-    if manifest.schema_version != ARTIFACT_SCHEMA_VERSION
-        || manifest.artifact_id != entry.artifact_id
-        || !manifest.qualified
-        || manifest.fission_version != request.fission_version
-        || manifest.skia.revision != request.skia_revision
-        || manifest.bridge_abi_version != request.bridge_abi_version
-        || manifest.target != request.target
-        || manifest.profile != request.profile
+    match request.kind {
+        ArtifactKind::Native => {
+            let manifest: InstalledNativeManifest = serde_json::from_slice(&raw)
+                .map_err(|error| format!("failed to parse {}: {error}", manifest_path.display()))?;
+            let expected_id = expected_artifact_id(request, None)?;
+            if manifest.schema_version != ARTIFACT_SCHEMA_VERSION
+                || manifest.artifact_id != expected_id
+                || entry.is_some_and(|locked| locked.artifact_id != manifest.artifact_id)
+                || (require_qualified && !manifest.qualified)
+                || manifest.fission_version != request.fission_version
+                || manifest.skia.revision != request.skia_revision
+                || manifest.bridge_abi_version != request.bridge_abi_version
+                || manifest.target != request.target
+                || manifest.profile != request.profile
+            {
+                return Err(
+                    "native artifact manifest identity, qualification, ABI, target, or profile does not match the request"
+                        .to_owned(),
+                );
+            }
+            verify_payload_tree(root, &manifest.files)
+        }
+        ArtifactKind::CanvasKit => {
+            let manifest: InstalledCanvasKitManifest = serde_json::from_slice(&raw)
+                .map_err(|error| format!("failed to parse {}: {error}", manifest_path.display()))?;
+            let protocol = manifest.abi.web_protocol_version;
+            let expected_id = expected_artifact_id(request, Some(protocol))?;
+            if manifest.schema_version != ARTIFACT_SCHEMA_VERSION
+                || manifest.artifact_id != expected_id
+                || entry.is_some_and(|locked| {
+                    locked.artifact_id != manifest.artifact_id
+                        || locked.web_protocol_version != Some(protocol)
+                })
+                || (require_qualified && !manifest.qualified)
+                || manifest.fission_version != request.fission_version
+                || manifest.source.revision != request.skia_revision
+                || manifest.abi.bridge_abi_version != request.bridge_abi_version
+                || manifest.target != request.target
+                || manifest.profile != request.profile
+            {
+                return Err(
+                    "CanvasKit artifact manifest identity, qualification, ABI, target, or profile does not match the request"
+                        .to_owned(),
+                );
+            }
+            verify_canvaskit_contract(&manifest)?;
+            verify_payload_tree(root, &manifest.files)
+        }
+    }
+}
+
+fn verify_canvaskit_contract(manifest: &InstalledCanvasKitManifest) -> Result<(), String> {
+    const REQUIRED_ASSETS: &[(&str, &str)] = &[
+        ("canvaskit_js", "web/canvaskit.js"),
+        ("canvaskit_wasm", "web/canvaskit.wasm"),
+        ("fission_web_bridge", "web/fission_skia_web.js"),
+        ("fission_command_decoder", "web/fission_skia_commands.js"),
+        ("fission_frame_executor", "web/fission_skia_executor.js"),
+        (
+            "fission_paragraph_wire",
+            "web/fission_skia_paragraph_wire.js",
+        ),
+        (
+            "fission_paragraph_unicode",
+            "web/fission_skia_paragraph_unicode.js",
+        ),
+        ("fission_paragraph_host", "web/fission_skia_paragraph.js"),
+    ];
+    const REQUIRED_LICENSES: &[&str] = &[
+        "brotli",
+        "fission",
+        "freetype",
+        "harfbuzz",
+        "icu",
+        "libjpeg-turbo",
+        "libpng",
+        "libwebp",
+        "skia",
+        "woff2",
+        "wuffs",
+        "zlib",
+    ];
+
+    let expected_asset_names = REQUIRED_ASSETS
+        .iter()
+        .map(|(name, _)| *name)
+        .collect::<BTreeSet<_>>();
+    if manifest
+        .assets
+        .keys()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>()
+        != expected_asset_names
     {
         return Err(
-            "artifact manifest identity, qualification, ABI, target, or profile does not match the bundled lock"
-                .to_owned(),
+            "CanvasKit artifact asset map is incomplete or contains unknown assets".to_owned(),
         );
     }
-    verify_payload_tree(root, &manifest.files)
+
+    let declared = manifest
+        .files
+        .iter()
+        .map(|file| (file.path.as_str(), file))
+        .collect::<BTreeMap<_, _>>();
+    let mut expected_files = REQUIRED_ASSETS
+        .iter()
+        .map(|(_, path)| (*path).to_owned())
+        .collect::<BTreeSet<_>>();
+    expected_files.extend(
+        REQUIRED_LICENSES
+            .iter()
+            .map(|name| format!("licenses/{name}.txt")),
+    );
+    if declared
+        .keys()
+        .map(|path| (*path).to_owned())
+        .collect::<BTreeSet<_>>()
+        != expected_files
+    {
+        return Err(
+            "CanvasKit artifact payload does not match the production Web profile".to_owned(),
+        );
+    }
+
+    for (name, path) in REQUIRED_ASSETS {
+        let asset = manifest
+            .assets
+            .get(*name)
+            .ok_or_else(|| format!("CanvasKit artifact is missing asset {name}"))?;
+        let file = declared
+            .get(path)
+            .ok_or_else(|| format!("CanvasKit artifact is missing payload {path}"))?;
+        if asset.path != *path || asset.sha256 != file.sha256 || asset.size != file.size {
+            return Err(format!(
+                "CanvasKit asset {name} does not bind exactly to its declared payload"
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn verify_payload_tree(root: &Path, files: &[InstalledFile]) -> Result<(), String> {
@@ -814,6 +1200,7 @@ mod tests {
                     "predicate_type": "https://slsa.dev/provenance/v1"
                 },
                 "artifacts": [{
+                    "kind": "native",
                     "artifact_id": "fission-skia-0.10.1-abi13-native-raster-x86_64-unknown-linux-gnu",
                     "target": TARGET,
                     "profile": PROFILE,
@@ -850,6 +1237,7 @@ mod tests {
 
         fn request(&self, offline: bool) -> ResolveRequest<'_> {
             ResolveRequest {
+                kind: ArtifactKind::Native,
                 lock_json: &self.lock,
                 fission_version: VERSION,
                 skia_revision: REVISION,
@@ -874,6 +1262,153 @@ mod tests {
         builder
             .append_data(&mut header, path, Cursor::new(bytes))
             .unwrap();
+    }
+
+    #[test]
+    fn resolves_a_qualified_canvaskit_artifact_with_the_exact_wire_contract() {
+        const WEB_PROFILE: &str = "canvaskit-production";
+        const WEB_TARGET: &str = "wasm32-unknown-unknown";
+        const WEB_ID: &str =
+            "fission-canvaskit-0.10.1-wasm32-unknown-unknown-canvaskit-production-abi13-wire1";
+        const WEB_ASSETS: &[(&str, &str)] = &[
+            ("canvaskit_js", "web/canvaskit.js"),
+            ("canvaskit_wasm", "web/canvaskit.wasm"),
+            ("fission_web_bridge", "web/fission_skia_web.js"),
+            ("fission_command_decoder", "web/fission_skia_commands.js"),
+            ("fission_frame_executor", "web/fission_skia_executor.js"),
+            (
+                "fission_paragraph_wire",
+                "web/fission_skia_paragraph_wire.js",
+            ),
+            (
+                "fission_paragraph_unicode",
+                "web/fission_skia_paragraph_unicode.js",
+            ),
+            ("fission_paragraph_host", "web/fission_skia_paragraph.js"),
+        ];
+        const LICENSES: &[&str] = &[
+            "brotli",
+            "fission",
+            "freetype",
+            "harfbuzz",
+            "icu",
+            "libjpeg-turbo",
+            "libpng",
+            "libwebp",
+            "skia",
+            "woff2",
+            "wuffs",
+            "zlib",
+        ];
+
+        let temporary = tempfile::tempdir().unwrap();
+        let mut payloads = Vec::new();
+        let mut assets = serde_json::Map::new();
+        for (name, path) in WEB_ASSETS {
+            let bytes = if *path == "web/canvaskit.wasm" {
+                b"\0asm\x01\0\0\0fixture".to_vec()
+            } else {
+                format!("// {path}\n").into_bytes()
+            };
+            let digest = format!("{:x}", Sha256::digest(&bytes));
+            assets.insert(
+                (*name).to_owned(),
+                serde_json::json!({
+                    "path": path,
+                    "sha256": digest,
+                    "size": bytes.len(),
+                }),
+            );
+            payloads.push(((*path).to_owned(), bytes));
+        }
+        for license in LICENSES {
+            payloads.push((
+                format!("licenses/{license}.txt"),
+                format!("{license} licence\n").into_bytes(),
+            ));
+        }
+        let files = payloads
+            .iter()
+            .map(|(path, bytes)| {
+                serde_json::json!({
+                    "path": path,
+                    "sha256": format!("{:x}", Sha256::digest(bytes)),
+                    "size": bytes.len(),
+                })
+            })
+            .collect::<Vec<_>>();
+        let manifest = serde_json::to_vec(&serde_json::json!({
+            "schema_version": 1,
+            "artifact_id": WEB_ID,
+            "qualified": true,
+            "fission_version": VERSION,
+            "source": { "revision": REVISION },
+            "abi": {
+                "bridge_abi_version": ABI,
+                "web_protocol_version": CANVASKIT_PROTOCOL_VERSION,
+            },
+            "target": WEB_TARGET,
+            "profile": WEB_PROFILE,
+            "assets": assets,
+            "files": files,
+        }))
+        .unwrap();
+        let manifest_sha256 = format!("{:x}", Sha256::digest(&manifest));
+        let archive = temporary.path().join("canvaskit.tar.gz");
+        let output = File::create(&archive).unwrap();
+        let gzip = flate2::write::GzEncoder::new(output, flate2::Compression::default());
+        let mut tar = tar::Builder::new(gzip);
+        append(&mut tar, &format!("{WEB_ID}/manifest.json"), &manifest);
+        for (path, bytes) in &payloads {
+            append(&mut tar, &format!("{WEB_ID}/{path}"), bytes);
+        }
+        tar.into_inner().unwrap().finish().unwrap();
+        let archive_sha256 = sha256_file(&archive).unwrap();
+        let lock = serde_json::to_vec(&serde_json::json!({
+            "schema_version": 1,
+            "fission_version": VERSION,
+            "skia_revision": REVISION,
+            "bridge_abi_version": ABI,
+            "provenance": {
+                "repository": "fission-ui/fission",
+                "predicate_type": "https://slsa.dev/provenance/v1",
+            },
+            "artifacts": [{
+                "kind": "canvaskit",
+                "artifact_id": WEB_ID,
+                "target": WEB_TARGET,
+                "profile": WEB_PROFILE,
+                "qualified": true,
+                "url": "https://github.com/fission-ui/fission/releases/download/v0.10.1/fission-canvaskit.tar.gz",
+                "archive_sha256": archive_sha256,
+                "archive_size": fs::metadata(&archive).unwrap().len(),
+                "manifest_sha256": manifest_sha256,
+                "web_protocol_version": CANVASKIT_PROTOCOL_VERSION,
+            }],
+        }))
+        .unwrap();
+        let cache = temporary.path().join("cache");
+        let request = ResolveRequest {
+            kind: ArtifactKind::CanvasKit,
+            lock_json: &lock,
+            fission_version: VERSION,
+            skia_revision: REVISION,
+            bridge_abi_version: ABI,
+            target: WEB_TARGET,
+            profile: WEB_PROFILE,
+            cache_root: &cache,
+            offline: false,
+        };
+
+        let installed = resolve_with(request, |_, _, destination| {
+            fs::copy(&archive, destination)
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        })
+        .unwrap();
+
+        assert!(installed.join("web/canvaskit.wasm").is_file());
+        assert!(installed.join("licenses/skia.txt").is_file());
     }
 
     #[test]
