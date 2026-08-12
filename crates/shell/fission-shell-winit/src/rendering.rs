@@ -48,8 +48,8 @@ pub(super) struct RenderState<'w> {
 /// graphics-backend choice to the Winit event dispatcher.
 ///
 /// This is deliberately a lifecycle boundary, not a capability abstraction.
-/// Vello and software retain the shell's current drop-on-suspend behavior.
-/// Skia raster keeps its backend session suspended while the window-bound wgpu
+/// Vello retains the shell's current drop-on-suspend behavior. Skia raster
+/// keeps its backend session suspended while the window-bound wgpu
 /// upload surface is rebuilt independently; Skia Ganesh owns and resumes its
 /// native-window session directly without constructing a wgpu context.
 pub(super) struct WinitPresenter<'w> {
@@ -141,6 +141,53 @@ impl<'w> WinitPresenter<'w> {
         self.state.as_mut()
     }
 
+    #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+    pub(super) fn has_skia_raster(&self) -> bool {
+        self.state
+            .as_ref()
+            .is_some_and(|state| matches!(&state.main_renderer, MainRenderer::SkiaRaster(_)))
+    }
+
+    #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+    pub(super) fn switch_to_skia_raster(
+        &mut self,
+        profile: &fission_render_skia::SkiaRasterProfile,
+        width: u32,
+        height: u32,
+        scale_factor: f64,
+        requested: RendererRequest,
+        fallback_reason: String,
+        validate: impl FnOnce(&fission_render::capabilities::GraphicsCapabilities) -> anyhow::Result<()>,
+    ) -> anyhow::Result<()> {
+        let state = self.state.as_mut().ok_or_else(|| {
+            anyhow::anyhow!("cannot switch renderer without an attached wgpu presenter")
+        })?;
+        let presenter = WinitSkiaRasterPresenter::new(profile, width, height, scale_factor)
+            .map_err(|error| anyhow::anyhow!("Skia raster initialization failed: {error}"))?;
+        let capabilities = winit_skia_raster_capabilities(presenter.capabilities());
+        validate(&capabilities)?;
+        let upload_backend = state
+            .renderer_report
+            .backend
+            .as_deref()
+            .unwrap_or("wgpu")
+            .to_string();
+        let report = RendererReport::new(
+            "native-skia-raster",
+            requested,
+            Some(format!("Skia Raster ({upload_backend} upload presenter)")),
+            state.renderer_report.adapter.clone(),
+            Some(fallback_reason),
+            width,
+            height,
+            scale_factor,
+        );
+        state.main_renderer = MainRenderer::SkiaRaster(presenter);
+        state.renderer_report = report;
+        emit_renderer_report(&state.renderer_report);
+        Ok(())
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn frame_capabilities(&self) -> fission_render::capabilities::GraphicsCapabilities {
         #[cfg(all(
@@ -161,28 +208,6 @@ impl<'w> WinitPresenter<'w> {
             .expect("an attached wgpu presenter owns render state")
             .main_renderer
             .frame_capabilities()
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pub(super) fn allows_host_software_fallback(&self) -> bool {
-        #[cfg(all(
-            feature = "skia",
-            any(
-                target_os = "linux",
-                target_os = "macos",
-                target_os = "ios",
-                target_os = "windows",
-                target_os = "android"
-            )
-        ))]
-        if self.direct_ganesh.is_some() {
-            return false;
-        }
-        self.state
-            .as_ref()
-            .expect("an attached wgpu presenter owns render state")
-            .main_renderer
-            .allows_host_software_fallback()
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -208,8 +233,7 @@ impl<'w> WinitPresenter<'w> {
 
         #[cfg(feature = "skia")]
         {
-            let mut state = state;
-            if let Some(mut presenter) = state.take_skia_renderer() {
+            if let Some(mut presenter) = state.into_skia_renderer() {
                 presenter.suspend()?;
                 debug_assert!(self.suspended_skia.is_none());
                 self.suspended_skia = Some(presenter);
@@ -266,8 +290,7 @@ impl<'w> WinitPresenter<'w> {
         if let Some(state) = self.state.take() {
             #[cfg(feature = "skia")]
             {
-                let mut state = state;
-                if let Some(mut presenter) = state.take_skia_renderer() {
+                if let Some(mut presenter) = state.into_skia_renderer() {
                     presenter.detach()?;
                 }
             }
@@ -332,16 +355,11 @@ impl<'w> WinitPresenter<'w> {
 
 #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
 impl RenderState<'_> {
-    fn take_skia_renderer(&mut self) -> Option<WinitSkiaRasterPresenter> {
-        if !matches!(self.main_renderer, MainRenderer::SkiaRaster(_)) {
-            return None;
+    fn into_skia_renderer(self) -> Option<WinitSkiaRasterPresenter> {
+        match self.main_renderer {
+            MainRenderer::SkiaRaster(presenter) => Some(presenter),
+            MainRenderer::Vello { .. } => None,
         }
-        let MainRenderer::SkiaRaster(presenter) =
-            std::mem::replace(&mut self.main_renderer, MainRenderer::Software)
-        else {
-            unreachable!("the renderer variant was checked before replacement")
-        };
-        Some(presenter)
     }
 }
 
@@ -353,6 +371,7 @@ pub(super) enum MainRenderer {
     },
     #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
     SkiaRaster(WinitSkiaRasterPresenter),
+    #[cfg(target_arch = "wasm32")]
     Software,
 }
 
@@ -361,22 +380,9 @@ impl MainRenderer {
         match self {
             Self::Vello { render_mode, .. } => winit_vello_capabilities(*render_mode),
             #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
-            Self::SkiaRaster(presenter) => presenter.capabilities().clone(),
+            Self::SkiaRaster(presenter) => winit_skia_raster_capabilities(presenter.capabilities()),
+            #[cfg(target_arch = "wasm32")]
             Self::Software => winit_software_capabilities(),
-        }
-    }
-
-    /// Whether the host may replace an unsupported frame with Fission's
-    /// standalone software renderer.
-    ///
-    /// The Skia option is an explicit backend request. Silently rendering a
-    /// frame with a different engine would invalidate evaluation of the Skia
-    /// path, so capability gaps remain explicit frame errors for this backend.
-    pub(super) fn allows_host_software_fallback(&self) -> bool {
-        match self {
-            Self::Vello { .. } | Self::Software => true,
-            #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
-            Self::SkiaRaster(_) => false,
         }
     }
 
@@ -392,7 +398,9 @@ impl MainRenderer {
             Self::SkiaRaster(presenter) => {
                 presenter.sync_surface_metrics(width, height, scale_factor)
             }
-            Self::Vello { .. } | Self::Software => Ok(()),
+            Self::Vello { .. } => Ok(()),
+            #[cfg(target_arch = "wasm32")]
+            Self::Software => Ok(()),
         }
     }
 
@@ -404,7 +412,9 @@ impl MainRenderer {
         match self {
             #[cfg(feature = "skia")]
             Self::SkiaRaster(presenter) => presenter.trim_memory(pressure),
-            Self::Vello { .. } | Self::Software => Ok(()),
+            Self::Vello { .. } => Ok(()),
+            #[cfg(target_arch = "wasm32")]
+            Self::Software => Ok(()),
         }
     }
 }
@@ -989,10 +999,8 @@ pub(super) fn native_renderer_request() -> anyhow::Result<RendererRequest> {
 pub(super) fn require_compiled_native_renderer(
     request: RendererRequest,
 ) -> Result<(), RequestedRendererInitializationError> {
-    if matches!(
-        request,
-        RendererRequest::NativeSkiaRaster | RendererRequest::NativeSkiaGanesh
-    ) && !cfg!(feature = "skia")
+    if (request.uses_skia_raster() || request == RendererRequest::NativeSkiaGanesh)
+        && !cfg!(feature = "skia")
     {
         Err(RequestedRendererInitializationError::new(
             request,
@@ -1093,6 +1101,23 @@ pub(super) fn query_param(search: &str, name: &str) -> Option<String> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "skia")]
+fn create_or_resume_skia_raster_presenter(
+    profile: &fission_render_skia::SkiaRasterProfile,
+    suspended: &mut Option<WinitSkiaRasterPresenter>,
+    width: u32,
+    height: u32,
+    scale_factor: f64,
+) -> fission_render::backend::BackendResult<WinitSkiaRasterPresenter> {
+    if let Some(mut presenter) = suspended.take() {
+        presenter.resume(width, height, scale_factor)?;
+        Ok(presenter)
+    } else {
+        WinitSkiaRasterPresenter::new(profile, width, height, scale_factor)
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub(super) fn create_native_main_renderer(
     device_handle: &vello::util::DeviceHandle,
     request: RendererRequest,
@@ -1117,7 +1142,16 @@ pub(super) fn create_native_main_renderer(
     }
     let adapter_info = device_handle.adapter().get_info();
     let (backend, adapter) = adapter_labels_from_info(&adapter_info);
-    if request == RendererRequest::NativeSkiaRaster {
+    #[cfg(feature = "skia")]
+    let mut preferred_skia_error = None;
+    #[cfg(feature = "skia")]
+    let auto_skia_adapter = should_auto_select_native_skia_raster(
+        request,
+        cfg!(target_os = "windows"),
+        adapter_info.device_type,
+        &adapter_info.name,
+    );
+    if request.uses_skia_raster() {
         #[cfg(feature = "skia")]
         {
             let profile = skia_profile.ok_or_else(|| {
@@ -1127,31 +1161,20 @@ pub(super) fn create_native_main_renderer(
                     "the selected Skia renderer has no shared backend profile",
                 ))
             })?;
-            let presenter = if let Some(presenter) = suspended_skia.as_mut() {
-                if let Err(error) = presenter.resume(width, height, scale_factor) {
-                    let _ = suspended_skia.take();
-                    return Err(anyhow::Error::new(
-                        RequestedRendererInitializationError::new(
-                            request,
-                            RendererTarget::Native,
-                            format!("Skia raster resume failed: {error}"),
-                        ),
-                    ));
-                }
-                suspended_skia
-                    .take()
-                    .expect("the resumed Skia presenter remains retained")
-            } else {
-                WinitSkiaRasterPresenter::new(profile, width, height, scale_factor).map_err(
-                    |error| {
-                        anyhow::Error::new(RequestedRendererInitializationError::new(
-                            request,
-                            RendererTarget::Native,
-                            format!("Skia raster initialization failed: {error}"),
-                        ))
-                    },
-                )?
-            };
+            let presenter = create_or_resume_skia_raster_presenter(
+                profile,
+                suspended_skia,
+                width,
+                height,
+                scale_factor,
+            )
+            .map_err(|error| {
+                anyhow::Error::new(RequestedRendererInitializationError::new(
+                    request,
+                    RendererTarget::Native,
+                    format!("Skia raster initialization or resume failed: {error}"),
+                ))
+            })?;
             let upload_backend = backend.as_deref().unwrap_or("wgpu");
             return Ok((
                 MainRenderer::SkiaRaster(presenter),
@@ -1160,7 +1183,8 @@ pub(super) fn create_native_main_renderer(
                     request,
                     Some(format!("Skia Raster ({upload_backend} upload presenter)")),
                     adapter,
-                    None,
+                    (request == RendererRequest::NativeSoftware)
+                        .then(|| "software_alias_uses_skia_raster".to_string()),
                     width,
                     height,
                     scale_factor,
@@ -1178,33 +1202,38 @@ pub(super) fn create_native_main_renderer(
             ));
         }
     }
-    let auto_software_adapter = should_auto_select_native_software(
-        request,
-        cfg!(target_os = "windows"),
-        adapter_info.device_type,
-        &adapter_info.name,
-    );
-    if matches!(request, RendererRequest::NativeSoftware) || auto_software_adapter {
-        return Ok((
-            MainRenderer::Software,
-            RendererReport::new(
-                "native-software-upload",
-                request,
-                backend,
-                adapter,
-                Some(
-                    if auto_software_adapter {
-                        "windows_software_adapter"
-                    } else {
-                        "forced_by_renderer_request"
-                    }
-                    .to_string(),
-                ),
+
+    #[cfg(feature = "skia")]
+    if auto_skia_adapter {
+        if let Some(profile) = skia_profile {
+            match create_or_resume_skia_raster_presenter(
+                profile,
+                suspended_skia,
                 width,
                 height,
                 scale_factor,
-            ),
-        ));
+            ) {
+                Ok(presenter) => {
+                    let upload_backend = backend.as_deref().unwrap_or("wgpu");
+                    return Ok((
+                        MainRenderer::SkiaRaster(presenter),
+                        RendererReport::new(
+                            "native-skia-raster",
+                            request,
+                            Some(format!("Skia Raster ({upload_backend} upload presenter)")),
+                            adapter,
+                            Some("windows_software_adapter_uses_skia_raster".to_string()),
+                            width,
+                            height,
+                            scale_factor,
+                        ),
+                    ));
+                }
+                Err(error) => preferred_skia_error = Some(error.to_string()),
+            }
+        } else {
+            preferred_skia_error = Some("paired Skia profile is missing".to_string());
+        }
     }
 
     let cpu_requested = matches!(request, RendererRequest::NativeVelloCpu);
@@ -1217,6 +1246,19 @@ pub(super) fn create_native_main_renderer(
             } else {
                 "native-vello"
             };
+            let fallback_reason = if matches!(request, RendererRequest::NativeVelloCpu) {
+                Some("forced_cpu_vello".to_string())
+            } else if !supports_indirect_execution {
+                Some("direct_dispatch_fallback".to_string())
+            } else if cpu_requested {
+                Some("missing_indirect_execution".to_string())
+            } else {
+                None
+            };
+            #[cfg(feature = "skia")]
+            let fallback_reason = preferred_skia_error
+                .map(|error| format!("preferred_skia_raster_init_failed:{error}"))
+                .or(fallback_reason);
             Ok((
                 renderer,
                 RendererReport::new(
@@ -1224,15 +1266,7 @@ pub(super) fn create_native_main_renderer(
                     request,
                     backend,
                     adapter,
-                    if matches!(request, RendererRequest::NativeVelloCpu) {
-                        Some("forced_cpu_vello".to_string())
-                    } else if !supports_indirect_execution {
-                        Some("direct_dispatch_fallback".to_string())
-                    } else if cpu_requested {
-                        Some("missing_indirect_execution".to_string())
-                    } else {
-                        None
-                    },
+                    fallback_reason,
                     width,
                     height,
                     scale_factor,
@@ -1253,36 +1287,75 @@ pub(super) fn create_native_main_renderer(
                 format!("Vello CPU initialization failed: {cpu_error}"),
             ),
         )),
-        Err(gpu_error) => match create_vello_main_renderer(device_handle, true, true) {
-            Ok(renderer) => Ok((
-                renderer,
-                RendererReport::new(
-                    "native-vello-cpu",
-                    request,
-                    backend,
-                    adapter,
-                    Some(format!("gpu_vello_init_failed:{gpu_error}")),
-                    width,
-                    height,
-                    scale_factor,
-                ),
-            )),
-            Err(cpu_error) => Ok((
-                MainRenderer::Software,
-                RendererReport::new(
-                    "native-software-upload",
-                    request,
-                    backend,
-                    adapter,
-                    Some(format!(
-                        "gpu_vello_init_failed:{gpu_error};cpu_vello_init_failed:{cpu_error}"
-                    )),
-                    width,
-                    height,
-                    scale_factor,
-                ),
-            )),
-        },
+        Err(gpu_error) => {
+            #[cfg(feature = "skia")]
+            let mut skia_error = preferred_skia_error;
+            #[cfg(not(feature = "skia"))]
+            let skia_error: Option<String> = None;
+            #[cfg(feature = "skia")]
+            if skia_error.is_none() {
+                if let Some(profile) = skia_profile {
+                    match create_or_resume_skia_raster_presenter(
+                        profile,
+                        suspended_skia,
+                        width,
+                        height,
+                        scale_factor,
+                    ) {
+                        Ok(presenter) => {
+                            let upload_backend = backend.as_deref().unwrap_or("wgpu");
+                            return Ok((
+                                MainRenderer::SkiaRaster(presenter),
+                                RendererReport::new(
+                                    "native-skia-raster",
+                                    request,
+                                    Some(format!(
+                                        "Skia Raster ({upload_backend} upload presenter)"
+                                    )),
+                                    adapter.clone(),
+                                    Some(format!("gpu_vello_init_failed:{gpu_error}")),
+                                    width,
+                                    height,
+                                    scale_factor,
+                                ),
+                            ));
+                        }
+                        Err(error) => skia_error = Some(error.to_string()),
+                    }
+                } else {
+                    skia_error = Some("paired Skia profile is missing".to_string());
+                }
+            }
+
+            match create_vello_main_renderer(device_handle, true, true) {
+                Ok(renderer) => Ok((
+                    renderer,
+                    RendererReport::new(
+                        "native-vello-cpu",
+                        request,
+                        backend,
+                        adapter,
+                        Some(match skia_error {
+                            Some(error) => format!(
+                                "gpu_vello_init_failed:{gpu_error};skia_raster_init_failed:{error}"
+                            ),
+                            None => format!("gpu_vello_init_failed:{gpu_error}"),
+                        }),
+                        width,
+                        height,
+                        scale_factor,
+                    ),
+                )),
+                Err(cpu_error) => Err(anyhow::anyhow!(match skia_error {
+                    Some(error) => format!(
+                        "Vello GPU initialization failed ({gpu_error}); Skia raster initialization failed ({error}); Vello CPU initialization failed ({cpu_error})"
+                    ),
+                    None => format!(
+                        "Vello GPU initialization failed ({gpu_error}); no Skia raster fallback is compiled; Vello CPU initialization failed ({cpu_error})"
+                    ),
+                })),
+            }
+        }
     }
 }
 
@@ -1318,7 +1391,7 @@ pub(super) fn create_vello_main_renderer(
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub(super) fn should_auto_select_native_software(
+pub(super) fn should_auto_select_native_skia_raster(
     request: RendererRequest,
     windows: bool,
     device_type: wgpu::DeviceType,

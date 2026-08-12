@@ -1,3 +1,5 @@
+#[cfg(not(target_arch = "wasm32"))]
+use super::should_auto_select_native_skia_raster;
 use super::wgpu::PresentMode;
 use super::{
     animation_redraw_interval, build_window_attributes, clamp_copy_extent_to_texture,
@@ -8,12 +10,11 @@ use super::{
     physical_size_to_layout_size, preferred_native_present_mode, preferred_surface_alpha_mode,
     present_frame_with_winit_coordination, rect_visible_in_scroll_ancestors,
     repeating_animation_redraw_interval, resize_is_unsettled, resolve_build_viewport,
-    resolve_selector_record, rgba_screenshot, should_auto_select_native_software,
-    should_present_startup_clear_frame, surface_acquire_recovery,
-    sync_tracked_target_texture_size_to_surface, texture_plans_fit_device_limits,
-    visual_rect_for_node, window_insets_from_safe_area_frames, windows_shell_execute_succeeded,
-    windows_wide, LiveResizeController, SurfaceAcquireRecovery, WindowViewportState,
-    WinitPresenter,
+    resolve_selector_record, rgba_screenshot, should_present_startup_clear_frame,
+    surface_acquire_recovery, sync_tracked_target_texture_size_to_surface,
+    texture_plans_fit_device_limits, visual_rect_for_node, window_insets_from_safe_area_frames,
+    windows_shell_execute_succeeded, windows_wide, LiveResizeController, SurfaceAcquireRecovery,
+    WindowViewportState, WinitPresenter,
 };
 use crate::pipeline::CompositorTexturePlan;
 use crate::renderer_diagnostics::RendererRequest;
@@ -92,23 +93,24 @@ fn surface_alpha_mode_always_comes_from_the_supported_set() {
     assert_eq!(preferred_surface_alpha_mode(&[]), Opaque);
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn windows_auto_uses_software_for_cpu_and_warp_adapters() {
+fn windows_auto_uses_skia_raster_for_cpu_and_warp_adapters() {
     use super::wgpu::DeviceType::{Cpu, IntegratedGpu};
 
-    assert!(should_auto_select_native_software(
+    assert!(should_auto_select_native_skia_raster(
         RendererRequest::Auto,
         true,
         Cpu,
         "Microsoft Basic Render Driver"
     ));
-    assert!(should_auto_select_native_software(
+    assert!(should_auto_select_native_skia_raster(
         RendererRequest::Auto,
         true,
         IntegratedGpu,
         "Microsoft Direct3D12 (WARP)"
     ));
-    assert!(should_auto_select_native_software(
+    assert!(should_auto_select_native_skia_raster(
         RendererRequest::Auto,
         true,
         IntegratedGpu,
@@ -116,52 +118,37 @@ fn windows_auto_uses_software_for_cpu_and_warp_adapters() {
     ));
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn native_software_auto_selection_preserves_platform_hardware_and_explicit_choices() {
+fn skia_software_auto_selection_preserves_hardware_and_explicit_choices() {
     use super::wgpu::DeviceType::{Cpu, IntegratedGpu};
 
-    assert!(!should_auto_select_native_software(
+    assert!(!should_auto_select_native_skia_raster(
         RendererRequest::Auto,
         false,
         Cpu,
         "Microsoft Basic Render Driver"
     ));
-    assert!(!should_auto_select_native_software(
+    assert!(!should_auto_select_native_skia_raster(
         RendererRequest::Auto,
         true,
         IntegratedGpu,
         "Qualcomm Adreno X1"
     ));
-    assert!(!should_auto_select_native_software(
+    for request in [
         RendererRequest::NativeVelloGpu,
-        true,
-        Cpu,
-        "Microsoft Basic Render Driver"
-    ));
-    assert!(!should_auto_select_native_software(
         RendererRequest::NativeVelloCpu,
-        true,
-        Cpu,
-        "Microsoft Basic Render Driver"
-    ));
-    assert!(!should_auto_select_native_software(
         RendererRequest::NativeSoftware,
-        true,
-        Cpu,
-        "Microsoft Basic Render Driver"
-    ));
-    assert!(!should_auto_select_native_software(
         RendererRequest::NativeSkiaRaster,
-        true,
-        Cpu,
-        "Microsoft Basic Render Driver"
-    ));
-    assert!(!should_auto_select_native_software(
         RendererRequest::NativeSkiaGanesh,
-        true,
-        Cpu,
-        "Microsoft Basic Render Driver"
-    ));
+    ] {
+        assert!(!should_auto_select_native_skia_raster(
+            request,
+            true,
+            Cpu,
+            "Microsoft Basic Render Driver"
+        ));
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -196,6 +183,17 @@ fn explicit_skia_request_fails_before_surface_initialization_when_feature_is_abs
     let ganesh = require_compiled_native_renderer(RendererRequest::NativeSkiaGanesh).unwrap_err();
     assert_eq!(ganesh.request, RendererRequest::NativeSkiaGanesh);
     assert!(ganesh.details.contains("`skia` Cargo feature"));
+
+    let software = require_compiled_native_renderer(RendererRequest::NativeSoftware).unwrap_err();
+    assert_eq!(software.request, RendererRequest::NativeSoftware);
+    assert!(software.details.contains("`skia` Cargo feature"));
+}
+
+#[cfg(all(not(target_arch = "wasm32"), feature = "skia"))]
+#[test]
+fn native_software_alias_requires_and_accepts_the_skia_profile() {
+    require_compiled_native_renderer(RendererRequest::NativeSoftware).unwrap();
+    assert!(RendererRequest::NativeSoftware.uses_skia_raster());
 }
 
 #[cfg(not(target_arch = "wasm32"))]

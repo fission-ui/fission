@@ -1,7 +1,65 @@
 use fission_render::external_surface::{ExternalFrameState, ExternalSurfaceBindings};
+use fission_render::frame::InteractiveFrame;
 use fission_render::{
     surface_placeholder_color, Color, DisplayList, DisplayOp, Fill, RenderNode, RenderScene,
 };
+
+pub(super) struct HostComposition {
+    pub(super) scene: RenderScene,
+    pub(super) external_surfaces: ExternalSurfaceBindings,
+}
+
+/// A frame transformed for host-owned native-view composition.
+///
+/// The transformed scene and its filtered bindings are owned together so a
+/// caller cannot accidentally submit the original bindings after DrawSurface
+/// operations have been removed or replaced.
+pub(super) struct HostCompositedFrame<'a> {
+    submission: &'a super::FrameSubmission,
+    composition: HostComposition,
+}
+
+impl<'a> HostCompositedFrame<'a> {
+    pub(super) fn new(submission: &'a super::FrameSubmission, scene: &RenderScene) -> Self {
+        Self {
+            submission,
+            composition: compose_host_frame(scene, &submission.external_surfaces),
+        }
+    }
+
+    pub(super) fn interactive_frame(&self) -> InteractiveFrame<'_> {
+        InteractiveFrame::new(
+            &self.composition.scene,
+            &self.submission.metadata,
+            &self.submission.resources,
+            &self.composition.external_surfaces,
+        )
+        .with_paragraphs(&self.submission.paragraphs)
+    }
+}
+
+impl super::FrameSubmission {
+    pub(super) fn host_composited_frame<'a>(
+        &'a self,
+        scene: &RenderScene,
+    ) -> HostCompositedFrame<'a> {
+        HostCompositedFrame::new(self, scene)
+    }
+}
+
+pub(super) fn compose_host_frame(
+    scene: &RenderScene,
+    bindings: &ExternalSurfaceBindings,
+) -> HostComposition {
+    HostComposition {
+        scene: compose_host_scene(scene, bindings),
+        // Every DrawSurface is either removed for a Ready native view or
+        // replaced with an explicit 2D disposition. Keeping its original
+        // binding would make the transformed InteractiveFrame invalid because
+        // the binding would no longer have a matching placement.
+        external_surfaces: ExternalSurfaceBindings::new(),
+    }
+}
 
 pub(super) fn compose_host_scene(
     scene: &RenderScene,
@@ -71,7 +129,7 @@ fn compose_list(list: &DisplayList, bindings: &ExternalSurfaceBindings) -> Displ
                     .get(fission_render::external_surface::ExternalSurfaceSlotId(
                         *surface_id,
                     ))
-                    .expect("validated software composition is missing a surface binding");
+                    .expect("validated host composition is missing a surface binding");
                 if binding.state != ExternalFrameState::Ready {
                     composed.push(DisplayOp::DrawRect {
                         rect: *rect,
@@ -142,7 +200,13 @@ mod tests {
         ExternalProducerId, ExternalProducerKind, ExternalSurfaceBinding, ExternalSurfaceSlotId,
         ExternalSynchronization,
     };
+    use fission_render::frame::{
+        DamageRegion, FrameId, FrameMetadata, FrameViewport, ResourceEpoch, SemanticsEpoch,
+    };
+    use fission_render::resource::ResourceSnapshot;
+    use fission_render::surface::{PhysicalSize, ScaleFactor};
     use fission_render::LayoutRect;
+    use fission_render::LayoutSize;
 
     fn binding(
         slot_id: ExternalSurfaceSlotId,
@@ -201,6 +265,41 @@ mod tests {
                 .as_slice(),
             [DisplayOp::DrawRect { .. }]
         ));
+    }
+
+    #[test]
+    fn host_composition_removes_bindings_with_their_surface_placements() {
+        let slot_id = ExternalSurfaceSlotId(9);
+        let mut bindings = ExternalSurfaceBindings::new();
+        bindings
+            .insert(binding(slot_id, ExternalFrameState::Ready))
+            .unwrap();
+
+        let composition = compose_host_frame(&scene(slot_id), &bindings);
+
+        assert!(composition.scene.flatten().ops.is_empty());
+        assert!(composition.external_surfaces.is_empty());
+
+        let metadata = FrameMetadata {
+            frame_id: FrameId(1),
+            viewport: FrameViewport {
+                logical_size: LayoutSize::new(30.0, 40.0),
+                physical_size: PhysicalSize::new(30, 40),
+                scale_factor: ScaleFactor::ONE,
+            },
+            damage: DamageRegion::Full,
+            resource_epoch: ResourceEpoch(1),
+            semantics_epoch: SemanticsEpoch(1),
+        };
+        let resources = ResourceSnapshot::empty(ResourceEpoch(1));
+        InteractiveFrame::new(
+            &composition.scene,
+            &metadata,
+            &resources,
+            &composition.external_surfaces,
+        )
+        .validate()
+        .unwrap();
     }
 
     #[test]

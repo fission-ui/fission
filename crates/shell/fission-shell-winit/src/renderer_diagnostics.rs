@@ -52,6 +52,13 @@ impl RendererRequest {
         )
     }
 
+    /// Whether this native request selects the paired Skia software profile.
+    /// `native-software` remains a compatibility spelling; it no longer names
+    /// the removed standalone software-renderer implementation.
+    pub(crate) const fn uses_skia_raster(self) -> bool {
+        matches!(self, Self::NativeSkiaRaster | Self::NativeSoftware)
+    }
+
     pub(crate) fn for_target(self, target: RendererTarget) -> Result<Self, RendererSelectionError> {
         match (target, self) {
             (_, Self::Auto) => Ok(Self::Auto),
@@ -289,6 +296,9 @@ mod tests {
             renderer_request_from_value(Some("native-skia-ganesh")),
             RendererRequest::NativeSkiaGanesh
         );
+        assert!(RendererRequest::NativeSoftware.uses_skia_raster());
+        assert!(RendererRequest::NativeSkiaRaster.uses_skia_raster());
+        assert!(!RendererRequest::NativeVelloCpu.uses_skia_raster());
     }
 
     #[test]

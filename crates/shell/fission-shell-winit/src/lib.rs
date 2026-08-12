@@ -95,11 +95,16 @@ mod android_host;
 mod pipeline;
 pub use pipeline::{InvalidationSet, Pipeline};
 mod frame_submission;
+#[cfg(not(target_arch = "wasm32"))]
+use frame_submission::winit_skia_raster_capabilities;
+#[cfg(target_arch = "wasm32")]
+use frame_submission::winit_software_capabilities;
 use frame_submission::{
-    winit_software_capabilities, winit_vello_capabilities, FrameSubmission, FrameSubmissionState,
+    winit_vello_capabilities, FrameSubmission, FrameSubmissionError, FrameSubmissionState,
     SurfacePresenterCapabilities,
 };
 mod renderer_diagnostics;
+#[cfg(target_arch = "wasm32")]
 use fission_render_software::SoftwareRenderer;
 #[cfg(target_arch = "wasm32")]
 use renderer_diagnostics::renderer_request_from_value;
@@ -228,7 +233,7 @@ fn paragraph_engine_for_native_renderer(
     ))]
     skia_ganesh_profile: Option<&fission_render_skia::SkiaGaneshProfile>,
 ) -> Arc<dyn ParagraphEngine> {
-    if request == RendererRequest::NativeSkiaRaster {
+    if request.uses_skia_raster() {
         #[cfg(feature = "skia")]
         {
             return Arc::new(
@@ -292,8 +297,9 @@ where
         #[cfg(not(target_arch = "wasm32"))]
         let renderer_request = native_renderer_request()?;
         #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
-        let skia_profile = (renderer_request == RendererRequest::NativeSkiaRaster)
-            .then(fission_render_skia::SkiaRasterProfile::new);
+        let skia_profile = (renderer_request == RendererRequest::Auto
+            || renderer_request.uses_skia_raster())
+        .then(fission_render_skia::SkiaRasterProfile::new);
         #[cfg(all(
             feature = "skia",
             any(

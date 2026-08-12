@@ -24,7 +24,6 @@ skia = ["dep:fission-render-skia"]
 [dependencies]
 fission-shell = { path = "../fission-shell", version = "0.10.1" }
 fission-render = { path = "../../rendering/fission-render", version = "0.10.1" }
-fission-render-software = { path = "../../rendering/fission-render-software", version = "0.10.1" }
 fission-render-vello = { path = "../../rendering/fission-render-vello", version = "0.10.1" }
 fission-core = { path = "../../core/fission-core", version = "0.10.1" }
 fission-layout = { path = "../../core/fission-layout", version = "0.10.1" }
@@ -91,6 +90,7 @@ gtk = { version = "0.18", optional = true }
 rxing = { version = "0.9", default-features = false, features = ["image", "image_formats", "decoders", "encoding_rs", "full_barcode_format_support", "multi_barcode_readers"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+fission-render-software = { path = "../../rendering/fission-render-software", version = "0.10.1" }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"

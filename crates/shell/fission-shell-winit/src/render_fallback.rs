@@ -1,9 +1,15 @@
+#[cfg(target_arch = "wasm32")]
 use std::sync::Arc;
 
+#[cfg(target_arch = "wasm32")]
 use fission_layout::TextMeasurer;
 use fission_render::capabilities::{DisplayOpKind, GraphicsCapabilities};
-use fission_render::{Color, DisplayList, DisplayOp, RenderNode, RenderScene};
+#[cfg(target_arch = "wasm32")]
+use fission_render::Color;
+use fission_render::{DisplayList, DisplayOp, RenderNode, RenderScene};
+use vello::wgpu;
 
+#[cfg(target_arch = "wasm32")]
 use crate::frame_submission::FrameSubmission;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,6 +61,7 @@ fn list_software_fallback_reason(list: &DisplayList) -> Option<SoftwareFallbackR
     })
 }
 
+#[cfg(target_arch = "wasm32")]
 pub(super) fn render_host_scene_with_software(
     submission: &FrameSubmission,
     scene: &RenderScene,
@@ -75,7 +82,7 @@ pub(super) fn render_host_scene_with_software(
     )
 }
 
-pub(super) fn upload_software_frame(
+pub(super) fn upload_raster_frame(
     queue: &wgpu::Queue,
     texture: &wgpu::Texture,
     rgba: &[u8],
@@ -139,11 +146,9 @@ mod tests {
         let vello = crate::frame_submission::winit_vello_capabilities(
             fission_render::capabilities::RenderMode::Gpu,
         );
-        let software = crate::frame_submission::winit_software_capabilities();
         assert_eq!(
             required_software_fallback(&scene, &vello),
             Some(SoftwareFallbackReason::BackdropFilter)
         );
-        assert_eq!(required_software_fallback(&scene, &software), None);
     }
 }

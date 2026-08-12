@@ -27,17 +27,24 @@ mod capabilities;
 mod error;
 #[cfg(test)]
 mod ordering_tests;
+mod paragraphs;
 mod placement;
 mod resources;
 mod software;
 
-pub(super) use capabilities::{winit_software_capabilities, winit_vello_capabilities};
+#[cfg(not(target_arch = "wasm32"))]
+pub(super) use capabilities::winit_skia_raster_capabilities;
+#[cfg(target_arch = "wasm32")]
+pub(super) use capabilities::winit_software_capabilities;
+pub(super) use capabilities::winit_vello_capabilities;
 pub(crate) use error::FrameSubmissionError;
 use error::{PlatformSurfaceSemantic, SurfaceOrderingIssue};
 
+#[cfg(test)]
+use placement::SurfacePlacementIssue;
 use placement::{
     collect_surface_placements, CollectedSurfacePlacements, NativeViewGeometry,
-    ResolvedSurfacePlacement, ScenePaintBounds, ScenePaintItem, SurfacePlacementIssue,
+    ResolvedSurfacePlacement, ScenePaintBounds, ScenePaintItem,
 };
 use resources::{build_resource_snapshot, FrameResourceRegistry};
 
@@ -227,26 +234,6 @@ impl StagedSurfaceFrames {
     }
 }
 
-fn paragraph_bindings(ir: &CoreIR, store: Option<&ParagraphResultStore>) -> ParagraphFrameBindings {
-    let Some(store) = store else {
-        return ParagraphFrameBindings::new();
-    };
-    let mut bindings = ParagraphFrameBindings::new();
-    for (node_id, node) in &ir.nodes {
-        if !matches!(
-            &node.op,
-            Op::Paint(fission_ir::PaintOp::DrawText { .. })
-                | Op::Paint(fission_ir::PaintOp::DrawRichText { .. })
-        ) {
-            continue;
-        }
-        if let Some(result) = store.get(*node_id) {
-            bindings.insert(*node_id, result);
-        }
-    }
-    bindings
-}
-
 /// Legacy 3D work derived for the transitional `DirectTarget` adapter.
 ///
 /// Placement is resolved from the retained scene's matching `DrawSurface` and
@@ -414,7 +401,7 @@ impl FrameSubmissionState {
             resource_epoch,
             semantics_epoch,
         };
-        let paragraphs = paragraph_bindings(ir, paragraph_store);
+        let paragraphs = paragraphs::bindings(ir, paragraph_store);
         let resources = build_resource_snapshot(resource_epoch, ir, &mut self.resources)?;
         let descriptors = collect_producer_descriptors(ir, native_views)?;
         let CollectedSurfacePlacements {
@@ -1691,9 +1678,10 @@ mod tests {
         );
 
         let error = submission
-            .validate_for(&scene, &winit_software_capabilities())
+            .validate_for(&scene, &winit_vello_capabilities(RenderMode::Gpu))
             .unwrap_err();
 
+        assert_eq!(error.backend_fallback_reason(), None);
         assert!(matches!(
             error,
             FrameSubmissionError::FrameGate(FrameGateError::InvalidFrame(
@@ -1956,10 +1944,15 @@ mod tests {
         without_direct_target
             .external_surface_transports
             .remove(&ExternalSurfaceTransport::DirectTarget);
+        let error = submission
+            .validate_for(&scene, &without_direct_target)
+            .unwrap_err();
+        assert_eq!(
+            error.backend_fallback_reason(),
+            Some("unsupported_external_surfaces")
+        );
         assert!(matches!(
-            submission
-                .validate_for(&scene, &without_direct_target)
-                .unwrap_err(),
+            error,
             FrameSubmissionError::FrameGate(FrameGateError::UnsupportedExternalSurfaces(_))
         ));
     }
@@ -1995,6 +1988,10 @@ mod tests {
             &error,
             FrameSubmissionError::FrameGate(FrameGateError::UnsupportedOperations(_))
         ));
+        assert_eq!(
+            error.backend_fallback_reason(),
+            Some("unsupported_operations")
+        );
         assert!(error.to_string().contains("DrawRect"));
     }
 }

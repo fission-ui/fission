@@ -118,6 +118,26 @@ pub(crate) enum FrameSubmissionError {
     FrameGate(FrameGateError),
 }
 
+impl FrameSubmissionError {
+    /// Identifies failures that a different graphics backend may legitimately
+    /// satisfy without weakening frame integrity.
+    ///
+    /// Invalid frames and host-presentation failures must never trigger a
+    /// renderer transition. Only a complete frame that is valid but outside
+    /// the active backend's declared capability profile is eligible.
+    pub(crate) fn backend_fallback_reason(&self) -> Option<&'static str> {
+        match self {
+            Self::FrameGate(FrameGateError::UnsupportedOperations(_)) => {
+                Some("unsupported_operations")
+            }
+            Self::FrameGate(FrameGateError::UnsupportedExternalSurfaces(_)) => {
+                Some("unsupported_external_surfaces")
+            }
+            _ => None,
+        }
+    }
+}
+
 impl fmt::Display for FrameSubmissionError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

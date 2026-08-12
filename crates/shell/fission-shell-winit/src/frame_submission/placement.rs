@@ -16,7 +16,7 @@ pub(super) struct CollectedSurfacePlacements {
     pub(super) paint_sequence: Vec<ScenePaintItem>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) enum ScenePaintItem {
     Paint {
         operation: DisplayOpKind,

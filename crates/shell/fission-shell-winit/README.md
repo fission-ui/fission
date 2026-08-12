@@ -117,7 +117,7 @@ The render pipeline (`Pipeline`) manages incremental updates:
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `FISSION_MAX_FPS` | `60` | Maximum frame rate (throttled via `WaitUntil`). |
-| `FISSION_RENDERER` | `auto` | Select the renderer. Native targets accept `auto`, `native-vello-gpu`, `native-vello-cpu`, `native-software`, or `native-skia-raster` when built with the `skia` feature. Web accepts `auto`, `webgpu-vello`, or `canvas2d-software` via `globalThis.FISSION_RENDERER` or the `?fission_renderer=` query parameter. |
+| `FISSION_RENDERER` | `auto` | Select the renderer. Native targets accept `auto`, `native-vello-gpu`, `native-vello-cpu`, `native-skia-raster`, or the compatibility spelling `native-software`, which now selects Skia raster. Web accepts `auto`, `webgpu-vello`, or `canvas2d-software` via `globalThis.FISSION_RENDERER` or the `?fission_renderer=` query parameter. |
 | `FISSION_VELLO_USE_CPU` | `false` | Native compatibility escape hatch that asks Vello to use its CPU mode while still presenting through the GPU surface. |
 | `FISSION_TEXTINPUT_BLINK` | `true` | Enable/disable cursor blinking in text inputs. |
 | `FISSION_TEXTINPUT_BLINK_MS` | `530` | Cursor blink period in milliseconds. |
@@ -136,11 +136,19 @@ When `FISSION_TEST_CONTROL_PORT` is set, the shell spawns a TCP server that acce
 - **iOS / Android**: used by `fission-shell-mobile`
 - **Web**: used by `fission-shell-web`; WebGPU/Vello is the default renderer when the browser exposes a usable WebGPU adapter, and Canvas2D/software remains the compatibility fallback.
 
-## Skia foundation
+## Skia software rendering
 
-The opt-in `skia` Cargo feature enables the native Skia raster foundation. It
-is selected explicitly with `FISSION_RENDERER=native-skia-raster`; `auto` does
-not select it. During this phase Skia rasterization is read back and uploaded by
-the existing wgpu presenter, so this path does not yet qualify as a Skia-only or
-no-wgpu build. Unsupported operations fail the Fission capability gate instead
-of silently switching to another renderer.
+Native builds with the `skia` Cargo feature map `FISSION_RENDERER=software`,
+`native-software`, and `native-skia-raster` to the same paired Skia raster and
+SkParagraph profile; no native production path selects the previous standalone
+software renderer. With Skia compiled in, `auto` normally begins with Vello,
+selects Skia immediately for Windows CPU/WARP adapters or a failed Vello GPU
+initialization, and keeps Vello CPU only as the last initialization fallback.
+When a later valid complete frame exceeds Vello's declared capabilities, the
+shell validates that whole frame against Skia, switches profiles only when Skia
+accepts it, and relayouts with SkParagraph before presenting it.
+
+Skia rasterization is currently read back and uploaded by the existing wgpu
+presenter, so this path does not yet qualify as a Skia-only or no-wgpu build.
+Unsupported operations fail the Fission capability gate instead of silently
+switching to a renderer with different paragraph geometry.

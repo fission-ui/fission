@@ -428,6 +428,19 @@ where
             }
         }
 
+        #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+        if self.renderer_request == RendererRequest::Auto && self.presenter.has_skia_raster() {
+            let Some(profile) = self.skia_profile.clone() else {
+                eprintln!(
+                    "fission-shell-winit: an automatically selected Skia renderer has no paired paragraph profile"
+                );
+                elwt.exit();
+                diag::end_frame(diag::FrameStats::default());
+                return;
+            };
+            self.activate_skia_raster_profile(&profile);
+        }
+
         let resize_settled = self.resize_needs_settled_frame && !self.live_resize.is_live(now);
         let target_viewport = pending_layout_viewport;
         let build_viewport = resolve_build_viewport(
@@ -644,18 +657,20 @@ where
                 #[cfg(target_arch = "wasm32")]
                 let allows_host_software_fallback = true;
                 #[cfg(not(target_arch = "wasm32"))]
-                let (capabilities, allows_host_software_fallback) = (
-                    self.presenter.frame_capabilities(),
-                    self.presenter.allows_host_software_fallback(),
-                );
+                let capabilities = self.presenter.frame_capabilities();
+                #[cfg(target_arch = "wasm32")]
                 let frame_software_fallback = allows_host_software_fallback
                     .then(|| required_software_fallback(retained_scene, &capabilities))
                     .flatten();
+                #[cfg(target_arch = "wasm32")]
                 let software_fallback_capabilities =
                     frame_software_fallback.map(|_| winit_software_capabilities());
+                #[cfg(target_arch = "wasm32")]
                 let validation_capabilities = software_fallback_capabilities
                     .as_ref()
                     .unwrap_or(&capabilities);
+                #[cfg(not(target_arch = "wasm32"))]
+                let validation_capabilities = &capabilities;
                 let submission = match self.frame_submission.prepare_with_states(
                     retained_scene,
                     ir,
@@ -675,8 +690,8 @@ where
                     ),
                     target_viewport,
                     fission_render::surface::PhysicalSize::new(
-                        swapchain_size.width,
-                        swapchain_size.height,
+                        render_target_size.0,
+                        render_target_size.1,
                     ),
                     scale_factor,
                 ) {
@@ -689,6 +704,55 @@ where
                         return;
                     }
                 };
+                #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+                let automatic_skia_fallback = (self.renderer_request == RendererRequest::Auto)
+                    .then(|| {
+                        submission
+                            .validate_for(retained_scene, &capabilities)
+                            .err()
+                            .and_then(|error| error.backend_fallback_reason())
+                    })
+                    .flatten();
+                #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+                if let Some(reason) = automatic_skia_fallback {
+                    let Some(profile) = self.skia_profile.clone() else {
+                        eprintln!(
+                            "fission-shell-winit: automatic Skia fallback requires a shared raster profile"
+                        );
+                        diag::end_frame(diag::FrameStats::default());
+                        return;
+                    };
+                    if let Err(error) = self.presenter.switch_to_skia_raster(
+                        &profile,
+                        render_target_size.0,
+                        render_target_size.1,
+                        scale_factor,
+                        self.renderer_request,
+                        format!("unsupported_vello_frame:{reason}"),
+                        |candidate| {
+                            submission
+                                .validate_for(retained_scene, candidate)
+                                .map_err(|error| anyhow::anyhow!(error.to_string()))
+                        },
+                    ) {
+                        eprintln!("fission-shell-winit: automatic Skia fallback failed: {error}");
+                        diag::end_frame(diag::FrameStats::default());
+                        return;
+                    }
+
+                    self.activate_skia_raster_profile(&profile);
+                    request_redraw_logged(
+                        &window,
+                        elwt,
+                        &mut self.last_redraw_at,
+                        self.min_frame,
+                        &mut self.redraw_pending,
+                        &mut self.frame_trace,
+                        "switch_to_skia_raster",
+                    );
+                    diag::end_frame(diag::FrameStats::default());
+                    return;
+                }
                 if let Err(error) = submission.validate_for(retained_scene, validation_capabilities)
                 {
                     eprintln!(
@@ -843,7 +907,7 @@ where
                                                 return;
                                             }
                                         };
-                                        upload_software_frame(
+                                        upload_raster_frame(
                                             &device_handle.queue,
                                             &presenter.render_state.surface.target_texture,
                                             &rgba,
@@ -1002,7 +1066,7 @@ where
                                             return;
                                         }
                                     };
-                                    upload_software_frame(
+                                    upload_raster_frame(
                                         &device_handle.queue,
                                         &presenter.render_state.surface.target_texture,
                                         &rgba,
@@ -1208,16 +1272,7 @@ where
                     }
 
                     let render_state = self.presenter.attached_mut().expect("render state");
-                    let frame_renderer_name = frame_software_fallback.map_or_else(
-                        || render_state.renderer_report.active.clone(),
-                        |reason| {
-                            format!(
-                                "{}->software({})",
-                                render_state.renderer_report.active,
-                                reason.label()
-                            )
-                        },
-                    );
+                    let frame_renderer_name = render_state.renderer_report.active.clone();
                     let surface_texture = match render_state.surface.surface.get_current_texture() {
                         Ok(texture) => texture,
                         Err(error) => {
@@ -1308,150 +1363,115 @@ where
                                 .pipeline
                                 .retained_scene()
                                 .expect("retained render self.scene missing before render");
-                            if let Some(reason) = frame_software_fallback {
-                                let rgba = match render_host_scene_with_software(
-                                    &submission,
-                                    retained_scene,
-                                    render_target_size.0,
-                                    render_target_size.1,
-                                    fission_render::Color {
-                                        r: self.env.theme.tokens.colors.background.r,
-                                        g: self.env.theme.tokens.colors.background.g,
-                                        b: self.env.theme.tokens.colors.background.b,
-                                        a: self.env.theme.tokens.colors.background.a,
-                                    },
-                                    scale_factor as f32,
-                                    self.measurer.clone(),
-                                ) {
-                                    Ok(rgba) => rgba,
-                                    Err(error) => {
-                                        eprintln!(
-                                            "fission-shell-winit: software fallback for {reason:?} failed on frame {}: {error}",
-                                            submission.metadata().frame_id.0,
-                                        );
-                                        diag::end_frame(diag::FrameStats::default());
-                                        return;
-                                    }
+                            let texture_plans = self.pipeline.texture_compositor_plans();
+                            let texture_plans_fit_limits = texture_plans_fit_device_limits(
+                                texture_plans,
+                                scale_factor,
+                                device_handle.device.limits().max_texture_dimension_2d,
+                            );
+                            let has_active_scroll_offsets = self
+                                .runtime
+                                .runtime_state
+                                .scroll
+                                .offsets
+                                .values()
+                                .any(|offset| offset.abs() > 0.5);
+                            let enable_texture_compositor =
+                                std::env::var("FISSION_ENABLE_TEXTURE_COMPOSITOR")
+                                    .ok()
+                                    .as_deref()
+                                    == Some("1");
+                            if !enable_texture_compositor
+                                || texture_plans.is_empty()
+                                || !texture_plans_fit_limits
+                                || has_active_scroll_offsets
+                                || submission.has_external_surfaces()
+                            {
+                                let render_params = vello::RenderParams {
+                                    base_color: vello::peniko::Color::from_rgba8(
+                                        self.env.theme.tokens.colors.background.r,
+                                        self.env.theme.tokens.colors.background.g,
+                                        self.env.theme.tokens.colors.background.b,
+                                        self.env.theme.tokens.colors.background.a,
+                                    ),
+                                    width: render_target_size.0,
+                                    height: render_target_size.1,
+                                    antialiasing_method: vello::AaConfig::Area,
                                 };
-                                upload_software_frame(
-                                    &device_handle.queue,
-                                    &render_state.surface.target_texture,
-                                    &rgba,
-                                    render_target_size.0,
-                                    render_target_size.1,
-                                );
-                            } else {
-                                let texture_plans = self.pipeline.texture_compositor_plans();
-                                let texture_plans_fit_limits = texture_plans_fit_device_limits(
-                                    texture_plans,
-                                    scale_factor,
-                                    device_handle.device.limits().max_texture_dimension_2d,
-                                );
-                                let has_active_scroll_offsets = self
-                                    .runtime
-                                    .runtime_state
-                                    .scroll
-                                    .offsets
-                                    .values()
-                                    .any(|offset| offset.abs() > 0.5);
-                                let enable_texture_compositor =
-                                    std::env::var("FISSION_ENABLE_TEXTURE_COMPOSITOR")
-                                        .ok()
-                                        .as_deref()
-                                        == Some("1");
-                                if !enable_texture_compositor
-                                    || texture_plans.is_empty()
-                                    || !texture_plans_fit_limits
-                                    || has_active_scroll_offsets
-                                    || submission.has_external_surfaces()
-                                {
-                                    let render_params = vello::RenderParams {
-                                        base_color: vello::peniko::Color::from_rgba8(
-                                            self.env.theme.tokens.colors.background.r,
-                                            self.env.theme.tokens.colors.background.g,
-                                            self.env.theme.tokens.colors.background.b,
-                                            self.env.theme.tokens.colors.background.a,
-                                        ),
-                                        width: render_target_size.0,
-                                        height: render_target_size.1,
-                                        antialiasing_method: vello::AaConfig::Area,
-                                    };
 
-                                    self.scene.reset();
-                                    let retained_scene = self
-                                        .pipeline
-                                        .retained_scene()
-                                        .expect("retained render self.scene missing before render");
-                                    let composed_scene = submission
-                                        .has_external_surfaces()
-                                        .then(|| submission.compose_host_scene(retained_scene));
-                                    let render_scene =
-                                        composed_scene.as_ref().unwrap_or(retained_scene);
-                                    let mut renderer_wrapper = VelloRenderer::new(
-                                        &mut self.scene,
-                                        self.measurer.clone(),
-                                        &mut self.retained_scene_cache,
-                                        scale_factor,
-                                    );
-                                    if let Err(error) = renderer_wrapper.render_scene(render_scene)
-                                    {
-                                        eprintln!(
+                                self.scene.reset();
+                                let retained_scene = self
+                                    .pipeline
+                                    .retained_scene()
+                                    .expect("retained render self.scene missing before render");
+                                let composed_scene = submission
+                                    .has_external_surfaces()
+                                    .then(|| submission.compose_host_scene(retained_scene));
+                                let render_scene =
+                                    composed_scene.as_ref().unwrap_or(retained_scene);
+                                let mut renderer_wrapper = VelloRenderer::new(
+                                    &mut self.scene,
+                                    self.measurer.clone(),
+                                    &mut self.retained_scene_cache,
+                                    scale_factor,
+                                );
+                                if let Err(error) = renderer_wrapper.render_scene(render_scene) {
+                                    eprintln!(
                                         "fission-shell-winit: Vello frame {} encoding failed: {error}",
                                         submission.metadata().frame_id.0,
                                     );
-                                        diag::end_frame(diag::FrameStats::default());
-                                        return;
-                                    }
-                                    let workload_profile = workload_profile_for_encoded_scene(
-                                        render_scene,
+                                    diag::end_frame(diag::FrameStats::default());
+                                    return;
+                                }
+                                let workload_profile = workload_profile_for_encoded_scene(
+                                    render_scene,
+                                    &self.scene,
+                                    render_target_size.0,
+                                    render_target_size.1,
+                                    scale_factor,
+                                );
+                                if let Err(error) = renderer
+                                    .render_to_texture_with_workload_profile(
+                                        &device_handle.device,
+                                        &device_handle.queue,
                                         &self.scene,
-                                        render_target_size.0,
-                                        render_target_size.1,
-                                        scale_factor,
-                                    );
-                                    if let Err(error) = renderer
-                                        .render_to_texture_with_workload_profile(
-                                            &device_handle.device,
-                                            &device_handle.queue,
-                                            &self.scene,
-                                            &render_state.surface.target_view,
-                                            &render_params,
-                                            Some(&workload_profile),
-                                        )
-                                    {
-                                        eprintln!(
+                                        &render_state.surface.target_view,
+                                        &render_params,
+                                        Some(&workload_profile),
+                                    )
+                                {
+                                    eprintln!(
                                         "fission-shell-winit: GPU frame {} rendering failed: {error}",
                                         submission.metadata().frame_id.0,
                                     );
-                                        diag::end_frame(diag::FrameStats::default());
-                                        return;
-                                    }
-                                } else {
-                                    let force_full_compositor_redraw = self.invalidations.build
-                                        || self.invalidations.layout
-                                        || self.invalidations.paint;
-                                    if let Err(error) = texture_compositor.render_layers(
-                                        &device_handle.device,
-                                        &device_handle.queue,
-                                        renderer,
-                                        &mut self.retained_scene_cache,
-                                        self.measurer.clone(),
-                                        scale_factor,
-                                        render_target_size.0,
-                                        render_target_size.1,
-                                        self.pipeline.texture_compositor_root_transform(),
-                                        texture_plans,
-                                        force_full_compositor_redraw,
-                                        clear_color,
-                                        &render_state.surface.target_view,
-                                    ) {
-                                        eprintln!(
+                                    diag::end_frame(diag::FrameStats::default());
+                                    return;
+                                }
+                            } else {
+                                let force_full_compositor_redraw = self.invalidations.build
+                                    || self.invalidations.layout
+                                    || self.invalidations.paint;
+                                if let Err(error) = texture_compositor.render_layers(
+                                    &device_handle.device,
+                                    &device_handle.queue,
+                                    renderer,
+                                    &mut self.retained_scene_cache,
+                                    self.measurer.clone(),
+                                    scale_factor,
+                                    render_target_size.0,
+                                    render_target_size.1,
+                                    self.pipeline.texture_compositor_root_transform(),
+                                    texture_plans,
+                                    force_full_compositor_redraw,
+                                    clear_color,
+                                    &render_state.surface.target_view,
+                                ) {
+                                    eprintln!(
                                         "fission-shell-winit: GPU frame {} composition failed: {error}",
                                         submission.metadata().frame_id.0,
                                     );
-                                        diag::end_frame(diag::FrameStats::default());
-                                        return;
-                                    }
+                                    diag::end_frame(diag::FrameStats::default());
+                                    return;
                                 }
                             }
                         }
@@ -1461,14 +1481,19 @@ where
                                 .pipeline
                                 .retained_scene()
                                 .expect("retained render self.scene missing before render");
-                            let frame = submission
-                                .interactive_frame(retained_scene)
-                                .with_clear_color(fission_render::Color {
-                                    r: self.env.theme.tokens.colors.background.r,
-                                    g: self.env.theme.tokens.colors.background.g,
-                                    b: self.env.theme.tokens.colors.background.b,
-                                    a: self.env.theme.tokens.colors.background.a,
-                                });
+                            let host_frame = submission
+                                .has_external_surfaces()
+                                .then(|| submission.host_composited_frame(retained_scene));
+                            let frame = host_frame.as_ref().map_or_else(
+                                || submission.interactive_frame(retained_scene),
+                                |frame| frame.interactive_frame(),
+                            );
+                            let frame = frame.with_clear_color(fission_render::Color {
+                                r: self.env.theme.tokens.colors.background.r,
+                                g: self.env.theme.tokens.colors.background.g,
+                                b: self.env.theme.tokens.colors.background.b,
+                                a: self.env.theme.tokens.colors.background.a,
+                            });
                             let rgba = match presenter.render_to_rgba(&frame) {
                                 Ok(rgba) => rgba,
                                 Err(error) => {
@@ -1480,44 +1505,7 @@ where
                                     return;
                                 }
                             };
-                            upload_software_frame(
-                                &device_handle.queue,
-                                &render_state.surface.target_texture,
-                                &rgba,
-                                render_target_size.0,
-                                render_target_size.1,
-                            );
-                        }
-                        MainRenderer::Software => {
-                            let retained_scene = self
-                                .pipeline
-                                .retained_scene()
-                                .expect("retained render self.scene missing before render");
-                            let rgba = match render_host_scene_with_software(
-                                &submission,
-                                retained_scene,
-                                render_target_size.0,
-                                render_target_size.1,
-                                fission_render::Color {
-                                    r: self.env.theme.tokens.colors.background.r,
-                                    g: self.env.theme.tokens.colors.background.g,
-                                    b: self.env.theme.tokens.colors.background.b,
-                                    a: self.env.theme.tokens.colors.background.a,
-                                },
-                                scale_factor as f32,
-                                self.measurer.clone(),
-                            ) {
-                                Ok(rgba) => rgba,
-                                Err(error) => {
-                                    eprintln!(
-                                        "fission-shell-winit: software frame {} failed: {error}",
-                                        submission.metadata().frame_id.0,
-                                    );
-                                    diag::end_frame(diag::FrameStats::default());
-                                    return;
-                                }
-                            };
-                            upload_software_frame(
+                            upload_raster_frame(
                                 &device_handle.queue,
                                 &render_state.surface.target_texture,
                                 &rgba,
@@ -1672,6 +1660,24 @@ where
                 diag::end_frame(diag::FrameStats::default());
             }
         }
+    }
+
+    #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+    fn activate_skia_raster_profile(&mut self, profile: &fission_render_skia::SkiaRasterProfile) {
+        let paragraph_store = Arc::new(ParagraphResultStore::new(Arc::new(
+            profile.paragraph_engine(),
+        )));
+        self.layout_engine
+            .set_paragraph_store(paragraph_store.clone());
+        self.runtime.set_paragraph_store(paragraph_store.clone());
+        self.paragraph_store = paragraph_store;
+        self.renderer_request = RendererRequest::NativeSkiaRaster;
+        // Changing paragraph engines changes intrinsic sizes, wrapping,
+        // baselines, hit regions, and paint draw-data. Shell-level
+        // invalidation flags alone do not make Pipeline recompute layout.
+        self.pipeline.invalidate_layout_all();
+        self.retained_scene_cache.clear();
+        self.invalidations.mark_layout();
     }
 
     fn commit_external_surface_presentation(
