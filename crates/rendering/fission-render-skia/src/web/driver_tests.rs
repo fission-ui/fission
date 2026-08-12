@@ -7,7 +7,7 @@ use std::rc::Rc;
 use fission_render::backend::{
     GraphicsBackendDriver, GraphicsBackendSession, ReadbackRequest, SurfaceMetrics,
 };
-use fission_render::capabilities::{ColorFormat, DisplayOpKind};
+use fission_render::capabilities::{ColorFormat, DisplayOpKind, RenderMode};
 use fission_render::external_surface::ExternalSurfaceBindings;
 use fission_render::frame::{
     DamageRegion, FrameId, FrameMetadata, FrameViewport, InteractiveFrame, ResourceEpoch,
@@ -18,13 +18,13 @@ use fission_render::resource::{
     ResourceProvenance, ResourceSnapshot, ResourceSource,
 };
 use fission_render::surface::{
-    MemoryPressure, PhysicalSize, ScaleFactor, SessionState, SurfaceDescriptor, SurfaceId,
-    SurfaceKind, SurfaceTarget, ThreadAffinity,
+    LossKind, MemoryPressure, PhysicalSize, Recovery, ScaleFactor, SessionState, SurfaceDescriptor,
+    SurfaceId, SurfaceKind, SurfaceTarget, ThreadAffinity,
 };
 use fission_render::{Color, DisplayList, DisplayOp, Fill, LayoutRect, LayoutSize, RenderScene};
 use fission_skia_sys::web::{
-    decode, decode_commands, encode, Ack, ErrorCode, ErrorPacket, Message, Packet, ProtocolSession,
-    ResourceOperation, SessionId, DEFAULT_DECODE_LIMITS,
+    decode, decode_commands, encode, Ack, DestroyReason, ErrorCode, ErrorPacket, Message, Packet,
+    ProtocolSession, ResourceOperation, SessionId, DEFAULT_DECODE_LIMITS,
 };
 
 use super::driver::{damage_rects, CanvasKitBackendPreference, CanvasKitDriver};
@@ -86,6 +86,7 @@ struct MockState {
     replies: VecDeque<Reply>,
     response_session: Option<SessionId>,
     response_sequence: u64,
+    lifecycle_events: VecDeque<Vec<u8>>,
 }
 
 #[derive(Clone, Default)]
@@ -102,6 +103,48 @@ impl MockControl {
 
     fn requests(&self) -> Vec<Message> {
         self.0.borrow().requests.clone()
+    }
+
+    fn context_lost(&self) {
+        let failed_sequence = self
+            .0
+            .borrow()
+            .requests
+            .last()
+            .expect("context loss follows an acknowledged command")
+            .envelope
+            .sequence;
+        self.lifecycle_packet(Packet::Error(ErrorPacket {
+            failed_sequence,
+            code: ErrorCode::SurfaceLost,
+            message: "injected browser context loss".into(),
+        }));
+    }
+
+    fn context_restored(&self) {
+        let acknowledged_sequence = self
+            .0
+            .borrow()
+            .requests
+            .last()
+            .expect("context restoration follows an acknowledged command")
+            .envelope
+            .sequence;
+        self.lifecycle_packet(Packet::Ack(Ack {
+            acknowledged_sequence,
+        }));
+    }
+
+    fn lifecycle_packet(&self, packet: Packet) {
+        let mut state = self.0.borrow_mut();
+        let session = state
+            .response_session
+            .expect("an acknowledged Init establishes the response session");
+        state.response_sequence = state.response_sequence.saturating_add(1);
+        let sequence = state.response_sequence;
+        let packet = encode(&Message::new(session, sequence, packet))
+            .expect("the mock lifecycle packet is canonical");
+        state.lifecycle_events.push_back(packet);
     }
 }
 
@@ -158,6 +201,10 @@ impl CanvasKitHost for MockHost {
             response_packet,
         ))
         .map_err(|_| MockHostError("response encoding failed"))
+    }
+
+    fn poll_lifecycle_event(&mut self) -> Result<Option<Vec<u8>>, Self::Error> {
+        Ok(self.0.borrow_mut().lifecycle_events.pop_front())
     }
 }
 
@@ -372,11 +419,15 @@ fn present_waits_for_the_frame_ack_and_same_frame_can_retry() {
     );
     assert_eq!(
         session.present().unwrap_err().code,
-        "canvaskit-present-before-frame-ack"
+        "canvaskit-present-without-pending-frame"
     );
 
     session.render(&fixture.frame()).unwrap();
     assert_eq!(session.present().unwrap().frame_id, Some(FrameId(7)));
+    assert_eq!(
+        session.present().unwrap_err().code,
+        "canvaskit-present-without-pending-frame"
+    );
     let frame_sequences = control
         .requests()
         .into_iter()
@@ -385,6 +436,256 @@ fn present_waits_for_the_frame_ack_and_same_frame_can_retry() {
         })
         .collect::<Vec<_>>();
     assert_eq!(frame_sequences, vec![3, 3]);
+}
+
+#[test]
+fn one_acknowledged_frame_owns_the_single_pending_present_slot() {
+    let control = MockControl::default();
+    let driver = CanvasKitDriver::new(control.host(), CanvasKitBackendPreference::Software);
+    let mut session = GraphicsBackendSession::new(driver).unwrap();
+    let target = TestTarget::new(PhysicalSize::new(80, 40), 1.0);
+    session.attach(&target).unwrap();
+
+    let first = FrameFixture::new(
+        1,
+        1,
+        target.descriptor.size,
+        1.0,
+        DamageRegion::Full,
+        ResourceSnapshot::empty(ResourceEpoch(1)),
+    );
+    let second = FrameFixture::new(
+        2,
+        1,
+        target.descriptor.size,
+        1.0,
+        DamageRegion::Full,
+        ResourceSnapshot::empty(ResourceEpoch(1)),
+    );
+    session.render(&first.frame()).unwrap();
+    let request_count = control.requests().len();
+
+    assert_eq!(
+        session.render(&second.frame()).unwrap_err().code,
+        "canvaskit-present-pending"
+    );
+    assert_eq!(
+        session
+            .resize(SurfaceMetrics {
+                size: target.descriptor.size,
+                scale_factor: target.descriptor.scale_factor,
+            })
+            .unwrap_err()
+            .code,
+        "canvaskit-present-pending"
+    );
+    assert_eq!(control.requests().len(), request_count);
+
+    assert_eq!(session.present().unwrap().frame_id, Some(FrameId(1)));
+    assert_eq!(
+        session.present().unwrap_err().code,
+        "canvaskit-present-without-pending-frame"
+    );
+    session.render(&second.frame()).unwrap();
+    assert_eq!(session.present().unwrap().frame_id, Some(FrameId(2)));
+}
+
+#[test]
+fn resize_does_not_erase_the_session_frame_monotonicity_gate() {
+    let control = MockControl::default();
+    let driver = CanvasKitDriver::new(control.host(), CanvasKitBackendPreference::Auto);
+    let mut session = GraphicsBackendSession::new(driver).unwrap();
+    let target = TestTarget::new(PhysicalSize::new(40, 20), 1.0);
+    session.attach(&target).unwrap();
+
+    let first = FrameFixture::new(
+        4,
+        1,
+        target.descriptor.size,
+        1.0,
+        DamageRegion::Full,
+        ResourceSnapshot::empty(ResourceEpoch(1)),
+    );
+    session.render(&first.frame()).unwrap();
+    session.present().unwrap();
+
+    let resized = PhysicalSize::new(60, 30);
+    session
+        .resize(SurfaceMetrics {
+            size: resized,
+            scale_factor: ScaleFactor::ONE,
+        })
+        .unwrap();
+    let stale = FrameFixture::new(
+        4,
+        1,
+        resized,
+        1.0,
+        DamageRegion::Full,
+        ResourceSnapshot::empty(ResourceEpoch(1)),
+    );
+    assert_eq!(
+        session.render(&stale.frame()).unwrap_err().code,
+        "canvaskit-frame-id-not-monotonic"
+    );
+
+    let next = FrameFixture::new(
+        5,
+        1,
+        resized,
+        1.0,
+        DamageRegion::Full,
+        ResourceSnapshot::empty(ResourceEpoch(1)),
+    );
+    session.render(&next.frame()).unwrap();
+    assert_eq!(session.present().unwrap().frame_id, Some(FrameId(5)));
+}
+
+#[test]
+fn queued_context_loss_and_restoration_reconcile_response_sequence() {
+    let control = MockControl::default();
+    let driver = CanvasKitDriver::new(control.host(), CanvasKitBackendPreference::WebGl);
+    let mut session = GraphicsBackendSession::new(driver).unwrap();
+    let target = TestTarget::new(PhysicalSize::new(64, 32), 1.0);
+    session.attach(&target).unwrap();
+
+    control.context_lost();
+    control.context_restored();
+    assert_eq!(
+        session.recover(LossKind::Surface).unwrap(),
+        Recovery::Reattached
+    );
+    assert_eq!(session.state(), SessionState::Attached);
+    assert_eq!(control.requests().len(), 1);
+
+    let fixture = FrameFixture::new(
+        1,
+        1,
+        target.descriptor.size,
+        1.0,
+        DamageRegion::Full,
+        ResourceSnapshot::empty(ResourceEpoch(1)),
+    );
+    session.render(&fixture.frame()).unwrap();
+    session.present().unwrap();
+    assert_eq!(session.diagnostics().counters.surface_recoveries, 1);
+}
+
+#[test]
+fn failed_initial_surface_can_reinitialize_from_retained_target_metrics() {
+    let control = MockControl::default();
+    control.reply(Reply::Error(
+        ErrorCode::SurfaceLost,
+        "injected initial surface failure",
+    ));
+    let driver = CanvasKitDriver::new(control.host(), CanvasKitBackendPreference::WebGl);
+    let mut session = GraphicsBackendSession::new(driver).unwrap();
+    let target = TestTarget::new(PhysicalSize::new(64, 32), 1.0);
+
+    assert_eq!(
+        session.attach(&target).unwrap_err().code,
+        "canvaskit-host-surface-lost"
+    );
+    assert_eq!(session.state(), SessionState::Lost);
+    assert_eq!(
+        session.recover(LossKind::Surface).unwrap(),
+        Recovery::Reattached
+    );
+    assert_eq!(session.state(), SessionState::Attached);
+    assert_eq!(
+        control
+            .requests()
+            .iter()
+            .filter_map(|request| {
+                matches!(request.packet, Packet::Init(_)).then_some(request.envelope.session.get())
+            })
+            .collect::<Vec<_>>(),
+        vec![1, 2]
+    );
+}
+
+#[test]
+fn unresolved_context_loss_reinitializes_and_reuploads_the_session() {
+    let control = MockControl::default();
+    let driver = CanvasKitDriver::new(control.host(), CanvasKitBackendPreference::WebGl);
+    let mut session = GraphicsBackendSession::new(driver).unwrap();
+    let target = TestTarget::new(PhysicalSize::new(64, 32), 1.0);
+    session.attach(&target).unwrap();
+
+    let resources = ResourceSnapshot::try_new(
+        ResourceEpoch(2),
+        [ready_resource(9, "image-v1", &[1, 2, 3])],
+    )
+    .unwrap();
+    let first = FrameFixture::new(
+        1,
+        2,
+        target.descriptor.size,
+        1.0,
+        DamageRegion::Full,
+        resources.clone(),
+    );
+    session.render(&first.frame()).unwrap();
+    session.present().unwrap();
+
+    control.context_lost();
+    assert_eq!(
+        session.recover(LossKind::Surface).unwrap(),
+        Recovery::Reattached
+    );
+    let second = FrameFixture::new(
+        2,
+        2,
+        target.descriptor.size,
+        1.0,
+        DamageRegion::Full,
+        resources,
+    );
+    assert_eq!(session.render(&second.frame()).unwrap().uploaded_bytes, 3);
+    session.present().unwrap();
+
+    let requests = control.requests();
+    let destroy = requests
+        .iter()
+        .find_map(|request| match &request.packet {
+            Packet::Destroy(destroy) => Some((request.envelope.session, destroy.reason)),
+            _ => None,
+        })
+        .expect("surface recovery retires the lost session");
+    assert_eq!(destroy.1, DestroyReason::ContextLost);
+    let init_sessions = requests
+        .iter()
+        .filter_map(|request| {
+            matches!(request.packet, Packet::Init(_)).then_some(request.envelope.session.get())
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(init_sessions, vec![1, 2]);
+    assert_eq!(
+        requests
+            .iter()
+            .filter(|request| matches!(request.packet, Packet::ResourceBatch(_)))
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn device_recreation_is_not_claimed_without_a_host_factory() {
+    let control = MockControl::default();
+    let driver = CanvasKitDriver::new(control.host(), CanvasKitBackendPreference::Auto);
+    assert!(driver.capabilities().surface_loss_recovery);
+    assert!(!driver.capabilities().device_loss_recovery);
+    let mut session = GraphicsBackendSession::new(driver).unwrap();
+    let target = TestTarget::new(PhysicalSize::new(32, 16), 1.0);
+    session.attach(&target).unwrap();
+
+    assert_eq!(
+        session.recover(LossKind::Device).unwrap(),
+        Recovery::Unrecoverable
+    );
+    assert_eq!(session.state(), SessionState::Lost);
+    assert_eq!(control.requests().len(), 1);
+    session.detach().unwrap();
 }
 
 #[test]
@@ -412,6 +713,26 @@ fn suspend_and_resume_start_a_strictly_new_session() {
     assert_eq!(requests[1].envelope.sequence, 2);
     assert_eq!(requests[2].envelope.sequence, 1);
     assert_eq!(requests[3].envelope.sequence, 2);
+}
+
+#[test]
+fn dropping_an_attached_driver_retires_the_host_session() {
+    let control = MockControl::default();
+    {
+        let mut driver = CanvasKitDriver::new(control.host(), CanvasKitBackendPreference::Software);
+        let target = TestTarget::new(PhysicalSize::new(32, 16), 1.0);
+        driver.attach(&target).unwrap();
+    }
+
+    let requests = control.requests();
+    assert_eq!(requests.len(), 2);
+    assert!(matches!(requests[0].packet, Packet::Init(_)));
+    assert!(matches!(
+        &requests[1].packet,
+        Packet::Destroy(fission_skia_sys::web::Destroy {
+            reason: DestroyReason::HostShutdown
+        })
+    ));
 }
 
 #[test]
@@ -447,6 +768,26 @@ fn unsupported_readback_and_memory_pressure_fail_explicitly() {
     assert!(!driver
         .capabilities()
         .supports_display_op(DisplayOpKind::DrawImage));
+    assert!(!driver
+        .capabilities()
+        .supports_display_op(DisplayOpKind::CachedScene));
+    assert!(driver.capabilities().surface_loss_recovery);
+    assert!(!driver.capabilities().device_loss_recovery);
+}
+
+#[test]
+fn graphite_is_reported_unavailable_until_the_executor_implements_it() {
+    let control = MockControl::default();
+    let driver = CanvasKitDriver::new(control.host(), CanvasKitBackendPreference::Graphite);
+
+    assert!(driver.capabilities().render_modes.is_empty());
+    assert!(!driver
+        .capabilities()
+        .render_modes
+        .contains(&RenderMode::Gpu));
+    assert!(driver.capabilities().display_ops.is_empty());
+    assert!(!driver.capabilities().surface_loss_recovery);
+    assert!(!driver.capabilities().device_loss_recovery);
 }
 
 #[test]

@@ -7,7 +7,7 @@ use fission_render::capabilities::{
 };
 use fission_render::diagnostics::{
     BackendDiagnostic, BackendDiagnostics, CacheDiagnostics, DiagnosticCategory,
-    DiagnosticProvenance,
+    DiagnosticProvenance, DiagnosticSeverity,
 };
 use fission_render::frame::{DamageRegion, FrameId, ValidatedInteractiveFrame};
 use fission_render::surface::{
@@ -25,6 +25,7 @@ use super::{compile_web_scene, WebCompileError};
 use crate::error::{contract_error, contract_error_with_provenance};
 
 const MAX_RECENT_EVENTS: usize = 64;
+const MAX_LIFECYCLE_EVENTS_PER_POLL: usize = 32;
 const MAX_HOST_ERROR_BYTES: usize = 4 * 1024;
 const RESPONSE_LIMITS: DecodeLimits = DecodeLimits {
     max_packet_bytes: HEADER_LEN + 16 + MAX_HOST_ERROR_BYTES,
@@ -51,7 +52,12 @@ pub struct CanvasKitDriver<H: CanvasKitHost> {
     session: Option<HostSession>,
     latest_session_id: u64,
     resources: ResourceMap,
-    last_rendered: Option<FrameId>,
+    last_accepted_frame: Option<FrameId>,
+    // The browser executor renders and flushes atomically during Frame
+    // exchange. Rust retains that Ack as one pending logical presentation so
+    // callers cannot overwrite or report the same browser frame twice.
+    pending_frame: Option<FrameId>,
+    surface_restored: bool,
     diagnostics: BackendDiagnostics,
 }
 
@@ -109,7 +115,9 @@ impl<H: CanvasKitHost> CanvasKitDriver<H> {
             session: None,
             latest_session_id: 0,
             resources: ResourceMap::default(),
-            last_rendered: None,
+            last_accepted_frame: None,
+            pending_frame: None,
+            surface_restored: false,
             diagnostics: BackendDiagnostics::new(
                 capabilities.identity.clone(),
                 SessionState::Detached,
@@ -213,7 +221,7 @@ impl<H: CanvasKitHost> CanvasKitDriver<H> {
         }
         if metadata.frame_id.0 == 0
             || self
-                .last_rendered
+                .last_accepted_frame
                 .is_some_and(|last| metadata.frame_id.0 <= last.0)
         {
             let error = contract_error(
@@ -223,7 +231,7 @@ impl<H: CanvasKitHost> CanvasKitDriver<H> {
                 format!(
                     "CanvasKit frame id {} must be greater than the last acknowledged frame id {}",
                     metadata.frame_id.0,
-                    self.last_rendered.map_or(0, |frame_id| frame_id.0)
+                    self.last_accepted_frame.map_or(0, |frame_id| frame_id.0)
                 ),
             );
             self.record_error(&error);
@@ -251,7 +259,9 @@ impl<H: CanvasKitHost> CanvasKitDriver<H> {
         let id = SessionId::new(next_session).expect("an incremented session id is non-zero");
         self.session = Some(HostSession::new(id));
         self.resources = ResourceMap::default();
-        self.last_rendered = None;
+        self.last_accepted_frame = None;
+        self.pending_frame = None;
+        self.surface_restored = false;
 
         let result = self.send_packet(
             operation,
@@ -274,6 +284,161 @@ impl<H: CanvasKitHost> CanvasKitDriver<H> {
             self.session = None;
         }
         result
+    }
+
+    fn require_no_pending_frame(&mut self, operation: BackendOperation) -> BackendResult<()> {
+        if self.pending_frame.is_none() {
+            return Ok(());
+        }
+        let error = contract_error(
+            operation,
+            "canvaskit-present-pending",
+            DiagnosticCategory::Lifecycle,
+            "the acknowledged CanvasKit frame must be presented before rendering or resizing",
+        );
+        self.record_error(&error);
+        Err(error)
+    }
+
+    fn poll_lifecycle_events(&mut self, operation: BackendOperation) -> BackendResult<()> {
+        for index in 0..=MAX_LIFECYCLE_EVENTS_PER_POLL {
+            let packet = match self.host.poll_lifecycle_event() {
+                Ok(packet) => packet,
+                Err(error) => {
+                    return Err(self.poisoned_response_error(
+                        operation,
+                        "canvaskit-lifecycle-event-failed",
+                        format!("CanvasKit lifecycle-event polling failed: {error}"),
+                    ))
+                }
+            };
+            let Some(packet) = packet else {
+                return Ok(());
+            };
+            if index == MAX_LIFECYCLE_EVENTS_PER_POLL {
+                return Err(self.poisoned_response_error(
+                    operation,
+                    "canvaskit-lifecycle-event-overflow",
+                    format!(
+                        "CanvasKit emitted more than {MAX_LIFECYCLE_EVENTS_PER_POLL} lifecycle events without yielding"
+                    ),
+                ));
+            }
+            self.accept_lifecycle_event(operation, &packet)?;
+        }
+        unreachable!("the bounded lifecycle-event loop always returns")
+    }
+
+    fn accept_lifecycle_event(
+        &mut self,
+        operation: BackendOperation,
+        packet: &[u8],
+    ) -> BackendResult<()> {
+        let Some(session) = self.session else {
+            return Err(self.poisoned_response_error(
+                operation,
+                "canvaskit-lifecycle-session-missing",
+                "CanvasKit emitted a lifecycle event without an active Rust session",
+            ));
+        };
+        if session.poisoned {
+            return Err(self.poisoned_response_error(
+                operation,
+                "canvaskit-session-poisoned",
+                "CanvasKit emitted a lifecycle event for an already poisoned session",
+            ));
+        }
+        let response = match decode(packet, &RESPONSE_LIMITS) {
+            Ok(response) => response,
+            Err(error) => {
+                return Err(self.poisoned_response_error(
+                    operation,
+                    "canvaskit-lifecycle-event-invalid",
+                    format!("CanvasKit emitted an invalid lifecycle packet: {error}"),
+                ))
+            }
+        };
+        if response.envelope.session != session.id {
+            return Err(self.poisoned_response_error(
+                operation,
+                "canvaskit-lifecycle-session-mismatch",
+                format!(
+                    "CanvasKit lifecycle session {} does not match active session {}",
+                    response.envelope.session.get(),
+                    session.id.get()
+                ),
+            ));
+        }
+        let Some(expected_response_sequence) = session.last_response_sequence.checked_add(1) else {
+            return Err(self.poisoned_response_error(
+                operation,
+                "canvaskit-response-sequence-exhausted",
+                "CanvasKit response sequence is exhausted",
+            ));
+        };
+        if response.envelope.sequence != expected_response_sequence {
+            return Err(self.poisoned_response_error(
+                operation,
+                "canvaskit-lifecycle-sequence-mismatch",
+                format!(
+                    "CanvasKit lifecycle response sequence {} does not match expected sequence {expected_response_sequence}",
+                    response.envelope.sequence
+                ),
+            ));
+        }
+
+        match response.packet {
+            Packet::Error(error) if error.failed_sequence == session.last_command_sequence => {
+                self.session
+                    .as_mut()
+                    .expect("the lifecycle event belongs to the installed session")
+                    .last_response_sequence = expected_response_sequence;
+                self.state = SessionState::Lost;
+                self.pending_frame = None;
+                self.surface_restored = false;
+                let error = self.remote_error(operation, error);
+                self.record_error(&error);
+                Ok(())
+            }
+            Packet::Ack(Ack {
+                acknowledged_sequence,
+            }) if acknowledged_sequence == session.last_command_sequence
+                && self.state == SessionState::Lost =>
+            {
+                self.session
+                    .as_mut()
+                    .expect("the lifecycle event belongs to the installed session")
+                    .last_response_sequence = expected_response_sequence;
+                self.surface_restored = true;
+                Ok(())
+            }
+            Packet::Error(error) => Err(self.poisoned_response_error(
+                operation,
+                "canvaskit-lifecycle-error-sequence-mismatch",
+                format!(
+                    "CanvasKit lifecycle error targeted command {}, expected {}",
+                    error.failed_sequence, session.last_command_sequence
+                ),
+            )),
+            Packet::Ack(Ack {
+                acknowledged_sequence,
+            }) => Err(self.poisoned_response_error(
+                operation,
+                "canvaskit-lifecycle-ack-invalid",
+                format!(
+                    "CanvasKit lifecycle Ack targeted command {acknowledged_sequence} while command {} was active in {:?}",
+                    session.last_command_sequence, self.state
+                ),
+            )),
+            packet => Err(self.poisoned_response_error(
+                operation,
+                "canvaskit-lifecycle-event-kind-invalid",
+                format!(
+                    "CanvasKit emitted {:?}; lifecycle events must be Ack or Error packets",
+                    packet.kind()
+                ),
+            )),
+        }
     }
 
     fn send_packet(&mut self, operation: BackendOperation, packet: Packet) -> BackendResult<()> {
@@ -399,7 +564,8 @@ impl<H: CanvasKitHost> CanvasKitDriver<H> {
                     .last_response_sequence = expected_response_sequence;
                 if error.code == ErrorCode::SurfaceLost {
                     self.state = SessionState::Lost;
-                    self.last_rendered = None;
+                    self.pending_frame = None;
+                    self.surface_restored = false;
                 }
                 let error = self.remote_error(operation, error);
                 self.record_error(&error);
@@ -434,7 +600,8 @@ impl<H: CanvasKitHost> CanvasKitDriver<H> {
             session.poisoned = true;
         }
         self.state = SessionState::Lost;
-        self.last_rendered = None;
+        self.pending_frame = None;
+        self.surface_restored = false;
         let error = contract_error(operation, code, DiagnosticCategory::Device, message);
         self.record_error(&error);
         error
@@ -534,11 +701,91 @@ impl<H: CanvasKitHost> CanvasKitDriver<H> {
         }
     }
 
+    fn push_recovery_event(&mut self, recovery: Recovery) {
+        self.push_event(BackendDiagnostic {
+            severity: DiagnosticSeverity::Info,
+            category: DiagnosticCategory::Surface,
+            code: "canvaskit-surface-recovered".into(),
+            message: format!("CanvasKit recovered its browser surface as {recovery:?}"),
+            provenance: None,
+        });
+    }
+
+    fn unrecoverable(&mut self, loss: LossKind, message: impl Into<String>) -> Recovery {
+        self.push_event(BackendDiagnostic {
+            severity: DiagnosticSeverity::Warning,
+            category: match loss {
+                LossKind::Surface => DiagnosticCategory::Surface,
+                LossKind::Device => DiagnosticCategory::Device,
+            },
+            code: match loss {
+                LossKind::Surface => "canvaskit-surface-recovery-unavailable",
+                LossKind::Device => "canvaskit-device-recovery-unavailable",
+            }
+            .into(),
+            message: message.into(),
+            provenance: None,
+        });
+        Recovery::Unrecoverable
+    }
+
+    fn recover_surface(&mut self, metrics: SurfaceMetrics) -> BackendResult<Recovery> {
+        if self
+            .session
+            .as_ref()
+            .is_some_and(|session| session.poisoned)
+        {
+            return Ok(self.unrecoverable(
+                LossKind::Surface,
+                "CanvasKit cannot recover a surface whose host protocol state is ambiguous",
+            ));
+        }
+
+        if self.surface_restored && self.session.is_some() {
+            self.surface_restored = false;
+            self.pending_frame = None;
+            self.state = SessionState::Attached;
+            self.diagnostics.counters.surface_recoveries = self
+                .diagnostics
+                .counters
+                .surface_recoveries
+                .saturating_add(1);
+            self.push_recovery_event(Recovery::Reattached);
+            return Ok(Recovery::Reattached);
+        }
+
+        if self.session.is_some() {
+            self.send_packet(
+                BackendOperation::Recover,
+                Packet::Destroy(Destroy {
+                    reason: DestroyReason::ContextLost,
+                }),
+            )?;
+        }
+        self.session = None;
+        self.resources = ResourceMap::default();
+        self.last_accepted_frame = None;
+        self.pending_frame = None;
+        self.surface_restored = false;
+
+        self.start_session(BackendOperation::Recover, metrics)?;
+        self.state = SessionState::Attached;
+        self.diagnostics.counters.surface_recoveries = self
+            .diagnostics
+            .counters
+            .surface_recoveries
+            .saturating_add(1);
+        self.push_recovery_event(Recovery::Reattached);
+        Ok(Recovery::Reattached)
+    }
+
     fn render_frame(
         &mut self,
         frame: &ValidatedInteractiveFrame<'_>,
     ) -> BackendResult<RenderReport> {
+        self.poll_lifecycle_events(BackendOperation::Render)?;
         self.require_state(BackendOperation::Render, &[SessionState::Attached])?;
+        self.require_no_pending_frame(BackendOperation::Render)?;
         let metrics = self.validate_frame(frame)?;
         let interactive = frame.frame();
         let metadata = interactive.metadata();
@@ -589,7 +836,8 @@ impl<H: CanvasKitHost> CanvasKitDriver<H> {
             }),
         )?;
 
-        self.last_rendered = Some(metadata.frame_id);
+        self.last_accepted_frame = Some(metadata.frame_id);
+        self.pending_frame = Some(metadata.frame_id);
         self.diagnostics.counters.frames_rendered =
             self.diagnostics.counters.frames_rendered.saturating_add(1);
         Ok(RenderReport {
@@ -614,14 +862,16 @@ impl<H: CanvasKitHost> GraphicsBackendDriver for CanvasKitDriver<H> {
         self.require_state(BackendOperation::Attach, &[SessionState::Detached])?;
         self.state = SessionState::Lost;
         let metrics = self.validate_target(BackendOperation::Attach, target)?;
-        self.start_session(BackendOperation::Attach, metrics)?;
         self.metrics = Some(metrics);
+        self.start_session(BackendOperation::Attach, metrics)?;
         self.state = SessionState::Attached;
         Ok(())
     }
 
     fn resize(&mut self, metrics: SurfaceMetrics) -> BackendResult<()> {
+        self.poll_lifecycle_events(BackendOperation::Resize)?;
         self.require_state(BackendOperation::Resize, &[SessionState::Attached])?;
+        self.require_no_pending_frame(BackendOperation::Resize)?;
         self.send_packet(
             BackendOperation::Resize,
             Packet::Resize(Resize {
@@ -629,7 +879,6 @@ impl<H: CanvasKitHost> GraphicsBackendDriver for CanvasKitDriver<H> {
             }),
         )?;
         self.metrics = Some(metrics);
-        self.last_rendered = None;
         Ok(())
     }
 
@@ -646,13 +895,14 @@ impl<H: CanvasKitHost> GraphicsBackendDriver for CanvasKitDriver<H> {
     }
 
     fn present(&mut self) -> BackendResult<PresentReport> {
+        self.poll_lifecycle_events(BackendOperation::Present)?;
         self.require_state(BackendOperation::Present, &[SessionState::Attached])?;
-        let Some(frame_id) = self.last_rendered else {
+        let Some(frame_id) = self.pending_frame.take() else {
             let error = contract_error(
                 BackendOperation::Present,
-                "canvaskit-present-before-frame-ack",
+                "canvaskit-present-without-pending-frame",
                 DiagnosticCategory::Lifecycle,
-                "CanvasKit cannot present before a matching Frame Ack",
+                "CanvasKit has no acknowledged frame pending presentation",
             );
             self.record_error(&error);
             return Err(error);
@@ -677,6 +927,7 @@ impl<H: CanvasKitHost> GraphicsBackendDriver for CanvasKitDriver<H> {
     }
 
     fn suspend(&mut self) -> BackendResult<()> {
+        self.poll_lifecycle_events(BackendOperation::Suspend)?;
         self.require_state(BackendOperation::Suspend, &[SessionState::Attached])?;
         self.state = SessionState::Lost;
         self.send_packet(
@@ -687,7 +938,9 @@ impl<H: CanvasKitHost> GraphicsBackendDriver for CanvasKitDriver<H> {
         )?;
         self.session = None;
         self.resources = ResourceMap::default();
-        self.last_rendered = None;
+        self.last_accepted_frame = None;
+        self.pending_frame = None;
+        self.surface_restored = false;
         self.state = SessionState::Suspended;
         Ok(())
     }
@@ -696,13 +949,14 @@ impl<H: CanvasKitHost> GraphicsBackendDriver for CanvasKitDriver<H> {
         self.require_state(BackendOperation::Resume, &[SessionState::Suspended])?;
         self.state = SessionState::Lost;
         let metrics = self.validate_target(BackendOperation::Resume, target)?;
-        self.start_session(BackendOperation::Resume, metrics)?;
         self.metrics = Some(metrics);
+        self.start_session(BackendOperation::Resume, metrics)?;
         self.state = SessionState::Attached;
         Ok(())
     }
 
-    fn recover(&mut self, _loss: LossKind) -> BackendResult<Recovery> {
+    fn recover(&mut self, loss: LossKind) -> BackendResult<Recovery> {
+        self.poll_lifecycle_events(BackendOperation::Recover)?;
         self.require_state(
             BackendOperation::Recover,
             &[
@@ -712,8 +966,22 @@ impl<H: CanvasKitHost> GraphicsBackendDriver for CanvasKitDriver<H> {
             ],
         )?;
         self.state = SessionState::Lost;
-        self.last_rendered = None;
-        Ok(Recovery::Unrecoverable)
+        self.pending_frame = None;
+
+        if loss == LossKind::Device {
+            self.surface_restored = false;
+            return Ok(self.unrecoverable(
+                loss,
+                "the synchronous CanvasKit host cannot recreate its owning JavaScript module after device loss",
+            ));
+        }
+        let Some(metrics) = self.metrics else {
+            return Ok(self.unrecoverable(
+                loss,
+                "CanvasKit cannot recover a surface before valid canvas metrics have been retained",
+            ));
+        };
+        self.recover_surface(metrics)
     }
 
     fn trim_memory(&mut self, pressure: MemoryPressure) -> BackendResult<()> {
@@ -728,6 +996,7 @@ impl<H: CanvasKitHost> GraphicsBackendDriver for CanvasKitDriver<H> {
     }
 
     fn detach(&mut self) -> BackendResult<()> {
+        self.poll_lifecycle_events(BackendOperation::Detach)?;
         self.require_state(
             BackendOperation::Detach,
             &[
@@ -762,7 +1031,9 @@ impl<H: CanvasKitHost> GraphicsBackendDriver for CanvasKitDriver<H> {
         self.session = None;
         self.metrics = None;
         self.resources = ResourceMap::default();
-        self.last_rendered = None;
+        self.last_accepted_frame = None;
+        self.pending_frame = None;
+        self.surface_restored = false;
         self.state = SessionState::Detached;
         Ok(())
     }
@@ -781,11 +1052,46 @@ impl<H: CanvasKitHost> GraphicsBackendDriver for CanvasKitDriver<H> {
     }
 }
 
+impl<H: CanvasKitHost> Drop for CanvasKitDriver<H> {
+    fn drop(&mut self) {
+        if self
+            .session
+            .as_ref()
+            .is_some_and(|session| !session.poisoned)
+        {
+            // A healthy protocol session can be retired deterministically even
+            // when its owning GraphicsBackendSession was dropped without an
+            // explicit detach. Ambiguous sessions deliberately avoid guessing
+            // a sequence; the concrete host adapter must destroy its executor
+            // when that adapter itself is dropped.
+            self.state = SessionState::Lost;
+            let _ = self.send_packet(
+                BackendOperation::Detach,
+                Packet::Destroy(Destroy {
+                    reason: DestroyReason::HostShutdown,
+                }),
+            );
+        }
+        self.session = None;
+        self.resources = ResourceMap::default();
+        self.last_accepted_frame = None;
+        self.pending_frame = None;
+        self.surface_restored = false;
+        self.state = SessionState::Detached;
+    }
+}
+
 fn canvaskit_capabilities(backend_preference: CanvasKitBackendPreference) -> GraphicsCapabilities {
+    let profile = match backend_preference {
+        CanvasKitBackendPreference::Auto => "web-canvaskit-auto-shapes",
+        CanvasKitBackendPreference::Software => "web-canvaskit-software-shapes",
+        CanvasKitBackendPreference::WebGl => "web-canvaskit-webgl-shapes",
+        CanvasKitBackendPreference::Graphite => "web-canvaskit-graphite-unavailable",
+    };
     let mut capabilities = GraphicsCapabilities::empty(BackendIdentity::new(
         "skia",
         env!("CARGO_PKG_VERSION"),
-        "web-canvaskit-shapes",
+        profile,
     ));
     match backend_preference {
         CanvasKitBackendPreference::Software => {
@@ -796,9 +1102,16 @@ fn canvaskit_capabilities(backend_preference: CanvasKitBackendPreference) -> Gra
                 .render_modes
                 .extend([RenderMode::Gpu, RenderMode::Software]);
         }
-        CanvasKitBackendPreference::WebGl | CanvasKitBackendPreference::Graphite => {
+        CanvasKitBackendPreference::WebGl => {
             capabilities.render_modes.insert(RenderMode::Gpu);
         }
+        // The checked-in executor rejects Graphite until its asynchronous Dawn
+        // completion and teardown contract is implemented and qualified.
+        CanvasKitBackendPreference::Graphite => {}
+    }
+    if backend_preference == CanvasKitBackendPreference::Graphite {
+        capabilities.color_formats.insert(ColorFormat::Rgba8Srgb);
+        return capabilities;
     }
     capabilities.display_ops.extend([
         DisplayOpKind::Save,
@@ -808,13 +1121,13 @@ fn canvaskit_capabilities(backend_preference: CanvasKitBackendPreference) -> Gra
         DisplayOpKind::OpacityLayer,
         DisplayOpKind::Translate,
         DisplayOpKind::Transform,
-        DisplayOpKind::CachedScene,
         DisplayOpKind::BackdropFilter,
         DisplayOpKind::DrawRect,
         DisplayOpKind::DrawPath,
     ]);
     capabilities.transform_support = TransformSupport::Affine2d;
     capabilities.color_formats.insert(ColorFormat::Rgba8Srgb);
+    capabilities.surface_loss_recovery = true;
     capabilities
 }
 
