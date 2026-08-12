@@ -201,7 +201,7 @@ impl<'w> WinitPresenter<'w> {
             )
         ))]
         if let Some(presenter) = self.direct_ganesh.as_ref() {
-            return presenter.capabilities().clone();
+            return winit_skia_ganesh_capabilities(presenter.capabilities());
         }
         self.state
             .as_ref()

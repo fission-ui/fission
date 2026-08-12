@@ -47,6 +47,25 @@ pub(crate) fn winit_skia_raster_capabilities(
     capabilities
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn winit_skia_ganesh_capabilities(
+    capabilities: &GraphicsCapabilities,
+) -> GraphicsCapabilities {
+    let mut capabilities = capabilities.clone();
+    capabilities.identity.name = "winit-skia".to_string();
+    capabilities.identity.profile = "native-ganesh-host-composited".to_string();
+    // The standalone Ganesh backend deliberately refuses DrawSurface. Winit
+    // validates placement, removes or replaces each DrawSurface before Skia
+    // compilation, then publishes the native views only after Ganesh presents
+    // successfully. DirectTarget and GpuImage remain unclaimed until native
+    // Skia interoperability has its own synchronization contract.
+    capabilities.display_ops.insert(DisplayOpKind::DrawSurface);
+    capabilities
+        .external_surface_transports
+        .insert(ExternalSurfaceTransport::NativeView);
+    capabilities
+}
+
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn winit_canvaskit_capabilities(
     capabilities: &GraphicsCapabilities,
@@ -133,5 +152,24 @@ mod tests {
         assert!(host.supports_external_surface_transport(ExternalSurfaceTransport::NativeView));
         assert!(host.supports_image_source(fission_render::capabilities::ImageSourceKind::Memory));
         assert!(!host.supports_image_source(fission_render::capabilities::ImageSourceKind::File));
+    }
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn ganesh_host_profile_adds_native_views_without_claiming_direct_target_interop() {
+        let mut backend = GraphicsCapabilities::empty(
+            fission_render::capabilities::BackendIdentity::new("skia", "test", "ganesh"),
+        );
+        backend.display_ops.insert(DisplayOpKind::DrawRect);
+
+        let host = winit_skia_ganesh_capabilities(&backend);
+
+        assert!(host.supports_display_op(DisplayOpKind::DrawRect));
+        assert!(host.supports_display_op(DisplayOpKind::DrawSurface));
+        assert!(host.supports_external_surface_transport(ExternalSurfaceTransport::NativeView));
+        assert!(!host.supports_external_surface_transport(ExternalSurfaceTransport::DirectTarget));
+        assert!(!host.supports_external_surface_transport(ExternalSurfaceTransport::GpuImage));
+        assert!(!backend.supports_display_op(DisplayOpKind::DrawSurface));
+        assert!(backend.external_surface_transports.is_empty());
     }
 }

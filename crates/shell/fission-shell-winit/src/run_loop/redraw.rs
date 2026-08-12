@@ -1039,18 +1039,10 @@ where
                         )
                     ))]
                     if self.presenter.has_direct_ganesh() {
-                        if submission.has_external_surfaces() || {
-                            #[cfg(feature = "three-d")]
-                            {
-                                !submission.direct_target_three_d().is_empty()
-                            }
-                            #[cfg(not(feature = "three-d"))]
-                            {
-                                false
-                            }
-                        } {
+                        #[cfg(feature = "three-d")]
+                        if !submission.direct_target_three_d().is_empty() {
                             eprintln!(
-                                "fission-shell-winit: native-skia-ganesh does not support external surfaces or 3D composition"
+                                "fission-shell-winit: native-skia-ganesh does not support DirectTarget 3D composition"
                             );
                             diag::end_frame(diag::FrameStats::default());
                             return;
@@ -1059,14 +1051,19 @@ where
                             .pipeline
                             .retained_scene()
                             .expect("retained render scene missing before Ganesh render");
-                        let frame = submission
-                            .interactive_frame(retained_scene)
-                            .with_clear_color(fission_render::Color {
-                                r: self.env.theme.tokens.colors.background.r,
-                                g: self.env.theme.tokens.colors.background.g,
-                                b: self.env.theme.tokens.colors.background.b,
-                                a: self.env.theme.tokens.colors.background.a,
-                            });
+                        let host_frame = submission
+                            .has_external_surfaces()
+                            .then(|| submission.host_composited_frame(retained_scene));
+                        let frame = host_frame.as_ref().map_or_else(
+                            || submission.interactive_frame(retained_scene),
+                            |frame| frame.interactive_frame(),
+                        );
+                        let frame = frame.with_clear_color(fission_render::Color {
+                            r: self.env.theme.tokens.colors.background.r,
+                            g: self.env.theme.tokens.colors.background.g,
+                            b: self.env.theme.tokens.colors.background.b,
+                            a: self.env.theme.tokens.colors.background.a,
+                        });
                         let capture_ready = !self.pending_capture_settle || resize_settled;
                         let capture_requested = capture_ready
                             && self
@@ -1083,11 +1080,39 @@ where
                                     window.pre_present_notify()
                                 });
                             });
-                        let capture = match result {
+                        self.video_backend.set_scale_factor(scale_factor);
+                        let video_backend = Arc::clone(&self.video_backend);
+                        let web_backend = &self.web_backend;
+                        let native_surface_handlers = &mut self.native_surface_handlers;
+                        let capture = match self.frame_submission.commit_after_presentation(
+                            &submission,
+                            result,
+                            |frames| {
+                                video_backend.present_surfaces(frames.video());
+                                web_backend.present_surfaces(frames.web());
+                                native_surface_handlers.present_surfaces(frames.native());
+                            },
+                        ) {
                             Ok(capture) => capture,
-                            Err(error) => {
+                            Err(
+                                crate::frame_submission::PresentedFrameCommitError::Presentation(
+                                    error,
+                                ),
+                            ) => {
                                 eprintln!(
                                     "fission-shell-winit: direct Ganesh frame {} failed: {error}",
+                                    submission.metadata().frame_id.0,
+                                );
+                                diag::end_frame(diag::FrameStats::default());
+                                return;
+                            }
+                            Err(
+                                crate::frame_submission::PresentedFrameCommitError::Publication(
+                                    error,
+                                ),
+                            ) => {
+                                eprintln!(
+                                    "fission-shell-winit: presented Ganesh frame {} could not publish external surfaces: {error}",
                                     submission.metadata().frame_id.0,
                                 );
                                 diag::end_frame(diag::FrameStats::default());

@@ -96,7 +96,7 @@ mod frame_submission;
 #[cfg(target_arch = "wasm32")]
 use frame_submission::winit_canvaskit_capabilities;
 #[cfg(not(target_arch = "wasm32"))]
-use frame_submission::winit_skia_raster_capabilities;
+use frame_submission::{winit_skia_ganesh_capabilities, winit_skia_raster_capabilities};
 use frame_submission::{
     winit_vello_capabilities, FrameSubmission, FrameSubmissionError, FrameSubmissionState,
     SurfacePresenterCapabilities,

@@ -34,9 +34,9 @@ mod software;
 
 #[cfg(target_arch = "wasm32")]
 pub(super) use capabilities::winit_canvaskit_capabilities;
-#[cfg(not(target_arch = "wasm32"))]
-pub(super) use capabilities::winit_skia_raster_capabilities;
 pub(super) use capabilities::winit_vello_capabilities;
+#[cfg(not(target_arch = "wasm32"))]
+pub(super) use capabilities::{winit_skia_ganesh_capabilities, winit_skia_raster_capabilities};
 pub(crate) use error::FrameSubmissionError;
 use error::{PlatformSurfaceSemantic, SurfaceOrderingIssue};
 
@@ -313,6 +313,12 @@ pub(super) struct FrameSubmissionState {
     resources: FrameResourceRegistry,
 }
 
+#[derive(Debug)]
+pub(super) enum PresentedFrameCommitError<E> {
+    Presentation(E),
+    Publication(FrameSubmissionError),
+}
+
 impl Default for FrameSubmissionState {
     fn default() -> Self {
         Self {
@@ -355,6 +361,22 @@ impl FrameSubmissionState {
         publish(&submission.staged_surfaces);
         self.last_committed_frame_id = Some(submission.metadata.frame_id);
         Ok(())
+    }
+
+    /// Publishes host-owned surfaces only after the graphics presenter has
+    /// committed the matching frame. This ordering keeps a failed renderer
+    /// frame from moving video, web, or custom native views ahead of the 2D
+    /// content that should surround them.
+    pub(super) fn commit_after_presentation<T, E>(
+        &mut self,
+        submission: &FrameSubmission,
+        presentation: Result<T, E>,
+        publish: impl FnOnce(&StagedSurfaceFrames),
+    ) -> Result<T, PresentedFrameCommitError<E>> {
+        let presented = presentation.map_err(PresentedFrameCommitError::Presentation)?;
+        self.commit(submission, publish)
+            .map_err(PresentedFrameCommitError::Publication)?;
+        Ok(presented)
     }
 
     #[cfg(test)]
@@ -1060,6 +1082,8 @@ mod tests {
     use placement::{Affine2d, ClipRegion};
     use raw_window_handle::{RawWindowHandle, WindowHandle};
 
+    mod commit_tests;
+
     struct ClaimAllNativeViews;
 
     impl NativeSurfaceHandler for ClaimAllNativeViews {
@@ -1509,99 +1533,6 @@ mod tests {
         assert!(second.metadata().semantics_epoch.0 > first.metadata().semantics_epoch.0);
         assert_eq!(first.resources().epoch(), first.metadata().resource_epoch);
         assert_eq!(second.resources().epoch(), second.metadata().resource_epoch);
-    }
-
-    #[test]
-    fn failed_frame_keeps_last_commit_and_next_commit_uses_retained_scroll_geometry_once() {
-        use std::cell::RefCell;
-
-        let video_id = WidgetId::explicit("commit.video");
-        let mut ir = CoreIR::new();
-        let slot = add_embed(
-            &mut ir,
-            WidgetId::derived(3, &[1]),
-            video_id,
-            EmbedKind::Video,
-        );
-        let initial_scene = scene_with_slots(&[slot]);
-        let producer = video_frame(video_id, 41);
-        let native_views = native_view_registry();
-        let mut state = FrameSubmissionState::default();
-        let initial = state
-            .prepare(
-                &initial_scene,
-                &ir,
-                &[producer],
-                &[],
-                &[],
-                &native_views,
-                SurfacePresenterCapabilities::fully_capable(),
-                LayoutSize::new(300.0, 200.0),
-                PhysicalSize::new(300, 200),
-                1.0,
-            )
-            .unwrap();
-        let published = RefCell::new(Vec::new());
-        state
-            .commit(&initial, |frames| {
-                published.borrow_mut().push(frames.video()[0].rect);
-            })
-            .unwrap();
-
-        let draw_rect = LayoutRect::new(50.0, 60.0, 80.0, 70.0);
-        let mut list = DisplayList::new(draw_rect);
-        list.push(DisplayOp::DrawSurface {
-            rect: draw_rect,
-            surface_id: slot.0,
-            position: 0,
-            bounds: draw_rect,
-            node_id: None,
-        });
-        let mut translated = fission_render::RenderLayer::new(draw_rect);
-        translated.style.transform = Some(translation_matrix(-25.0, -40.0));
-        translated.children.push(RenderNode::Paint(list));
-        let mut clipped = fission_render::RenderLayer::new(LayoutRect::new(0.0, 0.0, 100.0, 100.0));
-        clipped.style.clip = Some(LayerClip::Rect(clipped.bounds));
-        clipped.children.push(RenderNode::Layer(translated));
-        let mut scrolled_scene = RenderScene::new(LayoutRect::new(0.0, 0.0, 300.0, 200.0));
-        scrolled_scene.roots.push(RenderNode::Layer(clipped));
-        let next = state
-            .prepare(
-                &scrolled_scene,
-                &ir,
-                &[producer],
-                &[],
-                &[],
-                &native_views,
-                SurfacePresenterCapabilities::fully_capable(),
-                LayoutSize::new(300.0, 200.0),
-                PhysicalSize::new(300, 200),
-                1.0,
-            )
-            .unwrap();
-
-        let rejecting = GraphicsCapabilities::empty(BackendIdentity::new("rejecting", "1", "test"));
-        assert!(next.validate_for(&scrolled_scene, &rejecting).is_err());
-        assert_eq!(
-            state.last_committed_frame_id(),
-            Some(initial.metadata().frame_id)
-        );
-        assert_eq!(published.borrow().len(), 1);
-
-        state
-            .commit(&next, |frames| {
-                let frame = frames.video()[0];
-                assert_eq!(frame.rect, LayoutRect::new(25.0, 20.0, 80.0, 70.0));
-                assert_eq!(frame.visible_rect, LayoutRect::new(25.0, 20.0, 75.0, 70.0));
-                published.borrow_mut().push(frame.rect);
-            })
-            .unwrap();
-        let publish_count = published.borrow().len();
-        assert!(matches!(
-            state.commit(&next, |_| panic!("duplicate commit published twice")),
-            Err(FrameSubmissionError::NonMonotonicCommit { .. })
-        ));
-        assert_eq!(published.borrow().len(), publish_count);
     }
 
     #[test]
