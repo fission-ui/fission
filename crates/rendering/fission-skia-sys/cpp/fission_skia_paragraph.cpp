@@ -253,6 +253,36 @@ bool valid_text_range(
            utf16_for_utf8[end] != std::numeric_limits<size_t>::max();
 }
 
+bool utf8_offset_for_utf16(
+    const std::vector<DecodedScalar>& scalars,
+    size_t utf16_offset,
+    size_t text_length,
+    size_t* output) {
+    if (output == nullptr) return false;
+    if (utf16_offset == 0) {
+        *output = 0;
+        return true;
+    }
+    for (const auto& scalar : scalars) {
+        if (scalar.utf16_start == utf16_offset) {
+            *output = scalar.start;
+            return true;
+        }
+        if (scalar.utf16_end == utf16_offset) {
+            *output = scalar.end;
+            return true;
+        }
+        if (scalar.utf16_start < utf16_offset && utf16_offset < scalar.utf16_end) {
+            return false;
+        }
+    }
+    if (scalars.empty() && utf16_offset == 0) {
+        *output = text_length;
+        return true;
+    }
+    return false;
+}
+
 bool valid_string_slice(
     const fission_skia_utf8_slice_t& value,
     bool permit_empty,
@@ -780,10 +810,22 @@ bool build_geometry(
     const uint32_t base_direction = output_direction(resolve_direction(request, scalars));
     double previous_height = 0.0;
     for (const auto& line : metrics) {
+        // Current SkParagraph LineMetrics indices are UTF-16 even though
+        // shaped-cluster APIs and getLineNumberAt use UTF-8 TextIndex values.
+        // Fission's paragraph ABI declares one index space for every record,
+        // so normalize line ranges at the bridge boundary.
+        size_t line_start = 0;
+        size_t line_end = 0;
+        if (!utf8_offset_for_utf16(scalars, line.fStartIndex, request.text.length,
+                                   &line_start) ||
+            !utf8_offset_for_utf16(scalars, line.fEndIncludingNewline,
+                                   request.text.length, &line_end) ||
+            line_start > line_end) {
+            return false;
+        }
         const double line_height = std::max(0.0, line.fHeight - previous_height);
         output->lines.push_back({
-            {static_cast<uint64_t>(line.fStartIndex),
-             static_cast<uint64_t>(line.fEndIncludingNewline)},
+            {static_cast<uint64_t>(line_start), static_cast<uint64_t>(line_end)},
             {static_cast<float>(line.fLeft), static_cast<float>(previous_height),
              static_cast<float>(std::max(0.0, line.fWidth)),
              static_cast<float>(line_height)},
