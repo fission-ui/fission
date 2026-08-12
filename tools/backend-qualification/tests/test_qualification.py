@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import importlib.util
 from pathlib import Path
 import tempfile
@@ -39,11 +40,15 @@ class QualificationTests(unittest.TestCase):
         for target in manifest["targets"]:
             for profile in manifest["profiles"]:
                 key = qualification.pair_key(target["id"], profile["id"])
+                artifact_id = f"artifact-{target['id']}-{profile['id']}"
                 manifest["identities"][key].update(
                     {
                         "build_id": f"build-{target['id']}-{profile['id']}",
                         "toolchain_id": f"toolchain-{target['id']}",
-                        "artifact_id": f"artifact-{target['id']}-{profile['id']}",
+                        "artifact_id": artifact_id,
+                        "artifact_sha256": hashlib.sha256(
+                            artifact_id.encode("utf-8")
+                        ).hexdigest(),
                     }
                 )
         return manifest
@@ -116,6 +121,7 @@ class QualificationTests(unittest.TestCase):
                 "build_id": identity["build_id"],
                 "toolchain_id": identity["toolchain_id"],
                 "artifact_id": identity["artifact_id"],
+                "artifact_sha256": identity["artifact_sha256"],
             },
             "workflows": workflows,
             "size_bytes": sizes,
@@ -148,6 +154,12 @@ class QualificationTests(unittest.TestCase):
             {"Chromium", "Firefox", "WebKit"},
         )
         self.assertTrue(all(value is None for value in manifest["budgets"].values()))
+        self.assertTrue(
+            all(
+                identity["artifact_sha256"] is None
+                for identity in manifest["identities"].values()
+            )
+        )
         standalone = next(
             value for value in manifest["profiles"] if value["id"] == "standalone-software"
         )
@@ -200,6 +212,7 @@ class QualificationTests(unittest.TestCase):
                 "missing-environment",
                 "missing-workload-input",
                 "missing-frozen-identity",
+                "missing-artifact-digest",
                 "missing-budget",
             },
             {blocker["code"] for blocker in draft["blockers"]},
@@ -336,6 +349,7 @@ class QualificationTests(unittest.TestCase):
         run["identity"]["build_id"] = "different-build"
         run["identity"]["toolchain_id"] = "different-toolchain"
         run["identity"]["artifact_id"] = "different-artifact"
+        run["identity"]["artifact_sha256"] = "f" * 64
         report = qualification.build_report(manifest, [run])
         mismatches = [
             value
@@ -343,8 +357,49 @@ class QualificationTests(unittest.TestCase):
             if value["scope"] == "macos-aarch64::skia-only"
             and value["code"] == "identity-mismatch"
         ]
-        self.assertEqual(len(mismatches), 4)
+        self.assertEqual(len(mismatches), 5)
         self.assertFalse(report["qualified"])
+
+    def test_artifact_digest_requires_exact_lowercase_sha256(self) -> None:
+        for digest in ("a" * 63, "A" * 64, "g" * 64, "sha256:" + "a" * 64):
+            with self.subTest(digest=digest):
+                manifest = self.complete_manifest()
+                key = qualification.pair_key("linux-x86_64-gnu", "skia-only")
+                manifest["identities"][key]["artifact_sha256"] = digest
+                with self.assertRaisesRegex(
+                    qualification.QualificationError,
+                    "exactly 64 lowercase hexadecimal characters",
+                ):
+                    qualification.validate_manifest(manifest)
+
+    def test_evidence_cannot_omit_or_malform_artifact_digest(self) -> None:
+        manifest = self.complete_manifest()
+        omitted = self.run_evidence(manifest, "linux-x86_64-gnu", "skia-only")
+        del omitted["identity"]["artifact_sha256"]
+        omitted_report = qualification.build_report(manifest, [omitted])
+        self.assertIn(
+            "invalid-identity",
+            {
+                value["code"]
+                for value in omitted_report["issues"]
+                if value["scope"] == "linux-x86_64-gnu::skia-only"
+            },
+        )
+        for digest in (None, "A" * 64, "a" * 63):
+            with self.subTest(digest=digest):
+                run = self.run_evidence(manifest, "linux-x86_64-gnu", "skia-only")
+                run["identity"]["artifact_sha256"] = digest
+                report = qualification.build_report(manifest, [run])
+                pair_issues = [
+                    value
+                    for value in report["issues"]
+                    if value["scope"] == "linux-x86_64-gnu::skia-only"
+                ]
+                self.assertIn(
+                    "invalid-artifact-digest",
+                    {value["code"] for value in pair_issues},
+                )
+                self.assertFalse(report["qualified"])
 
     def test_complete_passing_evidence_is_the_only_qualified_path(self) -> None:
         manifest = self.complete_manifest()
@@ -355,6 +410,13 @@ class QualificationTests(unittest.TestCase):
         self.assertIn("Overall: **QUALIFIED**", qualification.markdown_report(report))
         native = next(value for value in report["comparisons"] if value["target_id"] == "linux-x86_64-gnu")
         web = next(value for value in report["comparisons"] if value["target_id"] == "web-chromium")
+        self.assertEqual(
+            native["identity"]["artifact_sha256"],
+            manifest["identities"][
+                qualification.pair_key(native["target_id"], native["profile_id"])
+            ]["artifact_sha256"],
+        )
+        self.assertIn(native["identity"]["artifact_sha256"], qualification.markdown_report(report))
         self.assertEqual((native["size_bytes"]["native_raw"], native["size_bytes"]["web_raw"]), (80, None))
         self.assertEqual((web["size_bytes"]["native_raw"], web["size_bytes"]["web_raw"]), (None, 80))
 

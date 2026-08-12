@@ -15,9 +15,10 @@ import tempfile
 from typing import Any, Iterable, Mapping, Sequence
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 MATRIX_REVISION = "rfc-multi-backend-phase-0-v1"
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:+/-]*$")
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 PERCENTILES = ("p50", "p95", "p99")
 LATENCIES = ("startup_ms", "frame_ms", "input_ms", "recovery_ms")
 MEMORY = ("cold_bytes", "warm_bytes", "peak_bytes", "gpu_bytes")
@@ -209,6 +210,12 @@ def require_string(value: Any, context: str) -> str:
     return value
 
 
+def require_sha256(value: Any, context: str) -> str:
+    if not isinstance(value, str) or not SHA256_RE.fullmatch(value):
+        raise QualificationError(f"{context} must be exactly 64 lowercase hexadecimal characters")
+    return value
+
+
 def require_exact_fields(value: Mapping[str, Any], fields: set[str], context: str) -> None:
     if set(value) != fields:
         raise QualificationError(
@@ -273,6 +280,7 @@ def manifest_template() -> dict[str, Any]:
                 "build_id": None,
                 "toolchain_id": None,
                 "artifact_id": None,
+                "artifact_sha256": None,
             }
             for target in targets
             for profile in profiles
@@ -398,7 +406,13 @@ def validate_manifest(raw: Any) -> dict[str, Any]:
             identity = require_object(identities[key], f"identities.{key}")
             require_exact_fields(
                 identity,
-                {"backend_ids", "build_id", "toolchain_id", "artifact_id"},
+                {
+                    "backend_ids",
+                    "build_id",
+                    "toolchain_id",
+                    "artifact_id",
+                    "artifact_sha256",
+                },
                 f"identities.{key}",
             )
             if identity.get("backend_ids") != profile["backend_ids"]:
@@ -406,6 +420,9 @@ def validate_manifest(raw: Any) -> dict[str, Any]:
             for field in ("build_id", "toolchain_id", "artifact_id"):
                 if identity.get(field) is not None:
                     require_string(identity[field], f"identities.{key}.{field}")
+            artifact_sha256 = identity.get("artifact_sha256")
+            if artifact_sha256 is not None:
+                require_sha256(artifact_sha256, f"identities.{key}.artifact_sha256")
 
     budgets = require_object(manifest.get("budgets"), "budgets")
     if set(budgets) != set(targets):
@@ -512,6 +529,13 @@ def manifest_readiness_issues(manifest_raw: Any) -> list[dict[str, str]]:
                     "missing-frozen-identity",
                     f"{field} must be populated before qualification evidence is collected",
                 )
+        if identity["artifact_sha256"] is None:
+            issue(
+                issues,
+                f"identities.{key}",
+                "missing-artifact-digest",
+                "artifact_sha256 must bind qualification evidence to the exact artifact bytes",
+            )
     for target_id, budget in manifest["budgets"].items():
         if budget is None:
             issue(
@@ -589,6 +613,13 @@ def expected_ids(
             scope,
             "missing-frozen-identity",
             "manifest has no frozen " + ", ".join(missing),
+        )
+    if expected.get("artifact_sha256") is None:
+        issue(
+            issues,
+            scope,
+            "missing-artifact-digest",
+            "manifest has no frozen artifact_sha256",
         )
     return expected
 
@@ -774,6 +805,7 @@ def evaluate_run(
             "build_id": frozen_identity["build_id"],
             "toolchain_id": frozen_identity["toolchain_id"],
             "artifact_id": frozen_identity["artifact_id"],
+            "artifact_sha256": frozen_identity["artifact_sha256"],
         },
         "qualified": False,
         "workflows": {name: None for name in WORKFLOWS},
@@ -836,6 +868,7 @@ def evaluate_run(
         "build_id",
         "toolchain_id",
         "artifact_id",
+        "artifact_sha256",
     }
     if not isinstance(identity, dict) or set(identity) != identity_fields:
         issue(issues, scope, "invalid-identity", "run identity has unknown or missing fields")
@@ -858,6 +891,22 @@ def evaluate_run(
         frozen = expected_identity.get(field)
         if frozen is not None and identity.get(field) != frozen:
             issue(issues, scope, "identity-mismatch", f"{field} differs from the frozen identity")
+    artifact_sha256 = identity.get("artifact_sha256")
+    if not isinstance(artifact_sha256, str) or not SHA256_RE.fullmatch(artifact_sha256):
+        issue(
+            issues,
+            scope,
+            "invalid-artifact-digest",
+            "artifact_sha256 must be exactly 64 lowercase hexadecimal characters",
+        )
+    frozen_sha256 = expected_identity.get("artifact_sha256")
+    if frozen_sha256 is not None and artifact_sha256 != frozen_sha256:
+        issue(
+            issues,
+            scope,
+            "identity-mismatch",
+            "artifact_sha256 differs from the frozen identity",
+        )
 
     workflows = run.get("workflows")
     if not isinstance(workflows, dict) or set(workflows) != set(WORKFLOWS):
@@ -1031,9 +1080,9 @@ def markdown_report(report: Mapping[str, Any]) -> str:
         f"Evidence: {report['summary']['received_runs']}/{report['summary']['required_runs']} runs  ",
         f"Issues: {report['summary']['issue_count']}",
         "",
-        "| Target | Profile | Run | Startup p95 | Frame p95 | Input p95 | "
+        "| Target | Profile | Run | Artifact SHA-256 | Startup p95 | Frame p95 | Input p95 | "
         "Recovery p95 | Peak bytes | GPU bytes | Raw bytes | Compressed bytes | Result |",
-        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
+        "|---|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---|",
     ]
     for comparison in report["comparisons"]:
         aggregate = comparison["aggregate"]
@@ -1059,6 +1108,7 @@ def markdown_report(report: Mapping[str, Any]) -> str:
                     comparison["target_id"],
                     comparison["profile_id"],
                     comparison["run_id"] or "—",
+                    comparison["identity"]["artifact_sha256"] or "—",
                     p95("startup_ms"),
                     p95("frame_ms"),
                     p95("input_ms"),

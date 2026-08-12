@@ -7,10 +7,10 @@ values and real run evidence are supplied.
 
 `qualification-manifest.json` is the checked-in matrix authority. Its required
 target, browser, profile, and workload axes are frozen, but its environment,
-input, build, toolchain, artifact, and budget values are deliberately null until
-the corresponding baselines and product ceilings have been reviewed. It is
-therefore a checked-in qualification blocker, not a production-qualification
-claim.
+input, build, toolchain, artifact ID, artifact SHA-256, and budget values are
+deliberately null until the corresponding baselines and product ceilings have
+been reviewed. It is therefore a checked-in qualification blocker, not a
+production-qualification claim.
 
 Generate the complete minimum matrix:
 
@@ -37,7 +37,8 @@ Before collecting evidence, populate and review:
 - every target's exact device/driver `environment_id`;
 - every workload's input ID, binding the application/scene, fonts, assets, and
   benchmark content used by every backend;
-- every target/profile build, toolchain, and artifact ID;
+- every target/profile build, toolchain, artifact ID, and exact artifact-byte
+  SHA-256;
 - every target-specific numeric budget.
 
 No default numbers are supplied. A missing value remains an explicit blocker.
@@ -63,7 +64,7 @@ four memory values, and semantic and visual suite outcomes:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "matrix_revision": "rfc-multi-backend-phase-0-v1",
   "run_id": "run-linux-skia-001",
   "identity": {
@@ -73,7 +74,8 @@ four memory values, and semantic and visual suite outcomes:
     "backend_ids": ["fission-render-skia"],
     "build_id": "build-id",
     "toolchain_id": "toolchain-id",
-    "artifact_id": "artifact-id"
+    "artifact_id": "artifact-id",
+    "artifact_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
   },
   "workflows": {
     "build": {"status": "pass", "evidence_id": "build-log-id"}
@@ -110,7 +112,11 @@ four memory values, and semantic and visual suite outcomes:
 
 The abbreviated example shows field shapes only; zero is not a recommended
 budget or measurement, and a real file must include every workflow and
-workload named by the manifest.
+workload named by the manifest. `artifact_sha256` is exactly 64 lowercase
+hexadecimal characters. It identifies the bytes that were exercised, not merely
+an artifact name or release label, and evidence must match the digest frozen for
+its target/profile cell exactly. A null digest is permitted only in the
+deliberately unready frozen manifest and remains a readiness blocker.
 
 Generate deterministic machine and human reports:
 
