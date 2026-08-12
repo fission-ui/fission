@@ -409,7 +409,10 @@ where
         let window_title = self.title.clone();
         let initial_maximized = self.initial_maximized;
         let web_mount_selector = self.web_mount_selector;
+        #[cfg(not(target_os = "android"))]
         let ime_handler = Arc::new(DesktopImeHandler::default());
+        #[cfg(target_os = "android")]
+        let ime_handler = Arc::new(DesktopImeHandler::with_android_host(android_host));
         self.runtime = self.runtime.with_ime_handler(ime_handler.clone());
 
         #[cfg(not(target_os = "android"))]

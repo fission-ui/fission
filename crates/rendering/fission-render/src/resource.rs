@@ -70,6 +70,7 @@ fn opaque_resource_content_identity(
     let mut request_hasher = blake3::Hasher::new();
     request_hasher.update(b"fission-resource-request-v1\0");
     request_hasher.update(source.stable_identity().as_bytes());
+    let request_fingerprint = request_hasher.finalize().to_hex();
 
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"fission-resource-content-v1\0");
@@ -79,7 +80,7 @@ fn opaque_resource_content_identity(
         hasher.update(name.as_bytes());
     }
     hasher.update(b"\0");
-    hasher.update(request_hasher.finalize().as_bytes());
+    hasher.update(request_fingerprint.as_bytes());
     if let Some(bytes) = resolved_bytes {
         hasher.update(b"\0resolved\0");
         hasher.update(bytes);

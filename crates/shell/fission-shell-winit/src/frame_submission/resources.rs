@@ -228,9 +228,8 @@ impl ResourceAuthority {
         let source = pending.source.clone();
         let authority = self.clone();
         let completion_source = source.clone();
-        let completion = Box::new(move |outcome| {
-            authority.complete(key, ticket, &completion_source, outcome)
-        });
+        let completion =
+            Box::new(move |outcome| authority.complete(key, ticket, &completion_source, outcome));
         if let Err(failure) = self.inner.loader.start(pending.source, completion) {
             self.complete(
                 pending.key,
