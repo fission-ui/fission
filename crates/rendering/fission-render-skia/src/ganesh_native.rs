@@ -164,7 +164,7 @@ impl GaneshApi for NativeGaneshApi {
         bounds: RasterRect,
         frame: &RasterFrame,
     ) -> Result<Option<RecordedPicture>, ApiError> {
-        let frame = native_frame(frame);
+        let frame = native_frame(frame)?;
         RecordedPicture::record(native_rect(bounds), &frame)
             .map(Some)
             .map_err(map_error)
@@ -175,7 +175,7 @@ impl GaneshApi for NativeGaneshApi {
         surface: &mut Self::Surface,
         frame: &RasterFrame,
     ) -> Result<(), ApiError> {
-        let frame = native_frame(frame);
+        let frame = native_frame(frame)?;
         surface.execute_frame(&frame).map_err(map_error)
     }
 

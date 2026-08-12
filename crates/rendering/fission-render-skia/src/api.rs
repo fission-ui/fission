@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
+use fission_ir::op::ImageAlignment;
+use fission_render::resource::ResourceId;
 use fission_render::surface::{MemoryPressure, PhysicalSize};
+use fission_render::ImageFit;
 use fission_skia_sys::{DecodedImage, ParagraphDrawData, RecordedPicture, SvgDocument};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -244,6 +247,16 @@ pub(crate) enum RasterCommand {
         image: DecodedImage,
         source: RasterRect,
         destination: RasterRect,
+    },
+    /// Defers image decode and intrinsic-size placement to the browser-owned
+    /// CanvasKit resource table. The logical Fission resource identifier is
+    /// resolved to a generational wire handle only after the matching resource
+    /// plan has been prepared for this frame.
+    DrawImageResource {
+        resource_id: ResourceId,
+        target: RasterRect,
+        fit: ImageFit,
+        alignment: ImageAlignment,
     },
     /// Pins one immutable parsed SVG document through native frame execution.
     /// Fission paint overrides are lowered to ordinary path commands instead.

@@ -50,7 +50,7 @@ impl SkiaApi for NativeSkiaApi {
         bounds: crate::api::RasterRect,
         frame: &RasterFrame,
     ) -> Result<Option<fission_skia_sys::RecordedPicture>, ApiError> {
-        let frame = native_frame(frame);
+        let frame = native_frame(frame)?;
         fission_skia_sys::RecordedPicture::record(native_rect(bounds), &frame)
             .map(Some)
             .map_err(map_error)
@@ -62,7 +62,7 @@ impl SkiaApi for NativeSkiaApi {
         surface: &mut Self::Surface,
         frame: &RasterFrame,
     ) -> Result<(), ApiError> {
-        let frame = native_frame(frame);
+        let frame = native_frame(frame)?;
         surface.execute_frame(&frame).map_err(map_error)
     }
 
@@ -122,18 +122,18 @@ impl SkiaApi for NativeSkiaApi {
     }
 }
 
-pub(crate) fn native_frame(frame: &RasterFrame) -> Frame {
-    Frame::new(
+pub(crate) fn native_frame(frame: &RasterFrame) -> Result<Frame, ApiError> {
+    Ok(Frame::new(
         frame
             .commands
             .iter()
             .map(native_command)
-            .collect::<Vec<_>>(),
-    )
+            .collect::<Result<Vec<_>, _>>()?,
+    ))
 }
 
-fn native_command(command: &RasterCommand) -> FrameOp {
-    match command {
+fn native_command(command: &RasterCommand) -> Result<FrameOp, ApiError> {
+    Ok(match command {
         RasterCommand::Clear(color) => FrameOp::Clear(native_color(*color)),
         RasterCommand::Save => FrameOp::Save,
         RasterCommand::Restore => FrameOp::Restore,
@@ -212,6 +212,14 @@ fn native_command(command: &RasterCommand) -> FrameOp {
             destination: native_rect(*destination),
             sampling: ImageSampling::Linear,
         },
+        RasterCommand::DrawImageResource { .. } => {
+            return Err(ApiError::new(
+                ApiErrorKind::Unsupported,
+                "web-image-resource-on-native",
+                "native_frame",
+                "a browser-owned image resource escaped into native Skia execution",
+            ))
+        }
         RasterCommand::DrawSvg {
             document,
             destination,
@@ -222,7 +230,7 @@ fn native_command(command: &RasterCommand) -> FrameOp {
         RasterCommand::DrawPicture { picture } => FrameOp::DrawPicture {
             picture: picture.clone(),
         },
-    }
+    })
 }
 
 fn native_color(color: crate::api::RasterColor) -> Color {
@@ -387,11 +395,11 @@ mod tests {
 
         assert_eq!(
             native_command(&command),
-            FrameOp::BackdropBlur {
+            Ok(FrameOp::BackdropBlur {
                 bounds: Rect::new(2.0, 4.0, 20.0, 32.0),
                 corner_radius: 6.0,
                 sigma: 8.0,
-            }
+            })
         );
     }
 
@@ -412,10 +420,10 @@ mod tests {
                 document: document.clone(),
                 destination,
             }),
-            FrameOp::DrawSvg {
+            Ok(FrameOp::DrawSvg {
                 document,
                 destination: Rect::new(2.0, 4.0, 20.0, 10.0),
-            }
+            })
         );
     }
 }

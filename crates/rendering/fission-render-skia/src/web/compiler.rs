@@ -1,8 +1,10 @@
+use fission_render::resource::{ResourceId, ResourceSnapshot};
 use fission_render::{Color, RenderScene};
+use fission_skia_sys::web::ResourceHandle;
 
 use super::convert::web_command;
 use super::WebCompileError;
-use crate::compiler::compile_scene;
+use crate::compiler::{compile_scene, compile_scene_for_web, CompiledRasterFrame};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct CompiledWebFrame {
@@ -24,11 +26,31 @@ pub(crate) fn compile_web_scene(
     clear_color: Color,
 ) -> Result<CompiledWebFrame, WebCompileError> {
     let compiled = compile_scene(scene, scale_factor, clear_color)?;
+    encode_web_frame(compiled, &|_| None)
+}
+
+/// Compiles resource-bearing Web frames against the exact transactional
+/// CanvasKit handle table selected by the driver for this submission.
+pub(crate) fn compile_web_scene_with_resources(
+    scene: &RenderScene,
+    scale_factor: f64,
+    clear_color: Color,
+    resources: &ResourceSnapshot,
+    resolve_resource: &dyn Fn(ResourceId) -> Option<ResourceHandle>,
+) -> Result<CompiledWebFrame, WebCompileError> {
+    let compiled = compile_scene_for_web(scene, scale_factor, clear_color, resources)?;
+    encode_web_frame(compiled, resolve_resource)
+}
+
+fn encode_web_frame(
+    compiled: CompiledRasterFrame,
+    resolve_resource: &dyn Fn(ResourceId) -> Option<ResourceHandle>,
+) -> Result<CompiledWebFrame, WebCompileError> {
     let commands = compiled
         .frame
         .commands
         .iter()
-        .map(web_command)
+        .map(|command| web_command(command, resolve_resource))
         .collect::<Result<Vec<_>, _>>()?;
     let encoded_commands = fission_skia_sys::web::encode_commands(&commands)?;
     Ok(CompiledWebFrame {

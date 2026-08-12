@@ -1,7 +1,10 @@
-use fission_skia_sys::web::WebCommand;
+use fission_ir::op::ImageAlignment;
+use fission_render::resource::ResourceId;
+use fission_render::ImageFit;
+use fission_skia_sys::web::{ResourceHandle, WebCommand, WebImageAlignment, WebImageFit};
 use fission_skia_sys::{
-    Affine, BoxShadow, Color, FillRule, GradientStop, LineCap, LineJoin, Paint, Path, PathCommand,
-    Point, Rect, Stroke,
+    Affine, BoxShadow, Color, FillRule, GradientStop, ImageSampling, LineCap, LineJoin, Paint,
+    Path, PathCommand, Point, Rect, Stroke,
 };
 
 use super::WebCompileError;
@@ -11,7 +14,10 @@ use crate::api::{
     RasterRect, RasterStroke,
 };
 
-pub(super) fn web_command(command: &RasterCommand) -> Result<WebCommand, WebCompileError> {
+pub(super) fn web_command(
+    command: &RasterCommand,
+    resolve_resource: &dyn Fn(ResourceId) -> Option<ResourceHandle>,
+) -> Result<WebCommand, WebCompileError> {
     Ok(match command {
         RasterCommand::Clear(value) => WebCommand::Clear(color(*value)),
         RasterCommand::Save => WebCommand::Save,
@@ -83,6 +89,23 @@ pub(super) fn web_command(command: &RasterCommand) -> Result<WebCommand, WebComp
             return Err(WebCompileError::NativeResource("paragraph"))
         }
         RasterCommand::DrawImage { .. } => return Err(WebCompileError::NativeResource("image")),
+        RasterCommand::DrawImageResource {
+            resource_id,
+            target,
+            fit,
+            alignment,
+        } => WebCommand::DrawImageFit {
+            image: resolve_resource(*resource_id).ok_or(
+                WebCompileError::MissingResourceHandle {
+                    resource_id: *resource_id,
+                    kind: "image",
+                },
+            )?,
+            target: rect(*target)?,
+            fit: image_fit(*fit),
+            alignment: image_alignment(*alignment),
+            sampling: ImageSampling::Linear,
+        },
         RasterCommand::DrawSvg { .. } => {
             return Err(WebCompileError::NativeResource("SVG document"))
         }
@@ -90,6 +113,29 @@ pub(super) fn web_command(command: &RasterCommand) -> Result<WebCommand, WebComp
             return Err(WebCompileError::NativeResource("retained picture"))
         }
     })
+}
+
+fn image_fit(value: ImageFit) -> WebImageFit {
+    match value {
+        ImageFit::Contain => WebImageFit::Contain,
+        ImageFit::Cover => WebImageFit::Cover,
+        ImageFit::Fill => WebImageFit::Fill,
+        ImageFit::None => WebImageFit::None,
+    }
+}
+
+fn image_alignment(value: ImageAlignment) -> WebImageAlignment {
+    match value {
+        ImageAlignment::TopStart => WebImageAlignment::TopStart,
+        ImageAlignment::TopCenter => WebImageAlignment::TopCenter,
+        ImageAlignment::TopEnd => WebImageAlignment::TopEnd,
+        ImageAlignment::CenterStart => WebImageAlignment::CenterStart,
+        ImageAlignment::Center => WebImageAlignment::Center,
+        ImageAlignment::CenterEnd => WebImageAlignment::CenterEnd,
+        ImageAlignment::BottomStart => WebImageAlignment::BottomStart,
+        ImageAlignment::BottomCenter => WebImageAlignment::BottomCenter,
+        ImageAlignment::BottomEnd => WebImageAlignment::BottomEnd,
+    }
 }
 
 fn color(value: RasterColor) -> Color {

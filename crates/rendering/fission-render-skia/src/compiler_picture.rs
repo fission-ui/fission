@@ -174,7 +174,7 @@ impl<'a> Compiler<'a> {
             root_opacity_layers: 0,
             paragraphs: self.paragraphs,
             images: self.images,
-            svg_cache: self.svg_cache,
+            svg: self.svg,
             pictures: self.pictures,
         }
     }
@@ -226,7 +226,7 @@ mod tests {
                 BLACK,
                 None,
                 None,
-                &svg_cache,
+                super::SvgCompilation::Native(&svg_cache),
                 Some(PictureCompilation {
                     cache: &cache,
                     recorder: &api,

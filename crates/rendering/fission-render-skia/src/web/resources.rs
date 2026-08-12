@@ -85,6 +85,15 @@ pub(super) struct ResourcePlan {
     next: ResourceMap,
 }
 
+impl ResourcePlan {
+    /// Resolves against the complete post-commit table represented by this
+    /// plan. Frame compilation must use this view so first-use resources can be
+    /// referenced before the batch Ack is committed locally.
+    pub(super) fn handle(&self, resource_id: ResourceId) -> Option<ResourceHandle> {
+        self.next.handle(resource_id)
+    }
+}
+
 #[derive(Debug, Clone)]
 struct DesiredResource {
     kind: WireResourceKind,
@@ -103,6 +112,14 @@ impl ResourceMap {
 
     pub(super) fn handle(&self, resource_id: ResourceId) -> Option<ResourceHandle> {
         self.live.get(&resource_id).map(|resource| resource.handle)
+    }
+
+    pub(super) fn handle_after(
+        &self,
+        plan: Option<&ResourcePlan>,
+        resource_id: ResourceId,
+    ) -> Option<ResourceHandle> {
+        plan.map_or_else(|| self.handle(resource_id), |plan| plan.handle(resource_id))
     }
 
     /// Build the complete next table without changing committed state.
@@ -303,23 +320,28 @@ fn desired_resources(snapshot: &ResourceSnapshot) -> BTreeMap<ResourceId, Desire
     snapshot
         .iter()
         .filter_map(|(resource_id, entry)| {
-            (entry.status() == ResourceStatus::Ready).then(|| {
-                let bytes = payload_bytes(
-                    entry
-                        .payload()
-                        .expect("a validated ready resource always owns a payload"),
-                );
-                let kind = wire_kind(entry.kind());
-                let content_id = deterministic_content_id(entry, &bytes);
-                (
-                    *resource_id,
-                    DesiredResource {
-                        kind,
-                        content_id,
-                        bytes,
-                    },
-                )
-            })
+            // CanvasKit's Web SVG contract is backend-neutral geometry. Raw
+            // SVG source must never reach the JavaScript resource decoder,
+            // which intentionally rejects it rather than claiming SkSVGDOM.
+            (entry.status() == ResourceStatus::Ready && entry.kind() != &ResourceKind::Svg).then(
+                || {
+                    let bytes = payload_bytes(
+                        entry
+                            .payload()
+                            .expect("a validated ready resource always owns a payload"),
+                    );
+                    let kind = wire_kind(entry.kind());
+                    let content_id = deterministic_content_id(entry, &bytes);
+                    (
+                        *resource_id,
+                        DesiredResource {
+                            kind,
+                            content_id,
+                            bytes,
+                        },
+                    )
+                },
+            )
         })
         .collect()
 }

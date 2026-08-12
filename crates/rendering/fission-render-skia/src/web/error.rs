@@ -1,11 +1,17 @@
 use std::fmt;
 
+use fission_render::resource::ResourceId;
+
 use crate::compiler::CompileError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum WebCompileError {
     Scene(CompileError),
     NativeResource(&'static str),
+    MissingResourceHandle {
+        resource_id: ResourceId,
+        kind: &'static str,
+    },
     InvalidGeometry(&'static str),
     CommandStream(fission_skia_sys::web::CommandStreamError),
 }
@@ -17,6 +23,11 @@ impl fmt::Display for WebCompileError {
             Self::NativeResource(kind) => write!(
                 formatter,
                 "the CanvasKit compiler received a native-only {kind} resource"
+            ),
+            Self::MissingResourceHandle { resource_id, kind } => write!(
+                formatter,
+                "the CanvasKit compiler has no committed or planned {kind} handle for Fission resource {}",
+                resource_id.0
             ),
             Self::InvalidGeometry(field) => {
                 write!(formatter, "the CanvasKit compiler received invalid {field}")

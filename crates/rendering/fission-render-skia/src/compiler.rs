@@ -23,7 +23,8 @@ use crate::paragraph_draw_data::{ParagraphDrawDataError, ParagraphFrameDrawData}
 use crate::picture::SkiaPictureCache;
 use crate::profile::SkiaParagraphDrawDataRegistry;
 use crate::svg::{
-    parse_svg_geometry, place_svg_geometry, validate_svg_bounds, SkiaSvgCache, SvgError,
+    parse_svg_geometry, place_svg_geometry, resolve_svg_resource, validate_svg_bounds,
+    SkiaSvgCache, SvgError,
 };
 
 #[path = "compiler_picture.rs"]
@@ -48,7 +49,7 @@ pub(crate) fn compile_scene(
         clear_color,
         None,
         None,
-        &svg_cache,
+        SvgCompilation::Native(&svg_cache),
         None,
     )
 }
@@ -85,15 +86,38 @@ pub(crate) fn compile_scene_with_paragraphs(
         scale_factor,
         clear_color,
         paragraphs,
-        Some(ImageCompilation {
+        Some(ImageCompilation::Native {
             resources,
             cache: image_cache,
         }),
-        svg_cache,
+        SvgCompilation::Native(svg_cache),
         Some(PictureCompilation {
             cache: picture_cache,
             recorder: picture_recorder,
         }),
+    )
+}
+
+/// Compiles the Web resource path without constructing native Skia objects.
+///
+/// Images retain their authoritative logical resource identity for later
+/// resolution against the transactional CanvasKit resource plan. SVGs use the
+/// backend-neutral geometry path, and picture caching is deliberately disabled
+/// so cached subtrees expand into ordinary commands on Web.
+pub(crate) fn compile_scene_for_web(
+    scene: &RenderScene,
+    scale_factor: f64,
+    clear_color: Color,
+    resources: &ResourceSnapshot,
+) -> Result<CompiledRasterFrame, CompileError> {
+    compile_scene_inner(
+        scene,
+        scale_factor,
+        clear_color,
+        None,
+        Some(ImageCompilation::Web { resources }),
+        SvgCompilation::Web { resources },
+        None,
     )
 }
 
@@ -103,7 +127,7 @@ fn compile_scene_inner<'a>(
     clear_color: Color,
     paragraphs: Option<ParagraphCompilation>,
     images: Option<ImageCompilation<'a>>,
-    svg_cache: &'a SkiaSvgCache,
+    svg: SvgCompilation<'a>,
     pictures: Option<PictureCompilation<'a>>,
 ) -> Result<CompiledRasterFrame, CompileError> {
     let scale_factor = scale_factor as f32;
@@ -122,7 +146,7 @@ fn compile_scene_inner<'a>(
         root_opacity_layers: 0,
         paragraphs: paragraphs.as_ref(),
         images,
-        svg_cache,
+        svg,
         pictures,
     };
     for (root_index, root) in scene.roots.iter().enumerate() {
@@ -149,9 +173,28 @@ struct ParagraphCompilation {
 }
 
 #[derive(Clone, Copy)]
-struct ImageCompilation<'a> {
-    resources: &'a ResourceSnapshot,
-    cache: &'a SkiaImageCache,
+enum ImageCompilation<'a> {
+    Native {
+        resources: &'a ResourceSnapshot,
+        cache: &'a SkiaImageCache,
+    },
+    Web {
+        resources: &'a ResourceSnapshot,
+    },
+}
+
+impl<'a> ImageCompilation<'a> {
+    fn resources(self) -> &'a ResourceSnapshot {
+        match self {
+            Self::Native { resources, .. } | Self::Web { resources } => resources,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum SvgCompilation<'a> {
+    Native(&'a SkiaSvgCache),
+    Web { resources: &'a ResourceSnapshot },
 }
 
 #[derive(Clone, Copy)]
@@ -173,7 +216,7 @@ struct Compiler<'a> {
     root_opacity_layers: usize,
     paragraphs: Option<&'a ParagraphCompilation>,
     images: Option<ImageCompilation<'a>>,
-    svg_cache: &'a SkiaSvgCache,
+    svg: SvgCompilation<'a>,
     pictures: Option<PictureCompilation<'a>>,
 }
 
@@ -490,16 +533,35 @@ impl Compiler<'_> {
             return Ok(());
         }
 
-        if fill.is_none() && stroke.is_none() {
-            let document = self.svg_cache.get_or_parse(content).map_err(|error| {
-                CompileError::new(CompileErrorKind::Svg(error), provenance.clone())
-            })?;
-            self.commands.push(RasterCommand::DrawSvg {
-                document,
-                destination: self.rect(bounds, provenance)?,
-            });
-            return Ok(());
-        }
+        let content = match self.svg {
+            SvgCompilation::Native(cache) if fill.is_none() && stroke.is_none() => {
+                let document = cache.get_or_parse(content).map_err(|error| {
+                    CompileError::new(CompileErrorKind::Svg(error), provenance.clone())
+                })?;
+                self.commands.push(RasterCommand::DrawSvg {
+                    document,
+                    destination: self.rect(bounds, provenance)?,
+                });
+                return Ok(());
+            }
+            SvgCompilation::Native(_) => content,
+            SvgCompilation::Web { resources } => {
+                if fill.is_none() && stroke.is_none() {
+                    return Err(CompileError::new(
+                        CompileErrorKind::Svg(SvgError::NeutralDocumentPaintUnsupported),
+                        provenance.clone(),
+                    ));
+                }
+                let node_id = provenance.node_id.ok_or_else(|| {
+                    CompileError::new(CompileErrorKind::MissingSvgNodeId, provenance.clone())
+                })?;
+                resolve_svg_resource(resources, content, node_id)
+                    .map_err(|error| {
+                        CompileError::new(CompileErrorKind::Svg(error), provenance.clone())
+                    })?
+                    .content
+            }
+        };
 
         let geometry = parse_svg_geometry(content)
             .map_err(|error| CompileError::new(CompileErrorKind::Svg(error), provenance.clone()))?;
@@ -510,6 +572,9 @@ impl Compiler<'_> {
             .iter()
             .map(|path| self.path(path, LayoutPoint::new(0.0, 0.0), provenance))
             .collect::<Result<Vec<_>, _>>()?;
+        // The current neutral SVG profile deliberately requires Fission paint.
+        // Document-owned paint remains on native SkSVGDOM until the neutral
+        // parser can represent it without silently changing colors or strokes.
         let fill = fill
             .map(|fill| self.paint(fill, placement.source_bounds, provenance))
             .transpose()?;
@@ -624,35 +689,47 @@ impl Compiler<'_> {
             CompileError::new(CompileErrorKind::MissingImageResources, provenance.clone())
         })?;
         let resource =
-            resolve_image_resource(images.resources, request, node_id).map_err(|error| {
+            resolve_image_resource(images.resources(), request, node_id).map_err(|error| {
                 CompileError::new(CompileErrorKind::Image(error), provenance.clone())
             })?;
-        let image = images
-            .cache
-            .get_or_decode(&resource.cache_key, resource.encoded)
-            .map_err(|error| {
-                CompileError::new(CompileErrorKind::Image(error), provenance.clone())
-            })?;
-        let Some(placement) = place_image(rect, image.width(), image.height(), fit, alignment)
-        else {
-            return Ok(());
-        };
+        match images {
+            ImageCompilation::Native { cache, .. } => {
+                let image = cache
+                    .get_or_decode(&resource.cache_key, resource.encoded)
+                    .map_err(|error| {
+                        CompileError::new(CompileErrorKind::Image(error), provenance.clone())
+                    })?;
+                let Some(placement) =
+                    place_image(rect, image.width(), image.height(), fit, alignment)
+                else {
+                    return Ok(());
+                };
 
-        self.commands.push(RasterCommand::Save);
-        self.commands.push(RasterCommand::ClipRect {
-            rect: self.rect(placement.clip, provenance)?,
-        });
-        self.commands.push(RasterCommand::DrawImage {
-            source: RasterRect {
-                left: 0.0,
-                top: 0.0,
-                right: image.width() as f32,
-                bottom: image.height() as f32,
-            },
-            destination: self.rect(placement.destination, provenance)?,
-            image,
-        });
-        self.commands.push(RasterCommand::Restore);
+                self.commands.push(RasterCommand::Save);
+                self.commands.push(RasterCommand::ClipRect {
+                    rect: self.rect(placement.clip, provenance)?,
+                });
+                self.commands.push(RasterCommand::DrawImage {
+                    source: RasterRect {
+                        left: 0.0,
+                        top: 0.0,
+                        right: image.width() as f32,
+                        bottom: image.height() as f32,
+                    },
+                    destination: self.rect(placement.destination, provenance)?,
+                    image,
+                });
+                self.commands.push(RasterCommand::Restore);
+            }
+            ImageCompilation::Web { .. } => {
+                self.commands.push(RasterCommand::DrawImageResource {
+                    resource_id: resource.entry.id(),
+                    target: self.rect(rect, provenance)?,
+                    fit,
+                    alignment,
+                });
+            }
+        }
         Ok(())
     }
 
@@ -1177,6 +1254,7 @@ pub(crate) enum CompileErrorKind {
     MissingImageNodeId,
     MissingImageResources,
     Image(ImageError),
+    MissingSvgNodeId,
     Svg(SvgError),
     InvalidOpacity,
     InvalidBackdropBounds,
@@ -1221,6 +1299,8 @@ impl fmt::Display for CompileError {
             CompileErrorKind::MissingImageResources => formatter
                 .write_str("the Skia image frame has no authoritative resource snapshot")?,
             CompileErrorKind::Image(error) => error.fmt(formatter)?,
+            CompileErrorKind::MissingSvgNodeId => formatter
+                .write_str("the Skia SVG operation has no stable requesting-node identity")?,
             CompileErrorKind::Svg(error) => error.fmt(formatter)?,
             CompileErrorKind::InvalidOpacity => {
                 formatter.write_str("the Skia opacity must be finite and in 0..=1")?
@@ -1285,6 +1365,7 @@ impl CompileError {
             CompileErrorKind::MissingImageNodeId => "skia-image-node-id-missing",
             CompileErrorKind::MissingImageResources => "skia-image-resources-missing",
             CompileErrorKind::Image(error) => error.diagnostic_code(),
+            CompileErrorKind::MissingSvgNodeId => "skia-svg-node-id-missing",
             CompileErrorKind::Svg(error) => error.diagnostic_code(),
             CompileErrorKind::InvalidBackdropBounds => "skia-backdrop-bounds-invalid",
             CompileErrorKind::InvalidBackdropBlurSigma => "skia-backdrop-blur-sigma-invalid",
@@ -1295,9 +1376,9 @@ impl CompileError {
 
     pub(crate) fn diagnostic_category(&self) -> DiagnosticCategory {
         match &self.kind {
-            CompileErrorKind::MissingImageNodeId | CompileErrorKind::MissingImageResources => {
-                DiagnosticCategory::Resource
-            }
+            CompileErrorKind::MissingImageNodeId
+            | CompileErrorKind::MissingImageResources
+            | CompileErrorKind::MissingSvgNodeId => DiagnosticCategory::Resource,
             CompileErrorKind::Image(error) => error.diagnostic_category(),
             CompileErrorKind::Svg(error) => error.diagnostic_category(),
             _ => DiagnosticCategory::Capability,

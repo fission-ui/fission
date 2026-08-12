@@ -671,6 +671,14 @@ impl<H: CanvasKitHost> CanvasKitDriver<H> {
                 DiagnosticCategory::Resource,
                 format!("CanvasKit cannot execute native-only {kind} resources"),
             ),
+            WebCompileError::MissingResourceHandle { resource_id, kind } => contract_error(
+                BackendOperation::Render,
+                "canvaskit-resource-handle-missing",
+                DiagnosticCategory::Resource,
+                format!(
+                    "CanvasKit could not resolve {kind} resource {resource_id:?} in the active resource plan"
+                ),
+            ),
             WebCompileError::InvalidGeometry(field) => contract_error(
                 BackendOperation::Render,
                 "canvaskit-geometry-invalid",

@@ -9,8 +9,13 @@ use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+use fission_ir::op::ImageSource;
 use fission_render::diagnostics::{CacheDiagnostics, DiagnosticCategory};
 use fission_render::image_cache_store::ImageCacheStore;
+use fission_render::resource::{
+    resolved_resource_content_identity, unresolved_resource_content_identity, ResourceEntry,
+    ResourceId, ResourceKind, ResourcePayload, ResourceSnapshot, ResourceSource, ResourceStatus,
+};
 use fission_render::{LayoutPoint, LayoutRect};
 use fission_skia_sys::SvgDocument;
 use kurbo::BezPath;
@@ -117,6 +122,12 @@ pub(crate) struct SvgGeometryPlacement {
     pub(crate) scale: f32,
 }
 
+/// Exact SVG source selected from the submitted frame's resource authority.
+pub(crate) struct ResolvedSvgResource<'a> {
+    pub(crate) content: &'a str,
+    pub(crate) entry: &'a ResourceEntry,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SvgError {
     InvalidBounds,
@@ -133,6 +144,35 @@ pub(crate) enum SvgError {
     },
     NoVisibleGeometry,
     GeometryOverflow,
+    NeutralDocumentPaintUnsupported,
+    MissingResource {
+        node_id: fission_ir::WidgetId,
+    },
+    AmbiguousResource {
+        node_id: fission_ir::WidgetId,
+        matches: usize,
+    },
+    ContentIdentityMismatch {
+        resource_id: ResourceId,
+    },
+    UnexpectedKind {
+        resource_id: ResourceId,
+        actual: ResourceKind,
+    },
+    UnexpectedSource {
+        resource_id: ResourceId,
+        actual: ResourceSource,
+    },
+    NotReady {
+        resource_id: ResourceId,
+        status: ResourceStatus,
+    },
+    PayloadIsNotText {
+        resource_id: ResourceId,
+    },
+    PayloadMismatch {
+        resource_id: ResourceId,
+    },
 }
 
 impl SvgError {
@@ -144,16 +184,35 @@ impl SvgError {
             Self::GeometryParse { .. } => "skia-svg-geometry-invalid",
             Self::NoVisibleGeometry => "skia-svg-geometry-empty",
             Self::GeometryOverflow => "skia-svg-geometry-overflow",
+            Self::NeutralDocumentPaintUnsupported => "skia-svg-document-paint-unsupported",
+            Self::MissingResource { .. } => "skia-svg-resource-missing",
+            Self::AmbiguousResource { .. } => "skia-svg-resource-ambiguous",
+            Self::ContentIdentityMismatch { .. } => "skia-svg-resource-identity-mismatch",
+            Self::UnexpectedKind { .. } => "skia-svg-resource-kind-invalid",
+            Self::UnexpectedSource { .. } => "skia-svg-resource-source-invalid",
+            Self::NotReady { .. } => "skia-svg-resource-not-ready",
+            Self::PayloadIsNotText { .. } => "skia-svg-resource-payload-invalid",
+            Self::PayloadMismatch { .. } => "skia-svg-resource-payload-mismatch",
         }
     }
 
     pub(crate) fn diagnostic_category(&self) -> DiagnosticCategory {
         match self {
-            Self::InvalidBounds | Self::GeometryOverflow => DiagnosticCategory::Capability,
+            Self::InvalidBounds
+            | Self::GeometryOverflow
+            | Self::NeutralDocumentPaintUnsupported => DiagnosticCategory::Capability,
             Self::DocumentTooLarge { .. }
             | Self::DocumentParse { .. }
             | Self::GeometryParse { .. }
-            | Self::NoVisibleGeometry => DiagnosticCategory::Resource,
+            | Self::NoVisibleGeometry
+            | Self::MissingResource { .. }
+            | Self::AmbiguousResource { .. }
+            | Self::ContentIdentityMismatch { .. }
+            | Self::UnexpectedKind { .. }
+            | Self::UnexpectedSource { .. }
+            | Self::NotReady { .. }
+            | Self::PayloadIsNotText { .. }
+            | Self::PayloadMismatch { .. } => DiagnosticCategory::Resource,
         }
     }
 }
@@ -183,11 +242,130 @@ impl fmt::Display for SvgError {
             ),
             Self::GeometryOverflow => formatter
                 .write_str("Skia SVG geometry overflows the finite Fission coordinate range"),
+            Self::NeutralDocumentPaintUnsupported => formatter.write_str(
+                "the neutral Web SVG profile requires a Fission fill or stroke override",
+            ),
+            Self::MissingResource { node_id } => write!(
+                formatter,
+                "frame resources contain no SVG requested by node {node_id}"
+            ),
+            Self::AmbiguousResource { node_id, matches } => write!(
+                formatter,
+                "frame resources contain {matches} SVGs requested by node {node_id}"
+            ),
+            Self::ContentIdentityMismatch { resource_id } => write!(
+                formatter,
+                "frame SVG resource {} has a content identity that does not match its source",
+                resource_id.0
+            ),
+            Self::UnexpectedKind {
+                resource_id,
+                actual,
+            } => write!(
+                formatter,
+                "frame resource {} has kind {actual:?}, expected Svg",
+                resource_id.0
+            ),
+            Self::UnexpectedSource {
+                resource_id,
+                actual,
+            } => write!(
+                formatter,
+                "frame SVG resource {} has source {actual:?}, expected Embedded",
+                resource_id.0
+            ),
+            Self::NotReady {
+                resource_id,
+                status,
+            } => write!(
+                formatter,
+                "frame SVG resource {} is {status:?}, expected Ready",
+                resource_id.0
+            ),
+            Self::PayloadIsNotText { resource_id } => write!(
+                formatter,
+                "ready SVG resource {} does not contain UTF-8 text",
+                resource_id.0
+            ),
+            Self::PayloadMismatch { resource_id } => write!(
+                formatter,
+                "frame SVG resource {} does not match the submitted display operation",
+                resource_id.0
+            ),
         }
     }
 }
 
 impl std::error::Error for SvgError {}
+
+/// Resolves an inline SVG against the frame's sole source-data authority.
+pub(crate) fn resolve_svg_resource<'a>(
+    resources: &'a ResourceSnapshot,
+    expected_content: &str,
+    node_id: fission_ir::WidgetId,
+) -> Result<ResolvedSvgResource<'a>, SvgError> {
+    let matches = resources
+        .iter()
+        .map(|(_, entry)| entry)
+        .filter(|entry| entry.provenance().requested_by == Some(node_id))
+        .collect::<Vec<_>>();
+    let entry = match matches.as_slice() {
+        [] => return Err(SvgError::MissingResource { node_id }),
+        [entry] => *entry,
+        entries => {
+            return Err(SvgError::AmbiguousResource {
+                node_id,
+                matches: entries.len(),
+            })
+        }
+    };
+    if entry.kind() != &ResourceKind::Svg {
+        return Err(SvgError::UnexpectedKind {
+            resource_id: entry.id(),
+            actual: entry.kind().clone(),
+        });
+    }
+    if entry.provenance().source != ResourceSource::Embedded {
+        return Err(SvgError::UnexpectedSource {
+            resource_id: entry.id(),
+            actual: entry.provenance().source.clone(),
+        });
+    }
+
+    let source = ImageSource::SvgText {
+        content: expected_content.to_owned(),
+    };
+    if entry.status() != ResourceStatus::Ready {
+        let expected = unresolved_resource_content_identity(&ResourceKind::Svg, &source);
+        if entry.content_identity() != &expected {
+            return Err(SvgError::ContentIdentityMismatch {
+                resource_id: entry.id(),
+            });
+        }
+        return Err(SvgError::NotReady {
+            resource_id: entry.id(),
+            status: entry.status(),
+        });
+    }
+    let Some(ResourcePayload::Text(content)) = entry.payload() else {
+        return Err(SvgError::PayloadIsNotText {
+            resource_id: entry.id(),
+        });
+    };
+    let expected =
+        resolved_resource_content_identity(&ResourceKind::Svg, &source, content.as_bytes());
+    if entry.content_identity() != &expected {
+        return Err(SvgError::ContentIdentityMismatch {
+            resource_id: entry.id(),
+        });
+    }
+    if content != expected_content {
+        return Err(SvgError::PayloadMismatch {
+            resource_id: entry.id(),
+        });
+    }
+    Ok(ResolvedSvgResource { content, entry })
+}
 
 pub(crate) fn validate_svg_bounds(bounds: LayoutRect) -> Result<(), SvgError> {
     let values = [
