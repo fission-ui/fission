@@ -1,0 +1,580 @@
+{
+  "budget_revision": null,
+  "budgets": {
+    "android-aarch64": null,
+    "ios-aarch64": null,
+    "linux-x86_64-gnu": null,
+    "macos-aarch64": null,
+    "web-chromium": null,
+    "web-firefox": null,
+    "web-webkit": null,
+    "windows-x86_64-msvc": null
+  },
+  "environment_ids": {
+    "android-aarch64": null,
+    "ios-aarch64": null,
+    "linux-x86_64-gnu": null,
+    "macos-aarch64": null,
+    "web-chromium": null,
+    "web-firefox": null,
+    "web-webkit": null,
+    "windows-x86_64-msvc": null
+  },
+  "frozen": true,
+  "identities": {
+    "android-aarch64::both-backend-diagnostic": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-skia",
+        "fission-render-vello"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "android-aarch64::skia-only": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-skia"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "android-aarch64::skia-plus-3d": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-skia",
+        "fission-render-wgpu-3d"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "android-aarch64::standalone-software": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-skia"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "android-aarch64::vello-only": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-vello"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "ios-aarch64::both-backend-diagnostic": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-skia",
+        "fission-render-vello"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "ios-aarch64::skia-only": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-skia"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "ios-aarch64::skia-plus-3d": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-skia",
+        "fission-render-wgpu-3d"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "ios-aarch64::standalone-software": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-skia"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "ios-aarch64::vello-only": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-vello"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "linux-x86_64-gnu::both-backend-diagnostic": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-skia",
+        "fission-render-vello"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "linux-x86_64-gnu::skia-only": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-skia"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "linux-x86_64-gnu::skia-plus-3d": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-skia",
+        "fission-render-wgpu-3d"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "linux-x86_64-gnu::standalone-software": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-skia"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "linux-x86_64-gnu::vello-only": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-vello"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "macos-aarch64::both-backend-diagnostic": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-skia",
+        "fission-render-vello"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "macos-aarch64::skia-only": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-skia"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "macos-aarch64::skia-plus-3d": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-skia",
+        "fission-render-wgpu-3d"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "macos-aarch64::standalone-software": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-skia"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "macos-aarch64::vello-only": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-vello"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "web-chromium::both-backend-diagnostic": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-skia",
+        "fission-render-vello"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "web-chromium::skia-only": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-skia"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "web-chromium::skia-plus-3d": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-skia",
+        "fission-render-wgpu-3d"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "web-chromium::standalone-software": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-skia"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "web-chromium::vello-only": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-vello"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "web-firefox::both-backend-diagnostic": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-skia",
+        "fission-render-vello"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "web-firefox::skia-only": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-skia"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "web-firefox::skia-plus-3d": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-skia",
+        "fission-render-wgpu-3d"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "web-firefox::standalone-software": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-skia"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "web-firefox::vello-only": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-vello"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "web-webkit::both-backend-diagnostic": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-skia",
+        "fission-render-vello"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "web-webkit::skia-only": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-skia"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "web-webkit::skia-plus-3d": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-skia",
+        "fission-render-wgpu-3d"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "web-webkit::standalone-software": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-skia"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "web-webkit::vello-only": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-vello"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "windows-x86_64-msvc::both-backend-diagnostic": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-skia",
+        "fission-render-vello"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "windows-x86_64-msvc::skia-only": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-skia"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "windows-x86_64-msvc::skia-plus-3d": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-skia",
+        "fission-render-wgpu-3d"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "windows-x86_64-msvc::standalone-software": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-skia"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    },
+    "windows-x86_64-msvc::vello-only": {
+      "artifact_id": null,
+      "backend_ids": [
+        "fission-render-vello"
+      ],
+      "build_id": null,
+      "toolchain_id": null
+    }
+  },
+  "matrix_revision": "rfc-multi-backend-phase-0-v1",
+  "profiles": [
+    {
+      "backend_ids": [
+        "fission-render-vello"
+      ],
+      "comparison_eligible": true,
+      "id": "vello-only",
+      "single_2d_backend": true
+    },
+    {
+      "backend_ids": [
+        "fission-render-skia"
+      ],
+      "comparison_eligible": true,
+      "id": "skia-only",
+      "single_2d_backend": true
+    },
+    {
+      "backend_ids": [
+        "fission-render-skia",
+        "fission-render-vello"
+      ],
+      "comparison_eligible": false,
+      "id": "both-backend-diagnostic",
+      "single_2d_backend": false
+    },
+    {
+      "backend_ids": [
+        "fission-render-skia"
+      ],
+      "comparison_eligible": true,
+      "id": "standalone-software",
+      "single_2d_backend": true
+    },
+    {
+      "backend_ids": [
+        "fission-render-skia",
+        "fission-render-wgpu-3d"
+      ],
+      "comparison_eligible": true,
+      "id": "skia-plus-3d",
+      "single_2d_backend": true
+    }
+  ],
+  "schema_version": 1,
+  "targets": [
+    {
+      "browser": null,
+      "id": "linux-x86_64-gnu",
+      "kind": "native",
+      "platform": "Linux",
+      "target": "x86_64-unknown-linux-gnu"
+    },
+    {
+      "browser": null,
+      "id": "macos-aarch64",
+      "kind": "native",
+      "platform": "macOS",
+      "target": "aarch64-apple-darwin"
+    },
+    {
+      "browser": null,
+      "id": "windows-x86_64-msvc",
+      "kind": "native",
+      "platform": "Windows",
+      "target": "x86_64-pc-windows-msvc"
+    },
+    {
+      "browser": null,
+      "id": "android-aarch64",
+      "kind": "native",
+      "platform": "Android",
+      "target": "aarch64-linux-android"
+    },
+    {
+      "browser": null,
+      "id": "ios-aarch64",
+      "kind": "native",
+      "platform": "iOS",
+      "target": "aarch64-apple-ios"
+    },
+    {
+      "browser": "Chromium",
+      "id": "web-chromium",
+      "kind": "web",
+      "platform": "Web",
+      "target": "wasm32-unknown-unknown"
+    },
+    {
+      "browser": "Firefox",
+      "id": "web-firefox",
+      "kind": "web",
+      "platform": "Web",
+      "target": "wasm32-unknown-unknown"
+    },
+    {
+      "browser": "WebKit",
+      "id": "web-webkit",
+      "kind": "web",
+      "platform": "Web",
+      "target": "wasm32-unknown-unknown"
+    }
+  ],
+  "workload_input_ids": {
+    "accessibility-ime": null,
+    "animation": null,
+    "charts": null,
+    "complex-product-site": null,
+    "editor-document": null,
+    "external-surface": null,
+    "filters": null,
+    "images": null,
+    "large-list": null,
+    "lifecycle-recovery": null,
+    "mobile-lifecycle": null,
+    "opacity": null,
+    "representative-application": null,
+    "resize": null,
+    "screenshot-readback": null,
+    "scroll": null,
+    "svg": null,
+    "text-editing": null,
+    "three-d": null,
+    "video": null,
+    "web-content": null,
+    "widget-gallery": null
+  },
+  "workloads": [
+    {
+      "category": "application",
+      "id": "representative-application"
+    },
+    {
+      "category": "widgets",
+      "id": "widget-gallery"
+    },
+    {
+      "category": "text",
+      "id": "text-editing"
+    },
+    {
+      "category": "accessibility",
+      "id": "accessibility-ime"
+    },
+    {
+      "category": "interaction",
+      "id": "scroll"
+    },
+    {
+      "category": "interaction",
+      "id": "resize"
+    },
+    {
+      "category": "rendering",
+      "id": "animation"
+    },
+    {
+      "category": "rendering",
+      "id": "opacity"
+    },
+    {
+      "category": "rendering",
+      "id": "filters"
+    },
+    {
+      "category": "resources",
+      "id": "images"
+    },
+    {
+      "category": "resources",
+      "id": "svg"
+    },
+    {
+      "category": "application",
+      "id": "large-list"
+    },
+    {
+      "category": "application",
+      "id": "editor-document"
+    },
+    {
+      "category": "application",
+      "id": "charts"
+    },
+    {
+      "category": "application",
+      "id": "complex-product-site"
+    },
+    {
+      "category": "external-content",
+      "id": "video"
+    },
+    {
+      "category": "external-content",
+      "id": "web-content"
+    },
+    {
+      "category": "external-content",
+      "id": "external-surface"
+    },
+    {
+      "category": "external-content",
+      "id": "three-d"
+    },
+    {
+      "category": "mobile",
+      "id": "mobile-lifecycle"
+    },
+    {
+      "category": "lifecycle",
+      "id": "lifecycle-recovery"
+    },
+    {
+      "category": "readback",
+      "id": "screenshot-readback"
+    }
+  ]
+}

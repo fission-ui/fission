@@ -9,6 +9,7 @@ import unittest
 
 
 TOOL = Path(__file__).resolve().parents[1] / "qualification.py"
+CHECKED_IN_MANIFEST = TOOL.parent / "qualification-manifest.json"
 SPEC = importlib.util.spec_from_file_location("fission_backend_qualification", TOOL)
 assert SPEC is not None and SPEC.loader is not None
 qualification = importlib.util.module_from_spec(SPEC)
@@ -175,6 +176,58 @@ class QualificationTests(unittest.TestCase):
             self.assertEqual(exit_code, 1)
             self.assertIn('"qualified": false', machine_path.read_text(encoding="utf-8"))
             self.assertIn("**UNQUALIFIED**", markdown_path.read_text(encoding="utf-8"))
+
+    def test_checked_in_manifest_is_canonical_and_covers_the_required_matrix(self) -> None:
+        raw = CHECKED_IN_MANIFEST.read_text(encoding="utf-8")
+        manifest = qualification.load_json(CHECKED_IN_MANIFEST)
+        qualification.validate_manifest(manifest)
+        self.assertEqual(raw, qualification.canonical_json(manifest))
+        self.assertEqual(
+            {target["id"] for target in manifest["targets"]},
+            {target["id"] for target in qualification.REQUIRED_TARGETS},
+        )
+        self.assertEqual(
+            {profile["id"] for profile in manifest["profiles"]},
+            {profile["id"] for profile in qualification.REQUIRED_PROFILES},
+        )
+
+    def test_manifest_readiness_requires_every_explicit_frozen_value(self) -> None:
+        draft = qualification.manifest_readiness_report(qualification.manifest_template())
+        self.assertFalse(draft["ready"])
+        self.assertEqual(
+            {
+                "missing-budget-revision",
+                "missing-environment",
+                "missing-workload-input",
+                "missing-frozen-identity",
+                "missing-budget",
+            },
+            {blocker["code"] for blocker in draft["blockers"]},
+        )
+
+        complete = qualification.manifest_readiness_report(self.complete_manifest())
+        self.assertTrue(complete["ready"])
+        self.assertEqual(complete["blockers"], [])
+
+    def test_check_manifest_command_is_fail_closed_and_writes_blockers(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            temporary = Path(raw)
+            manifest_path = temporary / "manifest.json"
+            report_path = temporary / "manifest-readiness.json"
+            manifest_path.write_text(
+                qualification.canonical_json(qualification.manifest_template()),
+                encoding="utf-8",
+            )
+            exit_code = qualification.check_manifest_command(
+                argparse.Namespace(
+                    manifest=str(manifest_path),
+                    json_output=str(report_path),
+                )
+            )
+            report = qualification.load_json(report_path)
+            self.assertEqual(exit_code, 1)
+            self.assertFalse(report["ready"])
+            self.assertGreater(report["blocker_count"], 0)
 
     def test_narrowing_any_required_matrix_axis_is_rejected(self) -> None:
         cases = (

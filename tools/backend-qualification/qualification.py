@@ -476,6 +476,67 @@ def issue(issues: list[dict[str, str]], scope: str, code: str, message: str) -> 
     issues.append({"scope": scope, "code": code, "message": message})
 
 
+def manifest_readiness_issues(manifest_raw: Any) -> list[dict[str, str]]:
+    """Return every field that prevents a structurally valid manifest being frozen."""
+    manifest = validate_manifest(manifest_raw)
+    issues: list[dict[str, str]] = []
+    if manifest["budget_revision"] is None:
+        issue(
+            issues,
+            "manifest",
+            "missing-budget-revision",
+            "budget_revision must identify the reviewed target-specific budgets",
+        )
+    for target_id, environment_id in manifest["environment_ids"].items():
+        if environment_id is None:
+            issue(
+                issues,
+                f"targets.{target_id}",
+                "missing-environment",
+                "environment_id must bind the exact device, OS/browser, GPU, and driver",
+            )
+    for workload_id, input_id in manifest["workload_input_ids"].items():
+        if input_id is None:
+            issue(
+                issues,
+                f"workloads.{workload_id}",
+                "missing-workload-input",
+                "input_id must bind the app/scene, fonts, assets, and benchmark input",
+            )
+    for key, identity in manifest["identities"].items():
+        for field in ("build_id", "toolchain_id", "artifact_id"):
+            if identity[field] is None:
+                issue(
+                    issues,
+                    f"identities.{key}",
+                    "missing-frozen-identity",
+                    f"{field} must be populated before qualification evidence is collected",
+                )
+    for target_id, budget in manifest["budgets"].items():
+        if budget is None:
+            issue(
+                issues,
+                f"budgets.{target_id}",
+                "missing-budget",
+                "reviewed target-specific numeric ceilings are required",
+            )
+    issues.sort(key=lambda value: (value["scope"], value["code"], value["message"]))
+    return issues
+
+
+def manifest_readiness_report(manifest_raw: Any) -> dict[str, Any]:
+    manifest = validate_manifest(manifest_raw)
+    blockers = manifest_readiness_issues(manifest)
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "matrix_revision": MATRIX_REVISION,
+        "manifest_sha256": digest_json(manifest),
+        "ready": not blockers,
+        "blocker_count": len(blockers),
+        "blockers": blockers,
+    }
+
+
 def valid_samples(
     raw: Any,
     scope: str,
@@ -1042,6 +1103,17 @@ def template_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def check_manifest_command(args: argparse.Namespace) -> int:
+    manifest = load_json(Path(args.manifest).expanduser().resolve())
+    report = manifest_readiness_report(manifest)
+    content = canonical_json(report)
+    if args.json_output:
+        write_text(Path(args.json_output).expanduser().resolve(), content)
+    else:
+        print(content, end="")
+    return 0 if report["ready"] else 1
+
+
 def report_command(args: argparse.Namespace) -> int:
     manifest = load_json(Path(args.manifest).expanduser().resolve())
     runs = [load_json(Path(path).expanduser().resolve()) for path in args.evidence]
@@ -1066,6 +1138,13 @@ def parser() -> argparse.ArgumentParser:
     )
     template.add_argument("--output")
     template.set_defaults(action=template_command)
+    check_manifest = commands.add_parser(
+        "check-manifest",
+        help="fail unless every frozen environment, input, identity, and budget is explicit",
+    )
+    check_manifest.add_argument("--manifest", required=True)
+    check_manifest.add_argument("--json-output")
+    check_manifest.set_defaults(action=check_manifest_command)
     report = commands.add_parser("report", help="evaluate frozen manifest and real run evidence")
     report.add_argument("--manifest", required=True)
     report.add_argument("--evidence", action="append", default=[])

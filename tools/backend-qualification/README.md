@@ -5,6 +5,13 @@ This tool implements the fail-closed Phase 0/5 evidence contract from
 budgets, and the generated template cannot qualify a backend until reviewed
 values and real run evidence are supplied.
 
+`qualification-manifest.json` is the checked-in matrix authority. Its required
+target, browser, profile, and workload axes are frozen, but its environment,
+input, build, toolchain, artifact, and budget values are deliberately null until
+the corresponding baselines and product ceilings have been reviewed. It is
+therefore a checked-in qualification blocker, not a production-qualification
+claim.
+
 Generate the complete minimum matrix:
 
 ```sh
@@ -36,6 +43,19 @@ Before collecting evidence, populate and review:
 No default numbers are supplied. A missing value remains an explicit blocker.
 Additional target/device variants may be added, but removing or changing any
 required lane, browser, profile, or workload is rejected.
+
+Check whether the manifest is ready for evidence collection:
+
+```sh
+python3 tools/backend-qualification/qualification.py check-manifest \
+  --manifest tools/backend-qualification/qualification-manifest.json \
+  --json-output /absolute/path/to/manifest-readiness.json
+```
+
+This command exits `1` and records every missing value until the full matrix has
+reviewed, explicit identities and target-specific numeric ceilings. Structural
+or JSON failures exit `2`. It never fills a budget from a default or from a test
+fixture.
 
 Each `--evidence` file describes one target/profile run. It must use the frozen
 identity and contain all workloads. Every workload records four sample arrays,
