@@ -144,6 +144,14 @@ class WireWriter {
     this.u8(value >>> 24);
   }
 
+  u64(value) {
+    let remaining = BigInt(value);
+    for (let index = 0; index < 8; index += 1) {
+      this.u8(Number(remaining & 0xffn));
+      remaining >>= 8n;
+    }
+  }
+
   f32(value) {
     const bytes = new Uint8Array(4);
     new DataView(bytes.buffer).setFloat32(0, value, true);
@@ -152,6 +160,12 @@ class WireWriter {
 
   raw(bytes) {
     this.values.push(...bytes);
+  }
+
+  patchU32(offset, value) {
+    const bytes = new Uint8Array(4);
+    new DataView(bytes.buffer).setUint32(0, value, true);
+    this.values.splice(offset, 4, ...bytes);
   }
 
   finish() {
@@ -296,6 +310,73 @@ function destroyPacket(sequence) {
   return makePacket(PacketKind.DESTROY, sequence, payload);
 }
 
+function paragraphRequestPacket(text = "paragraph") {
+  const textBytes = new TextEncoder().encode(text);
+  const family = new TextEncoder().encode("Fixture");
+  const bytes = new WireWriter();
+  bytes.raw([0x46, 0x53, 0x50, 0x51]);
+  bytes.u16(1);
+  bytes.u16(0);
+  bytes.u32(0);
+  bytes.u32(1 | 2 | 128 | 256);
+  bytes.u32(textBytes.byteLength);
+  bytes.u32(1);
+  bytes.u32(0);
+  bytes.u32(0);
+  bytes.u64(1n);
+  bytes.f32(200);
+  bytes.raw([0, 0, 0, 0]);
+  bytes.u64(0n);
+  bytes.f32(0);
+  bytes.u32(0);
+  bytes.u32(1);
+  bytes.u32(0);
+  for (let index = 0; index < 6; index += 1) bytes.u64(0n);
+  bytes.raw(new Uint8Array(24));
+  assertEqual(bytes.values.length, 144, "paragraph request header length");
+  bytes.raw(textBytes);
+
+  const styleStart = bytes.values.length;
+  bytes.u32(0);
+  bytes.u32(2);
+  bytes.u64(0n);
+  bytes.u64(BigInt(textBytes.byteLength));
+  bytes.f32(14);
+  bytes.raw([10, 20, 30, 255]);
+  bytes.u16(400);
+  bytes.raw([0, 0]);
+  bytes.f32(0);
+  bytes.f32(0);
+  bytes.raw([0, 0, 0, 0]);
+  bytes.f32(1);
+  bytes.f32(0);
+  bytes.u32(family.byteLength);
+  bytes.u32(0);
+  bytes.u32(0);
+  bytes.u32(0);
+  assertEqual(bytes.values.length - styleStart, 72, "paragraph style header length");
+  bytes.raw(family);
+  bytes.patchU32(styleStart, bytes.values.length - styleStart);
+
+  bytes.u32(7);
+  bytes.u32(1);
+  bytes.u32(family.byteLength);
+  bytes.u32(0);
+  bytes.raw(family);
+  bytes.patchU32(8, bytes.values.length);
+  return bytes.finish();
+}
+
+function paragraphResponseHandle(response) {
+  const view = new DataView(response.buffer, response.byteOffset, response.byteLength);
+  assertEqual(view.getUint32(0, false), 0x46535052, "paragraph response magic");
+  assertEqual(view.getUint32(8, true), response.byteLength, "paragraph response length");
+  return {
+    slot: view.getUint32(16, true),
+    generation: view.getUint32(20, true),
+  };
+}
+
 function assertAck(bytes, acknowledgedSequence) {
   const message = decodeMessage(bytes);
   assertEqual(message.envelope.kind, PacketKind.ACK, "response packet kind");
@@ -416,6 +497,16 @@ function makeFakeCanvasKit() {
       },
       concat(matrix) {
         log.push({ type: "concat", surface: surface.id, matrix: Array.from(matrix) });
+      },
+      translate(x, y) {
+        log.push({ type: "translate", surface: surface.id, x, y });
+      },
+      scale(x, y) {
+        log.push({ type: "scale", surface: surface.id, x, y });
+      },
+      drawParagraph(paragraph, x, y) {
+        assert(!paragraph.deleted, "retained paragraph must be live while painting");
+        log.push({ type: "draw-paragraph", surface: surface.id, paragraph: paragraph.id, x, y });
       },
       getSaveCount() {
         return saveCount;
@@ -636,6 +727,114 @@ function makeFakeCanvasKit() {
     },
   };
 
+  function enumValues(names) {
+    return Object.fromEntries(names.map((name, value) => [name, Object.freeze({ value })]));
+  }
+
+  CanvasKit.FontWeight = enumValues([
+    "Invisible", "Thin", "ExtraLight", "Light", "Normal", "Medium",
+    "SemiBold", "Bold", "ExtraBold", "Black", "ExtraBlack",
+  ]);
+  CanvasKit.FontWidth = enumValues([
+    "UltraCondensed", "ExtraCondensed", "Condensed", "SemiCondensed", "Normal",
+    "SemiExpanded", "Expanded", "ExtraExpanded", "UltraExpanded",
+  ]);
+  CanvasKit.FontSlant = enumValues(["Upright", "Italic", "Oblique"]);
+  CanvasKit.TextAlign = enumValues(["Left", "Right", "Center", "Justify", "Start", "End"]);
+  CanvasKit.TextDirection = enumValues(["LTR", "RTL"]);
+  CanvasKit.TextHeightBehavior = enumValues([
+    "All", "DisableFirstAscent", "DisableLastDescent", "DisableAll",
+  ]);
+  CanvasKit.PlaceholderAlignment = enumValues([
+    "Baseline", "AboveBaseline", "BelowBaseline", "Top", "Bottom", "Middle",
+  ]);
+  CanvasKit.TextBaseline = enumValues(["Alphabetic", "Ideographic"]);
+  CanvasKit.RectHeightStyle = enumValues([
+    "Tight", "Max", "IncludeLineSpacingMiddle", "IncludeLineSpacingTop",
+    "IncludeLineSpacingBottom", "Strut",
+  ]);
+  CanvasKit.RectWidthStyle = enumValues(["Tight", "Max"]);
+  CanvasKit.UnderlineDecoration = 1;
+  CanvasKit.TextStyle = (value) => value;
+  CanvasKit.ParagraphStyle = (value) => value;
+  CanvasKit.TypefaceFontProvider = {
+    Make() {
+      return owned("font-provider", {
+        fonts: [],
+        registerFont(bytes, family) {
+          this.fonts.push({ bytes: Uint8Array.from(bytes), family });
+          log.push(`register-font:${family}:${bytes.byteLength}`);
+        },
+      });
+    },
+  };
+  CanvasKit.ParagraphBuilder = {
+    MakeFromFontProvider(style, provider) {
+      const parts = [];
+      return owned("paragraph-builder", {
+        style,
+        provider,
+        pushStyle() {},
+        addText(text) { parts.push(text); },
+        addPlaceholder() { parts.push("\ufffc"); },
+        pop() {},
+        build() {
+          const text = parts.join("");
+          const paragraph = owned("paragraph", {
+            text,
+            style,
+            layoutWidths: [],
+            layout(width) {
+              this.layoutWidths.push(width);
+              log.push(`layout-paragraph:${this.id}:${width}`);
+            },
+            getHeight() { return text.length === 0 ? 0 : 14; },
+            getLongestLine() { return text.length * 8; },
+            getMinIntrinsicWidth() { return text.length === 0 ? 0 : 8; },
+            getMaxIntrinsicWidth() { return text.length * 8; },
+            getLineMetrics() {
+              return text.length === 0 ? [] : [{
+                startIndex: 0,
+                endIndex: text.length,
+                endIncludingNewline: text.length,
+                isHardBreak: true,
+                ascent: 10,
+                descent: 4,
+                height: 14,
+                width: text.length * 8,
+                left: 0,
+                baseline: 10,
+                lineNumber: 0,
+              }];
+            },
+            getGlyphInfoAt(offset) {
+              if (offset < 0 || offset >= text.length) return null;
+              return {
+                graphemeClusterTextRange: { start: offset, end: offset + 1 },
+                graphemeLayoutBounds: [offset * 8, 0, offset * 8 + 8, 14],
+                dir: style.textDirection,
+                isEllipsis: false,
+              };
+            },
+            getRectsForRange(start, end) {
+              if (start < 0 || end !== start + 1 || end > text.length) return [];
+              return [{
+                rect: [start * 8, 0, start * 8 + 8, 14],
+                dir: style.textDirection,
+              }];
+            },
+            getRectsForPlaceholders() { return []; },
+            getWordBoundary(offset) { return { start: offset, end: offset + 1 }; },
+            unresolvedCodepoints() { return []; },
+            getShapedLines() { return []; },
+          });
+          log.push(`build-paragraph:${paragraph.id}`);
+          return paragraph;
+        },
+      });
+    },
+  };
+
   return { CanvasKit, controls, log, objects };
 }
 
@@ -658,6 +857,14 @@ function drawImageCommand(kind, slot, generation, target, options) {
     writer.u8(options.alignment);
     writer.u8(options.sampling);
     writer.u8(0);
+  });
+}
+
+function drawParagraphCommand(slot, generation, origin = { x: 12, y: 18 }, scale = 1.5) {
+  return command(13, (writer) => {
+    writeHandle(writer, slot, generation);
+    writePoint(writer, origin);
+    writer.f32(scale);
   });
 }
 
@@ -786,6 +993,16 @@ function assertCommandError(callback, code) {
   throw new Error(`expected command error ${code}`);
 }
 
+function assertExecutorFault(callback, code) {
+  try {
+    callback();
+  } catch (error) {
+    assertEqual(error?.protocolCode, code, "executor fault code");
+    return error;
+  }
+  throw new Error(`expected executor fault ${code}`);
+}
+
 function testStrictCommandDecoder() {
   const supported = supportedCommandStream();
   const decoded = decodeCommandStream(supported);
@@ -886,6 +1103,7 @@ function testUnsupportedCommandsFailAndRetry() {
   const unsupported = [
     {
       label: "paragraph",
+      code: ErrorCode.RESOURCE_FAILURE,
       entry: command(13, (writer) => {
         writeHandle(writer, 1, 1);
         writePoint(writer, { x: 2, y: 3 });
@@ -894,6 +1112,7 @@ function testUnsupportedCommandsFailAndRetry() {
     },
     {
       label: "SVG",
+      code: ErrorCode.INVALID_STATE,
       entry: command(16, (writer) => {
         writeHandle(writer, 1, 1);
         writeRect(writer, { x: 0, y: 0, width: 10, height: 10 });
@@ -901,6 +1120,7 @@ function testUnsupportedCommandsFailAndRetry() {
     },
     {
       label: "Picture",
+      code: ErrorCode.INVALID_STATE,
       entry: command(17, (writer) => writeHandle(writer, 1, 1)),
     },
   ];
@@ -909,7 +1129,7 @@ function testUnsupportedCommandsFailAndRetry() {
   for (const unsupportedCommand of unsupported) {
     const response = assertError(
       executor.submit(framePacket(2, 0, commandStream([unsupportedCommand.entry]))),
-      ErrorCode.INVALID_STATE,
+      unsupportedCommand.code,
       2,
     );
     assertEqual(response.envelope.sequence, responseSequence, "error response sequence");
@@ -1014,6 +1234,106 @@ function testGenerationalResourcesFailClosed() {
     executor.submit(resourceBatchPacket(6, 4, [upsert(1, 3, [7, 8, 9])])),
     6,
   );
+  executor.destroy();
+}
+
+function testRetainedParagraphLifecycleAndPaint() {
+  const canvas = makeCanvas();
+  const fake = makeFakeCanvasKit();
+  const executor = createCanvasKitExecutor({ CanvasKit: fake.CanvasKit, canvas });
+  const request = paragraphRequestPacket("retained");
+
+  assertExecutorFault(
+    () => executor.layoutParagraph(request),
+    ErrorCode.INVALID_STATE,
+  );
+  assertAck(executor.submit(initPacket()), 1);
+  assertAck(
+    executor.submit(resourceBatchPacket(2, 1, [
+      upsert(7, 1, [1, 2, 3, 4], ResourceKind.FONT),
+    ])),
+    2,
+  );
+
+  const response = executor.layoutParagraph(request);
+  const handle = paragraphResponseHandle(response);
+  const paragraph = latestObject(fake, "paragraph");
+  const provider = latestObject(fake, "font-provider");
+  assert(paragraph && !paragraph.deleted, "layout should retain a live CanvasKit Paragraph");
+  assert(provider && !provider.deleted, "layout should retain its owned font provider");
+  assertEqual(paragraph.layoutWidths.length, 1, "paragraph should be laid out exactly once");
+
+  assert(canvas.dispatch("webglcontextlost"), "paragraph test should enter context loss");
+  assert(!paragraph.deleted, "CPU paragraph must survive recoverable WebGL context loss");
+  assertExecutorFault(
+    () => executor.layoutParagraph(request),
+    ErrorCode.SURFACE_LOST,
+  );
+  canvas.dispatch("webglcontextrestored");
+
+  const draw = commandStream([
+    drawParagraphCommand(handle.slot, handle.generation),
+  ]);
+  const paintStart = fake.log.length;
+  assertAck(executor.submit(framePacket(3, 1, draw)), 3);
+  const paintLog = fake.log.slice(paintStart);
+  const paragraphDraws = paintLog.filter((entry) => entry?.type === "draw-paragraph");
+  assertEqual(paragraphDraws.length, 1, "retained paragraph draw count");
+  assertEqual(paragraphDraws[0].paragraph, paragraph.id, "paint must use the layout paragraph");
+  assertEqual(paragraph.layoutWidths.length, 1, "paint must never re-layout the paragraph");
+  assert(
+    paintLog.some((entry) => entry?.type === "translate" && entry.x === 12 && entry.y === 18),
+    "paragraph paint should apply its origin",
+  );
+  assert(
+    paintLog.some((entry) => entry?.type === "scale" && entry.x === 1.5 && entry.y === 1.5),
+    "paragraph paint should apply its scale factor",
+  );
+
+  const stale = commandStream([
+    drawParagraphCommand(handle.slot, handle.generation + 1),
+  ]);
+  assertError(
+    executor.submit(framePacket(4, 1, stale)),
+    ErrorCode.RESOURCE_FAILURE,
+    4,
+  );
+  assertEqual(
+    fake.log.filter((entry) => entry?.type === "draw-paragraph").length,
+    1,
+    "stale paragraph preflight must prevent painting",
+  );
+  assertAck(executor.submit(framePacket(4, 1, draw)), 4);
+
+  executor.destroyParagraph(handle);
+  assert(paragraph.deleted, "explicit paragraph destruction should delete the paragraph");
+  assert(provider.deleted, "explicit paragraph destruction should delete its provider");
+  assertExecutorFault(
+    () => executor.destroyParagraph(handle),
+    ErrorCode.RESOURCE_FAILURE,
+  );
+  assertError(
+    executor.submit(framePacket(5, 1, draw)),
+    ErrorCode.RESOURCE_FAILURE,
+    5,
+  );
+
+  const replacementResponse = executor.layoutParagraph(paragraphRequestPacket("replacement"));
+  const replacementHandle = paragraphResponseHandle(replacementResponse);
+  const replacement = latestObject(fake, "paragraph");
+  assertEqual(replacementHandle.slot, handle.slot, "paragraph slot should be reused");
+  assertEqual(
+    replacementHandle.generation,
+    handle.generation + 1,
+    "paragraph slot reuse must advance the generation",
+  );
+  assertAck(executor.submit(destroyPacket(5)), 5);
+  assert(replacement.deleted, "session Destroy must clear retained paragraphs");
+  assertExecutorFault(
+    () => executor.layoutParagraph(request),
+    ErrorCode.INVALID_STATE,
+  );
+  executor.destroy();
   executor.destroy();
 }
 
@@ -1326,6 +1646,7 @@ testStrictCommandDecoder();
 testValuePaintCommandsAndImageFit();
 testUnsupportedCommandsFailAndRetry();
 testGenerationalResourcesFailClosed();
+testRetainedParagraphLifecycleAndPaint();
 testContextEventsDoNotHideResponseSequences();
 testWebGlLifecycleAndResources();
 testSoftwareFallbackAndExplicitWebGlFailure();

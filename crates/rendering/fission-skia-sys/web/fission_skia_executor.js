@@ -14,6 +14,7 @@ import {
   decodeCommandStream,
   executeCommandStream,
 } from "./fission_skia_commands.js";
+import { createCanvasKitParagraphHost } from "./fission_skia_paragraph.js";
 
 const MAX_U64 = 0xffffffffffffffffn;
 
@@ -575,6 +576,10 @@ export function createCanvasKitExecutor({
 
   let protocol = new ProtocolSession();
   let resources = new Map();
+  const paragraphHost = createCanvasKitParagraphHost({
+    CanvasKit,
+    resolveResource: (slot) => resources.get(slot),
+  });
   let configuration = null;
   let surfaceState = null;
   let contextLost = false;
@@ -628,6 +633,7 @@ export function createCanvasKitExecutor({
   }
 
   function closeSession(abandonContext) {
+    paragraphHost.clear();
     deleteAllResources();
     deleteSurfaceState(CanvasKit, surfaceState, abandonContext);
     surfaceState = null;
@@ -734,6 +740,7 @@ export function createCanvasKitExecutor({
         canvas: stagingCanvas,
         commands,
         resolveResource: (slot) => resources.get(slot),
+        paragraphHost,
       });
       if (typeof staging.flush !== "function" || typeof staging.makeImageSnapshot !== "function") {
         fault(ErrorCode.INVALID_STATE, "transactional surface cannot be snapshotted");
@@ -919,5 +926,29 @@ export function createCanvasKitExecutor({
     closeSession(true);
   }
 
-  return Object.freeze({ submit, destroy });
+  function requireParagraphSession(operation) {
+    if (permanentlyDestroyed) {
+      fault(ErrorCode.INVALID_STATE, `cannot ${operation}; CanvasKit executor is destroyed`);
+    }
+    if (!configuration || !surfaceState) {
+      fault(ErrorCode.INVALID_STATE, `cannot ${operation} before CanvasKit initialization`);
+    }
+    if (contextLost) {
+      fault(ErrorCode.SURFACE_LOST, `cannot ${operation} while the WebGL context is lost`);
+    }
+  }
+
+  function layoutParagraph(packet) {
+    requireParagraphSession("layout a paragraph");
+    return paragraphHost.layout(packet);
+  }
+
+  function destroyParagraph(handle) {
+    requireParagraphSession("destroy a paragraph");
+    if (!paragraphHost.destroy(handle)) {
+      fault(ErrorCode.RESOURCE_FAILURE, "paragraph handle is not live at its generation");
+    }
+  }
+
+  return Object.freeze({ submit, layoutParagraph, destroyParagraph, destroy });
 }

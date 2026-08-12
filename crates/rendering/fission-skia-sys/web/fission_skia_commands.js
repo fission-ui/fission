@@ -704,7 +704,18 @@ function requireResource(resolveResource, handle, expectedKind, label) {
   return resource.object;
 }
 
-function preflightResources(commands, resolveResource) {
+function requireParagraph(paragraphHost, handle) {
+  try {
+    return paragraphHost.prepare(handle);
+  } catch (error) {
+    const code = error?.code === "stale-handle"
+      ? ErrorCode.RESOURCE_FAILURE
+      : ErrorCode.INVALID_STATE;
+    executionFailure(code, error instanceof Error ? error.message : String(error));
+  }
+}
+
+function preflightResources(commands, resolveResource, paragraphHost) {
   const resolved = new Map();
   commands.forEach((command, index) => {
     switch (command.kind) {
@@ -716,9 +727,9 @@ function preflightResources(commands, resolveResource) {
         );
         break;
       case "draw-paragraph":
-        executionFailure(
-          ErrorCode.INVALID_STATE,
-          "paragraph resources await the versioned CanvasKit paragraph schema",
+        resolved.set(
+          index,
+          requireParagraph(paragraphHost, command.handle),
         );
         break;
       case "draw-svg":
@@ -969,11 +980,20 @@ function drawBackdropBlur(CanvasKit, canvas, command) {
 }
 
 /** Execute already-decoded commands against a staging CanvasKit canvas. */
-export function executeCommandStream({ CanvasKit, canvas, commands, resolveResource }) {
+export function executeCommandStream({
+  CanvasKit,
+  canvas,
+  commands,
+  resolveResource,
+  paragraphHost,
+}) {
   if (typeof resolveResource !== "function") {
     throw new TypeError("resolveResource must be a function");
   }
-  const resolved = preflightResources(commands, resolveResource);
+  if (!paragraphHost || typeof paragraphHost.prepare !== "function") {
+    throw new TypeError("paragraphHost must prepare retained CanvasKit paragraphs");
+  }
+  const resolved = preflightResources(commands, resolveResource, paragraphHost);
   const initialSaveCount = canvas.getSaveCount();
   try {
     commands.forEach((command, index) => {
@@ -1107,7 +1127,23 @@ export function executeCommandStream({ CanvasKit, canvas, commands, resolveResou
         case "backdrop-blur":
           drawBackdropBlur(CanvasKit, canvas, command);
           break;
-        case "draw-paragraph":
+        case "draw-paragraph": {
+          const prepared = resolved.get(index);
+          try {
+            prepared.paint(
+              canvas,
+              command.origin.x,
+              command.origin.y,
+              command.scaleFactor,
+            );
+          } catch (error) {
+            const code = error?.code === "stale-handle"
+              ? ErrorCode.RESOURCE_FAILURE
+              : ErrorCode.INVALID_STATE;
+            executionFailure(code, error instanceof Error ? error.message : String(error));
+          }
+          break;
+        }
         case "draw-svg":
         case "draw-picture":
           executionFailure(ErrorCode.INTERNAL, "unsupported resource command escaped preflight");
