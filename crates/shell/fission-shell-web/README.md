@@ -11,6 +11,7 @@ canvas to the page automatically.
 What is ready today:
 
 - runnable `WebApp` wrapper backed by the shared winit runtime
+- CanvasKit CPU rendering for the production Web software profile
 - checked-in `examples/web-smoke/` browser example
 - first-party `fission add-target web` launcher output
 

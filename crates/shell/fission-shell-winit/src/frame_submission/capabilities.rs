@@ -48,26 +48,19 @@ pub(crate) fn winit_skia_raster_capabilities(
 }
 
 #[cfg(target_arch = "wasm32")]
-pub(crate) fn winit_software_capabilities() -> GraphicsCapabilities {
-    let mut capabilities = fission_render_software::software_backend_capabilities();
-    capabilities.identity.name = "winit-software".to_string();
-    capabilities.identity.profile = if cfg!(target_arch = "wasm32") {
-        "canvas2d-host-composited"
-    } else {
-        "native-upload-host-composited"
-    }
-    .to_string();
-    // The standalone rasterizer remains truthful and rejects DrawSurface. The
-    // Winit host validates bindings, makes Ready slots transparent, and maps
-    // non-ready slots to explicit deterministic 2D dispositions first.
+pub(crate) fn winit_canvaskit_capabilities(
+    capabilities: &GraphicsCapabilities,
+) -> GraphicsCapabilities {
+    let mut capabilities = capabilities.clone();
+    capabilities.identity.name = "winit-canvaskit".to_string();
+    capabilities.identity.profile = "web-software-host-composited".to_string();
+    // CanvasKit sees the host-composited frame, where every DrawSurface is
+    // removed or replaced and the matching binding set is filtered. These
+    // claims describe Winit's DOM composition step, not the standalone driver.
     capabilities.display_ops.insert(DisplayOpKind::DrawSurface);
     capabilities
         .external_surface_transports
         .insert(ExternalSurfaceTransport::NativeView);
-    #[cfg(all(feature = "three-d", not(target_arch = "wasm32")))]
-    capabilities
-        .external_surface_transports
-        .insert(ExternalSurfaceTransport::DirectTarget);
     capabilities
 }
 
@@ -79,8 +72,6 @@ mod tests {
     fn current_backend_profiles_declare_only_proven_surface_transport() {
         let vello = winit_vello_capabilities(RenderMode::Gpu);
         let vello_cpu = winit_vello_capabilities(RenderMode::Software);
-        #[cfg(target_arch = "wasm32")]
-        let software = winit_software_capabilities();
 
         assert_eq!(vello.render_modes.len(), 1);
         assert!(vello.render_modes.contains(&RenderMode::Gpu));
@@ -91,8 +82,6 @@ mod tests {
             fission_render_vello::vello_backend_capabilities().identity
         );
         assert!(vello.supports_external_surface_transport(ExternalSurfaceTransport::NativeView));
-        #[cfg(target_arch = "wasm32")]
-        assert!(software.supports_external_surface_transport(ExternalSurfaceTransport::NativeView));
         #[cfg(all(feature = "three-d", not(target_arch = "wasm32")))]
         assert!(vello.supports_external_surface_transport(ExternalSurfaceTransport::DirectTarget));
         #[cfg(all(feature = "three-d", target_arch = "wasm32"))]
@@ -100,24 +89,30 @@ mod tests {
             assert!(
                 !vello.supports_external_surface_transport(ExternalSurfaceTransport::DirectTarget)
             );
-            assert!(!software
-                .supports_external_surface_transport(ExternalSurfaceTransport::DirectTarget));
         }
         assert!(!vello.supports_external_surface_transport(ExternalSurfaceTransport::GpuImage));
-        #[cfg(target_arch = "wasm32")]
-        {
-            assert_ne!(
-                software.identity,
-                fission_render_software::software_backend_capabilities().identity
-            );
-            assert!(
-                !software.supports_external_surface_transport(ExternalSurfaceTransport::GpuImage)
-            );
-            assert!(software.supports_display_op(DisplayOpKind::BackdropFilter));
-        }
         assert!(!vello.supports_display_op(DisplayOpKind::BackdropFilter));
         assert!(!fission_render_vello::vello_backend_capabilities()
             .supports_display_op(DisplayOpKind::BackdropFilter));
+    }
+
+    #[test]
+    #[cfg(target_arch = "wasm32")]
+    fn canvaskit_host_profile_adds_only_host_owned_surface_semantics() {
+        let mut backend =
+            GraphicsCapabilities::empty(fission_render::capabilities::BackendIdentity::new(
+                "skia",
+                "test",
+                "web-canvaskit-software",
+            ));
+        backend.display_ops.insert(DisplayOpKind::DrawRect);
+        let hosted = winit_canvaskit_capabilities(&backend);
+
+        assert!(hosted.supports_display_op(DisplayOpKind::DrawRect));
+        assert!(hosted.supports_display_op(DisplayOpKind::DrawSurface));
+        assert!(hosted.supports_external_surface_transport(ExternalSurfaceTransport::NativeView));
+        assert!(!hosted.supports_external_surface_transport(ExternalSurfaceTransport::DirectTarget));
+        assert!(!hosted.supports_external_surface_transport(ExternalSurfaceTransport::GpuImage));
     }
 
     #[test]

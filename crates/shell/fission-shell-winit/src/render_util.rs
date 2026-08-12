@@ -18,8 +18,6 @@ pub(super) fn register_packaged_fonts(
     font_cx: &Arc<Mutex<FontContext>>,
     fonts: &'static [fission_theme::PackagedFont],
 ) {
-    #[cfg(target_arch = "wasm32")]
-    fission_render_software::register_packaged_fonts(fonts);
     let mut font_cx = font_cx.lock().unwrap();
     for font in fonts {
         let axes = font

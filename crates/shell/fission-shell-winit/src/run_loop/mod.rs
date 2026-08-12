@@ -34,14 +34,14 @@ fn take_completed_initialization<T>(
 #[cfg(any(target_arch = "wasm32", test))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MissingWebGpuAction {
-    UseCanvasBeforeContextAcquisition,
+    UseCanvasKitBeforeContextAcquisition,
     Exit,
 }
 
 #[cfg(any(target_arch = "wasm32", test))]
 fn missing_webgpu_action(request: RendererRequest) -> MissingWebGpuAction {
     if request == RendererRequest::Auto {
-        MissingWebGpuAction::UseCanvasBeforeContextAcquisition
+        MissingWebGpuAction::UseCanvasKitBeforeContextAcquisition
     } else {
         MissingWebGpuAction::Exit
     }
@@ -57,7 +57,7 @@ fn webgpu_initialization_failure_diagnostic(
     }
 
     format!(
-        "automatic webgpu-vello renderer failed after WebGPU initialization began on the application canvas: {details}; Canvas2D fallback is unavailable after a canvas may have acquired a WebGPU context; restart with `fission_renderer=canvas2d-software` to select software rendering before initialization"
+        "automatic webgpu-vello renderer failed after WebGPU initialization began on the application canvas: {details}; CanvasKit software fallback is unavailable after a canvas may have acquired a WebGPU context; restart with `fission_renderer=web-canvaskit-software` to select software rendering before initialization"
     )
 }
 
@@ -191,8 +191,6 @@ where
     pub(super) active_tray: Option<tray::ActiveTray<S>>,
     pub(super) invalidations: InvalidationSet,
     pub(super) vello_image_cache_generation: u64,
-    #[cfg(target_arch = "wasm32")]
-    pub(super) software_image_cache_generation: u64,
     pub(super) sync_env: Option<Arc<dyn Fn(&S, &mut Env) + Send + Sync>>,
     pub(super) key_handler: Option<KeyHandler<S>>,
     pub(super) frame_hook: Option<FrameHook<S>>,
@@ -302,7 +300,7 @@ mod tests {
     fn only_auto_may_fallback_before_context_acquisition() {
         assert_eq!(
             missing_webgpu_action(RendererRequest::Auto),
-            MissingWebGpuAction::UseCanvasBeforeContextAcquisition
+            MissingWebGpuAction::UseCanvasKitBeforeContextAcquisition
         );
         assert_eq!(
             missing_webgpu_action(RendererRequest::WebGpuVello),
@@ -315,9 +313,9 @@ mod tests {
         let diagnostic =
             webgpu_initialization_failure_diagnostic(RendererRequest::Auto, "adapter failed");
 
-        assert!(diagnostic.contains("Canvas2D fallback is unavailable"));
-        assert!(diagnostic.contains("fission_renderer=canvas2d-software"));
-        assert!(!diagnostic.contains("using Canvas2D fallback"));
+        assert!(diagnostic.contains("CanvasKit software fallback is unavailable"));
+        assert!(diagnostic.contains("fission_renderer=web-canvaskit-software"));
+        assert!(!diagnostic.contains("using CanvasKit fallback"));
     }
 
     #[test]

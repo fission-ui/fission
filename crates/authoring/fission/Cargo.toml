@@ -17,12 +17,12 @@ readme = "README.md"
 [features]
 default = []
 charts = ["dep:fission-charts"]
-desktop = ["dep:fission-shell-desktop"]
+desktop = ["dep:fission-shell-desktop", "fission-shell-desktop/skia"]
 desktop-tray = ["desktop", "fission-shell-desktop?/tray"]
 icons-reflection = ["fission-icons/reflection"]
-ios = ["dep:fission-shell-mobile"]
-android = ["dep:fission-shell-mobile"]
-mobile = ["dep:fission-shell-mobile"]
+ios = ["dep:fission-shell-mobile", "fission-shell-mobile/skia"]
+android = ["dep:fission-shell-mobile", "fission-shell-mobile/skia"]
+mobile = ["dep:fission-shell-mobile", "fission-shell-mobile/skia"]
 platform-shells = [
     "desktop",
     "mobile",
@@ -36,6 +36,7 @@ server-redis = ["server", "fission-shell-server?/redis"]
 skia = [
     "fission-shell-desktop?/skia",
     "fission-shell-mobile?/skia",
+    "fission-shell-web?/skia",
 ]
 terminal-shell = ["dep:fission-shell-terminal"]
 terminal-widget = ["fission-widgets/terminal"]
@@ -51,7 +52,7 @@ video = [
     "fission-shell-mobile?/video",
     "fission-shell-web?/video",
 ]
-web = ["dep:fission-shell-web"]
+web = ["dep:fission-shell-web", "fission-shell-web/skia"]
 
 [dependencies]
 fission-core = { path = "../../core/fission-core", version = "0.10.1" }

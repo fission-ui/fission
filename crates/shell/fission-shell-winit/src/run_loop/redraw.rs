@@ -156,67 +156,46 @@ where
                 );
                 diag::end_frame(diag::FrameStats::default());
                 return;
-            } else if matches!(request, RendererRequest::Canvas2dSoftware) {
-                match WebCanvasPresenter::new(window) {
-                    Ok(mut presenter) => {
-                        presenter.report = RendererReport::new(
-                            "canvas2d-software",
-                            request,
-                            None,
-                            None,
-                            Some("forced_by_renderer_request".to_string()),
-                            render_target_size.0,
-                            render_target_size.1,
-                            scale_factor,
-                        );
-                        self.web_renderer = Some(WebRenderer::Canvas2d(presenter));
+            } else if matches!(request, RendererRequest::CanvasKitSoftware) {
+                match WebCanvasKitPresenter::new(
+                    window,
+                    request,
+                    Some("forced_by_renderer_request".to_string()),
+                    render_target_size.0,
+                    render_target_size.1,
+                    scale_factor,
+                ) {
+                    Ok(presenter) => {
+                        self.web_renderer = Some(WebRenderer::CanvasKit(presenter));
                     }
                     Err(err) => {
-                        eprintln!("web canvas not ready yet: {err}");
-                        request_redraw_logged(
-                            &window,
-                            elwt,
-                            &mut self.last_redraw_at,
-                            self.min_frame,
-                            &mut self.redraw_pending,
-                            &mut self.frame_trace,
-                            "web_canvas_pending",
+                        eprintln!(
+                            "fission-shell-winit: CanvasKit software renderer initialization failed: {err}"
                         );
+                        elwt.exit();
                         diag::end_frame(diag::FrameStats::default());
                         return;
                     }
                 }
             } else if !browser_exposes_webgpu() {
                 match missing_webgpu_action(request) {
-                    MissingWebGpuAction::UseCanvasBeforeContextAcquisition => {
-                        match WebCanvasPresenter::new(window) {
-                            Ok(mut presenter) => {
-                                presenter.report = RendererReport::new(
-                                    "canvas2d-software",
-                                    request,
-                                    None,
-                                    None,
-                                    Some(
-                                        "webgpu_api_unavailable_before_context_acquisition"
-                                            .to_string(),
-                                    ),
-                                    render_target_size.0,
-                                    render_target_size.1,
-                                    scale_factor,
-                                );
-                                self.web_renderer = Some(WebRenderer::Canvas2d(presenter));
+                    MissingWebGpuAction::UseCanvasKitBeforeContextAcquisition => {
+                        match WebCanvasKitPresenter::new(
+                            window,
+                            request,
+                            Some("webgpu_api_unavailable_before_context_acquisition".to_string()),
+                            render_target_size.0,
+                            render_target_size.1,
+                            scale_factor,
+                        ) {
+                            Ok(presenter) => {
+                                self.web_renderer = Some(WebRenderer::CanvasKit(presenter));
                             }
                             Err(error) => {
-                                eprintln!("web canvas not ready yet: {error}");
-                                request_redraw_logged(
-                                    &window,
-                                    elwt,
-                                    &mut self.last_redraw_at,
-                                    self.min_frame,
-                                    &mut self.redraw_pending,
-                                    &mut self.frame_trace,
-                                    "web_canvas_pending",
+                                eprintln!(
+                                    "fission-shell-winit: automatic CanvasKit software fallback initialization failed: {error}"
                                 );
+                                elwt.exit();
                                 diag::end_frame(diag::FrameStats::default());
                                 return;
                             }
@@ -654,22 +633,8 @@ where
                     .as_ref()
                     .expect("web renderer missing before frame submission")
                     .frame_capabilities();
-                #[cfg(target_arch = "wasm32")]
-                let allows_host_software_fallback = true;
                 #[cfg(not(target_arch = "wasm32"))]
                 let capabilities = self.presenter.frame_capabilities();
-                #[cfg(target_arch = "wasm32")]
-                let frame_software_fallback = allows_host_software_fallback
-                    .then(|| required_software_fallback(retained_scene, &capabilities))
-                    .flatten();
-                #[cfg(target_arch = "wasm32")]
-                let software_fallback_capabilities =
-                    frame_software_fallback.map(|_| winit_software_capabilities());
-                #[cfg(target_arch = "wasm32")]
-                let validation_capabilities = software_fallback_capabilities
-                    .as_ref()
-                    .unwrap_or(&capabilities);
-                #[cfg(not(target_arch = "wasm32"))]
                 let validation_capabilities = &capabilities;
                 let submission = match self.frame_submission.prepare_with_states(
                     retained_scene,
@@ -771,52 +736,62 @@ where
                         diag::end_frame(diag::FrameStats::default());
                         return;
                     };
-                    let active_renderer = frame_software_fallback.map_or_else(
-                        || renderer.active_name().to_string(),
-                        |reason| {
-                            format!("{}->software({})", renderer.active_name(), reason.label())
-                        },
-                    );
+                    let active_renderer = renderer.active_name().to_string();
                     match renderer {
-                        WebRenderer::Canvas2d(presenter) => {
+                        WebRenderer::CanvasKit(presenter) => {
                             let retained_scene = self
                                 .pipeline
                                 .retained_scene()
-                                .expect("retained render self.scene missing before render");
-                            let software_scene = submission.compose_host_scene(retained_scene);
-                            let rgba = match SoftwareRenderer::render_with_text_measurer(
-                                &software_scene,
+                                .expect("retained render scene missing before CanvasKit render");
+                            if let Err(error) = presenter.sync_surface_metrics(
                                 render_target_size.0,
                                 render_target_size.1,
-                                fission_render::Color {
-                                    r: self.env.theme.tokens.colors.background.r,
-                                    g: self.env.theme.tokens.colors.background.g,
-                                    b: self.env.theme.tokens.colors.background.b,
-                                    a: self.env.theme.tokens.colors.background.a,
-                                },
-                                scale_factor as f32,
-                                self.measurer.clone(),
+                                scale_factor,
                             ) {
-                                Ok(rgba) => rgba,
+                                eprintln!("fission-shell-winit: {error}");
+                                diag::end_frame(diag::FrameStats::default());
+                                return;
+                            }
+                            let host_frame = submission
+                                .has_external_surfaces()
+                                .then(|| submission.host_composited_frame(retained_scene));
+                            let frame = host_frame.as_ref().map_or_else(
+                                || submission.interactive_frame(retained_scene),
+                                |frame| frame.interactive_frame(),
+                            );
+                            let frame = frame.with_clear_color(fission_render::Color {
+                                r: self.env.theme.tokens.colors.background.r,
+                                g: self.env.theme.tokens.colors.background.g,
+                                b: self.env.theme.tokens.colors.background.b,
+                                a: self.env.theme.tokens.colors.background.a,
+                            });
+                            match presenter.render_and_present(&frame) {
+                                Ok(CanvasKitFrameOutcome::Presented) => {}
+                                Ok(CanvasKitFrameOutcome::SurfaceRecovered(recovery)) => {
+                                    eprintln!(
+                                        "fission-shell-winit: CanvasKit software surface recovered as {recovery:?}; retrying frame {}",
+                                        submission.metadata().frame_id.0,
+                                    );
+                                    request_redraw_logged(
+                                        &window,
+                                        elwt,
+                                        &mut self.last_redraw_at,
+                                        self.min_frame,
+                                        &mut self.redraw_pending,
+                                        &mut self.frame_trace,
+                                        "canvaskit_surface_recovered",
+                                    );
+                                    diag::end_frame(diag::FrameStats::default());
+                                    return;
+                                }
                                 Err(error) => {
                                     eprintln!(
-                                        "fission-shell-winit: software web frame {} failed: {error}",
+                                        "fission-shell-winit: CanvasKit software frame {} failed: {error}",
                                         submission.metadata().frame_id.0,
                                     );
                                     diag::end_frame(diag::FrameStats::default());
                                     return;
                                 }
-                            };
-
-                            if let Err(err) = presenter.present(
-                                &rgba,
-                                render_target_size.0,
-                                render_target_size.1,
-                                scale_factor,
-                            ) {
-                                eprintln!("failed to present web canvas frame: {err}");
-                                diag::end_frame(diag::FrameStats::default());
-                                return;
                             }
                         }
                         WebRenderer::WebGpu(presenter) => {
@@ -878,201 +853,115 @@ where
                                     texture_compositor,
                                     ..
                                 } => {
-                                    let retained_scene = self
-                                        .pipeline
-                                        .retained_scene()
-                                        .expect("retained render self.scene missing before render");
-                                    if let Some(reason) = frame_software_fallback {
-                                        let rgba = match render_host_scene_with_software(
-                                            &submission,
-                                            retained_scene,
-                                            render_target_size.0,
-                                            render_target_size.1,
-                                            fission_render::Color {
-                                                r: self.env.theme.tokens.colors.background.r,
-                                                g: self.env.theme.tokens.colors.background.g,
-                                                b: self.env.theme.tokens.colors.background.b,
-                                                a: self.env.theme.tokens.colors.background.a,
-                                            },
-                                            scale_factor as f32,
-                                            self.measurer.clone(),
-                                        ) {
-                                            Ok(rgba) => rgba,
-                                            Err(error) => {
-                                                eprintln!(
-                                                    "fission-shell-winit: software fallback for {reason:?} failed on web frame {}: {error}",
-                                                    submission.metadata().frame_id.0,
-                                                );
-                                                diag::end_frame(diag::FrameStats::default());
-                                                return;
-                                            }
+                                    let texture_plans = self.pipeline.texture_compositor_plans();
+                                    let texture_plans_fit_limits = texture_plans_fit_device_limits(
+                                        texture_plans,
+                                        scale_factor,
+                                        device_handle.device.limits().max_texture_dimension_2d,
+                                    );
+                                    let has_active_scroll_offsets = self
+                                        .runtime
+                                        .runtime_state
+                                        .scroll
+                                        .offsets
+                                        .values()
+                                        .any(|offset| offset.abs() > 0.5);
+                                    let enable_texture_compositor =
+                                        web_bool_global("FISSION_ENABLE_TEXTURE_COMPOSITOR");
+                                    if !enable_texture_compositor
+                                        || texture_plans.is_empty()
+                                        || !texture_plans_fit_limits
+                                        || has_active_scroll_offsets
+                                        || submission.has_external_surfaces()
+                                    {
+                                        let render_params = vello::RenderParams {
+                                            base_color: vello::peniko::Color::from_rgba8(
+                                                self.env.theme.tokens.colors.background.r,
+                                                self.env.theme.tokens.colors.background.g,
+                                                self.env.theme.tokens.colors.background.b,
+                                                self.env.theme.tokens.colors.background.a,
+                                            ),
+                                            width: render_target_size.0,
+                                            height: render_target_size.1,
+                                            antialiasing_method: vello::AaConfig::Area,
                                         };
-                                        upload_raster_frame(
-                                            &device_handle.queue,
-                                            &presenter.render_state.surface.target_texture,
-                                            &rgba,
-                                            render_target_size.0,
-                                            render_target_size.1,
-                                        );
-                                    } else {
-                                        let texture_plans =
-                                            self.pipeline.texture_compositor_plans();
-                                        let texture_plans_fit_limits =
-                                            texture_plans_fit_device_limits(
-                                                texture_plans,
-                                                scale_factor,
-                                                device_handle
-                                                    .device
-                                                    .limits()
-                                                    .max_texture_dimension_2d,
-                                            );
-                                        let has_active_scroll_offsets = self
-                                            .runtime
-                                            .runtime_state
-                                            .scroll
-                                            .offsets
-                                            .values()
-                                            .any(|offset| offset.abs() > 0.5);
-                                        let enable_texture_compositor =
-                                            web_bool_global("FISSION_ENABLE_TEXTURE_COMPOSITOR");
-                                        if !enable_texture_compositor
-                                            || texture_plans.is_empty()
-                                            || !texture_plans_fit_limits
-                                            || has_active_scroll_offsets
-                                            || submission.has_external_surfaces()
-                                        {
-                                            let render_params = vello::RenderParams {
-                                                base_color: vello::peniko::Color::from_rgba8(
-                                                    self.env.theme.tokens.colors.background.r,
-                                                    self.env.theme.tokens.colors.background.g,
-                                                    self.env.theme.tokens.colors.background.b,
-                                                    self.env.theme.tokens.colors.background.a,
-                                                ),
-                                                width: render_target_size.0,
-                                                height: render_target_size.1,
-                                                antialiasing_method: vello::AaConfig::Area,
-                                            };
 
-                                            presenter.scene.reset();
-                                            let retained_scene = self
-                                                .pipeline
-                                                .retained_scene()
-                                                .expect(
-                                                "retained render self.scene missing before render",
-                                            );
-                                            let composed_scene =
-                                                submission.has_external_surfaces().then(|| {
-                                                    submission.compose_host_scene(retained_scene)
-                                                });
-                                            let render_scene =
-                                                composed_scene.as_ref().unwrap_or(retained_scene);
-                                            let mut renderer_wrapper = VelloRenderer::new(
-                                                &mut presenter.scene,
-                                                self.measurer.clone(),
-                                                &mut presenter.retained_scene_cache,
-                                                scale_factor,
-                                            );
-                                            if let Err(error) =
-                                                renderer_wrapper.render_scene(render_scene)
-                                            {
-                                                eprintln!(
-                                                "fission-shell-winit: Vello web frame {} encoding failed: {error}",
-                                                submission.metadata().frame_id.0,
-                                            );
-                                                diag::end_frame(diag::FrameStats::default());
-                                                return;
-                                            }
-                                            let workload_profile =
-                                                workload_profile_for_encoded_scene(
-                                                    render_scene,
-                                                    &presenter.scene,
-                                                    render_target_size.0,
-                                                    render_target_size.1,
-                                                    scale_factor,
-                                                );
-                                            if let Err(error) = renderer
-                                                .render_to_texture_with_workload_profile(
-                                                    &device_handle.device,
-                                                    &device_handle.queue,
-                                                    &presenter.scene,
-                                                    &presenter.render_state.surface.target_view,
-                                                    &render_params,
-                                                    Some(&workload_profile),
-                                                )
-                                            {
-                                                eprintln!(
-                                                "fission-shell-winit: WebGPU frame {} rendering failed: {error}",
-                                                submission.metadata().frame_id.0,
-                                            );
-                                                diag::end_frame(diag::FrameStats::default());
-                                                return;
-                                            }
-                                        } else {
-                                            let force_full_compositor_redraw =
-                                                self.invalidations.build
-                                                    || self.invalidations.layout
-                                                    || self.invalidations.paint;
-                                            if let Err(error) = texture_compositor.render_layers(
-                                                &device_handle.device,
-                                                &device_handle.queue,
-                                                renderer,
-                                                &mut presenter.retained_scene_cache,
-                                                self.measurer.clone(),
-                                                scale_factor,
-                                                render_target_size.0,
-                                                render_target_size.1,
-                                                self.pipeline.texture_compositor_root_transform(),
-                                                texture_plans,
-                                                force_full_compositor_redraw,
-                                                clear_color,
-                                                &presenter.render_state.surface.target_view,
-                                            ) {
-                                                eprintln!(
-                                                "fission-shell-winit: WebGPU frame {} composition failed: {error}",
-                                                submission.metadata().frame_id.0,
-                                            );
-                                                diag::end_frame(diag::FrameStats::default());
-                                                return;
-                                            }
-                                        }
-                                    }
-                                }
-                                MainRenderer::Software => {
-                                    let retained_scene = self
-                                        .pipeline
-                                        .retained_scene()
-                                        .expect("retained render self.scene missing before render");
-                                    let rgba = match render_host_scene_with_software(
-                                        &submission,
-                                        retained_scene,
-                                        render_target_size.0,
-                                        render_target_size.1,
-                                        fission_render::Color {
-                                            r: self.env.theme.tokens.colors.background.r,
-                                            g: self.env.theme.tokens.colors.background.g,
-                                            b: self.env.theme.tokens.colors.background.b,
-                                            a: self.env.theme.tokens.colors.background.a,
-                                        },
-                                        scale_factor as f32,
-                                        self.measurer.clone(),
-                                    ) {
-                                        Ok(rgba) => rgba,
-                                        Err(error) => {
+                                        presenter.scene.reset();
+                                        let retained_scene = self.pipeline.retained_scene().expect(
+                                            "retained render self.scene missing before render",
+                                        );
+                                        let composed_scene = submission
+                                            .has_external_surfaces()
+                                            .then(|| submission.compose_host_scene(retained_scene));
+                                        let render_scene =
+                                            composed_scene.as_ref().unwrap_or(retained_scene);
+                                        let mut renderer_wrapper = VelloRenderer::new(
+                                            &mut presenter.scene,
+                                            self.measurer.clone(),
+                                            &mut presenter.retained_scene_cache,
+                                            scale_factor,
+                                        );
+                                        if let Err(error) =
+                                            renderer_wrapper.render_scene(render_scene)
+                                        {
                                             eprintln!(
-                                                "fission-shell-winit: software WebGPU frame {} failed: {error}",
+                                                "fission-shell-winit: Vello web frame {} encoding failed: {error}",
                                                 submission.metadata().frame_id.0,
                                             );
                                             diag::end_frame(diag::FrameStats::default());
                                             return;
                                         }
-                                    };
-                                    upload_raster_frame(
-                                        &device_handle.queue,
-                                        &presenter.render_state.surface.target_texture,
-                                        &rgba,
-                                        render_target_size.0,
-                                        render_target_size.1,
-                                    );
+                                        let workload_profile = workload_profile_for_encoded_scene(
+                                            render_scene,
+                                            &presenter.scene,
+                                            render_target_size.0,
+                                            render_target_size.1,
+                                            scale_factor,
+                                        );
+                                        if let Err(error) = renderer
+                                            .render_to_texture_with_workload_profile(
+                                                &device_handle.device,
+                                                &device_handle.queue,
+                                                &presenter.scene,
+                                                &presenter.render_state.surface.target_view,
+                                                &render_params,
+                                                Some(&workload_profile),
+                                            )
+                                        {
+                                            eprintln!(
+                                                "fission-shell-winit: WebGPU frame {} rendering failed: {error}",
+                                                submission.metadata().frame_id.0,
+                                            );
+                                            diag::end_frame(diag::FrameStats::default());
+                                            return;
+                                        }
+                                    } else {
+                                        let force_full_compositor_redraw = self.invalidations.build
+                                            || self.invalidations.layout
+                                            || self.invalidations.paint;
+                                        if let Err(error) = texture_compositor.render_layers(
+                                            &device_handle.device,
+                                            &device_handle.queue,
+                                            renderer,
+                                            &mut presenter.retained_scene_cache,
+                                            self.measurer.clone(),
+                                            scale_factor,
+                                            render_target_size.0,
+                                            render_target_size.1,
+                                            self.pipeline.texture_compositor_root_transform(),
+                                            texture_plans,
+                                            force_full_compositor_redraw,
+                                            clear_color,
+                                            &presenter.render_state.surface.target_view,
+                                        ) {
+                                            eprintln!(
+                                                "fission-shell-winit: WebGPU frame {} composition failed: {error}",
+                                                submission.metadata().frame_id.0,
+                                            );
+                                            diag::end_frame(diag::FrameStats::default());
+                                            return;
+                                        }
+                                    }
                                 }
                             }
 

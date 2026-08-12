@@ -80,9 +80,7 @@ use vello::util::{RenderContext, RenderSurface};
 use vello::wgpu;
 use vello::{AaSupport, Renderer as VelloSceneRenderer, RendererOptions, Scene};
 #[cfg(target_arch = "wasm32")]
-use wasm_bindgen::{Clamped, JsCast};
-#[cfg(target_arch = "wasm32")]
-use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, ImageData};
+use web_sys::HtmlCanvasElement;
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant;
 
@@ -95,17 +93,15 @@ mod android_host;
 mod pipeline;
 pub use pipeline::{InvalidationSet, Pipeline};
 mod frame_submission;
+#[cfg(target_arch = "wasm32")]
+use frame_submission::winit_canvaskit_capabilities;
 #[cfg(not(target_arch = "wasm32"))]
 use frame_submission::winit_skia_raster_capabilities;
-#[cfg(target_arch = "wasm32")]
-use frame_submission::winit_software_capabilities;
 use frame_submission::{
     winit_vello_capabilities, FrameSubmission, FrameSubmissionError, FrameSubmissionState,
     SurfacePresenterCapabilities,
 };
 mod renderer_diagnostics;
-#[cfg(target_arch = "wasm32")]
-use fission_render_software::SoftwareRenderer;
 #[cfg(target_arch = "wasm32")]
 use renderer_diagnostics::renderer_request_from_value;
 use renderer_diagnostics::{
@@ -195,6 +191,10 @@ mod native_window_target;
 mod skia_ganesh_presenter;
 #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
 mod skia_presenter;
+#[cfg(target_arch = "wasm32")]
+mod web_canvaskit_presenter;
+#[cfg(target_arch = "wasm32")]
+use web_canvaskit_presenter::{CanvasKitFrameOutcome, WebCanvasKitPresenter};
 mod windowing;
 use windowing::*;
 mod effects;
@@ -209,8 +209,8 @@ mod app;
 pub use app::{FrameHook, KeyHandler, WinitApp};
 mod render_util;
 use render_util::*;
-mod render_fallback;
-use render_fallback::*;
+mod raster_upload;
+use raster_upload::*;
 mod run_loop;
 use run_loop::RunLoop;
 #[cfg(test)]
@@ -617,8 +617,6 @@ where
             composite: true,
         };
         let mut vello_image_cache_generation = fission_render_vello::image_cache_generation();
-        #[cfg(target_arch = "wasm32")]
-        let mut software_image_cache_generation = fission_render_software::image_cache_generation();
         let frame_submission = FrameSubmissionState::default();
         let frame_resource_generation = frame_submission.resource_generation();
         let resource_wake_proxy = event_proxy.clone();
@@ -732,8 +730,6 @@ where
             active_tray,
             invalidations,
             vello_image_cache_generation,
-            #[cfg(target_arch = "wasm32")]
-            software_image_cache_generation,
             sync_env: self.sync_env,
             key_handler: self.key_handler,
             frame_hook: self.frame_hook,

@@ -90,12 +90,12 @@ gtk = { version = "0.18", optional = true }
 rxing = { version = "0.9", default-features = false, features = ["image", "image_formats", "decoders", "encoding_rs", "full_barcode_format_support", "multi_barcode_readers"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-fission-render-software = { path = "../../rendering/fission-render-software", version = "0.10.1" }
+fission-render-skia-web = { package = "fission-render-skia", path = "../../rendering/fission-render-skia", version = "0.10.1" }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
 web-time = "1.1"
-web-sys = { version = "0.3", features = ["CanvasRenderingContext2d", "console", "CssStyleDeclaration", "Document", "DomRect", "Element", "Headers", "HtmlCanvasElement", "HtmlElement", "HtmlMediaElement", "HtmlVideoElement", "ImageData", "Location", "Node", "Request", "RequestInit", "RequestMode", "Response", "Window"] }
+web-sys = { version = "0.3", features = ["console", "CssStyleDeclaration", "Document", "DomRect", "Element", "Headers", "HtmlCanvasElement", "HtmlElement", "HtmlMediaElement", "HtmlVideoElement", "Location", "Node", "Request", "RequestInit", "RequestMode", "Response", "Window"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc = "0.2"

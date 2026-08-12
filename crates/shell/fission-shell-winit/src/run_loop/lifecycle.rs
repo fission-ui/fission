@@ -166,7 +166,11 @@ where
         }
         #[cfg(target_arch = "wasm32")]
         {
-            self.web_renderer = None;
+            if let Some(mut renderer) = self.web_renderer.take() {
+                if let Err(error) = renderer.detach() {
+                    eprintln!("fission-shell-winit: web renderer detach failed: {error}");
+                }
+            }
             retire_pending_generation(
                 &mut self.pending_webgpu_init,
                 &mut self.webgpu_init_in_flight,
@@ -195,6 +199,12 @@ where
         #[cfg(not(target_arch = "wasm32"))]
         if let Err(error) = self.presenter.detach() {
             eprintln!("fission-shell-winit: renderer detach failed: {error}");
+        }
+        #[cfg(target_arch = "wasm32")]
+        if let Some(mut renderer) = self.web_renderer.take() {
+            if let Err(error) = renderer.detach() {
+                eprintln!("fission-shell-winit: web renderer detach failed: {error}");
+            }
         }
         self.native_surface_handlers.detach_host();
     }

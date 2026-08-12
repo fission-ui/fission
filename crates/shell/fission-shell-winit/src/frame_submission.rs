@@ -32,10 +32,10 @@ mod placement;
 mod resources;
 mod software;
 
+#[cfg(target_arch = "wasm32")]
+pub(super) use capabilities::winit_canvaskit_capabilities;
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) use capabilities::winit_skia_raster_capabilities;
-#[cfg(target_arch = "wasm32")]
-pub(super) use capabilities::winit_software_capabilities;
 pub(super) use capabilities::winit_vello_capabilities;
 pub(crate) use error::FrameSubmissionError;
 use error::{PlatformSurfaceSemantic, SurfaceOrderingIssue};

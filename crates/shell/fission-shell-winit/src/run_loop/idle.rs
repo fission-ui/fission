@@ -425,19 +425,9 @@ where
         }
 
         let next_vello_image_generation = fission_render_vello::image_cache_generation();
-        #[cfg(target_arch = "wasm32")]
-        let next_software_image_generation = fission_render_software::image_cache_generation();
-        #[cfg(target_arch = "wasm32")]
-        let image_cache_changed = next_vello_image_generation != self.vello_image_cache_generation
-            || next_software_image_generation != self.software_image_cache_generation;
-        #[cfg(not(target_arch = "wasm32"))]
         let image_cache_changed = next_vello_image_generation != self.vello_image_cache_generation;
         if image_cache_changed {
             self.vello_image_cache_generation = next_vello_image_generation;
-            #[cfg(target_arch = "wasm32")]
-            {
-                self.software_image_cache_generation = next_software_image_generation;
-            }
             #[cfg(not(target_arch = "wasm32"))]
             {
                 self.retained_scene_cache.clear();
@@ -468,28 +458,6 @@ where
                     offscreen_skips: stats.offscreen_skips,
                 },
             );
-            #[cfg(target_arch = "wasm32")]
-            {
-                let stats = fission_render_software::image_cache_stats();
-                diag::emit(
-                    diag::DiagCategory::Raster,
-                    diag::DiagLevel::Debug,
-                    diag::DiagEventKind::ImageCacheSummary {
-                        renderer: "software".to_string(),
-                        entries: stats.entries,
-                        weighted_bytes: stats.weighted_bytes,
-                        max_bytes: stats.max_bytes,
-                        pending: stats.pending,
-                        hits: stats.hits,
-                        misses: stats.misses,
-                        loads_started: stats.loads_started,
-                        loads_completed: stats.loads_completed,
-                        loads_failed: stats.loads_failed,
-                        evictions: stats.evictions,
-                        offscreen_skips: 0,
-                    },
-                );
-            }
             request_redraw_logged(
                 &window,
                 elwt,
@@ -500,10 +468,6 @@ where
                 "image_cache",
             );
         }
-        #[cfg(target_arch = "wasm32")]
-        let image_cache_pending = fission_render_vello::image_cache_has_pending()
-            || fission_render_software::image_cache_has_pending();
-        #[cfg(not(target_arch = "wasm32"))]
         let image_cache_pending = fission_render_vello::image_cache_has_pending();
         let resource_work_pending =
             image_cache_pending || self.frame_submission.has_pending_resources();

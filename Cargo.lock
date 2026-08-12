@@ -3236,7 +3236,6 @@ dependencies = [
  "fission-macros",
  "fission-render",
  "fission-render-skia",
- "fission-render-software",
  "fission-render-vello",
  "fission-render-wgpu3d",
  "fission-semantics",

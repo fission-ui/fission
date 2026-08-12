@@ -371,8 +371,6 @@ pub(super) enum MainRenderer {
     },
     #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
     SkiaRaster(WinitSkiaRasterPresenter),
-    #[cfg(target_arch = "wasm32")]
-    Software,
 }
 
 impl MainRenderer {
@@ -381,8 +379,6 @@ impl MainRenderer {
             Self::Vello { render_mode, .. } => winit_vello_capabilities(*render_mode),
             #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
             Self::SkiaRaster(presenter) => winit_skia_raster_capabilities(presenter.capabilities()),
-            #[cfg(target_arch = "wasm32")]
-            Self::Software => winit_software_capabilities(),
         }
     }
 
@@ -399,8 +395,6 @@ impl MainRenderer {
                 presenter.sync_surface_metrics(width, height, scale_factor)
             }
             Self::Vello { .. } => Ok(()),
-            #[cfg(target_arch = "wasm32")]
-            Self::Software => Ok(()),
         }
     }
 
@@ -413,66 +407,7 @@ impl MainRenderer {
             #[cfg(feature = "skia")]
             Self::SkiaRaster(presenter) => presenter.trim_memory(pressure),
             Self::Vello { .. } => Ok(()),
-            #[cfg(target_arch = "wasm32")]
-            Self::Software => Ok(()),
         }
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-pub(super) struct WebCanvasPresenter {
-    canvas: HtmlCanvasElement,
-    context: CanvasRenderingContext2d,
-    pub(super) report: RendererReport,
-}
-
-#[cfg(target_arch = "wasm32")]
-impl WebCanvasPresenter {
-    pub(super) fn new(window: &Window) -> anyhow::Result<Self> {
-        let canvas = window
-            .canvas()
-            .ok_or_else(|| anyhow::anyhow!("winit web window did not expose a canvas"))?;
-        let context = canvas
-            .get_context("2d")
-            .map_err(|error| anyhow::anyhow!(js_error_to_string(error)))?
-            .ok_or_else(|| anyhow::anyhow!("2D canvas context is unavailable"))?
-            .dyn_into::<CanvasRenderingContext2d>()
-            .map_err(|error| anyhow::anyhow!(js_error_to_string(error.into())))?;
-        Ok(Self {
-            canvas,
-            context,
-            report: RendererReport::new(
-                "canvas2d-software",
-                RendererRequest::Auto,
-                None,
-                None,
-                None,
-                0,
-                0,
-                1.0,
-            ),
-        })
-    }
-
-    pub(super) fn present(
-        &mut self,
-        rgba: &[u8],
-        width: u32,
-        height: u32,
-        scale_factor: f64,
-    ) -> anyhow::Result<()> {
-        self.canvas.set_width(width.max(1));
-        self.canvas.set_height(height.max(1));
-        self.report.width = width.max(1);
-        self.report.height = height.max(1);
-        self.report.scale_factor = scale_factor;
-        let image =
-            ImageData::new_with_u8_clamped_array_and_sh(Clamped(rgba), width.max(1), height.max(1))
-                .map_err(|error| anyhow::anyhow!(js_error_to_string(error)))?;
-        self.context
-            .put_image_data(&image, 0.0, 0.0)
-            .map_err(|error| anyhow::anyhow!(js_error_to_string(error)))?;
-        Ok(())
     }
 }
 
@@ -487,7 +422,7 @@ pub(super) struct WebGpuPresenter {
 #[cfg(target_arch = "wasm32")]
 pub(super) enum WebRenderer {
     WebGpu(WebGpuPresenter),
-    Canvas2d(WebCanvasPresenter),
+    CanvasKit(WebCanvasKitPresenter),
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -495,7 +430,7 @@ impl WebRenderer {
     pub(super) fn report(&self) -> &RendererReport {
         match self {
             Self::WebGpu(presenter) => &presenter.render_state.renderer_report,
-            Self::Canvas2d(presenter) => &presenter.report,
+            Self::CanvasKit(presenter) => &presenter.report,
         }
     }
 
@@ -506,7 +441,14 @@ impl WebRenderer {
     pub(super) fn frame_capabilities(&self) -> fission_render::capabilities::GraphicsCapabilities {
         match self {
             Self::WebGpu(presenter) => presenter.render_state.main_renderer.frame_capabilities(),
-            Self::Canvas2d(_) => winit_software_capabilities(),
+            Self::CanvasKit(presenter) => winit_canvaskit_capabilities(presenter.capabilities()),
+        }
+    }
+
+    pub(super) fn detach(&mut self) -> anyhow::Result<()> {
+        match self {
+            Self::WebGpu(_) => Ok(()),
+            Self::CanvasKit(presenter) => presenter.detach(),
         }
     }
 }
@@ -1500,10 +1442,7 @@ pub(super) async fn create_webgpu_presenter(
         target_texture_size.1,
     );
     let main_renderer = create_webgpu_main_renderer(device_handle, request)?;
-    let active_renderer = match &main_renderer {
-        MainRenderer::Vello { .. } => "webgpu-vello",
-        MainRenderer::Software => "webgpu-software",
-    };
+    let active_renderer = "webgpu-vello";
     let (backend, adapter) = adapter_labels(device_handle.adapter());
     let renderer_report = RendererReport::new(
         active_renderer,
@@ -1544,7 +1483,7 @@ pub(super) fn create_webgpu_main_renderer(
     let request = request
         .for_target(RendererTarget::Web)
         .map_err(anyhow::Error::new)?;
-    if matches!(request, RendererRequest::Canvas2dSoftware) {
+    if matches!(request, RendererRequest::CanvasKitSoftware) {
         return Err(anyhow::anyhow!(
             "webgpu renderer disabled by renderer request"
         ));

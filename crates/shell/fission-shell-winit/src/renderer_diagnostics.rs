@@ -8,7 +8,7 @@ pub(crate) enum RendererRequest {
     Skia,
     Software,
     WebGpuVello,
-    Canvas2dSoftware,
+    CanvasKitSoftware,
     NativeVelloGpu,
     NativeVelloCpu,
     NativeSkiaRaster,
@@ -35,7 +35,7 @@ impl RendererRequest {
             Self::Skia => "skia",
             Self::Software => "software",
             Self::WebGpuVello => "webgpu-vello",
-            Self::Canvas2dSoftware => "canvas2d-software",
+            Self::CanvasKitSoftware => "web-canvaskit-software",
             Self::NativeVelloGpu => "native-vello-gpu",
             Self::NativeVelloCpu => "native-vello-cpu",
             Self::NativeSkiaRaster => "native-skia-raster",
@@ -66,7 +66,7 @@ impl RendererRequest {
             (RendererTarget::Native, Self::Skia) => Ok(Self::NativeSkiaRaster),
             (RendererTarget::Native, Self::Software) => Ok(Self::NativeSoftware),
             (RendererTarget::Web, Self::Vello) => Ok(Self::WebGpuVello),
-            (RendererTarget::Web, Self::Software) => Ok(Self::Canvas2dSoftware),
+            (RendererTarget::Web, Self::Skia | Self::Software) => Ok(Self::CanvasKitSoftware),
             (
                 RendererTarget::Native,
                 Self::NativeVelloGpu
@@ -75,7 +75,7 @@ impl RendererRequest {
                 | Self::NativeSkiaGanesh
                 | Self::NativeSoftware,
             )
-            | (RendererTarget::Web, Self::WebGpuVello | Self::Canvas2dSoftware) => Ok(self),
+            | (RendererTarget::Web, Self::WebGpuVello | Self::CanvasKitSoftware) => Ok(self),
             _ => Err(RendererSelectionError {
                 request: self,
                 target,
@@ -95,7 +95,7 @@ impl std::fmt::Display for RendererSelectionError {
         if self.request == RendererRequest::Invalid {
             return write!(
                 formatter,
-                "unsupported FISSION_RENDERER value; expected auto, vello, skia, skia-ganesh, software, webgpu-vello, canvas2d-software, native-vello-gpu, native-vello-cpu, native-skia-raster, native-skia-ganesh, or native-software"
+                "unsupported FISSION_RENDERER value; expected auto, vello, skia, skia-ganesh, software, webgpu-vello, web-canvaskit-software, canvas2d-software, native-vello-gpu, native-vello-cpu, native-skia-raster, native-skia-ganesh, or native-software"
             );
         }
         write!(
@@ -164,9 +164,13 @@ pub(crate) fn renderer_request_from_value(value: Option<&str>) -> RendererReques
     match value.trim().to_ascii_lowercase().as_str() {
         "auto" => RendererRequest::Auto,
         "webgpu" | "webgpu-vello" => RendererRequest::WebGpuVello,
-        "canvas" | "canvas2d" | "canvas2d-software" | "software-canvas" => {
-            RendererRequest::Canvas2dSoftware
-        }
+        "canvas"
+        | "canvas2d"
+        | "canvas2d-software"
+        | "software-canvas"
+        | "canvaskit"
+        | "canvaskit-software"
+        | "web-canvaskit-software" => RendererRequest::CanvasKitSoftware,
         "vello" | "vello-gpu" | "gpu" => RendererRequest::Vello,
         "skia" | "skia-raster" => RendererRequest::Skia,
         "native-vello" | "native-vello-gpu" => RendererRequest::NativeVelloGpu,
@@ -278,7 +282,19 @@ mod tests {
         );
         assert_eq!(
             renderer_request_from_value(Some("canvas2d")),
-            RendererRequest::Canvas2dSoftware
+            RendererRequest::CanvasKitSoftware
+        );
+        assert_eq!(
+            renderer_request_from_value(Some("web-canvaskit-software")),
+            RendererRequest::CanvasKitSoftware
+        );
+        assert_eq!(
+            renderer_request_from_value(Some("canvaskit")),
+            RendererRequest::CanvasKitSoftware
+        );
+        assert_eq!(
+            RendererRequest::CanvasKitSoftware.as_str(),
+            "web-canvaskit-software"
         );
         assert_eq!(
             renderer_request_from_value(Some("native-vello-cpu")),
@@ -340,11 +356,11 @@ mod tests {
     #[test]
     fn renderer_target_rejects_known_but_unavailable_requests() {
         assert_eq!(
-            RendererRequest::Canvas2dSoftware
+            RendererRequest::CanvasKitSoftware
                 .for_target(RendererTarget::Native)
                 .unwrap_err(),
             RendererSelectionError {
-                request: RendererRequest::Canvas2dSoftware,
+                request: RendererRequest::CanvasKitSoftware,
                 target: RendererTarget::Native,
             }
         );
@@ -385,7 +401,7 @@ mod tests {
             RendererRequest::Software
                 .for_target(RendererTarget::Web)
                 .unwrap(),
-            RendererRequest::Canvas2dSoftware
+            RendererRequest::CanvasKitSoftware
         );
         assert_eq!(
             RendererRequest::Skia
@@ -396,11 +412,8 @@ mod tests {
         assert_eq!(
             RendererRequest::Skia
                 .for_target(RendererTarget::Web)
-                .unwrap_err(),
-            RendererSelectionError {
-                request: RendererRequest::Skia,
-                target: RendererTarget::Web,
-            }
+                .unwrap(),
+            RendererRequest::CanvasKitSoftware
         );
         assert_eq!(
             RendererRequest::Auto
@@ -418,7 +431,7 @@ mod tests {
 
         assert_eq!(
             error.to_string(),
-            "unsupported FISSION_RENDERER value; expected auto, vello, skia, skia-ganesh, software, webgpu-vello, canvas2d-software, native-vello-gpu, native-vello-cpu, native-skia-raster, native-skia-ganesh, or native-software"
+            "unsupported FISSION_RENDERER value; expected auto, vello, skia, skia-ganesh, software, webgpu-vello, web-canvaskit-software, canvas2d-software, native-vello-gpu, native-vello-cpu, native-skia-raster, native-skia-ganesh, or native-software"
         );
     }
 }
