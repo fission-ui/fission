@@ -26,6 +26,7 @@ pub use ganesh_driver::SkiaGaneshDriver;
 pub use paragraph_engine::SkiaParagraphEngine;
 pub use profile::{SkiaGaneshProfile, SkiaRasterProfile};
 pub use raster_session::SkiaRasterSession;
+pub use web::{CanvasKitBackendPreference, CanvasKitDriver, CanvasKitHost};
 
 use fission_render::backend::{BackendResult, GraphicsBackendSession};
 
