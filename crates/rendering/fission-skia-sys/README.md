@@ -38,8 +38,13 @@ resource policy, and conversion from Fission's interactive frame belong in
 
 Exactly one mode must be selected:
 
-- `skia-prebuilt` (default) consumes a verified Fission artifact from
-  `FISSION_SKIA_ARTIFACT_DIR`.
+- `skia-prebuilt` (default) selects the exact target/profile entry from the
+  immutable `artifacts.lock.json` shipped in this crate. It downloads that
+  archive over HTTPS once, verifies the locked archive and manifest SHA-256,
+  safely extracts it into a content-addressed Cargo cache, verifies every
+  payload file plus the Fission version, Skia revision, bridge ABI, target,
+  profile, and production-qualification flag, and only then emits link flags.
+  A missing or invalid lock entry fails rather than selecting a similar build.
 - `skia-build-from-source` consumes the exact pinned checkout from
   `FISSION_SKIA_SOURCE_DIR` and its configured GN output from
   `FISSION_SKIA_BUILD_DIR`, invokes Ninja for the selected profile's complete
@@ -52,6 +57,16 @@ Exactly one mode must be selected:
 The source revision is pinned in `skia_revision.txt`. A source checkout or
 prebuilt manifest with another revision is rejected rather than treated as
 compatible.
+
+`FISSION_SKIA_ARTIFACT_DIR` remains the explicit local/vendor override and is
+verified before linking. `FISSION_SKIA_ALLOW_UNQUALIFIED_ARTIFACT=1` applies
+only to that explicit override; it cannot weaken a downloaded release entry.
+`FISSION_SKIA_CACHE_DIR` changes the persistent cache root. Otherwise the
+resolver uses `CARGO_HOME/fission/skia` (or the platform user's `.cargo`
+directory). Setting `FISSION_SKIA_OFFLINE=1` or `CARGO_NET_OFFLINE=true`
+prohibits network access; offline builds accept only an exact, fully reverified
+cache hit or an explicit local/vendor override. Prebuilt resolution never falls
+back to a source build.
 
 `FISSION_SKIA_PROFILE` defaults to `native-raster`. The `native-ganesh` profile
 selects Vulkan on Linux GNU x86_64/arm64 and Android arm64/armv7/x86_64/x86,

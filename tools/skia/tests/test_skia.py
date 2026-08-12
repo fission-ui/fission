@@ -154,12 +154,16 @@ class SkiaToolTests(unittest.TestCase):
         self.assertEqual(self.config["source"]["qualification"], "unqualified")
         self.assertEqual(self.config["bridge"]["abi_version"], 13)
         lock = json.loads(
-            (Path(__file__).resolve().parents[1] / "artifacts.lock.json").read_text(
-                encoding="utf-8"
-            )
+            (
+                Path(__file__).resolve().parents[3]
+                / "crates/rendering/fission-skia-sys/artifacts.lock.json"
+            ).read_text(encoding="utf-8")
         )
+        self.assertEqual(lock["fission_version"], "0.10.1")
         self.assertEqual(lock["bridge_abi_version"], self.config["bridge"]["abi_version"])
         self.assertEqual(lock["skia_revision"], self.config["source"]["revision"])
+        self.assertEqual(lock["provenance"]["repository"], "fission-ui/fission")
+        self.assertEqual(lock["provenance"]["predicate_type"], "https://slsa.dev/provenance/v1")
         self.assertEqual(lock["artifacts"], [])
         self.assertEqual(self.config["profiles"]["native-raster"]["build_recipe"], "available")
         self.assertIs(self.config["common_native_gn_args"]["skia_enable_svg"], True)

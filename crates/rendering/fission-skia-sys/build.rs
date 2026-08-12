@@ -1,12 +1,18 @@
 use std::collections::BTreeMap;
 use std::env;
-use std::fs;
-use std::path::{Component, Path, PathBuf};
+use std::fs::{self, File};
+use std::io::Read;
+use std::path::{Path, PathBuf};
 #[cfg(feature = "skia-build-from-source")]
 use std::process::Command;
 
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
+
+#[path = "build_support/artifact_resolver.rs"]
+mod artifact_resolver;
+#[path = "build_support/native_contract.rs"]
+mod native_contract;
 
 const ABI_VERSION: u32 = 13;
 const SKIA_REVISION: &str = "cf5c36972b73698eb3939cda147ea47152670312";
@@ -112,6 +118,8 @@ const SOURCE_NINJA_TARGETS: &[&str] = &[
 #[derive(Debug, Deserialize)]
 struct ArtifactManifest {
     schema_version: u32,
+    artifact_id: String,
+    fission_version: String,
     skia: ArtifactSkia,
     bridge_abi_version: u32,
     target: String,
@@ -226,13 +234,20 @@ fn emit_inputs() {
     println!("cargo:rerun-if-changed=cpp/test_shim.cpp");
     println!("cargo:rerun-if-changed=cpp/test_shim_paragraph.cpp");
     println!("cargo:rerun-if-changed=skia_revision.txt");
+    println!("cargo:rerun-if-changed=artifacts.lock.json");
     for variable in [
         "FISSION_SKIA_ARTIFACT_DIR",
+        "FISSION_SKIA_CACHE_DIR",
+        "FISSION_SKIA_OFFLINE",
         "FISSION_SKIA_SOURCE_DIR",
         "FISSION_SKIA_BUILD_DIR",
         "FISSION_SKIA_PROFILE",
         "FISSION_SKIA_LINK_LIBS",
         "FISSION_SKIA_ALLOW_UNQUALIFIED_ARTIFACT",
+        "CARGO_HOME",
+        "CARGO_NET_OFFLINE",
+        "HOME",
+        "USERPROFILE",
         "NINJA",
     ] {
         println!("cargo:rerun-if-env-changed={variable}");
@@ -240,7 +255,38 @@ fn emit_inputs() {
 }
 
 fn configure_prebuilt() {
-    let root = required_dir("FISSION_SKIA_ARTIFACT_DIR");
+    let target = env::var("TARGET").expect("Cargo must set TARGET");
+    let profile = env::var("FISSION_SKIA_PROFILE").unwrap_or_else(|_| "native-raster".into());
+    validate_profile_target(&profile, &target);
+    let local_override = env::var_os("FISSION_SKIA_ARTIFACT_DIR").is_some();
+    let allow_unqualified = optional_boolean_environment("FISSION_SKIA_ALLOW_UNQUALIFIED_ARTIFACT");
+    if allow_unqualified && !local_override {
+        panic!(
+            "FISSION_SKIA_ALLOW_UNQUALIFIED_ARTIFACT applies only with an explicit \
+             FISSION_SKIA_ARTIFACT_DIR"
+        );
+    }
+    let root = if local_override {
+        required_real_dir("FISSION_SKIA_ARTIFACT_DIR")
+    } else {
+        let cache_root = artifact_resolver::cache_root_from_environment()
+            .unwrap_or_else(|error| panic!("failed to select the Skia artifact cache: {error}"));
+        let offline = artifact_resolver::offline_from_environment()
+            .unwrap_or_else(|error| panic!("failed to read Skia offline configuration: {error}"));
+        artifact_resolver::resolve(artifact_resolver::ResolveRequest {
+            lock_json: include_bytes!("artifacts.lock.json"),
+            fission_version: env!("CARGO_PKG_VERSION"),
+            skia_revision: SKIA_REVISION,
+            bridge_abi_version: ABI_VERSION,
+            target: &target,
+            profile: &profile,
+            cache_root: &cache_root,
+            offline,
+        })
+        .unwrap_or_else(|error| panic!("failed to resolve the Skia artifact: {error}"))
+    };
+    let artifact_files = native_contract::inspect_artifact_tree(&root)
+        .unwrap_or_else(|error| panic!("failed to verify the Skia artifact tree: {error}"));
     let manifest_path = root.join("manifest.json");
     println!("cargo:rerun-if-changed={}", manifest_path.display());
     let raw = fs::read(&manifest_path)
@@ -248,18 +294,26 @@ fn configure_prebuilt() {
     let manifest: ArtifactManifest = serde_json::from_slice(&raw)
         .unwrap_or_else(|error| panic!("failed to parse {}: {error}", manifest_path.display()));
     validate_manifest(&manifest);
-    if !manifest.qualified && env::var_os("FISSION_SKIA_ALLOW_UNQUALIFIED_ARTIFACT").is_none() {
+    if manifest.fission_version != env!("CARGO_PKG_VERSION") {
         panic!(
-            "Skia artifact is not production-qualified; use a qualified release artifact or set \
-             FISSION_SKIA_ALLOW_UNQUALIFIED_ARTIFACT=1 for explicit local development"
+            "Skia artifact is for Fission {}, not {}",
+            manifest.fission_version,
+            env!("CARGO_PKG_VERSION")
         );
     }
-    verify_files(&root, &manifest.files);
+    if !manifest.qualified && !allow_unqualified {
+        panic!(
+            "Skia artifact is not production-qualified; use a qualified release artifact or set \
+             FISSION_SKIA_ALLOW_UNQUALIFIED_ARTIFACT=1 with an explicit \
+             FISSION_SKIA_ARTIFACT_DIR for local development"
+        );
+    }
+    verify_files(&root, &manifest.files, artifact_files);
     let header = root.join("include/fission_skia.h");
     if !header.is_file() {
         panic!("verified artifact does not contain {}", header.display());
     }
-    emit_native_link(&root, &manifest.native);
+    emit_native_link(&root, &manifest.native, local_override);
 }
 
 fn validate_manifest(manifest: &ArtifactManifest) {
@@ -290,11 +344,22 @@ fn validate_manifest(manifest: &ArtifactManifest) {
     }
     let profile = env::var("FISSION_SKIA_PROFILE").unwrap_or_else(|_| "native-raster".into());
     validate_profile_target(&profile, &target);
+    let expected_id =
+        native_contract::artifact_id(env!("CARGO_PKG_VERSION"), ABI_VERSION, &profile, &target);
+    if manifest.artifact_id != expected_id {
+        panic!(
+            "Skia artifact id {} does not match expected {expected_id}",
+            manifest.artifact_id
+        );
+    }
     if manifest.profile != profile {
         panic!(
             "Skia artifact profile {} does not match requested profile {profile}",
             manifest.profile
         );
+    }
+    if manifest.native.link_search_paths != ["lib"] {
+        panic!("Skia artifact native.link_search_paths must be exactly [\"lib\"]");
     }
     validate_bridge_recipe(
         &profile,
@@ -332,6 +397,14 @@ fn validate_manifest(manifest: &ArtifactManifest) {
                 "Skia native-ganesh artifact does not match the pinned {target} system-link contract"
             );
         }
+    }
+    for library in &manifest.native.system_libraries {
+        native_contract::validate_link_name(library, "Skia system library")
+            .unwrap_or_else(|error| panic!("{error}"));
+    }
+    for framework in &manifest.native.frameworks {
+        native_contract::validate_link_name(framework, "Skia framework")
+            .unwrap_or_else(|error| panic!("{error}"));
     }
 }
 
@@ -425,7 +498,11 @@ fn validate_bridge_recipe(
 
 fn validate_profile_target(profile: &str, target: &str) {
     match profile {
-        "native-raster" => {}
+        "native-raster" if native_contract::supports_native_raster(target) => {}
+        "native-raster" => panic!(
+            "Skia profile native-raster is not available for {target}; select one of the \
+             native targets declared by the Fission Skia artifact matrix"
+        ),
         "native-ganesh" if ganesh_backend(target).is_some() => {}
         "native-ganesh" => panic!(
             "Skia profile native-ganesh is not available for {target}; supported targets are \
@@ -438,46 +515,97 @@ fn validate_profile_target(profile: &str, target: &str) {
     }
 }
 
-fn verify_files(root: &Path, files: &[ArtifactFile]) {
-    if files.is_empty() {
-        panic!("Skia artifact manifest has no files");
-    }
+fn verify_files(root: &Path, files: &[ArtifactFile], actual: std::collections::BTreeSet<String>) {
+    let declared =
+        native_contract::declared_file_set(files.iter().map(|entry| entry.path.as_str()))
+            .unwrap_or_else(|error| panic!("{error}"));
+    let mut declared_bytes = 0u64;
     for entry in files {
-        let relative = safe_relative(&entry.path);
-        let path = root.join(relative);
+        validate_sha256(&entry.sha256, "Skia artifact payload");
+        declared_bytes = declared_bytes
+            .checked_add(entry.size)
+            .unwrap_or_else(|| panic!("Skia artifact payload size overflowed u64"));
+        if declared_bytes > native_contract::MAX_EXPANDED_BYTES {
+            panic!(
+                "Skia artifact payload exceeds the {}-byte expanded limit",
+                native_contract::MAX_EXPANDED_BYTES
+            );
+        }
+        let relative =
+            native_contract::safe_relative(&entry.path).unwrap_or_else(|error| panic!("{error}"));
+        let path = root.join(&relative);
         println!("cargo:rerun-if-changed={}", path.display());
-        let bytes = fs::read(&path).unwrap_or_else(|error| {
-            panic!("failed to read artifact file {}: {error}", path.display())
+        let metadata = fs::symlink_metadata(&path).unwrap_or_else(|error| {
+            panic!(
+                "failed to inspect artifact file {}: {error}",
+                path.display()
+            )
         });
-        if bytes.len() as u64 != entry.size {
+        if !metadata.is_file() || metadata.file_type().is_symlink() {
+            panic!("artifact payload is not a regular file: {}", path.display());
+        }
+        if metadata.len() != entry.size {
             panic!("artifact file {} has the wrong size", path.display());
         }
-        let actual = format!("{:x}", Sha256::digest(&bytes));
-        if !actual.eq_ignore_ascii_case(&entry.sha256) {
+        let actual_digest = sha256_file(&path);
+        if actual_digest != entry.sha256 {
             panic!(
                 "artifact file {} failed SHA-256 verification",
                 path.display()
             );
         }
     }
+    native_contract::verify_payload_set(actual, &declared)
+        .unwrap_or_else(|error| panic!("{error}"));
 }
 
-fn emit_native_link(root: &Path, native: &NativeLink) {
+fn validate_sha256(value: &str, description: &str) {
+    if value.len() != 64
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        panic!("{description} SHA-256 must be 64 lowercase hexadecimal characters");
+    }
+}
+
+fn sha256_file(path: &Path) -> String {
+    let mut file = File::open(path)
+        .unwrap_or_else(|error| panic!("failed to open {}: {error}", path.display()));
+    let mut digest = Sha256::new();
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .unwrap_or_else(|error| panic!("failed to hash {}: {error}", path.display()));
+        if read == 0 {
+            break;
+        }
+        digest.update(&buffer[..read]);
+    }
+    format!("{:x}", digest.finalize())
+}
+
+fn emit_native_link(root: &Path, native: &NativeLink, local_override: bool) {
     for relative in &native.link_search_paths {
+        let relative =
+            native_contract::safe_relative(relative).unwrap_or_else(|error| panic!("{error}"));
         println!(
             "cargo:rustc-link-search=native={}",
-            root.join(safe_relative(relative)).display()
+            root.join(relative).display()
         );
     }
     let override_libraries = env::var("FISSION_SKIA_LINK_LIBS").ok();
+    if override_libraries.is_some() && !local_override {
+        panic!(
+            "FISSION_SKIA_LINK_LIBS may override only an explicit local \
+             FISSION_SKIA_ARTIFACT_DIR; downloaded release artifacts use their locked link contract"
+        );
+    }
     let libraries: Vec<&str> = override_libraries
         .as_deref()
         .map(|value| {
-            value
-                .split(',')
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .collect()
+            native_contract::parse_link_override(value).unwrap_or_else(|error| panic!("{error}"))
         })
         .unwrap_or_else(|| native.static_libraries.iter().map(String::as_str).collect());
     if libraries.first().copied() != Some("fission_skia_bridge") {
@@ -494,26 +622,38 @@ fn emit_native_link(root: &Path, native: &NativeLink) {
     }
 }
 
-fn safe_relative(value: &str) -> &Path {
-    let path = Path::new(value);
-    if path.as_os_str().is_empty()
-        || path.is_absolute()
-        || path
-            .components()
-            .any(|component| !matches!(component, Component::Normal(_)))
-    {
-        panic!("artifact manifest contains unsafe relative path {value:?}");
-    }
-    path
-}
-
 fn required_dir(variable: &str) -> PathBuf {
     let value = env::var_os(variable).unwrap_or_else(|| panic!("{variable} must be set"));
+    if value.is_empty() {
+        panic!("{variable} must not be empty");
+    }
     let path = PathBuf::from(value);
     if !path.is_dir() {
         panic!("{variable}={} is not a directory", path.display());
     }
     path
+}
+
+fn required_real_dir(variable: &str) -> PathBuf {
+    let path = required_dir(variable);
+    let metadata = fs::symlink_metadata(&path)
+        .unwrap_or_else(|error| panic!("failed to inspect {variable}={}: {error}", path.display()));
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        panic!("{variable}={} is not a real directory", path.display());
+    }
+    path
+}
+
+fn optional_boolean_environment(variable: &str) -> bool {
+    env::var_os(variable)
+        .map(|value| {
+            let value = value
+                .to_str()
+                .unwrap_or_else(|| panic!("{variable} is not valid UTF-8"));
+            native_contract::parse_boolean(value, variable)
+                .unwrap_or_else(|error| panic!("{error}"))
+        })
+        .unwrap_or(false)
 }
 
 #[cfg(feature = "skia-build-from-source")]
@@ -542,11 +682,9 @@ fn configure_source() {
     println!("cargo:rustc-link-search=native={}", build.display());
     let links = env::var("FISSION_SKIA_LINK_LIBS")
         .unwrap_or_else(|_| "svg,skparagraph,skshaper,skunicode,skia".into());
-    for library in links
-        .split(',')
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
+    let libraries =
+        native_contract::parse_link_override(&links).unwrap_or_else(|error| panic!("{error}"));
+    for library in libraries {
         println!("cargo:rustc-link-lib=static={library}");
     }
     if profile == "native-ganesh" {

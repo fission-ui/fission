@@ -13,9 +13,10 @@ The source pin is the immutable upstream commit
 `canvaskit/0.41.0` tag and milestone 148 are recorded only as useful review
 hints. They are not selection inputs and the pin is explicitly unqualified.
 
-`artifacts.lock.json` is intentionally empty. Adding an entry is a release
-operation that must happen only after the corresponding archive, provenance,
-and qualification evidence exist.
+`crates/rendering/fission-skia-sys/artifacts.lock.json` is intentionally empty.
+It is the single artifact-selection authority bundled into the published crate.
+Adding an entry is a release operation that must happen only after the
+corresponding archive, provenance, and qualification evidence exist.
 
 ## Supported vocabulary
 
@@ -26,8 +27,8 @@ and qualification evidence exist.
   on macOS x86_64/arm64 plus iOS device/simulator slices, and Direct3D 12 on
   Windows MSVC x86_64/arm64, plus Vulkan on all four declared Android ABIs;
 - `native-graphite-qualification`, planned and never an implicit fallback;
-- `canvaskit-production`, planned WebGL plus raster fallback;
-- `canvaskit-software-qualification`, planned CPU-only Web qualification.
+- `canvaskit-production`, with WebGL/Ganesh plus Skia raster fallback;
+- `canvaskit-software-qualification`, a CPU-only Skia raster comparison lane.
 
 Linux GNU and musl, macOS, Windows MSVC, Android ABIs, iOS device/simulator
 slices, and interactive Web target names are declared. Declared means the tools
@@ -115,6 +116,31 @@ other explicitly non-system libraries are built from the pinned Skia
 dependency checkout; target-conditional notices remain in every artifact so a
 profile's contract does not vary by host.
 
+CanvasKit has a separate offline command because its Emscripten toolchain is
+part of the artifact identity. It accepts only the two declared profiles and
+requires a clean or receipted Skia checkout, a clean or receipted emsdk checkout
+at `c69d433d8509c5c64564c2f0d054bf102a5cf67e`, Emscripten 4.0.7, and
+independently supplied hashes for every executable:
+
+```sh
+python3 tools/skia/canvaskit.py build \
+  --profile canvaskit-production \
+  --source-dir /absolute/path/to/skia \
+  --emsdk-dir /absolute/path/to/emsdk \
+  --build-dir /absolute/path/to/canvaskit-out \
+  --toolchain-id emscripten-4.0.7-linux-x86_64 \
+  --gn-sha256 "$PINNED_GN_SHA256" \
+  --ninja-sha256 "$PINNED_NINJA_SHA256" \
+  --emcc-sha256 "$PINNED_EMCC_SHA256" \
+  --emxx-sha256 "$PINNED_EMXX_SHA256" \
+  --emar-sha256 "$PINNED_EMAR_SHA256"
+```
+
+Use `--profile canvaskit-software-qualification` for the CPU-only build. Its
+receipt pins `skia_enable_ganesh=false`, WebGL/WebGPU/Dawn/Graphite off, and the
+same paragraph, ICU, font, codec, and memory contract as the production lane.
+A receipt from one profile cannot be packaged as the other.
+
 ## Installed artifact layout
 
 An unpacked native artifact has one stable root suitable for
@@ -157,10 +183,24 @@ cannot weaken or expand the contract through link metadata. No build script
 guesses system libraries or frameworks.
 
 CanvasKit uses the same pin and profile identity but a Web-specific layout:
-`web/canvaskit.js`, `web/canvaskit.wasm`, and the Fission Web bridge. The layout
-is pinned now; its build is deliberately rejected until the batched bridge,
-font/resource policy, destruction rules, SVG lowering, and browser lifecycle
-are implemented.
+
+```text
+manifest.json
+web/canvaskit.js
+web/canvaskit.wasm
+web/fission_skia_web.js
+web/fission_skia_commands.js
+web/fission_skia_executor.js
+web/fission_skia_paragraph_wire.js
+web/fission_skia_paragraph_unicode.js
+web/fission_skia_paragraph.js
+licenses/<component>.txt
+```
+
+Every runtime module is a named, hashed manifest asset. Packaging requires the
+complete fixed bridge set from one directory so an executor, protocol decoder,
+or paragraph dependency cannot be omitted accidentally. Test fixtures and
+`package.json` are not shipped.
 
 ## Packaging and verification
 
@@ -220,6 +260,42 @@ The selected profile declares the exact required licence and upstream-library
 sets; missing and extra inputs both fail. The supplied upstream libraries must
 match the completed build receipt byte for byte.
 
+Package a completed CanvasKit build by supplying its two receipted outputs, the
+Fission-owned runtime module directory, exact deployment metadata, and all
+profile licences:
+
+```sh
+python3 tools/skia/canvaskit.py package \
+  --profile canvaskit-production \
+  --target wasm32-unknown-unknown \
+  --fission-version 0.11.0 \
+  --build-metadata /absolute/path/to/canvaskit-out/fission-canvaskit-build.json \
+  --canvaskit-js /absolute/path/to/canvaskit-out/canvaskit.js \
+  --canvaskit-wasm /absolute/path/to/canvaskit-out/canvaskit.wasm \
+  --bridge-dir crates/rendering/fission-skia-sys/web \
+  --deployment-metadata /absolute/path/to/canvaskit-deployment.json \
+  --license fission=/absolute/path/to/fission/LICENSE \
+  --license skia=/absolute/path/to/skia/LICENSE \
+  --license brotli=/absolute/path/to/brotli/LICENSE \
+  --license freetype=/absolute/path/to/freetype/docs/FTL.TXT \
+  --license harfbuzz=/absolute/path/to/harfbuzz/COPYING \
+  --license icu=/absolute/path/to/icu/LICENSE \
+  --license libjpeg-turbo=/absolute/path/to/libjpeg-turbo/LICENSE.md \
+  --license libpng=/absolute/path/to/libpng/LICENSE \
+  --license libwebp=/absolute/path/to/libwebp/COPYING \
+  --license woff2=/absolute/path/to/woff2/LICENSE \
+  --license wuffs=/absolute/path/to/wuffs/LICENSE \
+  --license zlib=/absolute/path/to/zlib/LICENSE \
+  --output /absolute/path/to/staged-canvaskit \
+  --archive /absolute/path/to/fission-canvaskit.tar.gz \
+  --source-date-epoch 1786406400
+```
+
+The software profile uses the same packaging command with its own build receipt
+and `--profile canvaskit-software-qualification`. Both outputs remain
+`qualified: false`; the word “qualification” identifies the comparison lane,
+not evidence that qualification has run or passed.
+
 Archives require a numeric `SOURCE_DATE_EPOCH`, use normalized metadata, and
 produce a sibling `.sha256` file. Both files are staged privately and published
 without overwriting existing paths; a publication failure rolls back the other
@@ -246,8 +322,16 @@ These foundation packages are always emitted as `origin: local-build` and
 `qualified: false`; local Git and vendored source receipts also carry
 `qualified: false`. Digests bind the inputs and outputs together but do not
 authenticate who built them. Release promotion, signatures, trusted provenance,
-and population of `artifacts.lock.json` remain fail-closed release-pipeline
-work; this tool does not imply they happened.
+and population of
+`crates/rendering/fission-skia-sys/artifacts.lock.json` remain fail-closed
+release-pipeline work; this tool does not imply they happened. Promotion must
+produce the final `qualified: true` archive, attach GitHub build provenance for
+that exact archive digest, verify it for the `fission-ui/fission` repository,
+and add the immutable release URL, archive byte length and SHA-256, and final
+manifest SHA-256 to the matching target/profile lock entry. The crate resolver
+uses that bundled lock as its release trust decision and re-verifies the
+archive, manifest, identity, ABI, target, profile, and complete payload before
+linking.
 
 Run the script tests without Cargo:
 
