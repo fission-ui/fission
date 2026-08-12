@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build, package, and verify Fission's pinned CanvasKit WebGL profile.
+"""Build, package, and verify Fission's pinned CanvasKit profiles.
 
 The tool is intentionally offline. It consumes exact local Skia and emsdk
 checkouts plus independently pinned tool digests; it never fetches or activates
@@ -22,9 +22,12 @@ import skia as foundation
 
 
 DEFAULT_CONFIG = Path(__file__).resolve().parent / "config.json"
-PROFILE = "canvaskit-production"
+PRODUCTION_PROFILE = "canvaskit-production"
+SOFTWARE_PROFILE = "canvaskit-software-qualification"
+CANVASKIT_PROFILES = (PRODUCTION_PROFILE, SOFTWARE_PROFILE)
+# Kept as the default for callers which imported the original foundation tool.
+PROFILE = PRODUCTION_PROFILE
 TARGET = "wasm32-unknown-unknown"
-LANE = "webgl-ganesh"
 EMSDK_REPOSITORY = "https://skia.googlesource.com/external/github.com/emscripten-core/emsdk.git"
 EMSDK_REVISION = "c69d433d8509c5c64564c2f0d054bf102a5cf67e"
 EMSCRIPTEN_VERSION = "4.0.7"
@@ -55,13 +58,36 @@ CANVASKIT_REQUIRED_LICENSES = [
     "wuffs",
     "zlib",
 ]
+BRIDGE_ASSETS = {
+    "fission_web_bridge": ("fission_skia_web.js", "fission-wire-bridge"),
+    "fission_command_decoder": ("fission_skia_commands.js", "fission-command-decoder"),
+    "fission_frame_executor": ("fission_skia_executor.js", "fission-frame-executor"),
+    "fission_paragraph_wire": ("fission_skia_paragraph_wire.js", "fission-paragraph-wire"),
+    "fission_paragraph_unicode": (
+        "fission_skia_paragraph_unicode.js",
+        "fission-paragraph-unicode",
+    ),
+    "fission_paragraph_host": ("fission_skia_paragraph.js", "fission-paragraph-host"),
+}
+BRIDGE_FILES = tuple(value[0] for value in BRIDGE_ASSETS.values())
+REQUIRED_BRIDGE_IMPORTS = {
+    "fission_skia_commands.js": ("./fission_skia_web.js",),
+    "fission_skia_executor.js": (
+        "./fission_skia_web.js",
+        "./fission_skia_commands.js",
+    ),
+    "fission_skia_paragraph.js": (
+        "./fission_skia_paragraph_wire.js",
+        "./fission_skia_paragraph_unicode.js",
+    ),
+}
 
 
-# This is the release WebGL branch of the exact pinned upstream compile.sh,
+# This is the shared release branch of the exact pinned upstream compile.sh,
 # made explicit so profile changes are reviewable inputs rather than shell
 # substring switches. CanvasKit's BUILD.gn owns the corresponding linker flags,
 # including WebGL 2, 128 MiB initial memory, and memory growth.
-WEBGL_GN_ARGS: dict[str, Any] = {
+COMMON_GN_ARGS: dict[str, Any] = {
     "is_canvaskit": True,
     "is_component_build": False,
     "is_debug": False,
@@ -80,7 +106,7 @@ WEBGL_GN_ARGS: dict[str, Any] = {
     "skia_canvaskit_enable_pathops": True,
     "skia_canvaskit_enable_rt_shader": True,
     "skia_canvaskit_enable_skp_serialization": False,
-    "skia_canvaskit_enable_webgl": True,
+    "skia_canvaskit_enable_webgl": False,
     "skia_canvaskit_enable_webgpu": False,
     "skia_canvaskit_force_tracing": False,
     "skia_canvaskit_include_viewer": False,
@@ -89,7 +115,7 @@ WEBGL_GN_ARGS: dict[str, Any] = {
     "skia_enable_fontmgr_custom_directory": False,
     "skia_enable_fontmgr_custom_embedded": False,
     "skia_enable_fontmgr_custom_empty": True,
-    "skia_enable_ganesh": True,
+    "skia_enable_ganesh": False,
     "skia_enable_graphite": False,
     "skia_enable_pdf": False,
     "skia_enable_skottie": False,
@@ -129,7 +155,7 @@ WEBGL_GN_ARGS: dict[str, Any] = {
     "skia_use_system_libwebp": False,
     "skia_use_system_zlib": False,
     "skia_use_vulkan": False,
-    "skia_use_webgl": True,
+    "skia_use_webgl": False,
     "skia_use_webgpu": False,
     "skia_use_wuffs": True,
     "skia_use_zlib": True,
@@ -138,35 +164,75 @@ WEBGL_GN_ARGS: dict[str, Any] = {
 }
 
 
-def load_config(path: Path) -> dict[str, Any]:
-    config = foundation.load_config(path)
-    profile = foundation.select_profile(config, PROFILE)
-    target = foundation.select_target(config, TARGET)
-    if profile.get("kind") != "canvaskit":
-        raise foundation.SkiaToolError(f"{PROFILE!r} is not a CanvasKit profile")
-    if profile.get("qualified") is not False:
-        raise foundation.SkiaToolError("CanvasKit foundation profile must remain unqualified")
-    if target.get("kind") != "canvaskit":
-        raise foundation.SkiaToolError(f"{TARGET!r} is not a CanvasKit target")
-    expected_layout = [
+def profile_gn_args(profile: str) -> dict[str, Any]:
+    result = dict(COMMON_GN_ARGS)
+    if profile == PRODUCTION_PROFILE:
+        result.update(
+            {
+                "skia_canvaskit_enable_webgl": True,
+                "skia_enable_ganesh": True,
+                "skia_use_webgl": True,
+            }
+        )
+    elif profile != SOFTWARE_PROFILE:
+        raise foundation.SkiaToolError(f"unsupported CanvasKit profile: {profile!r}")
+    return result
+
+
+def profile_lane(profile: str) -> str:
+    if profile == PRODUCTION_PROFILE:
+        return "webgl-ganesh"
+    if profile == SOFTWARE_PROFILE:
+        return "software-raster"
+    raise foundation.SkiaToolError(f"unsupported CanvasKit profile: {profile!r}")
+
+
+def browser_contract(profile: str, platform: str) -> dict[str, Any]:
+    if profile == PRODUCTION_PROFILE:
+        graphics_backend = "Ganesh"
+        gpu_api = "WebGL 2"
+        software_only = False
+    elif profile == SOFTWARE_PROFILE:
+        graphics_backend = "Skia Raster"
+        gpu_api = "none"
+        software_only = True
+    else:
+        raise foundation.SkiaToolError(f"unsupported CanvasKit profile: {profile!r}")
+    return {
+        "graphics_backend": graphics_backend,
+        "gpu_api": gpu_api,
+        "software_fallback": True,
+        "software_only": software_only,
+        "wasm_memory_policy": WASM_MEMORY_POLICY,
+        "platform": platform,
+    }
+
+
+def deployment_contract(profile: str) -> dict[str, str]:
+    browser_api = "WebGL 2" if profile == PRODUCTION_PROFILE else "CanvasKit software surface"
+    return {
+        "emscripten": EMSCRIPTEN_VERSION,
+        "browser_api": browser_api,
+        "wasm_memory_policy": WASM_MEMORY_POLICY,
+    }
+
+
+def expected_layout() -> list[str]:
+    return [
         "manifest.json",
         "web/canvaskit.js",
         "web/canvaskit.wasm",
-        "web/fission_skia_web.js",
+        *(f"web/{name}" for name in BRIDGE_FILES),
         "licenses/",
     ]
-    if profile.get("layout") != expected_layout:
-        raise foundation.SkiaToolError("CanvasKit profile layout does not match the Web contract")
-    required = foundation.require_string_list(
-        profile.get("required_licenses"),
-        f"profiles.{PROFILE}.required_licenses",
-    )
-    if required != CANVASKIT_REQUIRED_LICENSES:
-        raise foundation.SkiaToolError(
-            "CanvasKit production notices do not match its pinned dependency profile"
-        )
-    expected_features = {
-        "gpu": "webgl",
+
+
+def load_config(path: Path) -> dict[str, Any]:
+    config = foundation.load_config(path)
+    target = foundation.select_target(config, TARGET)
+    if target.get("kind") != "canvaskit":
+        raise foundation.SkiaToolError(f"{TARGET!r} is not a CanvasKit target")
+    common_features = {
         "raster_fallback": True,
         "paragraph": True,
         "unicode": "icu",
@@ -174,49 +240,76 @@ def load_config(path: Path) -> dict[str, Any]:
         "pdf": False,
         "codecs": ["jpeg", "png", "webp"],
     }
-    if profile.get("features") != expected_features:
-        raise foundation.SkiaToolError(
-            "CanvasKit production features do not match the initial WebGL/Ganesh lane"
+    for name in CANVASKIT_PROFILES:
+        profile = foundation.select_profile(config, name)
+        if profile.get("kind") != "canvaskit":
+            raise foundation.SkiaToolError(f"{name!r} is not a CanvasKit profile")
+        if profile.get("qualified") is not False:
+            raise foundation.SkiaToolError("CanvasKit foundation profiles must remain unqualified")
+        if profile.get("build_recipe") != "available":
+            raise foundation.SkiaToolError(f"{name!r} does not have an available build recipe")
+        if profile.get("layout") != expected_layout():
+            raise foundation.SkiaToolError(
+                f"{name!r} layout does not match the Fission Web runtime contract"
+            )
+        required = foundation.require_string_list(
+            profile.get("required_licenses"),
+            f"profiles.{name}.required_licenses",
         )
+        if required != CANVASKIT_REQUIRED_LICENSES:
+            raise foundation.SkiaToolError(
+                f"{name!r} notices do not match its pinned dependency profile"
+            )
+        expected_features = {
+            "gpu": "webgl" if name == PRODUCTION_PROFILE else "none",
+            **common_features,
+        }
+        if profile.get("features") != expected_features:
+            raise foundation.SkiaToolError(f"{name!r} features do not match its pinned lane")
     return config
 
 
-def web_recipe(config: Mapping[str, Any]) -> dict[str, Any]:
-    profile = foundation.select_profile(config, PROFILE)
+def web_recipe(
+    config: Mapping[str, Any],
+    profile_name: str = PRODUCTION_PROFILE,
+) -> dict[str, Any]:
+    profile = foundation.select_profile(config, profile_name)
     target = foundation.select_target(config, TARGET)
     return {
         "schema_version": BUILD_PLAN_SCHEMA_VERSION,
-        "profile": PROFILE,
+        "profile": profile_name,
         "target": TARGET,
-        "lane": LANE,
+        "lane": profile_lane(profile_name),
         "qualified": False,
         "skia_revision": config["source"]["revision"],
         "bridge_abi_version": config["bridge"]["abi_version"],
         "emsdk_revision": EMSDK_REVISION,
         "emscripten_version": EMSCRIPTEN_VERSION,
-        "gn_args": dict(sorted(WEBGL_GN_ARGS.items())),
+        "gn_args": dict(sorted(profile_gn_args(profile_name).items())),
         "ninja_targets": ["canvaskit.js"],
         "outputs": ["canvaskit.js", "canvaskit.wasm"],
         "features": profile["features"],
-        "browser": {
-            "graphics_backend": "Ganesh",
-            "gpu_api": "WebGL 2",
-            "software_fallback": True,
-            "wasm_memory_policy": WASM_MEMORY_POLICY,
-            "platform": target["platform"],
-        },
+        "browser": browser_contract(profile_name, target["platform"]),
     }
 
 
 def validate_recipe(
     raw: Any,
     config: Mapping[str, Any],
+    expected_profile: str | None = None,
 ) -> dict[str, Any]:
     recipe = foundation.require_object(raw, "CanvasKit build receipt recipe")
-    expected = web_recipe(config)
+    profile = recipe.get("profile")
+    if profile not in CANVASKIT_PROFILES:
+        raise foundation.SkiaToolError("CanvasKit build receipt has an unsupported profile")
+    if expected_profile is not None and profile != expected_profile:
+        raise foundation.SkiaToolError(
+            f"CanvasKit build receipt profile mismatch: expected {expected_profile!r}"
+        )
+    expected = web_recipe(config, profile)
     if recipe != expected:
         raise foundation.SkiaToolError(
-            "CanvasKit build receipt recipe does not match the pinned WebGL/Ganesh profile"
+            f"CanvasKit build receipt recipe does not match pinned profile {profile!r}"
         )
     return recipe
 
@@ -354,10 +447,11 @@ def build_plan(
     emsdk: Mapping[str, Any],
     toolchain_id: str,
     tools: Mapping[str, Any],
+    profile: str = PRODUCTION_PROFILE,
 ) -> dict[str, Any]:
     return {
         "schema_version": BUILD_PLAN_SCHEMA_VERSION,
-        "recipe": web_recipe(config),
+        "recipe": web_recipe(config, profile),
         "source": dict(source),
         "emsdk": dict(emsdk),
         "toolchain_id": normalized_identifier(toolchain_id, "--toolchain-id"),
@@ -404,7 +498,11 @@ def digest_record(path: Path, name: str, relative: str) -> dict[str, Any]:
     return foundation.regular_file_record(path, name=name, relative_path=relative)
 
 
-def validate_build_receipt(raw: Any, config: Mapping[str, Any]) -> dict[str, Any]:
+def validate_build_receipt(
+    raw: Any,
+    config: Mapping[str, Any],
+    expected_profile: str | None = None,
+) -> dict[str, Any]:
     receipt = foundation.require_object(raw, "CanvasKit build receipt")
     if set(receipt) != {"schema_version", "result", "plan", "plan_sha256", "outputs"}:
         raise foundation.SkiaToolError("CanvasKit build receipt has unknown or missing fields")
@@ -417,7 +515,7 @@ def validate_build_receipt(raw: Any, config: Mapping[str, Any]) -> dict[str, Any
         raise foundation.SkiaToolError("CanvasKit build plan has unknown or missing fields")
     if plan.get("schema_version") != BUILD_PLAN_SCHEMA_VERSION:
         raise foundation.SkiaToolError("unsupported CanvasKit build plan schema")
-    validate_recipe(plan.get("recipe"), config)
+    validate_recipe(plan.get("recipe"), config, expected_profile)
     validate_source_identity(plan.get("source"), config)
     validate_emsdk_identity(plan.get("emsdk"))
     normalized_identifier(plan.get("toolchain_id"), "CanvasKit build plan toolchain_id")
@@ -475,11 +573,11 @@ def build_canvaskit(args: argparse.Namespace, config: dict[str, Any]) -> None:
     source = source_identity(config, source_dir)
     emsdk = emsdk_identity(emsdk_dir)
     paths, identities = tool_identities(source_dir, emsdk_dir, args)
-    plan = build_plan(config, source, emsdk, args.toolchain_id, identities)
+    plan = build_plan(config, source, emsdk, args.toolchain_id, identities, args.profile)
     foundation.assert_empty_output(build_dir)
     foundation.write_json(build_dir / BUILD_PLAN, plan)
 
-    rendered = dict(WEBGL_GN_ARGS)
+    rendered = profile_gn_args(args.profile)
     rendered["skia_emsdk_dir"] = str(emsdk_dir)
     rendered_args = " ".join(
         f"{name}={foundation.gn_literal(value)}" for name, value in sorted(rendered.items())
@@ -557,13 +655,39 @@ def validate_wasm(path: Path) -> None:
 
 
 def regular_input(path: str, description: str) -> Path:
-    result = Path(path).expanduser().resolve()
+    result = Path(path).expanduser().absolute()
     try:
         metadata = result.stat(follow_symlinks=False)
     except FileNotFoundError as error:
         raise foundation.SkiaToolError(f"{description} does not exist: {result}") from error
     if not stat.S_ISREG(metadata.st_mode):
         raise foundation.SkiaToolError(f"{description} must be a regular file, not a link: {result}")
+    return result
+
+
+def bridge_inputs(root_value: str) -> dict[str, Path]:
+    root = Path(root_value).expanduser().absolute()
+    try:
+        metadata = root.stat(follow_symlinks=False)
+    except FileNotFoundError as error:
+        raise foundation.SkiaToolError(f"Fission bridge directory does not exist: {root}") from error
+    if not stat.S_ISDIR(metadata.st_mode):
+        raise foundation.SkiaToolError(
+            f"Fission bridge directory must be a directory, not a link: {root}"
+        )
+    result: dict[str, Path] = {}
+    contents: dict[str, str] = {}
+    for name in BRIDGE_FILES:
+        path = regular_input(str(root / name), f"Fission bridge module {name}")
+        validate_javascript(path, f"Fission bridge module {name}")
+        result[name] = path
+        contents[name] = path.read_text(encoding="utf-8")
+    for name, imports in REQUIRED_BRIDGE_IMPORTS.items():
+        for imported in imports:
+            if imported not in contents[name]:
+                raise foundation.SkiaToolError(
+                    f"Fission bridge module {name} does not import required module {imported}"
+                )
     return result
 
 
@@ -583,11 +707,7 @@ def load_deployment(path: Path, receipt: Mapping[str, Any]) -> dict[str, Any]:
     if toolchain != expected_toolchain:
         raise foundation.SkiaToolError("Web deployment toolchain does not match the build receipt")
     deployment = foundation.require_object(metadata["deployment"], "Web deployment")
-    expected_deployment = {
-        "emscripten": EMSCRIPTEN_VERSION,
-        "browser_api": "WebGL 2",
-        "wasm_memory_policy": WASM_MEMORY_POLICY,
-    }
+    expected_deployment = deployment_contract(receipt["plan"]["recipe"]["profile"])
     if deployment != expected_deployment:
         raise foundation.SkiaToolError("Web deployment does not match the CanvasKit profile")
     return {"toolchain": dict(toolchain), "deployment": dict(deployment)}
@@ -604,28 +724,33 @@ def asset_record(path: Path, relative: str, role: str, media_type: str) -> dict[
     return {**payload, "role": role, "media_type": media_type}
 
 
-def artifact_id(fission_version: str, abi: int, protocol: int) -> str:
+def artifact_id(fission_version: str, profile: str, abi: int, protocol: int) -> str:
     version = normalized_identifier(fission_version, "--fission-version")
-    result = f"fission-canvaskit-{version}-{TARGET}-{PROFILE}-abi{abi}-wire{protocol}"
+    if profile not in CANVASKIT_PROFILES:
+        raise foundation.SkiaToolError(f"unsupported CanvasKit profile: {profile!r}")
+    result = f"fission-canvaskit-{version}-{TARGET}-{profile}-abi{abi}-wire{protocol}"
     if not foundation.NAME_RE.fullmatch(result):
         raise foundation.SkiaToolError("Fission version produces an unsafe artifact identity")
     return result
 
 
 def package_canvaskit(args: argparse.Namespace, config: dict[str, Any]) -> None:
-    if args.profile != PROFILE or args.target != TARGET:
+    if args.profile not in CANVASKIT_PROFILES or args.target != TARGET:
         raise foundation.SkiaToolError(
-            f"only the initial {PROFILE}/{TARGET} WebGL lane can be packaged"
+            f"unsupported CanvasKit profile/target: {args.profile}/{args.target}"
         )
     build_path = regular_input(args.build_metadata, "CanvasKit build metadata")
-    receipt = validate_build_receipt(foundation.load_json(build_path), config)
+    receipt = validate_build_receipt(
+        foundation.load_json(build_path),
+        config,
+        expected_profile=args.profile,
+    )
     canvaskit_js = regular_input(args.canvaskit_js, "CanvasKit JavaScript")
     canvaskit_wasm = regular_input(args.canvaskit_wasm, "CanvasKit Wasm")
-    web_bridge = regular_input(args.web_bridge, "Fission Web bridge")
+    bridges = bridge_inputs(args.bridge_dir)
     validate_javascript(canvaskit_js, "CanvasKit JavaScript")
-    validate_javascript(web_bridge, "Fission Web bridge")
     validate_wasm(canvaskit_wasm)
-    protocol = protocol_version(web_bridge)
+    protocol = protocol_version(bridges["fission_skia_web.js"])
     compare_build_output(receipt["outputs"][0], canvaskit_js, "CanvasKit JavaScript")
     compare_build_output(receipt["outputs"][1], canvaskit_wasm, "CanvasKit Wasm")
     deployment = load_deployment(
@@ -633,7 +758,7 @@ def package_canvaskit(args: argparse.Namespace, config: dict[str, Any]) -> None:
         receipt,
     )
     licences = foundation.parse_named_paths(args.license, "licence")
-    profile = foundation.select_profile(config, PROFILE)
+    profile = foundation.select_profile(config, args.profile)
     expected_licences = set(
         foundation.require_string_list(profile.get("required_licenses"), "profile licences")
     )
@@ -650,11 +775,17 @@ def package_canvaskit(args: argparse.Namespace, config: dict[str, Any]) -> None:
     foundation.assert_empty_output(output)
     foundation.copy_file(canvaskit_js, output / "web" / "canvaskit.js")
     foundation.copy_file(canvaskit_wasm, output / "web" / "canvaskit.wasm")
-    foundation.copy_file(web_bridge, output / "web" / "fission_skia_web.js")
+    for name, source in bridges.items():
+        foundation.copy_file(source, output / "web" / name)
     for name, source in sorted(licences.items()):
         foundation.copy_file(source, output / "licenses" / f"{name}.txt")
 
-    identity = artifact_id(args.fission_version, config["bridge"]["abi_version"], protocol)
+    identity = artifact_id(
+        args.fission_version,
+        args.profile,
+        config["bridge"]["abi_version"],
+        protocol,
+    )
     assets = {
         "canvaskit_js": asset_record(
             output / "web" / "canvaskit.js",
@@ -668,23 +799,24 @@ def package_canvaskit(args: argparse.Namespace, config: dict[str, Any]) -> None:
             "canvaskit-module",
             "application/wasm",
         ),
-        "fission_web_bridge": asset_record(
-            output / "web" / "fission_skia_web.js",
-            "web/fission_skia_web.js",
-            "fission-wire-bridge",
-            "text/javascript",
-        ),
     }
+    for asset_name, (filename, role) in BRIDGE_ASSETS.items():
+        assets[asset_name] = asset_record(
+            output / "web" / filename,
+            f"web/{filename}",
+            role,
+            "text/javascript",
+        )
     manifest = {
         "schema_version": WEB_MANIFEST_SCHEMA_VERSION,
         "artifact_id": identity,
         "fission_version": normalized_identifier(args.fission_version, "--fission-version"),
         "origin": "local-build",
         "qualified": False,
-        "profile": PROFILE,
+        "profile": args.profile,
         "target": TARGET,
         "platform": "Web",
-        "lane": LANE,
+        "lane": profile_lane(args.profile),
         "source": {
             "repository": config["source"]["repository"],
             "revision": config["source"]["revision"],
@@ -699,7 +831,7 @@ def package_canvaskit(args: argparse.Namespace, config: dict[str, Any]) -> None:
             "web_protocol_version": protocol,
         },
         "features": profile["features"],
-        "browser": web_recipe(config)["browser"],
+        "browser": web_recipe(config, args.profile)["browser"],
         "toolchain": deployment["toolchain"],
         "deployment": deployment["deployment"],
         "assets": assets,
@@ -710,7 +842,7 @@ def package_canvaskit(args: argparse.Namespace, config: dict[str, Any]) -> None:
     verify_artifact_directory(
         output,
         config,
-        expected_profile=PROFILE,
+        expected_profile=args.profile,
         expected_target=TARGET,
     )
     print(output / foundation.MANIFEST)
@@ -857,11 +989,14 @@ def verify_artifact_directory(
         raise foundation.SkiaToolError("unsupported CanvasKit manifest schema")
     if manifest.get("origin") != "local-build" or manifest.get("qualified") is not False:
         raise foundation.SkiaToolError("foundation tooling accepts only local, unqualified artifacts")
-    if manifest.get("profile") != PROFILE or (expected_profile and expected_profile != PROFILE):
+    profile_name = manifest.get("profile")
+    if profile_name not in CANVASKIT_PROFILES:
+        raise foundation.SkiaToolError("CanvasKit artifact has an unsupported profile")
+    if expected_profile is not None and profile_name != expected_profile:
         raise foundation.SkiaToolError("CanvasKit artifact profile mismatch")
     if manifest.get("target") != TARGET or (expected_target and expected_target != TARGET):
         raise foundation.SkiaToolError("CanvasKit artifact target mismatch")
-    if manifest.get("platform") != "Web" or manifest.get("lane") != LANE:
+    if manifest.get("platform") != "Web" or manifest.get("lane") != profile_lane(profile_name):
         raise foundation.SkiaToolError("CanvasKit artifact browser lane mismatch")
     source = foundation.require_object(manifest.get("source"), "manifest.source")
     if source != {
@@ -883,13 +1018,18 @@ def verify_artifact_directory(
     protocol = abi.get("web_protocol_version")
     if not isinstance(protocol, int) or isinstance(protocol, bool) or protocol <= 0:
         raise foundation.SkiaToolError("CanvasKit artifact protocol version is invalid")
-    expected_id = artifact_id(manifest.get("fission_version"), config["bridge"]["abi_version"], protocol)
+    expected_id = artifact_id(
+        manifest.get("fission_version"),
+        profile_name,
+        config["bridge"]["abi_version"],
+        protocol,
+    )
     if manifest.get("artifact_id") != expected_id:
         raise foundation.SkiaToolError("CanvasKit artifact identity is inconsistent")
-    profile = foundation.select_profile(config, PROFILE)
+    profile = foundation.select_profile(config, profile_name)
     if manifest.get("features") != profile["features"]:
         raise foundation.SkiaToolError("CanvasKit artifact features do not match the profile")
-    if manifest.get("browser") != web_recipe(config)["browser"]:
+    if manifest.get("browser") != web_recipe(config, profile_name)["browser"]:
         raise foundation.SkiaToolError("CanvasKit browser contract does not match the profile")
 
     required_licences = set(
@@ -898,14 +1038,15 @@ def verify_artifact_directory(
     payload_paths = {
         "web/canvaskit.js",
         "web/canvaskit.wasm",
-        "web/fission_skia_web.js",
+        *(f"web/{name}" for name in BRIDGE_FILES),
         *(f"licenses/{name}.txt" for name in required_licences),
     }
     if files != {foundation.MANIFEST, *payload_paths}:
         raise foundation.SkiaToolError("CanvasKit artifact contains undeclared files")
     declared = validate_declared_files(root, manifest.get("files"), payload_paths)
     assets = foundation.require_object(manifest.get("assets"), "manifest.assets")
-    if set(assets) != {"canvaskit_js", "canvaskit_wasm", "fission_web_bridge"}:
+    expected_assets = {"canvaskit_js", "canvaskit_wasm", *BRIDGE_ASSETS}
+    if set(assets) != expected_assets:
         raise foundation.SkiaToolError("CanvasKit asset map has unknown or missing assets")
     validate_binding(
         assets["canvaskit_js"],
@@ -921,31 +1062,32 @@ def verify_artifact_directory(
         declared,
         extra={"role": "canvaskit-module", "media_type": "application/wasm"},
     )
-    validate_binding(
-        assets["fission_web_bridge"],
-        "manifest.assets.fission_web_bridge",
-        "web/fission_skia_web.js",
-        declared,
-        extra={"role": "fission-wire-bridge", "media_type": "text/javascript"},
-    )
+    for asset_name, (filename, role) in BRIDGE_ASSETS.items():
+        validate_binding(
+            assets[asset_name],
+            f"manifest.assets.{asset_name}",
+            f"web/{filename}",
+            declared,
+            extra={"role": role, "media_type": "text/javascript"},
+        )
     validate_javascript(root / "web" / "canvaskit.js", "CanvasKit JavaScript")
-    validate_javascript(root / "web" / "fission_skia_web.js", "Fission Web bridge")
+    bridge_inputs(str(root / "web"))
     validate_wasm(root / "web" / "canvaskit.wasm")
     if protocol_version(root / "web" / "fission_skia_web.js") != protocol:
         raise foundation.SkiaToolError("Web bridge protocol does not match the manifest ABI")
 
-    receipt = validate_build_receipt(manifest.get("build_receipt"), config)
+    receipt = validate_build_receipt(
+        manifest.get("build_receipt"),
+        config,
+        expected_profile=profile_name,
+    )
     if manifest.get("toolchain") != {
         "id": receipt["plan"]["toolchain_id"],
         "compiler": receipt["plan"]["tools"]["emcc"]["version"],
         "runtime_abi": f"Emscripten {EMSCRIPTEN_VERSION} / wasm32",
     }:
         raise foundation.SkiaToolError("CanvasKit manifest toolchain does not match its build")
-    if manifest.get("deployment") != {
-        "emscripten": EMSCRIPTEN_VERSION,
-        "browser_api": "WebGL 2",
-        "wasm_memory_policy": WASM_MEMORY_POLICY,
-    }:
+    if manifest.get("deployment") != deployment_contract(profile_name):
         raise foundation.SkiaToolError("CanvasKit manifest deployment does not match its profile")
     compare_build_output(receipt["outputs"][0], root / "web" / "canvaskit.js", "CanvasKit JavaScript")
     compare_build_output(receipt["outputs"][1], root / "web" / "canvaskit.wasm", "CanvasKit Wasm")
@@ -1017,8 +1159,8 @@ def verify_command(args: argparse.Namespace, config: dict[str, Any]) -> None:
     )
 
 
-def show_plan(_args: argparse.Namespace, config: dict[str, Any]) -> None:
-    print(foundation.canonical_json(web_recipe(config)), end="")
+def show_plan(args: argparse.Namespace, config: dict[str, Any]) -> None:
+    print(foundation.canonical_json(web_recipe(config, args.profile)), end="")
 
 
 def parser() -> argparse.ArgumentParser:
@@ -1026,13 +1168,15 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--config", default=str(DEFAULT_CONFIG), help="pinned Skia configuration")
     commands = result.add_subparsers(dest="command", required=True)
 
-    plan = commands.add_parser("show-plan", help="print the pinned WebGL/Ganesh recipe")
+    plan = commands.add_parser("show-plan", help="print a pinned CanvasKit recipe")
+    plan.add_argument("--profile", choices=CANVASKIT_PROFILES, default=PRODUCTION_PROFILE)
     plan.set_defaults(action=show_plan)
 
     build = commands.add_parser("build", help="build CanvasKit from prepared local checkouts")
     build.add_argument("--source-dir")
     build.add_argument("--emsdk-dir")
     build.add_argument("--build-dir")
+    build.add_argument("--profile", choices=CANVASKIT_PROFILES, required=True)
     build.add_argument("--toolchain-id", required=True)
     build.add_argument("--gn")
     build.add_argument("--ninja")
@@ -1044,13 +1188,17 @@ def parser() -> argparse.ArgumentParser:
     build.set_defaults(action=build_canvaskit)
 
     package = commands.add_parser("package", help="assemble an unqualified CanvasKit artifact")
-    package.add_argument("--profile", default=PROFILE)
+    package.add_argument("--profile", choices=CANVASKIT_PROFILES, required=True)
     package.add_argument("--target", default=TARGET)
     package.add_argument("--fission-version", required=True)
     package.add_argument("--build-metadata", required=True)
     package.add_argument("--canvaskit-js", required=True)
     package.add_argument("--canvaskit-wasm", required=True)
-    package.add_argument("--web-bridge", required=True)
+    package.add_argument(
+        "--bridge-dir",
+        required=True,
+        help="directory containing the exact Fission CanvasKit runtime modules",
+    )
     package.add_argument("--deployment-metadata", required=True)
     package.add_argument("--license", action="append", default=[])
     package.add_argument("--output", required=True)

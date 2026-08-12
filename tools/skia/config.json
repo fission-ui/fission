@@ -414,9 +414,9 @@
     },
     "canvaskit-production": {
       "kind": "canvaskit",
-      "status": "planned",
+      "status": "available",
       "qualified": false,
-      "build_recipe": "pending-web-bridge",
+      "build_recipe": "available",
       "description": "CanvasKit WebGL production profile with optimized CPU fallback.",
       "required_licenses": [
         "brotli",
@@ -446,14 +446,19 @@
         "web/canvaskit.js",
         "web/canvaskit.wasm",
         "web/fission_skia_web.js",
+        "web/fission_skia_commands.js",
+        "web/fission_skia_executor.js",
+        "web/fission_skia_paragraph_wire.js",
+        "web/fission_skia_paragraph_unicode.js",
+        "web/fission_skia_paragraph.js",
         "licenses/"
       ]
     },
     "canvaskit-software-qualification": {
       "kind": "canvaskit",
-      "status": "planned",
+      "status": "available",
       "qualified": false,
-      "build_recipe": "pending-web-bridge",
+      "build_recipe": "available",
       "description": "CanvasKit CPU-only qualification profile.",
       "required_licenses": [
         "brotli",
@@ -483,6 +488,11 @@
         "web/canvaskit.js",
         "web/canvaskit.wasm",
         "web/fission_skia_web.js",
+        "web/fission_skia_commands.js",
+        "web/fission_skia_executor.js",
+        "web/fission_skia_paragraph_wire.js",
+        "web/fission_skia_paragraph_unicode.js",
+        "web/fission_skia_paragraph.js",
         "licenses/"
       ]
     }

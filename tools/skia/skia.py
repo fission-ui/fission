@@ -122,7 +122,7 @@ def load_config(path: Path) -> dict[str, Any]:
         )
         if any(not NAME_RE.fullmatch(licence) for licence in licences):
             raise SkiaToolError(f"config.profiles.{name}.required_licenses has an unsafe name")
-        if profile.get("build_recipe") == "available":
+        if profile.get("build_recipe") == "available" and profile.get("kind") == "native":
             libraries = require_string_list(
                 profile.get("upstream_libraries"),
                 f"config.profiles.{name}.upstream_libraries",
