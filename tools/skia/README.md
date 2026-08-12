@@ -321,17 +321,50 @@ manifest.
 These foundation packages are always emitted as `origin: local-build` and
 `qualified: false`; local Git and vendored source receipts also carry
 `qualified: false`. Digests bind the inputs and outputs together but do not
-authenticate who built them. Release promotion, signatures, trusted provenance,
-and population of
-`crates/rendering/fission-skia-artifacts/artifacts.lock.json` remains fail-closed
-release-pipeline work; this tool does not imply they happened. Promotion must
-produce the final `qualified: true` archive, attach GitHub build provenance for
-that exact archive digest, verify it for the `fission-ui/fission` repository,
-and add the immutable release URL, archive byte length and SHA-256, and final
-manifest SHA-256 to the matching target/profile lock entry. The crate resolver
-uses that bundled lock as its release trust decision and re-verifies the
-archive, manifest, identity, ABI, target, profile, and complete payload before
-linking.
+authenticate who built them.
+
+`promote.py` supplies the fail-closed release transition. Promotion requires a
+fully passing report for the complete frozen backend matrix, checks that the
+requested target/profile cell names the exact packaged artifact, re-runs the
+strict package verifier, and changes only `origin` and `qualified`. The input
+archive and promoted output must be different files:
+
+```sh
+python3 tools/skia/promote.py promote \
+  --kind native \
+  --archive /absolute/path/to/unqualified.tar.gz \
+  --sha256 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+  --profile native-raster \
+  --target x86_64-unknown-linux-gnu \
+  --qualification-report /absolute/path/to/qualification-report.json \
+  --qualification-target-id linux-x86_64-gnu \
+  --qualification-profile-id skia-only \
+  --source-date-epoch 1786406400 \
+  --output /absolute/path/to/fission-skia-qualified.tar.gz
+```
+
+The release workflow must then publish and attest that exact promoted archive.
+Only after publication may it enter the bundled artifact lock. `lock` snapshots
+and verifies the archive once, requires GitHub's SLSA v1 attestation from the
+dedicated Fission artifact workflow at the exact source commit, rejects
+self-hosted signers, requires a trusted timestamp, and accepts only the
+canonical immutable GitHub release-asset URL:
+
+```sh
+python3 tools/skia/promote.py lock \
+  --kind native \
+  --archive /absolute/path/to/fission-skia-qualified.tar.gz \
+  --sha256 fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210 \
+  --profile native-raster \
+  --target x86_64-unknown-linux-gnu \
+  --source-digest 0123456789abcdef0123456789abcdef01234567 \
+  --url https://github.com/fission-ui/fission/releases/download/skia-0.10.1/fission-skia-qualified.tar.gz
+```
+
+The lock remains empty until real artifacts pass the frozen matrix; the
+promotion command does not waive missing evidence. The crate resolver uses the
+bundled lock as its release trust decision and re-verifies the archive,
+manifest, identity, ABI, target, profile, and complete payload before linking.
 
 Run the script tests without Cargo:
 
