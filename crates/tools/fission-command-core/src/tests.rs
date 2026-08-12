@@ -319,8 +319,10 @@ fn web_bootstrap_initializes_canvaskit_before_application_wasm() {
         native: NativeConfig::default(),
     };
 
+    let index = render_web_index(&project);
     let bootstrap = render_web_bootstrap(&project);
-    let canvaskit_import = bootstrap.find("import CanvasKitInit").unwrap();
+    let canvaskit_script = index.find("./canvaskit/web/canvaskit.js").unwrap();
+    let bootstrap_script = index.find("./bootstrap.mjs").unwrap();
     let executor_import = bootstrap
         .find("import { createCanvasKitExecutor }")
         .unwrap();
@@ -331,11 +333,12 @@ fn web_bootstrap_initializes_canvaskit_before_application_wasm() {
         .unwrap();
     let start_application = bootstrap.find("await init()").unwrap();
 
-    assert!(canvaskit_import < application_import);
+    assert!(canvaskit_script < bootstrap_script);
     assert!(executor_import < application_import);
+    assert!(!bootstrap.contains("import CanvasKitInit"));
+    assert!(bootstrap.contains("const { CanvasKitInit } = globalThis"));
     assert!(initialize < install_factory);
     assert!(install_factory < start_application);
-    assert!(bootstrap.contains("./canvaskit/web/canvaskit.js"));
     assert!(bootstrap.contains("./canvaskit/web/fission_skia_executor.js"));
     assert!(bootstrap.contains("new URL(`./canvaskit/web/${file}`"));
 }

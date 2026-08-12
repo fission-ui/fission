@@ -1,7 +1,10 @@
-import CanvasKitInit from "./canvaskit/web/canvaskit.js";
 import { createCanvasKitExecutor } from "./canvaskit/web/fission_skia_executor.js";
 import init from "./pkg/example_showcase.js";
 
+const { CanvasKitInit } = globalThis;
+if (typeof CanvasKitInit !== "function") {
+  throw new Error("Fission's verified CanvasKit loader did not install CanvasKitInit");
+}
 const CanvasKit = await CanvasKitInit({
   locateFile: (file) => new URL(`./canvaskit/web/${file}`, import.meta.url).href,
 });
