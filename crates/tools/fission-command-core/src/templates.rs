@@ -56,7 +56,24 @@ pub(super) fn render_web_index(project: &FissionProject) -> String {
 pub(super) fn render_web_bootstrap(project: &FissionProject) -> String {
     let module_name = project.app.name.replace('-', "_");
     format!(
-        "import init from \"./pkg/{}.js\";\n\nawait init();\n",
+        r#"import CanvasKitInit from "./canvaskit/web/canvaskit.js";
+import {{ createCanvasKitExecutor }} from "./canvaskit/web/fission_skia_executor.js";
+import init from "./pkg/{}.js";
+
+const CanvasKit = await CanvasKitInit({{
+  locateFile: (file) => new URL(`./canvaskit/web/${{file}}`, import.meta.url).href,
+}});
+
+globalThis.__FISSION_CANVASKIT_CREATE_EXECUTOR = (canvas, eventSink) =>
+  createCanvasKitExecutor({{ CanvasKit, canvas, eventSink }});
+
+try {{
+  await init();
+}} catch (error) {{
+  delete globalThis.__FISSION_CANVASKIT_CREATE_EXECUTOR;
+  throw error;
+}}
+"#,
         module_name
     )
 }

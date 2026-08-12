@@ -305,3 +305,37 @@ id = "com.example.alias"
     let project = read_project_config(&dir).unwrap();
     assert_eq!(project.app.app_id, "com.example.alias");
 }
+
+#[test]
+fn web_bootstrap_initializes_canvaskit_before_application_wasm() {
+    let project = FissionProject {
+        app: AppConfig {
+            name: "canvas-demo".to_string(),
+            app_id: "com.example.canvas_demo".to_string(),
+            splash: None,
+        },
+        targets: BTreeSet::from([Target::Web]),
+        capabilities: BTreeSet::new(),
+        native: NativeConfig::default(),
+    };
+
+    let bootstrap = render_web_bootstrap(&project);
+    let canvaskit_import = bootstrap.find("import CanvasKitInit").unwrap();
+    let executor_import = bootstrap
+        .find("import { createCanvasKitExecutor }")
+        .unwrap();
+    let application_import = bootstrap.find("./pkg/canvas_demo.js").unwrap();
+    let initialize = bootstrap.find("await CanvasKitInit").unwrap();
+    let install_factory = bootstrap
+        .find("globalThis.__FISSION_CANVASKIT_CREATE_EXECUTOR")
+        .unwrap();
+    let start_application = bootstrap.find("await init()").unwrap();
+
+    assert!(canvaskit_import < application_import);
+    assert!(executor_import < application_import);
+    assert!(initialize < install_factory);
+    assert!(install_factory < start_application);
+    assert!(bootstrap.contains("./canvaskit/web/canvaskit.js"));
+    assert!(bootstrap.contains("./canvaskit/web/fission_skia_executor.js"));
+    assert!(bootstrap.contains("new URL(`./canvaskit/web/${file}`"));
+}
