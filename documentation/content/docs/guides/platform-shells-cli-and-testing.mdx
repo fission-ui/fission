@@ -156,7 +156,7 @@ Web runs through the browser shell and WebAssembly, which is the compiled format
 
 Android runs through generated or checked-in mobile hosts and currently has a verified emulator path. Android development adds the usual host setup, including the Android software development kit (SDK) for platform tooling and the Android native development kit (NDK) for the native toolchain used by this Rust-based path. Those are normal Android-host concerns, not signs that the shared runtime is less serious there.
 
-iOS also runs through a real host path and currently has a verified simulator flow in the repository. The simulator can fall back to a software renderer when CoreSimulator cannot satisfy the normal graphics path, which keeps the simulator useful for development and validation. That is a current host-environment detail, not a downgrade of the platform story. As with any production iOS app, simulator runs and device validation answer different questions.
+iOS also runs through a real host path and currently has a verified simulator flow in the repository. The simulator can select Fission's Skia raster profile when CoreSimulator cannot satisfy the normal graphics path, which keeps the simulator useful for development and validation without returning to the previous standalone software renderer. That is a current host-environment detail, not a downgrade of the platform story. As with any production iOS app, simulator runs and device validation answer different questions.
 
 Terminal runs through the terminal shell. It uses the same app model, but output must be compatible with terminal cells, keyboard-first interaction, bounded scrollback, and the capabilities of the terminal emulator the user actually runs.
 

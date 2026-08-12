@@ -125,8 +125,9 @@ work provides structural conformance gates; the full cross-backend and visual
 matrix remains migration work.
 
 Examples:
-- Vello vs software renderer,
-- CPU vs GPU paths,
+- Vello vs Skia,
+- Skia raster vs Skia GPU paths,
+- production backends vs the reference conformance renderer,
 - platform-specific renderers.
 
 An unexplained change against a backend's own approved golden is a regression.

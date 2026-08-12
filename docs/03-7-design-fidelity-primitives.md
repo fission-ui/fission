@@ -92,11 +92,12 @@ shadow lists switch at the state boundary. Ripple feedback is opt-in.
 
 `BoxShadow` preserves offset, blur, spread, and inset through Core IR and the
 display list. `Container::shadows` paints multiple layers in declaration order.
-The Vello, software, and static-site renderers preserve shadow geometry; the
-software renderer rasterizes blurred outer and inset masks.
+The Vello, Skia, reference-software, and static-site renderers preserve shadow
+geometry. Production native software profiles rasterize through Skia; the
+reference renderer remains available only for comparison and conformance.
 
 `Container::backdrop_blur` emits a rounded, clipped backdrop-filter operation.
-Static sites use CSS backdrop filters and the software renderer performs the
-filter directly. GPU compositor execution is tracked separately; until that
-pass is available, the Vello renderer preserves the operation but does not
-apply the framebuffer blur.
+Static sites use CSS backdrop filters and Skia raster performs the production
+software filter directly. GPU compositor execution is tracked separately;
+until that pass is available, the Vello renderer preserves the operation but
+does not apply the framebuffer blur.
