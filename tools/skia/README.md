@@ -337,11 +337,20 @@ python3 tools/skia/promote.py promote \
   --profile native-raster \
   --target x86_64-unknown-linux-gnu \
   --qualification-report /absolute/path/to/qualification-report.json \
+  --evidence /absolute/path/to/run-linux-skia.json \
+  --evidence /absolute/path/to/every-other-required-run.json \
   --qualification-target-id linux-x86_64-gnu \
   --qualification-profile-id skia-only \
   --source-date-epoch 1786406400 \
   --output /absolute/path/to/fission-skia-qualified.tar.gz
 ```
+
+Repeat `--evidence` for every target/profile cell. Promotion recomputes the
+report through the authoritative qualification tool and requires byte-for-byte
+equality with `--qualification-report`; report booleans supplied by a caller are
+never trusted. The selected cell must bind both the artifact ID and the exact
+unqualified archive SHA-256. The deterministic promoted archive differs only
+because its two release-owned manifest fields record that completed transition.
 
 The release workflow must then publish and attest that exact promoted archive.
 Only after publication may it enter the bundled artifact lock. `lock` snapshots

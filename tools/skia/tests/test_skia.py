@@ -254,6 +254,15 @@ class SkiaToolTests(unittest.TestCase):
                 )
         run_checked.assert_not_called()
 
+    def test_archive_snapshot_stops_at_its_byte_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            temporary = Path(raw)
+            source = temporary / "source.tar.gz"
+            destination = temporary / "snapshot.tar.gz"
+            source.write_bytes(b"12345")
+            with self.assertRaisesRegex(skia.SkiaToolError, "snapshot limit"):
+                skia.copy_archive_once(source, destination, max_bytes=4)
+
     def test_native_ganesh_selects_exact_linux_vulkan_recipe(self) -> None:
         profile = self.config["profiles"]["native-ganesh"]
         recipe = skia.resolve_build_plan(

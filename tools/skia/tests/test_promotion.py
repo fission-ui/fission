@@ -27,6 +27,14 @@ assert SKIA_TEST_SPEC is not None and SKIA_TEST_SPEC.loader is not None
 skia_fixture_module = importlib.util.module_from_spec(SKIA_TEST_SPEC)
 SKIA_TEST_SPEC.loader.exec_module(skia_fixture_module)
 
+QUALIFICATION_TEST_SPEC = importlib.util.spec_from_file_location(
+    "fission_qualification_fixture_module",
+    TOOL_DIR.parent / "backend-qualification/tests/test_qualification.py",
+)
+assert QUALIFICATION_TEST_SPEC is not None and QUALIFICATION_TEST_SPEC.loader is not None
+qualification_fixture_module = importlib.util.module_from_spec(QUALIFICATION_TEST_SPEC)
+QUALIFICATION_TEST_SPEC.loader.exec_module(qualification_fixture_module)
+
 
 class SkiaPromotionTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -40,33 +48,26 @@ class SkiaPromotionTests(unittest.TestCase):
         self,
         temporary: Path,
         artifact_id: str = "fission-skia-fixture",
-    ) -> tuple[Path, Path, str]:
-        manifest = {
-            "schema_version": 1,
-            "matrix_revision": "fixture-matrix-v1",
-            "frozen": True,
-        }
+        artifact_sha256: str = "a" * 64,
+    ) -> tuple[Path, Path, str, str, list[Path]]:
+        fixture = qualification_fixture_module.QualificationTests(methodName="runTest")
+        manifest = fixture.complete_manifest()
+        key = promotion.qualification.pair_key("linux-x86_64-gnu", "skia-only")
+        manifest["identities"][key]["artifact_id"] = artifact_id
+        manifest["identities"][key]["artifact_sha256"] = artifact_sha256
         manifest_path = temporary / "qualification-manifest.json"
         self.write_json(manifest_path, manifest)
-        report = {
-            "schema_version": 1,
-            "matrix_revision": manifest["matrix_revision"],
-            "manifest_sha256": promotion.foundation.sha256_json(manifest),
-            "qualified": True,
-            "issues": [],
-            "comparisons": [
-                {
-                    "target_id": "linux-x86_64-gnu",
-                    "profile_id": "skia-only",
-                    "run_id": "fixture-run",
-                    "identity": {"artifact_id": artifact_id},
-                    "qualified": True,
-                }
-            ],
-        }
+        runs = fixture.all_runs(manifest)
+        evidence_paths = []
+        for index, run in enumerate(runs):
+            evidence_path = temporary / f"evidence-{index}.json"
+            self.write_json(evidence_path, run)
+            evidence_paths.append(evidence_path)
+        report = promotion.qualification.build_report(manifest, runs)
+        self.assertTrue(report["qualified"])
         report_path = temporary / "qualification-report.json"
         self.write_json(report_path, report)
-        return manifest_path, report_path, artifact_id
+        return manifest_path, report_path, artifact_id, artifact_sha256, evidence_paths
 
     def test_promote_reverifies_and_repackages_a_native_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -82,9 +83,10 @@ class SkiaPromotionTests(unittest.TestCase):
                 "native-raster",
                 "x86_64-unknown-linux-gnu",
             )
-            manifest_path, report_path, _ = self.qualification_fixture(
+            manifest_path, report_path, _, _, evidence = self.qualification_fixture(
                 temporary,
                 packaged["artifact_id"],
+                digest,
             )
             output = temporary / "qualified.tar.gz"
             args = argparse.Namespace(
@@ -96,6 +98,7 @@ class SkiaPromotionTests(unittest.TestCase):
                 target="x86_64-unknown-linux-gnu",
                 qualification_report=str(report_path),
                 qualification_manifest=str(manifest_path),
+                evidence=[str(path) for path in evidence],
                 qualification_target_id="linux-x86_64-gnu",
                 qualification_profile_id="skia-only",
                 source_date_epoch="1",
@@ -122,11 +125,15 @@ class SkiaPromotionTests(unittest.TestCase):
     def test_qualification_report_is_bound_to_frozen_matrix_and_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             temporary = Path(raw)
-            manifest_path, report_path, artifact_id = self.qualification_fixture(temporary)
+            manifest_path, report_path, artifact_id, artifact_sha256, evidence = (
+                self.qualification_fixture(temporary)
+            )
             digest = promotion.qualification_report_digest(
                 report_path,
                 manifest_path,
+                evidence,
                 artifact_id,
+                artifact_sha256,
                 "linux-x86_64-gnu",
                 "skia-only",
             )
@@ -135,27 +142,30 @@ class SkiaPromotionTests(unittest.TestCase):
             report = json.loads(report_path.read_text(encoding="utf-8"))
             report["comparisons"][0]["identity"]["artifact_id"] = "substituted"
             self.write_json(report_path, report)
-            with self.assertRaisesRegex(promotion.PromotionError, "not bound to the artifact"):
+            with self.assertRaisesRegex(promotion.PromotionError, "was not produced"):
                 promotion.qualification_report_digest(
                     report_path,
                     manifest_path,
+                    evidence,
                     artifact_id,
+                    artifact_sha256,
                     "linux-x86_64-gnu",
                     "skia-only",
                 )
 
-    def test_qualification_report_rejects_a_changed_frozen_manifest(self) -> None:
+    def test_qualification_report_binds_the_exact_archive_digest(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             temporary = Path(raw)
-            manifest_path, report_path, artifact_id = self.qualification_fixture(temporary)
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            manifest["matrix_revision"] = "fixture-matrix-v2"
-            self.write_json(manifest_path, manifest)
-            with self.assertRaisesRegex(promotion.PromotionError, "matrix revision"):
+            manifest_path, report_path, artifact_id, _, evidence = (
+                self.qualification_fixture(temporary)
+            )
+            with self.assertRaisesRegex(promotion.PromotionError, "exact archive"):
                 promotion.qualification_report_digest(
                     report_path,
                     manifest_path,
+                    evidence,
                     artifact_id,
+                    "b" * 64,
                     "linux-x86_64-gnu",
                     "skia-only",
                 )
@@ -181,14 +191,13 @@ class SkiaPromotionTests(unittest.TestCase):
             promotion.verify_attestation(
                 Path("artifact.tar.gz"),
                 digest,
-                "gh",
                 "b" * 40,
-                promotion.DEFAULT_SIGNER_WORKFLOW,
-                None,
                 None,
             )
         command = run.call_args.args[0]
+        self.assertEqual(command[0], "gh")
         self.assertIn("--deny-self-hosted-runners", command)
+        self.assertNotIn("--custom-trusted-root", command)
         self.assertEqual(command[command.index("--source-digest") + 1], "b" * 40)
         self.assertEqual(
             command[command.index("--signer-workflow") + 1],
@@ -202,12 +211,28 @@ class SkiaPromotionTests(unittest.TestCase):
                 promotion.verify_attestation(
                     Path("artifact.tar.gz"),
                     digest,
-                    "gh",
                     "b" * 40,
-                    promotion.DEFAULT_SIGNER_WORKFLOW,
-                    None,
                     None,
                 )
+
+    def test_archive_header_scan_enforces_limits_before_reading_the_tail(self) -> None:
+        first = promotion.tarfile.TarInfo("fixture/manifest.json")
+        first.size = 1
+        second = promotion.tarfile.TarInfo("fixture/payload")
+        second.size = 1
+        third = promotion.tarfile.TarInfo("fixture/ignored")
+        third.size = 1
+
+        class HeaderStream:
+            def __init__(self) -> None:
+                self.members = iter((first, second, third))
+
+            def next(self) -> promotion.tarfile.TarInfo | None:
+                return next(self.members, None)
+
+        with mock.patch.object(promotion, "MAX_ARCHIVE_MEMBERS", 2):
+            with self.assertRaisesRegex(promotion.PromotionError, "too many entries"):
+                promotion.bounded_archive_members(HeaderStream(), kind="fixture")
 
     def test_release_url_must_be_the_exact_github_asset(self) -> None:
         valid = (

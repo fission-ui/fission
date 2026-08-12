@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from contextlib import contextmanager
+import importlib.util
 import json
 from pathlib import Path
 import re
@@ -21,6 +22,7 @@ REPOSITORY_ROOT = TOOL_DIR.parents[1]
 DEFAULT_QUALIFICATION_MANIFEST = (
     REPOSITORY_ROOT / "tools/backend-qualification/qualification-manifest.json"
 )
+QUALIFICATION_TOOL = REPOSITORY_ROOT / "tools/backend-qualification/qualification.py"
 if str(TOOL_DIR) not in sys.path:
     sys.path.insert(0, str(TOOL_DIR))
 
@@ -39,6 +41,21 @@ MAX_ARCHIVE_BYTES = 2 * 1024 * 1024 * 1024
 MAX_EXPANDED_BYTES = 4 * 1024 * 1024 * 1024
 MAX_ARCHIVE_MEMBERS = 8_192
 GIT_DIGEST_RE = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
+
+
+def load_qualification_tool() -> Any:
+    specification = importlib.util.spec_from_file_location(
+        "fission_backend_qualification_for_promotion",
+        QUALIFICATION_TOOL,
+    )
+    if specification is None or specification.loader is None:
+        raise RuntimeError("cannot load the authoritative backend qualification tool")
+    module = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(module)
+    return module
+
+
+qualification = load_qualification_tool()
 
 
 class PromotionError(foundation.SkiaToolError):
@@ -61,25 +78,28 @@ def load_object(path: Path, context: str) -> dict[str, Any]:
 def qualification_report_digest(
     path: Path,
     qualification_manifest_path: Path,
+    evidence_paths: Sequence[Path],
     artifact_id: str,
+    artifact_sha256: str,
     target_id: str,
     profile_id: str,
 ) -> str:
-    qualification_manifest = load_object(
-        qualification_manifest_path,
-        "frozen qualification manifest",
-    )
-    if (
-        qualification_manifest.get("schema_version") != 1
-        or qualification_manifest.get("frozen") is not True
-    ):
-        raise PromotionError("qualification manifest is not a frozen schema-v1 matrix")
+    try:
+        qualification_manifest = qualification.load_json(qualification_manifest_path)
+        evidence = [qualification.load_json(evidence_path) for evidence_path in evidence_paths]
+        authoritative = qualification.build_report(qualification_manifest, evidence)
+    except qualification.QualificationError as error:
+        raise PromotionError(f"backend qualification input is invalid: {error}") from error
     report = load_object(path, "qualification report")
-    if report.get("schema_version") != 1:
+    if report != authoritative:
+        raise PromotionError(
+            "qualification report was not produced from the supplied frozen matrix and evidence"
+        )
+    if report.get("schema_version") != qualification.SCHEMA_VERSION:
         raise PromotionError("qualification report schema is unsupported")
     if report.get("qualified") is not True or report.get("issues") != []:
         raise PromotionError("the complete frozen backend matrix is not qualified")
-    matrix_revision = qualification_manifest.get("matrix_revision")
+    matrix_revision = qualification.MATRIX_REVISION
     if (
         not isinstance(matrix_revision, str)
         or not matrix_revision
@@ -87,7 +107,9 @@ def qualification_report_digest(
     ):
         raise PromotionError("qualification report does not match the frozen matrix revision")
     manifest_sha256 = report.get("manifest_sha256")
-    if manifest_sha256 != foundation.sha256_json(qualification_manifest):
+    if manifest_sha256 != qualification.digest_json(
+        qualification.validate_manifest(qualification_manifest)
+    ):
         raise PromotionError("qualification report does not bind the frozen manifest")
 
     comparisons = report.get("comparisons")
@@ -112,24 +134,36 @@ def qualification_report_digest(
         raise PromotionError(
             "qualification evidence is not bound to the artifact being promoted"
         )
+    if identity.get("artifact_sha256") != artifact_sha256:
+        raise PromotionError(
+            "qualification evidence is not bound to the exact archive being promoted"
+        )
     run_id = comparison.get("run_id")
     if not isinstance(run_id, str) or not run_id:
         raise PromotionError("the requested qualification cell has no run identity")
     return foundation.sha256_file(path)
 
 
-def _bound_archive_members(
-    members: Sequence[tarfile.TarInfo],
+def bounded_archive_members(
+    source: tarfile.TarFile,
     *,
     kind: str,
-) -> None:
-    if len(members) > MAX_ARCHIVE_MEMBERS:
-        raise PromotionError(f"{kind} archive contains too many entries")
-    regular = [member for member in members if member.isfile()]
-    if any(member.size < 0 or member.size > MAX_ARCHIVE_BYTES for member in regular):
-        raise PromotionError(f"{kind} archive contains an oversized file")
-    if sum(member.size for member in regular) > MAX_EXPANDED_BYTES:
-        raise PromotionError(f"{kind} archive exceeds the expanded-size limit")
+) -> list[tarfile.TarInfo]:
+    members: list[tarfile.TarInfo] = []
+    expanded_bytes = 0
+    while True:
+        member = source.next()
+        if member is None:
+            return members
+        if len(members) >= MAX_ARCHIVE_MEMBERS:
+            raise PromotionError(f"{kind} archive contains too many entries")
+        if member.isfile():
+            if member.size < 0 or member.size > MAX_ARCHIVE_BYTES:
+                raise PromotionError(f"{kind} archive contains an oversized file")
+            expanded_bytes += member.size
+            if expanded_bytes > MAX_EXPANDED_BYTES:
+                raise PromotionError(f"{kind} archive exceeds the expanded-size limit")
+        members.append(member)
 
 
 @contextmanager
@@ -139,20 +173,22 @@ def extracted_archive(
     kind: str,
 ) -> Iterator[tuple[Path, str, Path]]:
     require_sha256(expected_sha256, "archive SHA-256")
-    if archive.stat(follow_symlinks=False).st_size > MAX_ARCHIVE_BYTES:
-        raise PromotionError("artifact archive exceeds the compressed-size limit")
     with tempfile.TemporaryDirectory(prefix="fission-skia-promotion-") as raw:
         temporary = Path(raw)
         snapshot = temporary / "input.tar.gz"
-        actual = foundation.copy_archive_once(archive, snapshot)
+        actual = foundation.copy_archive_once(
+            archive,
+            snapshot,
+            max_bytes=MAX_ARCHIVE_BYTES,
+        )
         if actual != expected_sha256:
             raise PromotionError(
                 f"archive digest mismatch: expected {expected_sha256}, found {actual}"
             )
         try:
             with tarfile.open(snapshot, "r:gz") as source:
-                _, members = foundation.validated_archive_members(source)
-                _bound_archive_members(members, kind=kind)
+                bounded_archive_members(source, kind=kind)
+                foundation.validated_archive_members(source)
                 root_name = foundation.extract_validated_archive(source, temporary)
         except (tarfile.TarError, EOFError) as error:
             raise PromotionError(f"invalid {kind} archive: {error}") from error
@@ -222,7 +258,9 @@ def promote_command(args: argparse.Namespace, config: Mapping[str, Any]) -> None
         report_sha256 = qualification_report_digest(
             Path(args.qualification_report).expanduser().resolve(),
             Path(args.qualification_manifest).expanduser().resolve(),
+            [Path(path).expanduser().resolve() for path in args.evidence],
             manifest["artifact_id"],
+            args.sha256,
             args.qualification_target_id,
             args.qualification_profile_id,
         )
@@ -265,16 +303,13 @@ def promote_command(args: argparse.Namespace, config: Mapping[str, Any]) -> None
 def verify_attestation(
     archive: Path,
     archive_sha256: str,
-    gh: str,
     source_digest: str,
-    signer_workflow: str,
     bundle: Path | None,
-    trusted_root: Path | None,
 ) -> None:
     if not GIT_DIGEST_RE.fullmatch(source_digest):
         raise PromotionError("source digest must be a lowercase Git SHA-1 or SHA-256")
     command = [
-        gh,
+        "gh",
         "attestation",
         "verify",
         str(archive),
@@ -283,7 +318,7 @@ def verify_attestation(
         "--predicate-type",
         PREDICATE_TYPE,
         "--signer-workflow",
-        signer_workflow,
+        DEFAULT_SIGNER_WORKFLOW,
         "--source-digest",
         source_digest,
         "--deny-self-hosted-runners",
@@ -292,12 +327,10 @@ def verify_attestation(
     ]
     if bundle is not None:
         command.extend(["--bundle", str(bundle)])
-    if trusted_root is not None:
-        command.extend(["--custom-trusted-root", str(trusted_root)])
     try:
         result = subprocess.run(command, check=True, capture_output=True, text=True)
     except FileNotFoundError as error:
-        raise PromotionError(f"GitHub CLI is unavailable: {gh}") from error
+        raise PromotionError("GitHub CLI is unavailable: gh") from error
     except subprocess.CalledProcessError as error:
         detail = (error.stderr or error.stdout or "attestation verification failed").strip()
         raise PromotionError(f"GitHub provenance verification failed: {detail}") from error
@@ -435,11 +468,8 @@ def lock_command(args: argparse.Namespace, config: Mapping[str, Any]) -> None:
         verify_attestation(
             snapshot,
             args.sha256,
-            args.gh,
             args.source_digest,
-            args.signer_workflow,
             Path(args.bundle).expanduser().resolve() if args.bundle else None,
-            Path(args.trusted_root).expanduser().resolve() if args.trusted_root else None,
         )
         url = canonical_release_url(args.url, archive.name)
         append_lock_entry(
@@ -472,6 +502,12 @@ def parser() -> argparse.ArgumentParser:
         "--qualification-manifest",
         default=str(DEFAULT_QUALIFICATION_MANIFEST),
     )
+    promote.add_argument(
+        "--evidence",
+        action="append",
+        required=True,
+        help="raw qualification evidence JSON; repeat for every frozen matrix cell",
+    )
     promote.add_argument("--qualification-target-id", required=True)
     promote.add_argument("--qualification-profile-id", required=True)
     promote.add_argument("--source-date-epoch", required=True)
@@ -488,10 +524,7 @@ def parser() -> argparse.ArgumentParser:
     lock.add_argument("--target", required=True)
     lock.add_argument("--url", required=True)
     lock.add_argument("--source-digest", required=True)
-    lock.add_argument("--signer-workflow", default=DEFAULT_SIGNER_WORKFLOW)
     lock.add_argument("--bundle")
-    lock.add_argument("--trusted-root")
-    lock.add_argument("--gh", default="gh")
     lock.add_argument(
         "--lock",
         default=str(

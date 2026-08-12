@@ -1536,7 +1536,14 @@ def extract_validated_archive(
     return root_name
 
 
-def copy_archive_once(source: Path, destination: Path) -> str:
+def copy_archive_once(
+    source: Path,
+    destination: Path,
+    *,
+    max_bytes: int | None = None,
+) -> str:
+    if max_bytes is not None and max_bytes < 0:
+        raise SkiaToolError("archive snapshot byte limit must not be negative")
     flags = os.O_RDONLY
     if hasattr(os, "O_BINARY"):
         flags |= os.O_BINARY
@@ -1553,9 +1560,15 @@ def copy_archive_once(source: Path, destination: Path) -> str:
         os.close(source_fd)
         raise SkiaToolError(f"artifact archive is not a regular file: {source}")
     digest = hashlib.sha256()
+    copied = 0
     try:
         with os.fdopen(source_fd, "rb") as input_file, destination.open("xb") as output_file:
             for chunk in iter(lambda: input_file.read(1024 * 1024), b""):
+                copied += len(chunk)
+                if max_bytes is not None and copied > max_bytes:
+                    raise SkiaToolError(
+                        f"artifact archive exceeds the {max_bytes}-byte snapshot limit"
+                    )
                 digest.update(chunk)
                 output_file.write(chunk)
             output_file.flush()
