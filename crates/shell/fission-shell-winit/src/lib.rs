@@ -608,7 +608,14 @@ where
             composite: true,
         };
         let mut vello_image_cache_generation = fission_render_vello::image_cache_generation();
+        #[cfg(target_arch = "wasm32")]
         let mut software_image_cache_generation = fission_render_software::image_cache_generation();
+        let frame_submission = FrameSubmissionState::default();
+        let frame_resource_generation = frame_submission.resource_generation();
+        let resource_wake_proxy = event_proxy.clone();
+        frame_submission.install_resource_wake(Arc::new(move || {
+            let _ = resource_wake_proxy.send_event(TestEvent::Wake);
+        }));
 
         let mut run_loop = RunLoop {
             background_test_mode,
@@ -663,7 +670,8 @@ where
             env,
             applied_window_title,
             pipeline,
-            frame_submission: FrameSubmissionState::default(),
+            frame_submission,
+            frame_resource_generation,
             native_surface_handlers,
             measurer,
             effect_result_tx,
@@ -715,6 +723,7 @@ where
             active_tray,
             invalidations,
             vello_image_cache_generation,
+            #[cfg(target_arch = "wasm32")]
             software_image_cache_generation,
             sync_env: self.sync_env,
             key_handler: self.key_handler,

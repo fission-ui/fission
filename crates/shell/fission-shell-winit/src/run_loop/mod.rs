@@ -136,6 +136,7 @@ where
     pub(super) applied_window_title: String,
     pub(super) pipeline: Pipeline,
     pub(super) frame_submission: FrameSubmissionState,
+    pub(super) frame_resource_generation: u64,
     pub(super) native_surface_handlers: NativeSurfaceRegistry,
     pub(super) measurer: Arc<VelloTextMeasurer>,
     pub(super) effect_result_tx: mpsc::Sender<AsyncMessage>,
@@ -190,6 +191,7 @@ where
     pub(super) active_tray: Option<tray::ActiveTray<S>>,
     pub(super) invalidations: InvalidationSet,
     pub(super) vello_image_cache_generation: u64,
+    #[cfg(target_arch = "wasm32")]
     pub(super) software_image_cache_generation: u64,
     pub(super) sync_env: Option<Arc<dyn Fn(&S, &mut Env) + Send + Sync>>,
     pub(super) key_handler: Option<KeyHandler<S>>,

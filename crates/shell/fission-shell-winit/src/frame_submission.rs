@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 
 use fission_core::env::{VideoStateMap, VideoStatus, WebStateMap};
 use fission_ir::{CoreIR, EmbedKind, LayoutOp, Op, WidgetId};
@@ -338,6 +339,18 @@ impl Default for FrameSubmissionState {
 }
 
 impl FrameSubmissionState {
+    pub(super) fn resource_generation(&self) -> u64 {
+        self.resources.generation()
+    }
+
+    pub(super) fn has_pending_resources(&self) -> bool {
+        self.resources.has_pending()
+    }
+
+    pub(super) fn install_resource_wake(&self, wake: Arc<dyn Fn() + Send + Sync + 'static>) {
+        self.resources.install_wake(wake);
+    }
+
     pub(super) fn commit(
         &mut self,
         submission: &FrameSubmission,

@@ -406,18 +406,47 @@ where
             );
         }
 
+        let next_frame_resource_generation = self.frame_submission.resource_generation();
+        let frame_resources_changed =
+            next_frame_resource_generation != self.frame_resource_generation;
+        if frame_resources_changed {
+            self.frame_resource_generation = next_frame_resource_generation;
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                self.retained_scene_cache.clear();
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                if let Some(WebRenderer::WebGpu(presenter)) = self.web_renderer.as_mut() {
+                    presenter.retained_scene_cache.clear();
+                }
+            }
+            self.invalidations.mark_paint();
+        }
+
         let next_vello_image_generation = fission_render_vello::image_cache_generation();
+        #[cfg(target_arch = "wasm32")]
         let next_software_image_generation = fission_render_software::image_cache_generation();
+        #[cfg(target_arch = "wasm32")]
         let image_cache_changed = next_vello_image_generation != self.vello_image_cache_generation
             || next_software_image_generation != self.software_image_cache_generation;
+        #[cfg(not(target_arch = "wasm32"))]
+        let image_cache_changed = next_vello_image_generation != self.vello_image_cache_generation;
         if image_cache_changed {
             self.vello_image_cache_generation = next_vello_image_generation;
-            self.software_image_cache_generation = next_software_image_generation;
-            #[cfg(not(target_arch = "wasm32"))]
-            self.retained_scene_cache.clear();
             #[cfg(target_arch = "wasm32")]
-            if let Some(WebRenderer::WebGpu(presenter)) = self.web_renderer.as_mut() {
-                presenter.retained_scene_cache.clear();
+            {
+                self.software_image_cache_generation = next_software_image_generation;
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                self.retained_scene_cache.clear();
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                if let Some(WebRenderer::WebGpu(presenter)) = self.web_renderer.as_mut() {
+                    presenter.retained_scene_cache.clear();
+                }
             }
             self.invalidations.mark_paint();
             let stats = fission_render_vello::image_cache_stats();
@@ -439,25 +468,28 @@ where
                     offscreen_skips: stats.offscreen_skips,
                 },
             );
-            let stats = fission_render_software::image_cache_stats();
-            diag::emit(
-                diag::DiagCategory::Raster,
-                diag::DiagLevel::Debug,
-                diag::DiagEventKind::ImageCacheSummary {
-                    renderer: "software".to_string(),
-                    entries: stats.entries,
-                    weighted_bytes: stats.weighted_bytes,
-                    max_bytes: stats.max_bytes,
-                    pending: stats.pending,
-                    hits: stats.hits,
-                    misses: stats.misses,
-                    loads_started: stats.loads_started,
-                    loads_completed: stats.loads_completed,
-                    loads_failed: stats.loads_failed,
-                    evictions: stats.evictions,
-                    offscreen_skips: 0,
-                },
-            );
+            #[cfg(target_arch = "wasm32")]
+            {
+                let stats = fission_render_software::image_cache_stats();
+                diag::emit(
+                    diag::DiagCategory::Raster,
+                    diag::DiagLevel::Debug,
+                    diag::DiagEventKind::ImageCacheSummary {
+                        renderer: "software".to_string(),
+                        entries: stats.entries,
+                        weighted_bytes: stats.weighted_bytes,
+                        max_bytes: stats.max_bytes,
+                        pending: stats.pending,
+                        hits: stats.hits,
+                        misses: stats.misses,
+                        loads_started: stats.loads_started,
+                        loads_completed: stats.loads_completed,
+                        loads_failed: stats.loads_failed,
+                        evictions: stats.evictions,
+                        offscreen_skips: 0,
+                    },
+                );
+            }
             request_redraw_logged(
                 &window,
                 elwt,
@@ -468,8 +500,13 @@ where
                 "image_cache",
             );
         }
+        #[cfg(target_arch = "wasm32")]
         let image_cache_pending = fission_render_vello::image_cache_has_pending()
             || fission_render_software::image_cache_has_pending();
+        #[cfg(not(target_arch = "wasm32"))]
+        let image_cache_pending = fission_render_vello::image_cache_has_pending();
+        let resource_work_pending =
+            image_cache_pending || self.frame_submission.has_pending_resources();
 
         // When a frame_hook is registered, ensure the event loop
         // wakes at least every 2 seconds so the hook fires even
@@ -484,6 +521,7 @@ where
         let has_pending_work = effect_results_dispatched
             || frame_hook_wants_redraw
             || image_cache_changed
+            || frame_resources_changed
             || self.invalidations.any()
             || resize_unsettled
             || self.pending_capture_settle;
@@ -594,7 +632,7 @@ where
                 }
             }
             elwt.set_control_flow(ControlFlow::WaitUntil(wake_at));
-        } else if image_cache_pending {
+        } else if resource_work_pending {
             let wake_at = now + Duration::from_millis(50);
             elwt.set_control_flow(ControlFlow::WaitUntil(wake_at));
         } else if let Some(blink_at) = blink_wake_at {

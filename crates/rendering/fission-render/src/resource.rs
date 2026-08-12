@@ -2,7 +2,7 @@ use std::collections::btree_map::{Entry, Iter};
 use std::collections::BTreeMap;
 use std::fmt;
 
-use fission_ir::WidgetId;
+use fission_ir::{op::ImageSource, WidgetId};
 use serde::de;
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -36,6 +36,70 @@ impl ResourceContentIdentity {
 
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+/// Derives the opaque identity used while source acquisition is pending or has
+/// failed. The digest binds the source request without exposing file paths,
+/// URLs, or request headers to renderer diagnostics and caches.
+pub fn unresolved_resource_content_identity(
+    kind: &ResourceKind,
+    source: &ImageSource,
+) -> ResourceContentIdentity {
+    opaque_resource_content_identity(kind, source, None)
+}
+
+/// Derives the opaque identity of acquired resource bytes.
+///
+/// Hosts and renderers share this function so a backend can verify that a
+/// submitted payload belongs to the exact source request before decoding or
+/// caching it. Backends still treat the returned identity as opaque.
+pub fn resolved_resource_content_identity(
+    kind: &ResourceKind,
+    source: &ImageSource,
+    bytes: &[u8],
+) -> ResourceContentIdentity {
+    opaque_resource_content_identity(kind, source, Some(bytes))
+}
+
+fn opaque_resource_content_identity(
+    kind: &ResourceKind,
+    source: &ImageSource,
+    resolved_bytes: Option<&[u8]>,
+) -> ResourceContentIdentity {
+    let mut request_hasher = blake3::Hasher::new();
+    request_hasher.update(b"fission-resource-request-v1\0");
+    request_hasher.update(source.stable_identity().as_bytes());
+
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"fission-resource-content-v1\0");
+    hasher.update(resource_kind_label(kind).as_bytes());
+    if let ResourceKind::Custom(name) = kind {
+        hasher.update(b"\0custom-kind\0");
+        hasher.update(name.as_bytes());
+    }
+    hasher.update(b"\0");
+    hasher.update(request_hasher.finalize().as_bytes());
+    if let Some(bytes) = resolved_bytes {
+        hasher.update(b"\0resolved\0");
+        hasher.update(bytes);
+    }
+    ResourceContentIdentity::try_new(format!(
+        "fission-resource-v1:{}:{}",
+        resource_kind_label(kind),
+        hasher.finalize().to_hex()
+    ))
+    .expect("an opaque content digest is non-empty")
+}
+
+fn resource_kind_label(kind: &ResourceKind) -> &str {
+    match kind {
+        ResourceKind::Image => "image",
+        ResourceKind::Svg => "svg",
+        ResourceKind::Font => "font",
+        ResourceKind::Text => "text",
+        ResourceKind::Binary => "binary",
+        ResourceKind::Custom(_) => "custom",
     }
 }
 
