@@ -13,8 +13,8 @@ use fission_render::capabilities::ImageSourceKind;
 use fission_render::diagnostics::{CacheDiagnostics, DiagnosticCategory};
 use fission_render::image_cache_store::ImageCacheStore;
 use fission_render::resource::{
-    ResourceContentIdentity, ResourceEntry, ResourceId, ResourceKind, ResourcePayload,
-    ResourceSnapshot, ResourceSource, ResourceStatus,
+    resolved_resource_content_identity, unresolved_resource_content_identity, ResourceEntry,
+    ResourceId, ResourceKind, ResourcePayload, ResourceSnapshot, ResourceSource, ResourceStatus,
 };
 use fission_render::{ImageFit, LayoutRect};
 use fission_skia_sys::DecodedImage;
@@ -62,6 +62,7 @@ pub(crate) enum ImageError {
     },
     UnexpectedSource {
         resource_id: ResourceId,
+        expected: ResourceSource,
         actual: ResourceSource,
     },
     NotReady {
@@ -120,10 +121,11 @@ impl fmt::Display for ImageError {
             ),
             Self::UnexpectedSource {
                 resource_id,
+                expected,
                 actual,
             } => write!(
                 formatter,
-                "frame resource {} has source {actual:?}, expected Memory",
+                "frame resource {} has source {actual:?}, expected {expected:?}",
                 resource_id.0
             ),
             Self::NotReady {
@@ -247,24 +249,21 @@ impl SkiaImageCache {
     }
 }
 
-pub(crate) fn resolve_memory_image<'a>(
+pub(crate) fn resolve_image_resource<'a>(
     resources: &'a ResourceSnapshot,
     request: &ImageRequest,
     node_id: fission_ir::WidgetId,
 ) -> Result<ResolvedImageResource<'a>, ImageError> {
-    let ImageSource::Memory {
-        bytes: requested_bytes,
-        ..
-    } = &request.source
-    else {
-        return Err(ImageError::UnsupportedSource(ImageSourceKind::from_source(
-            &request.source,
-        )));
+    let (expected_source, requested_bytes) = match &request.source {
+        ImageSource::Asset { .. } => (ResourceSource::Asset, None),
+        ImageSource::File { .. } => (ResourceSource::File, None),
+        ImageSource::Network { .. } => (ResourceSource::Network, None),
+        ImageSource::Memory { bytes, .. } => (ResourceSource::Memory, Some(bytes.as_slice())),
+        ImageSource::SvgText { .. } => {
+            return Err(ImageError::UnsupportedSource(ImageSourceKind::SvgText))
+        }
     };
 
-    let cache_key = request.source.stable_identity();
-    let content_identity = ResourceContentIdentity::try_new(cache_key.clone())
-        .expect("an image source stable identity is never empty");
     let matches = resources
         .iter()
         .map(|(_, entry)| entry)
@@ -274,26 +273,18 @@ pub(crate) fn resolve_memory_image<'a>(
         [] => {
             return Err(ImageError::MissingResource {
                 node_id,
-                content_identity: cache_key,
+                content_identity: request.source.stable_identity(),
             })
         }
         [entry] => *entry,
         entries => {
             return Err(ImageError::AmbiguousResource {
                 node_id,
-                content_identity: cache_key,
+                content_identity: request.source.stable_identity(),
                 matches: entries.len(),
             })
         }
     };
-
-    if entry.content_identity() != &content_identity {
-        return Err(ImageError::ContentIdentityMismatch {
-            resource_id: entry.id(),
-            expected: cache_key,
-            actual: entry.content_identity().as_str().to_owned(),
-        });
-    }
 
     if entry.kind() != &ResourceKind::Image {
         return Err(ImageError::UnexpectedKind {
@@ -301,13 +292,23 @@ pub(crate) fn resolve_memory_image<'a>(
             actual: entry.kind().clone(),
         });
     }
-    if entry.provenance().source != ResourceSource::Memory {
+    if entry.provenance().source != expected_source {
         return Err(ImageError::UnexpectedSource {
             resource_id: entry.id(),
+            expected: expected_source,
             actual: entry.provenance().source.clone(),
         });
     }
+
     if entry.status() != ResourceStatus::Ready {
+        let expected = unresolved_resource_content_identity(&ResourceKind::Image, &request.source);
+        if entry.content_identity() != &expected {
+            return Err(ImageError::ContentIdentityMismatch {
+                resource_id: entry.id(),
+                expected: expected.as_str().to_owned(),
+                actual: entry.content_identity().as_str().to_owned(),
+            });
+        }
         return Err(ImageError::NotReady {
             resource_id: entry.id(),
             status: entry.status(),
@@ -318,14 +319,23 @@ pub(crate) fn resolve_memory_image<'a>(
             resource_id: entry.id(),
         });
     };
-    if encoded.as_slice() != requested_bytes.as_slice() {
+    let expected =
+        resolved_resource_content_identity(&ResourceKind::Image, &request.source, encoded);
+    if entry.content_identity() != &expected {
+        return Err(ImageError::ContentIdentityMismatch {
+            resource_id: entry.id(),
+            expected: expected.as_str().to_owned(),
+            actual: entry.content_identity().as_str().to_owned(),
+        });
+    }
+    if requested_bytes.is_some_and(|requested| encoded.as_slice() != requested) {
         return Err(ImageError::PayloadIdentityMismatch {
             resource_id: entry.id(),
         });
     }
 
     Ok(ResolvedImageResource {
-        cache_key,
+        cache_key: entry.content_identity().as_str().to_owned(),
         encoded,
         entry,
     })
@@ -442,12 +452,25 @@ mod tests {
         status: ResourceStatus,
         payload: Option<ResourcePayload>,
     ) -> ResourceEntry {
+        let source = match &request.source {
+            ImageSource::Asset { .. } => ResourceSource::Asset,
+            ImageSource::File { .. } => ResourceSource::File,
+            ImageSource::Network { .. } => ResourceSource::Network,
+            ImageSource::Memory { .. } => ResourceSource::Memory,
+            ImageSource::SvgText { .. } => ResourceSource::Embedded,
+        };
+        let content_identity = match payload.as_ref() {
+            Some(ResourcePayload::Bytes(bytes)) if status == ResourceStatus::Ready => {
+                resolved_resource_content_identity(&ResourceKind::Image, &request.source, bytes)
+            }
+            _ => unresolved_resource_content_identity(&ResourceKind::Image, &request.source),
+        };
         ResourceEntry::try_new(
             ResourceId(id),
-            ResourceContentIdentity::try_new(request.source.stable_identity()).unwrap(),
+            content_identity,
             ResourceKind::Image,
             ResourceProvenance {
-                source: ResourceSource::Memory,
+                source,
                 locator: Some("image/png".into()),
                 requested_by: Some(requested_by),
             },
@@ -484,12 +507,15 @@ mod tests {
         )
         .unwrap();
 
-        let resolved = resolve_memory_image(&resources, &request, requested_by).unwrap();
+        let resolved = resolve_image_resource(&resources, &request, requested_by).unwrap();
 
-        assert_eq!(resolved.cache_key, request.source.stable_identity());
+        assert_eq!(
+            resolved.cache_key,
+            resolved.entry.content_identity().as_str()
+        );
         assert_eq!(resolved.encoded, &[1, 2, 3]);
         assert!(matches!(
-            resolve_memory_image(
+            resolve_image_resource(
                 &resources,
                 &request,
                 fission_ir::WidgetId::explicit("missing")
@@ -509,7 +535,7 @@ mod tests {
         .unwrap();
 
         assert!(matches!(
-            resolve_memory_image(&loading, &request, node_id),
+            resolve_image_resource(&loading, &request, node_id),
             Err(ImageError::NotReady {
                 status: ResourceStatus::Loading,
                 ..
@@ -537,7 +563,7 @@ mod tests {
         )
         .unwrap();
         assert!(matches!(
-            resolve_memory_image(&duplicate, &request, node_id),
+            resolve_image_resource(&duplicate, &request, node_id),
             Err(ImageError::AmbiguousResource { matches: 2, .. })
         ));
 
@@ -553,11 +579,54 @@ mod tests {
         )
         .unwrap();
         assert!(matches!(
-            resolve_memory_image(&mismatched, &request, node_id),
+            resolve_image_resource(&mismatched, &request, node_id),
             Err(ImageError::PayloadIdentityMismatch {
                 resource_id: ResourceId(3)
             })
         ));
+    }
+
+    #[test]
+    fn resolver_accepts_authority_owned_asset_file_and_network_bytes() {
+        let sources = [
+            ImageSource::Asset {
+                path: "assets/logo.png".into(),
+            },
+            ImageSource::File {
+                path: "/tmp/logo.png".into(),
+            },
+            ImageSource::Network {
+                url: "https://example.test/logo.png".into(),
+                headers: Vec::new(),
+                cache_policy: Default::default(),
+            },
+        ];
+
+        for (index, source) in sources.into_iter().enumerate() {
+            let request = ImageRequest {
+                source,
+                ..ImageRequest::default()
+            };
+            let node_id = fission_ir::WidgetId::explicit(format!("image.source.{index}"));
+            let resources = ResourceSnapshot::try_new(
+                ResourceEpoch(index as u64 + 1),
+                [entry(
+                    index as u64 + 1,
+                    &request,
+                    node_id,
+                    ResourceStatus::Ready,
+                    Some(ResourcePayload::Bytes(vec![index as u8, 7, 9])),
+                )],
+            )
+            .unwrap();
+
+            let resolved = resolve_image_resource(&resources, &request, node_id).unwrap();
+            assert_eq!(resolved.encoded, &[index as u8, 7, 9]);
+            assert_eq!(
+                resolved.cache_key,
+                resolved.entry.content_identity().as_str()
+            );
+        }
     }
 
     #[test]

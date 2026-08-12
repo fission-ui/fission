@@ -17,7 +17,7 @@ use crate::api::{
     RasterGradientStop, RasterLineCap, RasterLineJoin, RasterPaint, RasterPath, RasterPathCommand,
     RasterPoint, RasterRect, RasterStroke, SkiaPictureRecorder,
 };
-use crate::image::{place_image, resolve_memory_image, ImageError, SkiaImageCache};
+use crate::image::{place_image, resolve_image_resource, ImageError, SkiaImageCache};
 use crate::paragraph_caret::{paragraph_caret_paint, ParagraphCaretPaint, ParagraphCaretStyle};
 use crate::paragraph_draw_data::{ParagraphDrawDataError, ParagraphFrameDrawData};
 use crate::picture::SkiaPictureCache;
@@ -624,7 +624,7 @@ impl Compiler<'_> {
             CompileError::new(CompileErrorKind::MissingImageResources, provenance.clone())
         })?;
         let resource =
-            resolve_memory_image(images.resources, request, node_id).map_err(|error| {
+            resolve_image_resource(images.resources, request, node_id).map_err(|error| {
                 CompileError::new(CompileErrorKind::Image(error), provenance.clone())
             })?;
         let image = images

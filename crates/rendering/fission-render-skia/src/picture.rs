@@ -20,7 +20,7 @@ use fission_render::{DisplayList, DisplayOp, LayoutRect, RenderLayer, RenderNode
 use fission_skia_sys::{ParagraphDrawData, RecordedPicture};
 
 use crate::api::{RasterCommand, RasterFrame, RasterRect};
-use crate::image::resolve_memory_image;
+use crate::image::resolve_image_resource;
 use crate::paragraph_draw_data::ParagraphFrameDrawData;
 
 const CACHE_NAME: &str = "fission-render-skia-pictures";
@@ -437,7 +437,7 @@ fn collect_list_external(
                 request, node_id, ..
             } => {
                 let node_id = node_id.or(inherited_node_id)?;
-                let resolved = resolve_memory_image(resources?, request, node_id).ok()?;
+                let resolved = resolve_image_resource(resources?, request, node_id).ok()?;
                 out.push(ExternalPaintIdentity::Image {
                     node_id,
                     resource_id: resolved.entry.id(),

@@ -10,8 +10,9 @@ use fission_render::capabilities::{
 /// correctness-neutral cache hint and is recursively lowered. Opacity uses a
 /// native isolated save-layer so overlapping children receive group alpha
 /// exactly once. Text is enabled only by [`crate::SkiaRasterProfile`], which
-/// can prove that layout and paint share one draw-data registry. Memory images
-/// are decoded only from the submitted frame resource snapshot. Backdrop blur
+/// can prove that layout and paint share one draw-data registry. Asset, file,
+/// network, and memory images are decoded only from authoritative bytes in the
+/// submitted frame resource snapshot. Backdrop blur
 /// is an atomic native filter operation. SVG document paint is retained by
 /// SkSVGDOM, while Fission fill/stroke overrides use the established geometry
 /// subset and ordinary path paint machinery. Other filters and external
@@ -78,7 +79,12 @@ fn paint_capabilities(identity: BackendIdentity, paragraph_paint: bool) -> Graph
         DisplayOpKind::DrawPath,
         DisplayOpKind::DrawSvg,
     ]);
-    capabilities.image_sources.insert(ImageSourceKind::Memory);
+    capabilities.image_sources.extend([
+        ImageSourceKind::Asset,
+        ImageSourceKind::File,
+        ImageSourceKind::Network,
+        ImageSourceKind::Memory,
+    ]);
     capabilities.svg_profile = SvgProfile::FullDocument;
     if paragraph_paint {
         capabilities
@@ -124,9 +130,9 @@ mod tests {
         assert!(!capabilities.supports_display_op(DisplayOpKind::DrawText));
         assert!(!capabilities.supports_display_op(DisplayOpKind::DrawSurface));
         assert!(capabilities.supports_image_source(ImageSourceKind::Memory));
-        assert!(!capabilities.supports_image_source(ImageSourceKind::Asset));
-        assert!(!capabilities.supports_image_source(ImageSourceKind::File));
-        assert!(!capabilities.supports_image_source(ImageSourceKind::Network));
+        assert!(capabilities.supports_image_source(ImageSourceKind::Asset));
+        assert!(capabilities.supports_image_source(ImageSourceKind::File));
+        assert!(capabilities.supports_image_source(ImageSourceKind::Network));
         assert!(!capabilities.supports_image_source(ImageSourceKind::SvgText));
         assert_eq!(capabilities.svg_profile, SvgProfile::FullDocument);
         assert_eq!(capabilities.transform_support, TransformSupport::Affine2d);
