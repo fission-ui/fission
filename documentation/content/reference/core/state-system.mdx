@@ -93,6 +93,12 @@ let (ctx, _) = fission::build::current::<()>();
 | `bind(action, handler)` | Creates an `ActionEnvelope` for a normal app-state reducer |
 | `register::<A, H>(handler)` | Registers a reducer handler without immediately binding a widget event |
 | `bind_local(action, field, handler)` | Binds a reducer to a retained local `StateField<T>` |
+
+Declarative `bind(...)` and `bind_local(...)` install one handler per effective
+action ID in each build while preserving the payload of every returned action
+envelope. Repeated widgets should carry their differing stable context in the
+action value. `register(...)` is different: it is explicitly multicast, so all
+handlers registered for that action type run on dispatch.
 | `request_animation_for(id, request)` | Queues an animation request for a widget id |
 | `anim_for(id)` | Creates a scoped animation helper for a target widget id |
 | `register_video(...)` | Registers a video node with the runtime |

@@ -128,7 +128,7 @@ client.wait_for_ready(15_000)?;
 Prefer semantic selectors over coordinates. Coordinates are still useful for low-level input bugs, but product tests should name the UI element they intend to use.
 
 ```rust
-client.fill_text_semantic_identifier("todo.title", "Publish 0.10.1")?;
+client.fill_text_semantic_identifier("todo.title", "Publish 0.11.0")?;
 client.tap_semantic_identifier("todo.add")?;
 client.wait_for_visible(
     SelectorQuery::semantic_identifier("todo.row.0"),
@@ -148,7 +148,7 @@ TextInput {
     id: Some(WidgetId::explicit("todo-title-input")),
     value: view.state().draft.clone(),
     label: Some("New task".into()),
-    on_change: Some(update_draft),
+    on_input: Some(update_draft),
     ..Default::default()
 }
 .semantics_identifier("todo.title")

@@ -875,22 +875,26 @@ Interactive widgets receive action descriptors produced by binding, not local st
 
 ```rust
 #[fission_reducer(QueryChanged)]
-fn set_query(query: &mut String, value: String) {
-    *query = value;
+fn set_query(query: &mut String, ctx: &mut ReducerContext<String>) {
+    if let Some(change) = ctx.input.text_change() {
+        *query = change.new_text.clone();
+    }
 }
 
 let (ctx, _) = fission::build::current::<GlobalState>();
 let query = search.query();
 let query_changed = ctx.bind_local(
-    QueryChanged(String::new()),
+    QueryChanged,
     query,
     reduce!(set_query),
 );
 
-TextField::new()
-    .placeholder(search.placeholder)
-    .value(query.get())
-    .on_change(query_changed)
+TextInput {
+    placeholder: Some(search.placeholder.into()),
+    value: query.get(),
+    on_input: Some(query_changed),
+    ..Default::default()
+}
 ```
 
 For manual updates:
