@@ -99,12 +99,12 @@ impl From<ConfigEditorBody> for Widget {
             });
         let field_path = with_reducer!(
             ctx.clone(),
-            PublishSetConfigFieldPath(String::new()),
+            PublishSetConfigFieldPath,
             publish_set_config_field_path
         );
         let field_value = with_reducer!(
             ctx.clone(),
-            PublishSetConfigFieldValue(String::new()),
+            PublishSetConfigFieldValue,
             publish_set_config_field_value
         );
         let apply = with_reducer!(

@@ -151,7 +151,7 @@ impl From<FormTextField> for Widget {
             value: component.value.clone(),
             label: Some(component.label.clone().into()),
             placeholder: Some(component.placeholder.clone().into()),
-            on_change: Some(component.action.clone()),
+            on_input: Some(component.action.clone()),
             width: Some(component.width),
             height: Some(density.text_input_height()),
             padding: Some(density.text_input_padding()),

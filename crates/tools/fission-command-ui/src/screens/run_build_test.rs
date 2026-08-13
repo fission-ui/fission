@@ -148,8 +148,8 @@ impl From<ExecutionScreen> for Widget {
     }
 }
 fn network_fields(ctx: BuildCtxHandle<UiState>, view: ViewHandle<UiState>) -> Widget {
-    let host = with_reducer!(ctx, SetHost(String::new()), set_host);
-    let port = with_reducer!(ctx, SetPort(String::new()), set_port);
+    let host = with_reducer!(ctx, SetHost, set_host);
+    let port = with_reducer!(ctx, SetPort, set_port);
     Row {
         gap: Some(1.0),
         children: vec![
