@@ -2122,6 +2122,21 @@ impl HtmlRenderer<'_> {
         semantics: &Semantics,
     ) -> Result<String> {
         let mut attrs = self.native_control_attrs(node, semantics);
+        if self.options.browser_action_bindings
+            && matches!(semantics.role, Role::TextInput | Role::Input)
+            && !semantics.disabled
+            && !semantics.read_only
+            && semantics
+                .actions
+                .entries
+                .iter()
+                .any(|entry| entry.trigger == ActionTrigger::TextChanged)
+        {
+            attrs.push_str(&format!(
+                " data-fission-browser-text-action=\"true\" data-fission-action-target=\"{}\"",
+                node.id.as_u128()
+            ));
+        }
         let children = self.render_children(&node.children, &HashSet::new())?;
         let label_text = semantics.label.as_deref().unwrap_or_default();
         match semantics.role {
@@ -4862,6 +4877,141 @@ mod tests {
         assert!(rendered
             .html
             .contains("data-fission-action-payload=\"dead\""));
+    }
+
+    #[test]
+    fn browser_action_options_bind_text_controls_without_exposing_action_metadata() {
+        let input = WidgetId::explicit("browser-text-input");
+        let mut semantics = Semantics {
+            role: Role::TextInput,
+            value: Some("before".into()),
+            ..Default::default()
+        };
+        semantics.actions = ActionSet {
+            entries: vec![ActionEntry {
+                trigger: ActionTrigger::TextChanged,
+                action_id: 11,
+                payload_data: Some(br#"["smtp_host","secret-marker-8bd4"]"#.to_vec()),
+            }],
+        };
+        let mut ir = CoreIR::new();
+        ir.nodes.insert(
+            input,
+            CoreNode {
+                id: input,
+                op: Op::Semantics(semantics),
+                composite: Default::default(),
+                children: Vec::new(),
+                parent: None,
+                hash: 0,
+            },
+        );
+        ir.set_root(input);
+
+        let interactive = render_ir_to_html(
+            &ir,
+            &HtmlRenderOptions {
+                browser_action_bindings: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(interactive
+            .html
+            .contains("data-fission-browser-text-action=\"true\""));
+        assert!(interactive.html.contains(&format!(
+            "data-fission-action-target=\"{}\"",
+            input.as_u128()
+        )));
+        assert!(!interactive.html.contains("smtp_host"));
+        assert!(!interactive.html.contains("secret-marker-8bd4"));
+        assert!(!interactive.html.contains("data-fission-action-payload"));
+        assert!(!interactive.html.contains("data-fission-action-id"));
+        assert!(!interactive
+            .html
+            .contains(&hex_encode(br#"["smtp_host","secret-marker-8bd4"]"#)));
+
+        let server_only = render_ir_to_html(
+            &ir,
+            &HtmlRenderOptions {
+                server_action_post_path: Some("/__fission/action".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(!server_only
+            .html
+            .contains("data-fission-browser-text-action"));
+    }
+
+    #[test]
+    fn browser_action_options_do_not_bind_non_dispatchable_text_controls() {
+        for (disabled, read_only) in [(true, false), (false, true)] {
+            let input = WidgetId::explicit(if disabled {
+                "disabled-browser-text-input"
+            } else {
+                "readonly-browser-text-input"
+            });
+            let mut semantics = Semantics {
+                role: Role::TextInput,
+                disabled,
+                read_only,
+                ..Default::default()
+            };
+            semantics.actions = ActionSet {
+                entries: vec![ActionEntry {
+                    trigger: ActionTrigger::TextChanged,
+                    action_id: 17,
+                    payload_data: Some(vec![1, 2, 3]),
+                }],
+            };
+            let mut ir = CoreIR::new();
+            ir.add_node(input, Op::Semantics(semantics), Vec::new());
+            ir.set_root(input);
+
+            let rendered = render_ir_to_html(
+                &ir,
+                &HtmlRenderOptions {
+                    browser_action_bindings: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            assert!(!rendered.html.contains("data-fission-browser-text-action"));
+            assert!(!rendered.html.contains("data-fission-action-id"));
+            assert!(!rendered.html.contains("data-fission-action-payload"));
+        }
+    }
+
+    #[test]
+    fn browser_action_options_require_a_text_input_role() {
+        let node = WidgetId::explicit("generic-text-change-node");
+        let mut semantics = Semantics {
+            role: Role::Generic,
+            ..Default::default()
+        };
+        semantics.actions = ActionSet {
+            entries: vec![ActionEntry {
+                trigger: ActionTrigger::TextChanged,
+                action_id: 21,
+                payload_data: Some(vec![4, 5, 6]),
+            }],
+        };
+        let mut ir = CoreIR::new();
+        ir.add_node(node, Op::Semantics(semantics), Vec::new());
+        ir.set_root(node);
+
+        let rendered = render_ir_to_html(
+            &ir,
+            &HtmlRenderOptions {
+                browser_action_bindings: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(!rendered.html.contains("data-fission-browser-text-action"));
+        assert!(!rendered.html.contains("data-fission-action-id"));
+        assert!(!rendered.html.contains("data-fission-action-payload"));
     }
 
     #[test]

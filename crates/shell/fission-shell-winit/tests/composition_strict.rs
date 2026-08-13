@@ -30,9 +30,11 @@ fn on_toggle(state: &mut GlobalState, _a: Toggle, _ctx: &mut ReducerContext<Glob
 }
 
 #[fission_macros::fission_action]
-struct UpdateText(String);
-fn on_update(state: &mut GlobalState, a: UpdateText, _ctx: &mut ReducerContext<GlobalState>) {
-    state.text = a.0;
+struct UpdateText;
+fn on_update(state: &mut GlobalState, _a: UpdateText, ctx: &mut ReducerContext<GlobalState>) {
+    if let Some(change) = ctx.input.text_change() {
+        state.text = change.new_text.clone();
+    }
 }
 
 #[derive(Clone, Default)]
@@ -86,7 +88,7 @@ impl From<Root> for Widget {
             TextInput {
                 value: view.state().text.clone(),
                 placeholder: Some("type".into()),
-                on_change: Some(ctx.bind(UpdateText("".into()), reduce_with!(on_update))),
+                on_input: Some(ctx.bind(UpdateText, reduce_with!(on_update))),
                 width: Some(200.0),
                 height: Some(40.0),
                 ..Default::default()

@@ -2,11 +2,12 @@ use crate::{render_ir_to_html_with_styles, CssVariableMap, HtmlRenderOptions, St
 use anyhow::{anyhow, Context, Result};
 use fission_core::internal::BuildCtx;
 use fission_core::internal::InternalLoweringCx;
-use fission_core::registry::{ActionRegistry, VideoRegistration, WebRegistration};
+use fission_core::registry::{VideoRegistration, WebRegistration};
 use fission_core::ui::{Overlay, ZStack};
 use fission_core::{
-    ActionEnvelope, ActionId, Env, GlobalState, RuntimeState, View, Widget, WidgetId,
+    ActionEnvelope, ActionId, Env, GlobalState, Runtime, RuntimeState, View, Widget, WidgetId,
 };
+use fission_ir::{semantics::ActionTrigger, CoreIR, Op, Role, Semantics};
 use fission_theme::Theme;
 use serde_json::{json, Value};
 use std::any::Any;
@@ -31,9 +32,10 @@ where
 {
     id: String,
     mount_id: String,
-    state: S,
+    runtime: Runtime,
     widget: W,
     theme: Theme,
+    _state: std::marker::PhantomData<fn() -> S>,
 }
 
 impl<S, W> BrowserIslandApp<S, W>
@@ -48,12 +50,14 @@ where
     /// semantic identifier rendered by the server page, because the browser
     /// bridge replaces that region with the island's current widget output.
     pub fn new(id: impl Into<String>, mount_id: impl Into<String>, state: S, widget: W) -> Self {
+        let runtime = Runtime::default().with_global_state(state);
         Self {
             id: id.into(),
             mount_id: mount_id.into(),
-            state,
+            runtime,
             widget,
             theme: Theme::default(),
+            _state: std::marker::PhantomData,
         }
     }
 
@@ -76,6 +80,9 @@ where
     }
 
     fn dispatch_browser_action(&mut self, message: &Value) -> Result<()> {
+        if is_browser_text_action(message) {
+            return self.dispatch_browser_text_action(message);
+        }
         let action = message
             .get("binding")
             .and_then(|binding| binding.get("message"))
@@ -100,31 +107,76 @@ where
             .unwrap_or_default();
 
         let output = self.build_widget();
-        let mut registry = output.registry;
-        registry.dispatch(
-            &mut self.state,
-            &ActionEnvelope {
+        self.install_registry(output.registry);
+        let dispatch = self.runtime.dispatch(
+            ActionEnvelope {
                 id: ActionId::from_u128(action_id),
                 payload,
             },
             WidgetId::from_u128(target),
-        )?;
+        );
+        self.finish_browser_dispatch(dispatch)?;
+        Ok(())
+    }
+
+    fn dispatch_browser_text_action(&mut self, message: &Value) -> Result<()> {
+        let action = message
+            .get("binding")
+            .and_then(|binding| binding.get("message"))
+            .ok_or_else(|| anyhow!("browser island text event is missing action metadata"))?;
+        let target = action
+            .get("target_node")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("browser island text event is missing target_node"))?
+            .parse::<u128>()
+            .context("browser island text target_node is not a u128")?;
+        let target = WidgetId::from_u128(target);
+        let new_text = message
+            .get("value")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("browser island text event is missing value"))?
+            .to_string();
+        let new_caret = bridge_text_offset(message, "caret", &new_text)?;
+        let new_anchor = bridge_text_offset(message, "anchor", &new_text)?;
+
+        let output = self.build_widget();
+        let ir = lower_browser_island_widget(
+            output.node,
+            output.portals,
+            &self.theme,
+            &self.runtime.runtime_state,
+        );
+        let semantics = ir
+            .nodes
+            .get(&target)
+            .and_then(|node| match &node.op {
+                Op::Semantics(semantics) => Some(semantics),
+                _ => None,
+            })
+            .ok_or_else(|| anyhow!("browser island text target {target} is not a semantic node"))?;
+        validate_browser_text_target(target, semantics)?;
+        let (envelope, input) = fission_core::input::prepare_scoped_text_input_change(
+            &ir, semantics, target, new_text, new_caret, new_anchor,
+        )
+        .ok_or_else(|| anyhow!("browser island text target {target} has no text-change action"))?;
+        self.install_registry(output.registry);
+        let dispatch = self.runtime.dispatch_with_input(envelope, target, &input);
+        self.finish_browser_dispatch(dispatch)?;
         Ok(())
     }
 
     fn render_bridge_output(&mut self, sequence: u64) -> Result<String> {
         let output = self.build_widget();
-        let node = compose_browser_island_portals(output.node, output.portals);
-        let runtime = RuntimeState::default();
-        let mut env = Env::default();
-        env.theme = self.theme.clone();
-        let mut lowering = InternalLoweringCx::new(&env, &runtime, None, None);
-        let root = fission_core::internal::lower_widget(&node, &mut lowering);
-        lowering.ir.set_root(root);
+        let ir = lower_browser_island_widget(
+            output.node,
+            output.portals,
+            &self.theme,
+            &self.runtime.runtime_state,
+        );
 
         let mut styles = StyleRegistry::default();
         let rendered = render_ir_to_html_with_styles(
-            &lowering.ir,
+            &ir,
             &HtmlRenderOptions {
                 document_title: self.id.clone(),
                 root_class: "fission-browser-island-root".to_string(),
@@ -177,10 +229,13 @@ where
     }
 
     fn build_widget(&self) -> BrowserIslandBuildOutput<S> {
-        let runtime = RuntimeState::default();
         let mut env = Env::default();
         env.theme = self.theme.clone();
-        let view = View::new(&self.state, &runtime, &env, None);
+        let state = self
+            .runtime
+            .get_global_state::<S>()
+            .expect("browser island state is registered at construction");
+        let view = View::new(state, &self.runtime.runtime_state, &env, None);
         let mut ctx = BuildCtx::<S>::new();
         let node = fission_core::build::enter(&mut ctx, &view, || self.widget.clone().into());
         let motion_declarations = ctx.take_motion_declarations();
@@ -197,11 +252,77 @@ where
             portals,
         }
     }
+
+    fn install_registry(&mut self, registry: fission_core::registry::ActionRegistry<S>) {
+        self.runtime.clear_reducers();
+        self.runtime.absorb_registry(registry);
+    }
+
+    fn finish_browser_dispatch(&mut self, dispatch: Result<()>) -> Result<()> {
+        let discarded_effects = self.runtime.discard_pending_effects();
+        dispatch?;
+        if discarded_effects > 0 {
+            anyhow::bail!(
+                "browser island `{}` reducer queued unsupported effects; discarded {discarded_effects} effect envelope(s) and completion callback(s)",
+                self.id
+            );
+        }
+        Ok(())
+    }
+}
+
+fn validate_browser_text_target(target: WidgetId, semantics: &Semantics) -> Result<()> {
+    if !matches!(semantics.role, Role::TextInput | Role::Input) {
+        anyhow::bail!("browser island text target {target} is not a text input");
+    }
+    if semantics.disabled {
+        anyhow::bail!("browser island text target {target} is disabled");
+    }
+    if semantics.read_only {
+        anyhow::bail!("browser island text target {target} is read-only");
+    }
+    if !semantics
+        .actions
+        .entries
+        .iter()
+        .any(|entry| entry.trigger == ActionTrigger::TextChanged)
+    {
+        anyhow::bail!("browser island text target {target} has no text-change action");
+    }
+    Ok(())
+}
+
+fn lower_browser_island_widget(
+    node: Widget,
+    portals: Vec<(Option<WidgetId>, Widget)>,
+    theme: &Theme,
+    runtime: &RuntimeState,
+) -> CoreIR {
+    let node = compose_browser_island_portals(node, portals);
+    let mut env = Env::default();
+    env.theme = theme.clone();
+    let mut lowering = InternalLoweringCx::new(&env, runtime, None, None);
+    let root = fission_core::internal::lower_widget(&node, &mut lowering);
+    lowering.ir.set_root(root);
+    lowering.ir
+}
+
+fn bridge_text_offset(message: &Value, field: &str, text: &str) -> Result<usize> {
+    let raw = message
+        .get(field)
+        .and_then(Value::as_u64)
+        .ok_or_else(|| anyhow!("browser island text event is missing {field}"))?;
+    let offset = usize::try_from(raw)
+        .with_context(|| format!("browser island text {field} does not fit usize"))?;
+    if offset > text.len() || !text.is_char_boundary(offset) {
+        anyhow::bail!("browser island text {field} is not a UTF-8 boundary");
+    }
+    Ok(offset)
 }
 
 struct BrowserIslandBuildOutput<S: GlobalState> {
     node: Widget,
-    registry: ActionRegistry<S>,
+    registry: fission_core::registry::ActionRegistry<S>,
     motion_declarations: Vec<fission_core::MotionDeclaration>,
     video_registrations: Vec<VideoRegistration>,
     web_registrations: Vec<WebRegistration>,
@@ -274,9 +395,25 @@ fn is_action_event(message: &Value) -> bool {
         && message
             .get("binding")
             .and_then(|binding| binding.get("message"))
-            .and_then(|action| action.get("fission_browser_action"))
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
+            .is_some_and(|action| {
+                action
+                    .get("fission_browser_action")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                    || action
+                        .get("fission_browser_text_action")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+            })
+}
+
+fn is_browser_text_action(message: &Value) -> bool {
+    message
+        .get("binding")
+        .and_then(|binding| binding.get("message"))
+        .and_then(|action| action.get("fission_browser_text_action"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
 }
 
 fn browser_island_error(id: &str, error: anyhow::Error) -> String {
@@ -322,7 +459,12 @@ fn hex_value(byte: u8) -> Option<u8> {
 mod tests {
     use super::*;
     use fission_core::op::Color;
-    use fission_core::{reduce_with, Action, Button, ReducerContext, Text};
+    use fission_core::ui::TextInput;
+    use fission_core::{
+        reduce, reduce_with, Action, ActionInput, ActionScope, ActionScopeId, Button, Effect,
+        ReducerContext, RuntimeEffect, StateField, Text,
+    };
+    use fission_ir::semantics::TextInputType;
 
     #[derive(Debug, Default, Clone)]
     struct CounterState {
@@ -366,6 +508,231 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Default, Clone)]
+    struct FieldState {
+        field: String,
+        value: String,
+        observed_node: Option<WidgetId>,
+        observed_caret: usize,
+        observed_anchor: usize,
+    }
+    impl GlobalState for FieldState {}
+
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    struct UpdateField(String);
+    impl Action for UpdateField {
+        fn static_id() -> ActionId {
+            ActionId::from_name("fission.site.browser-island.update-field")
+        }
+    }
+
+    fn update_field(
+        state: &mut FieldState,
+        action: UpdateField,
+        ctx: &mut ReducerContext<FieldState>,
+    ) {
+        let change = ctx
+            .input
+            .text_change()
+            .expect("browser text edit must carry ActionInput");
+        state.field = action.0;
+        state.value = change.new_text.clone();
+        state.observed_node = Some(change.node_id);
+        state.observed_caret = change.new_caret;
+        state.observed_anchor = change.new_anchor;
+    }
+
+    #[derive(Clone)]
+    struct FieldIsland;
+
+    impl From<FieldIsland> for Widget {
+        fn from(_component: FieldIsland) -> Widget {
+            let (ctx, view) = fission_core::build::current::<FieldState>();
+            TextInput {
+                id: Some(WidgetId::from_u128(901)),
+                value: view.state().value.clone(),
+                on_input: Some(
+                    ctx.bind(UpdateField("smtp_host".into()), reduce_with!(update_field)),
+                ),
+                ..Default::default()
+            }
+            .into()
+        }
+    }
+
+    #[derive(Clone)]
+    struct LocalFieldIsland;
+
+    fn update_local_field(
+        value: &mut String,
+        _action: UpdateField,
+        ctx: &mut ReducerContext<String>,
+    ) {
+        *value = ctx
+            .input
+            .text_change()
+            .expect("local browser text edit must carry ActionInput")
+            .new_text
+            .clone();
+    }
+
+    impl From<LocalFieldIsland> for Widget {
+        fn from(_component: LocalFieldIsland) -> Widget {
+            let (ctx, _) = fission_core::build::current::<()>();
+            let value = StateField::new("BrowserIslandField", "value", String::new());
+            TextInput {
+                id: Some(WidgetId::from_u128(902)),
+                value: value.get(),
+                on_input: Some(ctx.bind_local(
+                    UpdateField("smtp_host".into()),
+                    value,
+                    reduce!(update_local_field),
+                )),
+                ..Default::default()
+            }
+            .into()
+        }
+    }
+
+    #[derive(Clone)]
+    struct NumberFieldIsland;
+
+    impl From<NumberFieldIsland> for Widget {
+        fn from(_component: NumberFieldIsland) -> Widget {
+            let (ctx, view) = fission_core::build::current::<FieldState>();
+            TextInput {
+                id: Some(WidgetId::from_u128(903)),
+                value: view.state().value.clone(),
+                keyboard_type: TextInputType::Number,
+                on_input: Some(
+                    ctx.bind(UpdateField("smtp_port".into()), reduce_with!(update_field)),
+                ),
+                ..Default::default()
+            }
+            .into()
+        }
+    }
+
+    #[derive(Clone)]
+    struct NonDispatchableFieldIsland {
+        read_only: bool,
+    }
+
+    #[derive(Debug, Default, Clone)]
+    struct ScopedFieldState {
+        scope: Option<u128>,
+        target: Option<WidgetId>,
+        value: String,
+    }
+    impl GlobalState for ScopedFieldState {}
+
+    fn update_scoped_field(
+        state: &mut ScopedFieldState,
+        _action: UpdateField,
+        ctx: &mut ReducerContext<ScopedFieldState>,
+    ) {
+        let ActionInput::ScopedRaw {
+            scope_id, target, ..
+        } = ctx.input
+        else {
+            panic!("browser text action must retain its enclosing scope");
+        };
+        state.scope = Some(*scope_id);
+        state.target = Some(*target);
+        state.value = ctx.input.text_change().unwrap().new_text.clone();
+    }
+
+    #[derive(Clone)]
+    struct ScopedFieldIsland;
+
+    impl From<ScopedFieldIsland> for Widget {
+        fn from(_component: ScopedFieldIsland) -> Widget {
+            let (ctx, view) = fission_core::build::current::<ScopedFieldState>();
+            ActionScope::new(
+                ActionScopeId::from_u128(5150),
+                TextInput {
+                    id: Some(WidgetId::from_u128(905)),
+                    value: view.state().value.clone(),
+                    on_input: Some(ctx.bind(
+                        UpdateField("scoped".into()),
+                        reduce_with!(update_scoped_field),
+                    )),
+                    ..Default::default()
+                },
+            )
+            .into()
+        }
+    }
+
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    struct QueueUnsupportedEffect;
+    impl Action for QueueUnsupportedEffect {
+        fn static_id() -> ActionId {
+            ActionId::from_name("fission.site.browser-island.queue-unsupported-effect")
+        }
+    }
+
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    struct EffectFinished;
+    impl Action for EffectFinished {
+        fn static_id() -> ActionId {
+            ActionId::from_name("fission.site.browser-island.effect-finished")
+        }
+    }
+
+    fn effect_finished(
+        _state: &mut CounterState,
+        _action: EffectFinished,
+        _ctx: &mut ReducerContext<CounterState>,
+    ) {
+    }
+
+    fn queue_unsupported_effect(
+        _state: &mut CounterState,
+        _action: QueueUnsupportedEffect,
+        ctx: &mut ReducerContext<CounterState>,
+    ) {
+        let on_ok = ctx
+            .effects
+            .bind(EffectFinished, reduce_with!(effect_finished));
+        ctx.effects
+            .add(Effect::Runtime(RuntimeEffect::Cancel { req_id: 77 }))
+            .on_ok(on_ok);
+    }
+
+    #[derive(Clone)]
+    struct EffectIsland;
+
+    impl From<EffectIsland> for Widget {
+        fn from(_component: EffectIsland) -> Widget {
+            let (ctx, _) = fission_core::build::current::<CounterState>();
+            Button {
+                on_press: Some(ctx.bind(
+                    QueueUnsupportedEffect,
+                    reduce_with!(queue_unsupported_effect),
+                )),
+                child: Some(Text::new("Queue effect").into()),
+                ..Default::default()
+            }
+            .into()
+        }
+    }
+
+    impl From<NonDispatchableFieldIsland> for Widget {
+        fn from(component: NonDispatchableFieldIsland) -> Widget {
+            let (ctx, view) = fission_core::build::current::<FieldState>();
+            TextInput {
+                id: Some(WidgetId::from_u128(904)),
+                value: view.state().value.clone(),
+                read_only: component.read_only,
+                enabled: component.read_only,
+                on_input: Some(ctx.bind(UpdateField("blocked".into()), reduce_with!(update_field))),
+                ..Default::default()
+            }
+            .into()
+        }
+    }
+
     #[test]
     fn browser_island_runs_reducer_and_rerenders_html() {
         let id = format!("counter-{}", std::process::id());
@@ -384,6 +751,284 @@ mod tests {
             BrowserIslandApp::new(&id, "counter-mount", CounterState::default(), CounterIsland)
         });
         assert!(update.contains("1 clicks"));
+    }
+
+    #[test]
+    fn browser_island_dispatches_text_with_static_context_and_utf8_selection() {
+        let id = format!("field-{}", std::process::id());
+        let boot = run_browser_island(&id, r#"{"type":"boot"}"#, || {
+            BrowserIslandApp::new(&id, "field-mount", FieldState::default(), FieldIsland)
+        });
+        assert!(boot.contains("data-fission-browser-text-action"));
+
+        let event = r#"{
+            "type":"event",
+            "sequence":2,
+            "binding":{
+                "event":"input",
+                "message":{
+                    "fission_browser_text_action":true,
+                    "target_node":"901"
+                }
+            },
+            "value":"café",
+            "caret":5,
+            "anchor":3
+        }"#;
+        let update = run_browser_island(&id, event, || {
+            BrowserIslandApp::new(&id, "field-mount", FieldState::default(), FieldIsland)
+        });
+        assert!(!update.contains("browser island `"));
+        assert!(update.contains("value=\\\"café\\\""));
+
+        BROWSER_ISLANDS.with(|instances| {
+            let instances = instances.borrow();
+            let island = instances
+                .get(&id)
+                .and_then(|entry| entry.downcast_ref::<BrowserIslandApp<FieldState, FieldIsland>>())
+                .unwrap();
+            let state = island.runtime.get_global_state::<FieldState>().unwrap();
+            assert_eq!(state.field, "smtp_host");
+            assert_eq!(state.value, "café");
+            assert_eq!(state.observed_node, Some(WidgetId::from_u128(901)));
+            assert_eq!(state.observed_caret, 5);
+            assert_eq!(state.observed_anchor, 3);
+        });
+    }
+
+    #[test]
+    fn browser_island_number_input_dispatches_text_and_selection() {
+        let id = format!("field-number-{}", std::process::id());
+        let event = r#"{
+            "type":"event",
+            "binding":{"message":{
+                "fission_browser_text_action":true,
+                "target_node":"903"
+            }},
+            "value":"2525",
+            "caret":4,
+            "anchor":4
+        }"#;
+        let update = run_browser_island(&id, event, || {
+            BrowserIslandApp::new(&id, "field-mount", FieldState::default(), NumberFieldIsland)
+        });
+        assert!(!update.contains("browser island `"));
+        BROWSER_ISLANDS.with(|instances| {
+            let instances = instances.borrow();
+            let island = instances
+                .get(&id)
+                .and_then(|entry| {
+                    entry.downcast_ref::<BrowserIslandApp<FieldState, NumberFieldIsland>>()
+                })
+                .unwrap();
+            let state = island.runtime.get_global_state::<FieldState>().unwrap();
+            assert_eq!(state.field, "smtp_port");
+            assert_eq!(state.value, "2525");
+            assert_eq!(state.observed_caret, 4);
+            assert_eq!(state.observed_anchor, 4);
+        });
+    }
+
+    #[test]
+    fn browser_island_rejects_disabled_and_read_only_text_events() {
+        for (read_only, expected) in [(true, "read-only"), (false, "disabled")] {
+            let id = format!("field-blocked-{read_only}-{}", std::process::id());
+            let event = r#"{
+                "type":"event",
+                "binding":{"message":{
+                    "fission_browser_text_action":true,
+                    "target_node":"904"
+                }},
+                "value":"must-not-dispatch",
+                "caret":17,
+                "anchor":17
+            }"#;
+            let output = run_browser_island(&id, event, || {
+                BrowserIslandApp::new(
+                    &id,
+                    "field-mount",
+                    FieldState::default(),
+                    NonDispatchableFieldIsland { read_only },
+                )
+            });
+            assert!(output.contains(expected), "unexpected output: {output}");
+        }
+    }
+
+    #[test]
+    fn browser_island_text_target_validation_requires_text_role_and_change_action() {
+        let target = WidgetId::from_u128(42);
+        let generic = Semantics {
+            role: Role::Generic,
+            ..Default::default()
+        };
+        assert!(validate_browser_text_target(target, &generic)
+            .unwrap_err()
+            .to_string()
+            .contains("not a text input"));
+
+        let text_without_action = Semantics {
+            role: Role::TextInput,
+            ..Default::default()
+        };
+        assert!(validate_browser_text_target(target, &text_without_action)
+            .unwrap_err()
+            .to_string()
+            .contains("has no text-change action"));
+    }
+
+    #[test]
+    fn browser_island_rejects_selection_that_splits_utf8() {
+        let id = format!("field-invalid-{}", std::process::id());
+        let event = r#"{
+            "type":"event",
+            "binding":{
+                "message":{
+                    "fission_browser_text_action":true,
+                    "target_node":"901"
+                }
+            },
+            "value":"é",
+            "caret":1,
+            "anchor":0
+        }"#;
+        let update = run_browser_island(&id, event, || {
+            BrowserIslandApp::new(&id, "field-mount", FieldState::default(), FieldIsland)
+        });
+        assert!(update.contains("caret is not a UTF-8 boundary"));
+    }
+
+    #[test]
+    fn browser_island_text_dispatch_preserves_enclosing_action_scope() {
+        let id = format!("field-scoped-{}", std::process::id());
+        let event = r#"{
+            "type":"event",
+            "binding":{"message":{
+                "fission_browser_text_action":true,
+                "target_node":"905"
+            }},
+            "value":"scoped value",
+            "caret":12,
+            "anchor":12
+        }"#;
+        let update = run_browser_island(&id, event, || {
+            BrowserIslandApp::new(
+                &id,
+                "field-mount",
+                ScopedFieldState::default(),
+                ScopedFieldIsland,
+            )
+        });
+        assert!(!update.contains("browser island `"));
+        BROWSER_ISLANDS.with(|instances| {
+            let instances = instances.borrow();
+            let island = instances
+                .get(&id)
+                .and_then(|entry| {
+                    entry.downcast_ref::<BrowserIslandApp<ScopedFieldState, ScopedFieldIsland>>()
+                })
+                .unwrap();
+            let state = island
+                .runtime
+                .get_global_state::<ScopedFieldState>()
+                .unwrap();
+            assert_eq!(state.scope, Some(5150));
+            assert_eq!(state.target, Some(WidgetId::from_u128(905)));
+            assert_eq!(state.value, "scoped value");
+        });
+    }
+
+    #[test]
+    fn browser_island_sequential_text_edits_keep_field_identity() {
+        let id = format!("field-sequential-{}", std::process::id());
+        let first = r#"{
+            "type":"event",
+            "binding":{"message":{
+                "fission_browser_text_action":true,
+                "target_node":"901"
+            }},
+            "value":"green",
+            "caret":5,
+            "anchor":5
+        }"#;
+        let second = r#"{
+            "type":"event",
+            "binding":{"message":{
+                "fission_browser_text_action":true,
+                "target_node":"901"
+            }},
+            "value":"greenmail",
+            "caret":9,
+            "anchor":9
+        }"#;
+        let first_output = run_browser_island(&id, first, || {
+            BrowserIslandApp::new(&id, "field-mount", FieldState::default(), FieldIsland)
+        });
+        assert!(!first_output.contains("browser island `"));
+        let second_output = run_browser_island(&id, second, || {
+            BrowserIslandApp::new(&id, "field-mount", FieldState::default(), FieldIsland)
+        });
+        assert!(!second_output.contains("browser island `"));
+
+        BROWSER_ISLANDS.with(|instances| {
+            let instances = instances.borrow();
+            let island = instances
+                .get(&id)
+                .and_then(|entry| entry.downcast_ref::<BrowserIslandApp<FieldState, FieldIsland>>())
+                .unwrap();
+            let state = island.runtime.get_global_state::<FieldState>().unwrap();
+            assert_eq!(state.field, "smtp_host");
+            assert_eq!(state.value, "greenmail");
+            assert_eq!(state.observed_caret, 9);
+            assert_eq!(state.observed_anchor, 9);
+        });
+    }
+
+    #[test]
+    fn browser_island_text_updates_bind_local_state() {
+        let id = format!("field-local-{}", std::process::id());
+        let boot = run_browser_island(&id, r#"{"type":"boot"}"#, || {
+            BrowserIslandApp::new(&id, "field-mount", (), LocalFieldIsland)
+        });
+        assert!(boot.contains("data-fission-browser-text-action"));
+        let event = r#"{
+            "type":"event",
+            "binding":{"message":{
+                "fission_browser_text_action":true,
+                "target_node":"902"
+            }},
+            "value":"greenmail",
+            "caret":9,
+            "anchor":9
+        }"#;
+        let update = run_browser_island(&id, event, || {
+            BrowserIslandApp::new(&id, "field-mount", (), LocalFieldIsland)
+        });
+        assert!(!update.contains("browser island `"));
+        assert!(update.contains("value=\\\"greenmail\\\""));
+    }
+
+    #[test]
+    fn browser_island_rejects_and_discards_effects_and_callbacks() {
+        let mut island = BrowserIslandApp::new(
+            "effect-island",
+            "effect-mount",
+            CounterState::default(),
+            EffectIsland,
+        );
+        let action_id = QueueUnsupportedEffect::static_id().as_u128();
+        let payload_hex = test_hex_encode(&QueueUnsupportedEffect.encode());
+        let event = format!(
+            r#"{{"type":"event","binding":{{"message":{{"fission_browser_action":true,"action_id":"{action_id}","target_node":"1","payload_hex":"{payload_hex}"}}}}}}"#
+        );
+
+        let first = island.handle(&event).unwrap_err().to_string();
+        assert!(first.contains("discarded 2 effect envelope(s) and completion callback(s)"));
+        assert_eq!(island.runtime.discard_pending_effects(), 0);
+
+        let second = island.handle(&event).unwrap_err().to_string();
+        assert!(second.contains("discarded 2 effect envelope(s) and completion callback(s)"));
+        assert_eq!(island.runtime.discard_pending_effects(), 0);
     }
 
     fn test_hex_encode(bytes: &[u8]) -> String {

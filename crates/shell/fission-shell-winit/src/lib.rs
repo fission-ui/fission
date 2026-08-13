@@ -3013,9 +3013,7 @@ fn handle_key_down<S: GlobalState>(
             key_code: code,
             modifiers,
         });
-        if let Err(e) = runtime.handle_input(input_event, ir, layout) {
-            eprintln!("Keyboard error: {:?}", e);
-        }
+        let _ = runtime.handle_input(input_event, ir, layout);
         invalidations.mark_build();
         mark_text_trace_handled(pending_text_traces, trace_seq);
         if process_pending_effects(
@@ -3543,6 +3541,15 @@ fn scoped_action_input_for_node(ir: &CoreIR, target: WidgetId, input: ActionInpu
     input
 }
 
+fn log_input_dispatch_failure(origin: &str, target: Option<WidgetId>) {
+    match target {
+        Some(target) => {
+            eprintln!("Fission input dispatch failed ({origin}, target {target})");
+        }
+        None => eprintln!("Fission input dispatch failed ({origin})"),
+    }
+}
+
 fn dispatch_text_change(
     ir: &CoreIR,
     runtime: &mut Runtime,
@@ -3550,27 +3557,15 @@ fn dispatch_text_change(
     semantics: &Semantics,
     new_text: String,
 ) -> bool {
-    let Some(entry) = semantics
-        .actions
-        .entries
-        .iter()
-        .find(|entry| entry.trigger == ActionTrigger::Change)
-    else {
+    let selection = new_text.len();
+    let Some((envelope, input)) = fission_core::input::prepare_scoped_text_input_change(
+        ir, semantics, target, new_text, selection, selection,
+    ) else {
+        log_input_dispatch_failure("live_test_fill_text_missing_action", Some(target));
         return false;
     };
-    let Ok(payload) = serde_json::to_vec(&new_text) else {
-        return false;
-    };
-    let input = scoped_action_input_for_node(ir, target, ActionInput::None);
     runtime
-        .dispatch_with_input(
-            ActionEnvelope {
-                id: ActionId::from_u128(entry.action_id),
-                payload,
-            },
-            target,
-            &input,
-        )
+        .dispatch_with_input(envelope, target, &input)
         .is_ok()
 }
 
@@ -3662,6 +3657,7 @@ fn set_text_value_for_test(
     {
         return false;
     }
+    let previous_text_state = runtime.runtime_state.text_edit.get(record.id).cloned();
     set_focus_for_test(runtime, ir, record.id, &record.semantics);
     runtime.runtime_state.text_edit.sync_from_runtime(
         record.id,
@@ -3681,9 +3677,26 @@ fn set_text_value_for_test(
         state.pending_model_sync = true;
         state.clear_preedit();
     }
-    let mut changed =
-        dispatch_text_change(ir, runtime, record.id, &record.semantics, value.to_string());
-    changed |= dispatch_cursor_change(
+    if !dispatch_text_change(ir, runtime, record.id, &record.semantics, value.to_string()) {
+        if let Some(previous) = previous_text_state {
+            runtime
+                .runtime_state
+                .text_edit
+                .states
+                .insert(record.id, previous);
+        } else {
+            runtime.runtime_state.text_edit.states.remove(&record.id);
+        }
+        return false;
+    }
+
+    let has_cursor_action = record
+        .semantics
+        .actions
+        .entries
+        .iter()
+        .any(|entry| entry.trigger == ActionTrigger::CursorChange);
+    let cursor_changed = dispatch_cursor_change(
         ir,
         runtime,
         record.id,
@@ -3691,7 +3704,7 @@ fn set_text_value_for_test(
         value.len(),
         value.len(),
     );
-    changed
+    !has_cursor_action || cursor_changed
 }
 
 fn resolve_selector_response(
@@ -3908,8 +3921,19 @@ fn handle_fill_text_selector(
             vec![(record, Some("not a text input".into()))],
         );
     }
-    set_text_value_for_test(runtime, ir, &record, text);
-    fission_test_driver::TestResponse::Ok {}
+    if set_text_value_for_test(runtime, ir, &record, text) {
+        fission_test_driver::TestResponse::Ok {}
+    } else {
+        selector_failure(
+            query.clone(),
+            fission_test_driver::SelectorFailureKind::UnsupportedAction,
+            "text input edit could not be dispatched",
+            vec![(
+                record,
+                Some("text input action unavailable or rejected".into()),
+            )],
+        )
+    }
 }
 
 fn handle_toggle_selector(
@@ -5125,15 +5149,13 @@ where
                                     target,
                                     presented_frames,
                                 );
-                                runtime
-                                    .handle_input(
-                                        InputEvent::Ime(fission_core::event::ImeEvent::Commit {
-                                            text: text.clone(),
-                                        }),
-                                        ir,
-                                        layout,
-                                    )
-                                    .ok();
+                                let _ = runtime.handle_input(
+                                    InputEvent::Ime(fission_core::event::ImeEvent::Commit {
+                                        text: text.clone(),
+                                    }),
+                                    ir,
+                                    layout,
+                                );
                                 invalidations.mark_build();
                                 mark_text_trace_handled(&mut pending_text_traces, trace_seq);
                                 if process_pending_effects(
@@ -5211,16 +5233,14 @@ where
                                 target,
                                 presented_frames,
                             );
-                            runtime
-                                .handle_input(
-                                    InputEvent::Ime(fission_core::event::ImeEvent::Preedit {
-                                        text,
-                                        cursor,
-                                    }),
-                                    ir,
-                                    layout,
-                                )
-                                .ok();
+                            let _ = runtime.handle_input(
+                                InputEvent::Ime(fission_core::event::ImeEvent::Preedit {
+                                    text,
+                                    cursor,
+                                }),
+                                ir,
+                                layout,
+                            );
                             invalidations.mark_build();
                             mark_text_trace_handled(&mut pending_text_traces, trace_seq);
                             request_redraw_logged(
@@ -5250,13 +5270,11 @@ where
                                 target,
                                 presented_frames,
                             );
-                            runtime
-                                .handle_input(
-                                    InputEvent::Ime(fission_core::event::ImeEvent::Commit { text }),
-                                    ir,
-                                    layout,
-                                )
-                                .ok();
+                            let _ = runtime.handle_input(
+                                InputEvent::Ime(fission_core::event::ImeEvent::Commit { text }),
+                                ir,
+                                layout,
+                            );
                             invalidations.mark_build();
                             mark_text_trace_handled(&mut pending_text_traces, trace_seq);
                             request_redraw_logged(
@@ -5286,13 +5304,11 @@ where
                                 target,
                                 presented_frames,
                             );
-                            runtime
-                                .handle_input(
-                                    InputEvent::Ime(fission_core::event::ImeEvent::Cancel),
-                                    ir,
-                                    layout,
-                                )
-                                .ok();
+                            let _ = runtime.handle_input(
+                                InputEvent::Ime(fission_core::event::ImeEvent::Cancel),
+                                ir,
+                                layout,
+                            );
                             invalidations.mark_build();
                             mark_text_trace_handled(&mut pending_text_traces, trace_seq);
                             request_redraw_logged(
@@ -8616,7 +8632,7 @@ where
                                         target,
                                         presented_frames,
                                     );
-                                    runtime.handle_input(e, ir, layout).ok();
+                                    let _ = runtime.handle_input(e, ir, layout);
                                     invalidations.mark_build();
                                     mark_text_trace_handled(&mut pending_text_traces, trace_seq);
                                     if process_pending_effects(
@@ -9072,9 +9088,10 @@ mod tests {
     use super::{
         animation_redraw_interval, build_window_attributes, clamp_copy_extent_to_texture,
         collect_semantic_records, collect_startup_deep_links_from, cursor_icon_for,
-        downscale_rgba_box, layout_size_to_image_dimensions, logical_viewport_to_physical_size,
-        logical_viewport_to_render_target_size, native_window_size_for_logical_viewport,
-        normalize_scale_factor, normalize_winit_scroll_delta, physical_position_to_layout_point,
+        downscale_rgba_box, handle_fill_text_selector, layout_size_to_image_dimensions,
+        logical_viewport_to_physical_size, logical_viewport_to_render_target_size,
+        native_window_size_for_logical_viewport, normalize_scale_factor,
+        normalize_winit_scroll_delta, physical_position_to_layout_point,
         physical_size_to_layout_size, preferred_native_present_mode, preferred_surface_alpha_mode,
         present_frame_with_winit_coordination, rect_visible_in_scroll_ancestors,
         repeating_animation_redraw_interval, resize_is_unsettled, resolve_build_viewport,
@@ -9087,17 +9104,102 @@ mod tests {
     use crate::pipeline::CompositorTexturePlan;
     use crate::renderer_diagnostics::RendererRequest;
     use crate::InvalidationSet;
+    use fission_core::{
+        Action as FissionAction, ActionId as FissionActionId, ActionRegistry, DeepLinkConfig,
+        GlobalState, MotionPropertyId, ReducerContext, Runtime, UpdateTextInput, WidgetId,
+    };
     use fission_core::{ActiveMotion, MotionEasing, MotionStateMap, MotionValue, ScrollStateMap};
-    use fission_core::{DeepLinkConfig, MotionPropertyId, WidgetId};
-    use fission_ir::semantics::MouseCursor;
+    use fission_ir::semantics::{ActionTrigger, MouseCursor};
     use fission_ir::{CoreIR, FlexDirection, LayoutOp, Op, Role, Semantics};
     use fission_layout::{LayoutNodeGeometry, LayoutRect, LayoutSize, LayoutSnapshot};
+    use serde::{Deserialize, Serialize};
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::time::Duration;
     use winit::dpi::{PhysicalPosition, PhysicalSize};
     use winit::event::MouseScrollDelta;
     use winit::window::CursorIcon;
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    struct LiveTextAction(String);
+
+    impl FissionAction for LiveTextAction {
+        fn static_id() -> FissionActionId {
+            FissionActionId::from_name("winit_live_test::LiveTextAction")
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct LiveTextState {
+        edit: Option<(String, UpdateTextInput)>,
+    }
+
+    impl GlobalState for LiveTextState {}
+
+    fn record_live_text(
+        state: &mut LiveTextState,
+        action: LiveTextAction,
+        context: &mut ReducerContext<LiveTextState>,
+    ) {
+        state.edit = Some((
+            action.0,
+            context
+                .input
+                .text_change()
+                .expect("live text input")
+                .clone(),
+        ));
+    }
+
+    fn live_text_runtime() -> Runtime {
+        let mut runtime = Runtime::default().with_global_state(LiveTextState::default());
+        let mut registry = ActionRegistry::<LiveTextState>::new();
+        registry.register(
+            record_live_text
+                as fn(&mut LiveTextState, LiveTextAction, &mut ReducerContext<LiveTextState>),
+        );
+        runtime.absorb_registry(registry);
+        runtime
+    }
+
+    fn live_text_pipeline(payload: Option<Vec<u8>>) -> (crate::Pipeline, WidgetId) {
+        let target = WidgetId::explicit("live-text-input");
+        let mut ir = CoreIR::new();
+        let actions = payload
+            .map(|payload_data| fission_ir::ActionSet {
+                entries: vec![fission_ir::ActionEntry {
+                    trigger: ActionTrigger::TextChanged,
+                    action_id: LiveTextAction::static_id().as_u128(),
+                    payload_data: Some(payload_data),
+                }],
+            })
+            .unwrap_or_default();
+        ir.add_node(
+            target,
+            Op::Semantics(Semantics {
+                role: Role::TextInput,
+                identifier: Some("live.text".into()),
+                value: Some(String::new()),
+                actions,
+                focusable: true,
+                ..Semantics::default()
+            }),
+            Vec::new(),
+        );
+        ir.set_root(target);
+        let mut snapshot = LayoutSnapshot::new(LayoutSize::new(320.0, 80.0));
+        snapshot.nodes.insert(
+            target,
+            LayoutNodeGeometry {
+                rect: LayoutRect::new(12.0, 12.0, 240.0, 40.0),
+                content_size: LayoutSize::new(240.0, 40.0),
+            },
+        );
+        let mut pipeline = crate::Pipeline::new();
+        pipeline.prev_ir = Some(ir);
+        pipeline.last_snapshot = Some(snapshot);
+        (pipeline, target)
+    }
 
     #[test]
     fn initial_window_maximization_is_opt_in() {
@@ -9412,6 +9514,83 @@ mod tests {
             node.visibility,
             fission_test_driver::VisibilityState::FullyVisible
         );
+    }
+
+    #[test]
+    fn live_test_fill_text_preserves_bound_payload_and_reports_runtime_edit() {
+        let (pipeline, target) =
+            live_text_pipeline(Some(LiveTextAction("smtp_host".into()).encode()));
+        let mut runtime = live_text_runtime();
+        let query = fission_test_driver::SelectorQuery::semantic_identifier("live.text");
+
+        let response = handle_fill_text_selector(&query, "greenmail", &mut runtime, &pipeline);
+
+        assert!(matches!(response, fission_test_driver::TestResponse::Ok {}));
+        let (field, change) = runtime
+            .get_global_state::<LiveTextState>()
+            .and_then(|state| state.edit.as_ref())
+            .expect("live text edit");
+        assert_eq!(field, "smtp_host");
+        assert_eq!(change.node_id, target);
+        assert_eq!(change.new_text, "greenmail");
+        assert_eq!(change.new_caret, "greenmail".len());
+        assert_eq!(change.new_anchor, "greenmail".len());
+    }
+
+    #[test]
+    fn live_test_fill_text_fails_when_text_input_has_no_input_action() {
+        let (pipeline, target) = live_text_pipeline(None);
+        let mut runtime = live_text_runtime();
+        let query = fission_test_driver::SelectorQuery::semantic_identifier("live.text");
+
+        let response = handle_fill_text_selector(&query, "not-retained", &mut runtime, &pipeline);
+
+        match response {
+            fission_test_driver::TestResponse::SelectorError { failure } => {
+                assert_eq!(
+                    failure.kind,
+                    fission_test_driver::SelectorFailureKind::UnsupportedAction
+                );
+                assert_eq!(failure.message, "text input edit could not be dispatched");
+            }
+            other => panic!("expected selector error, got {other:?}"),
+        }
+        assert!(runtime
+            .get_global_state::<LiveTextState>()
+            .expect("live text state")
+            .edit
+            .is_none());
+        assert!(runtime.runtime_state.text_edit.get(target).is_none());
+    }
+
+    #[test]
+    fn live_test_fill_text_fails_and_restores_editor_state_on_dispatch_error() {
+        let (pipeline, target) = live_text_pipeline(Some(b"not-json".to_vec()));
+        let mut runtime = live_text_runtime();
+        runtime
+            .runtime_state
+            .text_edit
+            .sync_from_runtime(target, "before", Some(2), Some(1));
+        let query = fission_test_driver::SelectorQuery::semantic_identifier("live.text");
+
+        let response = handle_fill_text_selector(&query, "private-value", &mut runtime, &pipeline);
+
+        assert!(matches!(
+            response,
+            fission_test_driver::TestResponse::SelectorError { .. }
+        ));
+        assert!(runtime
+            .get_global_state::<LiveTextState>()
+            .expect("live text state")
+            .edit
+            .is_none());
+        let editor = runtime
+            .runtime_state
+            .text_edit
+            .get(target)
+            .expect("restored editor state");
+        assert_eq!(editor.buffer.to_string(), "before");
+        assert_eq!((editor.caret, editor.anchor), (2, 1));
     }
 
     #[test]

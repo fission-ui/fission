@@ -10,6 +10,7 @@ mod imp {
     };
     use accesskit_winit::Adapter;
     use fission_core::event::ImeEvent;
+    use fission_core::input::prepare_scoped_text_input_change;
     use fission_core::{ActionEnvelope, ActionId, ActionInput, InputEvent, Runtime};
     use fission_ir::semantics::{ActionTrigger, Role, TextInputType};
     use fission_ir::{CoreIR, Op, PaintOp, Semantics, WidgetId};
@@ -194,73 +195,113 @@ mod imp {
         ) -> bool {
             self.active = true;
             let node_map = self.shared.latest_node_map.lock().ok();
-            let Some(target) = node_map
-                .as_ref()
-                .and_then(|map| map.get(&request.target_node).copied())
-            else {
-                return false;
-            };
-            let Some(semantics) = semantics_for(ir, target) else {
-                return false;
-            };
+            node_map.as_ref().is_some_and(|node_map| {
+                dispatch_mapped_accessibility_action(request, runtime, ir, layout, node_map)
+            })
+        }
+    }
 
-            match request.action {
-                Action::Click => dispatch_semantics_action(
+    fn dispatch_mapped_accessibility_action(
+        request: ActionRequest,
+        runtime: &mut Runtime,
+        ir: &CoreIR,
+        layout: &LayoutSnapshot,
+        node_map: &HashMap<NodeId, WidgetId>,
+    ) -> bool {
+        let Some(target) = node_map.get(&request.target_node).copied() else {
+            return false;
+        };
+        let Some(semantics) = semantics_for(ir, target) else {
+            return false;
+        };
+        dispatch_accessibility_action(request, runtime, ir, layout, target, semantics)
+    }
+
+    fn dispatch_accessibility_action(
+        request: ActionRequest,
+        runtime: &mut Runtime,
+        ir: &CoreIR,
+        layout: &LayoutSnapshot,
+        target: WidgetId,
+        semantics: &Semantics,
+    ) -> bool {
+        match request.action {
+            Action::Click => dispatch_semantics_action(
+                runtime,
+                ir,
+                target,
+                semantics,
+                ActionTrigger::Default,
+                ActionInput::None,
+            ),
+            Action::Focus => set_focus(runtime, ir, Some(target)),
+            Action::Blur => set_focus(runtime, ir, None),
+            Action::ReplaceSelectedText => {
+                if !editable_text_input(semantics) || !has_text_input_action(semantics) {
+                    crate::log_input_dispatch_failure(
+                        "accessibility_replace_selected_text_rejected",
+                        Some(target),
+                    );
+                    return false;
+                }
+                let Some(text) = value_action_data(&request.data) else {
+                    return false;
+                };
+                set_focus(runtime, ir, Some(target));
+                runtime
+                    .handle_input(
+                        InputEvent::Ime(ImeEvent::Commit {
+                            text: text.to_string(),
+                        }),
+                        ir,
+                        layout,
+                    )
+                    .is_ok()
+            }
+            Action::SetValue => match &request.data {
+                Some(ActionData::Value(value)) => {
+                    set_text_input_value(runtime, ir, target, semantics, value)
+                }
+                Some(ActionData::NumericValue(value)) if semantics.role == Role::TextInput => {
+                    set_text_input_value(runtime, ir, target, semantics, &value.to_string())
+                }
+                Some(ActionData::NumericValue(value)) => set_numeric_value(
                     runtime,
+                    ir,
                     target,
                     semantics,
-                    ActionTrigger::Default,
-                    ActionInput::None,
-                ),
-                Action::Focus => set_focus(runtime, ir, Some(target)),
-                Action::Blur => set_focus(runtime, ir, None),
-                Action::ReplaceSelectedText => {
-                    let Some(text) = value_action_data(&request.data) else {
-                        return false;
-                    };
-                    set_focus(runtime, ir, Some(target));
-                    runtime
-                        .handle_input(
-                            InputEvent::Ime(ImeEvent::Commit {
-                                text: text.to_string(),
-                            }),
-                            ir,
-                            layout,
-                        )
-                        .is_ok()
-                }
-                Action::SetValue => match &request.data {
-                    Some(ActionData::Value(value)) => {
-                        set_text_input_value(runtime, ir, target, semantics, value)
-                    }
-                    Some(ActionData::NumericValue(value)) => set_numeric_value(
-                        runtime,
-                        target,
-                        semantics,
-                        (*value as f32).clamp(
-                            semantics.min_value.unwrap_or(f32::NEG_INFINITY),
-                            semantics.max_value.unwrap_or(f32::INFINITY),
-                        ),
+                    (*value as f32).clamp(
+                        semantics.min_value.unwrap_or(f32::NEG_INFINITY),
+                        semantics.max_value.unwrap_or(f32::INFINITY),
                     ),
-                    _ => false,
-                },
-                Action::SetTextSelection => {
-                    let Some(ActionData::SetTextSelection(selection)) = &request.data else {
-                        return false;
-                    };
-                    set_text_selection(runtime, ir, target, semantics, selection)
-                }
-                Action::ScrollDown
-                | Action::ScrollUp
-                | Action::ScrollLeft
-                | Action::ScrollRight => {
-                    handle_scroll_action(runtime, ir, layout, target, request.action, &request.data)
-                }
-                Action::Increment => adjust_numeric_value(runtime, target, semantics, 1.0),
-                Action::Decrement => adjust_numeric_value(runtime, target, semantics, -1.0),
+                ),
                 _ => false,
+            },
+            Action::SetTextSelection => {
+                let Some(ActionData::SetTextSelection(selection)) = &request.data else {
+                    return false;
+                };
+                set_text_selection(runtime, ir, target, semantics, selection)
             }
+            Action::ScrollDown | Action::ScrollUp | Action::ScrollLeft | Action::ScrollRight => {
+                handle_scroll_action(runtime, ir, layout, target, request.action, &request.data)
+            }
+            Action::Increment => adjust_numeric_value(runtime, ir, target, semantics, 1.0),
+            Action::Decrement => adjust_numeric_value(runtime, ir, target, semantics, -1.0),
+            _ => false,
         }
+    }
+
+    fn editable_text_input(semantics: &Semantics) -> bool {
+        semantics.role == Role::TextInput && !semantics.disabled && !semantics.read_only
+    }
+
+    fn has_text_input_action(semantics: &Semantics) -> bool {
+        semantics
+            .actions
+            .entries
+            .iter()
+            .any(|entry| entry.trigger == ActionTrigger::TextChanged)
     }
 
     pub fn window_must_start_hidden() -> bool {
@@ -488,9 +529,13 @@ mod imp {
                             });
                         }
                     }
-                    node.add_action(Action::ReplaceSelectedText);
-                    node.add_action(Action::SetValue);
-                    node.add_action(Action::SetTextSelection);
+                    if editable_text_input(semantics) && has_text_input_action(semantics) {
+                        node.add_action(Action::ReplaceSelectedText);
+                        node.add_action(Action::SetValue);
+                    }
+                    if !semantics.disabled {
+                        node.add_action(Action::SetTextSelection);
+                    }
                     if semantics.read_only {
                         node.set_read_only();
                     }
@@ -692,6 +737,7 @@ mod imp {
             if let Some(old_semantics) = semantics_for(ir, old_id) {
                 let _ = dispatch_semantics_action(
                     runtime,
+                    ir,
                     old_id,
                     old_semantics,
                     ActionTrigger::Blur,
@@ -713,6 +759,7 @@ mod imp {
             if let Some(new_semantics) = semantics_for(ir, new_id) {
                 let _ = dispatch_semantics_action(
                     runtime,
+                    ir,
                     new_id,
                     new_semantics,
                     ActionTrigger::Focus,
@@ -725,6 +772,7 @@ mod imp {
 
     fn dispatch_semantics_action(
         runtime: &mut Runtime,
+        ir: &CoreIR,
         target: WidgetId,
         semantics: &Semantics,
         trigger: ActionTrigger,
@@ -742,22 +790,26 @@ mod imp {
             id: ActionId::from_u128(entry.action_id),
             payload: entry.payload_data.clone().unwrap_or_default(),
         };
-        let input = scoped_semantics_input(target, semantics, input);
+        let input = scoped_semantics_input(ir, target, input);
         runtime
             .dispatch_with_input(envelope, target, &input)
             .is_ok()
     }
 
-    fn scoped_semantics_input(
-        target: WidgetId,
-        semantics: &Semantics,
-        input: ActionInput,
-    ) -> ActionInput {
-        if let Some(scope_id) = semantics.action_scope_id {
-            ActionInput::scoped_raw(scope_id, target, input)
-        } else {
-            input
+    fn scoped_semantics_input(ir: &CoreIR, target: WidgetId, input: ActionInput) -> ActionInput {
+        let mut current = Some(target);
+        while let Some(node_id) = current {
+            let Some(node) = ir.nodes.get(&node_id) else {
+                break;
+            };
+            if let Op::Semantics(semantics) = &node.op {
+                if let Some(scope_id) = semantics.action_scope_id {
+                    return ActionInput::scoped_raw(scope_id, target, input);
+                }
+            }
+            current = node.parent;
         }
+        input
     }
 
     fn value_action_data(data: &Option<ActionData>) -> Option<&str> {
@@ -774,9 +826,10 @@ mod imp {
         semantics: &Semantics,
         value: &str,
     ) -> bool {
-        if semantics.role != Role::TextInput || semantics.disabled || semantics.read_only {
+        if !editable_text_input(semantics) {
             return false;
         }
+        let previous_text_state = runtime.runtime_state.text_edit.get(target).cloned();
         set_focus(runtime, ir, Some(target));
         runtime.runtime_state.text_edit.sync_from_runtime(
             target,
@@ -793,9 +846,35 @@ mod imp {
             state.pending_model_sync = true;
             state.clear_preedit();
         }
-        let mut changed = dispatch_text_change(runtime, target, semantics, value.to_string());
-        changed |= dispatch_cursor_change(runtime, target, semantics, value.len(), value.len());
-        changed
+        if !dispatch_text_change(
+            runtime,
+            ir,
+            target,
+            semantics,
+            value.to_string(),
+            value.len(),
+            value.len(),
+        ) {
+            if let Some(previous) = previous_text_state {
+                runtime
+                    .runtime_state
+                    .text_edit
+                    .states
+                    .insert(target, previous);
+            } else {
+                runtime.runtime_state.text_edit.states.remove(&target);
+            }
+            return false;
+        }
+
+        let has_cursor_action = semantics
+            .actions
+            .entries
+            .iter()
+            .any(|entry| entry.trigger == ActionTrigger::CursorChange);
+        let cursor_changed =
+            dispatch_cursor_change(runtime, ir, target, semantics, value.len(), value.len());
+        !has_cursor_action || cursor_changed
     }
 
     fn set_text_selection(
@@ -805,7 +884,7 @@ mod imp {
         semantics: &Semantics,
         selection: &TextSelection,
     ) -> bool {
-        if semantics.role != Role::TextInput {
+        if semantics.role != Role::TextInput || semantics.disabled {
             return false;
         }
         set_focus(runtime, ir, Some(target));
@@ -827,7 +906,7 @@ mod imp {
             .runtime_state
             .text_edit
             .set_caret(target, caret, Some(anchor));
-        dispatch_cursor_change(runtime, target, semantics, caret, anchor)
+        dispatch_cursor_change(runtime, ir, target, semantics, caret, anchor)
     }
 
     fn char_to_byte(value: &str, character_index: usize) -> usize {
@@ -849,36 +928,30 @@ mod imp {
 
     fn dispatch_text_change(
         runtime: &mut Runtime,
+        ir: &CoreIR,
         target: WidgetId,
         semantics: &Semantics,
         new_text: String,
+        new_caret: usize,
+        new_anchor: usize,
     ) -> bool {
-        let Some(entry) = semantics
-            .actions
-            .entries
-            .iter()
-            .find(|entry| entry.trigger == ActionTrigger::Change)
-        else {
+        let Some((envelope, input)) = prepare_scoped_text_input_change(
+            ir, semantics, target, new_text, new_caret, new_anchor,
+        ) else {
+            crate::log_input_dispatch_failure(
+                "accessibility_text_input_missing_action",
+                Some(target),
+            );
             return false;
         };
-        let Ok(payload) = serde_json::to_vec(&new_text) else {
-            return false;
-        };
-        let input = scoped_semantics_input(target, semantics, ActionInput::None);
         runtime
-            .dispatch_with_input(
-                ActionEnvelope {
-                    id: ActionId::from_u128(entry.action_id),
-                    payload,
-                },
-                target,
-                &input,
-            )
+            .dispatch_with_input(envelope, target, &input)
             .is_ok()
     }
 
     fn dispatch_cursor_change(
         runtime: &mut Runtime,
+        ir: &CoreIR,
         target: WidgetId,
         semantics: &Semantics,
         caret: usize,
@@ -896,7 +969,7 @@ mod imp {
         let Ok(payload) = serde_json::to_vec(&cursor_changed) else {
             return false;
         };
-        let input = scoped_semantics_input(target, semantics, ActionInput::None);
+        let input = scoped_semantics_input(ir, target, ActionInput::None);
         runtime
             .dispatch_with_input(
                 ActionEnvelope {
@@ -911,6 +984,7 @@ mod imp {
 
     fn adjust_numeric_value(
         runtime: &mut Runtime,
+        ir: &CoreIR,
         target: WidgetId,
         semantics: &Semantics,
         direction: f32,
@@ -921,11 +995,12 @@ mod imp {
         let min = semantics.min_value.unwrap_or(f32::NEG_INFINITY);
         let max = semantics.max_value.unwrap_or(f32::INFINITY);
         let next = (current + direction).clamp(min, max);
-        set_numeric_value(runtime, target, semantics, next)
+        set_numeric_value(runtime, ir, target, semantics, next)
     }
 
     fn set_numeric_value(
         runtime: &mut Runtime,
+        ir: &CoreIR,
         target: WidgetId,
         semantics: &Semantics,
         value: f32,
@@ -944,7 +1019,7 @@ mod imp {
         else {
             return false;
         };
-        let input = scoped_semantics_input(target, semantics, ActionInput::None);
+        let input = scoped_semantics_input(ir, target, ActionInput::None);
         runtime
             .dispatch_with_input(
                 ActionEnvelope {
@@ -1041,8 +1116,163 @@ mod imp {
     #[cfg(test)]
     mod tests {
         use super::*;
+        use fission_core::action::CursorChanged;
+        use fission_core::{
+            Action as FissionAction, ActionId as FissionActionId, ActionRegistry, GlobalState,
+            ReducerContext, UpdateTextInput,
+        };
         use fission_ir::{ActionEntry, ActionSet, CoreIR, CoreNode, Op};
         use fission_layout::{LayoutNodeGeometry, LayoutPoint, LayoutSize};
+        use serde::{Deserialize, Serialize};
+        use std::collections::BTreeMap;
+
+        #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+        struct UpdateField(String);
+
+        impl FissionAction for UpdateField {
+            fn static_id() -> FissionActionId {
+                FissionActionId::from_name("accessibility_tests::UpdateField")
+            }
+        }
+
+        #[derive(Debug, Clone, PartialEq, Eq)]
+        struct RecordedContextualEdit {
+            change: UpdateTextInput,
+            scoped_target: Option<WidgetId>,
+        }
+
+        #[derive(Debug, Default)]
+        struct TextDispatchState {
+            contextual: BTreeMap<(u128, String), RecordedContextualEdit>,
+            cursors: Vec<(CursorChanged, Option<u128>, Option<WidgetId>)>,
+        }
+
+        impl GlobalState for TextDispatchState {}
+
+        fn record_contextual_edit(
+            state: &mut TextDispatchState,
+            action: UpdateField,
+            ctx: &mut ReducerContext<TextDispatchState>,
+        ) {
+            let change = ctx
+                .input
+                .text_change()
+                .expect("contextual edit input")
+                .clone();
+            state.contextual.insert(
+                (ctx.input.action_scope_id().unwrap_or_default(), action.0),
+                RecordedContextualEdit {
+                    change,
+                    scoped_target: ctx.input.scoped_target(),
+                },
+            );
+        }
+
+        fn record_cursor(
+            state: &mut TextDispatchState,
+            action: CursorChanged,
+            ctx: &mut ReducerContext<TextDispatchState>,
+        ) {
+            state.cursors.push((
+                action,
+                ctx.input.action_scope_id(),
+                ctx.input.scoped_target(),
+            ));
+        }
+
+        fn text_dispatch_runtime() -> Runtime {
+            let mut runtime = Runtime::default();
+            runtime
+                .add_app_state(Box::new(TextDispatchState::default()))
+                .expect("register text dispatch test state");
+            let mut registry = ActionRegistry::<TextDispatchState>::new();
+            registry.register(
+                record_contextual_edit
+                    as fn(
+                        &mut TextDispatchState,
+                        UpdateField,
+                        &mut ReducerContext<TextDispatchState>,
+                    ),
+            );
+            registry.register(
+                record_cursor
+                    as fn(
+                        &mut TextDispatchState,
+                        CursorChanged,
+                        &mut ReducerContext<TextDispatchState>,
+                    ),
+            );
+            runtime.absorb_registry(registry);
+            runtime
+        }
+
+        fn contextual_text_semantics(field: &str) -> Semantics {
+            Semantics {
+                role: Role::TextInput,
+                focusable: true,
+                value: Some(String::new()),
+                actions: ActionSet {
+                    entries: vec![ActionEntry {
+                        trigger: ActionTrigger::TextChanged,
+                        action_id: UpdateField::static_id().as_u128(),
+                        payload_data: Some(UpdateField(field.to_string()).encode()),
+                    }],
+                },
+                ..Semantics::default()
+            }
+        }
+
+        fn dispatch_set_value_request(
+            runtime: &mut Runtime,
+            ir: &CoreIR,
+            target: WidgetId,
+            value: impl Into<Box<str>>,
+        ) -> bool {
+            dispatch_set_value_data(
+                runtime,
+                ir,
+                &LayoutSnapshot::new(LayoutSize::new(320.0, 80.0)),
+                target,
+                ActionData::Value(value.into()),
+            )
+        }
+
+        fn dispatch_set_value_data(
+            runtime: &mut Runtime,
+            ir: &CoreIR,
+            layout: &LayoutSnapshot,
+            target: WidgetId,
+            data: ActionData,
+        ) -> bool {
+            let access_node = NodeId((target.as_u128() as u64).max(2));
+            let node_map = HashMap::from([(access_node, target)]);
+            let request = ActionRequest {
+                action: Action::SetValue,
+                target_tree: TreeId::ROOT,
+                target_node: access_node,
+                data: Some(data),
+            };
+            dispatch_mapped_accessibility_action(request, runtime, ir, layout, &node_map)
+        }
+
+        fn add_scoped_text_input(
+            ir: &mut CoreIR,
+            target: WidgetId,
+            scope_node: WidgetId,
+            scope_id: u128,
+            semantics: Semantics,
+        ) {
+            add_node(ir, target, Op::Semantics(semantics), vec![]);
+            add_node(
+                ir,
+                scope_node,
+                Op::Semantics(Semantics {
+                    action_scope_id: Some(scope_id),
+                    ..Semantics::default()
+                }),
+                vec![target],
+            );
+        }
 
         fn add_node(ir: &mut CoreIR, id: WidgetId, op: Op, children: Vec<WidgetId>) {
             ir.nodes.insert(
@@ -1192,6 +1422,378 @@ mod imp {
                 semantic_value(&runtime, input, &fallback_semantics).as_deref(),
                 Some("Stale retained buffer")
             );
+        }
+
+        #[test]
+        fn accesskit_set_value_preserves_context_and_edit_geometry_across_fields() {
+            let first = WidgetId::explicit("first-field");
+            let second = WidgetId::explicit("second-field");
+            let first_scope_node = WidgetId::explicit("first-scope");
+            let second_scope_node = WidgetId::explicit("second-scope");
+            let first_scope = 0xabc;
+            let second_scope = 0xdef;
+            let first_semantics = contextual_text_semantics("smtp_host");
+            let second_semantics = contextual_text_semantics("smtp_port");
+            let mut ir = CoreIR::new();
+            add_scoped_text_input(
+                &mut ir,
+                first,
+                first_scope_node,
+                first_scope,
+                first_semantics.clone(),
+            );
+            add_scoped_text_input(
+                &mut ir,
+                second,
+                second_scope_node,
+                second_scope,
+                second_semantics.clone(),
+            );
+            let mut runtime = text_dispatch_runtime();
+
+            assert!(dispatch_set_value_request(
+                &mut runtime,
+                &ir,
+                first,
+                "greenmail",
+            ));
+            assert!(dispatch_set_value_request(
+                &mut runtime,
+                &ir,
+                second,
+                "3025",
+            ));
+
+            let state = runtime
+                .get_app_state::<TextDispatchState>()
+                .expect("text dispatch state");
+            let first_edit = state
+                .contextual
+                .get(&(first_scope, "smtp_host".into()))
+                .expect("first contextual edit");
+            assert_eq!(
+                first_edit.change,
+                UpdateTextInput {
+                    node_id: first,
+                    new_text: "greenmail".into(),
+                    new_caret: "greenmail".len(),
+                    new_anchor: "greenmail".len(),
+                }
+            );
+            assert_eq!(first_edit.scoped_target, Some(first));
+            let second_edit = state
+                .contextual
+                .get(&(second_scope, "smtp_port".into()))
+                .expect("second contextual edit");
+            assert_eq!(second_edit.change.node_id, second);
+            assert_eq!(second_edit.change.new_text, "3025");
+            assert_eq!(second_edit.change.new_caret, 4);
+            assert_eq!(second_edit.change.new_anchor, 4);
+            assert_eq!(second_edit.scoped_target, Some(second));
+        }
+
+        #[test]
+        fn native_ime_and_accesskit_set_value_share_the_text_edit_contract() {
+            let target = WidgetId::explicit("ime-accessibility-parity");
+            let scope_node = WidgetId::explicit("ime-accessibility-scope");
+            let scope_id = 0x717;
+            let semantics = contextual_text_semantics("display_name");
+            let mut ir = CoreIR::new();
+            add_scoped_text_input(&mut ir, target, scope_node, scope_id, semantics.clone());
+            ir.root = Some(scope_node);
+            let layout = LayoutSnapshot::new(LayoutSize::new(320.0, 80.0));
+
+            let mut native_runtime = text_dispatch_runtime();
+            native_runtime
+                .runtime_state
+                .interaction
+                .set_focused(Some(target));
+            native_runtime
+                .handle_input(
+                    InputEvent::Ime(ImeEvent::Commit {
+                        text: "café".into(),
+                    }),
+                    &ir,
+                    &layout,
+                )
+                .expect("native IME dispatch");
+            let native_edit = native_runtime
+                .get_app_state::<TextDispatchState>()
+                .and_then(|state| state.contextual.get(&(scope_id, "display_name".into())))
+                .cloned()
+                .expect("native contextual edit");
+
+            let mut accessibility_runtime = text_dispatch_runtime();
+            assert!(dispatch_set_value_request(
+                &mut accessibility_runtime,
+                &ir,
+                target,
+                "café",
+            ));
+            let accessibility_edit = accessibility_runtime
+                .get_app_state::<TextDispatchState>()
+                .and_then(|state| state.contextual.get(&(scope_id, "display_name".into())))
+                .cloned()
+                .expect("accessibility contextual edit");
+
+            assert_eq!(native_edit, accessibility_edit);
+            assert_eq!(native_edit.change.new_caret, "café".len());
+            assert_eq!(native_edit.change.new_anchor, "café".len());
+        }
+
+        #[test]
+        fn identically_named_contextual_fields_remain_isolated_by_scope() {
+            let first = WidgetId::explicit("account-one-host");
+            let second = WidgetId::explicit("account-two-host");
+            let first_scope = 0x111;
+            let second_scope = 0x222;
+            let semantics = contextual_text_semantics("host");
+            let mut ir = CoreIR::new();
+            add_scoped_text_input(
+                &mut ir,
+                first,
+                WidgetId::explicit("account-one"),
+                first_scope,
+                semantics.clone(),
+            );
+            add_scoped_text_input(
+                &mut ir,
+                second,
+                WidgetId::explicit("account-two"),
+                second_scope,
+                semantics.clone(),
+            );
+            let mut runtime = text_dispatch_runtime();
+
+            assert!(dispatch_set_value_request(
+                &mut runtime,
+                &ir,
+                first,
+                "mail-one",
+            ));
+            assert!(dispatch_set_value_request(
+                &mut runtime,
+                &ir,
+                second,
+                "mail-two",
+            ));
+
+            let state = runtime
+                .get_app_state::<TextDispatchState>()
+                .expect("text dispatch state");
+            assert_eq!(
+                state
+                    .contextual
+                    .get(&(first_scope, "host".into()))
+                    .map(|edit| edit.change.new_text.as_str()),
+                Some("mail-one")
+            );
+            assert_eq!(
+                state
+                    .contextual
+                    .get(&(second_scope, "host".into()))
+                    .map(|edit| edit.change.new_text.as_str()),
+                Some("mail-two")
+            );
+        }
+
+        #[test]
+        fn accesskit_numeric_text_input_preserves_context_and_transitional_text() {
+            let number = WidgetId::explicit("numeric-text-input");
+            let scope_node = WidgetId::explicit("numeric-text-scope");
+            let scope_id = 0x515;
+            let mut number_semantics = contextual_text_semantics("retry_count");
+            number_semantics.text_input_type = TextInputType::Number;
+            let mut ir = CoreIR::new();
+            add_scoped_text_input(
+                &mut ir,
+                number,
+                scope_node,
+                scope_id,
+                number_semantics.clone(),
+            );
+            let mut runtime = text_dispatch_runtime();
+
+            assert!(dispatch_set_value_request(&mut runtime, &ir, number, "-",));
+            assert_eq!(
+                runtime
+                    .get_app_state::<TextDispatchState>()
+                    .and_then(|state| { state.contextual.get(&(scope_id, "retry_count".into())) })
+                    .map(|edit| edit.change.new_text.as_str()),
+                Some("-")
+            );
+            assert!(dispatch_set_value_data(
+                &mut runtime,
+                &ir,
+                &LayoutSnapshot::new(LayoutSize::new(320.0, 80.0)),
+                number,
+                ActionData::NumericValue(12.5),
+            ));
+
+            let state = runtime
+                .get_app_state::<TextDispatchState>()
+                .expect("text dispatch state");
+            let edit = state
+                .contextual
+                .get(&(scope_id, "retry_count".into()))
+                .expect("numeric contextual edit");
+            assert_eq!(edit.change.new_text, "12.5");
+            assert_eq!(edit.change.node_id, number);
+            assert_eq!(edit.scoped_target, Some(number));
+        }
+
+        #[test]
+        fn accesskit_rejects_and_does_not_advertise_edits_for_disabled_or_read_only_inputs() {
+            let disabled = WidgetId::explicit("disabled-text-input");
+            let read_only = WidgetId::explicit("read-only-text-input");
+            let root = WidgetId::explicit("text-input-root");
+            let mut disabled_semantics = contextual_text_semantics("disabled");
+            disabled_semantics.disabled = true;
+            let mut read_only_semantics = contextual_text_semantics("read_only");
+            read_only_semantics.read_only = true;
+            let mut ir = CoreIR::new();
+            add_node(
+                &mut ir,
+                disabled,
+                Op::Semantics(disabled_semantics.clone()),
+                vec![],
+            );
+            add_node(
+                &mut ir,
+                read_only,
+                Op::Semantics(read_only_semantics.clone()),
+                vec![],
+            );
+            add_node(
+                &mut ir,
+                root,
+                Op::Semantics(Semantics::default()),
+                vec![disabled, read_only],
+            );
+            ir.root = Some(root);
+            let mut runtime = text_dispatch_runtime();
+
+            assert!(!dispatch_set_value_request(
+                &mut runtime,
+                &ir,
+                disabled,
+                "must-not-dispatch",
+            ));
+            assert!(!dispatch_set_value_request(
+                &mut runtime,
+                &ir,
+                read_only,
+                "must-not-dispatch",
+            ));
+            assert!(runtime
+                .get_app_state::<TextDispatchState>()
+                .expect("text dispatch state")
+                .contextual
+                .is_empty());
+            assert!(runtime.runtime_state.text_edit.get(disabled).is_none());
+            assert!(runtime.runtime_state.text_edit.get(read_only).is_none());
+
+            let layout = LayoutSnapshot::new(LayoutSize::new(320.0, 80.0));
+            let update = build_tree_update(&ir, &layout, &runtime, 1.0).update;
+            let text_inputs = update
+                .nodes
+                .iter()
+                .filter(|(_, node)| node.role() == AccessRole::TextInput)
+                .map(|(_, node)| node)
+                .collect::<Vec<_>>();
+            assert_eq!(text_inputs.len(), 2);
+            assert!(text_inputs.iter().all(|node| {
+                !node.supports_action(Action::SetValue)
+                    && !node.supports_action(Action::ReplaceSelectedText)
+            }));
+        }
+
+        #[test]
+        fn accessibility_selection_dispatches_unicode_byte_offsets_in_scope() {
+            let target = WidgetId::explicit("unicode-selection");
+            let scope_node = WidgetId::explicit("unicode-scope");
+            let scope_id = 0x404;
+            let semantics = Semantics {
+                role: Role::TextInput,
+                focusable: true,
+                value: Some("aé🦀z".into()),
+                actions: ActionSet {
+                    entries: vec![ActionEntry {
+                        trigger: ActionTrigger::CursorChange,
+                        action_id: CursorChanged::static_id().as_u128(),
+                        payload_data: None,
+                    }],
+                },
+                ..Semantics::default()
+            };
+            let mut ir = CoreIR::new();
+            add_scoped_text_input(&mut ir, target, scope_node, scope_id, semantics.clone());
+            let mut runtime = text_dispatch_runtime();
+            let access_node = NodeId(77);
+            let selection = TextSelection {
+                anchor: TextPosition {
+                    node: access_node,
+                    character_index: 1,
+                },
+                focus: TextPosition {
+                    node: access_node,
+                    character_index: 3,
+                },
+            };
+
+            assert!(set_text_selection(
+                &mut runtime,
+                &ir,
+                target,
+                &semantics,
+                &selection,
+            ));
+
+            let state = runtime
+                .get_app_state::<TextDispatchState>()
+                .expect("text dispatch state");
+            assert_eq!(
+                state.cursors,
+                [(
+                    CursorChanged {
+                        caret: 7,
+                        anchor: 1,
+                    },
+                    Some(scope_id),
+                    Some(target),
+                )]
+            );
+        }
+
+        #[test]
+        fn accesskit_set_value_reports_dispatch_failure_and_restores_editor_state() {
+            let target = WidgetId::explicit("bad-contextual-payload");
+            let semantics = Semantics {
+                role: Role::TextInput,
+                actions: ActionSet {
+                    entries: vec![ActionEntry {
+                        trigger: ActionTrigger::TextChanged,
+                        action_id: UpdateField::static_id().as_u128(),
+                        payload_data: Some(b"not-json".to_vec()),
+                    }],
+                },
+                ..Semantics::default()
+            };
+            let mut ir = CoreIR::new();
+            add_node(&mut ir, target, Op::Semantics(semantics.clone()), vec![]);
+            let mut runtime = text_dispatch_runtime();
+
+            assert!(!dispatch_set_value_request(
+                &mut runtime,
+                &ir,
+                target,
+                "value",
+            ));
+            let state = runtime
+                .get_app_state::<TextDispatchState>()
+                .expect("text dispatch state");
+            assert!(state.contextual.is_empty());
+            assert!(runtime.runtime_state.text_edit.get(target).is_none());
         }
     }
 }
