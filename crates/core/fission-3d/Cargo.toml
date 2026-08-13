@@ -1,6 +1,6 @@
 [package]
 name = "fission-3d"
-version = "0.10.1"
+version = "0.11.0"
 edition = "2021"
 
 license = "MIT"
@@ -15,8 +15,8 @@ keywords = ["fission", "3d", "gpu-accelerated", "rendering", "cross-platform"]
 platforms = ["android", "ios", "linux", "macos", "windows", "web"]
 readme = "README.md"
 [dependencies]
-fission-core = { path = "../fission-core", version = "0.10.1" }
-fission-ir = { path = "../fission-ir", version = "0.10.1" }
+fission-core = { path = "../fission-core", version = "0.11.0" }
+fission-ir = { path = "../fission-ir", version = "0.11.0" }
 serde = { version = "1.0", features = ["derive"] }
 wgpu = "26.0"
 bytemuck = { version = "1.18", features = ["derive"] }
