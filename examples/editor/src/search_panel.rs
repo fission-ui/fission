@@ -13,8 +13,16 @@ impl From<SearchPanel> for Widget {
         let tokens = &view.env().theme.tokens;
 
         let update_query = ctx.bind(
-            UpdateSearchQuery(String::new()),
-            reduce_with!((|s: &mut EditorState, a: UpdateSearchQuery, _| s.search_query = a.0)),
+            UpdateSearchQuery,
+            reduce_with!(
+                (|s: &mut EditorState,
+                  _a: UpdateSearchQuery,
+                  ctx: &mut ReducerContext<EditorState>| {
+                    if let Some(change) = ctx.input.text_change() {
+                        s.search_query = change.new_text.clone();
+                    }
+                })
+            ),
         );
 
         let execute = ctx.bind(
@@ -36,7 +44,7 @@ impl From<SearchPanel> for Widget {
                     id: Some(fission::WidgetId::explicit("editor_search_query_input")),
                     value: view.state().search_query.clone(),
                     placeholder: Some("Search...".into()),
-                    on_change: Some(update_query),
+                    on_input: Some(update_query),
                     borderless: true,
                     ..Default::default()
                 },

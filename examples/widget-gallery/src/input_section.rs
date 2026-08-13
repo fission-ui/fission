@@ -23,8 +23,11 @@ fn toggle_switch(state: &mut GalleryState) {
 }
 
 #[fission_reducer(UpdateText)]
-fn update_text(state: &mut GalleryState, value: String) {
-    state.text_value = value;
+fn update_text(state: &mut GalleryState, ctx: &mut ReducerContext<GalleryState>) {
+    let Some(change) = ctx.input.text_change() else {
+        return;
+    };
+    state.text_value = change.new_text.clone();
 }
 
 #[fission_reducer(IncrementNumber)]
@@ -49,7 +52,7 @@ impl From<InputSection> for Widget {
         let tokens = &view.env().theme.tokens;
 
         let noop = with_reducer!(ctx, Noop, noop);
-        let update_text = with_reducer!(ctx, UpdateText(String::new()), update_text);
+        let update_text = with_reducer!(ctx, UpdateText, update_text);
         let toggle_checked = with_reducer!(ctx, ToggleChecked, toggle_checked);
         let toggle_switch = with_reducer!(ctx, ToggleSwitch, toggle_switch);
         let set_slider = with_reducer!(ctx, SetSlider(0.0), set_slider);
@@ -96,7 +99,7 @@ impl From<InputSection> for Widget {
                     semantics_identifier: Some("gallery.text_input".into()),
                     value: state.text_value.clone(),
                     placeholder: Some("Type something...".into()),
-                    on_change: Some(update_text),
+                    on_input: Some(update_text),
                     ..Default::default()
                 })
                 .width_length(Length::clamp(

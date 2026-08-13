@@ -44,8 +44,14 @@ pub(crate) fn on_navigate(state: &mut ShowcaseState, path: String) {
 }
 
 #[fission_reducer(SearchChanged)]
-pub(crate) fn on_search_changed(state: &mut ShowcaseState, query: String) {
-    state.search = query;
+pub(crate) fn on_search_changed(
+    state: &mut ShowcaseState,
+    ctx: &mut ReducerContext<ShowcaseState>,
+) {
+    let Some(change) = ctx.input.text_change() else {
+        return;
+    };
+    state.search = change.new_text.clone();
 }
 
 #[fission_reducer(FilterChanged)]

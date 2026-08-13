@@ -18,10 +18,10 @@ impl From<TextLabModal> for Widget {
         let (ctx, view) = fission::build::current::<TextLabState>();
         let tokens = &view.env().theme.tokens;
 
-        let set_modal_to_id = with_reducer!(ctx, SetModalTo(String::new()), set_modal_to).id;
-        let set_modal_subject_id =
-            with_reducer!(ctx, SetModalSubject(String::new()), set_modal_subject).id;
-        let set_modal_body_id = with_reducer!(ctx, SetModalBody(String::new()), set_modal_body).id;
+        let set_modal_to = with_reducer!(ctx, SetModalTo(String::new()), set_modal_to);
+        let set_modal_to_id = set_modal_to.id;
+        let set_modal_subject = with_reducer!(ctx, SetModalSubject, set_modal_subject);
+        let set_modal_body = with_reducer!(ctx, SetModalBody, set_modal_body);
         let set_show_modal_id = with_reducer!(ctx, SetShowModal(false), set_show_modal).id;
         let apply_modal = with_reducer!(ctx, ApplyModal, apply_modal);
 
@@ -61,10 +61,7 @@ impl From<TextLabModal> for Widget {
                                     && !modal_has_exact,
                                 width: None,
                                 max_popup_height: Some(POPUP_MAX_HEIGHT),
-                                on_change: Some(ActionEnvelope {
-                                    id: set_modal_to_id,
-                                    payload: Vec::new(),
-                                }),
+                                on_input: Some(set_modal_to),
                                 on_select: Some(Arc::new(move |value| ActionEnvelope {
                                     id: set_modal_to_id,
                                     payload: serde_json::to_vec(&SetModalTo(value)).unwrap(),
@@ -85,10 +82,7 @@ impl From<TextLabModal> for Widget {
                                 semantics_identifier: Some("text-lab.modal.subject".into()),
                                 value: view.state().modal_subject.clone(),
                                 placeholder: Some("Subject".into()),
-                                on_change: Some(ActionEnvelope {
-                                    id: set_modal_subject_id,
-                                    payload: Vec::new(),
-                                }),
+                                on_input: Some(set_modal_subject),
                                 ..Default::default()
                             }
                             .into(),
@@ -107,10 +101,7 @@ impl From<TextLabModal> for Widget {
                                 semantics_identifier: Some("text-lab.modal.body".into()),
                                 value: view.state().modal_body.clone(),
                                 placeholder: Some("Type a longer message".into()),
-                                on_change: Some(ActionEnvelope {
-                                    id: set_modal_body_id,
-                                    payload: Vec::new(),
-                                }),
+                                on_input: Some(set_modal_body),
                                 multiline: true,
                                 height: Some(MODAL_BODY_HEIGHT),
                                 ..Default::default()

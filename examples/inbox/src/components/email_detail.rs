@@ -7,7 +7,7 @@ use fission::core::op::ImageFit;
 use fission::core::ui::{
     Button, ButtonVariant, Container, Scroll, Text, TextContent, Video, Widget,
 };
-use fission::core::{reduce_with, ActionEnvelope, WidgetId};
+use fission::core::{reduce_with, ActionEnvelope, ReducerContext, WidgetId};
 use fission::icons::material;
 use fission::widgets::{
     Accordion, AccordionItem, Alert, AlertKind, AspectRatio, Avatar, Card, Code, Divider, HStack,
@@ -84,7 +84,17 @@ impl From<EmailDetail> for Widget {
         let reply_body_id = ctx
             .bind(
                 SetReplyBody("".into()),
-                reduce_with!((|s: &mut InboxState, a: SetReplyBody, _| s.reply_body = a.0)),
+                reduce_with!(
+                    (|s: &mut InboxState,
+                      a: SetReplyBody,
+                      ctx: &mut ReducerContext<InboxState>| {
+                        s.reply_body = ctx
+                            .input
+                            .text_change()
+                            .map(|change| change.new_text.clone())
+                            .unwrap_or(a.0);
+                    })
+                ),
             )
             .id;
         let send_reply_id = ctx
@@ -473,9 +483,9 @@ impl From<EmailDetail> for Widget {
                 fission::widgets::TextInput {
                     value: view.state().reply_body.clone(),
                     placeholder: Some(TextContent::Key("email.reply_placeholder".into())),
-                    on_change: Some(ActionEnvelope {
+                    on_input: Some(ActionEnvelope {
                         id: reply_body_id,
-                        payload: Vec::new(),
+                        payload: serde_json::to_vec(&SetReplyBody(String::new())).unwrap(),
                     }),
                     multiline: true,
                     height: Some(120.0),

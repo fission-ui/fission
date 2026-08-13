@@ -17,33 +17,57 @@ pub struct TextLabState {
 impl GlobalState for TextLabState {}
 
 #[fission_reducer(SetSingleLine)]
-pub(crate) fn set_single_line(state: &mut TextLabState, value: String) {
-    state.single_line = value;
+pub(crate) fn set_single_line(state: &mut TextLabState, ctx: &mut ReducerContext<TextLabState>) {
+    if let Some(change) = ctx.input.text_change() {
+        state.single_line = change.new_text.clone();
+    }
 }
 
 #[fission_reducer(SetMultiline)]
-pub(crate) fn set_multiline(state: &mut TextLabState, value: String) {
-    state.multiline = value;
+pub(crate) fn set_multiline(state: &mut TextLabState, ctx: &mut ReducerContext<TextLabState>) {
+    if let Some(change) = ctx.input.text_change() {
+        state.multiline = change.new_text.clone();
+    }
 }
 
 #[fission_reducer(SetInlineCombobox)]
-pub(crate) fn set_inline_combobox(state: &mut TextLabState, value: String) {
-    state.inline_combobox = value;
+pub(crate) fn set_inline_combobox(
+    state: &mut TextLabState,
+    value: String,
+    ctx: &mut ReducerContext<TextLabState>,
+) {
+    state.inline_combobox = ctx
+        .input
+        .text_change()
+        .map(|change| change.new_text.clone())
+        .unwrap_or(value);
 }
 
 #[fission_reducer(SetModalTo)]
-pub(crate) fn set_modal_to(state: &mut TextLabState, value: String) {
-    state.modal_to = value;
+pub(crate) fn set_modal_to(
+    state: &mut TextLabState,
+    value: String,
+    ctx: &mut ReducerContext<TextLabState>,
+) {
+    state.modal_to = ctx
+        .input
+        .text_change()
+        .map(|change| change.new_text.clone())
+        .unwrap_or(value);
 }
 
 #[fission_reducer(SetModalSubject)]
-pub(crate) fn set_modal_subject(state: &mut TextLabState, value: String) {
-    state.modal_subject = value;
+pub(crate) fn set_modal_subject(state: &mut TextLabState, ctx: &mut ReducerContext<TextLabState>) {
+    if let Some(change) = ctx.input.text_change() {
+        state.modal_subject = change.new_text.clone();
+    }
 }
 
 #[fission_reducer(SetModalBody)]
-pub(crate) fn set_modal_body(state: &mut TextLabState, value: String) {
-    state.modal_body = value;
+pub(crate) fn set_modal_body(state: &mut TextLabState, ctx: &mut ReducerContext<TextLabState>) {
+    if let Some(change) = ctx.input.text_change() {
+        state.modal_body = change.new_text.clone();
+    }
 }
 
 #[fission_reducer(SetShowModal)]

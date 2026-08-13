@@ -27,7 +27,7 @@ impl From<ProductBrowserApp> for Widget {
         let products_failed = with_reducer!(ctx, ProductsFailed, on_products_failed);
         let categories_loaded = with_reducer!(ctx, CategoriesLoaded, on_categories_loaded);
         let categories_failed = with_reducer!(ctx, CategoriesFailed, on_categories_failed);
-        let search_changed = with_reducer!(ctx, SearchChanged(String::new()), on_search_changed);
+        let search_changed = with_reducer!(ctx, SearchChanged, on_search_changed);
         let pull_started = with_reducer!(ctx, PullStarted, on_pull_started);
         let pull_updated = with_reducer!(ctx, PullUpdated, on_pull_updated);
         let pull_canceled = with_reducer!(ctx, PullCanceled, on_pull_canceled);

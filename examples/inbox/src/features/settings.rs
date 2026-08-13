@@ -10,7 +10,7 @@ use fission::core::ui::widgets::GestureDetector;
 use fission::core::ui::{
     Button, ButtonVariant, Container, Grid, GridItem, Scroll, Text, TextContent, Widget,
 };
-use fission::core::{reduce_with, ActionEnvelope, FlexDirection, WidgetId};
+use fission::core::{reduce_with, ActionEnvelope, FlexDirection, ReducerContext, WidgetId};
 use fission::i18n::Locale;
 use fission::icons::material;
 use fission::widgets::{
@@ -85,7 +85,17 @@ impl From<SettingsModal> for Widget {
         let signature_id = ctx
             .bind(
                 SetSignature("".into()),
-                reduce_with!((|s: &mut InboxState, a: SetSignature, _| s.signature = a.0)),
+                reduce_with!(
+                    (|s: &mut InboxState,
+                      a: SetSignature,
+                      ctx: &mut ReducerContext<InboxState>| {
+                        s.signature = ctx
+                            .input
+                            .text_change()
+                            .map(|change| change.new_text.clone())
+                            .unwrap_or(a.0);
+                    })
+                ),
             )
             .id;
         let signature_edit_id = ctx
@@ -318,7 +328,7 @@ impl From<SettingsModal> for Widget {
             value: view.state().signature.clone(),
             placeholder: "Add a signature".into(),
             is_editing: view.state().signature_editing,
-            on_change: Some(ActionEnvelope {
+            on_input: Some(ActionEnvelope {
                 id: signature_id,
                 payload: serde_json::to_vec(&SetSignature(view.state().signature.clone())).unwrap(),
             }),
@@ -804,7 +814,7 @@ impl From<SettingsModal> for Widget {
                                     step: 10.0,
                                     on_increment: None,
                                     on_decrement: None,
-                                    on_change: None,
+                                    on_input: None,
                                     ..Default::default()
                                 }
                                 .into(),
