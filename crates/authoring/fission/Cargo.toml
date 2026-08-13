@@ -38,6 +38,10 @@ skia = [
     "fission-shell-mobile?/skia",
     "fission-shell-web?/skia",
 ]
+skia-build-from-source = [
+    "fission-shell-desktop?/skia-build-from-source",
+    "fission-shell-mobile?/skia-build-from-source",
+]
 terminal-shell = ["dep:fission-shell-terminal"]
 terminal-widget = ["fission-widgets/terminal"]
 test-driver = ["dep:fission-test-driver"]

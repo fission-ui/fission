@@ -180,25 +180,23 @@ fn main() {
         println!("cargo:rustc-cfg=fission_skia_canvaskit");
         return;
     }
-    if [prebuilt, source, test_shim]
-        .into_iter()
-        .filter(|enabled| *enabled)
-        .count()
-        != 1
-    {
-        panic!(
-            "fission-skia-sys requires exactly one build mode: skia-prebuilt, \
-             skia-build-from-source, or test-shim"
-        );
+    if test_shim && (prebuilt || source) {
+        panic!("fission-skia-sys test-shim cannot be combined with a production Skia build mode");
     }
-    if prebuilt {
-        configure_prebuilt();
-    } else if source {
+    if source {
+        // Cargo features are additive. Source mode deliberately overrides the
+        // default prebuilt marker so a facade consumer can request source
+        // builds without every transitive shell disabling its default first.
         #[cfg(feature = "skia-build-from-source")]
         configure_source();
         #[cfg(not(feature = "skia-build-from-source"))]
         unreachable!();
+    } else if prebuilt {
+        configure_prebuilt();
     } else {
+        if !test_shim {
+            panic!("fission-skia-sys requires skia-prebuilt, skia-build-from-source, or test-shim");
+        }
         #[cfg(feature = "test-shim")]
         configure_test_shim();
         #[cfg(not(feature = "test-shim"))]

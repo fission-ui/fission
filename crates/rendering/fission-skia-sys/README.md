@@ -36,7 +36,7 @@ resource policy, and conversion from Fission's interactive frame belong in
 
 ## Build modes
 
-Exactly one mode must be selected:
+One production mode or the test-only shim must be selected:
 
 - `skia-prebuilt` (default) selects the exact target/profile entry from the
   immutable `artifacts.lock.json` shipped by `fission-skia-artifacts`. It downloads that
@@ -51,8 +51,12 @@ Exactly one mode must be selected:
   library set (including SVG, paragraph, shaping, and Unicode), and compiles
   this crate's bridge against it. It never downloads or configures source
   implicitly; Fission's artifact tooling owns the reproducible GN arguments.
+  Cargo features are additive, so this feature intentionally takes precedence
+  when the default `skia-prebuilt` marker is also enabled through a facade or
+  platform shell. No downloaded prebuilt is resolved in that case.
 - `test-shim` compiles a small ABI double for ownership/error tests. It is not a
-  renderer and must not be shipped as Skia.
+  renderer, must not be shipped as Skia, and cannot be combined with either
+  production mode.
 
 The source revision is pinned in `skia_revision.txt`. A source checkout or
 prebuilt manifest with another revision is rejected rather than treated as
