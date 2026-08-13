@@ -175,8 +175,9 @@ pub struct ColourPicker {
     pub on_value_change: Option<ActionEnvelope>,
     /// Action receiving `f32` alpha in `0..=1`.
     pub on_alpha_change: Option<ActionEnvelope>,
-    /// Action receiving a `String` when the editable hex field changes.
-    pub on_hex_change: Option<ActionEnvelope>,
+    /// Action dispatched when the editable hex field changes. The new string
+    /// is available through `ReducerContext::input.text_change()`.
+    pub on_hex_input: Option<ActionEnvelope>,
 }
 
 /// American spelling alias for codebases that prefer `ColorPicker`.
@@ -208,7 +209,7 @@ impl Default for ColourPicker {
             on_saturation_change: None,
             on_value_change: None,
             on_alpha_change: None,
-            on_hex_change: None,
+            on_hex_input: None,
         }
     }
 }
@@ -695,7 +696,7 @@ fn inputs(picker: &ColourPicker, expanded: bool) -> Widget {
                 .map(|prefix| format!("{prefix}.hex")),
             value: hex,
             width: Some(if expanded { 112.0 } else { 96.0 }),
-            on_change: picker.on_hex_change.clone(),
+            on_input: picker.on_hex_input.clone(),
             ..Default::default()
         }
         .into(),

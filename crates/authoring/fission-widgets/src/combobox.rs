@@ -16,7 +16,7 @@ use std::sync::Arc;
 /// * `value` - Current text input value (controlled).
 /// * `items` - The list of available options to display.
 /// * `is_open` - Whether the dropdown list is visible.
-/// * `on_change` - Action dispatched when the text input value changes.
+/// * `on_input` - Action dispatched with text details in `ReducerContext::input`.
 /// * `on_select` - Closure that produces an action when an item is picked.
 /// * `on_toggle` - Action dispatched to open/close the dropdown.
 pub struct Combobox {
@@ -26,7 +26,7 @@ pub struct Combobox {
     pub is_open: bool,
     pub width: Option<f32>,
     pub max_popup_height: Option<f32>,
-    pub on_change: Option<ActionEnvelope>, // Text changed
+    pub on_input: Option<ActionEnvelope>, // Text details arrive through ActionInput.
     pub on_select: Option<Arc<dyn Fn(String) -> ActionEnvelope + Send + Sync>>, // Item picked
     pub on_toggle: Option<ActionEnvelope>, // Focus/Blur handling usually
 }
@@ -57,7 +57,7 @@ impl From<Combobox> for Widget {
         let input = TextInput {
             id: Some(input_id.into()),
             value: this.value.clone(),
-            on_change: this.on_change.clone(),
+            on_input: this.on_input.clone(),
             width: this.width,
             // TODO: on_focus -> open?
             ..Default::default()

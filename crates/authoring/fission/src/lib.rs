@@ -7,7 +7,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! fission = { version = "0.10.1", default-features = false, features = ["desktop"] }
+//! fission = { version = "0.11.0", default-features = false, features = ["desktop"] }
 //! ```
 //!
 //! Then use via:
@@ -171,7 +171,7 @@ pub use fission_core::ui::{
 
 // Core action/state types
 pub use fission_core::{
-    Action, ActionEnvelope, ActionId, ActionScopeId, AuthenticateBiometricCapability,
+    Action, ActionEnvelope, ActionId, ActionInput, ActionScopeId, AuthenticateBiometricCapability,
     BiometricAuthenticateRequest, BiometricAuthenticateResult, BiometricAvailability,
     BiometricEffects, BiometricError, BiometricKind, BiometricStrength, BoxFissionDataStream,
     BuildCtxHandle, CancelAllNotificationsCapability, CancelBiometricAuthenticationCapability,
@@ -190,12 +190,12 @@ pub use fission_core::{
     ScanNfcTagCapability, ScheduleNotificationCapability, ScrollAlignment, ScrollAxis,
     ScrollBehavior, ScrollIntoViewRequest, Selector, Semantics, SetBadgeCountCapability,
     SetBadgeCountRequest, ShowNotificationCapability, UnregisterPushNotificationsCapability,
-    ValueView, ViewHandle, WidgetId, WriteNfcTagCapability, AUTHENTICATE_BIOMETRIC,
-    CANCEL_ALL_NOTIFICATIONS, CANCEL_BIOMETRIC_AUTHENTICATION, CANCEL_NFC_SESSION,
-    CANCEL_NOTIFICATION, EMULATE_NFC_TAG, GET_BIOMETRIC_AVAILABILITY, GET_NFC_AVAILABILITY,
-    GET_NOTIFICATION_SETTINGS, REGISTER_PUSH_NOTIFICATIONS, REQUEST_NOTIFICATION_PERMISSION,
-    SCAN_NFC_TAG, SCHEDULE_NOTIFICATION, SET_BADGE_COUNT, SHOW_NOTIFICATION,
-    UNREGISTER_PUSH_NOTIFICATIONS, WRITE_NFC_TAG,
+    UpdateTextInput, ValueView, ViewHandle, WidgetId, WriteNfcTagCapability,
+    AUTHENTICATE_BIOMETRIC, CANCEL_ALL_NOTIFICATIONS, CANCEL_BIOMETRIC_AUTHENTICATION,
+    CANCEL_NFC_SESSION, CANCEL_NOTIFICATION, EMULATE_NFC_TAG, GET_BIOMETRIC_AVAILABILITY,
+    GET_NFC_AVAILABILITY, GET_NOTIFICATION_SETTINGS, REGISTER_PUSH_NOTIFICATIONS,
+    REQUEST_NOTIFICATION_PERMISSION, SCAN_NFC_TAG, SCHEDULE_NOTIFICATION, SET_BADGE_COUNT,
+    SHOW_NOTIFICATION, UNREGISTER_PUSH_NOTIFICATIONS, WRITE_NFC_TAG,
 };
 pub use fission_core::{
     AdjustVolumeLevelCapability, GetVolumeLevelCapability, SetVolumeLevelCapability,
@@ -413,27 +413,28 @@ pub mod prelude {
         reduce, reduce_with, video_asset, video_file, video_network, widgets, with_reducer,
     };
     pub use fission_core::{
-        Action, ActionEnvelope, ActionId, ActionScopeId, AuthenticateBiometricCapability,
-        BiometricAuthenticateRequest, BiometricAuthenticateResult, BiometricAvailability,
-        BiometricEffects, BiometricError, BiometricKind, BiometricStrength, BoxFissionDataStream,
-        BuildCtxHandle, CancelAllNotificationsCapability, CancelBiometricAuthenticationCapability,
-        CancelNotificationCapability, CancelNotificationRequest, ComputedView, DataStreamId,
-        DataStreamRegistry, DeepLink, DeepLinkConfig, DeepLinkReceived, DeepLinkSource, Effects,
-        EmulateNfcTagCapability, FissionDataStream, FissionDataStreamError,
-        FissionDataStreamErrorKind, FissionViewField, FlexDirection, FocusPolicy,
-        GetBiometricAvailabilityCapability, GetNfcAvailabilityCapability,
-        GetNotificationSettingsCapability, GlobalState, Handler, NfcAvailability, NfcEffects,
-        NfcEmulationRequest, NfcError, NfcRecord, NfcRecordTypeNameFormat, NfcScanRequest,
-        NfcSessionReceipt, NfcTag, NfcTagDiscovered, NfcTechnology, NfcWriteRequest,
-        NotificationActionButton, NotificationEffects, NotificationError, NotificationId,
-        NotificationPermission, NotificationPermissionRequest, NotificationReceipt,
-        NotificationRequest, NotificationResponse, NotificationResponseReceived,
-        NotificationSchedule, NotificationSettings, NotificationSound, Op, PortalLayer, Provider,
-        PushPlatform, PushRegistration, PushRegistrationRequest, ReducerContext,
-        RegisterPushNotificationsCapability, RequestNotificationPermissionCapability, Role,
-        ScanNfcTagCapability, ScheduleNotificationCapability, ScrollAlignment, ScrollAxis,
-        ScrollBehavior, ScrollIntoViewRequest, Selector, Semantics, SetBadgeCountCapability,
-        SetBadgeCountRequest, ShowNotificationCapability, UnregisterPushNotificationsCapability,
+        Action, ActionEnvelope, ActionId, ActionInput, ActionScopeId,
+        AuthenticateBiometricCapability, BiometricAuthenticateRequest, BiometricAuthenticateResult,
+        BiometricAvailability, BiometricEffects, BiometricError, BiometricKind, BiometricStrength,
+        BoxFissionDataStream, BuildCtxHandle, CancelAllNotificationsCapability,
+        CancelBiometricAuthenticationCapability, CancelNotificationCapability,
+        CancelNotificationRequest, ComputedView, DataStreamId, DataStreamRegistry, DeepLink,
+        DeepLinkConfig, DeepLinkReceived, DeepLinkSource, Effects, EmulateNfcTagCapability,
+        FissionDataStream, FissionDataStreamError, FissionDataStreamErrorKind, FissionViewField,
+        FlexDirection, FocusPolicy, GetBiometricAvailabilityCapability,
+        GetNfcAvailabilityCapability, GetNotificationSettingsCapability, GlobalState, Handler,
+        NfcAvailability, NfcEffects, NfcEmulationRequest, NfcError, NfcRecord,
+        NfcRecordTypeNameFormat, NfcScanRequest, NfcSessionReceipt, NfcTag, NfcTagDiscovered,
+        NfcTechnology, NfcWriteRequest, NotificationActionButton, NotificationEffects,
+        NotificationError, NotificationId, NotificationPermission, NotificationPermissionRequest,
+        NotificationReceipt, NotificationRequest, NotificationResponse,
+        NotificationResponseReceived, NotificationSchedule, NotificationSettings,
+        NotificationSound, Op, PortalLayer, Provider, PushPlatform, PushRegistration,
+        PushRegistrationRequest, ReducerContext, RegisterPushNotificationsCapability,
+        RequestNotificationPermissionCapability, Role, ScanNfcTagCapability,
+        ScheduleNotificationCapability, ScrollAlignment, ScrollAxis, ScrollBehavior,
+        ScrollIntoViewRequest, Selector, Semantics, SetBadgeCountCapability, SetBadgeCountRequest,
+        ShowNotificationCapability, UnregisterPushNotificationsCapability, UpdateTextInput,
         ValueView, ViewHandle, WidgetId, WindowEnv, WindowTitle, WriteNfcTagCapability,
         AUTHENTICATE_BIOMETRIC, CANCEL_ALL_NOTIFICATIONS, CANCEL_BIOMETRIC_AUTHENTICATION,
         CANCEL_NFC_SESSION, CANCEL_NOTIFICATION, EMULATE_NFC_TAG, GET_BIOMETRIC_AVAILABILITY,
