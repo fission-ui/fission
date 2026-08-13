@@ -15,6 +15,17 @@ It combines a [`TextInput`](/reference/widgets/text-input) with a popover list. 
 use fission::prelude::*;
 use std::sync::Arc;
 
+#[fission_reducer(SetAssigneeQuery)]
+fn on_set_assignee_query(
+    state: &mut PeopleState,
+    ctx: &mut ReducerContext<PeopleState>,
+) {
+    let Some(change) = ctx.input.text_change() else {
+        return;
+    };
+    state.assignee_query = change.new_text.clone();
+}
+
 let widget: Widget = Combobox {
 id: WidgetId::explicit("assignee_box"),
 value: view.state().assignee_query.clone(),
@@ -22,10 +33,7 @@ items: view.state().filtered_people.clone(),
 is_open: view.state().assignee_open,
 width: Some(280.0),
 max_popup_height: Some(240.0),
-on_change: Some(ctx.bind(
-    SetAssigneeQuery(String::new()),
-    reduce_with!(on_set_assignee_query),
-)),
+on_input: Some(ctx.bind(SetAssigneeQuery, reduce_with!(on_set_assignee_query))),
 on_toggle: Some(ctx.bind(
     ToggleAssigneeOpen,
     reduce_with!(on_toggle_assignee_open),
@@ -38,7 +46,9 @@ on_select: Some(Arc::new(move |name| ActionEnvelope {
 .into();
 ```
 
-In a real reducer, `on_change` usually updates the query and refreshes `filtered_people`, `on_toggle` opens or closes the popup, and `on_select` stores the chosen value and closes the popup.
+In a real reducer, `on_input` reads `ctx.input.text_change()`, updates the query,
+and refreshes `filtered_people`; `on_toggle` opens or closes the popup, and
+`on_select` stores the chosen value and closes the popup.
 
 ## Field table
 
@@ -50,13 +60,18 @@ In a real reducer, `on_change` usually updates the query and refreshes `filtered
 | `is_open` | `bool` | Whether the popup list is visible. | Controlled by app state. |
 | `width` | `Option<f32>` | Width of the text field and popup. | Defaults to the input's natural width, with popup width falling back to `320.0`. |
 | `max_popup_height` | `Option<f32>` | Maximum popup height before scrolling begins. | Defaults to `240.0`. |
-| `on_change` | `Option<ActionEnvelope>` | Action fired when the user edits the text. | Like `TextInput`, the runtime replaces the payload with the current `String`. |
+| `on_input` | `Option<ActionEnvelope>` | Action fired when the user edits the text. | Preserves the bound action; read the edit through `ctx.input.text_change()`. |
 | `on_select` | `Option<Arc<dyn Fn(String) -> ActionEnvelope + Send + Sync>>` | Closure that builds the action for a selected item. | Called with the chosen item string. |
 | `on_toggle` | `Option<ActionEnvelope>` | Action used to open or close the popup. | Also used as the close action when the popover dismisses itself. |
 
 ## How the event flow works
 
-There are two different kinds of events here. Typing uses the text-input path: the runtime dispatches `on_change` with the new string, your reducer stores that query, and the next conversion passes a filtered `items` list back in. Picking an item uses the `on_select` closure, which turns the chosen string into an `ActionEnvelope` immediately.
+There are two different kinds of events here. Typing uses the text-input path:
+the runtime dispatches the preserved `on_input` action with an
+`ActionInput::TextChanged`, your reducer stores that query, and the next
+conversion passes a filtered `items` list back in. Picking an item uses the
+`on_select` closure, which turns the chosen string into an `ActionEnvelope`
+immediately.
 
 This split is intentional. Free text and confirmed selection are not the same product event. Keep them separate in your actions.
 
@@ -68,7 +83,7 @@ If the user must choose from a fixed short list and should not type arbitrary te
 
 For `Combobox`, review the fields that change behavior before treating the widget as finished: `id`, `value`, `items`, `is_open`, `width`, `max_popup_height`. The goal is to make the product rule visible in state and actions, not hidden inside ad-hoc construction code.
 
-- Bind `on_change`, `on_select` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
+- Bind `on_input` and `on_select` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
 - When child widgets are generated from data, give reordered or filtered rows an explicit `WidgetId` so retained local state and scroll behavior do not drift between items.
 - Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.
 - Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
@@ -80,4 +95,3 @@ If a screen starts repeating the same `Combobox` setup, extract a named componen
 ## Related
 
 [`TextInput`](/reference/widgets/text-input), [`Select`](/reference/widgets/select), [`Menu`](/reference/widgets/menu), and [`FormControl`](/reference/widgets/form-control).
-

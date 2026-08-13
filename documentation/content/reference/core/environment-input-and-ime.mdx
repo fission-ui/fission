@@ -64,6 +64,17 @@ The public variants are:
 
 This normalization is a major reason cross-platform behavior stays consistent and testable.
 
+Reducer actions may also carry an `ActionInput`. The action envelope holds the
+application-defined, serialized action, while `ActionInput` carries transient
+runtime facts that should not be substituted into that payload. Typed accessors
+unwrap action scopes automatically.
+
+Every `TextInput::on_input` action delivers `ActionInput::TextChanged`. Read it
+with `ctx.input.text_change()` to obtain the complete new text, target widget
+ID, caret, and selection anchor while the action envelope retains the exact
+application payload that was bound. Native input, accessibility value changes,
+Web input, and interactive browser islands use this same event shape.
+
 ## Pointer and keyboard details
 
 `PointerEvent` covers pointer down, up, move, and scroll. Pointer buttons are represented by `PointerButton`.

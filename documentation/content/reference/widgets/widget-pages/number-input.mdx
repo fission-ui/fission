@@ -14,6 +14,16 @@ It renders a minus button, a central text display, and a plus button inside one 
 ```rust
 use fission::prelude::*;
 
+#[fission_reducer(SetQuantity)]
+fn set_quantity(state: &mut OrderState, ctx: &mut ReducerContext<OrderState>) {
+    let Some(change) = ctx.input.text_change() else {
+        return;
+    };
+    if let Ok(quantity) = change.new_text.parse::<f32>() {
+        state.quantity = quantity.clamp(1.0, 10.0);
+    }
+}
+
 let widget: Widget = NumberInput {
 value: view.state().quantity as f32,
 display_text: Some(view.state().quantity.to_string()),
@@ -22,13 +32,14 @@ max: Some(10.0),
 step: 1.0,
 on_increment: Some(increment_quantity_action),
 on_decrement: Some(decrement_quantity_action),
-on_change: Some(change_quantity_text_action),
+on_input: Some(ctx.bind(SetQuantity, reduce_with!(set_quantity))),
 ..Default::default()
 }
 .into();
 ```
 
-The reducer usually owns the real numeric value and decides how to clamp, parse, or reject changes.
+The reducer owns the real numeric value and decides how to parse, clamp, or
+reject the edit exposed by `ctx.input.text_change()`.
 
 ## Field table
 
@@ -45,13 +56,20 @@ The reducer usually owns the real numeric value and decides how to clamp, parse,
 | `gap` | `Option<f32>` | Spacing between the buttons and field. | Defaults to `4.0`. |
 | `on_increment` | `Option<ActionEnvelope>` | Action fired by the plus button. | Defaults to `None`. |
 | `on_decrement` | `Option<ActionEnvelope>` | Action fired by the minus button. | Defaults to `None`. |
-| `on_change` | `Option<ActionEnvelope>` | Intended text-edit action. | Present in the struct, but not currently wired by the checked-in implementation. |
+| `on_input` | `Option<ActionEnvelope>` | Action fired for typed edits in the central field. | Preserves the bound action; parse `ctx.input.text_change().new_text` in the reducer. |
 
 ## Current behavior and limitations
 
-The central field is rendered with [`TextInput`](/reference/widgets/text-input), but in the checked-in implementation its `on_change` hook is not passed through yet. Likewise, `min`, `max`, and `step` are meaningful configuration fields for your product logic, but the widget does not enforce or apply them by itself.
+The central field is rendered with [`TextInput`](/reference/widgets/text-input)
+and forwards `on_input`. `min`, `max`, and `step` are meaningful configuration
+fields for your product logic, but the widget does not enforce or apply them by
+itself.
 
-In practice that means `NumberInput` is best today for stepper-style adjustment through the plus and minus buttons. If you need full free-form numeric typing with validation on every keystroke, compose a `TextInput` directly and parse inside the reducer.
+Typed edits arrive as text because incomplete numeric input such as an empty
+field, `-`, or a trailing decimal point is not always an `f32`. Parse inside the
+reducer and decide whether to retain a separate draft string when intermediate
+states matter. The plus and minus buttons continue to dispatch
+`on_increment` and `on_decrement` independently.
 
 ## Specific advice
 
@@ -71,4 +89,3 @@ If a screen starts repeating the same `NumberInput` setup, extract a named compo
 ## Related
 
 [`TextInput`](/reference/widgets/text-input), [`Slider`](/reference/widgets/slider), [`TimePicker`](/reference/widgets/time-picker), and [`FormControl`](/reference/widgets/form-control).
-

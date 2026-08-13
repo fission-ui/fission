@@ -24,7 +24,7 @@ child:
     TextInput {
         value: view.state().email.clone(),
         label: Some("Email address".into()),
-        on_change: Some(email_change_action),
+        on_input: Some(email_input_action),
         ..Default::default()
     }
     .into(),
@@ -69,4 +69,3 @@ If a screen starts repeating the same `FormControl` setup, extract a named compo
 ## Related
 
 [`TextInput`](/reference/widgets/text-input), [`Select`](/reference/widgets/select), [`Combobox`](/reference/widgets/combobox), and [`Checkbox`](/reference/widgets/checkbox).
-
