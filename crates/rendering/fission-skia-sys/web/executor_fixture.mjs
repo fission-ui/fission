@@ -431,6 +431,8 @@ function makeFakeCanvasKit() {
   const objects = [];
   let nextId = 1;
   let nextContext = 40;
+  let decodeCacheLimit = 32 * 1024 * 1024;
+  let decodeCacheUsed = 8 * 1024 * 1024;
   const controls = {
     webGlAvailable: true,
     failNextGaneshContext: false,
@@ -508,6 +510,14 @@ function makeFakeCanvasKit() {
         assert(!paragraph.deleted, "retained paragraph must be live while painting");
         log.push({ type: "draw-paragraph", surface: surface.id, paragraph: paragraph.id, x, y });
       },
+      readPixels(x, y, info, _destination, rowBytes) {
+        log.push({ type: "read-pixels", surface: surface.id, x, y, info, rowBytes });
+        const pixels = new Uint8Array(rowBytes * info.height);
+        for (let index = 0; index < pixels.length; index += 1) {
+          pixels[index] = (x + y + index) & 0xff;
+        }
+        return pixels;
+      },
       getSaveCount() {
         return saveCount;
       },
@@ -565,6 +575,8 @@ function makeFakeCanvasKit() {
       SRGB: { name: "srgb" },
       DISPLAY_P3: { name: "display-p3" },
     },
+    ColorType: { RGBA_8888: { name: "rgba8888" } },
+    AlphaType: { Premul: { name: "premul" } },
     Color4f(...components) {
       return components;
     },
@@ -689,8 +701,21 @@ function makeFakeCanvasKit() {
         controls.failNextGaneshContext = false;
         return null;
       }
+      let resourceCacheLimit = 24 * 1024 * 1024;
+      let resourceCacheUsed = 6 * 1024 * 1024;
       return owned("gr-context", {
         handle,
+        getResourceCacheLimitBytes() {
+          return resourceCacheLimit;
+        },
+        getResourceCacheUsageBytes() {
+          return resourceCacheUsed;
+        },
+        setResourceCacheLimitBytes(bytes) {
+          resourceCacheLimit = bytes;
+          resourceCacheUsed = Math.min(resourceCacheUsed, bytes);
+          log.push(`gpu-cache-limit:${bytes}`);
+        },
         releaseResourcesAndAbandonContext() {
           log.push(`abandon:gr-context:${this.id}`);
         },
@@ -706,6 +731,17 @@ function makeFakeCanvasKit() {
     },
     deleteContext(handle) {
       log.push(`delete-context:${handle}`);
+    },
+    getDecodeCacheLimitBytes() {
+      return decodeCacheLimit;
+    },
+    getDecodeCacheUsedBytes() {
+      return decodeCacheUsed;
+    },
+    setDecodeCacheLimitBytes(bytes) {
+      decodeCacheLimit = bytes;
+      decodeCacheUsed = Math.min(decodeCacheUsed, bytes);
+      log.push(`decode-cache-limit:${bytes}`);
     },
     MakeImageFromEncoded(bytes) {
       const snapshot = Array.from(bytes);
@@ -1263,6 +1299,18 @@ function testRetainedParagraphLifecycleAndPaint() {
   assert(provider && !provider.deleted, "layout should retain its owned font provider");
   assertEqual(paragraph.layoutWidths.length, 1, "paragraph should be laid out exactly once");
 
+  const sharedResponse = executor.layoutParagraph(request);
+  const sharedHandle = paragraphResponseHandle(sharedResponse);
+  const sharedParagraph = latestObject(fake, "paragraph");
+  assertEqual(
+    fake.objects.filter((object) => object.type === "font-provider").length,
+    1,
+    "equal catalog/font bindings should share one retained font provider",
+  );
+  executor.destroyParagraph(sharedHandle);
+  assert(sharedParagraph.deleted, "destroying one paragraph should retire only that paragraph");
+  assert(!provider.deleted, "the provider must outlive another retained paragraph");
+
   assert(canvas.dispatch("webglcontextlost"), "paragraph test should enter context loss");
   assert(!paragraph.deleted, "CPU paragraph must survive recoverable WebGL context loss");
   assertExecutorFault(
@@ -1628,6 +1676,64 @@ function testSoftwareFallbackAndExplicitWebGlFailure() {
   strictExecutor.destroy();
 }
 
+function testReadbackAndMemoryPressure() {
+  const canvas = makeCanvas();
+  const fake = makeFakeCanvasKit();
+  const executor = createCanvasKitExecutor({ CanvasKit: fake.CanvasKit, canvas });
+  assertAck(executor.submit(initPacket()), 1);
+  assertAck(
+    executor.submit(resourceBatchPacket(2, 1, [upsert(1, 1, [7, 8, 9])])),
+    2,
+  );
+  assertAck(executor.submit(framePacket(3, 1)), 3);
+
+  const pixels = executor.readPixels(2, 3, 4, 2);
+  assert(pixels instanceof Uint8Array, "readback should return owned bytes");
+  assertEqual(pixels.byteLength, 32, "readback byte length");
+  assertEqual(pixels[0], 5, "readback content should come from the CanvasKit canvas");
+  const read = fake.log.find((entry) => entry?.type === "read-pixels");
+  assert(read, "readPixels must reach the active CanvasKit canvas");
+  assertEqual(read.rowBytes, 16, "readback must request tightly packed RGBA rows");
+  assertExecutorFault(
+    () => executor.readPixels(639, 0, 2, 1),
+    ErrorCode.INVALID_PACKET,
+  );
+
+  const decodedImage = latestObject(fake, "image");
+  executor.trimMemory(1);
+  assert(!decodedImage.deleted, "moderate pressure should retain decoded resources");
+  executor.trimMemory(2);
+  assert(decodedImage.deleted, "critical pressure should release decoded resources");
+  assert(
+    fake.log.includes("decode-cache-limit:4194304") &&
+      fake.log.includes("decode-cache-limit:0") &&
+      fake.log.includes("decode-cache-limit:33554432"),
+    "memory pressure should pulse and restore CanvasKit's decode cache limit",
+  );
+  assert(
+    fake.log.includes("gpu-cache-limit:3145728") &&
+      fake.log.includes("gpu-cache-limit:0") &&
+      fake.log.includes("gpu-cache-limit:25165824"),
+    "memory pressure should pulse and restore Ganesh's resource cache limit",
+  );
+
+  const destination = { x: 0, y: 0, width: 64, height: 32 };
+  const draw = commandStream([
+    drawImageCommand(14, 1, 1, destination, {
+      source: destination,
+      sampling: 2,
+    }),
+  ]);
+  assertAck(executor.submit(framePacket(4, 1, draw)), 4);
+  const rebuiltImage = latestObject(fake, "image");
+  assert(rebuiltImage !== decodedImage, "the next frame should rebuild a released image");
+  assert(!rebuiltImage.deleted, "the rebuilt image should remain live after presentation");
+
+  executor.destroy();
+  assertExecutorFault(() => executor.readPixels(0, 0, 1, 1), ErrorCode.INVALID_STATE);
+  assertExecutorFault(() => executor.trimMemory(1), ErrorCode.INVALID_STATE);
+}
+
 function testBoundedErrorEncoding() {
   const encoded = encodeError({
     session: SESSION,
@@ -1650,6 +1756,7 @@ testRetainedParagraphLifecycleAndPaint();
 testContextEventsDoNotHideResponseSequences();
 testWebGlLifecycleAndResources();
 testSoftwareFallbackAndExplicitWebGlFailure();
+testReadbackAndMemoryPressure();
 testBoundedErrorEncoding();
 
 console.log("CanvasKit executor fixtures passed");

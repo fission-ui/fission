@@ -124,6 +124,8 @@ where
     pub(super) webgpu_init_in_flight: bool,
     #[cfg(target_arch = "wasm32")]
     pub(super) web_renderer_reported: bool,
+    #[cfg(target_arch = "wasm32")]
+    pub(super) packaged_fonts: Vec<fission_theme::PackagedFont>,
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) scene: Scene,
     #[cfg(not(target_arch = "wasm32"))]

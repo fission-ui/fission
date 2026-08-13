@@ -25,9 +25,9 @@ impl<'a> Compiler<'a> {
             layer,
             inherited_node_id,
             self.scale_factor,
-            self.images.map(|images| images.resources),
+            self.images.map(|images| images.resources()),
             self.paragraphs
-                .map(|paragraphs| &paragraphs.frame_draw_data),
+                .and_then(|paragraphs| paragraphs.native_frame()),
         ) else {
             return Ok(false);
         };
@@ -60,9 +60,9 @@ impl<'a> Compiler<'a> {
             layer,
             node_id,
             self.scale_factor,
-            self.images.map(|images| images.resources),
+            self.images.map(|images| images.resources()),
             self.paragraphs
-                .map(|paragraphs| &paragraphs.frame_draw_data),
+                .and_then(|paragraphs| paragraphs.native_frame()),
         ) else {
             return Ok(false);
         };
@@ -97,9 +97,9 @@ impl<'a> Compiler<'a> {
             list,
             inherited_node_id,
             self.scale_factor,
-            self.images.map(|images| images.resources),
+            self.images.map(|images| images.resources()),
             self.paragraphs
-                .map(|paragraphs| &paragraphs.frame_draw_data),
+                .and_then(|paragraphs| paragraphs.native_frame()),
         ) else {
             return Ok(false);
         };

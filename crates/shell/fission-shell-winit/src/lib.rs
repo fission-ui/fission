@@ -194,7 +194,7 @@ mod skia_presenter;
 #[cfg(target_arch = "wasm32")]
 mod web_canvaskit_presenter;
 #[cfg(target_arch = "wasm32")]
-use web_canvaskit_presenter::{CanvasKitFrameOutcome, WebCanvasKitPresenter};
+use web_canvaskit_presenter::{CanvasKitCapture, CanvasKitFrameOutcome, WebCanvasKitPresenter};
 mod windowing;
 use windowing::*;
 mod effects;
@@ -299,7 +299,13 @@ where
         #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
         let skia_profile = (renderer_request == RendererRequest::Auto
             || renderer_request.uses_skia_raster())
-        .then(fission_render_skia::SkiaRasterProfile::new);
+        .then(|| {
+            fission_render_skia::SkiaRasterProfile::try_with_fonts(
+                DEFAULT_FONT_FAMILY,
+                packaged_skia_font_faces(&self.packaged_fonts),
+            )
+        })
+        .transpose()?;
         #[cfg(all(
             feature = "skia",
             any(
@@ -311,7 +317,13 @@ where
             )
         ))]
         let skia_ganesh_profile = (renderer_request == RendererRequest::NativeSkiaGanesh)
-            .then(fission_render_skia::SkiaGaneshProfile::new);
+            .then(|| {
+                fission_render_skia::SkiaGaneshProfile::try_with_fonts(
+                    DEFAULT_FONT_FAMILY,
+                    packaged_skia_font_faces(&self.packaged_fonts),
+                )
+            })
+            .transpose()?;
         #[cfg(not(target_arch = "wasm32"))]
         let paragraph_engine = paragraph_engine_for_native_renderer(
             renderer_request,
@@ -454,6 +466,8 @@ where
         let mut webgpu_init_in_flight = false;
         #[cfg(target_arch = "wasm32")]
         let mut web_renderer_reported = false;
+        #[cfg(target_arch = "wasm32")]
+        let packaged_fonts = self.packaged_fonts;
         #[cfg(not(target_arch = "wasm32"))]
         let mut scene = Scene::new();
         #[cfg(not(target_arch = "wasm32"))]
@@ -666,6 +680,8 @@ where
             webgpu_init_in_flight,
             #[cfg(target_arch = "wasm32")]
             web_renderer_reported,
+            #[cfg(target_arch = "wasm32")]
+            packaged_fonts,
             #[cfg(not(target_arch = "wasm32"))]
             scene,
             #[cfg(not(target_arch = "wasm32"))]

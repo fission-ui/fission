@@ -8,6 +8,10 @@ use std::sync::Arc;
 use crate::error::status_result;
 use crate::{ffi, BuildInfo, Error, ErrorKind, Result, ABI_VERSION, SKIA_REVISION};
 
+const MAX_FONT_CATALOG_FACES: usize = 4_096;
+const MAX_FONT_CATALOG_BYTES: usize = 512 * 1024 * 1024;
+const MAX_FONT_FACE_AXES: usize = 256;
+
 pub use ffi::{
     ParagraphCaret, ParagraphCluster, ParagraphHitRegion, ParagraphInlineBox, ParagraphLine,
     ParagraphRect, ParagraphSize, UnresolvedGlyph,
@@ -61,6 +65,36 @@ pub enum ParagraphFontSlant {
     #[default]
     Normal,
     Italic,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum ParagraphFontFaceSlant {
+    #[default]
+    Normal,
+    Italic,
+    Oblique,
+}
+
+/// One encoded face copied into a native SkParagraph font catalogue.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParagraphFontFace {
+    pub family: String,
+    pub weight: u16,
+    pub slant: ParagraphFontFaceSlant,
+    pub data: Vec<u8>,
+    pub axes: Vec<ParagraphFontVariation>,
+}
+
+impl ParagraphFontFace {
+    pub fn new(family: impl Into<String>, data: impl Into<Vec<u8>>) -> Self {
+        Self {
+            family: family.into(),
+            weight: 400,
+            slant: ParagraphFontFaceSlant::Normal,
+            data: data.into(),
+            axes: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -315,6 +349,68 @@ pub struct RetainedParagraphOutput {
     pub draw_data: ParagraphDrawData,
 }
 
+/// Owned native font catalogue used by Fission's paired SkParagraph profiles.
+///
+/// The bridge copies every face during construction. The numeric generation is
+/// valid until this value is dropped; in-flight layouts retain their own Skia
+/// reference while catalogue destruction removes it from future lookup.
+pub struct ParagraphFontCatalog {
+    handle: ffi::FontCatalogHandle,
+}
+
+impl ParagraphFontCatalog {
+    pub fn new(faces: &[ParagraphFontFace]) -> Result<Self> {
+        validate_font_catalog(faces)?;
+        validate_paragraph_bridge_identity()?;
+        let encoded = EncodedFontCatalog::new(faces);
+        let mut handle = 0;
+        let mut error = ffi::Error::default();
+        // SAFETY: encoded owns every nested buffer for the synchronous call;
+        // the scalar output remains valid for the complete invocation.
+        let status = unsafe {
+            ffi::fission_skia_paragraph_font_catalog_create(
+                encoded.faces.as_ptr(),
+                encoded.faces.len(),
+                &mut handle,
+                &mut error,
+            )
+        };
+        status_result(status, &error)?;
+        if handle == 0 {
+            return Err(Error::local(
+                ErrorKind::Internal,
+                "ParagraphFontCatalog::new",
+                "bridge reported success with a null font catalogue handle",
+            ));
+        }
+        Ok(Self { handle })
+    }
+
+    /// Profile-local generation copied into every paragraph cache key/request.
+    pub const fn generation(&self) -> u64 {
+        self.handle
+    }
+}
+
+impl std::fmt::Debug for ParagraphFontCatalog {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ParagraphFontCatalog")
+            .field("generation", &self.handle)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Drop for ParagraphFontCatalog {
+    fn drop(&mut self) {
+        let mut error = ffi::Error::default();
+        // SAFETY: this value is the sole safe owner and retires the handle once.
+        let status =
+            unsafe { ffi::fission_skia_paragraph_font_catalog_destroy(self.handle, &mut error) };
+        debug_assert_eq!(status, ffi::STATUS_OK, "font catalogue destruction failed");
+    }
+}
+
 /// Stateless, thread-safe entrypoint to the synchronous native paragraph ABI.
 ///
 /// Native Skia objects never escape as pointers. [`ParagraphDrawData`] retains
@@ -326,21 +422,7 @@ pub struct ParagraphEngine {
 
 impl ParagraphEngine {
     pub fn new() -> Result<Self> {
-        let info = BuildInfo::query()?;
-        if info.abi_version != ABI_VERSION || info.skia_revision != SKIA_REVISION {
-            return Err(Error::local(
-                ErrorKind::AbiMismatch,
-                "ParagraphEngine::new",
-                "paragraph bridge identity does not match the pinned Fission Skia ABI",
-            ));
-        }
-        if info.feature_bits & ffi::FEATURE_PARAGRAPH == 0 {
-            return Err(Error::local(
-                ErrorKind::Unsupported,
-                "ParagraphEngine::new",
-                "bridge does not advertise the paragraph feature",
-            ));
-        }
+        validate_paragraph_bridge_identity()?;
         let mut capabilities = 0;
         let mut error = ffi::Error::default();
         // SAFETY: both outputs are initialized and valid for the call.
@@ -435,6 +517,25 @@ impl ParagraphEngine {
             },
         })
     }
+}
+
+fn validate_paragraph_bridge_identity() -> Result<()> {
+    let info = BuildInfo::query()?;
+    if info.abi_version != ABI_VERSION || info.skia_revision != SKIA_REVISION {
+        return Err(Error::local(
+            ErrorKind::AbiMismatch,
+            "ParagraphEngine::new",
+            "paragraph bridge identity does not match the pinned Fission Skia ABI",
+        ));
+    }
+    if info.feature_bits & ffi::FEATURE_PARAGRAPH == 0 {
+        return Err(Error::local(
+            ErrorKind::Unsupported,
+            "ParagraphEngine::new",
+            "bridge does not advertise the paragraph feature",
+        ));
+    }
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -632,6 +733,115 @@ impl EncodedRequest {
     }
 }
 
+struct EncodedFontCatalog {
+    faces: Box<[ffi::ParagraphFontFace]>,
+    _axes: Vec<Box<[ffi::FontVariation]>>,
+}
+
+impl EncodedFontCatalog {
+    fn new(fonts: &[ParagraphFontFace]) -> Self {
+        let axes = fonts
+            .iter()
+            .map(|font| {
+                font.axes
+                    .iter()
+                    .map(|axis| ffi::FontVariation {
+                        tag: axis.tag,
+                        value: axis.value,
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice()
+            })
+            .collect::<Vec<_>>();
+        let faces = fonts
+            .iter()
+            .enumerate()
+            .map(|(index, font)| ffi::ParagraphFontFace {
+                struct_size: mem::size_of::<ffi::ParagraphFontFace>() as u32,
+                reserved: 0,
+                family: utf8(&font.family),
+                data: font.data.as_ptr(),
+                data_length: font.data.len(),
+                weight: font.weight,
+                slant: match font.slant {
+                    ParagraphFontFaceSlant::Normal => ffi::FONT_SLANT_NORMAL,
+                    ParagraphFontFaceSlant::Italic => ffi::FONT_SLANT_ITALIC,
+                    ParagraphFontFaceSlant::Oblique => ffi::FONT_SLANT_OBLIQUE,
+                },
+                reserved_scalar: 0,
+                axes: axes[index].as_ptr(),
+                axis_count: axes[index].len(),
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+        Self { faces, _axes: axes }
+    }
+}
+
+fn validate_font_catalog(fonts: &[ParagraphFontFace]) -> Result<()> {
+    if fonts.is_empty() {
+        return Err(invalid_font_catalog(
+            "a native paragraph font catalogue requires at least one face",
+        ));
+    }
+    if fonts.len() > MAX_FONT_CATALOG_FACES {
+        return Err(invalid_font_catalog(format!(
+            "font catalogue has {} faces, exceeding the {MAX_FONT_CATALOG_FACES}-face limit",
+            fonts.len()
+        )));
+    }
+    let mut total_bytes = 0usize;
+    for (index, font) in fonts.iter().enumerate() {
+        if font.family.is_empty() || font.family.trim() != font.family || font.family.contains('\0')
+        {
+            return Err(invalid_font_catalog(format!(
+                "font face {index} has an empty, padded, or NUL-containing family"
+            )));
+        }
+        if font.data.is_empty() {
+            return Err(invalid_font_catalog(format!(
+                "font face {index} has no encoded bytes"
+            )));
+        }
+        if !(1..=1000).contains(&font.weight) {
+            return Err(invalid_font_catalog(format!(
+                "font face {index} weight {} is outside 1..=1000",
+                font.weight
+            )));
+        }
+        total_bytes = total_bytes
+            .checked_add(font.data.len())
+            .ok_or_else(|| invalid_font_catalog("font catalogue byte count overflowed usize"))?;
+        if total_bytes > MAX_FONT_CATALOG_BYTES {
+            return Err(invalid_font_catalog(format!(
+                "font catalogue exceeds the {MAX_FONT_CATALOG_BYTES}-byte encoded limit"
+            )));
+        }
+        if font.axes.len() > MAX_FONT_FACE_AXES {
+            return Err(invalid_font_catalog(format!(
+                "font face {index} has more than {MAX_FONT_FACE_AXES} variation axes"
+            )));
+        }
+        for (axis_index, axis) in font.axes.iter().enumerate() {
+            if !axis.value.is_finite() {
+                return Err(invalid_font_catalog(format!(
+                    "font face {index} axis {axis_index} is not finite"
+                )));
+            }
+            if font.axes[..axis_index]
+                .iter()
+                .any(|previous| previous.tag == axis.tag)
+            {
+                return Err(invalid_font_catalog(format!(
+                    "font face {index} repeats variation axis 0x{:08x}",
+                    axis.tag
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn raw_range(value: ParagraphRange) -> ffi::TextRange {
     ffi::TextRange {
         start: value.start,
@@ -758,6 +968,14 @@ fn invalid_request(message: &str) -> Error {
     Error::local(
         ErrorKind::InvalidArgument,
         "ParagraphEngine::layout",
+        message,
+    )
+}
+
+fn invalid_font_catalog(message: impl Into<String>) -> Error {
+    Error::local(
+        ErrorKind::InvalidArgument,
+        "ParagraphFontCatalog::new",
         message,
     )
 }

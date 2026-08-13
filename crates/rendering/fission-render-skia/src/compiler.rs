@@ -1,6 +1,3 @@
-use std::fmt;
-use std::sync::Arc;
-
 use fission_ir::op::{BackdropFilter, ImageAlignment, ImageRequest};
 use fission_render::capabilities::{is_2d_affine_transform, DisplayOpKind};
 use fission_render::diagnostics::DiagnosticCategory;
@@ -11,15 +8,18 @@ use fission_render::{
     LineCap, LineJoin, RenderNode, RenderScene, Stroke,
 };
 use kurbo::{BezPath, PathEl};
+use std::fmt;
 
 use crate::api::{
     RasterAffine, RasterBoxShadow, RasterColor, RasterCommand, RasterFillRule, RasterFrame,
     RasterGradientStop, RasterLineCap, RasterLineJoin, RasterPaint, RasterPath, RasterPathCommand,
     RasterPoint, RasterRect, RasterStroke, SkiaPictureRecorder,
 };
+use crate::compiler_paragraph::{CompiledParagraphDrawData, ParagraphCompilation};
 use crate::image::{place_image, resolve_image_resource, ImageError, SkiaImageCache};
 use crate::paragraph_caret::{paragraph_caret_paint, ParagraphCaretPaint, ParagraphCaretStyle};
-use crate::paragraph_draw_data::{ParagraphDrawDataError, ParagraphFrameDrawData};
+use crate::paragraph_draw_data::ParagraphDrawDataError;
+use crate::paragraph_engine::CanvasKitParagraphDrawDataRegistry;
 use crate::picture::SkiaPictureCache;
 use crate::profile::SkiaParagraphDrawDataRegistry;
 use crate::svg::{
@@ -37,6 +37,7 @@ pub(crate) struct CompiledRasterFrame {
     pub reused_layers: u64,
 }
 
+#[cfg(test)]
 pub(crate) fn compile_scene(
     scene: &RenderScene,
     scale_factor: f64,
@@ -66,21 +67,8 @@ pub(crate) fn compile_scene_with_paragraphs(
     picture_cache: &SkiaPictureCache,
     picture_recorder: &dyn SkiaPictureRecorder,
 ) -> Result<CompiledRasterFrame, CompileError> {
-    let paragraphs = paragraph_bindings
-        .map(|bindings| {
-            let frame_draw_data = paragraph_draw_data
-                .bind_frame(
-                    bindings
-                        .iter()
-                        .map(|(node_id, result)| (*node_id, Arc::clone(result))),
-                )
-                .map_err(paragraph_registry_error)?;
-            paragraph_draw_data
-                .retain_results(bindings.iter().map(|(_, result)| result.as_ref()))
-                .map_err(paragraph_registry_error)?;
-            Ok(ParagraphCompilation { frame_draw_data })
-        })
-        .transpose()?;
+    let paragraphs = ParagraphCompilation::native(paragraph_bindings, paragraph_draw_data)
+        .map_err(paragraph_registry_error)?;
     compile_scene_inner(
         scene,
         scale_factor,
@@ -109,12 +97,16 @@ pub(crate) fn compile_scene_for_web(
     scale_factor: f64,
     clear_color: Color,
     resources: &ResourceSnapshot,
+    paragraph_bindings: Option<&ParagraphFrameBindings>,
+    paragraph_draw_data: Option<&CanvasKitParagraphDrawDataRegistry>,
 ) -> Result<CompiledRasterFrame, CompileError> {
+    let paragraphs = ParagraphCompilation::canvaskit(paragraph_bindings, paragraph_draw_data)
+        .map_err(paragraph_registry_error)?;
     compile_scene_inner(
         scene,
         scale_factor,
         clear_color,
-        None,
+        paragraphs,
         Some(ImageCompilation::Web { resources }),
         SvgCompilation::Web { resources },
         None,
@@ -166,10 +158,6 @@ fn compile_scene_inner<'a>(
         source_operations: compiler.source_operations,
         reused_layers: compiler.reused_layers,
     })
-}
-
-struct ParagraphCompilation {
-    frame_draw_data: ParagraphFrameDrawData<fission_skia_sys::ParagraphDrawData>,
 }
 
 #[derive(Clone, Copy)]
@@ -754,21 +742,30 @@ impl Compiler<'_> {
                 provenance.clone(),
             )
         })?;
-        let bound = paragraphs.frame_draw_data.get(node_id).ok_or_else(|| {
+        let bound = paragraphs.get(node_id).ok_or_else(|| {
             CompileError::new(
                 CompileErrorKind::MissingParagraphBinding { node_id },
                 provenance.clone(),
             )
         })?;
-        let result = Arc::clone(&bound.result);
-        let data = Arc::clone(&bound.data);
-        self.commands.push(RasterCommand::DrawParagraph {
-            data,
-            origin: RasterPoint {
-                x: self.scaled(position.x, provenance, "paragraph origin x")?,
-                y: self.scaled(position.y, provenance, "paragraph origin y")?,
+        let result = bound.result;
+        let origin = RasterPoint {
+            x: self.scaled(position.x, provenance, "paragraph origin x")?,
+            y: self.scaled(position.y, provenance, "paragraph origin y")?,
+        };
+        self.commands.push(match bound.draw_data {
+            CompiledParagraphDrawData::Native(data) => RasterCommand::DrawParagraph {
+                data,
+                origin,
+                scale_factor: self.scale_factor,
             },
-            scale_factor: self.scale_factor,
+            CompiledParagraphDrawData::CanvasKit(paragraph) => {
+                RasterCommand::DrawParagraphResource {
+                    paragraph,
+                    origin,
+                    scale_factor: self.scale_factor,
+                }
+            }
         });
 
         let caret = paragraph_caret_paint(result.as_ref(), caret_index, position, caret_style)

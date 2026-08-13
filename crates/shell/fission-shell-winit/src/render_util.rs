@@ -43,6 +43,39 @@ pub(super) fn register_packaged_fonts(
     }
 }
 
+#[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+pub(super) fn packaged_skia_font_faces(
+    fonts: &[fission_theme::PackagedFont],
+) -> Vec<fission_render_skia::SkiaFontFace> {
+    fonts
+        .iter()
+        .map(|font| fission_render_skia::SkiaFontFace {
+            family: font.family.to_string(),
+            weight: font.weight,
+            slant: match font.style {
+                fission_theme::PackagedFontStyle::Normal => {
+                    fission_render_skia::SkiaFontFaceSlant::Normal
+                }
+                fission_theme::PackagedFontStyle::Italic => {
+                    fission_render_skia::SkiaFontFaceSlant::Italic
+                }
+                fission_theme::PackagedFontStyle::Oblique => {
+                    fission_render_skia::SkiaFontFaceSlant::Oblique
+                }
+            },
+            data: font.data.to_vec(),
+            axes: font
+                .axes
+                .iter()
+                .map(|axis| fission_render_skia::SkiaFontVariation {
+                    tag: u32::from_be_bytes(axis.tag),
+                    value: axis.value,
+                })
+                .collect(),
+        })
+        .collect()
+}
+
 // Helpers...
 pub(super) fn map_mouse_button(button: MouseButton) -> Option<PointerButton> {
     match button {
@@ -434,4 +467,38 @@ pub(super) fn native_window_size_for_logical_viewport(
     size: LayoutSize,
 ) -> winit::dpi::LogicalSize<f64> {
     winit::dpi::LogicalSize::new(size.width as f64, size.height as f64)
+}
+
+#[cfg(all(test, feature = "skia", not(target_arch = "wasm32")))]
+mod skia_font_tests {
+    use super::*;
+
+    #[test]
+    fn packaged_font_metadata_is_preserved_for_native_skia() {
+        static AXES: &[fission_theme::FontVariationAxis] = &[fission_theme::FontVariationAxis {
+            tag: *b"wght",
+            value: 625.0,
+        }];
+        let fonts = [fission_theme::PackagedFont {
+            family: "Application Sans",
+            weight: 625,
+            style: fission_theme::PackagedFontStyle::Oblique,
+            format: "truetype",
+            data: &[1, 2, 3],
+            axes: AXES,
+        }];
+
+        let mapped = packaged_skia_font_faces(&fonts);
+
+        assert_eq!(mapped.len(), 1);
+        assert_eq!(mapped[0].family, "Application Sans");
+        assert_eq!(mapped[0].weight, 625);
+        assert_eq!(
+            mapped[0].slant,
+            fission_render_skia::SkiaFontFaceSlant::Oblique
+        );
+        assert_eq!(mapped[0].data, [1, 2, 3]);
+        assert_eq!(mapped[0].axes[0].tag, u32::from_be_bytes(*b"wght"));
+        assert_eq!(mapped[0].axes[0].value, 625.0);
+    }
 }

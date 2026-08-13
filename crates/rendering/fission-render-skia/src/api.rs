@@ -4,7 +4,9 @@ use fission_ir::op::ImageAlignment;
 use fission_render::resource::ResourceId;
 use fission_render::surface::{MemoryPressure, PhysicalSize};
 use fission_render::ImageFit;
-use fission_skia_sys::{DecodedImage, ParagraphDrawData, RecordedPicture, SvgDocument};
+use fission_skia_sys::{
+    web::ResourceHandle, DecodedImage, ParagraphDrawData, RecordedPicture, SvgDocument,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ApiErrorKind {
@@ -239,6 +241,12 @@ pub(crate) enum RasterCommand {
     /// frame's geometry. The resource is pinned through native execution.
     DrawParagraph {
         data: Arc<ParagraphDrawData>,
+        origin: RasterPoint,
+        scale_factor: f32,
+    },
+    /// Paints the exact retained SkParagraph that supplied Web layout geometry.
+    DrawParagraphResource {
+        paragraph: ResourceHandle,
         origin: RasterPoint,
         scale_factor: f32,
     },

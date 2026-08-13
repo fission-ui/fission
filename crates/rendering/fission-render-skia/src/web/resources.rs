@@ -20,6 +20,7 @@ pub(super) enum ResourceMapError {
     ReusedEpoch { epoch: u64 },
     SlotExhausted,
     GenerationExhausted { slot: u32 },
+    DuplicateDesiredResource { resource_id: ResourceId },
 }
 
 impl fmt::Display for ResourceMapError {
@@ -41,6 +42,11 @@ impl fmt::Display for ResourceMapError {
             Self::GenerationExhausted { slot } => write!(
                 formatter,
                 "CanvasKit resource slot {slot} exhausted its generation counter"
+            ),
+            Self::DuplicateDesiredResource { resource_id } => write!(
+                formatter,
+                "CanvasKit received duplicate logical resource {} while merging pinned and frame resources",
+                resource_id.0
             ),
         }
     }
@@ -95,13 +101,14 @@ impl ResourcePlan {
 }
 
 #[derive(Debug, Clone)]
-struct DesiredResource {
+struct DesiredResource<'a> {
     kind: WireResourceKind,
     content_id: u64,
-    bytes: Vec<u8>,
+    bytes: &'a [u8],
 }
 
 impl ResourceMap {
+    #[cfg(test)]
     pub(super) fn epoch(&self) -> u64 {
         self.epoch
     }
@@ -131,12 +138,30 @@ impl ResourceMap {
         &self,
         snapshot: &ResourceSnapshot,
     ) -> Result<Option<ResourcePlan>, ResourceMapError> {
-        let received_epoch = snapshot.epoch().0;
+        self.plan_entries(snapshot.epoch().0, [snapshot].into_iter())
+    }
+
+    /// Plans one browser table containing persistent profile resources and
+    /// frame-local resources without cloning unchanged payloads.
+    pub(super) fn plan_with_pinned(
+        &self,
+        snapshot: &ResourceSnapshot,
+        pinned: &ResourceSnapshot,
+        received_epoch: u64,
+    ) -> Result<Option<ResourcePlan>, ResourceMapError> {
+        self.plan_entries(received_epoch, [pinned, snapshot].into_iter())
+    }
+
+    fn plan_entries<'a>(
+        &self,
+        received_epoch: u64,
+        snapshots: impl Iterator<Item = &'a ResourceSnapshot>,
+    ) -> Result<Option<ResourcePlan>, ResourceMapError> {
         if received_epoch == 0 {
             return Err(ResourceMapError::ZeroEpoch);
         }
 
-        let desired = desired_resources(snapshot);
+        let desired = desired_resources(snapshots)?;
         if received_epoch < self.epoch {
             return Err(ResourceMapError::StaleEpoch {
                 current: self.epoch,
@@ -242,7 +267,7 @@ impl ResourceMap {
         *self = plan.next;
     }
 
-    fn matches(&self, desired: &BTreeMap<ResourceId, DesiredResource>) -> bool {
+    fn matches(&self, desired: &BTreeMap<ResourceId, DesiredResource<'_>>) -> bool {
         self.live.len() == desired.len()
             && desired.iter().all(|(resource_id, desired)| {
                 self.live.get(resource_id).is_some_and(|live| {
@@ -289,7 +314,7 @@ impl ResourceMap {
         &mut self,
         resource_id: ResourceId,
         handle: ResourceHandle,
-        desired: &DesiredResource,
+        desired: &DesiredResource<'_>,
         updates: &mut Vec<ResourceUpdate>,
     ) {
         let slot = self
@@ -311,45 +336,46 @@ impl ResourceMap {
             operation: ResourceOperation::Upsert,
             kind: desired.kind,
             content_id: desired.content_id,
-            bytes: desired.bytes.clone(),
+            bytes: desired.bytes.to_vec(),
         });
     }
 }
 
-fn desired_resources(snapshot: &ResourceSnapshot) -> BTreeMap<ResourceId, DesiredResource> {
-    snapshot
-        .iter()
-        .filter_map(|(resource_id, entry)| {
+fn desired_resources<'a>(
+    snapshots: impl Iterator<Item = &'a ResourceSnapshot>,
+) -> Result<BTreeMap<ResourceId, DesiredResource<'a>>, ResourceMapError> {
+    let mut desired = BTreeMap::new();
+    for snapshot in snapshots {
+        for (resource_id, entry) in snapshot.iter().filter(|(_, entry)| {
             // CanvasKit's Web SVG contract is backend-neutral geometry. Raw
             // SVG source must never reach the JavaScript resource decoder,
             // which intentionally rejects it rather than claiming SkSVGDOM.
-            (entry.status() == ResourceStatus::Ready && entry.kind() != &ResourceKind::Svg).then(
-                || {
-                    let bytes = payload_bytes(
-                        entry
-                            .payload()
-                            .expect("a validated ready resource always owns a payload"),
-                    );
-                    let kind = wire_kind(entry.kind());
-                    let content_id = deterministic_content_id(entry, &bytes);
-                    (
-                        *resource_id,
-                        DesiredResource {
-                            kind,
-                            content_id,
-                            bytes,
-                        },
-                    )
-                },
-            )
-        })
-        .collect()
+            entry.status() == ResourceStatus::Ready && entry.kind() != &ResourceKind::Svg
+        }) {
+            let bytes = payload_bytes(
+                entry
+                    .payload()
+                    .expect("a validated ready resource always owns a payload"),
+            );
+            let resource = DesiredResource {
+                kind: wire_kind(entry.kind()),
+                content_id: deterministic_content_id(entry, bytes),
+                bytes,
+            };
+            if desired.insert(*resource_id, resource).is_some() {
+                return Err(ResourceMapError::DuplicateDesiredResource {
+                    resource_id: *resource_id,
+                });
+            }
+        }
+    }
+    Ok(desired)
 }
 
-fn payload_bytes(payload: &ResourcePayload) -> Vec<u8> {
+fn payload_bytes(payload: &ResourcePayload) -> &[u8] {
     match payload {
-        ResourcePayload::Bytes(bytes) => bytes.clone(),
-        ResourcePayload::Text(text) => text.as_bytes().to_vec(),
+        ResourcePayload::Bytes(bytes) => bytes,
+        ResourcePayload::Text(text) => text.as_bytes(),
     }
 }
 

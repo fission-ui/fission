@@ -3,9 +3,9 @@
 use fission_skia_sys::ffi;
 use fission_skia_sys::{
     Color, Context, Engine, ErrorKind, Frame, FrameOp, ParagraphCapabilities, ParagraphColor,
-    ParagraphDrawData, ParagraphEngine, ParagraphInlineObject, ParagraphPreedit, ParagraphRange,
-    ParagraphRequest, ParagraphTextDirection, ParagraphTextStyleRun, PixelRect, Point,
-    RasterSurface,
+    ParagraphDrawData, ParagraphEngine, ParagraphFontCatalog, ParagraphFontFace,
+    ParagraphInlineObject, ParagraphPreedit, ParagraphRange, ParagraphRequest,
+    ParagraphTextDirection, ParagraphTextStyleRun, PixelRect, Point, RasterSurface,
 };
 
 fn rich_request() -> ParagraphRequest {
@@ -90,16 +90,35 @@ fn owned_paragraph_output_preserves_utf8_grapheme_bidi_and_inline_geometry() {
 }
 
 #[test]
-fn font_catalog_without_an_owned_payload_is_rejected_structurally() {
+fn owned_font_catalog_generation_is_required_and_retired_deterministically() {
     let engine = ParagraphEngine::new().expect("paragraph test engine");
+    let catalog = ParagraphFontCatalog::new(&[ParagraphFontFace::new(
+        "Inter",
+        include_bytes!("../../../core/fission-theme/fonts/Inter/static/Inter_24pt-Regular.ttf")
+            .to_vec(),
+    )])
+    .expect("owned font catalogue");
     let mut request = rich_request();
-    request.font_catalog_generation = 7;
+    request.font_catalog_generation = catalog.generation();
+    request.fallback_families.push("Inter".into());
+    engine
+        .layout(&request)
+        .expect("live owned font catalogue participates in layout");
+
+    drop(catalog);
     let error = engine
         .layout(&request)
-        .expect_err("catalog payload is absent");
-    assert_eq!(error.kind, ErrorKind::Unsupported);
+        .expect_err("retired catalogue generation must not silently fall back");
+    assert_eq!(error.kind, ErrorKind::InvalidHandle);
     assert_eq!(error.operation, "paragraph_layout");
     assert_ne!(error.sequence, 0);
+}
+
+#[test]
+fn safe_font_catalog_rejects_missing_faces_before_ffi() {
+    let error = ParagraphFontCatalog::new(&[]).expect_err("empty catalogue must fail");
+    assert_eq!(error.kind, ErrorKind::InvalidArgument);
+    assert_eq!(error.operation, "ParagraphFontCatalog::new");
 }
 
 #[test]

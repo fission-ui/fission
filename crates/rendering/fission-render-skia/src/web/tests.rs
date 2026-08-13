@@ -109,6 +109,8 @@ fn image_uses_the_planned_generational_resource_handle_without_native_decode() {
         2.0,
         clear_color(),
         &resources,
+        None,
+        None,
         &|id| plan.handle(id),
     )
     .unwrap();
@@ -168,6 +170,8 @@ fn svg_uses_authoritative_text_and_lowers_to_neutral_paint_commands() {
         1.0,
         clear_color(),
         &resources,
+        None,
+        None,
         &|_| None,
     )
     .unwrap();
@@ -208,6 +212,8 @@ fn cached_scene_expands_instead_of_emitting_a_native_picture() {
         1.0,
         clear_color(),
         &resources,
+        None,
+        None,
         &|_| None,
     )
     .unwrap();

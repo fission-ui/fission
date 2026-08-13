@@ -6,12 +6,17 @@ mod convert;
 mod driver;
 mod error;
 mod host;
+mod profile;
 mod resources;
 
-pub(crate) use compiler::{compile_web_scene, compile_web_scene_with_resources};
+#[cfg(test)]
+pub(crate) use compiler::compile_web_scene;
+pub(crate) use compiler::compile_web_scene_with_resources;
 pub use driver::{CanvasKitBackendPreference, CanvasKitDriver};
 pub(crate) use error::WebCompileError;
-pub use host::CanvasKitHost;
+pub use fission_skia_sys::web::ResourceHandle;
+pub use host::{CanvasKitHost, CanvasKitParagraphHost, CanvasKitPixelRegion, CanvasKitReadback};
+pub use profile::{CanvasKitFont, CanvasKitProfile, CanvasKitProfileError};
 
 #[cfg(test)]
 mod driver_tests;

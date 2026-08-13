@@ -1,5 +1,7 @@
 use super::*;
 
+pub(super) const DEFAULT_FONT_FAMILY: &str = "Fission Default";
+
 pub type KeyHandler<S> = Arc<dyn Fn(&mut S, &fission_core::KeyCode, u8) -> bool + Send + Sync>;
 pub type FrameHook<S> = Arc<dyn Fn(&mut S) -> bool + Send + Sync>;
 
@@ -13,6 +15,7 @@ where
     pub(super) env: Env,
     pub(super) pipeline: Pipeline,
     pub(super) measurer: Arc<VelloTextMeasurer>,
+    pub(super) packaged_fonts: Vec<fission_theme::PackagedFont>,
     pub(super) sync_env: Option<Arc<dyn Fn(&S, &mut Env) + Send + Sync>>,
     pub(super) key_handler: Option<KeyHandler<S>>,
     pub(super) frame_hook: Option<FrameHook<S>>,
@@ -47,7 +50,6 @@ where
         let mut runtime = Runtime::default();
         runtime.add_global_state(Box::new(global_state)).unwrap();
 
-        const DEFAULT_FONT_FAMILY: &str = "Fission Default";
         let font_cx = Arc::new(Mutex::new(build_font_context()));
         {
             let mut font_cx = font_cx.lock().unwrap();
@@ -83,6 +85,14 @@ where
             env,
             pipeline: Pipeline::new(),
             measurer,
+            packaged_fonts: vec![fission_theme::PackagedFont {
+                family: DEFAULT_FONT_FAMILY,
+                weight: 400,
+                style: fission_theme::PackagedFontStyle::Normal,
+                format: "truetype",
+                data: fonts::default_font_bytes(),
+                axes: &[],
+            }],
             sync_env: None,
             key_handler: None,
             frame_hook: None,
@@ -165,14 +175,16 @@ where
         mode: fission_theme::DesignMode,
     ) -> Self {
         register_packaged_fonts(&self.measurer.font_cx(), D::font_faces());
+        self.packaged_fonts.extend_from_slice(D::font_faces());
         self.env.theme = D::theme(mode);
         self
     }
 
     /// Registers packaged application font faces with both text measurement
     /// and rendering before the first frame.
-    pub fn with_fonts(self, fonts: &'static [fission_theme::PackagedFont]) -> Self {
+    pub fn with_fonts(mut self, fonts: &'static [fission_theme::PackagedFont]) -> Self {
         register_packaged_fonts(&self.measurer.font_cx(), fonts);
+        self.packaged_fonts.extend_from_slice(fonts);
         self
     }
 

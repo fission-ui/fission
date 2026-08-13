@@ -384,6 +384,13 @@ function makeFontProvider(CanvasKit, request, resolveResource) {
   }
 }
 
+function fontProviderKey(request) {
+  const fonts = request.fonts.map((font) => (
+    `${font.handle.slot}:${font.handle.generation}:${JSON.stringify(font.family)}`
+  ));
+  return `${request.fontCatalogGeneration.toString()}|${fonts.join("|")}`;
+}
+
 function addTextRuns(CanvasKit, builder, request) {
   let inlineIndex = 0;
   for (const style of request.styles) {
@@ -975,6 +982,7 @@ function validHandle(handle) {
 export function createCanvasKitParagraphHost({ CanvasKit, resolveResource }) {
   requireCanvasKit(CanvasKit, resolveResource);
   const entries = new Map();
+  const fontProviders = new Map();
   const freeSlots = [];
   let nextSlot = 1;
 
@@ -1001,9 +1009,34 @@ export function createCanvasKitParagraphHost({ CanvasKit, resolveResource }) {
     return entry?.handle.generation === handle.generation ? entry : null;
   }
 
+  function retainFontProvider(request) {
+    const key = fontProviderKey(request);
+    const existing = fontProviders.get(key);
+    if (existing) {
+      existing.references += 1;
+      return { key, provider: existing.provider };
+    }
+    const created = makeFontProvider(CanvasKit, request, resolveResource);
+    fontProviders.set(key, {
+      provider: created.provider,
+      fontBytes: created.fontBytes,
+      references: 1,
+    });
+    return { key, provider: created.provider };
+  }
+
+  function releaseFontProvider(key) {
+    const entry = fontProviders.get(key);
+    if (!entry) return;
+    entry.references -= 1;
+    if (entry.references > 0) return;
+    fontProviders.delete(key);
+    safeDelete(entry.provider);
+  }
+
   function disposeEntry(entry) {
     safeDelete(entry.paragraph);
-    safeDelete(entry.fontProvider);
+    releaseFontProvider(entry.fontProviderKey);
   }
 
   function paint(handle, canvas, x, y, scaleFactor) {
@@ -1036,16 +1069,18 @@ export function createCanvasKitParagraphHost({ CanvasKit, resolveResource }) {
 
   function layout(packet) {
     const request = decodeParagraphRequest(packet);
-    let fontProvider = null;
+    let fontProviderLease = null;
     let builder = null;
     let paragraph = null;
     let retainedHandle = null;
     try {
-      const fonts = makeFontProvider(CanvasKit, request, resolveResource);
-      fontProvider = fonts.provider;
+      fontProviderLease = retainFontProvider(request);
       const direction = paragraphDirection(CanvasKit, request);
       const style = makeParagraphStyle(CanvasKit, request, direction);
-      builder = CanvasKit.ParagraphBuilder.MakeFromFontProvider(style, fontProvider);
+      builder = CanvasKit.ParagraphBuilder.MakeFromFontProvider(
+        style,
+        fontProviderLease.provider,
+      );
       if (!builder || typeof builder.build !== "function" || typeof builder.delete !== "function") {
         fail("layout-failure", "CanvasKit could not create a ParagraphBuilder");
       }
@@ -1060,17 +1095,19 @@ export function createCanvasKitParagraphHost({ CanvasKit, resolveResource }) {
       requireParagraphApi(paragraph);
       layoutParagraph(paragraph, request);
       const output = makeOutput(CanvasKit, paragraph, request, direction);
-      const retainedBytes = approximateBytes(request, output, fonts.fontBytes);
+      // Shared provider bytes belong to the executor resource table, so the
+      // paragraph registry charges only memory retained per paragraph.
+      const retainedBytes = approximateBytes(request, output, 0);
       retainedHandle = allocateHandle();
       const entry = {
         handle: retainedHandle,
         paragraph,
-        fontProvider,
+        fontProviderKey: fontProviderLease.key,
         approximateBytes: retainedBytes,
       };
       entries.set(retainedHandle.slot, entry);
       paragraph = null;
-      fontProvider = null;
+      fontProviderLease = null;
       return encodeParagraphResponse({
         handle: retainedHandle,
         approximateBytes: retainedBytes,
@@ -1087,7 +1124,7 @@ export function createCanvasKitParagraphHost({ CanvasKit, resolveResource }) {
       }
       safeDelete(paragraph);
       safeDelete(builder);
-      safeDelete(fontProvider);
+      if (fontProviderLease !== null) releaseFontProvider(fontProviderLease.key);
       if (
         error instanceof CanvasKitParagraphError ||
         error?.name === "ParagraphWireError"
@@ -1132,6 +1169,10 @@ export function createCanvasKitParagraphHost({ CanvasKit, resolveResource }) {
       releaseHandle(entry.handle);
     }
     entries.clear();
+    // Every live paragraph owns one provider reference. Be defensive if an
+    // Embind failure interrupted normal reference retirement.
+    for (const entry of fontProviders.values()) safeDelete(entry.provider);
+    fontProviders.clear();
   }
 
   return Object.freeze({ layout, resolve, prepare, destroy, clear });

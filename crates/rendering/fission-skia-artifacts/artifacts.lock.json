@@ -2,7 +2,7 @@
   "schema_version": 1,
   "fission_version": "0.10.1",
   "skia_revision": "cf5c36972b73698eb3939cda147ea47152670312",
-  "bridge_abi_version": 13,
+  "bridge_abi_version": 14,
   "provenance": {
     "repository": "fission-ui/fission",
     "predicate_type": "https://slsa.dev/provenance/v1"

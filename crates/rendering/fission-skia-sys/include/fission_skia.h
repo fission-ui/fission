@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-#define FISSION_SKIA_ABI_VERSION 13u
+#define FISSION_SKIA_ABI_VERSION 14u
 #define FISSION_SKIA_REVISION_LENGTH 41u
 #define FISSION_SKIA_PROFILE_LENGTH 32u
 #define FISSION_SKIA_ERROR_OPERATION_LENGTH 64u
@@ -31,6 +31,7 @@ typedef uint64_t fission_skia_engine_handle_t;
 typedef uint64_t fission_skia_context_handle_t;
 typedef uint64_t fission_skia_surface_handle_t;
 typedef uint64_t fission_skia_paragraph_result_handle_t;
+typedef uint64_t fission_skia_font_catalog_handle_t;
 typedef uint64_t fission_skia_image_handle_t;
 typedef uint64_t fission_skia_svg_document_handle_t;
 typedef uint64_t fission_skia_picture_handle_t;
@@ -444,8 +445,28 @@ typedef struct fission_skia_font_feature_t {
 
 typedef enum fission_skia_font_slant_t {
     FISSION_SKIA_FONT_SLANT_NORMAL = 0,
-    FISSION_SKIA_FONT_SLANT_ITALIC = 1
+    FISSION_SKIA_FONT_SLANT_ITALIC = 1,
+    FISSION_SKIA_FONT_SLANT_OBLIQUE = 2
 } fission_skia_font_slant_t;
+
+/*
+ * One immutable font face copied into a Fission-owned SkParagraph catalogue.
+ * Family, encoded bytes, and axis arrays are borrowed only for the synchronous
+ * catalogue-create call. weight and slant describe how Fission selects the
+ * face; variable-axis defaults are applied when Skia clones the typeface.
+ */
+typedef struct fission_skia_paragraph_font_face_t {
+    uint32_t struct_size;
+    uint32_t reserved;
+    fission_skia_utf8_slice_t family;
+    const uint8_t* data;
+    size_t data_length;
+    uint16_t weight;
+    uint16_t slant;
+    uint32_t reserved_scalar;
+    const fission_skia_font_variation_t* axes;
+    size_t axis_count;
+} fission_skia_paragraph_font_face_t;
 
 enum fission_skia_text_style_flags_t {
     FISSION_SKIA_TEXT_STYLE_UNDERLINE = 1u << 0,
@@ -833,6 +854,14 @@ FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_picture_destroy(
 
 FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_paragraph_capabilities(
     uint64_t* out_capabilities,
+    fission_skia_error_t* out_error);
+FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_paragraph_font_catalog_create(
+    const fission_skia_paragraph_font_face_t* faces,
+    size_t face_count,
+    fission_skia_font_catalog_handle_t* out_catalog,
+    fission_skia_error_t* out_error);
+FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_paragraph_font_catalog_destroy(
+    fission_skia_font_catalog_handle_t catalog,
     fission_skia_error_t* out_error);
 FISSION_SKIA_EXPORT fission_skia_status_t fission_skia_paragraph_layout(
     const fission_skia_paragraph_request_t* request,

@@ -1,10 +1,14 @@
+use fission_render::paragraph::ParagraphFrameBindings;
 use fission_render::resource::{ResourceId, ResourceSnapshot};
 use fission_render::{Color, RenderScene};
 use fission_skia_sys::web::ResourceHandle;
 
 use super::convert::web_command;
 use super::WebCompileError;
-use crate::compiler::{compile_scene, compile_scene_for_web, CompiledRasterFrame};
+#[cfg(test)]
+use crate::compiler::compile_scene;
+use crate::compiler::{compile_scene_for_web, CompiledRasterFrame};
+use crate::paragraph_engine::CanvasKitParagraphDrawDataRegistry;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct CompiledWebFrame {
@@ -20,6 +24,7 @@ pub(crate) struct CompiledWebFrame {
 /// adapter converts only its backend-neutral paint values; native Skia handles
 /// fail explicitly and will be replaced by Web resource handles in the Web
 /// resource compilation stage.
+#[cfg(test)]
 pub(crate) fn compile_web_scene(
     scene: &RenderScene,
     scale_factor: f64,
@@ -36,9 +41,18 @@ pub(crate) fn compile_web_scene_with_resources(
     scale_factor: f64,
     clear_color: Color,
     resources: &ResourceSnapshot,
+    paragraph_bindings: Option<&ParagraphFrameBindings>,
+    paragraph_draw_data: Option<&CanvasKitParagraphDrawDataRegistry>,
     resolve_resource: &dyn Fn(ResourceId) -> Option<ResourceHandle>,
 ) -> Result<CompiledWebFrame, WebCompileError> {
-    let compiled = compile_scene_for_web(scene, scale_factor, clear_color, resources)?;
+    let compiled = compile_scene_for_web(
+        scene,
+        scale_factor,
+        clear_color,
+        resources,
+        paragraph_bindings,
+        paragraph_draw_data,
+    )?;
     encode_web_frame(compiled, resolve_resource)
 }
 

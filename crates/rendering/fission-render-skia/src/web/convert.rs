@@ -88,6 +88,15 @@ pub(super) fn web_command(
         RasterCommand::DrawParagraph { .. } => {
             return Err(WebCompileError::NativeResource("paragraph"))
         }
+        RasterCommand::DrawParagraphResource {
+            paragraph,
+            origin,
+            scale_factor,
+        } => WebCommand::DrawParagraph {
+            paragraph: *paragraph,
+            origin: point(*origin),
+            scale_factor: *scale_factor,
+        },
         RasterCommand::DrawImage { .. } => return Err(WebCompileError::NativeResource("image")),
         RasterCommand::DrawImageResource {
             resource_id,

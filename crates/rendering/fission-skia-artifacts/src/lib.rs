@@ -24,7 +24,7 @@ static TEMPORARY_ID: AtomicU64 = AtomicU64::new(0);
 /// Exact Skia source revision selected by this Fission release.
 pub const SKIA_REVISION: &str = "cf5c36972b73698eb3939cda147ea47152670312";
 /// Exact native bridge ABI selected by this Fission release.
-pub const BRIDGE_ABI_VERSION: u32 = 13;
+pub const BRIDGE_ABI_VERSION: u32 = 14;
 /// CanvasKit wire protocol consumed by this Fission release.
 pub const CANVASKIT_PROTOCOL_VERSION: u32 = 1;
 /// Production CanvasKit artifact profile served by interactive Web apps.
@@ -1179,12 +1179,12 @@ mod tests {
             let mut tar = tar::Builder::new(gzip);
             append(
                 &mut tar,
-                "fission-skia-0.10.1-abi13-native-raster-x86_64-unknown-linux-gnu/manifest.json",
+                "fission-skia-0.10.1-abi14-native-raster-x86_64-unknown-linux-gnu/manifest.json",
                 &manifest_bytes,
             );
             append(
                 &mut tar,
-                "fission-skia-0.10.1-abi13-native-raster-x86_64-unknown-linux-gnu/lib/libskia.a",
+                "fission-skia-0.10.1-abi14-native-raster-x86_64-unknown-linux-gnu/lib/libskia.a",
                 payload,
             );
             tar.into_inner().unwrap().finish().unwrap();
@@ -1201,7 +1201,7 @@ mod tests {
                 },
                 "artifacts": [{
                     "kind": "native",
-                    "artifact_id": "fission-skia-0.10.1-abi13-native-raster-x86_64-unknown-linux-gnu",
+                    "artifact_id": "fission-skia-0.10.1-abi14-native-raster-x86_64-unknown-linux-gnu",
                     "target": TARGET,
                     "profile": PROFILE,
                     "qualified": true,
@@ -1224,7 +1224,7 @@ mod tests {
         fn valid() -> Self {
             Self::new(serde_json::json!({
                 "schema_version": 1,
-                "artifact_id": "fission-skia-0.10.1-abi13-native-raster-x86_64-unknown-linux-gnu",
+                "artifact_id": "fission-skia-0.10.1-abi14-native-raster-x86_64-unknown-linux-gnu",
                 "qualified": true,
                 "fission_version": VERSION,
                 "skia": { "revision": REVISION },
@@ -1269,7 +1269,7 @@ mod tests {
         const WEB_PROFILE: &str = "canvaskit-production";
         const WEB_TARGET: &str = "wasm32-unknown-unknown";
         const WEB_ID: &str =
-            "fission-canvaskit-0.10.1-wasm32-unknown-unknown-canvaskit-production-abi13-wire1";
+            "fission-canvaskit-0.10.1-wasm32-unknown-unknown-canvaskit-production-abi14-wire1";
         const WEB_ASSETS: &[(&str, &str)] = &[
             ("canvaskit_js", "web/canvaskit.js"),
             ("canvaskit_wasm", "web/canvaskit.wasm"),
@@ -1461,7 +1461,7 @@ mod tests {
     fn rejects_manifest_target_before_publishing_the_cache() {
         let mut manifest = serde_json::json!({
             "schema_version": 1,
-            "artifact_id": "fission-skia-0.10.1-abi13-native-raster-x86_64-unknown-linux-gnu",
+            "artifact_id": "fission-skia-0.10.1-abi14-native-raster-x86_64-unknown-linux-gnu",
             "qualified": true,
             "fission_version": VERSION,
             "skia": { "revision": REVISION },

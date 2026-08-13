@@ -13,8 +13,8 @@ use super::output::{
 };
 use super::request::{PackedParagraphRequest, PackedRange};
 use super::{
-    BatchedParagraphApi, BatchedParagraphError, BatchedParagraphLayout, SkiaParagraphEngine,
-    COMPLETE_PARAGRAPH_CAPABILITIES,
+    BatchedParagraphApi, BatchedParagraphError, BatchedParagraphLayout, NativeFontCatalog,
+    SkiaParagraphEngine, COMPLETE_PARAGRAPH_CAPABILITIES,
 };
 
 struct MockApi {
@@ -423,6 +423,33 @@ fn cache_key_tracks_font_catalog_generation() {
     assert_ne!(
         engine.layout(&first).unwrap().cache_key(),
         engine.layout(&second).unwrap().cache_key()
+    );
+}
+
+#[test]
+#[cfg(feature = "test-shim")]
+fn native_font_catalog_overrides_generation_and_appends_default_fallback() {
+    let catalog = Arc::new(
+        fission_skia_sys::ParagraphFontCatalog::new(&[fission_skia_sys::ParagraphFontFace::new(
+            "Fission Default",
+            vec![1, 2, 3],
+        )])
+        .expect("test-shim font catalogue"),
+    );
+    let state = NativeFontCatalog::new(catalog, Arc::from("Fission Default"));
+    let mut request = PackedParagraphRequest::from_description(&description("a")).unwrap();
+    request.font_catalog_generation = u64::MAX;
+
+    state.apply_to(&mut request);
+
+    assert_eq!(request.font_catalog_generation, state.generation());
+    assert_eq!(
+        request
+            .fallback_families
+            .iter()
+            .map(|family| family.as_ref())
+            .collect::<Vec<_>>(),
+        ["Fission Default"]
     );
 }
 

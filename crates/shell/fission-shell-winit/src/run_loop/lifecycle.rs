@@ -217,5 +217,13 @@ where
         {
             eprintln!("fission-shell-winit: renderer memory trim failed: {error}");
         }
+        #[cfg(target_arch = "wasm32")]
+        if let Some(renderer) = self.web_renderer.as_mut() {
+            if let Err(error) =
+                renderer.trim_memory(fission_render::surface::MemoryPressure::Critical)
+            {
+                eprintln!("fission-shell-winit: web renderer memory trim failed: {error}");
+            }
+        }
     }
 }

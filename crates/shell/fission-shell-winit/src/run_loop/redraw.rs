@@ -132,6 +132,9 @@ where
             if let Some(result) = completed_initialization {
                 match result {
                     Ok(presenter) => {
+                        self.activate_web_paragraph_store(Arc::new(ParagraphResultStore::new(
+                            self.measurer.clone(),
+                        )));
                         self.web_renderer = Some(WebRenderer::WebGpu(presenter));
                     }
                     Err(error) => {
@@ -156,7 +159,7 @@ where
                 );
                 diag::end_frame(diag::FrameStats::default());
                 return;
-            } else if matches!(request, RendererRequest::CanvasKitSoftware) {
+            } else if request.uses_canvaskit() {
                 match WebCanvasKitPresenter::new(
                     window,
                     request,
@@ -164,13 +167,15 @@ where
                     render_target_size.0,
                     render_target_size.1,
                     scale_factor,
+                    &self.packaged_fonts,
                 ) {
                     Ok(presenter) => {
+                        self.activate_web_paragraph_store(presenter.paragraph_store());
                         self.web_renderer = Some(WebRenderer::CanvasKit(presenter));
                     }
                     Err(err) => {
                         eprintln!(
-                            "fission-shell-winit: CanvasKit software renderer initialization failed: {err}"
+                            "fission-shell-winit: CanvasKit renderer initialization failed: {err}"
                         );
                         elwt.exit();
                         diag::end_frame(diag::FrameStats::default());
@@ -187,13 +192,15 @@ where
                             render_target_size.0,
                             render_target_size.1,
                             scale_factor,
+                            &self.packaged_fonts,
                         ) {
                             Ok(presenter) => {
+                                self.activate_web_paragraph_store(presenter.paragraph_store());
                                 self.web_renderer = Some(WebRenderer::CanvasKit(presenter));
                             }
                             Err(error) => {
                                 eprintln!(
-                                    "fission-shell-winit: automatic CanvasKit software fallback initialization failed: {error}"
+                                    "fission-shell-winit: automatic CanvasKit fallback initialization failed: {error}"
                                 );
                                 elwt.exit();
                                 diag::end_frame(diag::FrameStats::default());
@@ -737,6 +744,7 @@ where
                         return;
                     };
                     let active_renderer = renderer.active_name().to_string();
+                    let mut canvaskit_capture = None;
                     match renderer {
                         WebRenderer::CanvasKit(presenter) => {
                             let retained_scene = self
@@ -765,13 +773,24 @@ where
                                 b: self.env.theme.tokens.colors.background.b,
                                 a: self.env.theme.tokens.colors.background.a,
                             });
-                            match presenter.render_and_present(&frame) {
-                                Ok(CanvasKitFrameOutcome::Presented) => {}
+                            let capture_ready = !self.pending_capture_settle || resize_settled;
+                            let capture_requested = capture_ready
+                                && self
+                                    .pending_screenshot_path
+                                    .as_deref()
+                                    .is_some_and(|path| path != "__pump__");
+                            match presenter.render_and_present(&frame, capture_requested) {
+                                Ok(CanvasKitFrameOutcome::Presented(capture)) => {
+                                    canvaskit_capture = Some(capture);
+                                }
                                 Ok(CanvasKitFrameOutcome::SurfaceRecovered(recovery)) => {
                                     eprintln!(
-                                        "fission-shell-winit: CanvasKit software surface recovered as {recovery:?}; retrying frame {}",
+                                        "fission-shell-winit: CanvasKit surface recovered as {recovery:?}; retrying frame {}",
                                         submission.metadata().frame_id.0,
                                     );
+                                    self.paragraph_store.clear();
+                                    self.pipeline.invalidate_layout_all();
+                                    self.invalidations.mark_layout();
                                     request_redraw_logged(
                                         &window,
                                         elwt,
@@ -786,7 +805,7 @@ where
                                 }
                                 Err(error) => {
                                     eprintln!(
-                                        "fission-shell-winit: CanvasKit software frame {} failed: {error}",
+                                        "fission-shell-winit: CanvasKit frame {} failed: {error}",
                                         submission.metadata().frame_id.0,
                                     );
                                     diag::end_frame(diag::FrameStats::default());
@@ -998,8 +1017,49 @@ where
                     let capture_ready = !self.pending_capture_settle || resize_settled;
                     if capture_ready {
                         self.pending_capture_settle = false;
-                        let _ = self.pending_screenshot_path.take();
-                        let _ = self.pending_screenshot_response_tx.take();
+                        if let Some(path) = self.pending_screenshot_path.take() {
+                            if let Some(tx) = self.pending_screenshot_response_tx.take() {
+                                let response = if path == "__pump__" {
+                                    fission_test_driver::TestResponse::Ok {}
+                                } else {
+                                    match canvaskit_capture {
+                                        Some(CanvasKitCapture::Pixels(rgba)) => {
+                                            let output = layout_size_to_image_dimensions(
+                                                target_viewport,
+                                            );
+                                            rgba_screenshot(
+                                                rgba,
+                                                render_target_size.0,
+                                                render_target_size.1,
+                                                output.0,
+                                                output.1,
+                                                (path != "__capture__")
+                                                    .then_some(path.as_str()),
+                                            )
+                                        }
+                                        Some(CanvasKitCapture::Failed(error)) => {
+                                            fission_test_driver::TestResponse::Error {
+                                                message: format!(
+                                                    "CanvasKit screenshot failed: {error}"
+                                                ),
+                                            }
+                                        }
+                                        Some(CanvasKitCapture::NotRequested) => {
+                                            fission_test_driver::TestResponse::Error {
+                                                message: "CanvasKit screenshot was not captured"
+                                                    .into(),
+                                            }
+                                        }
+                                        None => fission_test_driver::TestResponse::Error {
+                                            message: format!(
+                                                "{active_renderer} does not expose Web screenshot readback"
+                                            ),
+                                        },
+                                    }
+                                };
+                                let _ = tx.send(response);
+                            }
+                        }
                     }
 
                     self.pending_resize = None;
@@ -1591,6 +1651,16 @@ where
         // invalidation flags alone do not make Pipeline recompute layout.
         self.pipeline.invalidate_layout_all();
         self.retained_scene_cache.clear();
+        self.invalidations.mark_layout();
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn activate_web_paragraph_store(&mut self, paragraph_store: Arc<ParagraphResultStore>) {
+        self.layout_engine
+            .set_paragraph_store(paragraph_store.clone());
+        self.runtime.set_paragraph_store(paragraph_store.clone());
+        self.paragraph_store = paragraph_store;
+        self.pipeline.invalidate_layout_all();
         self.invalidations.mark_layout();
     }
 

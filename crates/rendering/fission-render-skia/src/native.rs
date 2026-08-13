@@ -202,6 +202,14 @@ fn native_command(command: &RasterCommand) -> Result<FrameOp, ApiError> {
             origin: native_point(*origin),
             scale_factor: *scale_factor,
         },
+        RasterCommand::DrawParagraphResource { .. } => {
+            return Err(ApiError::new(
+                ApiErrorKind::Unsupported,
+                "web-paragraph-resource-on-native",
+                "native_frame",
+                "a browser-owned paragraph resource escaped into native Skia execution",
+            ))
+        }
         RasterCommand::DrawImage {
             image,
             source,

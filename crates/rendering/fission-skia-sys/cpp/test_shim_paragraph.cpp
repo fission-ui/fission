@@ -12,6 +12,7 @@
 #include <memory>
 #include <mutex>
 #include <new>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -43,6 +44,9 @@ constexpr uint32_t kStyleFlags =
     FISSION_SKIA_TEXT_STYLE_UNDERLINE |
     FISSION_SKIA_TEXT_STYLE_HAS_LINE_HEIGHT |
     FISSION_SKIA_TEXT_STYLE_HAS_BACKGROUND;
+constexpr size_t kMaxFontCatalogFaces = 4096;
+constexpr size_t kMaxFontCatalogBytes = 512 * 1024 * 1024;
+constexpr size_t kMaxFontFaceAxes = 256;
 
 struct Scalar {
     uint32_t value;
@@ -71,12 +75,19 @@ struct Result {
     std::vector<fission_skia_paragraph_inline_box_t> inline_boxes;
     std::vector<fission_skia_unresolved_glyph_t> unresolved;
     std::vector<uint32_t> codepoints;
+    uint64_t font_catalog_generation = 0;
+};
+
+struct FontCatalog {
+    std::vector<std::string> families;
 };
 
 struct State {
     std::mutex mutex;
     std::unordered_map<uint64_t, std::unique_ptr<Result>> results;
+    std::unordered_map<uint64_t, FontCatalog> font_catalogs;
     std::atomic<uint64_t> next{1};
+    std::atomic<uint64_t> next_font_catalog{1};
     std::atomic<uint64_t> errors{1};
 };
 
@@ -203,8 +214,26 @@ fission_skia_status_t validate(
                     "invalid test paragraph request layout or UTF-8", error);
     }
     if (request->font_catalog_generation != 0) {
-        return fail(FISSION_SKIA_STATUS_UNSUPPORTED, "paragraph_layout",
-                    "test shim rejects nonzero font catalog generations", error);
+        std::lock_guard<std::mutex> lock(state().mutex);
+        const auto catalog = state().font_catalogs.find(request->font_catalog_generation);
+        if (catalog == state().font_catalogs.end()) {
+            return fail(FISSION_SKIA_STATUS_INVALID_HANDLE, "paragraph_layout",
+                        "test paragraph font catalogue is not live", error);
+        }
+        const auto known_family = [&](const fission_skia_utf8_slice_t& family) {
+            if (family.length == 0) return true;
+            const std::string value(
+                reinterpret_cast<const char*>(family.data), family.length);
+            return std::find(catalog->second.families.begin(),
+                             catalog->second.families.end(), value) !=
+                   catalog->second.families.end();
+        };
+        for (size_t index = 0; index < request->style_run_count; ++index) {
+            if (!known_family(request->style_runs[index].font_family)) {
+                return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "paragraph_layout",
+                            "test paragraph requests an unowned font family", error);
+            }
+        }
     }
     const auto& paragraph = request->paragraph_style;
     if (paragraph.struct_size != sizeof(paragraph) || paragraph.reserved != 0 ||
@@ -538,6 +567,78 @@ fission_skia_status_t fission_skia_paragraph_capabilities(
     return FISSION_SKIA_STATUS_OK;
 }
 
+fission_skia_status_t fission_skia_paragraph_font_catalog_create(
+    const fission_skia_paragraph_font_face_t* faces,
+    size_t face_count,
+    fission_skia_font_catalog_handle_t* out_catalog,
+    fission_skia_error_t* out_error) {
+    if (out_catalog == nullptr) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT,
+                    "paragraph_font_catalog_create",
+                    "null test font catalogue output", out_error);
+    }
+    *out_catalog = 0;
+    if (faces == nullptr || face_count == 0 || face_count > kMaxFontCatalogFaces) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT,
+                    "paragraph_font_catalog_create",
+                    "invalid test font catalogue face array", out_error);
+    }
+    size_t total_bytes = 0;
+    FontCatalog catalog;
+    for (size_t index = 0; index < face_count; ++index) {
+        const auto& face = faces[index];
+        if (face.struct_size != sizeof(face) || face.reserved != 0 ||
+            face.reserved_scalar != 0 || !valid_string(face.family, false) ||
+            face.data == nullptr || face.data_length == 0 ||
+            face.data_length > kMaxFontCatalogBytes - total_bytes ||
+            face.weight == 0 || face.weight > 1000 ||
+            face.slant > FISSION_SKIA_FONT_SLANT_OBLIQUE ||
+            !pointer_count(face.axes, face.axis_count) ||
+            face.axis_count > kMaxFontFaceAxes) {
+            return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT,
+                        "paragraph_font_catalog_create",
+                        "invalid test font face", out_error);
+        }
+        total_bytes += face.data_length;
+        catalog.families.emplace_back(
+            reinterpret_cast<const char*>(face.family.data), face.family.length);
+        std::unordered_set<uint32_t> tags;
+        for (size_t axis = 0; axis < face.axis_count; ++axis) {
+            if (!std::isfinite(face.axes[axis].value) ||
+                !tags.insert(face.axes[axis].tag).second) {
+                return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT,
+                            "paragraph_font_catalog_create",
+                            "invalid test font face axes", out_error);
+            }
+        }
+    }
+    uint64_t handle = 0;
+    {
+        std::lock_guard<std::mutex> lock(state().mutex);
+        do {
+            handle = state().next_font_catalog.fetch_add(1, std::memory_order_relaxed);
+        } while (handle == 0 || state().font_catalogs.find(handle) !=
+                                    state().font_catalogs.end());
+        state().font_catalogs.emplace(handle, std::move(catalog));
+    }
+    *out_catalog = handle;
+    clear_error(out_error);
+    return FISSION_SKIA_STATUS_OK;
+}
+
+fission_skia_status_t fission_skia_paragraph_font_catalog_destroy(
+    fission_skia_font_catalog_handle_t catalog,
+    fission_skia_error_t* out_error) {
+    std::lock_guard<std::mutex> lock(state().mutex);
+    if (state().font_catalogs.erase(catalog) != 1) {
+        return fail(FISSION_SKIA_STATUS_INVALID_HANDLE,
+                    "paragraph_font_catalog_destroy",
+                    "invalid test font catalogue", out_error);
+    }
+    clear_error(out_error);
+    return FISSION_SKIA_STATUS_OK;
+}
+
 fission_skia_status_t fission_skia_paragraph_layout(
     const fission_skia_paragraph_request_t* request,
     fission_skia_paragraph_result_handle_t* out_result,
@@ -555,6 +656,7 @@ fission_skia_status_t fission_skia_paragraph_layout(
         return fail(FISSION_SKIA_STATUS_OUT_OF_MEMORY, "paragraph_layout",
                     "test result allocation failed", out_error);
     }
+    result->font_catalog_generation = request->font_catalog_generation;
     uint64_t handle = 0;
     {
         std::lock_guard<std::mutex> lock(state().mutex);

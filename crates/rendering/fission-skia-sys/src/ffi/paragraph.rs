@@ -5,6 +5,7 @@ use std::ffi::c_uchar;
 use super::{Error, Status};
 
 pub type ParagraphResultHandle = u64;
+pub type FontCatalogHandle = u64;
 
 pub const PARAGRAPH_BIDIRECTIONAL_TEXT: u64 = 1 << 0;
 pub const PARAGRAPH_VARIABLE_FONTS: u64 = 1 << 1;
@@ -30,6 +31,7 @@ pub const INDEX_UTF16: u32 = 1;
 
 pub const FONT_SLANT_NORMAL: u16 = 0;
 pub const FONT_SLANT_ITALIC: u16 = 1;
+pub const FONT_SLANT_OBLIQUE: u16 = 2;
 
 pub const TEXT_STYLE_UNDERLINE: u32 = 1 << 0;
 pub const TEXT_STYLE_HAS_LINE_HEIGHT: u32 = 1 << 1;
@@ -104,6 +106,21 @@ pub struct FontVariation {
 pub struct FontFeature {
     pub tag: u32,
     pub value: u32,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct ParagraphFontFace {
+    pub struct_size: u32,
+    pub reserved: u32,
+    pub family: Utf8Slice,
+    pub data: *const c_uchar,
+    pub data_length: usize,
+    pub weight: u16,
+    pub slant: u16,
+    pub reserved_scalar: u32,
+    pub axes: *const FontVariation,
+    pub axis_count: usize,
 }
 
 #[repr(C)]
@@ -326,6 +343,16 @@ impl Default for ParagraphResultView {
 extern "C" {
     pub fn fission_skia_paragraph_capabilities(
         out_capabilities: *mut u64,
+        out_error: *mut Error,
+    ) -> Status;
+    pub fn fission_skia_paragraph_font_catalog_create(
+        faces: *const ParagraphFontFace,
+        face_count: usize,
+        out_catalog: *mut FontCatalogHandle,
+        out_error: *mut Error,
+    ) -> Status;
+    pub fn fission_skia_paragraph_font_catalog_destroy(
+        catalog: FontCatalogHandle,
         out_error: *mut Error,
     ) -> Status;
     pub fn fission_skia_paragraph_layout(

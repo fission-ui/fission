@@ -117,7 +117,7 @@ The render pipeline (`Pipeline`) manages incremental updates:
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `FISSION_MAX_FPS` | `60` | Maximum frame rate (throttled via `WaitUntil`). |
-| `FISSION_RENDERER` | `auto` | Select the renderer. Native targets accept `auto`, `native-vello-gpu`, `native-vello-cpu`, `native-skia-raster`, or the compatibility spelling `native-software`, which now selects Skia raster. Web accepts `auto`, `webgpu-vello`, or `web-canvaskit-software` via `globalThis.FISSION_RENDERER` or the `?fission_renderer=` query parameter; `canvas2d-software` remains a compatibility spelling for CanvasKit software raster. |
+| `FISSION_RENDERER` | `auto` | Select the renderer. Native targets accept `auto`, `native-vello-gpu`, `native-vello-cpu`, `native-skia-raster`, or the compatibility spelling `native-software`, which now selects Skia raster. Web accepts `auto`, `webgpu-vello`, `web-canvaskit` (WebGL with software fallback), `web-canvaskit-webgl` (strict WebGL), or `web-canvaskit-software` via `globalThis.FISSION_RENDERER` or `?fission_renderer=`; `canvas2d-software` remains a compatibility spelling for CanvasKit software raster. |
 | `FISSION_VELLO_USE_CPU` | `false` | Native compatibility escape hatch that asks Vello to use its CPU mode while still presenting through the GPU surface. |
 | `FISSION_TEXTINPUT_BLINK` | `true` | Enable/disable cursor blinking in text inputs. |
 | `FISSION_TEXTINPUT_BLINK_MS` | `530` | Cursor blink period in milliseconds. |

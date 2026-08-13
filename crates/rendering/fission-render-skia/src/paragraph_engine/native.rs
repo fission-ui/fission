@@ -66,7 +66,7 @@ impl BatchedParagraphApi for NativeParagraphApi {
     }
 }
 
-fn map_capabilities(bits: u64) -> Result<ParagraphCapabilities, BatchedParagraphError> {
+pub(super) fn map_capabilities(bits: u64) -> Result<ParagraphCapabilities, BatchedParagraphError> {
     let mappings = [
         (
             sys::ParagraphCapabilities::BIDIRECTIONAL_TEXT,
@@ -128,7 +128,7 @@ fn map_capabilities(bits: u64) -> Result<ParagraphCapabilities, BatchedParagraph
     ))
 }
 
-fn native_request(
+pub(super) fn native_request(
     request: PackedParagraphRequest,
 ) -> Result<sys::ParagraphRequest, BatchedParagraphError> {
     let PackedParagraphRequest {
@@ -335,7 +335,7 @@ fn native_feature(value: PackedFontFeature) -> sys::ParagraphFontFeature {
     }
 }
 
-fn packed_output(
+pub(super) fn packed_output(
     output: sys::ParagraphOutput,
 ) -> Result<PackedParagraphOutput, BatchedParagraphError> {
     Ok(PackedParagraphOutput {

@@ -8,6 +8,8 @@ pub(crate) enum RendererRequest {
     Skia,
     Software,
     WebGpuVello,
+    CanvasKitAuto,
+    CanvasKitWebGl,
     CanvasKitSoftware,
     NativeVelloGpu,
     NativeVelloCpu,
@@ -35,6 +37,8 @@ impl RendererRequest {
             Self::Skia => "skia",
             Self::Software => "software",
             Self::WebGpuVello => "webgpu-vello",
+            Self::CanvasKitAuto => "web-canvaskit-auto",
+            Self::CanvasKitWebGl => "web-canvaskit-webgl",
             Self::CanvasKitSoftware => "web-canvaskit-software",
             Self::NativeVelloGpu => "native-vello-gpu",
             Self::NativeVelloCpu => "native-vello-cpu",
@@ -48,7 +52,11 @@ impl RendererRequest {
     pub(crate) fn is_explicit_gpu(self) -> bool {
         matches!(
             self,
-            Self::Vello | Self::WebGpuVello | Self::NativeVelloGpu | Self::NativeSkiaGanesh
+            Self::Vello
+                | Self::WebGpuVello
+                | Self::CanvasKitWebGl
+                | Self::NativeVelloGpu
+                | Self::NativeSkiaGanesh
         )
     }
 
@@ -59,6 +67,13 @@ impl RendererRequest {
         matches!(self, Self::NativeSkiaRaster | Self::NativeSoftware)
     }
 
+    pub(crate) const fn uses_canvaskit(self) -> bool {
+        matches!(
+            self,
+            Self::CanvasKitAuto | Self::CanvasKitWebGl | Self::CanvasKitSoftware
+        )
+    }
+
     pub(crate) fn for_target(self, target: RendererTarget) -> Result<Self, RendererSelectionError> {
         match (target, self) {
             (_, Self::Auto) => Ok(Self::Auto),
@@ -66,7 +81,8 @@ impl RendererRequest {
             (RendererTarget::Native, Self::Skia) => Ok(Self::NativeSkiaRaster),
             (RendererTarget::Native, Self::Software) => Ok(Self::NativeSoftware),
             (RendererTarget::Web, Self::Vello) => Ok(Self::WebGpuVello),
-            (RendererTarget::Web, Self::Skia | Self::Software) => Ok(Self::CanvasKitSoftware),
+            (RendererTarget::Web, Self::Skia) => Ok(Self::CanvasKitAuto),
+            (RendererTarget::Web, Self::Software) => Ok(Self::CanvasKitSoftware),
             (
                 RendererTarget::Native,
                 Self::NativeVelloGpu
@@ -75,7 +91,13 @@ impl RendererRequest {
                 | Self::NativeSkiaGanesh
                 | Self::NativeSoftware,
             )
-            | (RendererTarget::Web, Self::WebGpuVello | Self::CanvasKitSoftware) => Ok(self),
+            | (
+                RendererTarget::Web,
+                Self::WebGpuVello
+                | Self::CanvasKitAuto
+                | Self::CanvasKitWebGl
+                | Self::CanvasKitSoftware,
+            ) => Ok(self),
             _ => Err(RendererSelectionError {
                 request: self,
                 target,
@@ -95,7 +117,7 @@ impl std::fmt::Display for RendererSelectionError {
         if self.request == RendererRequest::Invalid {
             return write!(
                 formatter,
-                "unsupported FISSION_RENDERER value; expected auto, vello, skia, skia-ganesh, software, webgpu-vello, web-canvaskit-software, canvas2d-software, native-vello-gpu, native-vello-cpu, native-skia-raster, native-skia-ganesh, or native-software"
+                "unsupported FISSION_RENDERER value; expected auto, vello, skia, skia-ganesh, software, webgpu-vello, web-canvaskit, web-canvaskit-webgl, web-canvaskit-software, canvas2d-software, native-vello-gpu, native-vello-cpu, native-skia-raster, native-skia-ganesh, or native-software"
             );
         }
         write!(
@@ -164,11 +186,12 @@ pub(crate) fn renderer_request_from_value(value: Option<&str>) -> RendererReques
     match value.trim().to_ascii_lowercase().as_str() {
         "auto" => RendererRequest::Auto,
         "webgpu" | "webgpu-vello" => RendererRequest::WebGpuVello,
+        "canvaskit" | "web-canvaskit" | "web-canvaskit-auto" => RendererRequest::CanvasKitAuto,
+        "canvaskit-webgl" | "web-canvaskit-webgl" | "skia-webgl" => RendererRequest::CanvasKitWebGl,
         "canvas"
         | "canvas2d"
         | "canvas2d-software"
         | "software-canvas"
-        | "canvaskit"
         | "canvaskit-software"
         | "web-canvaskit-software" => RendererRequest::CanvasKitSoftware,
         "vello" | "vello-gpu" | "gpu" => RendererRequest::Vello,
@@ -290,7 +313,11 @@ mod tests {
         );
         assert_eq!(
             renderer_request_from_value(Some("canvaskit")),
-            RendererRequest::CanvasKitSoftware
+            RendererRequest::CanvasKitAuto
+        );
+        assert_eq!(
+            renderer_request_from_value(Some("web-canvaskit-webgl")),
+            RendererRequest::CanvasKitWebGl
         );
         assert_eq!(
             RendererRequest::CanvasKitSoftware.as_str(),
@@ -365,6 +392,15 @@ mod tests {
             }
         );
         assert_eq!(
+            RendererRequest::CanvasKitAuto
+                .for_target(RendererTarget::Native)
+                .unwrap_err(),
+            RendererSelectionError {
+                request: RendererRequest::CanvasKitAuto,
+                target: RendererTarget::Native,
+            }
+        );
+        assert_eq!(
             RendererRequest::NativeSoftware
                 .for_target(RendererTarget::Web)
                 .unwrap_err(),
@@ -413,7 +449,7 @@ mod tests {
             RendererRequest::Skia
                 .for_target(RendererTarget::Web)
                 .unwrap(),
-            RendererRequest::CanvasKitSoftware
+            RendererRequest::CanvasKitAuto
         );
         assert_eq!(
             RendererRequest::Auto
@@ -431,7 +467,7 @@ mod tests {
 
         assert_eq!(
             error.to_string(),
-            "unsupported FISSION_RENDERER value; expected auto, vello, skia, skia-ganesh, software, webgpu-vello, web-canvaskit-software, canvas2d-software, native-vello-gpu, native-vello-cpu, native-skia-raster, native-skia-ganesh, or native-software"
+            "unsupported FISSION_RENDERER value; expected auto, vello, skia, skia-ganesh, software, webgpu-vello, web-canvaskit, web-canvaskit-webgl, web-canvaskit-software, canvas2d-software, native-vello-gpu, native-vello-cpu, native-skia-raster, native-skia-ganesh, or native-software"
         );
     }
 }

@@ -299,8 +299,8 @@ mod tests {
     #[test]
     fn native_artifact_identity_binds_every_selection_input() {
         assert_eq!(
-            artifact_id("0.10.1", 13, "native-raster", "x86_64-unknown-linux-gnu"),
-            "fission-skia-0.10.1-abi13-native-raster-x86_64-unknown-linux-gnu"
+            artifact_id("0.10.1", 14, "native-raster", "x86_64-unknown-linux-gnu"),
+            "fission-skia-0.10.1-abi14-native-raster-x86_64-unknown-linux-gnu"
         );
     }
 

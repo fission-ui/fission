@@ -28,7 +28,7 @@ use fission_skia_sys::web::{
 };
 
 use super::driver::{damage_rects, CanvasKitBackendPreference, CanvasKitDriver};
-use super::host::CanvasKitHost;
+use super::host::{CanvasKitHost, CanvasKitPixelRegion, CanvasKitReadback};
 use super::resources::ResourceMap;
 
 #[derive(Debug)]
@@ -87,6 +87,10 @@ struct MockState {
     response_session: Option<SessionId>,
     response_sequence: u64,
     lifecycle_events: VecDeque<Vec<u8>>,
+    readback: Option<CanvasKitReadback>,
+    readback_regions: Vec<CanvasKitPixelRegion>,
+    memory_pressure_supported: bool,
+    memory_pressure_requests: Vec<MemoryPressure>,
 }
 
 #[derive(Clone, Default)]
@@ -103,6 +107,20 @@ impl MockControl {
 
     fn requests(&self) -> Vec<Message> {
         self.0.borrow().requests.clone()
+    }
+
+    fn enable_host_services(&self, readback: CanvasKitReadback) {
+        let mut state = self.0.borrow_mut();
+        state.readback = Some(readback);
+        state.memory_pressure_supported = true;
+    }
+
+    fn readback_regions(&self) -> Vec<CanvasKitPixelRegion> {
+        self.0.borrow().readback_regions.clone()
+    }
+
+    fn memory_pressure_requests(&self) -> Vec<MemoryPressure> {
+        self.0.borrow().memory_pressure_requests.clone()
     }
 
     fn context_lost(&self) {
@@ -201,6 +219,25 @@ impl CanvasKitHost for MockHost {
             response_packet,
         ))
         .map_err(|_| MockHostError("response encoding failed"))
+    }
+
+    fn supports_readback(&self) -> bool {
+        self.0.borrow().readback.is_some()
+    }
+
+    fn read_pixels_rgba8888(
+        &mut self,
+        region: CanvasKitPixelRegion,
+    ) -> Result<Option<CanvasKitReadback>, Self::Error> {
+        let mut state = self.0.borrow_mut();
+        state.readback_regions.push(region);
+        Ok(state.readback.clone())
+    }
+
+    fn trim_memory(&mut self, pressure: MemoryPressure) -> Result<bool, Self::Error> {
+        let mut state = self.0.borrow_mut();
+        state.memory_pressure_requests.push(pressure);
+        Ok(state.memory_pressure_supported)
     }
 
     fn poll_lifecycle_event(&mut self) -> Result<Option<Vec<u8>>, Self::Error> {
@@ -749,6 +786,65 @@ fn malformed_or_mismatched_responses_poison_the_session() {
 }
 
 #[test]
+fn host_readback_and_memory_pressure_follow_the_backend_contract() {
+    let control = MockControl::default();
+    control.enable_host_services(CanvasKitReadback {
+        size: PhysicalSize::new(4, 2),
+        row_bytes: 16,
+        pixels: vec![7; 32],
+    });
+    let driver = CanvasKitDriver::new(control.host(), CanvasKitBackendPreference::WebGl);
+    let mut session = GraphicsBackendSession::new(driver).unwrap();
+    let target = TestTarget::new(PhysicalSize::new(32, 16), 2.0);
+    session.attach(&target).unwrap();
+    assert!(session.capabilities().readback);
+
+    let before_render = session
+        .readback(ReadbackRequest {
+            region: None,
+            color_format: ColorFormat::Rgba8Srgb,
+        })
+        .unwrap_err();
+    assert_eq!(before_render.code, "canvaskit-readback-before-render");
+
+    let fixture = FrameFixture::new(
+        1,
+        1,
+        target.descriptor.size,
+        2.0,
+        DamageRegion::Full,
+        ResourceSnapshot::empty(ResourceEpoch(1)),
+    );
+    session.render(&fixture.frame()).unwrap();
+    let readback = session
+        .readback(ReadbackRequest {
+            region: Some(LayoutRect::new(1.0, 0.5, 2.0, 1.0)),
+            color_format: ColorFormat::Rgba8Srgb,
+        })
+        .unwrap();
+    assert_eq!(readback.size, PhysicalSize::new(4, 2));
+    assert_eq!(readback.row_bytes, 16);
+    assert_eq!(readback.pixels, vec![7; 32]);
+    assert_eq!(
+        control.readback_regions(),
+        vec![CanvasKitPixelRegion {
+            x: 2,
+            y: 1,
+            width: 4,
+            height: 2,
+        }]
+    );
+
+    session.trim_memory(MemoryPressure::Moderate).unwrap();
+    session.trim_memory(MemoryPressure::Critical).unwrap();
+    assert_eq!(
+        control.memory_pressure_requests(),
+        vec![MemoryPressure::Moderate, MemoryPressure::Critical]
+    );
+    session.present().unwrap();
+}
+
+#[test]
 fn unsupported_readback_and_memory_pressure_fail_explicitly() {
     let control = MockControl::default();
     let mut driver = CanvasKitDriver::new(control.host(), CanvasKitBackendPreference::Auto);
@@ -765,12 +861,15 @@ fn unsupported_readback_and_memory_pressure_fail_explicitly() {
     let pressure = driver.trim_memory(MemoryPressure::Critical).unwrap_err();
     assert_eq!(pressure.code, "canvaskit-memory-pressure-unsupported");
     assert!(!driver.capabilities().readback);
-    assert!(!driver
+    assert!(driver
         .capabilities()
         .supports_display_op(DisplayOpKind::DrawImage));
-    assert!(!driver
+    assert!(driver
         .capabilities()
         .supports_display_op(DisplayOpKind::CachedScene));
+    assert!(!driver
+        .capabilities()
+        .supports_display_op(DisplayOpKind::DrawText));
     assert!(driver.capabilities().surface_loss_recovery);
     assert!(!driver.capabilities().device_loss_recovery);
 }

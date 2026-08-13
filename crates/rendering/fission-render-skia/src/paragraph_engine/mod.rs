@@ -8,6 +8,7 @@ mod cache_key;
 mod native;
 mod output;
 mod request;
+mod web;
 
 use std::fmt;
 use std::sync::Arc;
@@ -48,7 +49,49 @@ const COMPLETE_PARAGRAPH_CAPABILITIES: ParagraphCapabilities = ParagraphCapabili
 pub struct SkiaParagraphEngine {
     api: Arc<dyn BatchedParagraphApi>,
     draw_data: Arc<SkiaParagraphDrawDataRegistry>,
+    font_catalog: Option<NativeFontCatalog>,
 }
+
+#[derive(Clone)]
+pub(crate) struct NativeFontCatalog {
+    catalog: Arc<fission_skia_sys::ParagraphFontCatalog>,
+    default_family: Arc<str>,
+}
+
+impl NativeFontCatalog {
+    pub(crate) fn new(
+        catalog: Arc<fission_skia_sys::ParagraphFontCatalog>,
+        default_family: Arc<str>,
+    ) -> Self {
+        Self {
+            catalog,
+            default_family,
+        }
+    }
+
+    pub(crate) fn generation(&self) -> u64 {
+        self.catalog.generation()
+    }
+
+    fn apply_to(&self, request: &mut PackedParagraphRequest) {
+        request.font_catalog_generation = self.generation();
+        if !request
+            .fallback_families
+            .iter()
+            .any(|family| family.eq_ignore_ascii_case(self.default_family.as_ref()))
+        {
+            let mut families = request.fallback_families.to_vec();
+            families.push(self.default_family.to_string().into_boxed_str());
+            request.fallback_families = families.into_boxed_slice();
+        }
+    }
+}
+
+pub use self::web::CanvasKitParagraphEngine;
+pub(crate) use self::web::{
+    new_canvaskit_paragraph_registry, CanvasKitFontState, CanvasKitParagraphBridge,
+    CanvasKitParagraphDrawData, CanvasKitParagraphDrawDataRegistry,
+};
 
 impl Default for SkiaParagraphEngine {
     fn default() -> Self {
@@ -77,6 +120,18 @@ impl SkiaParagraphEngine {
         Self {
             api: default_api(),
             draw_data,
+            font_catalog: None,
+        }
+    }
+
+    pub(crate) fn with_font_catalog(
+        draw_data: Arc<SkiaParagraphDrawDataRegistry>,
+        font_catalog: NativeFontCatalog,
+    ) -> Self {
+        Self {
+            api: default_api(),
+            draw_data,
+            font_catalog: Some(font_catalog),
         }
     }
 
@@ -85,6 +140,7 @@ impl SkiaParagraphEngine {
         Self {
             api: Arc::new(api),
             draw_data: new_paragraph_draw_data_registry(),
+            font_catalog: None,
         }
     }
 }
@@ -104,7 +160,10 @@ impl ParagraphEngine for SkiaParagraphEngine {
             .require_all(description.required_capabilities())
             .map_err(ParagraphError::UnsupportedCapability)?;
 
-        let request = PackedParagraphRequest::from_description(description)?;
+        let mut request = PackedParagraphRequest::from_description(description)?;
+        if let Some(font_catalog) = self.font_catalog.as_ref() {
+            font_catalog.apply_to(&mut request);
+        }
         let cache_key = paragraph_cache_key(&request);
         let BatchedParagraphLayout { output, draw_data } = self
             .api

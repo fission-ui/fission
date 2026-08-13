@@ -1,9 +1,12 @@
+use std::sync::Arc;
+
 use fission_render::backend::{
     BackendError, BackendOperation, BackendResult, GraphicsBackendDriver, PresentReport, Readback,
     ReadbackRequest, RenderReport, SurfaceMetrics,
 };
 use fission_render::capabilities::{
-    BackendIdentity, ColorFormat, DisplayOpKind, GraphicsCapabilities, RenderMode, TransformSupport,
+    BackendIdentity, ColorFormat, DisplayOpKind, GraphicsCapabilities, ImageSourceKind, RenderMode,
+    SvgProfile, TextFeature, TransformSupport,
 };
 use fission_render::diagnostics::{
     BackendDiagnostic, BackendDiagnostics, CacheDiagnostics, DiagnosticCategory,
@@ -11,7 +14,7 @@ use fission_render::diagnostics::{
 };
 use fission_render::frame::{DamageRegion, FrameId, ValidatedInteractiveFrame};
 use fission_render::surface::{
-    LossKind, MemoryPressure, Recovery, SessionState, SurfaceKind, SurfaceTarget,
+    LossKind, MemoryPressure, PhysicalSize, Recovery, SessionState, SurfaceKind, SurfaceTarget,
 };
 use fission_skia_sys::web::{
     decode, encode, Ack, AlphaMode, BackendPreference as WireBackendPreference, ColorSpace,
@@ -19,10 +22,12 @@ use fission_skia_sys::web::{
     Packet, Resize, SessionId, SurfaceSize, HEADER_LEN,
 };
 
-use super::host::CanvasKitHost;
+use super::host::{CanvasKitHost, CanvasKitPixelRegion};
+use super::profile::{CanvasKitFontCatalog, CanvasKitFontCatalogError};
 use super::resources::{ResourceMap, ResourceMapError};
-use super::{compile_web_scene, WebCompileError};
+use super::{compile_web_scene_with_resources, WebCompileError};
 use crate::error::{contract_error, contract_error_with_provenance};
+use crate::paragraph_engine::{CanvasKitFontState, CanvasKitParagraphDrawDataRegistry};
 
 const MAX_RECENT_EVENTS: usize = 64;
 const MAX_LIFECYCLE_EVENTS_PER_POLL: usize = 32;
@@ -52,6 +57,7 @@ pub struct CanvasKitDriver<H: CanvasKitHost> {
     session: Option<HostSession>,
     latest_session_id: u64,
     resources: ResourceMap,
+    paragraph_profile: Option<CanvasKitParagraphProfile>,
     last_accepted_frame: Option<FrameId>,
     // The browser executor renders and flushes atomically during Frame
     // exchange. Rust retains that Ack as one pending logical presentation so
@@ -93,6 +99,12 @@ struct HostSession {
     poisoned: bool,
 }
 
+struct CanvasKitParagraphProfile {
+    catalog: Arc<CanvasKitFontCatalog>,
+    font_state: Arc<CanvasKitFontState>,
+    draw_data: Arc<CanvasKitParagraphDrawDataRegistry>,
+}
+
 impl HostSession {
     fn new(id: SessionId) -> Self {
         Self {
@@ -106,7 +118,36 @@ impl HostSession {
 
 impl<H: CanvasKitHost> CanvasKitDriver<H> {
     pub fn new(host: H, backend_preference: CanvasKitBackendPreference) -> Self {
-        let capabilities = canvaskit_capabilities(backend_preference);
+        Self::with_optional_paragraph_profile(host, backend_preference, None)
+    }
+
+    pub(crate) fn with_paragraph_profile(
+        host: H,
+        backend_preference: CanvasKitBackendPreference,
+        catalog: Arc<CanvasKitFontCatalog>,
+        font_state: Arc<CanvasKitFontState>,
+        draw_data: Arc<CanvasKitParagraphDrawDataRegistry>,
+    ) -> Self {
+        Self::with_optional_paragraph_profile(
+            host,
+            backend_preference,
+            Some(CanvasKitParagraphProfile {
+                catalog,
+                font_state,
+                draw_data,
+            }),
+        )
+    }
+
+    fn with_optional_paragraph_profile(
+        host: H,
+        backend_preference: CanvasKitBackendPreference,
+        paragraph_profile: Option<CanvasKitParagraphProfile>,
+    ) -> Self {
+        let readback =
+            backend_preference != CanvasKitBackendPreference::Graphite && host.supports_readback();
+        let capabilities =
+            canvaskit_capabilities(backend_preference, paragraph_profile.is_some(), readback);
         Self {
             host,
             backend_preference,
@@ -115,6 +156,7 @@ impl<H: CanvasKitHost> CanvasKitDriver<H> {
             session: None,
             latest_session_id: 0,
             resources: ResourceMap::default(),
+            paragraph_profile,
             last_accepted_frame: None,
             pending_frame: None,
             surface_restored: false,
@@ -262,6 +304,7 @@ impl<H: CanvasKitHost> CanvasKitDriver<H> {
         self.last_accepted_frame = None;
         self.pending_frame = None;
         self.surface_restored = false;
+        self.clear_paragraph_profile();
 
         let result = self.send_packet(
             operation,
@@ -283,7 +326,132 @@ impl<H: CanvasKitHost> CanvasKitDriver<H> {
             // retain their poisoned identity for diagnostics and teardown.
             self.session = None;
         }
-        result
+        result?;
+        self.install_profile_fonts(operation)
+    }
+
+    fn install_profile_fonts(&mut self, operation: BackendOperation) -> BackendResult<()> {
+        let Some(profile) = self.paragraph_profile.as_ref() else {
+            return Ok(());
+        };
+        let catalog = Arc::clone(&profile.catalog);
+        let font_state = Arc::clone(&profile.font_state);
+        let plan = self
+            .resources
+            .plan(catalog.resources())
+            .map_err(|error| self.resource_error(error))?
+            .expect("a new CanvasKit session has an empty resource map");
+        self.send_packet(operation, Packet::ResourceBatch(plan.batch.clone()))?;
+        self.resources.commit(plan);
+        let fonts = catalog
+            .wire_fonts(&self.resources)
+            .map_err(|error| self.font_catalog_error(operation, error))?;
+        font_state.install(fonts);
+        Ok(())
+    }
+
+    fn font_catalog_error(
+        &mut self,
+        operation: BackendOperation,
+        error: CanvasKitFontCatalogError,
+    ) -> BackendError {
+        let error = contract_error(
+            operation,
+            "canvaskit-font-catalog-invalid",
+            DiagnosticCategory::Resource,
+            error.to_string(),
+        );
+        self.record_error(&error);
+        error
+    }
+
+    fn clear_paragraph_profile(&self) {
+        if let Some(profile) = self.paragraph_profile.as_ref() {
+            profile.draw_data.clear();
+            profile.font_state.clear();
+        }
+    }
+
+    fn readback_region(
+        &mut self,
+        request: &ReadbackRequest,
+        metrics: SurfaceMetrics,
+    ) -> BackendResult<CanvasKitPixelRegion> {
+        let Some(region) = request.region else {
+            return Ok(CanvasKitPixelRegion {
+                x: 0,
+                y: 0,
+                width: metrics.size.width,
+                height: metrics.size.height,
+            });
+        };
+        let scale = metrics.scale_factor.get();
+        let left = f64::from(region.x()) * scale;
+        let top = f64::from(region.y()) * scale;
+        let right = f64::from(region.right()) * scale;
+        let bottom = f64::from(region.bottom()) * scale;
+        let values = [left, top, right, bottom];
+        if values.iter().any(|value| !value.is_finite())
+            || left < 0.0
+            || top < 0.0
+            || right < left
+            || bottom < top
+            || right > f64::from(metrics.size.width)
+            || bottom > f64::from(metrics.size.height)
+        {
+            let error = contract_error(
+                BackendOperation::Readback,
+                "canvaskit-readback-region-invalid",
+                DiagnosticCategory::Surface,
+                format!(
+                    "logical readback region {region:?} falls outside physical CanvasKit surface {:?}",
+                    metrics.size
+                ),
+            );
+            self.record_error(&error);
+            return Err(error);
+        }
+        let x = left.floor() as u32;
+        let y = top.floor() as u32;
+        let right = right.ceil() as u32;
+        let bottom = bottom.ceil() as u32;
+        Ok(CanvasKitPixelRegion {
+            x,
+            y,
+            width: right - x,
+            height: bottom - y,
+        })
+    }
+
+    fn validate_readback(
+        &mut self,
+        expected: CanvasKitPixelRegion,
+        actual_size: PhysicalSize,
+        row_bytes: usize,
+        pixel_len: usize,
+    ) -> BackendResult<()> {
+        let minimum_row_bytes = usize::try_from(expected.width)
+            .ok()
+            .and_then(|width| width.checked_mul(4));
+        let required_bytes = usize::try_from(expected.height)
+            .ok()
+            .and_then(|height| row_bytes.checked_mul(height));
+        if actual_size != expected.size()
+            || minimum_row_bytes.map_or(true, |minimum| row_bytes < minimum)
+            || required_bytes != Some(pixel_len)
+        {
+            let error = contract_error(
+                BackendOperation::Readback,
+                "canvaskit-readback-contract-violation",
+                DiagnosticCategory::Device,
+                format!(
+                    "CanvasKit returned size {actual_size:?}, row_bytes {row_bytes}, and {pixel_len} bytes for {expected:?}"
+                ),
+            );
+            self.record_error(&error);
+            return Err(error);
+        }
+        Ok(())
     }
 
     fn require_no_pending_frame(&mut self, operation: BackendOperation) -> BackendResult<()> {
@@ -763,6 +931,7 @@ impl<H: CanvasKitHost> CanvasKitDriver<H> {
         }
 
         if self.session.is_some() {
+            self.clear_paragraph_profile();
             self.send_packet(
                 BackendOperation::Recover,
                 Packet::Destroy(Destroy {
@@ -797,10 +966,28 @@ impl<H: CanvasKitHost> CanvasKitDriver<H> {
         let metrics = self.validate_frame(frame)?;
         let interactive = frame.frame();
         let metadata = interactive.metadata();
-        let resource_plan = self
-            .resources
-            .plan(interactive.resources())
-            .map_err(|error| self.resource_error(error))?;
+        let wire_resource_epoch = if self.paragraph_profile.is_some() {
+            metadata.resource_epoch.0.checked_add(1).ok_or_else(|| {
+                self.font_catalog_error(
+                    BackendOperation::Render,
+                    CanvasKitFontCatalogError::EpochExhausted {
+                        frame_epoch: metadata.resource_epoch.0,
+                    },
+                )
+            })?
+        } else {
+            metadata.resource_epoch.0
+        };
+        let resource_plan = if let Some(profile) = self.paragraph_profile.as_ref() {
+            self.resources.plan_with_pinned(
+                interactive.resources(),
+                profile.catalog.resources(),
+                wire_resource_epoch,
+            )
+        } else {
+            self.resources.plan(interactive.resources())
+        }
+        .map_err(|error| self.resource_error(error))?;
 
         let (commands, encoded_operations, reused_layers) = if metrics.size.is_empty() {
             let commands = fission_skia_sys::web::encode_commands(&[]).map_err(|error| {
@@ -808,10 +995,19 @@ impl<H: CanvasKitHost> CanvasKitDriver<H> {
             })?;
             (commands, 0, 0)
         } else {
-            let compiled = compile_web_scene(
+            let compiled = compile_web_scene_with_resources(
                 interactive.scene(),
                 metrics.scale_factor.get(),
                 interactive.clear_color(),
+                interactive.resources(),
+                interactive.paragraph_bindings(),
+                self.paragraph_profile
+                    .as_ref()
+                    .map(|profile| profile.draw_data.as_ref()),
+                &|resource_id| {
+                    self.resources
+                        .handle_after(resource_plan.as_ref(), resource_id)
+                },
             )
             .map_err(|error| self.compile_error(error, metadata.frame_id))?;
             (
@@ -835,7 +1031,7 @@ impl<H: CanvasKitHost> CanvasKitDriver<H> {
             BackendOperation::Render,
             Packet::Frame(Frame {
                 frame_id: metadata.frame_id.0,
-                resource_epoch: metadata.resource_epoch.0,
+                resource_epoch: wire_resource_epoch,
                 semantics_epoch: metadata.semantics_epoch.0,
                 surface: surface_size(metrics),
                 clear_color: color_components(interactive.clear_color()),
@@ -923,21 +1119,103 @@ impl<H: CanvasKitHost> GraphicsBackendDriver for CanvasKitDriver<H> {
         })
     }
 
-    fn readback(&mut self, _request: ReadbackRequest) -> BackendResult<Readback> {
-        let error = contract_error(
-            BackendOperation::Readback,
-            "canvaskit-readback-unsupported",
-            DiagnosticCategory::Capability,
-            "the CanvasKit bridge does not implement synchronous pixel readback",
-        );
-        self.record_error(&error);
-        Err(error)
+    fn readback(&mut self, request: ReadbackRequest) -> BackendResult<Readback> {
+        self.poll_lifecycle_events(BackendOperation::Readback)?;
+        self.require_state(BackendOperation::Readback, &[SessionState::Attached])?;
+        if !self.capabilities.readback {
+            let error = contract_error(
+                BackendOperation::Readback,
+                "canvaskit-readback-unsupported",
+                DiagnosticCategory::Capability,
+                "the active CanvasKit host does not implement synchronous pixel readback",
+            );
+            self.record_error(&error);
+            return Err(error);
+        }
+        if request.color_format != ColorFormat::Rgba8Srgb {
+            let error = contract_error(
+                BackendOperation::Readback,
+                "canvaskit-readback-color-format-unsupported",
+                DiagnosticCategory::Capability,
+                format!(
+                    "CanvasKit produces Rgba8Srgb readback, not {:?}",
+                    request.color_format
+                ),
+            );
+            self.record_error(&error);
+            return Err(error);
+        }
+        if self.last_accepted_frame.is_none() {
+            let error = contract_error(
+                BackendOperation::Readback,
+                "canvaskit-readback-before-render",
+                DiagnosticCategory::Lifecycle,
+                "cannot read uninitialized CanvasKit pixels before the first frame",
+            );
+            self.record_error(&error);
+            return Err(error);
+        }
+        let Some(metrics) = self.metrics else {
+            let error = contract_error(
+                BackendOperation::Readback,
+                "canvaskit-readback-surface-missing",
+                DiagnosticCategory::Lifecycle,
+                "cannot read back without attached CanvasKit surface metrics",
+            );
+            self.record_error(&error);
+            return Err(error);
+        };
+        let region = self.readback_region(&request, metrics)?;
+        if region.width == 0 || region.height == 0 {
+            return Ok(Readback {
+                size: region.size(),
+                color_format: request.color_format,
+                row_bytes: 0,
+                pixels: Vec::new(),
+            });
+        }
+        let readback = match self.host.read_pixels_rgba8888(region) {
+            Ok(Some(readback)) => readback,
+            Ok(None) => {
+                let error = contract_error(
+                    BackendOperation::Readback,
+                    "canvaskit-readback-contract-violation",
+                    DiagnosticCategory::Device,
+                    "the CanvasKit host advertised readback but returned no pixel result",
+                );
+                self.record_error(&error);
+                return Err(error);
+            }
+            Err(error) => {
+                let error = contract_error(
+                    BackendOperation::Readback,
+                    "canvaskit-readback-failed",
+                    DiagnosticCategory::Device,
+                    format!("CanvasKit pixel readback failed: {error}"),
+                );
+                self.record_error(&error);
+                return Err(error);
+            }
+        };
+        self.validate_readback(
+            region,
+            readback.size,
+            readback.row_bytes,
+            readback.pixels.len(),
+        )?;
+        Ok(Readback {
+            size: readback.size,
+            color_format: request.color_format,
+            row_bytes: readback.row_bytes,
+            pixels: readback.pixels,
+        })
     }
 
     fn suspend(&mut self) -> BackendResult<()> {
         self.poll_lifecycle_events(BackendOperation::Suspend)?;
         self.require_state(BackendOperation::Suspend, &[SessionState::Attached])?;
         self.state = SessionState::Lost;
+        self.clear_paragraph_profile();
         self.send_packet(
             BackendOperation::Suspend,
             Packet::Destroy(Destroy {
@@ -993,14 +1271,29 @@ impl<H: CanvasKitHost> GraphicsBackendDriver for CanvasKitDriver<H> {
     }
 
     fn trim_memory(&mut self, pressure: MemoryPressure) -> BackendResult<()> {
-        let error = contract_error(
-            BackendOperation::TrimMemory,
-            "canvaskit-memory-pressure-unsupported",
-            DiagnosticCategory::Capability,
-            format!("the CanvasKit bridge cannot synchronously apply {pressure:?} memory pressure"),
-        );
-        self.record_error(&error);
-        Err(error)
+        match self.host.trim_memory(pressure) {
+            Ok(true) => Ok(()),
+            Ok(false) => {
+                let error = contract_error(
+                    BackendOperation::TrimMemory,
+                    "canvaskit-memory-pressure-unsupported",
+                    DiagnosticCategory::Capability,
+                    format!("the active CanvasKit host cannot apply {pressure:?} memory pressure"),
+                );
+                self.record_error(&error);
+                Err(error)
+            }
+            Err(error) => {
+                let error = contract_error(
+                    BackendOperation::TrimMemory,
+                    "canvaskit-memory-pressure-failed",
+                    DiagnosticCategory::Device,
+                    format!("CanvasKit failed to apply {pressure:?} memory pressure: {error}"),
+                );
+                self.record_error(&error);
+                Err(error)
+            }
+        }
     }
 
     fn detach(&mut self) -> BackendResult<()> {
@@ -1028,6 +1321,7 @@ impl<H: CanvasKitHost> GraphicsBackendDriver for CanvasKitDriver<H> {
             return Err(error);
         }
         self.state = SessionState::Lost;
+        self.clear_paragraph_profile();
         if self.session.is_some() {
             self.send_packet(
                 BackendOperation::Detach,
@@ -1073,6 +1367,7 @@ impl<H: CanvasKitHost> Drop for CanvasKitDriver<H> {
             // a sequence; the concrete host adapter must destroy its executor
             // when that adapter itself is dropped.
             self.state = SessionState::Lost;
+            self.clear_paragraph_profile();
             let _ = self.send_packet(
                 BackendOperation::Detach,
                 Packet::Destroy(Destroy {
@@ -1089,11 +1384,15 @@ impl<H: CanvasKitHost> Drop for CanvasKitDriver<H> {
     }
 }
 
-fn canvaskit_capabilities(backend_preference: CanvasKitBackendPreference) -> GraphicsCapabilities {
+fn canvaskit_capabilities(
+    backend_preference: CanvasKitBackendPreference,
+    paragraph_paint: bool,
+    readback: bool,
+) -> GraphicsCapabilities {
     let profile = match backend_preference {
-        CanvasKitBackendPreference::Auto => "web-canvaskit-auto-shapes",
-        CanvasKitBackendPreference::Software => "web-canvaskit-software-shapes",
-        CanvasKitBackendPreference::WebGl => "web-canvaskit-webgl-shapes",
+        CanvasKitBackendPreference::Auto => "web-canvaskit-auto",
+        CanvasKitBackendPreference::Software => "web-canvaskit-software",
+        CanvasKitBackendPreference::WebGl => "web-canvaskit-webgl",
         CanvasKitBackendPreference::Graphite => "web-canvaskit-graphite-unavailable",
     };
     let mut capabilities = GraphicsCapabilities::empty(BackendIdentity::new(
@@ -1129,13 +1428,35 @@ fn canvaskit_capabilities(backend_preference: CanvasKitBackendPreference) -> Gra
         DisplayOpKind::OpacityLayer,
         DisplayOpKind::Translate,
         DisplayOpKind::Transform,
+        DisplayOpKind::CachedScene,
         DisplayOpKind::BackdropFilter,
         DisplayOpKind::DrawRect,
+        DisplayOpKind::DrawImage,
         DisplayOpKind::DrawPath,
+        DisplayOpKind::DrawSvg,
     ]);
+    capabilities.image_sources.extend([
+        ImageSourceKind::Asset,
+        ImageSourceKind::File,
+        ImageSourceKind::Network,
+        ImageSourceKind::Memory,
+    ]);
+    capabilities.svg_profile = SvgProfile::GeometryWithFissionPaint;
+    if paragraph_paint {
+        capabilities
+            .display_ops
+            .extend([DisplayOpKind::DrawText, DisplayOpKind::DrawRichText]);
+        capabilities.text_features.extend([
+            TextFeature::CaretPainting,
+            TextFeature::RichTextLocale,
+            TextFeature::RichTextLineHeight,
+            TextFeature::RichTextLetterSpacing,
+        ]);
+    }
     capabilities.transform_support = TransformSupport::Affine2d;
     capabilities.color_formats.insert(ColorFormat::Rgba8Srgb);
     capabilities.surface_loss_recovery = true;
+    capabilities.readback = readback;
     capabilities
 }
 

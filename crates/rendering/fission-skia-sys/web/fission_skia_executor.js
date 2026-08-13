@@ -364,10 +364,14 @@ function decodeResourceObject(CanvasKit, kind, ownedBytes) {
         ownedBytes.byteOffset + ownedBytes.byteLength,
       );
       try {
-        return requireOwnedObject(
+        const typeface = requireOwnedObject(
           makeTypeface.call(CanvasKit.Typeface, buffer),
           "font resource",
         );
+        // Paragraph providers decode from the resource's owned bytes. Keep no
+        // second, otherwise-unused Typeface alive in the general resource map.
+        safeDelete(typeface);
+        return null;
       } catch (error) {
         if (error instanceof ExecutorFault) throw error;
         fault(
@@ -436,6 +440,23 @@ function rebuildResources(CanvasKit, resources) {
   const created = new Set();
   try {
     for (const [slot, entry] of resources) {
+      const object = decodeResourceObject(CanvasKit, entry.kind, entry.bytes);
+      if (object) created.add(object);
+      candidate.set(slot, { ...entry, object });
+    }
+  } catch (error) {
+    for (const object of created) safeDelete(object);
+    throw error;
+  }
+  return candidate;
+}
+
+function materializeImageResources(CanvasKit, resources) {
+  const candidate = new Map(resources);
+  const created = new Set();
+  try {
+    for (const [slot, entry] of resources) {
+      if (entry.kind !== ResourceKind.IMAGE || entry.object) continue;
       const object = decodeResourceObject(CanvasKit, entry.kind, entry.bytes);
       if (object) created.add(object);
       candidate.set(slot, { ...entry, object });
@@ -557,6 +578,39 @@ function errorCodeFor(error) {
 
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function requireReadbackCoordinate(value, field) {
+  if (!Number.isSafeInteger(value) || value < 0 || value > 0xffffffff) {
+    fault(ErrorCode.INVALID_PACKET, `${field} must be a non-negative u32`);
+  }
+  return value;
+}
+
+function pulseCacheLimit(owner, getterName, usageName, setterName, pressure) {
+  const getter = owner?.[getterName];
+  const usage = owner?.[usageName];
+  const setter = owner?.[setterName];
+  if (
+    typeof getter !== "function" ||
+    typeof usage !== "function" ||
+    typeof setter !== "function"
+  ) {
+    return;
+  }
+  const previousLimit = getter.call(owner);
+  const usedBytes = usage.call(owner);
+  if (
+    !Number.isSafeInteger(previousLimit) ||
+    previousLimit < 0 ||
+    !Number.isSafeInteger(usedBytes) ||
+    usedBytes < 0
+  ) {
+    fault(ErrorCode.INTERNAL, `${getterName}/${usageName} returned invalid cache bytes`);
+  }
+  const temporaryLimit = pressure === 2 ? 0 : Math.floor(usedBytes / 2);
+  setter.call(owner, temporaryLimit);
+  setter.call(owner, previousLimit);
 }
 
 /**
@@ -720,6 +774,11 @@ export function createCanvasKitExecutor({
     ) {
       fault(ErrorCode.INVALID_STATE, "CanvasKit surface cannot create a transactional frame");
     }
+
+    // Critical memory pressure releases decoded images while retaining their
+    // immutable encoded bytes. Rebuild them transactionally on the owning
+    // browser executor immediately before the next frame needs them.
+    resources = materializeImageResources(CanvasKit, resources);
 
     let staging = null;
     let snapshot = null;
@@ -950,5 +1009,88 @@ export function createCanvasKitExecutor({
     }
   }
 
-  return Object.freeze({ submit, layoutParagraph, destroyParagraph, destroy });
+  function readPixels(x, y, width, height) {
+    requireParagraphSession("read surface pixels");
+    x = requireReadbackCoordinate(x, "readback x");
+    y = requireReadbackCoordinate(y, "readback y");
+    width = requireReadbackCoordinate(width, "readback width");
+    height = requireReadbackCoordinate(height, "readback height");
+    const right = x + width;
+    const bottom = y + height;
+    if (
+      !Number.isSafeInteger(right) ||
+      !Number.isSafeInteger(bottom) ||
+      right > configuration.surface.width ||
+      bottom > configuration.surface.height
+    ) {
+      fault(ErrorCode.INVALID_PACKET, "readback rectangle is outside the CanvasKit surface");
+    }
+    if (width === 0 || height === 0) return new Uint8Array(0);
+    if (!surfaceState.surface || typeof surfaceState.surface.flush !== "function") {
+      fault(ErrorCode.SURFACE_LOST, "CanvasKit readback surface is unavailable");
+    }
+    const liveCanvas = surfaceState.surface.getCanvas?.();
+    if (!liveCanvas || typeof liveCanvas.readPixels !== "function") {
+      fault(ErrorCode.INVALID_STATE, "CanvasKit canvas readPixels is unavailable");
+    }
+    const colorType = CanvasKit.ColorType?.RGBA_8888;
+    const alphaType = CanvasKit.AlphaType?.Premul;
+    const colorSpace = CanvasKit.ColorSpace?.SRGB;
+    if (colorType === undefined || alphaType === undefined || colorSpace === undefined) {
+      fault(ErrorCode.INVALID_STATE, "CanvasKit RGBA8888 readback enums are unavailable");
+    }
+    const rowBytes = width * 4;
+    surfaceState.surface.flush();
+    let pixels;
+    try {
+      pixels = liveCanvas.readPixels(
+        x,
+        y,
+        { width, height, colorType, alphaType, colorSpace },
+        undefined,
+        rowBytes,
+      );
+    } catch (error) {
+      fault(ErrorCode.INTERNAL, `CanvasKit readPixels failed: ${errorMessage(error)}`);
+    }
+    if (!(pixels instanceof Uint8Array) || pixels.byteLength !== rowBytes * height) {
+      fault(ErrorCode.INTERNAL, "CanvasKit readPixels returned an invalid RGBA8888 buffer");
+    }
+    return Uint8Array.from(pixels);
+  }
+
+  function trimMemory(pressure) {
+    if (permanentlyDestroyed) {
+      fault(ErrorCode.INVALID_STATE, "cannot trim memory; CanvasKit executor is destroyed");
+    }
+    if (pressure !== 1 && pressure !== 2) {
+      fault(ErrorCode.INVALID_PACKET, "memory pressure must be moderate or critical");
+    }
+    pulseCacheLimit(
+      CanvasKit,
+      "getDecodeCacheLimitBytes",
+      "getDecodeCacheUsedBytes",
+      "setDecodeCacheLimitBytes",
+      pressure,
+    );
+    pulseCacheLimit(
+      surfaceState?.grContext,
+      "getResourceCacheLimitBytes",
+      "getResourceCacheUsageBytes",
+      "setResourceCacheLimitBytes",
+      pressure,
+    );
+    if (pressure === 2) {
+      resources = stripResourceObjects(resources);
+    }
+  }
+
+  return Object.freeze({
+    submit,
+    layoutParagraph,
+    destroyParagraph,
+    readPixels,
+    trimMemory,
+    destroy,
+  });
 }

@@ -451,6 +451,16 @@ impl WebRenderer {
             Self::CanvasKit(presenter) => presenter.detach(),
         }
     }
+
+    pub(super) fn trim_memory(
+        &mut self,
+        pressure: fission_render::surface::MemoryPressure,
+    ) -> anyhow::Result<()> {
+        match self {
+            Self::WebGpu(_) => Ok(()),
+            Self::CanvasKit(presenter) => presenter.trim_memory(pressure),
+        }
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -1483,7 +1493,7 @@ pub(super) fn create_webgpu_main_renderer(
     let request = request
         .for_target(RendererTarget::Web)
         .map_err(anyhow::Error::new)?;
-    if matches!(request, RendererRequest::CanvasKitSoftware) {
+    if request.uses_canvaskit() {
         return Err(anyhow::anyhow!(
             "webgpu renderer disabled by renderer request"
         ));

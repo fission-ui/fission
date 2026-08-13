@@ -12,7 +12,7 @@ use sha2::{Digest, Sha256};
 #[path = "build_support/native_contract.rs"]
 mod native_contract;
 
-const ABI_VERSION: u32 = 13;
+const ABI_VERSION: u32 = 14;
 const SKIA_REVISION: &str = "cf5c36972b73698eb3939cda147ea47152670312";
 const STATIC_LIBRARIES: &[&str] = &[
     "fission_skia_bridge",

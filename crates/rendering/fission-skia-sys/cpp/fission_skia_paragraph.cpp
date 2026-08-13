@@ -3,6 +3,7 @@
 
 #include "include/core/SkCanvas.h"
 #include "include/core/SkColor.h"
+#include "include/core/SkData.h"
 #include "include/core/SkFont.h"
 #include "include/core/SkFontArguments.h"
 #include "include/core/SkFontMgr.h"
@@ -11,6 +12,7 @@
 #include "include/core/SkPicture.h"
 #include "include/core/SkPictureRecorder.h"
 #include "include/core/SkString.h"
+#include "include/core/SkTypeface.h"
 #include "include/ports/SkFontScanner_FreeType.h"
 #include "modules/skparagraph/include/FontCollection.h"
 #include "modules/skparagraph/include/Metrics.h"
@@ -18,6 +20,7 @@
 #include "modules/skparagraph/include/ParagraphBuilder.h"
 #include "modules/skparagraph/include/ParagraphStyle.h"
 #include "modules/skparagraph/include/TextStyle.h"
+#include "modules/skparagraph/include/TypefaceFontProvider.h"
 #include "modules/skunicode/include/SkUnicode.h"
 #include "modules/skunicode/include/SkUnicode_icu.h"
 
@@ -97,6 +100,9 @@ constexpr uint32_t kKnownTextStyleFlags =
     FISSION_SKIA_TEXT_STYLE_UNDERLINE |
     FISSION_SKIA_TEXT_STYLE_HAS_LINE_HEIGHT |
     FISSION_SKIA_TEXT_STYLE_HAS_BACKGROUND;
+constexpr size_t kMaxFontCatalogFaces = 4096;
+constexpr size_t kMaxFontCatalogBytes = 512 * 1024 * 1024;
+constexpr size_t kMaxFontFaceAxes = 256;
 
 struct DecodedScalar {
     uint32_t value;
@@ -123,12 +129,15 @@ struct ParagraphResultState {
     std::vector<fission_skia_paragraph_inline_box_t> inline_boxes;
     std::vector<fission_skia_unresolved_glyph_t> unresolved_glyphs;
     std::vector<uint32_t> unresolved_codepoints;
+    sk_sp<FontCollection> font_collection;
 };
 
 struct ParagraphRegistry {
     std::mutex mutex;
     std::unordered_map<uint64_t, std::unique_ptr<ParagraphResultState>> results;
+    std::unordered_map<uint64_t, sk_sp<FontCollection>> font_catalogs;
     std::atomic<uint64_t> next_handle{1};
+    std::atomic<uint64_t> next_font_catalog{1};
     std::atomic<uint64_t> next_error{1};
 };
 
@@ -337,11 +346,6 @@ fission_skia_status_t validate_request(
     if (!valid_string_slice(request->locale, true, false)) {
         return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT, "paragraph_layout",
                     "paragraph locale must be a valid NUL-free UTF-8 string", error);
-    }
-    if (request->font_catalog_generation != 0) {
-        return fail(FISSION_SKIA_STATUS_UNSUPPORTED, "paragraph_layout",
-                    "nonzero font catalog generations require the future owned font payload seam",
-                    error);
     }
     for (size_t index = 0; index < request->fallback_family_count; ++index) {
         if (!valid_string_slice(request->fallback_families[index], false, false)) {
@@ -653,6 +657,97 @@ sk_sp<FontCollection> thread_font_collection() {
         return fonts;
     }();
     return collection;
+}
+
+sk_sp<FontCollection> font_collection_for(uint64_t generation) {
+    if (generation == 0) return thread_font_collection();
+    std::lock_guard<std::mutex> lock(paragraph_registry().mutex);
+    const auto found = paragraph_registry().font_catalogs.find(generation);
+    return found == paragraph_registry().font_catalogs.end() ? nullptr : found->second;
+}
+
+fission_skia_status_t build_font_collection(
+    const fission_skia_paragraph_font_face_t* faces,
+    size_t face_count,
+    sk_sp<FontCollection>* output,
+    fission_skia_error_t* error) {
+    if (output == nullptr || faces == nullptr || face_count == 0 ||
+        face_count > kMaxFontCatalogFaces) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT,
+                    "paragraph_font_catalog_create",
+                    "font catalogue requires a bounded, nonempty face array", error);
+    }
+    sk_sp<SkFontMgr> parser = make_platform_font_manager();
+    if (parser == nullptr) {
+        return fail(FISSION_SKIA_STATUS_UNSUPPORTED,
+                    "paragraph_font_catalog_create",
+                    "the selected native profile has no font decoder", error);
+    }
+    auto provider = sk_make_sp<skia::textlayout::TypefaceFontProvider>();
+    size_t total_bytes = 0;
+    for (size_t index = 0; index < face_count; ++index) {
+        const auto& face = faces[index];
+        if (face.struct_size != sizeof(face) || face.reserved != 0 ||
+            face.reserved_scalar != 0 ||
+            !valid_string_slice(face.family, false, false) || face.data == nullptr ||
+            face.data_length == 0 || face.weight == 0 || face.weight > 1000 ||
+            face.slant > FISSION_SKIA_FONT_SLANT_OBLIQUE ||
+            !valid_pointer_count(face.axes, face.axis_count) ||
+            face.axis_count > kMaxFontFaceAxes ||
+            face.data_length > kMaxFontCatalogBytes - total_bytes) {
+            return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT,
+                        "paragraph_font_catalog_create",
+                        "font face metadata, bytes, or catalogue budget is invalid", error);
+        }
+        total_bytes += face.data_length;
+        std::vector<SkFontArguments::VariationPosition::Coordinate> coordinates;
+        coordinates.reserve(face.axis_count);
+        std::unordered_set<uint32_t> tags;
+        for (size_t axis = 0; axis < face.axis_count; ++axis) {
+            if (!finite(face.axes[axis].value) || !tags.insert(face.axes[axis].tag).second) {
+                return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT,
+                            "paragraph_font_catalog_create",
+                            "font face axes must be finite and unique", error);
+            }
+            coordinates.push_back({face.axes[axis].tag, face.axes[axis].value});
+        }
+        sk_sp<SkData> data = SkData::MakeWithCopy(face.data, face.data_length);
+        sk_sp<SkTypeface> typeface = data == nullptr
+            ? nullptr
+            : parser->makeFromData(std::move(data));
+        if (typeface == nullptr) {
+            return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT,
+                        "paragraph_font_catalog_create",
+                        "font face bytes could not be decoded by Skia", error);
+        }
+        if (!coordinates.empty()) {
+            SkFontArguments arguments;
+            arguments.setVariationDesignPosition(
+                {coordinates.data(), static_cast<int>(coordinates.size())});
+            typeface = typeface->makeClone(arguments);
+            if (typeface == nullptr) {
+                return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT,
+                            "paragraph_font_catalog_create",
+                            "font face variation defaults could not be applied", error);
+            }
+        }
+        // Face selection remains authoritative in the encoded font. Fission's
+        // declared weight/slant are validated at the boundary and carried by
+        // paragraph TextStyle; aliases intentionally allow app family names
+        // that differ from the font's internal name.
+        const SkString family(reinterpret_cast<const char*>(face.family.data),
+                              face.family.length);
+        if (provider->registerTypeface(std::move(typeface), family) == 0) {
+            return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT,
+                        "paragraph_font_catalog_create",
+                        "font face could not be registered under its Fission family", error);
+        }
+    }
+    sk_sp<FontCollection> collection = sk_make_sp<FontCollection>();
+    collection->setAssetFontManager(std::move(provider));
+    collection->setDefaultFontManager(std::move(parser));
+    *output = std::move(collection);
+    return FISSION_SKIA_STATUS_OK;
 }
 
 ParagraphStyle sk_paragraph_style(
@@ -1058,6 +1153,51 @@ fission_skia_status_t fission_skia_paragraph_capabilities(
     return FISSION_SKIA_STATUS_OK;
 }
 
+fission_skia_status_t fission_skia_paragraph_font_catalog_create(
+    const fission_skia_paragraph_font_face_t* faces,
+    size_t face_count,
+    fission_skia_font_catalog_handle_t* out_catalog,
+    fission_skia_error_t* out_error) {
+    if (out_catalog == nullptr) {
+        return fail(FISSION_SKIA_STATUS_INVALID_ARGUMENT,
+                    "paragraph_font_catalog_create",
+                    "font catalogue output pointer is null", out_error);
+    }
+    *out_catalog = 0;
+    sk_sp<FontCollection> collection;
+    const auto status = build_font_collection(
+        faces, face_count, &collection, out_error);
+    if (status != FISSION_SKIA_STATUS_OK) return status;
+    uint64_t handle = 0;
+    {
+        std::lock_guard<std::mutex> lock(paragraph_registry().mutex);
+        do {
+            handle = paragraph_registry().next_font_catalog.fetch_add(
+                1, std::memory_order_relaxed);
+        } while (handle == 0 || paragraph_registry().font_catalogs.find(handle) !=
+                                    paragraph_registry().font_catalogs.end());
+        paragraph_registry().font_catalogs.emplace(handle, std::move(collection));
+    }
+    *out_catalog = handle;
+    clear_error(out_error);
+    return FISSION_SKIA_STATUS_OK;
+}
+
+fission_skia_status_t fission_skia_paragraph_font_catalog_destroy(
+    fission_skia_font_catalog_handle_t catalog,
+    fission_skia_error_t* out_error) {
+    std::lock_guard<std::mutex> lock(paragraph_registry().mutex);
+    const auto found = paragraph_registry().font_catalogs.find(catalog);
+    if (found == paragraph_registry().font_catalogs.end()) {
+        return fail(FISSION_SKIA_STATUS_INVALID_HANDLE,
+                    "paragraph_font_catalog_destroy",
+                    "font catalogue handle is not live", out_error);
+    }
+    paragraph_registry().font_catalogs.erase(found);
+    clear_error(out_error);
+    return FISSION_SKIA_STATUS_OK;
+}
+
 fission_skia_status_t fission_skia_paragraph_layout(
     const fission_skia_paragraph_request_t* request,
     fission_skia_paragraph_result_handle_t* out_result,
@@ -1072,12 +1212,17 @@ fission_skia_status_t fission_skia_paragraph_layout(
     const auto validation = validate_request(request, &scalars, &utf16_for_utf8, out_error);
     if (validation != FISSION_SKIA_STATUS_OK) return validation;
 
-    sk_sp<FontCollection> fonts = thread_font_collection();
+    sk_sp<FontCollection> fonts = font_collection_for(request->font_catalog_generation);
     sk_sp<SkUnicode> unicode = SkUnicodes::ICU::Make();
     if (fonts == nullptr || unicode == nullptr) {
-        return fail(FISSION_SKIA_STATUS_UNSUPPORTED, "paragraph_layout",
-                    "the selected Skia profile has no platform FontMgr or ICU implementation",
-                    out_error);
+        return fail(
+            request->font_catalog_generation == 0 ? FISSION_SKIA_STATUS_UNSUPPORTED
+                                                  : FISSION_SKIA_STATUS_INVALID_HANDLE,
+            "paragraph_layout",
+            request->font_catalog_generation == 0
+                ? "the selected Skia profile has no platform FontMgr or ICU implementation"
+                : "paragraph font catalogue generation is not live",
+            out_error);
     }
     auto builder = ParagraphBuilder::make(
         sk_paragraph_style(*request, scalars), fonts, unicode);
@@ -1111,6 +1256,10 @@ fission_skia_status_t fission_skia_paragraph_layout(
                     "paragraph result allocation failed", out_error);
     }
     result->min_intrinsic_width = paragraph->getMinIntrinsicWidth();
+    // Keep the selected catalogue alive with the retained SkPicture. Destroying
+    // the public catalogue handle prevents future layouts but cannot invalidate
+    // an already laid-out paragraph that still owns cloned typefaces.
+    result->font_collection = fonts;
     result->max_intrinsic_width = paragraph->getMaxIntrinsicWidth();
     result->size.width =
         request->paragraph_style.text_width_basis == FISSION_SKIA_TEXT_WIDTH_BASIS_PARENT &&

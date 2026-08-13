@@ -3,6 +3,7 @@
 mod api;
 mod capabilities;
 mod compiler;
+mod compiler_paragraph;
 mod driver;
 mod error;
 mod ganesh_api;
@@ -22,11 +23,19 @@ mod web;
 
 pub use capabilities::{skia_ganesh_capabilities, skia_raster_capabilities};
 pub use driver::SkiaRasterDriver;
+pub use fission_skia_sys::{
+    ParagraphFontFace as SkiaFontFace, ParagraphFontFaceSlant as SkiaFontFaceSlant,
+    ParagraphFontVariation as SkiaFontVariation,
+};
 pub use ganesh_driver::SkiaGaneshDriver;
 pub use paragraph_engine::SkiaParagraphEngine;
-pub use profile::{SkiaGaneshProfile, SkiaRasterProfile};
+pub use profile::{SkiaFontProfileError, SkiaGaneshProfile, SkiaRasterProfile};
 pub use raster_session::SkiaRasterSession;
-pub use web::{CanvasKitBackendPreference, CanvasKitDriver, CanvasKitHost};
+pub use web::{
+    CanvasKitBackendPreference, CanvasKitDriver, CanvasKitFont, CanvasKitHost,
+    CanvasKitParagraphHost, CanvasKitPixelRegion, CanvasKitProfile, CanvasKitProfileError,
+    CanvasKitReadback, ResourceHandle,
+};
 
 use fission_render::backend::{BackendResult, GraphicsBackendSession};
 

@@ -11,6 +11,7 @@ use fission_render::backend::{BackendResult, GraphicsBackendSession, SurfaceMetr
 use fission_skia_sys::ParagraphDrawData;
 
 use crate::paragraph_draw_data::{ParagraphDrawDataBudget, ParagraphDrawDataRegistry};
+use crate::paragraph_engine::NativeFontCatalog;
 use crate::raster_session::SkiaRasterSession;
 use crate::{SkiaGaneshDriver, SkiaParagraphEngine, SkiaRasterDriver};
 
@@ -18,6 +19,71 @@ const DEFAULT_PARAGRAPH_DRAW_DATA_ENTRIES: usize = 4_096;
 const DEFAULT_PARAGRAPH_DRAW_DATA_BYTES: usize = 64 * 1024 * 1024;
 
 pub(crate) type SkiaParagraphDrawDataRegistry = ParagraphDrawDataRegistry<ParagraphDrawData>;
+
+#[derive(Clone)]
+struct ProfileFonts {
+    native: NativeFontCatalog,
+}
+
+/// Invalid Fission-owned font catalogue supplied to a native Skia profile.
+#[derive(Debug)]
+pub enum SkiaFontProfileError {
+    EmptyDefaultFamily,
+    MissingDefaultFamily { family: String },
+    Native(fission_skia_sys::Error),
+}
+
+impl std::fmt::Display for SkiaFontProfileError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::EmptyDefaultFamily => {
+                formatter.write_str("a native Skia profile requires a nonempty default family")
+            }
+            Self::MissingDefaultFamily { family } => write!(
+                formatter,
+                "native Skia default family {family:?} has no packaged font face"
+            ),
+            Self::Native(error) => write!(formatter, "native Skia font catalogue failed: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for SkiaFontProfileError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Native(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
+impl From<fission_skia_sys::Error> for SkiaFontProfileError {
+    fn from(error: fission_skia_sys::Error) -> Self {
+        Self::Native(error)
+    }
+}
+
+fn profile_fonts(
+    default_family: impl Into<String>,
+    faces: Vec<fission_skia_sys::ParagraphFontFace>,
+) -> Result<ProfileFonts, SkiaFontProfileError> {
+    let default_family = default_family.into();
+    if default_family.is_empty() || default_family.trim() != default_family {
+        return Err(SkiaFontProfileError::EmptyDefaultFamily);
+    }
+    if !faces
+        .iter()
+        .any(|face| face.family.eq_ignore_ascii_case(&default_family))
+    {
+        return Err(SkiaFontProfileError::MissingDefaultFamily {
+            family: default_family,
+        });
+    }
+    let catalog = Arc::new(fission_skia_sys::ParagraphFontCatalog::new(&faces)?);
+    Ok(ProfileFonts {
+        native: NativeFontCatalog::new(catalog, Arc::from(default_family)),
+    })
+}
 
 /// Factory for a Skia paragraph engine and raster renderer that share native
 /// paint resources.
@@ -28,6 +94,7 @@ pub(crate) type SkiaParagraphDrawDataRegistry = ParagraphDrawDataRegistry<Paragr
 #[derive(Clone)]
 pub struct SkiaRasterProfile {
     paragraph_draw_data: Arc<SkiaParagraphDrawDataRegistry>,
+    fonts: Option<ProfileFonts>,
 }
 
 impl Default for SkiaRasterProfile {
@@ -40,12 +107,32 @@ impl SkiaRasterProfile {
     pub fn new() -> Self {
         Self {
             paragraph_draw_data: new_paragraph_draw_data_registry(),
+            fonts: None,
         }
+    }
+
+    /// Creates a paired raster profile backed by Fission-owned packaged fonts.
+    pub fn try_with_fonts(
+        default_family: impl Into<String>,
+        faces: Vec<fission_skia_sys::ParagraphFontFace>,
+    ) -> Result<Self, SkiaFontProfileError> {
+        Ok(Self {
+            paragraph_draw_data: new_paragraph_draw_data_registry(),
+            fonts: Some(profile_fonts(default_family, faces)?),
+        })
     }
 
     /// Creates the paragraph engine paired with this profile's renderer.
     pub fn paragraph_engine(&self) -> SkiaParagraphEngine {
-        SkiaParagraphEngine::with_draw_data_registry(Arc::clone(&self.paragraph_draw_data))
+        match self.fonts.as_ref() {
+            Some(fonts) => SkiaParagraphEngine::with_font_catalog(
+                Arc::clone(&self.paragraph_draw_data),
+                fonts.native.clone(),
+            ),
+            None => {
+                SkiaParagraphEngine::with_draw_data_registry(Arc::clone(&self.paragraph_draw_data))
+            }
+        }
     }
 
     /// Creates a raster driver paired with this profile's paragraph engine.
@@ -84,6 +171,7 @@ impl SkiaRasterProfile {
 #[derive(Clone)]
 pub struct SkiaGaneshProfile {
     paragraph_draw_data: Arc<SkiaParagraphDrawDataRegistry>,
+    fonts: Option<ProfileFonts>,
 }
 
 impl Default for SkiaGaneshProfile {
@@ -96,12 +184,32 @@ impl SkiaGaneshProfile {
     pub fn new() -> Self {
         Self {
             paragraph_draw_data: new_paragraph_draw_data_registry(),
+            fonts: None,
         }
+    }
+
+    /// Creates a paired Ganesh profile backed by Fission-owned packaged fonts.
+    pub fn try_with_fonts(
+        default_family: impl Into<String>,
+        faces: Vec<fission_skia_sys::ParagraphFontFace>,
+    ) -> Result<Self, SkiaFontProfileError> {
+        Ok(Self {
+            paragraph_draw_data: new_paragraph_draw_data_registry(),
+            fonts: Some(profile_fonts(default_family, faces)?),
+        })
     }
 
     /// Creates the paragraph engine paired with this profile's renderer.
     pub fn paragraph_engine(&self) -> SkiaParagraphEngine {
-        SkiaParagraphEngine::with_draw_data_registry(Arc::clone(&self.paragraph_draw_data))
+        match self.fonts.as_ref() {
+            Some(fonts) => SkiaParagraphEngine::with_font_catalog(
+                Arc::clone(&self.paragraph_draw_data),
+                fonts.native.clone(),
+            ),
+            None => {
+                SkiaParagraphEngine::with_draw_data_registry(Arc::clone(&self.paragraph_draw_data))
+            }
+        }
     }
 
     /// Creates a Ganesh driver paired with this profile's paragraph engine.
@@ -159,5 +267,44 @@ mod tests {
             &profile.paragraph_draw_data(),
             &clone.paragraph_draw_data()
         ));
+    }
+
+    #[test]
+    fn packaged_profile_requires_its_declared_default_family() {
+        let error = match SkiaRasterProfile::try_with_fonts(
+            "Fission Default",
+            vec![fission_skia_sys::ParagraphFontFace::new(
+                "Application Sans",
+                vec![1],
+            )],
+        ) {
+            Ok(_) => panic!("missing default family must fail before native decode"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(
+            error,
+            SkiaFontProfileError::MissingDefaultFamily { ref family }
+                if family == "Fission Default"
+        ));
+    }
+
+    #[cfg(feature = "test-shim")]
+    #[test]
+    fn packaged_profile_clones_share_one_native_font_generation() {
+        let profile = SkiaRasterProfile::try_with_fonts(
+            "Fission Default",
+            vec![fission_skia_sys::ParagraphFontFace::new(
+                "Fission Default",
+                vec![1, 2, 3],
+            )],
+        )
+        .expect("test-shim font catalogue");
+        let clone = profile.clone();
+
+        assert_eq!(
+            profile.fonts.as_ref().unwrap().native.generation(),
+            clone.fonts.as_ref().unwrap().native.generation()
+        );
     }
 }
