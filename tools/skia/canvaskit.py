@@ -54,7 +54,6 @@ CANVASKIT_REQUIRED_LICENSES = [
     "libpng",
     "libwebp",
     "skia",
-    "woff2",
     "wuffs",
     "zlib",
 ]

@@ -154,6 +154,12 @@ def load_config(path: Path) -> dict[str, Any]:
         target = require_object(raw_target, f"config.targets.{name}")
         if target.get("kind") != "native":
             continue
+        licences = require_string_list(
+            target.get("required_licenses", []),
+            f"config.targets.{name}.required_licenses",
+        )
+        if any(not NAME_RE.fullmatch(licence) for licence in licences):
+            raise SkiaToolError(f"config.targets.{name}.required_licenses has an unsafe name")
         allowed = require_string_list(
             target.get("allowed_gn_overrides"),
             f"config.targets.{name}.allowed_gn_overrides",
@@ -233,6 +239,21 @@ def load_config(path: Path) -> dict[str, Any]:
         if profile.get("build_recipe") == "available" and available == 0:
             raise SkiaToolError(f"config.profiles.{name} has no available target recipe")
     return config
+
+
+def required_native_licenses(
+    profile: Mapping[str, Any], target: Mapping[str, Any]
+) -> list[str]:
+    profile_licenses = require_string_list(
+        profile.get("required_licenses"), "profile required_licenses"
+    )
+    target_licenses = require_string_list(
+        target.get("required_licenses", []), "target required_licenses"
+    )
+    combined = [*profile_licenses, *target_licenses]
+    if len(set(combined)) != len(combined):
+        raise SkiaToolError("native profile and target repeat a required licence")
+    return combined
 
 
 def select_profile(config: Mapping[str, Any], name: str) -> dict[str, Any]:
@@ -1031,9 +1052,7 @@ def package_native(args: argparse.Namespace, config: dict[str, Any]) -> None:
     )
     validate_profile_target_links(profile, args.profile, args.target, links)
     licences = parse_named_paths(args.license, "licence")
-    required_licences = set(
-        require_string_list(profile.get("required_licenses"), "profile required_licenses")
-    )
+    required_licences = set(required_native_licenses(profile, target))
     if set(licences) != required_licences:
         raise SkiaToolError(
             "licence set does not match the profile; "
@@ -1262,9 +1281,7 @@ def verify_artifact_directory(
             f"artifact is missing declared static libraries: {sorted(expected_library_paths - declared)}"
         )
 
-    required_licences = set(
-        require_string_list(profile.get("required_licenses"), "profile required_licenses")
-    )
+    required_licences = set(required_native_licenses(profile, target))
     actual_licence_paths = {
         path for path in declared if path.startswith("licenses/")
     }

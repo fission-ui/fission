@@ -283,7 +283,6 @@ python3 tools/skia/canvaskit.py package \
   --license libjpeg-turbo=/absolute/path/to/libjpeg-turbo/LICENSE.md \
   --license libpng=/absolute/path/to/libpng/LICENSE \
   --license libwebp=/absolute/path/to/libwebp/COPYING \
-  --license woff2=/absolute/path/to/woff2/LICENSE \
   --license wuffs=/absolute/path/to/wuffs/LICENSE \
   --license zlib=/absolute/path/to/zlib/LICENSE \
   --output /absolute/path/to/staged-canvaskit \
@@ -374,6 +373,36 @@ The lock remains empty until real artifacts pass the frozen matrix; the
 promotion command does not waive missing evidence. The crate resolver uses the
 bundled lock as its release trust decision and re-verifies the archive,
 manifest, identity, ABI, target, profile, and complete payload before linking.
+
+## GitHub artifact workflow
+
+`.github/workflows/skia-artifacts.yml` is the only trusted Skia artifact signer.
+Its manual operations are deliberately separate and resumable:
+
+- `build` derives the current release set from the frozen qualification matrix,
+  builds native raster and Ganesh artifacts plus the production and software
+  CanvasKit profiles, verifies every archive, attests its exact bytes, and
+  rejects a partial matrix. These artifacts remain explicitly unqualified and
+  are useful for local integration and qualification work.
+- `qualify` first requires every reviewed environment, input, build, toolchain,
+  artifact digest, and numeric budget in the frozen manifest. It then requires
+  a checked-in real platform collector at
+  `tools/backend-qualification/collect.py`; it never synthesizes results. The
+  repository does not yet contain that collector, so this operation currently
+  fails closed by design.
+- `promote` accepts only distinct successful same-commit build and qualification
+  run IDs, an existing release tag at that exact commit, the complete raw
+  evidence set, and the production environment gate. It re-verifies build
+  provenance, recomputes the complete report, promotes and attests exact bytes,
+  refuses to replace a non-identical release asset, verifies release
+  provenance, and opens a review containing only the generated lock update.
+
+Real execution also requires reviewed repository variables containing the
+expected SHA-256 values for the GN, Ninja, and Emscripten executables selected
+by each hosted-runner family, together with their stable toolchain IDs. Missing
+or malformed values stop before a tool is executed. Build provenance cannot
+substitute for product qualification, and neither operation writes the bundled
+artifact lock directly to `main`.
 
 Run the script tests without Cargo:
 

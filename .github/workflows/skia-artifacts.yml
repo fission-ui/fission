@@ -1,0 +1,775 @@
+name: Skia artifacts
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/skia-artifacts.yml"
+      - "crates/rendering/fission-skia-sys/**"
+      - "crates/rendering/fission-skia-artifacts/**"
+      - "tools/backend-qualification/**"
+      - "tools/skia/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/skia-artifacts.yml"
+      - "crates/rendering/fission-skia-sys/**"
+      - "crates/rendering/fission-skia-artifacts/**"
+      - "tools/backend-qualification/**"
+      - "tools/skia/**"
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Build unqualified artifacts or promote already qualified artifacts
+        required: true
+        default: build
+        type: choice
+        options:
+          - build
+          - qualify
+          - promote
+      fission_version:
+        description: Exact fission-skia-artifacts crate version
+        required: true
+        type: string
+      source_run_id:
+        description: Successful same-commit Skia build run (promotion only)
+        required: false
+        type: string
+      qualification_run_id:
+        description: Successful same-commit backend-qualification run (promotion only)
+        required: false
+        type: string
+      release_tag:
+        description: Existing same-commit GitHub release tag (promotion only)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: skia-artifacts-${{ github.ref }}-${{ inputs.operation || 'contract' }}
+  cancel-in-progress: false
+
+jobs:
+  contract:
+    name: Artifact and qualification contracts
+    runs-on: ubuntu-24.04
+    outputs:
+      native_matrix: ${{ steps.matrix.outputs.native }}
+      canvaskit_matrix: ${{ steps.matrix.outputs.canvaskit }}
+      source_date_epoch: ${{ steps.identity.outputs.source_date_epoch }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Test artifact, qualification, and promotion policy
+        run: python3 -m unittest discover -s tools/skia/tests
+
+      - name: Validate release identity
+        id: identity
+        env:
+          REQUESTED_VERSION: ${{ inputs.fission_version }}
+          OPERATION: ${{ inputs.operation }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          lock = json.loads(
+              Path("crates/rendering/fission-skia-artifacts/artifacts.lock.json").read_text()
+          )
+          cargo_version = None
+          for line in Path("crates/rendering/fission-skia-artifacts/Cargo.toml").read_text().splitlines():
+              if line.startswith("version = "):
+                  cargo_version = line.split('"', 2)[1]
+                  break
+          if cargo_version != lock.get("fission_version"):
+              raise SystemExit("artifact crate and bundled lock versions differ")
+          requested = os.environ.get("REQUESTED_VERSION", "")
+          if os.environ.get("OPERATION") in {"build", "qualify", "promote"} and requested != cargo_version:
+              raise SystemExit(
+                  f"requested Fission version {requested!r} does not match {cargo_version!r}"
+              )
+          PY
+          echo "source_date_epoch=$(git show -s --format=%ct HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve frozen build matrices
+        id: matrix
+        run: |
+          echo "native=$(python3 tools/skia/ci.py matrix --kind native)" >> "$GITHUB_OUTPUT"
+          echo "canvaskit=$(python3 tools/skia/ci.py matrix --kind canvaskit)" >> "$GITHUB_OUTPUT"
+
+  build-native:
+    name: Native ${{ matrix.profile }} / ${{ matrix.target }}
+    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'build'
+    needs: contract
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 360
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.contract.outputs.native_matrix) }}
+    env:
+      FISSION_VERSION: ${{ inputs.fission_version }}
+      SOURCE_DATE_EPOCH: ${{ needs.contract.outputs.source_date_epoch }}
+      GN_SHA256_LINUX_X86_64: ${{ vars.SKIA_GN_SHA256_LINUX_X86_64 }}
+      NINJA_SHA256_LINUX_X86_64: ${{ vars.SKIA_NINJA_SHA256_LINUX_X86_64 }}
+      TOOLCHAIN_ID_LINUX_X86_64: ${{ vars.SKIA_TOOLCHAIN_ID_LINUX_X86_64 }}
+      GN_SHA256_MACOS_ARM64: ${{ vars.SKIA_GN_SHA256_MACOS_ARM64 }}
+      NINJA_SHA256_MACOS_ARM64: ${{ vars.SKIA_NINJA_SHA256_MACOS_ARM64 }}
+      TOOLCHAIN_ID_MACOS_ARM64: ${{ vars.SKIA_TOOLCHAIN_ID_MACOS_ARM64 }}
+      GN_SHA256_WINDOWS_X86_64: ${{ vars.SKIA_GN_SHA256_WINDOWS_X86_64 }}
+      NINJA_SHA256_WINDOWS_X86_64: ${{ vars.SKIA_NINJA_SHA256_WINDOWS_X86_64 }}
+      TOOLCHAIN_ID_WINDOWS_X86_64: ${{ vars.SKIA_TOOLCHAIN_ID_WINDOWS_X86_64 }}
+      ANDROID_NDK_VERSION: "26.3.11579264"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Select isolated build paths
+        shell: bash
+        run: |
+          echo "SKIA_SOURCE=$RUNNER_TEMP/fission-skia-source" >> "$GITHUB_ENV"
+          echo "SKIA_OUTPUT=$RUNNER_TEMP/fission-skia-${{ matrix.id }}" >> "$GITHUB_ENV"
+
+      - name: Set up Rust target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Set up Android SDK
+        if: matrix.platform == 'Android'
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        if: matrix.platform == 'Android'
+        shell: bash
+        run: |
+          sdkmanager "ndk;${ANDROID_NDK_VERSION}"
+          echo "ANDROID_NDK_ROOT=${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Install Linux build dependencies
+        if: matrix.platform == 'Linux' || matrix.platform == 'Android'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfontconfig1-dev libvulkan-dev pkg-config
+
+      - name: Synchronize exact pinned Skia source
+        shell: bash
+        run: |
+          test ! -e "$SKIA_SOURCE"
+          revision=$(tr -d '\r\n' < crates/rendering/fission-skia-sys/skia_revision.txt)
+          git init "$SKIA_SOURCE"
+          git -C "$SKIA_SOURCE" remote add origin https://skia.googlesource.com/skia.git
+          git -C "$SKIA_SOURCE" fetch --depth=1 origin "$revision"
+          git -C "$SKIA_SOURCE" -c advice.detachedHead=false checkout --detach FETCH_HEAD
+          python3 "$SKIA_SOURCE/tools/git-sync-deps"
+
+      - name: Select independently pinned build tools
+        shell: bash
+        env:
+          TOOL_FAMILY: ${{ matrix.tool_family }}
+        run: |
+          case "$TOOL_FAMILY" in
+            linux-x86_64)
+              gn_sha="$GN_SHA256_LINUX_X86_64"
+              ninja_sha="$NINJA_SHA256_LINUX_X86_64"
+              toolchain_id="$TOOLCHAIN_ID_LINUX_X86_64"
+              ;;
+            macos-arm64)
+              gn_sha="$GN_SHA256_MACOS_ARM64"
+              ninja_sha="$NINJA_SHA256_MACOS_ARM64"
+              toolchain_id="$TOOLCHAIN_ID_MACOS_ARM64"
+              ;;
+            windows-x86_64)
+              gn_sha="$GN_SHA256_WINDOWS_X86_64"
+              ninja_sha="$NINJA_SHA256_WINDOWS_X86_64"
+              toolchain_id="$TOOLCHAIN_ID_WINDOWS_X86_64"
+              ;;
+            *)
+              echo "unsupported tool family: $TOOL_FAMILY" >&2
+              exit 1
+              ;;
+          esac
+          [[ "$gn_sha" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$ninja_sha" =~ ^[0-9a-f]{64}$ ]]
+          test -n "$toolchain_id"
+          gn_path="$SKIA_SOURCE/bin/gn"
+          ninja_path="$SKIA_SOURCE/third_party/ninja/ninja"
+          if [[ "${{ matrix.platform }}" == "Windows" ]]; then
+            gn_path="${gn_path}.exe"
+            ninja_path="${ninja_path}.exe"
+          fi
+          {
+            echo "SKIA_GN=$gn_path"
+            echo "SKIA_NINJA=$ninja_path"
+            echo "SKIA_GN_SHA256=$gn_sha"
+            echo "SKIA_NINJA_SHA256=$ninja_sha"
+            echo "SKIA_TOOLCHAIN_ID=$toolchain_id"
+            echo "NINJA=$ninja_path"
+          } >> "$GITHUB_ENV"
+
+      - name: Configure Android cross compiler
+        if: matrix.platform == 'Android'
+        shell: bash
+        run: |
+          tool_bin="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          {
+            echo "CC_aarch64_linux_android=$tool_bin/aarch64-linux-android24-clang"
+            echo "CXX_aarch64_linux_android=$tool_bin/aarch64-linux-android24-clang++"
+            echo "AR_aarch64_linux_android=$tool_bin/llvm-ar"
+            echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$tool_bin/aarch64-linux-android24-clang"
+          } >> "$GITHUB_ENV"
+
+      - name: Build pinned native Skia libraries
+        shell: bash
+        env:
+          PROFILE: ${{ matrix.profile }}
+          TARGET: ${{ matrix.target }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          arguments=(
+            python3 tools/skia/skia.py build-native
+            --source-dir "$SKIA_SOURCE"
+            --build-dir "$SKIA_OUTPUT"
+            --profile "$PROFILE"
+            --target "$TARGET"
+            --toolchain-id "$SKIA_TOOLCHAIN_ID"
+            --gn "$SKIA_GN"
+            --ninja "$SKIA_NINJA"
+            --gn-sha256 "$SKIA_GN_SHA256"
+            --ninja-sha256 "$SKIA_NINJA_SHA256"
+          )
+          if [[ "$PLATFORM" == "Android" ]]; then
+            arguments+=(--gn-arg "ndk=$ANDROID_NDK_ROOT" --gn-arg ndk_api=24)
+          elif [[ "$PLATFORM" == "iOS" ]]; then
+            arguments+=(--gn-arg ios_min_target=13.0)
+          fi
+          "${arguments[@]}"
+
+      - name: Compile the Fission-owned C++ bridge
+        shell: bash
+        env:
+          FISSION_SKIA_SOURCE_DIR: ${{ env.SKIA_SOURCE }}
+          FISSION_SKIA_BUILD_DIR: ${{ env.SKIA_OUTPUT }}
+          FISSION_SKIA_PROFILE: ${{ matrix.profile }}
+        run: |
+          cargo build --locked --release --target "${{ matrix.target }}" \
+            -p fission-skia-sys --no-default-features --features skia-build-from-source
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          target = "${{ matrix.target }}"
+          name = "fission_skia_bridge.lib" if "windows-msvc" in target else "libfission_skia_bridge.a"
+          root = Path("target") / target / "release" / "build"
+          matches = sorted(root.glob(f"fission-skia-sys-*/out/{name}"))
+          if len(matches) != 1:
+              raise SystemExit(f"expected one C++ bridge library, found {matches}")
+          with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as output:
+              output.write(f"FISSION_SKIA_BRIDGE={matches[0].resolve()}\n")
+          PY
+
+      - name: Package and verify unqualified native artifact
+        shell: bash
+        env:
+          PROFILE: ${{ matrix.profile }}
+          TARGET: ${{ matrix.target }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          artifact_dir="$RUNNER_TEMP/artifact-${{ matrix.id }}"
+          archive="$RUNNER_TEMP/fission-skia-${FISSION_VERSION}-${PROFILE}-${TARGET}.tar.gz"
+          compiler="$SKIA_TOOLCHAIN_ID"
+          runtime_abi="C++20"
+          deployment=()
+          licenses=()
+          case "$PLATFORM" in
+            Linux)
+              compiler=$(c++ --version | head -n 1)
+              runtime_abi="libstdc++ / C++20 ABI"
+              libc_version=$(ldd --version | head -n 1 | sed -E 's/.* ([0-9]+\.[0-9]+)$/\1/')
+              deployment+=(--deployment libc=glibc)
+              deployment+=(--deployment "libc_version=$libc_version")
+              deployment+=(--deployment cxx_runtime=libstdc++.so.6)
+              ;;
+            macOS)
+              compiler=$(clang++ --version | head -n 1)
+              runtime_abi="libc++ / C++20 ABI"
+              deployment+=(--deployment minimum_macos=13.0)
+              deployment+=(--deployment "sdk=$(xcrun --sdk macosx --show-sdk-version)")
+              deployment+=(--deployment cxx_runtime=libc++)
+              ;;
+            Windows)
+              compiler="MSVC $VisualStudioVersion"
+              runtime_abi="MSVC dynamic CRT / C++20 ABI"
+              windows_sdk=${WindowsSDKVersion%\\}
+              deployment+=(--deployment minimum_windows=10.0.19041)
+              deployment+=(--deployment "windows_sdk=$windows_sdk")
+              deployment+=(--deployment msvc_runtime=dynamic)
+              ;;
+            Android)
+              compiler=$($CXX_aarch64_linux_android --version | head -n 1)
+              runtime_abi="Android NDK libc++ / C++20 ABI"
+              deployment+=(--deployment android_api=24)
+              deployment+=(--deployment "ndk=$ANDROID_NDK_VERSION")
+              deployment+=(--deployment cxx_runtime=libc++_shared)
+              licenses+=(--license "cpu-features=$ANDROID_NDK_ROOT/sources/android/cpufeatures/NOTICE")
+              ;;
+            iOS)
+              compiler=$(clang++ --version | head -n 1)
+              runtime_abi="Apple libc++ / C++20 ABI"
+              deployment+=(--deployment minimum_ios=13.0)
+              deployment+=(--deployment "sdk=$(xcrun --sdk iphoneos --show-sdk-version)")
+              deployment+=(--deployment cxx_runtime=libc++)
+              deployment+=(--deployment slice=device-arm64)
+              ;;
+          esac
+          python3 tools/skia/ci.py package-native \
+            --source-dir "$SKIA_SOURCE" \
+            --build-dir "$SKIA_OUTPUT" \
+            --bridge-library "$FISSION_SKIA_BRIDGE" \
+            --profile "$PROFILE" \
+            --target "$TARGET" \
+            --fission-version "$FISSION_VERSION" \
+            --toolchain-id "$SKIA_TOOLCHAIN_ID" \
+            --compiler "$compiler" \
+            --runtime-abi "$runtime_abi" \
+            "${deployment[@]}" \
+            "${licenses[@]}" \
+            --output "$artifact_dir" \
+            --archive "$archive" \
+            --source-date-epoch "$SOURCE_DATE_EPOCH"
+          descriptor="$RUNNER_TEMP/${{ matrix.id }}.artifact.json"
+          python3 tools/skia/ci.py describe \
+            --kind native \
+            --archive "$archive" \
+            --profile "$PROFILE" \
+            --target "$TARGET" \
+            --output "$descriptor"
+          {
+            echo "FISSION_ARCHIVE=$archive"
+            echo "FISSION_DESCRIPTOR=$descriptor"
+          } >> "$GITHUB_ENV"
+
+      - name: Attest exact unqualified archive bytes
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ env.FISSION_ARCHIVE }}
+
+      - name: Upload resumable build result
+        uses: actions/upload-artifact@v7
+        with:
+          name: unqualified-${{ matrix.id }}
+          path: |
+            ${{ env.FISSION_ARCHIVE }}
+            ${{ env.FISSION_DESCRIPTOR }}
+          if-no-files-found: error
+          retention-days: 30
+
+  build-canvaskit:
+    name: Web ${{ matrix.profile }}
+    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'build'
+    needs: contract
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 360
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.contract.outputs.canvaskit_matrix) }}
+    env:
+      FISSION_VERSION: ${{ inputs.fission_version }}
+      SOURCE_DATE_EPOCH: ${{ needs.contract.outputs.source_date_epoch }}
+      GN_SHA256: ${{ vars.SKIA_GN_SHA256_LINUX_X86_64 }}
+      NINJA_SHA256: ${{ vars.SKIA_NINJA_SHA256_LINUX_X86_64 }}
+      EMCC_SHA256: ${{ vars.SKIA_EMCC_SHA256_LINUX_X86_64 }}
+      EMXX_SHA256: ${{ vars.SKIA_EMXX_SHA256_LINUX_X86_64 }}
+      EMAR_SHA256: ${{ vars.SKIA_EMAR_SHA256_LINUX_X86_64 }}
+      TOOLCHAIN_ID: ${{ vars.CANVASKIT_TOOLCHAIN_ID_LINUX_X86_64 }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Select isolated build paths
+        shell: bash
+        run: |
+          echo "SKIA_SOURCE=$RUNNER_TEMP/fission-skia-source" >> "$GITHUB_ENV"
+          echo "CANVASKIT_OUTPUT=$RUNNER_TEMP/fission-${{ matrix.id }}" >> "$GITHUB_ENV"
+
+      - name: Synchronize exact pinned Skia and emsdk sources
+        shell: bash
+        run: |
+          test ! -e "$SKIA_SOURCE"
+          revision=$(tr -d '\r\n' < crates/rendering/fission-skia-sys/skia_revision.txt)
+          git init "$SKIA_SOURCE"
+          git -C "$SKIA_SOURCE" remote add origin https://skia.googlesource.com/skia.git
+          git -C "$SKIA_SOURCE" fetch --depth=1 origin "$revision"
+          git -C "$SKIA_SOURCE" -c advice.detachedHead=false checkout --detach FETCH_HEAD
+          python3 "$SKIA_SOURCE/tools/git-sync-deps"
+          emsdk="$SKIA_SOURCE/third_party/externals/emsdk"
+          "$emsdk/emsdk" install 4.0.7
+          "$emsdk/emsdk" activate 4.0.7
+          echo "CANVASKIT_EMSDK=$emsdk" >> "$GITHUB_ENV"
+
+      - name: Verify pinned CanvasKit tool identities
+        shell: bash
+        run: |
+          for digest in "$GN_SHA256" "$NINJA_SHA256" "$EMCC_SHA256" "$EMXX_SHA256" "$EMAR_SHA256"; do
+            [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
+          done
+          test -n "$TOOLCHAIN_ID"
+
+      - name: Build Fission CanvasKit profile
+        shell: bash
+        env:
+          PROFILE: ${{ matrix.profile }}
+        run: |
+          source "$CANVASKIT_EMSDK/emsdk_env.sh"
+          python3 tools/skia/canvaskit.py build \
+            --profile "$PROFILE" \
+            --source-dir "$SKIA_SOURCE" \
+            --emsdk-dir "$CANVASKIT_EMSDK" \
+            --build-dir "$CANVASKIT_OUTPUT" \
+            --toolchain-id "$TOOLCHAIN_ID" \
+            --gn-sha256 "$GN_SHA256" \
+            --ninja-sha256 "$NINJA_SHA256" \
+            --emcc-sha256 "$EMCC_SHA256" \
+            --emxx-sha256 "$EMXX_SHA256" \
+            --emar-sha256 "$EMAR_SHA256"
+
+      - name: Package and verify unqualified CanvasKit artifact
+        shell: bash
+        env:
+          PROFILE: ${{ matrix.profile }}
+        run: |
+          artifact_dir="$RUNNER_TEMP/artifact-${{ matrix.id }}"
+          archive="$RUNNER_TEMP/fission-${PROFILE}-${FISSION_VERSION}.tar.gz"
+          python3 tools/skia/ci.py package-canvaskit \
+            --source-dir "$SKIA_SOURCE" \
+            --build-dir "$CANVASKIT_OUTPUT" \
+            --profile "$PROFILE" \
+            --fission-version "$FISSION_VERSION" \
+            --output "$artifact_dir" \
+            --archive "$archive" \
+            --source-date-epoch "$SOURCE_DATE_EPOCH"
+          descriptor="$RUNNER_TEMP/${{ matrix.id }}.artifact.json"
+          python3 tools/skia/ci.py describe \
+            --kind canvaskit \
+            --archive "$archive" \
+            --profile "$PROFILE" \
+            --target wasm32-unknown-unknown \
+            --output "$descriptor"
+          {
+            echo "FISSION_ARCHIVE=$archive"
+            echo "FISSION_DESCRIPTOR=$descriptor"
+          } >> "$GITHUB_ENV"
+
+      - name: Attest exact unqualified archive bytes
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ env.FISSION_ARCHIVE }}
+
+      - name: Upload resumable build result
+        uses: actions/upload-artifact@v7
+        with:
+          name: unqualified-${{ matrix.id }}
+          path: |
+            ${{ env.FISSION_ARCHIVE }}
+            ${{ env.FISSION_DESCRIPTOR }}
+          if-no-files-found: error
+          retention-days: 30
+
+  verify-build-set:
+    name: Verify complete unqualified build set
+    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'build'
+    needs:
+      - contract
+      - build-native
+      - build-canvaskit
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Download every matrix result
+        uses: actions/download-artifact@v8
+        with:
+          pattern: unqualified-*
+          path: ${{ runner.temp }}/unqualified
+
+      - name: Verify exact and complete artifact matrix
+        run: |
+          python3 tools/skia/ci.py verify-set \
+            --input-root "$RUNNER_TEMP/unqualified" \
+            --output "$RUNNER_TEMP/unqualified-index.json"
+
+      - name: Upload verified build index
+        uses: actions/upload-artifact@v7
+        with:
+          name: unqualified-skia-index
+          path: ${{ runner.temp }}/unqualified-index.json
+          if-no-files-found: error
+          retention-days: 30
+
+  qualify:
+    name: Collect frozen backend qualification evidence
+    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'qualify'
+    needs: contract
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Check out exact candidate source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Require reviewed identities and numeric budgets
+        run: |
+          python3 tools/backend-qualification/qualification.py check-manifest \
+            --manifest tools/backend-qualification/qualification-manifest.json
+
+      - name: Require the real platform evidence collector
+        run: |
+          if test ! -f tools/backend-qualification/collect.py; then
+            echo "::error::No real platform qualification collector is checked in. Implement it before collecting or promoting Skia evidence; synthetic evidence is forbidden."
+            exit 1
+          fi
+          python3 tools/backend-qualification/collect.py \
+            --manifest tools/backend-qualification/qualification-manifest.json \
+            --output "$RUNNER_TEMP/skia-qualification-evidence"
+
+      - name: Validate collected evidence against the complete frozen matrix
+        run: |
+          evidence=()
+          while IFS= read -r path; do
+            evidence+=(--evidence "$path")
+          done < <(find "$RUNNER_TEMP/skia-qualification-evidence" -maxdepth 1 -type f -name '*.json' -print | sort)
+          test "${#evidence[@]}" -gt 0
+          python3 tools/backend-qualification/qualification.py report \
+            --manifest tools/backend-qualification/qualification-manifest.json \
+            "${evidence[@]}" \
+            --json-output "$RUNNER_TEMP/qualification-report.json" \
+            --markdown-output "$RUNNER_TEMP/qualification-report.md"
+
+      - name: Upload raw passing evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: skia-qualification-evidence
+          path: ${{ runner.temp }}/skia-qualification-evidence/*.json
+          if-no-files-found: error
+          retention-days: 90
+
+  promote:
+    name: Qualify, attest, release, and lock
+    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'promote'
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    environment: skia-production
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+      id-token: write
+      attestations: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+      QUALIFICATION_RUN_ID: ${{ inputs.qualification_run_id }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      SOURCE_DATE_EPOCH: ${{ needs.contract.outputs.source_date_epoch }}
+    steps:
+      - name: Check out exact candidate source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Verify immutable source, qualification, and release inputs
+        shell: bash
+        run: |
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]]
+          [[ "$QUALIFICATION_RUN_ID" =~ ^[0-9]+$ ]]
+          test "$SOURCE_RUN_ID" != "$QUALIFICATION_RUN_ID"
+          [[ "$RELEASE_TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]]
+          inspect_run() {
+            local run_id=$1
+            local expected_path=$2
+            local actual_sha actual_path conclusion repository
+            actual_sha=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq .head_sha)
+            actual_path=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq .path)
+            conclusion=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq .conclusion)
+            repository=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq .repository.full_name)
+            test "$repository" = "$GITHUB_REPOSITORY"
+            test "$actual_sha" = "$GITHUB_SHA"
+            test "$actual_path" = "$expected_path"
+            test "$conclusion" = success
+          }
+          verify_operation() {
+            local run_id=$1
+            local expected=$2
+            local artifacts
+            artifacts=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts" --jq '.artifacts[].name')
+            if ! grep -Fxq "$expected" <<<"$artifacts"; then
+              echo "required run $run_id did not publish $expected" >&2
+              exit 1
+            fi
+          }
+          inspect_run "$SOURCE_RUN_ID" .github/workflows/skia-artifacts.yml
+          inspect_run "$QUALIFICATION_RUN_ID" .github/workflows/skia-artifacts.yml
+          verify_operation "$SOURCE_RUN_ID" unqualified-skia-index
+          verify_operation "$QUALIFICATION_RUN_ID" skia-qualification-evidence
+          git fetch --no-tags origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          test "$(git rev-list -n 1 "$RELEASE_TAG")" = "$GITHUB_SHA"
+          gh release view "$RELEASE_TAG" >/dev/null
+
+      - name: Verify frozen qualification readiness
+        shell: bash
+        run: |
+          python3 tools/backend-qualification/qualification.py check-manifest \
+            --manifest tools/backend-qualification/qualification-manifest.json
+
+      - name: Collect exact build and raw qualification evidence
+        shell: bash
+        run: |
+          mkdir "$RUNNER_TEMP/unqualified" "$RUNNER_TEMP/evidence"
+          gh run download "$SOURCE_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'unqualified-*' \
+            --dir "$RUNNER_TEMP/unqualified"
+          gh run download "$QUALIFICATION_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name skia-qualification-evidence \
+            --dir "$RUNNER_TEMP/evidence"
+          python3 tools/skia/ci.py verify-set \
+            --input-root "$RUNNER_TEMP/unqualified" \
+            --output "$RUNNER_TEMP/unqualified-index.json"
+
+      - name: Verify build provenance before qualification promotion
+        shell: bash
+        run: |
+          python3 tools/skia/ci.py verify-provenance-set \
+            --index "$RUNNER_TEMP/unqualified-index.json" \
+            --source-digest "$GITHUB_SHA"
+
+      - name: Recompute the full qualification report and promote exact bytes
+        shell: bash
+        run: |
+          python3 tools/skia/ci.py promote-set \
+            --index "$RUNNER_TEMP/unqualified-index.json" \
+            --evidence-root "$RUNNER_TEMP/evidence" \
+            --source-date-epoch "$SOURCE_DATE_EPOCH" \
+            --output "$RUNNER_TEMP/promoted"
+
+      - name: Attest exact promoted release archives
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ runner.temp }}/promoted/*.tar.gz
+
+      - name: Publish only missing byte-identical release assets
+        shell: bash
+        run: |
+          mkdir "$RUNNER_TEMP/existing-assets"
+          for archive in "$RUNNER_TEMP"/promoted/*.tar.gz; do
+            name=$(basename "$archive")
+            existing="$RUNNER_TEMP/existing-assets/$name"
+            if gh release download "$RELEASE_TAG" --pattern "$name" --dir "$RUNNER_TEMP/existing-assets"; then
+              cmp --silent "$archive" "$existing"
+            else
+              gh release upload "$RELEASE_TAG" "$archive"
+            fi
+          done
+
+      - name: Verify release provenance and generate bundled lock
+        shell: bash
+        run: |
+          cp crates/rendering/fission-skia-artifacts/artifacts.lock.json "$RUNNER_TEMP/artifacts.lock.json"
+          python3 tools/skia/ci.py lock-set \
+            --index "$RUNNER_TEMP/promoted/promoted-index.json" \
+            --lock "$RUNNER_TEMP/artifacts.lock.json" \
+            --release-tag "$RELEASE_TAG" \
+            --source-digest "$GITHUB_SHA"
+
+      - name: Open or update the artifact-lock review
+        shell: bash
+        run: |
+          branch="automation/skia-lock-${RELEASE_TAG}"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            git fetch origin "$branch:refs/remotes/origin/$branch"
+            git checkout -B "$branch" "origin/$branch"
+          else
+            git checkout -b "$branch"
+          fi
+          cp "$RUNNER_TEMP/artifacts.lock.json" \
+            crates/rendering/fission-skia-artifacts/artifacts.lock.json
+          if ! git diff --quiet -- crates/rendering/fission-skia-artifacts/artifacts.lock.json; then
+            git config user.name github-actions[bot]
+            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+            git add crates/rendering/fission-skia-artifacts/artifacts.lock.json
+            git commit -m "chore(skia): lock qualified ${RELEASE_TAG} artifacts"
+            git push --set-upstream origin "$branch"
+          fi
+          if ! gh pr view "$branch" >/dev/null 2>&1; then
+            gh pr create \
+              --base main \
+              --head "$branch" \
+              --title "chore(skia): lock qualified ${RELEASE_TAG} artifacts" \
+              --body "Adds only the exact-byte, provenance-verified Skia artifacts that passed the complete frozen qualification matrix."
+          fi
+
+      - name: Upload qualification and lock review record
+        uses: actions/upload-artifact@v7
+        with:
+          name: qualified-skia-${{ inputs.fission_version }}
+          path: |
+            ${{ runner.temp }}/promoted/qualification-report.json
+            ${{ runner.temp }}/promoted/promoted-index.json
+            ${{ runner.temp }}/artifacts.lock.json
+          if-no-files-found: error
+          retention-days: 90
