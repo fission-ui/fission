@@ -19,7 +19,9 @@ default = []
 tray = ["dep:tray-icon", "dep:gtk"]
 three-d = ["dep:fission-3d-model", "dep:fission-render-wgpu3d"]
 video = ["dep:gstreamer", "dep:gstreamer-video"]
-skia = ["dep:fission-render-skia"]
+skia = ["skia-prebuilt"]
+skia-prebuilt = ["dep:fission-render-skia", "fission-render-skia/skia-prebuilt"]
+skia-build-from-source = ["dep:fission-render-skia", "fission-render-skia/skia-build-from-source"]
 
 [dependencies]
 fission-shell = { path = "../fission-shell", version = "0.10.1" }
@@ -56,7 +58,7 @@ arboard = "3.4"
 rfd = { version = "0.14.1", default-features = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-fission-render-skia = { path = "../../rendering/fission-render-skia", version = "0.10.1", optional = true }
+fission-render-skia = { path = "../../rendering/fission-render-skia", version = "0.10.1", optional = true, default-features = false }
 ureq = "2"
 
 [target.'cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))'.dependencies]
@@ -95,7 +97,7 @@ wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
 web-time = "1.1"
-web-sys = { version = "0.3", features = ["console", "CssStyleDeclaration", "Document", "DomRect", "Element", "Headers", "HtmlCanvasElement", "HtmlElement", "HtmlMediaElement", "HtmlVideoElement", "Location", "Node", "Request", "RequestInit", "RequestMode", "Response", "Window"] }
+web-sys = { version = "0.3", features = ["CompositionEvent", "console", "CssStyleDeclaration", "Document", "DomRect", "Element", "Event", "EventTarget", "FocusEvent", "Headers", "HtmlCanvasElement", "HtmlElement", "HtmlInputElement", "HtmlMediaElement", "HtmlTextAreaElement", "HtmlVideoElement", "InputEvent", "KeyboardEvent", "Location", "Node", "Request", "RequestInit", "RequestMode", "Response", "Window"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc = "0.2"

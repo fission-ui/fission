@@ -38,6 +38,8 @@ where
             self.native_surface_handlers.attach_host(host);
         }
         self.accessibility_bridge.ensure_adapter(elwt, window);
+        #[cfg(target_arch = "wasm32")]
+        self.accessibility_bridge.resume();
         if accessibility::window_must_start_hidden() && !self.background_test_mode {
             window.set_visible(true);
         }
@@ -166,6 +168,7 @@ where
         }
         #[cfg(target_arch = "wasm32")]
         {
+            self.accessibility_bridge.suspend();
             if let Some(mut renderer) = self.web_renderer.take() {
                 if let Err(error) = renderer.detach() {
                     eprintln!("fission-shell-winit: web renderer detach failed: {error}");

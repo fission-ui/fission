@@ -29,7 +29,7 @@ pub(super) fn focused_text_input_config(
     match &node.op {
         Op::Semantics(semantics) => {
             let config = TextInputConfig::from_semantics(semantics);
-            #[cfg(target_os = "android")]
+            #[cfg(any(target_os = "android", target_arch = "wasm32"))]
             let config = {
                 let mut config = config;
                 if let Some(state) = runtime.runtime_state.text_edit.get(id) {

@@ -1,5 +1,5 @@
 use fission_core::env::ImeHandler;
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", target_arch = "wasm32"))]
 use fission_ir::semantics::TextCapitalization;
 use fission_ir::semantics::{TextInputAction, TextInputType};
 use fission_ir::Semantics;
@@ -9,20 +9,22 @@ use winit::window::{ImePurpose, Window};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct TextInputConfig {
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", target_arch = "wasm32"))]
     pub value: String,
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", target_arch = "wasm32"))]
     pub selection: (usize, usize),
     pub text_input_type: TextInputType,
     pub text_input_action: TextInputAction,
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", target_arch = "wasm32"))]
     pub text_capitalization: TextCapitalization,
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", target_arch = "wasm32"))]
     pub multiline: bool,
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", target_arch = "wasm32"))]
     pub masked: bool,
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", target_arch = "wasm32"))]
     pub preedit_active: bool,
+    #[cfg(target_arch = "wasm32")]
+    pub max_length: Option<usize>,
     pub read_only: bool,
     pub disabled: bool,
     pub autocorrect: bool,
@@ -37,20 +39,25 @@ pub(crate) struct TextInputConfig {
 impl TextInputConfig {
     pub(crate) fn from_semantics(semantics: &Semantics) -> Self {
         Self {
-            #[cfg(target_os = "android")]
+            #[cfg(any(target_os = "android", target_arch = "wasm32"))]
             value: semantics.value.clone().unwrap_or_default(),
-            #[cfg(target_os = "android")]
+            #[cfg(any(target_os = "android", target_arch = "wasm32"))]
             selection: semantics.text_selection.unwrap_or((0, 0)),
             text_input_type: semantics.text_input_type,
             text_input_action: semantics.text_input_action,
-            #[cfg(target_os = "android")]
+            #[cfg(any(target_os = "android", target_arch = "wasm32"))]
             text_capitalization: semantics.text_capitalization,
-            #[cfg(target_os = "android")]
+            #[cfg(any(target_os = "android", target_arch = "wasm32"))]
             multiline: semantics.multiline,
-            #[cfg(target_os = "android")]
+            #[cfg(any(target_os = "android", target_arch = "wasm32"))]
             masked: semantics.masked,
-            #[cfg(target_os = "android")]
+            #[cfg(any(target_os = "android", target_arch = "wasm32"))]
             preedit_active: semantics.ime_preedit_range.is_some(),
+            #[cfg(target_arch = "wasm32")]
+            max_length: (semantics.max_length_enforcement
+                == fission_ir::semantics::MaxLengthEnforcement::Enforced)
+                .then_some(semantics.max_length)
+                .flatten(),
             read_only: semantics.read_only,
             disabled: semantics.disabled,
             autocorrect: semantics.autocorrect,
@@ -143,6 +150,8 @@ impl Drop for DesktopImeHandler {
         if let Ok(mut state) = self.state.lock() {
             macos::clear_text_input_traits(state.mac_view_id.take());
         }
+        #[cfg(target_arch = "wasm32")]
+        web::shutdown();
     }
 }
 
@@ -168,6 +177,11 @@ impl ImeHandler for DesktopImeHandler {
         ) {
             return;
         }
+        #[cfg(target_arch = "wasm32")]
+        {
+            web::set_caret(rect);
+            return;
+        }
         #[cfg(target_os = "android")]
         if let Some(host) = self.android_host.as_deref() {
             if let Err(error) =
@@ -191,6 +205,16 @@ fn sync_text_input_config(
     state: &mut ImeHandlerState,
     #[cfg(target_os = "android")] android_host: Option<&crate::android_host::AndroidHostBridge>,
 ) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let active = state.window.is_some()
+            && effective_ime_allowed(
+                state.ime_allowed_requested,
+                state.text_input_config.as_ref(),
+            );
+        web::sync(active, state.text_input_config.clone());
+        return;
+    }
     #[cfg(target_os = "android")]
     if let Some(host) = android_host {
         let active = state.window.is_some()
@@ -295,13 +319,26 @@ fn android_ime_state(
     }
 }
 
-#[cfg(target_os = "android")]
-fn byte_to_utf16(value: &str, byte_offset: usize) -> usize {
+#[cfg(any(target_os = "android", target_arch = "wasm32"))]
+pub(crate) fn byte_to_utf16(value: &str, byte_offset: usize) -> usize {
     let mut clamped = byte_offset.min(value.len());
     while clamped > 0 && !value.is_char_boundary(clamped) {
         clamped -= 1;
     }
     value[..clamped].encode_utf16().count()
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn utf16_to_byte(value: &str, utf16_offset: usize) -> usize {
+    let mut units = 0;
+    for (byte, ch) in value.char_indices() {
+        let next = units + ch.len_utf16();
+        if next > utf16_offset {
+            return byte;
+        }
+        units = next;
+    }
+    value.len()
 }
 
 #[cfg(target_os = "android")]
@@ -329,6 +366,19 @@ fn apply_text_input_config(
     #[cfg(target_os = "macos")]
     macos::apply_text_input_traits(window, config, mac_view_id);
 }
+
+#[cfg(target_arch = "wasm32")]
+#[path = "ime/web.rs"]
+mod web;
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) use web::{
+    bind_control as bind_web_text_control, focus_control as focus_web_text_control,
+    is_composing as web_ime_is_composing, refresh_geometry as refresh_web_ime_geometry,
+    resume as resume_web_ime, set_composing as set_web_ime_composing, suspend as suspend_web_ime,
+    unbind_control as unbind_web_text_control, update_viewport as update_web_ime_viewport,
+    WebTextControl,
+};
 
 #[cfg(target_os = "macos")]
 mod macos {

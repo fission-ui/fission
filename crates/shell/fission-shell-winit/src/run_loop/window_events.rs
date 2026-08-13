@@ -261,6 +261,13 @@ where
                             &mut self.frame_trace,
                             &mut self.invalidations,
                         );
+                        #[cfg(target_arch = "wasm32")]
+                        if is_pressed {
+                            self.accessibility_bridge.focus_runtime_text_control(
+                                &self.runtime,
+                                self.pipeline.prev_ir.as_ref(),
+                            );
+                        }
                     }
                 }
             }
@@ -375,6 +382,11 @@ where
                                 &mut self.last_blink_toggle,
                                 &mut self.frame_trace,
                                 &mut self.invalidations,
+                            );
+                            #[cfg(target_arch = "wasm32")]
+                            self.accessibility_bridge.focus_runtime_text_control(
+                                &self.runtime,
+                                self.pipeline.prev_ir.as_ref(),
                             );
                         }
                     }

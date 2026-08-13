@@ -1,3 +1,6 @@
+#[cfg(any(test, target_arch = "wasm32"))]
+mod model;
+
 #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
 mod imp {
     use std::collections::{HashMap, HashSet, VecDeque};
@@ -1207,54 +1210,7 @@ mod imp {
 mod imp;
 
 #[cfg(all(target_arch = "wasm32", not(target_os = "android")))]
-mod imp {
-    use fission_core::Runtime;
-    use fission_ir::CoreIR;
-    use fission_layout::LayoutSnapshot;
-    use fission_test_driver::TestEvent;
-    use winit::event::WindowEvent;
-    use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
-    use winit::window::Window;
-
-    pub struct AccessibilityBridge;
-
-    impl AccessibilityBridge {
-        pub fn new(_proxy: EventLoopProxy<TestEvent>) -> Self {
-            Self
-        }
-
-        pub fn ensure_adapter(&mut self, _event_loop: &ActiveEventLoop, _window: &Window) {}
-
-        pub fn process_window_event(&mut self, _window: &Window, _event: &WindowEvent) {}
-
-        pub fn update_tree(
-            &mut self,
-            _ir: &CoreIR,
-            _layout: &LayoutSnapshot,
-            _runtime: &Runtime,
-            _scale_factor: f64,
-        ) {
-        }
-
-        pub fn drain_events(
-            &mut self,
-            _runtime: &mut Runtime,
-            _ir: Option<&CoreIR>,
-            _layout: Option<&LayoutSnapshot>,
-        ) -> bool {
-            false
-        }
-
-        pub fn resume(&mut self) {}
-
-        pub fn suspend(&mut self) {}
-
-        pub fn shutdown(&mut self) {}
-    }
-
-    pub fn window_must_start_hidden() -> bool {
-        false
-    }
-}
+#[path = "accessibility/web.rs"]
+mod imp;
 
 pub use imp::{window_must_start_hidden, AccessibilityBridge};
