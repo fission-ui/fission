@@ -532,8 +532,8 @@ fn second_handler(state: &mut MulticastState, _: EditText) {
 #[test]
 fn typed_action_registry_handlers_remain_multicast() {
     let mut registry = fission_core::ActionRegistry::<MulticastState>::new();
-    registry.register(fission_core::reduce!(first_handler));
-    registry.register(fission_core::reduce!(second_handler));
+    registry.register(first_handler as fn(&mut MulticastState, EditText));
+    registry.register(second_handler as fn(&mut MulticastState, EditText));
     let mut state = MulticastState::default();
 
     registry
@@ -574,7 +574,7 @@ fn handle_sensitive(state: &mut SensitiveState, _: SensitiveAction) {
 fn deserialization_failure_is_sanitized_and_does_not_remove_the_reducer() {
     let mut runtime = Runtime::default().with_global_state(SensitiveState::default());
     let mut registry = fission_core::ActionRegistry::<SensitiveState>::new();
-    registry.register(fission_core::reduce!(handle_sensitive));
+    registry.register(handle_sensitive as fn(&mut SensitiveState, SensitiveAction));
     runtime.absorb_registry(registry);
     let node_id = WidgetId::explicit("malformed-action");
     let malformed = ActionEnvelope {

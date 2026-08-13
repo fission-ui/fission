@@ -124,7 +124,7 @@ type TypedReducer<S> = Box<
 
 fn into_boxed_runtime_reducer<S: GlobalState>(
     state_type_id: TypeId,
-    mut typed_reducer: TypedReducer<S>,
+    typed_reducer: TypedReducer<S>,
 ) -> BoxedReducer {
     Box::new(
         move |app_states: &mut HashMap<TypeId, Box<dyn GlobalState>>,
