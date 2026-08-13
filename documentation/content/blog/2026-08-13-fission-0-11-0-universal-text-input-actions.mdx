@@ -66,6 +66,11 @@ fn update_integration_field(
 inspect application JSON, replace the last string in a tuple, or synthesize a
 different action at dispatch time.
 
+`UpdateTextInput` is runtime event data and no longer implements `Action`.
+Applications bind their own unit or contextual action to `on_input` and read
+the edit from the reducer context; they do not dispatch `UpdateTextInput`
+directly.
+
 A field that only updates one string uses the same contract. Bind a unit action
 and read `change.new_text`; there is no legacy payload-replacement mode to opt
 into.
@@ -123,16 +128,18 @@ that may contain credentials.
 Applications must make these migrations:
 
 - rename `TextInput::on_change` to `TextInput::on_input`;
+- replace direct `UpdateTextInput` action dispatch with an application action
+  bound to `on_input`;
 - update text reducers to read `ctx.input.text_change()` instead of an action
   string or number;
 - rename `Combobox`, `Editable`, and `NumberInput` typed-edit hooks to
   `on_input`;
-- parse `NumberInput` text in the reducer; and
+- parse `NumberInput` text in the reducer;
 - move per-widget context captured by distinct reducer closures into the bound
   action payload when several widgets use the same action type;
 - add `TextChanged` arms to exhaustive matches over public `ActionInput` and
   `ActionTrigger` enums;
-- add an `ActionDispatchFailed` arm to exhaustive matches over the public
+- and add an `ActionDispatchFailed` arm to exhaustive matches over the public
   `DiagEventKind` enum.
 
 Update the Fission dependency used by the application:

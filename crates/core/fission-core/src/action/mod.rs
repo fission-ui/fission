@@ -162,8 +162,6 @@ impl ActionScopeId {
 /// Every [`TextInput`](crate::ui::TextInput) binding receives this value through
 /// [`ActionInput::text_change`](crate::ActionInput::text_change), while the
 /// bound action payload continues to carry the application's stable context.
-/// The type remains an [`Action`] for compatibility with code that dispatches
-/// `UpdateTextInput` directly.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UpdateTextInput {
     /// The widget identity of the text input that changed.
@@ -175,16 +173,6 @@ pub struct UpdateTextInput {
     /// Byte offset of the selection anchor (equals `new_caret` when no
     /// selection is active).
     pub new_anchor: usize,
-}
-
-impl Action for UpdateTextInput {
-    fn static_id() -> ActionId {
-        lazy_static! {
-            pub static ref UPDATE_TEXT_INPUT_ACTION_ID: ActionId =
-                ActionId::from_name("fission_core::UpdateTextInput");
-        }
-        *UPDATE_TEXT_INPUT_ACTION_ID
-    }
 }
 
 /// Payload dispatched when the caret/anchor position changes in a TextInput.

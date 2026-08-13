@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Breaking `TextInput` API** - `TextInput::on_change` is replaced by `TextInput::on_input`. The runtime no longer overwrites an action payload with a string or number. Reducers must read text-edit data from `ctx.input.text_change()`.
+- **Text edits are event data, not actions** - `UpdateTextInput` no longer implements `Action`; it is available only as the structured runtime value returned by `ctx.input.text_change()`.
 - **Text-based authoring widgets** - `Combobox`, `Editable`, and `NumberInput` expose `on_input` for typed edits and use the same preserved-action contract.
 - **Numeric parsing belongs to reducers** - `NumberInput` forwards the user's text edit instead of asking the generic text runtime to synthesize an `f32` action payload. Applications decide how to handle empty, partial, invalid, clamped, or formatted numeric input.
 - **Declarative bindings are single-handler** - Repeated `ctx.bind(...)` or `ctx.bind_local(...)` calls for the same effective action ID retain each envelope's payload but install one reducer handler per build. Put per-widget context in the action payload; use explicit `register(...)` only when intentional multicast handling is required.
@@ -34,6 +35,7 @@ fission = { version = "0.11.0", default-features = false, features = ["desktop"]
 ```
 
 - Rename `TextInput::on_change` to `on_input`, preserve only stable application context in the bound action, and read the live edit with `ctx.input.text_change()` inside the reducer. This migration is required even for a reducer that only needs the new string.
+- Replace any direct dispatch of `UpdateTextInput` with an application action bound to `on_input`; read the `UpdateTextInput` event from the reducer context.
 - Rename `Combobox::on_change`, `Editable::on_change`, and `NumberInput::on_change` to `on_input`. Parse `NumberInput` text in the reducer.
 - If several widgets bind the same action type, keep their differing context in the action value rather than in distinct reducer closures. Explicit `register(...)` remains multicast.
 - Code that exhaustively matches `ActionInput` or `ActionTrigger` must handle `TextChanged`. Diagnostics consumers that exhaustively match `DiagEventKind` must handle `ActionDispatchFailed`. These public API changes are why this release is `0.11.0`.
