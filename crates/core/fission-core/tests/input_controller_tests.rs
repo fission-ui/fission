@@ -404,9 +404,9 @@ fn create_text_node(id: WidgetId, val: &str, multiline: bool) -> CoreIR {
                 identifier: None,
                 actions: ActionSet {
                     entries: vec![ActionEntry {
-                        trigger: ActionTrigger::Change,
+                        trigger: ActionTrigger::TextChanged,
                         action_id: 1,
-                        payload_data: None,
+                        payload_data: Some(b"null".to_vec()),
                     }],
                 },
                 action_scope_id: None,
@@ -527,21 +527,6 @@ fn set_input_type(ir: &mut CoreIR, id: WidgetId, input_type: TextInputType) {
     if let Some(node) = ir.nodes.get_mut(&id) {
         if let Op::Semantics(semantics) = &mut node.op {
             semantics.text_input_type = input_type;
-        }
-    }
-}
-
-fn set_change_trigger(ir: &mut CoreIR, id: WidgetId, trigger: ActionTrigger) {
-    if let Some(node) = ir.nodes.get_mut(&id) {
-        if let Op::Semantics(semantics) = &mut node.op {
-            if let Some(entry) = semantics
-                .actions
-                .entries
-                .iter_mut()
-                .find(|entry| entry.trigger == ActionTrigger::Change)
-            {
-                entry.trigger = trigger;
-            }
         }
     }
 }
@@ -760,9 +745,14 @@ fn test_ime_commit_replaces_preedit_range_and_dispatches_change() {
     assert_eq!(state.caret, "hello 世界".len());
     assert_eq!(state.anchor, "hello 世界".len());
     assert_eq!(ctx.dispatched_actions.len(), 1);
-    let (_, change, _) = &ctx.dispatched_actions[0];
-    let changed_text: String = serde_json::from_slice(&change.payload).unwrap();
-    assert_eq!(changed_text, "hello 世界");
+    let (target, envelope, input) = &ctx.dispatched_actions[0];
+    assert_eq!(*target, node_id);
+    assert_eq!(envelope.payload, b"null");
+    let change = input.text_change().expect("text change input");
+    assert_eq!(change.node_id, node_id);
+    assert_eq!(change.new_text, "hello 世界");
+    assert_eq!(change.new_caret, "hello 世界".len());
+    assert_eq!(change.new_anchor, "hello 世界".len());
 }
 
 #[test]
@@ -827,9 +817,9 @@ fn create_rich_text_input_tree(
                 identifier: None,
                 actions: ActionSet {
                     entries: vec![ActionEntry {
-                        trigger: ActionTrigger::Change,
+                        trigger: ActionTrigger::TextChanged,
                         action_id: 1,
-                        payload_data: None,
+                        payload_data: Some(b"null".to_vec()),
                     }],
                 },
                 action_scope_id: None,
@@ -1046,10 +1036,10 @@ fn test_text_input_typing() {
     });
     assert!(controller.handle_event(&mut ctx, &event));
 
-    let (target, env, _input) = &ctx.dispatched_actions[0];
+    let (target, env, input) = &ctx.dispatched_actions[0];
     assert_eq!(*target, node_id);
-    let new_text: String = serde_json::from_slice(&env.payload).unwrap();
-    assert_eq!(new_text, "Hello!");
+    assert_eq!(env.payload, b"null");
+    assert_eq!(input.text_change().unwrap().new_text, "Hello!");
 
     let st = ctx.text_edit.get(node_id).unwrap();
     assert_eq!(st.caret, 6);
@@ -1095,12 +1085,14 @@ fn test_text_input_typing_without_relayout_does_not_drop_chars() {
     assert!(controller.handle_event(&mut ctx, &event_b));
     assert_eq!(ctx.dispatched_actions.len(), 2);
 
-    let first_payload: String =
-        serde_json::from_slice(&ctx.dispatched_actions[0].1.payload).unwrap();
-    let second_payload: String =
-        serde_json::from_slice(&ctx.dispatched_actions[1].1.payload).unwrap();
-    assert_eq!(first_payload, "a");
-    assert_eq!(second_payload, "ab");
+    assert_eq!(
+        ctx.dispatched_actions[0].2.text_change().unwrap().new_text,
+        "a"
+    );
+    assert_eq!(
+        ctx.dispatched_actions[1].2.text_change().unwrap().new_text,
+        "ab"
+    );
 
     let st = ctx.text_edit.get(node_id).unwrap();
     assert_eq!(st.buffer.to_string(), "ab");
@@ -1164,9 +1156,10 @@ fn test_text_input_copy_paste() {
         });
         assert!(controller.handle_event(&mut ctx, &event));
 
-        let new_text: String =
-            serde_json::from_slice(&ctx.dispatched_actions[0].1.payload).unwrap();
-        assert_eq!(new_text, "SelectMeSelect");
+        assert_eq!(
+            ctx.dispatched_actions[0].2.text_change().unwrap().new_text,
+            "SelectMeSelect"
+        );
     }
 }
 
@@ -1208,9 +1201,10 @@ fn test_emoji_navigation_and_deletion() {
         });
         assert!(controller.handle_event(&mut ctx, &event));
 
-        let new_text: String =
-            serde_json::from_slice(&ctx.dispatched_actions[0].1.payload).unwrap();
-        assert_eq!(new_text, "Hi ");
+        assert_eq!(
+            ctx.dispatched_actions[0].2.text_change().unwrap().new_text,
+            "Hi "
+        );
 
         let st = ctx.text_edit.get(node_id).unwrap();
         assert_eq!(st.caret, 3);
@@ -1426,9 +1420,9 @@ fn test_selection_mechanics() {
         });
         assert!(controller.handle_event(&mut ctx, &event));
 
-        let (_target, env, _input) = &ctx.dispatched_actions[0];
-        let new_text: String = serde_json::from_slice(&env.payload).unwrap();
-        assert_eq!(new_text, "XCD");
+        let (_target, env, input) = &ctx.dispatched_actions[0];
+        assert_eq!(env.payload, b"null");
+        assert_eq!(input.text_change().unwrap().new_text, "XCD");
 
         let st = ctx.text_edit.get(node_id).unwrap();
         assert_eq!(st.caret, 1);
@@ -1575,8 +1569,10 @@ fn test_forward_delete_removes_next_grapheme() {
     });
     assert!(controller.handle_event(&mut ctx, &event));
 
-    let new_text: String = serde_json::from_slice(&ctx.dispatched_actions[0].1.payload).unwrap();
-    assert_eq!(new_text, "acd");
+    assert_eq!(
+        ctx.dispatched_actions[0].2.text_change().unwrap().new_text,
+        "acd"
+    );
 
     let st = ctx.text_edit.get(node_id).unwrap();
     assert_eq!(st.caret, 1);
@@ -1670,9 +1666,10 @@ fn test_apple_meta_delete_shortcuts_trim_current_line() {
             modifiers: MOD_SUPER,
         });
         assert!(controller.handle_event(&mut ctx, &event));
-        let new_text: String =
-            serde_json::from_slice(&ctx.dispatched_actions[0].1.payload).unwrap();
-        assert_eq!(new_text, " world");
+        assert_eq!(
+            ctx.dispatched_actions[0].2.text_change().unwrap().new_text,
+            " world"
+        );
         let st = ctx.text_edit.get(node_id).unwrap();
         assert_eq!(st.caret, 0);
     }
@@ -1695,9 +1692,10 @@ fn test_apple_meta_delete_shortcuts_trim_current_line() {
             modifiers: MOD_SUPER,
         });
         assert!(controller.handle_event(&mut ctx, &event));
-        let new_text: String =
-            serde_json::from_slice(&ctx.dispatched_actions[0].1.payload).unwrap();
-        assert_eq!(new_text, "hello ");
+        assert_eq!(
+            ctx.dispatched_actions[0].2.text_change().unwrap().new_text,
+            "hello "
+        );
         let st = ctx.text_edit.get(node_id).unwrap();
         assert_eq!(st.caret, 6);
     }
@@ -2087,8 +2085,10 @@ fn test_text_capitalization_words_applies_to_inserted_text() {
         modifiers: 0,
     });
     assert!(controller.handle_event(&mut ctx, &event));
-    let new_text: String = serde_json::from_slice(&ctx.dispatched_actions[0].1.payload).unwrap();
-    assert_eq!(new_text, "hello W");
+    assert_eq!(
+        ctx.dispatched_actions[0].2.text_change().unwrap().new_text,
+        "hello W"
+    );
 }
 
 #[test]
@@ -2129,8 +2129,10 @@ fn test_digits_only_formatter_filters_paste() {
         modifiers: paste_mod,
     });
     assert!(controller.handle_event(&mut ctx, &event));
-    let new_text: String = serde_json::from_slice(&ctx.dispatched_actions[0].1.payload).unwrap();
-    assert_eq!(new_text, "123");
+    assert_eq!(
+        ctx.dispatched_actions[0].2.text_change().unwrap().new_text,
+        "123"
+    );
 }
 
 #[test]
@@ -2164,80 +2166,9 @@ fn test_number_keyboard_hint_filters_ime_commit_but_dispatches_text() {
         text: "12ab.3".into(),
     });
     assert!(controller.handle_event(&mut ctx, &event));
-    let new_text: String = serde_json::from_slice(&ctx.dispatched_actions[0].1.payload).unwrap();
-    assert_eq!(new_text, "12.3");
-}
-
-#[test]
-fn test_explicit_number_change_trigger_dispatches_float_payload() {
-    let node_id = WidgetId::derived(29, &[2]);
-    let mut ir = create_text_node(node_id, "", false);
-    set_input_type(&mut ir, node_id, TextInputType::Number);
-    set_change_trigger(&mut ir, node_id, ActionTrigger::NumberChange);
-    let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
-    let mut text_edit = TextEditStateMap::default();
-    let mut interaction = InteractionStateMap::default();
-    let mut scroll = ScrollStateMap::default();
-    let mut gesture = fission_core::env::GestureState::default();
-    let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
-    let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
-
-    interaction.set_focused(Some(node_id));
-    text_edit.set_caret(node_id, 0, Some(0));
-
-    let mut controller = TextInputController;
-    let mut ctx = setup_ctx(
-        &ir,
-        &layout,
-        &mut text_edit,
-        &mut interaction,
-        &mut scroll,
-        &mut gesture,
-        &clipboard,
-        Some(&measurer),
-    );
-    let event = InputEvent::Ime(fission_core::event::ImeEvent::Commit {
-        text: "12ab.3".into(),
-    });
-    assert!(controller.handle_event(&mut ctx, &event));
-    let new_val: f32 = serde_json::from_slice(&ctx.dispatched_actions[0].1.payload).unwrap();
-    assert_eq!(new_val, 12.3);
-}
-
-#[test]
-fn test_explicit_number_change_trigger_skips_invalid_float_commit() {
-    let node_id = WidgetId::derived(29, &[1]);
-    let mut ir = create_text_node(node_id, "", false);
-    set_input_type(&mut ir, node_id, TextInputType::Number);
-    set_change_trigger(&mut ir, node_id, ActionTrigger::NumberChange);
-    let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
-    let mut text_edit = TextEditStateMap::default();
-    let mut interaction = InteractionStateMap::default();
-    let mut scroll = ScrollStateMap::default();
-    let mut gesture = fission_core::env::GestureState::default();
-    let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
-    let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
-
-    interaction.set_focused(Some(node_id));
-    text_edit.set_caret(node_id, 0, Some(0));
-
-    let mut controller = TextInputController;
-    let mut ctx = setup_ctx(
-        &ir,
-        &layout,
-        &mut text_edit,
-        &mut interaction,
-        &mut scroll,
-        &mut gesture,
-        &clipboard,
-        Some(&measurer),
-    );
-    let event = InputEvent::Ime(fission_core::event::ImeEvent::Commit { text: "-".into() });
-
-    assert!(controller.handle_event(&mut ctx, &event));
-    assert!(
-        ctx.dispatched_actions.is_empty(),
-        "invalid numeric text should update editing state without dispatching a f32 payload"
+    assert_eq!(
+        ctx.dispatched_actions[0].2.text_change().unwrap().new_text,
+        "12.3"
     );
 }
 
@@ -3100,10 +3031,10 @@ fn test_multiline_enter_key() {
     });
     assert!(controller.handle_event(&mut ctx, &event));
 
-    let (target, env, _input) = &ctx.dispatched_actions[0];
+    let (target, env, input) = &ctx.dispatched_actions[0];
     assert_eq!(*target, node_id);
-    let new_text: String = serde_json::from_slice(&env.payload).unwrap();
-    assert_eq!(new_text, "Line One\n");
+    assert_eq!(env.payload, b"null");
+    assert_eq!(input.text_change().unwrap().new_text, "Line One\n");
     assert_eq!(
         ctx.text_edit.get(node_id).unwrap().caret,
         "Line One\n".len()

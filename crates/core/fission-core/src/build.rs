@@ -406,6 +406,11 @@ impl<S: GlobalState> BuildCtxHandle<S> {
         unsafe { f(&mut *ctx) }
     }
 
+    /// Binds an action payload to one handler per action type in this build.
+    ///
+    /// Repeated bindings retain distinct payloads but share the first handler
+    /// registered for that [`crate::ActionId`]. Use [`Self::register`] for
+    /// intentional multicast handling.
     pub fn bind<A, H>(&self, action: A, handler: H) -> crate::ActionEnvelope
     where
         A: crate::Action,
@@ -443,9 +448,8 @@ impl<S: GlobalState> BuildCtxHandle<S> {
                   _input,
                   _callback_registry|
                   -> anyhow::Result<()> {
-                let action: A = serde_json::from_slice(&envelope.payload).map_err(|error| {
-                    anyhow::anyhow!("Failed to deserialize local action: {error}")
-                })?;
+                let action: A = serde_json::from_slice(&envelope.payload)
+                    .map_err(crate::registry::ActionDeserializationError::new)?;
                 let Some(store) = app_states
                     .get_mut(&TypeId::of::<crate::state::LocalStateStore>())
                     .and_then(|state| state.downcast_mut::<crate::state::LocalStateStore>())

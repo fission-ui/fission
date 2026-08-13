@@ -251,6 +251,15 @@ pub enum DiagEventKind {
         target: Option<u128>,
         position: Option<(f32, f32)>,
     },
+    /// An action reached its reducer but could not be dispatched.
+    ///
+    /// The serialized action payload is deliberately excluded because it may
+    /// contain credentials or other application secrets.
+    ActionDispatchFailed {
+        action_id: u128,
+        target: u128,
+        failure_kind: String,
+    },
 
     MediaEvent {
         kind: String,
@@ -656,5 +665,31 @@ mod tests {
         assert!(json.contains("RendererSelected"));
         assert!(json.contains("webgpu-vello"));
         assert!(json.contains("BrowserWebGpu"));
+    }
+
+    #[test]
+    fn action_dispatch_failure_diagnostic_contains_no_action_payload_or_raw_error() {
+        let event = DiagEventKind::ActionDispatchFailed {
+            action_id: 42,
+            target: 7,
+            failure_kind: "action_deserialization".to_string(),
+        };
+        let json = serde_json::to_string(&event).expect("serialize action failure diagnostic");
+        let value: serde_json::Value =
+            serde_json::from_str(&json).expect("parse action failure diagnostic");
+        let fields = value
+            .get("payload")
+            .and_then(serde_json::Value::as_object)
+            .expect("diagnostic event payload object");
+
+        assert!(json.contains("ActionDispatchFailed"));
+        assert!(json.contains("action_deserialization"));
+        assert_eq!(fields.len(), 3);
+        assert!(fields.contains_key("action_id"));
+        assert!(fields.contains_key("target"));
+        assert!(fields.contains_key("failure_kind"));
+        assert!(!fields.contains_key("action_payload"));
+        assert!(!json.contains("error"));
+        assert!(!json.contains("credential-value"));
     }
 }

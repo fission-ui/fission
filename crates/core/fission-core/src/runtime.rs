@@ -469,6 +469,20 @@ impl Runtime {
         self.pending_effects.push(envelope);
     }
 
+    /// Rejects every queued host effect and its one-shot completion callbacks.
+    ///
+    /// This is only for shells that intentionally do not execute any effects
+    /// produced by a dispatch. Executing or retaining an effect after calling
+    /// this method would make its completion callback unavailable.
+    ///
+    /// Returns the total number of discarded effect envelopes and callbacks.
+    #[doc(hidden)]
+    pub fn discard_pending_effects(&mut self) -> usize {
+        let discarded = self.pending_effects.len() + self.effect_callbacks.clear();
+        self.pending_effects.clear();
+        discarded
+    }
+
     pub fn dispatch_with_input(
         &mut self,
         action: ActionEnvelope,
@@ -483,6 +497,20 @@ impl Runtime {
     }
 
     fn dispatch_node_with_input(
+        &mut self,
+        action: ActionEnvelope,
+        target: WidgetId,
+        input: &ActionInput,
+    ) -> Result<()> {
+        let action_id = action.id;
+        let result = self.try_dispatch_node_with_input(action, target, input);
+        if let Err(error) = &result {
+            crate::registry::emit_action_dispatch_failure(action_id, target, error);
+        }
+        result
+    }
+
+    fn try_dispatch_node_with_input(
         &mut self,
         action: ActionEnvelope,
         target: WidgetId,
@@ -537,7 +565,7 @@ impl Runtime {
             );
 
             let mut temp_reducers: Vec<BoxedReducer> = reducers.drain(..).collect();
-            for reducer_wrapper in temp_reducers.iter_mut() {
+            let dispatch_result = temp_reducers.iter_mut().try_for_each(|reducer_wrapper| {
                 reducer_wrapper(
                     &mut self.app_states,
                     &action,
@@ -545,9 +573,10 @@ impl Runtime {
                     &mut effects,
                     input,
                     &callback_registry,
-                )?;
-            }
+                )
+            });
             reducers.extend(temp_reducers);
+            dispatch_result?;
         }
 
         if let Some(reducers) = self.reducers.get_mut(&action_id) {
@@ -562,7 +591,7 @@ impl Runtime {
             );
 
             let mut temp_reducers: Vec<BoxedReducer> = reducers.drain(..).collect();
-            for reducer_wrapper in temp_reducers.iter_mut() {
+            let dispatch_result = temp_reducers.iter_mut().try_for_each(|reducer_wrapper| {
                 reducer_wrapper(
                     &mut self.app_states,
                     &action,
@@ -570,9 +599,10 @@ impl Runtime {
                     &mut effects,
                     input,
                     &callback_registry,
-                )?;
-            }
+                )
+            });
             reducers.extend(temp_reducers);
+            dispatch_result?;
         }
 
         for envelope in effects {

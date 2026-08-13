@@ -157,10 +157,13 @@ impl ActionScopeId {
     }
 }
 
-/// Action dispatched by the text-editing controller when the user modifies a
-/// [`TextInput`](crate::ui::TextInput) field.
+/// Structured details for a text-input edit.
 ///
-/// Contains the full new text and updated caret/selection positions.
+/// Every [`TextInput`](crate::ui::TextInput) binding receives this value through
+/// [`ActionInput::text_change`](crate::ActionInput::text_change), while the
+/// bound action payload continues to carry the application's stable context.
+/// The type remains an [`Action`] for compatibility with code that dispatches
+/// `UpdateTextInput` directly.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UpdateTextInput {
     /// The widget identity of the text input that changed.

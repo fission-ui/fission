@@ -107,12 +107,17 @@ pub enum ActionTrigger {
     Blur,
     /// A pointer-down happened outside the active text field.
     TapOutside,
-    /// The node's value changed (sliders, text inputs, etc.).
+    /// The node's value changed (for example, a slider moved).
     Change,
-    /// A text field changed and requests numeric `f32` payload dispatch.
+    /// Reserved legacy numeric text-change trigger.
     ///
-    /// This is intentionally separate from [`Change`] so a numeric keyboard
-    /// hint alone does not change the generic text-input payload contract.
+    /// Fission 0.11 `TextInput` never emits this trigger and shells must not
+    /// interpret it. It remains in place to preserve serialized IR enum
+    /// discriminants for the variants that follow it.
+    #[deprecated(
+        since = "0.11.0",
+        note = "TextInput uses TextChanged and carries live edits in ActionInput"
+    )]
     NumberChange,
     /// Text editing was explicitly completed by the current input method.
     EditingComplete,
@@ -128,6 +133,34 @@ pub enum ActionTrigger {
     DragLeave,
     /// Right-click or secondary mouse button.
     SecondaryClick,
+    /// A text field changed.
+    ///
+    /// The bound action payload remains unchanged. The edited value, widget
+    /// identity, caret, and anchor are delivered as runtime action input.
+    TextChanged,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ActionTrigger;
+
+    #[test]
+    fn text_changed_round_trips_through_ir_serialization() {
+        let encoded = serde_json::to_string(&ActionTrigger::TextChanged).unwrap();
+        assert_eq!(encoded, "\"TextChanged\"");
+        let decoded: ActionTrigger = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded, ActionTrigger::TextChanged);
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn existing_action_trigger_discriminants_remain_stable() {
+        assert_eq!(ActionTrigger::Change as u8, 10);
+        assert_eq!(ActionTrigger::NumberChange as u8, 11);
+        assert_eq!(ActionTrigger::EditingComplete as u8, 12);
+        assert_eq!(ActionTrigger::SecondaryClick as u8, 18);
+        assert_eq!(ActionTrigger::TextChanged as u8, 19);
+    }
 }
 
 impl Default for ActionTrigger {
