@@ -461,8 +461,8 @@ mod tests {
     use fission_core::op::Color;
     use fission_core::ui::TextInput;
     use fission_core::{
-        reduce, reduce_with, Action, ActionInput, ActionScope, ActionScopeId, Button, Effect,
-        ReducerContext, RuntimeEffect, StateField, Text,
+        reduce, reduce_with, Action, ActionInput, ActionScope, ActionScopeId, Button,
+        ReducerContext, StateField, Text,
     };
     use fission_ir::semantics::TextInputType;
 
@@ -695,9 +695,12 @@ mod tests {
         let on_ok = ctx
             .effects
             .bind(EffectFinished, reduce_with!(effect_finished));
+        ctx.effects.cancel(77);
         ctx.effects
-            .add(Effect::Runtime(RuntimeEffect::Cancel { req_id: 77 }))
-            .on_ok(on_ok);
+            .out
+            .last_mut()
+            .expect("cancel effect was queued")
+            .on_ok = Some(on_ok);
     }
 
     #[derive(Clone)]
