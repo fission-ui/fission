@@ -9570,7 +9570,11 @@ mod tests {
         runtime
             .runtime_state
             .text_edit
-            .sync_from_runtime(target, "before", Some(2), Some(1));
+            .sync_from_runtime(target, "before", None, None);
+        runtime
+            .runtime_state
+            .text_edit
+            .set_caret(target, 2, Some(1));
         let query = fission_test_driver::SelectorQuery::semantic_identifier("live.text");
 
         let response = handle_fill_text_selector(&query, "private-value", &mut runtime, &pipeline);
