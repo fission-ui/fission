@@ -145,8 +145,11 @@ impl Default for TodoState {
 impl GlobalState for TodoState {}
 
 #[fission_reducer(SetDraft)]
-fn set_draft(state: &mut TodoState, draft: String) {
-    state.draft = draft;
+fn set_draft(state: &mut TodoState, ctx: &mut ReducerContext<TodoState>) {
+    let Some(change) = ctx.input.text_change() else {
+        return;
+    };
+    state.draft = change.new_text.clone();
 }
 
 #[fission_reducer(AddDraftTodo)]
@@ -179,7 +182,7 @@ pub struct TodoScreen;
 impl From<TodoScreen> for Widget {
     fn from(_screen: TodoScreen) -> Widget {
         let (ctx, view) = fission::build::current::<TodoState>();
-        let update_draft = with_reducer!(ctx, SetDraft(String::new()), set_draft);
+        let update_draft = with_reducer!(ctx, SetDraft, set_draft);
         let add_todo = with_reducer!(ctx, AddDraftTodo, add_draft_todo);
 
         let rows = view.state().todos.iter().map(|todo| {
@@ -213,7 +216,7 @@ impl From<TodoScreen> for Widget {
                             value: view.state().draft.clone(),
                             label: Some("New task".into()),
                             placeholder: Some("Add a task".into()),
-                            on_change: Some(update_draft),
+                            on_input: Some(update_draft),
                             ..Default::default()
                         }
                         .semantics_identifier("todo.title"),

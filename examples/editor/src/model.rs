@@ -1206,8 +1206,7 @@ pub struct ApplyEditorEdit {
 }
 
 #[fission_action]
-#[serde(transparent)]
-pub struct UpdateEditorDocument(pub String);
+pub struct UpdateEditorDocument;
 
 #[fission_action]
 #[allow(dead_code)]
@@ -1219,8 +1218,7 @@ pub struct SetEditorPreedit {
 pub struct ToggleCommandPalette;
 
 #[fission_action]
-#[serde(transparent)]
-pub struct UpdateCommandQuery(pub String);
+pub struct UpdateCommandQuery;
 
 #[fission_action]
 pub struct ToggleSidebar;
@@ -1257,8 +1255,7 @@ pub struct RenameContextTarget;
 pub struct DeleteContextTarget;
 
 #[fission_action]
-#[serde(transparent)]
-pub struct UpdateSearchQuery(pub String);
+pub struct UpdateSearchQuery;
 
 #[fission_action]
 pub struct ExecuteSearch;
@@ -1304,12 +1301,10 @@ pub struct RefreshTree;
 pub struct ToggleFindReplace;
 
 #[fission_action]
-#[serde(transparent)]
-pub struct UpdateFindQuery(pub String);
+pub struct UpdateFindQuery;
 
 #[fission_action]
-#[serde(transparent)]
-pub struct UpdateReplaceQuery(pub String);
+pub struct UpdateReplaceQuery;
 
 #[fission_action]
 pub struct FindNext;
@@ -1356,8 +1351,7 @@ pub struct ConfirmRename;
 pub struct CancelRename;
 
 #[fission_action]
-#[serde(transparent)]
-pub struct UpdateRenameInput(pub String);
+pub struct UpdateRenameInput;
 
 #[fission_action]
 pub struct SetActiveMenu(pub Option<String>);

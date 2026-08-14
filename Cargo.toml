@@ -58,4 +58,4 @@ panic = "abort"
 
 [patch.crates-io]
 android-activity = { path = "third_party/android-activity/android-activity" }
-fission-winit = { git = "https://github.com/worka-ai/winit.git", rev = "699b7f82b10f1aa65f735e3dbbf33a9701050dea" }
+fission-winit = { git = "https://github.com/worka-ai/winit.git", rev = "95888ea5adf62ecd160a2df4652ddfffd0310bcf" }

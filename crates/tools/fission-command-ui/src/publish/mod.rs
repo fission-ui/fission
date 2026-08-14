@@ -3,13 +3,10 @@ use fission::op::{Color, Fill};
 use fission::prelude::*;
 use fission_command_core::{read_project_config, DistributionProvider, Target};
 use fission_command_package::{
-    package_silent, publish_flow_snapshot, CheckSeverity, CheckStatus, PackageFormat,
-    PackageOptions, PublishFlowSnapshot, PublishShellOptions, ReadinessCheck,
+    package_silent, CheckSeverity, CheckStatus, PackageFormat, PackageOptions, PublishShellOptions,
+    ReadinessCheck,
 };
-use fission_command_release::{
-    publish_workflow, release_plan_snapshot, release_readiness_checks, PublishWorkflowOptions,
-    ReleasePlanSnapshot,
-};
+use fission_command_release::{publish_workflow, PublishWorkflowOptions, ReleasePlanSnapshot};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
@@ -20,6 +17,7 @@ use std::thread;
 
 mod fission_toml;
 mod fs_ops;
+mod snapshot;
 mod style;
 #[cfg(test)]
 mod tests;
@@ -27,6 +25,7 @@ mod widgets;
 
 use fission_toml::*;
 use fs_ops::*;
+use snapshot::*;
 use style::theme_for_mode;
 pub use widgets::PublishApp;
 
@@ -881,113 +880,6 @@ impl PublishUiState {
     }
 }
 
-fn redact_output_lines(output: &str) -> Vec<String> {
-    output.lines().map(redact_sensitive_text).collect()
-}
-
-fn redact_sensitive_text(text: &str) -> String {
-    let mut redacted = text.to_string();
-    for (key, value) in secret_env_values() {
-        redacted = redacted.replace(&value, &format!("<redacted:{key}>"));
-    }
-    redacted
-}
-
-fn secret_env_values() -> Vec<(String, String)> {
-    let mut values = env::vars()
-        .filter(|(key, value)| secretish_env_key(key) && value.len() >= 8)
-        .map(|(key, value)| (key.to_ascii_uppercase(), value))
-        .collect::<Vec<_>>();
-    values.sort_by(|(_, left), (_, right)| right.len().cmp(&left.len()));
-    values.dedup_by(|(_, left), (_, right)| left == right);
-    values
-}
-
-fn secretish_env_key(key: &str) -> bool {
-    let key = key.to_ascii_uppercase();
-    [
-        "PASSWORD",
-        "TOKEN",
-        "SECRET",
-        "PRIVATE",
-        "CREDENTIAL",
-        "KEYSTORE",
-        "SERVICE_ACCOUNT",
-        "API_KEY",
-        "ACCESS_KEY",
-        "CLIENT_SECRET",
-        "CERTIFICATE",
-        "P8",
-        "P12",
-        "PFX",
-        "JKS",
-    ]
-    .iter()
-    .any(|needle| key.contains(needle))
-}
-
-#[derive(Clone, Debug)]
-struct SnapshotRefreshResult {
-    snapshot: PublishFlowSnapshot,
-    release_plan: Option<ReleasePlanSnapshot>,
-    release_checks: Vec<ReadinessCheck>,
-}
-
-fn collect_refresh_snapshot(options: PublishShellOptions) -> Result<SnapshotRefreshResult> {
-    let snapshot = publish_flow_snapshot(&options)?;
-    let workflow_options = publish_workflow_options_for_snapshot(&options, &snapshot);
-    let release_plan = release_plan_snapshot(workflow_options.clone()).ok();
-    let release_checks = release_readiness_checks(workflow_options)
-        .unwrap_or_else(|err| readiness_error("release.plan.readiness_failed", err));
-    Ok(SnapshotRefreshResult {
-        snapshot,
-        release_plan,
-        release_checks,
-    })
-}
-
-fn publish_workflow_options_for_snapshot(
-    options: &PublishShellOptions,
-    snapshot: &PublishFlowSnapshot,
-) -> PublishWorkflowOptions {
-    PublishWorkflowOptions {
-        project_dir: snapshot.project_dir.clone(),
-        provider: snapshot.provider,
-        target: Some(snapshot.target),
-        format: Some(snapshot.format),
-        artifact: if snapshot.artifact_manifest.as_os_str().is_empty() {
-            None
-        } else {
-            Some(snapshot.artifact_manifest.clone())
-        },
-        site: snapshot.site.clone(),
-        deploy: options.deploy.clone(),
-        track: snapshot.track.clone().or_else(|| options.track.clone()),
-        locales: if snapshot.locales.is_empty() {
-            options.locales.clone()
-        } else {
-            snapshot.locales.clone()
-        },
-        overwrite_remote: false,
-        dry_run: true,
-        yes: true,
-        json: true,
-    }
-}
-
-fn readiness_error(id: &str, err: anyhow::Error) -> Vec<ReadinessCheck> {
-    vec![ReadinessCheck {
-        id: id.to_string(),
-        severity: CheckSeverity::Error,
-        status: CheckStatus::Failed,
-        summary: "release plan could not be loaded".to_string(),
-        details: Some(err.to_string()),
-        remediation: vec![
-            "Run `fission readiness release --json` for full release-plan diagnostics.".to_string(),
-        ],
-    }]
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum PublishBoard {
     Android,
@@ -1662,70 +1554,8 @@ struct PublishTaskData {
     output: Vec<String>,
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct SnapshotRefreshState {
-    shared: Arc<Mutex<SnapshotRefreshData>>,
-}
-
-impl SnapshotRefreshState {
-    fn new() -> Self {
-        Self {
-            shared: Arc::new(Mutex::new(SnapshotRefreshData {
-                status: TaskStatus::Running,
-                revision: 1,
-                message: "Refreshing preflight...".to_string(),
-                result: None,
-            })),
-        }
-    }
-
-    fn status(&self) -> TaskStatus {
-        self.shared
-            .lock()
-            .expect("snapshot refresh lock poisoned")
-            .status
-    }
-
-    fn revision(&self) -> u64 {
-        self.shared
-            .lock()
-            .expect("snapshot refresh lock poisoned")
-            .revision
-    }
-
-    fn message(&self) -> String {
-        self.shared
-            .lock()
-            .expect("snapshot refresh lock poisoned")
-            .message
-            .clone()
-    }
-
-    fn result(&self) -> Option<Result<SnapshotRefreshResult, String>> {
-        self.shared
-            .lock()
-            .expect("snapshot refresh lock poisoned")
-            .result
-            .clone()
-    }
-}
-
-impl PartialEq for SnapshotRefreshState {
-    fn eq(&self, other: &Self) -> bool {
-        self.revision() == other.revision()
-    }
-}
-
-#[derive(Clone, Debug)]
-struct SnapshotRefreshData {
-    status: TaskStatus,
-    revision: u64,
-    message: String,
-    result: Option<Result<SnapshotRefreshResult, String>>,
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum TaskStatus {
+pub(super) enum TaskStatus {
     Running,
     Ok,
     Failed,
@@ -1769,108 +1599,180 @@ fn publish_toggle_theme(state: &mut PublishUiState) {
     };
 }
 
+fn text_input_value(ctx: &ReducerContext<PublishUiState>) -> Option<String> {
+    ctx.input
+        .text_change()
+        .map(|change| change.new_text.clone())
+}
+
 #[fission_reducer(PublishSetTrack)]
-fn publish_set_track(state: &mut PublishUiState, value: String) {
+fn publish_set_track(state: &mut PublishUiState, ctx: &mut ReducerContext<PublishUiState>) {
+    let Some(value) = text_input_value(ctx) else {
+        return;
+    };
     state.track = value;
     state.status_message =
         "Track updated; refresh preflight to re-check provider readiness.".into();
 }
 
 #[fission_reducer(PublishSetLocales)]
-fn publish_set_locales(state: &mut PublishUiState, value: String) {
+fn publish_set_locales(state: &mut PublishUiState, ctx: &mut ReducerContext<PublishUiState>) {
+    let Some(value) = text_input_value(ctx) else {
+        return;
+    };
     state.locales_input = value;
     state.status_message =
         "Locales updated; refresh preflight to re-check release readiness.".into();
 }
 
 #[fission_reducer(PublishSetPlayJson)]
-fn publish_set_play_json(state: &mut PublishUiState, value: String) {
-    state.play_json_path = value;
+fn publish_set_play_json(state: &mut PublishUiState, ctx: &mut ReducerContext<PublishUiState>) {
+    if let Some(value) = text_input_value(ctx) {
+        state.play_json_path = value;
+    }
 }
 
 #[fission_reducer(PublishSetAndroidJks)]
-fn publish_set_android_jks(state: &mut PublishUiState, value: String) {
-    state.android_jks_path = value;
+fn publish_set_android_jks(state: &mut PublishUiState, ctx: &mut ReducerContext<PublishUiState>) {
+    if let Some(value) = text_input_value(ctx) {
+        state.android_jks_path = value;
+    }
 }
 
 #[fission_reducer(PublishSetAndroidAlias)]
-fn publish_set_android_alias(state: &mut PublishUiState, value: String) {
-    state.android_alias = value;
+fn publish_set_android_alias(state: &mut PublishUiState, ctx: &mut ReducerContext<PublishUiState>) {
+    if let Some(value) = text_input_value(ctx) {
+        state.android_alias = value;
+    }
 }
 
 #[fission_reducer(PublishSetAndroidPassword)]
-fn publish_set_android_password(state: &mut PublishUiState, value: String) {
-    state.android_password = value;
+fn publish_set_android_password(
+    state: &mut PublishUiState,
+    ctx: &mut ReducerContext<PublishUiState>,
+) {
+    if let Some(value) = text_input_value(ctx) {
+        state.android_password = value;
+    }
 }
 
 #[fission_reducer(PublishSetAppStoreKeyPath)]
-fn publish_set_app_store_key_path(state: &mut PublishUiState, value: String) {
-    state.app_store_key_path = value;
+fn publish_set_app_store_key_path(
+    state: &mut PublishUiState,
+    ctx: &mut ReducerContext<PublishUiState>,
+) {
+    if let Some(value) = text_input_value(ctx) {
+        state.app_store_key_path = value;
+    }
 }
 
 #[fission_reducer(PublishSetAppStoreKeyId)]
-fn publish_set_app_store_key_id(state: &mut PublishUiState, value: String) {
-    state.app_store_key_id = value;
+fn publish_set_app_store_key_id(
+    state: &mut PublishUiState,
+    ctx: &mut ReducerContext<PublishUiState>,
+) {
+    if let Some(value) = text_input_value(ctx) {
+        state.app_store_key_id = value;
+    }
 }
 
 #[fission_reducer(PublishSetAppStoreIssuerId)]
-fn publish_set_app_store_issuer_id(state: &mut PublishUiState, value: String) {
-    state.app_store_issuer_id = value;
+fn publish_set_app_store_issuer_id(
+    state: &mut PublishUiState,
+    ctx: &mut ReducerContext<PublishUiState>,
+) {
+    if let Some(value) = text_input_value(ctx) {
+        state.app_store_issuer_id = value;
+    }
 }
 
 #[fission_reducer(PublishSetWindowsPfx)]
-fn publish_set_windows_pfx(state: &mut PublishUiState, value: String) {
-    state.windows_pfx_path = value;
+fn publish_set_windows_pfx(state: &mut PublishUiState, ctx: &mut ReducerContext<PublishUiState>) {
+    if let Some(value) = text_input_value(ctx) {
+        state.windows_pfx_path = value;
+    }
 }
 
 #[fission_reducer(PublishSetWindowsPassword)]
-fn publish_set_windows_password(state: &mut PublishUiState, value: String) {
-    state.windows_password = value;
+fn publish_set_windows_password(
+    state: &mut PublishUiState,
+    ctx: &mut ReducerContext<PublishUiState>,
+) {
+    if let Some(value) = text_input_value(ctx) {
+        state.windows_password = value;
+    }
 }
 
 #[fission_reducer(PublishSetAzureTenant)]
-fn publish_set_azure_tenant(state: &mut PublishUiState, value: String) {
-    state.azure_tenant_id = value;
+fn publish_set_azure_tenant(state: &mut PublishUiState, ctx: &mut ReducerContext<PublishUiState>) {
+    if let Some(value) = text_input_value(ctx) {
+        state.azure_tenant_id = value;
+    }
 }
 
 #[fission_reducer(PublishSetAzureClient)]
-fn publish_set_azure_client(state: &mut PublishUiState, value: String) {
-    state.azure_client_id = value;
+fn publish_set_azure_client(state: &mut PublishUiState, ctx: &mut ReducerContext<PublishUiState>) {
+    if let Some(value) = text_input_value(ctx) {
+        state.azure_client_id = value;
+    }
 }
 
 #[fission_reducer(PublishSetMicrosoftSecret)]
-fn publish_set_microsoft_secret(state: &mut PublishUiState, value: String) {
-    state.microsoft_secret = value;
+fn publish_set_microsoft_secret(
+    state: &mut PublishUiState,
+    ctx: &mut ReducerContext<PublishUiState>,
+) {
+    if let Some(value) = text_input_value(ctx) {
+        state.microsoft_secret = value;
+    }
 }
 
 #[fission_reducer(PublishSetAwsProfile)]
-fn publish_set_aws_profile(state: &mut PublishUiState, value: String) {
-    state.aws_profile = value;
+fn publish_set_aws_profile(state: &mut PublishUiState, ctx: &mut ReducerContext<PublishUiState>) {
+    if let Some(value) = text_input_value(ctx) {
+        state.aws_profile = value;
+    }
 }
 
 #[fission_reducer(PublishSetAwsRegion)]
-fn publish_set_aws_region(state: &mut PublishUiState, value: String) {
-    state.aws_region = value;
+fn publish_set_aws_region(state: &mut PublishUiState, ctx: &mut ReducerContext<PublishUiState>) {
+    if let Some(value) = text_input_value(ctx) {
+        state.aws_region = value;
+    }
 }
 
 #[fission_reducer(PublishSetAwsEndpoint)]
-fn publish_set_aws_endpoint(state: &mut PublishUiState, value: String) {
-    state.aws_endpoint = value;
+fn publish_set_aws_endpoint(state: &mut PublishUiState, ctx: &mut ReducerContext<PublishUiState>) {
+    if let Some(value) = text_input_value(ctx) {
+        state.aws_endpoint = value;
+    }
 }
 
 #[fission_reducer(PublishSetAwsAccessKey)]
-fn publish_set_aws_access_key(state: &mut PublishUiState, value: String) {
-    state.aws_access_key_id = value;
+fn publish_set_aws_access_key(
+    state: &mut PublishUiState,
+    ctx: &mut ReducerContext<PublishUiState>,
+) {
+    if let Some(value) = text_input_value(ctx) {
+        state.aws_access_key_id = value;
+    }
 }
 
 #[fission_reducer(PublishSetAwsSecretKey)]
-fn publish_set_aws_secret_key(state: &mut PublishUiState, value: String) {
-    state.aws_secret_access_key = value;
+fn publish_set_aws_secret_key(
+    state: &mut PublishUiState,
+    ctx: &mut ReducerContext<PublishUiState>,
+) {
+    if let Some(value) = text_input_value(ctx) {
+        state.aws_secret_access_key = value;
+    }
 }
 
 #[fission_reducer(PublishSetConfirmation)]
-fn publish_set_confirmation(state: &mut PublishUiState, value: String) {
-    state.publish_confirmation = value;
+fn publish_set_confirmation(state: &mut PublishUiState, ctx: &mut ReducerContext<PublishUiState>) {
+    if let Some(value) = text_input_value(ctx) {
+        state.publish_confirmation = value;
+    }
 }
 
 #[fission_reducer(PublishSaveCredentials)]
@@ -1890,14 +1792,26 @@ fn publish_close_config_editor(state: &mut PublishUiState) {
 }
 
 #[fission_reducer(PublishSetConfigFieldPath)]
-fn publish_set_config_field_path(state: &mut PublishUiState, value: String) {
+fn publish_set_config_field_path(
+    state: &mut PublishUiState,
+    ctx: &mut ReducerContext<PublishUiState>,
+) {
+    let Some(value) = text_input_value(ctx) else {
+        return;
+    };
     if let Some(editor) = &mut state.config_editor {
         editor.field_path = value;
     }
 }
 
 #[fission_reducer(PublishSetConfigFieldValue)]
-fn publish_set_config_field_value(state: &mut PublishUiState, value: String) {
+fn publish_set_config_field_value(
+    state: &mut PublishUiState,
+    ctx: &mut ReducerContext<PublishUiState>,
+) {
+    let Some(value) = text_input_value(ctx) else {
+        return;
+    };
     if let Some(editor) = &mut state.config_editor {
         editor.value = value;
     }

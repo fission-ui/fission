@@ -7,7 +7,7 @@ use fission::core::ui::{
     Button, ButtonContentAlign, ButtonVariant, Checkbox, Container, Row, Text, TextContent, Widget,
 };
 use fission::core::ActionEnvelope;
-use fission::core::{reduce_with, Length, WidgetId};
+use fission::core::{reduce_with, Length, ReducerContext, WidgetId};
 use fission::icons::material;
 use fission::theme::ComponentSize;
 use fission::widgets::{
@@ -135,7 +135,17 @@ impl From<EmailList> for Widget {
         let search_id = ctx
             .bind(
                 UpdateSearch("".into()),
-                reduce_with!((|s: &mut InboxState, a: UpdateSearch, _| s.search_query = a.0)),
+                reduce_with!(
+                    (|s: &mut InboxState,
+                      a: UpdateSearch,
+                      ctx: &mut ReducerContext<InboxState>| {
+                        s.search_query = ctx
+                            .input
+                            .text_change()
+                            .map(|change| change.new_text.clone())
+                            .unwrap_or(a.0);
+                    })
+                ),
             )
             .id;
         let select_id = ctx
@@ -262,9 +272,9 @@ impl From<EmailList> for Widget {
             TextInput {
                 value: view.state().search_query.clone(),
                 placeholder: Some(TextContent::Key("search.placeholder".into())),
-                on_change: Some(ActionEnvelope {
+                on_input: Some(ActionEnvelope {
                     id: search_id,
-                    payload: Vec::new(),
+                    payload: serde_json::to_vec(&UpdateSearch(String::new())).unwrap(),
                 }),
                 ..Default::default()
             }

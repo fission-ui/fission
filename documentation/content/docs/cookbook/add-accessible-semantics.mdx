@@ -28,7 +28,7 @@ pub struct SettingsState {
 impl GlobalState for SettingsState {}
 
 #[derive(Action)]
-pub struct EmailChanged(pub String);
+pub struct EmailChanged;
 
 #[derive(Action)]
 pub struct ToggleMarketing;
@@ -37,8 +37,11 @@ pub struct ToggleMarketing;
 pub struct SaveSettings;
 
 #[fission_reducer(EmailChanged)]
-fn email_changed(state: &mut SettingsState, action: EmailChanged) {
-    state.email = action.0;
+fn email_changed(state: &mut SettingsState, ctx: &mut ReducerContext<SettingsState>) {
+    let Some(change) = ctx.input.text_change() else {
+        return;
+    };
+    state.email = change.new_text.clone();
 }
 
 #[fission_reducer(ToggleMarketing)]
@@ -86,7 +89,7 @@ impl From<AccountSettings> for Widget {
         let save_label = tr(&view, "settings.save", "Save settings");
         let panel_label = tr(&view, "settings.account", "Account settings");
 
-        let email_changed = ctx.bind(EmailChanged(String::new()), reduce_with!(email_changed));
+        let email_changed = ctx.bind(EmailChanged, reduce_with!(email_changed));
         let toggle_marketing = ctx.bind(ToggleMarketing, reduce_with!(toggle_marketing));
         let save_settings = ctx.bind(SaveSettings, reduce_with!(save_settings));
 
@@ -98,7 +101,7 @@ impl From<AccountSettings> for Widget {
                     TextInput {
                         value: state.email.clone(),
                         label: Some(email_label.into()),
-                        on_change: Some(email_changed),
+                        on_input: Some(email_changed),
                         ..Default::default()
                     }
                     .semantics_identifier("settings.email")

@@ -1,8 +1,8 @@
 use crate::layout::{FIND_BAR_HEIGHT, TOOLBAR_CONTROL_SIZE};
 use crate::model::*;
 use crate::palette::{BRIGHT_TEXT, DIM_TEXT, FIND_BAR_BG, FLYOUT_BORDER};
-use fission::core::reduce_with;
 use fission::core::ui::{Button, ButtonVariant, Container, Icon, Row, Text, TextInput, Widget};
+use fission::core::{reduce_with, ReducerContext};
 use fission::icons::material;
 use fission::widgets::Spacer;
 
@@ -21,18 +21,31 @@ impl From<FindReplaceBar> for Widget {
         }
 
         let update_find = ctx.bind(
-            UpdateFindQuery(String::new()),
+            UpdateFindQuery,
             reduce_with!(
-                (|s: &mut EditorState, a: UpdateFindQuery, _| {
-                    s.find_query = a.0;
+                (|s: &mut EditorState,
+                  _a: UpdateFindQuery,
+                  ctx: &mut ReducerContext<EditorState>| {
+                    let Some(change) = ctx.input.text_change() else {
+                        return;
+                    };
+                    s.find_query = change.new_text.clone();
                     s.find_next(); // Auto-search as you type
                 })
             ),
         );
 
         let update_replace = ctx.bind(
-            UpdateReplaceQuery(String::new()),
-            reduce_with!((|s: &mut EditorState, a: UpdateReplaceQuery, _| s.replace_query = a.0)),
+            UpdateReplaceQuery,
+            reduce_with!(
+                (|s: &mut EditorState,
+                  _a: UpdateReplaceQuery,
+                  ctx: &mut ReducerContext<EditorState>| {
+                    if let Some(change) = ctx.input.text_change() {
+                        s.replace_query = change.new_text.clone();
+                    }
+                })
+            ),
         );
 
         let close_find = ctx.bind(
@@ -99,7 +112,7 @@ impl From<FindReplaceBar> for Widget {
             id: Some(fission::WidgetId::explicit("find_input")),
             value: view.state().find_query.clone(),
             placeholder: Some("Find".into()),
-            on_change: Some(update_find),
+            on_input: Some(update_find),
             ..Default::default()
         })
         .flex_grow(1.0)
@@ -109,7 +122,7 @@ impl From<FindReplaceBar> for Widget {
             id: Some(fission::WidgetId::explicit("replace_input")),
             value: view.state().replace_query.clone(),
             placeholder: Some("Replace".into()),
-            on_change: Some(update_replace),
+            on_input: Some(update_replace),
             ..Default::default()
         })
         .flex_grow(1.0)

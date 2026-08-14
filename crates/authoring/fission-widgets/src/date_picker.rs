@@ -52,7 +52,7 @@ impl From<DatePicker> for Widget {
         let _trigger: Widget = TextInput {
             value: text.clone(),
             placeholder: Some("YYYY-MM-DD".into()),
-            on_change: None, // Read-only via text for now, or parse?
+            on_input: None, // Read-only via text for now, or parse?
             // If we want to toggle on click, we need to wrap it or use a Button disguised as Input.
             // TextInput captures focus.
             // Better: Button with TextInput look?

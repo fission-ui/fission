@@ -47,8 +47,11 @@ fn set_gallery_colour_alpha(state: &mut GalleryState, alpha: f32) {
 }
 
 #[fission_reducer(SetGalleryColourHex)]
-fn set_gallery_colour_hex(state: &mut GalleryState, value: String) {
-    if let Some(colour) = parse_gallery_hex(&value) {
+fn set_gallery_colour_hex(state: &mut GalleryState, ctx: &mut ReducerContext<GalleryState>) {
+    let Some(change) = ctx.input.text_change() else {
+        return;
+    };
+    if let Some(colour) = parse_gallery_hex(&change.new_text) {
         state.colour_value = colour;
     }
 }
@@ -158,9 +161,9 @@ impl From<ColourPickerSection> for Widget {
                         SetGalleryColourAlpha(1.0),
                         set_gallery_colour_alpha
                     )),
-                    on_hex_change: Some(with_reducer!(
+                    on_hex_input: Some(with_reducer!(
                         ctx,
-                        SetGalleryColourHex(String::new()),
+                        SetGalleryColourHex,
                         set_gallery_colour_hex
                     )),
                     ..Default::default()

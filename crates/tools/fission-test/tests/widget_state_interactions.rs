@@ -1,7 +1,7 @@
 use anyhow::Result;
 use fission_core::motion::MotionPropertyId;
 use fission_core::ui::{Text, Widget};
-use fission_core::{Action, ActionEnvelope, GlobalState, WidgetId};
+use fission_core::{Action, ActionEnvelope, GlobalState, ReducerContext, WidgetId};
 use fission_ir::semantics::{Role, TextInputType};
 use fission_render::DisplayOp;
 use fission_test::{TestDriver, TestHarness};
@@ -46,8 +46,13 @@ struct DateSelected(String);
 #[fission_macros::fission_action]
 struct DrawerDismissed;
 
-fn number_changed(state: &mut State, action: NumberChanged) {
-    state.number = action.0;
+fn number_changed(state: &mut State, _action: NumberChanged, ctx: &mut ReducerContext<State>) {
+    let Some(change) = ctx.input.text_change() else {
+        return;
+    };
+    if let Ok(number) = change.new_text.parse::<f32>() {
+        state.number = number;
+    }
 }
 
 fn date_navigated(state: &mut State, action: DateNavigated) {
@@ -82,9 +87,9 @@ fn number_input_text_entry_dispatches_parsed_float() -> Result<()> {
                 id: Some(WidgetId::explicit("quantity")),
                 value: view.state().number,
                 display_text: Some(String::new()),
-                on_change: Some(ctx.bind(
+                on_input: Some(ctx.bind(
                     NumberChanged(0.0),
-                    number_changed as fn(&mut State, NumberChanged),
+                    number_changed as fn(&mut State, NumberChanged, &mut ReducerContext<State>),
                 )),
                 ..Default::default()
             }
@@ -136,9 +141,9 @@ fn number_input_ignores_invalid_intermediate_float() -> Result<()> {
                 id: Some(WidgetId::explicit("quantity")),
                 value: view.state().number,
                 display_text: Some(String::new()),
-                on_change: Some(ctx.bind(
+                on_input: Some(ctx.bind(
                     NumberChanged(0.0),
-                    number_changed as fn(&mut State, NumberChanged),
+                    number_changed as fn(&mut State, NumberChanged, &mut ReducerContext<State>),
                 )),
                 ..Default::default()
             }

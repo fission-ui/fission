@@ -51,7 +51,7 @@ impl From<ProductBrowserHeader> for Widget {
             semantics_identifier: Some("product-browser.search".into()),
             value: view.state().query.clone(),
             placeholder: Some("Search products".into()),
-            on_change: Some(header.on_search),
+            on_input: Some(header.on_search),
             ..Default::default()
         })
         .width_length(Length::clamp(

@@ -8,7 +8,9 @@ pub struct Editable {
     pub value: String,
     pub placeholder: String,
     pub is_editing: bool,
-    pub on_change: Option<ActionEnvelope>,
+    /// Action dispatched when the editor text changes. The new text and
+    /// selection are available through `ReducerContext::input.text_change()`.
+    pub on_input: Option<ActionEnvelope>,
     pub on_submit: Option<ActionEnvelope>, // Enter key
     pub on_edit: Option<ActionEnvelope>,   // Click to edit
     pub on_cancel: Option<ActionEnvelope>, // Esc or blur
@@ -29,7 +31,7 @@ impl From<Editable> for Widget {
                 id: input_id.map(Into::into),
                 value: this.value.clone(),
                 placeholder: Some(this.placeholder.clone().into()),
-                on_change: this.on_change.clone(),
+                on_input: this.on_input.clone(),
                 // TODO: on_submit (Enter) and on_cancel (Esc/Blur) support in TextInput semantics?
                 // Currently TextInput semantics supports `actions` but specific triggers like Enter are handled by Runtime key events dispatching first semantics action.
                 // If we want Enter to submit, we should make sure `on_submit` is the primary action?

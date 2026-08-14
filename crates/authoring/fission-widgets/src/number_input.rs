@@ -1,7 +1,5 @@
 use crate::Icon;
-use fission_core::ui::{
-    Button, ButtonVariant, Container, Row, TextInput, TextInputChangePayload, Widget,
-};
+use fission_core::ui::{Button, ButtonVariant, Container, Row, TextInput, Widget};
 use fission_core::{ActionEnvelope, WidgetId};
 use fission_icons::material;
 use serde::{Deserialize, Serialize};
@@ -19,7 +17,9 @@ pub struct NumberInput {
     pub gap: Option<f32>,
     pub on_increment: Option<ActionEnvelope>,
     pub on_decrement: Option<ActionEnvelope>,
-    pub on_change: Option<ActionEnvelope>, // Text input change
+    /// Action dispatched for typed edits. Parse `ctx.input.text_change().new_text`
+    /// in the reducer so validation remains an application decision.
+    pub on_input: Option<ActionEnvelope>,
 }
 
 impl Default for NumberInput {
@@ -36,7 +36,7 @@ impl Default for NumberInput {
             gap: None,
             on_increment: None,
             on_decrement: None,
-            on_change: None,
+            on_input: None,
         }
     }
 }
@@ -88,12 +88,8 @@ impl From<NumberInput> for Widget {
                         value: display_text,
                         width: Some(field_width),
                         borderless: true,
-                        // NumberInput owns a numeric action contract; the
-                        // keyboard hint alone must not change generic text
-                        // input payloads.
                         keyboard_type: fission_ir::semantics::TextInputType::Number,
-                        change_payload: TextInputChangePayload::Number,
-                        on_change: this.on_change.clone(),
+                        on_input: this.on_input.clone(),
                         ..Default::default()
                     }
                     .into(),

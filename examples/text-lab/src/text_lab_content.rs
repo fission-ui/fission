@@ -18,11 +18,11 @@ impl From<TextLabContent> for Widget {
         let tokens = &view.env().theme.tokens;
         let typography = &tokens.typography;
 
-        let set_single_line_id =
-            with_reducer!(ctx, SetSingleLine(String::new()), set_single_line).id;
-        let set_multiline_id = with_reducer!(ctx, SetMultiline(String::new()), set_multiline).id;
-        let set_inline_combobox_id =
-            with_reducer!(ctx, SetInlineCombobox(String::new()), set_inline_combobox).id;
+        let set_single_line = with_reducer!(ctx, SetSingleLine, set_single_line);
+        let set_multiline = with_reducer!(ctx, SetMultiline, set_multiline);
+        let set_inline_combobox =
+            with_reducer!(ctx, SetInlineCombobox(String::new()), set_inline_combobox);
+        let set_inline_combobox_id = set_inline_combobox.id;
         let set_show_modal_id = with_reducer!(ctx, SetShowModal(false), set_show_modal).id;
         let set_menu_open_id = with_reducer!(ctx, SetMenuOpen(false), set_menu_open).id;
         let menu_picked_id = with_reducer!(ctx, MenuPicked(String::new()), menu_picked).id;
@@ -73,10 +73,7 @@ impl From<TextLabContent> for Widget {
                         semantics_identifier: Some("text-lab.single-line".into()),
                         value: view.state().single_line.clone(),
                         placeholder: Some("Type quickly here".into()),
-                        on_change: Some(ActionEnvelope {
-                            id: set_single_line_id,
-                            payload: Vec::new(),
-                        }),
+                        on_input: Some(set_single_line),
                         ..Default::default()
                     }
                     .into(),
@@ -93,10 +90,7 @@ impl From<TextLabContent> for Widget {
                         semantics_identifier: Some("text-lab.multiline".into()),
                         value: view.state().multiline.clone(),
                         placeholder: Some("Multiline editing area".into()),
-                        on_change: Some(ActionEnvelope {
-                            id: set_multiline_id,
-                            payload: Vec::new(),
-                        }),
+                        on_input: Some(set_multiline),
                         multiline: true,
                         height: Some(MULTILINE_HEIGHT),
                         ..Default::default()
@@ -118,10 +112,7 @@ impl From<TextLabContent> for Widget {
                             && !inline_has_exact,
                         width: None,
                         max_popup_height: Some(POPUP_MAX_HEIGHT),
-                        on_change: Some(ActionEnvelope {
-                            id: set_inline_combobox_id,
-                            payload: Vec::new(),
-                        }),
+                        on_input: Some(set_inline_combobox),
                         on_select: Some(Arc::new(move |value| ActionEnvelope {
                             id: set_inline_combobox_id,
                             payload: serde_json::to_vec(&SetInlineCombobox(value)).unwrap(),

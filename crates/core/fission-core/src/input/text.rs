@@ -1755,32 +1755,14 @@ impl TextInputController {
         new_text: String,
     ) {
         Self::persist_runtime_state(ctx, node_id);
-        if let Some(action_entry) = semantics.actions.entries.iter().find(|e| {
-            matches!(
-                e.trigger,
-                fission_ir::semantics::ActionTrigger::Change
-                    | fission_ir::semantics::ActionTrigger::NumberChange
-            )
-        }) {
-            let payload = match action_entry.trigger {
-                fission_ir::semantics::ActionTrigger::Change => serde_json::to_vec(&new_text)
-                    .expect("serializing text input change payload should not fail"),
-                fission_ir::semantics::ActionTrigger::NumberChange => {
-                    let Ok(parsed) = new_text.trim().parse::<f32>() else {
-                        return;
-                    };
-                    serde_json::to_vec(&parsed)
-                        .expect("serializing numeric text input payload should not fail")
-                }
-                _ => unreachable!("filtered to text input change triggers"),
-            };
-
-            let envelope = ActionEnvelope {
-                id: ActionId::from_u128(action_entry.action_id),
-                payload,
-            };
-            let input =
-                crate::input::scoped_action_input(ctx.ir, node_id, crate::ActionInput::None);
+        let (new_caret, new_anchor) = ctx
+            .text_edit
+            .get(node_id)
+            .map(|state| (state.caret, state.anchor))
+            .unwrap_or((new_text.len(), new_text.len()));
+        if let Some((envelope, input)) = crate::input::prepare_scoped_text_input_change(
+            ctx.ir, semantics, node_id, new_text, new_caret, new_anchor,
+        ) {
             ctx.dispatched_actions.push((node_id, envelope, input));
 
             // State update moved to handle_key to avoid double borrow

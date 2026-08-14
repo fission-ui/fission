@@ -9,7 +9,7 @@ use crate::model::{
 };
 use crate::palette::{FLYOUT_BG, FLYOUT_BORDER, MODAL_BACKDROP};
 use fission::core::ui::{Container, GestureDetector, Positioned, TextInput, Widget, ZStack};
-use fission::core::{reduce_with, WidgetId};
+use fission::core::{reduce_with, ReducerContext, WidgetId};
 use fission::widgets::{Spacer, VStack};
 
 pub struct CommandPalette;
@@ -42,8 +42,16 @@ impl From<CommandPalette> for Widget {
         );
 
         let update_query = ctx.bind(
-            UpdateCommandQuery(String::new()),
-            reduce_with!((|s: &mut EditorState, a: UpdateCommandQuery, _| s.command_query = a.0)),
+            UpdateCommandQuery,
+            reduce_with!(
+                (|s: &mut EditorState,
+                  _a: UpdateCommandQuery,
+                  ctx: &mut ReducerContext<EditorState>| {
+                    if let Some(change) = ctx.input.text_change() {
+                        s.command_query = change.new_text.clone();
+                    }
+                })
+            ),
         );
 
         let commands = vec![
@@ -210,7 +218,7 @@ impl From<CommandPalette> for Widget {
                     id: Some(fission::WidgetId::explicit("editor_command_palette_input")),
                     value: view.state().command_query.clone(),
                     placeholder: Some("Type a command...".into()),
-                    on_change: Some(update_query),
+                    on_input: Some(update_query),
                     ..Default::default()
                 })
                 .padding_all(tokens.spacing.s)

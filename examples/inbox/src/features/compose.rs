@@ -5,7 +5,7 @@ use crate::model::{
 };
 use chrono::Local;
 use fission::core::ui::Widget;
-use fission::core::{reduce_with, ActionEnvelope, WidgetId};
+use fission::core::{reduce_with, ActionEnvelope, ReducerContext, WidgetId};
 use fission::widgets::{
     Combobox, DatePicker, Dropzone, FileUpload, FocusScope, FormControl, Modal, ModalAction,
     TextInput, TimePicker, VStack, Wrap,
@@ -28,21 +28,49 @@ impl From<ComposeModal> for Widget {
         let to_id = ctx
             .bind(
                 SetComposeTo("".into()),
-                reduce_with!((|s: &mut InboxState, a: SetComposeTo, _| s.compose_to = a.0)),
+                reduce_with!(
+                    (|s: &mut InboxState,
+                      a: SetComposeTo,
+                      ctx: &mut ReducerContext<InboxState>| {
+                        s.compose_to = ctx
+                            .input
+                            .text_change()
+                            .map(|change| change.new_text.clone())
+                            .unwrap_or(a.0);
+                    })
+                ),
             )
             .id;
         let subject_id = ctx
             .bind(
                 SetComposeSubject("".into()),
                 reduce_with!(
-                    (|s: &mut InboxState, a: SetComposeSubject, _| s.compose_subject = a.0)
+                    (|s: &mut InboxState,
+                      a: SetComposeSubject,
+                      ctx: &mut ReducerContext<InboxState>| {
+                        s.compose_subject = ctx
+                            .input
+                            .text_change()
+                            .map(|change| change.new_text.clone())
+                            .unwrap_or(a.0);
+                    })
                 ),
             )
             .id;
         let body_id = ctx
             .bind(
                 SetComposeBody("".into()),
-                reduce_with!((|s: &mut InboxState, a: SetComposeBody, _| s.compose_body = a.0)),
+                reduce_with!(
+                    (|s: &mut InboxState,
+                      a: SetComposeBody,
+                      ctx: &mut ReducerContext<InboxState>| {
+                        s.compose_body = ctx
+                            .input
+                            .text_change()
+                            .map(|change| change.new_text.clone())
+                            .unwrap_or(a.0);
+                    })
+                ),
             )
             .id;
         let date_id = ctx
@@ -195,9 +223,9 @@ impl From<ComposeModal> for Widget {
                             is_open: !query.is_empty() && !has_exact_match,
                             width: Some(field_width),
                             max_popup_height: Some(180.0),
-                            on_change: Some(ActionEnvelope {
+                            on_input: Some(ActionEnvelope {
                                 id: to_id,
-                                payload: Vec::new(),
+                                payload: serde_json::to_vec(&SetComposeTo(String::new())).unwrap(),
                             }),
                             on_select: Some(Arc::new(move |val| ActionEnvelope {
                                 id: to_id,
@@ -220,9 +248,9 @@ impl From<ComposeModal> for Widget {
                         id: Some(subject_node_id),
                         value: view.state().compose_subject.clone(),
                         placeholder: Some("Subject".into()),
-                        on_change: Some(ActionEnvelope {
+                        on_input: Some(ActionEnvelope {
                             id: subject_id,
-                            payload: Vec::new(),
+                            payload: serde_json::to_vec(&SetComposeSubject(String::new())).unwrap(),
                         }),
                         ..Default::default()
                     }
@@ -280,9 +308,9 @@ impl From<ComposeModal> for Widget {
                         id: Some(body_node_id),
                         value: view.state().compose_body.clone(),
                         placeholder: Some("Type your message...".into()),
-                        on_change: Some(ActionEnvelope {
+                        on_input: Some(ActionEnvelope {
                             id: body_id,
-                            payload: Vec::new(),
+                            payload: serde_json::to_vec(&SetComposeBody(String::new())).unwrap(),
                         }),
                         multiline: true,
                         height: Some(160.0),

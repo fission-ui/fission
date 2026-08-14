@@ -47,8 +47,11 @@ impl Default for TodoState {
 impl GlobalState for TodoState {}
 
 #[fission_reducer(UpdateDraft)]
-fn update_draft(state: &mut TodoState, value: String) {
-    state.draft = value;
+fn update_draft(state: &mut TodoState, ctx: &mut ReducerContext<TodoState>) {
+    let Some(change) = ctx.input.text_change() else {
+        return;
+    };
+    state.draft = change.new_text.clone();
 }
 
 #[fission_reducer(AddTodo)]
@@ -93,7 +96,7 @@ impl From<TodoApp> for Widget {
         let spacing = &view.env().theme.tokens.spacing;
         let done_count = view.state().items.iter().filter(|item| item.done).count();
         let add = with_reducer!(ctx, AddTodo, add_todo);
-        let update_draft = with_reducer!(ctx, UpdateDraft(String::new()), update_draft);
+        let update_draft = with_reducer!(ctx, UpdateDraft, update_draft);
         let clear_done = with_reducer!(ctx, ClearDone, clear_done);
         let light = with_reducer!(ctx, SetThemeMode(DesignMode::Light), set_theme_mode);
         let dark = with_reducer!(ctx, SetThemeMode(DesignMode::Dark), set_theme_mode);
@@ -202,7 +205,7 @@ impl From<TodoApp> for Widget {
                                 TextInput {
                                     value: view.state().draft.clone(),
                                     placeholder: Some("Add a task".into()),
-                                    on_change: Some(update_draft),
+                                    on_input: Some(update_draft),
                                     width: Some(360.0),
                                     ..Default::default()
                                 }

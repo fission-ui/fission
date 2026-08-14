@@ -72,8 +72,14 @@ impl ProductBrowserState {
 impl GlobalState for ProductBrowserState {}
 
 #[fission_reducer(SearchChanged)]
-pub fn on_search_changed(state: &mut ProductBrowserState, query: String) {
-    state.query = query;
+pub fn on_search_changed(
+    state: &mut ProductBrowserState,
+    ctx: &mut ReducerContext<ProductBrowserState>,
+) {
+    let Some(change) = ctx.input.text_change() else {
+        return;
+    };
+    state.query = change.new_text.clone();
     state.selected_category = None;
     state.selected_product_id = None;
     state.compact_detail_open = false;

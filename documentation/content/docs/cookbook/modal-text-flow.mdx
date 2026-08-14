@@ -59,22 +59,21 @@ Text flows become easier to reason about when every update has a named action.
 pub struct SetShowComposeModal(pub bool);
 
 #[fission_action]
-#[serde(transparent)]
-pub struct SetDraftTo(pub String);
+pub struct SetDraftTo;
 
 #[fission_action]
-#[serde(transparent)]
-pub struct SetDraftSubject(pub String);
+pub struct SetDraftSubject;
 
 #[fission_action]
-#[serde(transparent)]
-pub struct SetDraftBody(pub String);
+pub struct SetDraftBody;
 
 #[fission_action]
 pub struct ApplyCompose;
 ```
 
-The `Set...` actions mirror user editing. `SetShowComposeModal` controls visibility. `ApplyCompose` represents the user choosing to commit the modal.
+The draft actions name user editing without carrying transient text.
+`SetShowComposeModal` controls visibility. `ApplyCompose` represents the user
+choosing to commit the modal.
 
 This is a good beginner pattern because it makes the reducer story very obvious.
 
@@ -93,26 +92,32 @@ fn on_set_show_compose_modal(
 
 fn on_set_draft_to(
     state: &mut ComposeState,
-    action: SetDraftTo,
-    _ctx: &mut ReducerContext<ComposeState>,
+    _action: SetDraftTo,
+    ctx: &mut ReducerContext<ComposeState>,
 ) {
-    state.draft_to = action.0;
+    if let Some(change) = ctx.input.text_change() {
+        state.draft_to = change.new_text.clone();
+    }
 }
 
 fn on_set_draft_subject(
     state: &mut ComposeState,
-    action: SetDraftSubject,
-    _ctx: &mut ReducerContext<ComposeState>,
+    _action: SetDraftSubject,
+    ctx: &mut ReducerContext<ComposeState>,
 ) {
-    state.draft_subject = action.0;
+    if let Some(change) = ctx.input.text_change() {
+        state.draft_subject = change.new_text.clone();
+    }
 }
 
 fn on_set_draft_body(
     state: &mut ComposeState,
-    action: SetDraftBody,
-    _ctx: &mut ReducerContext<ComposeState>,
+    _action: SetDraftBody,
+    ctx: &mut ReducerContext<ComposeState>,
 ) {
-    state.draft_body = action.0;
+    if let Some(change) = ctx.input.text_change() {
+        state.draft_body = change.new_text.clone();
+    }
 }
 
 fn on_apply_compose(
@@ -182,18 +187,9 @@ That answer comes from state, not from a hidden overlay manager that only the wi
 Inside the modal, each field reads from state and writes back through an action.
 
 ```rust
-let set_to = ctx.bind(
-    SetDraftTo(String::new()),
-    reduce_with!(on_set_draft_to),
-);
-let set_subject = ctx.bind(
-    SetDraftSubject(String::new()),
-    reduce_with!(on_set_draft_subject),
-);
-let set_body = ctx.bind(
-    SetDraftBody(String::new()),
-    reduce_with!(on_set_draft_body),
-);
+let set_to = ctx.bind(SetDraftTo, reduce_with!(on_set_draft_to));
+let set_subject = ctx.bind(SetDraftSubject, reduce_with!(on_set_draft_subject));
+let set_body = ctx.bind(SetDraftBody, reduce_with!(on_set_draft_body));
 
 let modal_fields = Column {
     gap: Some(10.0),
@@ -201,21 +197,21 @@ let modal_fields = Column {
         TextInput {
             value: view.state().draft_to.clone(),
             placeholder: Some("To".into()),
-            on_change: Some(set_to),
+            on_input: Some(set_to),
             ..Default::default()
         }
         .into(),
         TextInput {
             value: view.state().draft_subject.clone(),
             placeholder: Some("Subject".into()),
-            on_change: Some(set_subject),
+            on_input: Some(set_subject),
             ..Default::default()
         }
         .into(),
         TextInput {
             value: view.state().draft_body.clone(),
             placeholder: Some("Write your message".into()),
-            on_change: Some(set_body),
+            on_input: Some(set_body),
             multiline: true,
             height: Some(180.0),
             ..Default::default()
@@ -229,7 +225,11 @@ let modal_fields = Column {
 
 This is the essential text flow in Fission.
 
-The input widget does not keep the authoritative text by itself. It shows the current value from `view.state()`. When the user edits the field, the widget emits the bound action. The reducer updates state. The next conversion pass reads the new value and renders it back into the field.
+The input widget does not keep the authoritative text by itself. It shows the
+current value from `view.state()`. When the user edits the field, the widget
+emits the bound action and places the edit in `ctx.input.text_change()`. The
+reducer updates state. The next conversion pass reads the new value and renders
+it back into the field.
 
 If you know web user interface, this should feel like a deliberately explicit controlled-input pattern.
 

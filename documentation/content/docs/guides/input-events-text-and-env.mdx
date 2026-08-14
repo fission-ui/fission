@@ -37,6 +37,72 @@ That is why Fission owns text editing behavior inside the runtime instead of lea
 
 Built-in text widgets already depend on this shared input model, and custom text-heavy widgets can do the same. The `text-lab` example is useful because it isolates the parts of user interface work that usually become fragile first: multiline editing, comboboxes, menus, focus changes, and modal text flows.
 
+## Bind text input without losing action context
+
+Every text field binds a stable application action and reads the live edit from
+`ReducerContext::input`:
+
+```rust
+#[fission_reducer(SetName)]
+fn set_name(state: &mut ProfileState, ctx: &mut ReducerContext<ProfileState>) {
+    let Some(change) = ctx.input.text_change() else {
+        return;
+    };
+    state.name = change.new_text.clone();
+}
+
+TextInput {
+    value: view.state().name.clone(),
+    on_input: Some(ctx.bind(SetName, reduce!(set_name))),
+    ..Default::default()
+}
+```
+
+A dynamic form uses the same contract. Its bound action can also carry the
+stable identity of the field while the runtime event carries the transient
+edit:
+
+```rust
+#[fission_reducer(UpdateIntegrationField)]
+fn update_integration_field(
+    draft: &mut IntegrationDraft,
+    field: FieldId,
+    ctx: &mut ReducerContext<IntegrationDraft>,
+) {
+    let Some(change) = ctx.input.text_change() else {
+        return;
+    };
+
+    draft.metadata.insert(field, change.new_text.clone());
+}
+```
+
+Bind only the stable field identity in the action:
+
+```rust
+TextInput {
+    id: Some(WidgetId::explicit(&format!("integration.{field}"))),
+    value: draft.metadata.get(&field).cloned().unwrap_or_default(),
+    on_input: Some(ctx.bind_local(
+        UpdateIntegrationField(field.clone()),
+        draft.clone(),
+        reduce!(update_integration_field),
+    )),
+    ..Default::default()
+}
+```
+
+`ctx.input.text_change()` returns one `UpdateTextInput` value containing
+`new_text`, `node_id`, `new_caret`, and `new_anchor`. Fission preserves the
+bound action exactly, so the reducer receives the same `FieldId` that the
+component bound. There is no string-replacement or numeric mode: Fission never
+inspects or rewrites arbitrary application JSON.
+
+This contract is shared by native keyboard and input-method edits, desktop
+accessibility actions, Web input, and interactive browser islands. Static site
+and plain SSR output remain inert HTML; a browser island is required when a
+retained reducer must run in the browser.
+
 ## Input method editor support, in beginner terms
 
 An input method editor is the system tool that lets a user compose text before it is committed. This is essential for many writing systems, including Japanese, Chinese, and Korean, and it also matters for accents, emoji pickers, and other composed-text workflows.

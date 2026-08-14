@@ -6,7 +6,7 @@
 //! The platform executor fulfils the effect outside the deterministic core and
 //! dispatches the `on_ok` / `on_err` callback actions back into the pipeline.
 
-use crate::action::ActionEnvelope;
+use crate::action::{ActionEnvelope, UpdateTextInput};
 use crate::async_runtime::{
     JobRef, JobRequestPayload, JobSpec, ResourceExecutionContext, ServiceBindings,
     ServiceCommandPayload, ServiceSpec, ServiceStartPayload, ServiceStopPayload, ServiceType,
@@ -271,6 +271,11 @@ pub enum ActionInput {
         delta_x: f32,
         delta_y: f32,
     },
+    /// Runtime details accompanying a text-input action.
+    ///
+    /// The action envelope retains the application-defined payload, while this
+    /// input carries the edited value and selection independently.
+    TextChanged(UpdateTextInput),
     /// External file drop (e.g. from the OS file manager).
     Drop {
         paths: Vec<String>,
@@ -347,6 +352,17 @@ impl ActionInput {
             } => Some((*x, *y, *delta_x, *delta_y)),
             ActionInput::Drop { x, y, .. } => Some((*x, *y, 0.0, 0.0)),
             ActionInput::InternalDrop { x, y, .. } => Some((*x, *y, 0.0, 0.0)),
+            _ => None,
+        }
+    }
+
+    /// Returns the edit accompanying a text-input action.
+    ///
+    /// Scoped actions are unwrapped automatically, matching the other typed
+    /// input accessors.
+    pub fn text_change(&self) -> Option<&UpdateTextInput> {
+        match self.unscoped() {
+            ActionInput::TextChanged(change) => Some(change),
             _ => None,
         }
     }

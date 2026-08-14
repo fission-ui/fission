@@ -10,13 +10,13 @@ targets = [
 [app]
 name = "web-smoke"
 app_id = "com.example.web_smoke"
-version = "0.10.1"
+version = "0.11.0"
 build = 1
 
 [package.android]
 package_name = "com.example.web_smoke"
 version_code = 1
-version_name = "0.10.1"
+version_name = "0.11.0"
 min_sdk = 24
 target_sdk = 35
 keystore_alias = "upload"
@@ -27,13 +27,13 @@ key_password_env = "ANDROID_KEY_PASSWORD"
 
 [package.ios]
 bundle_id = "com.example.web_smoke"
-marketing_version = "0.10.1"
+marketing_version = "0.11.0"
 build_number = "1"
 
 [package.windows]
 identity_name = "com.example.web.smoke"
 publisher = "CN=Fission Developer"
-version = "0.10.1"
+version = "0.11.0"
 installer = "msix"
 certificate_thumbprint_env = "WINDOWS_CERTIFICATE_THUMBPRINT"
 certificate_base64_env = "WINDOWS_CERTIFICATE_BASE64"

@@ -816,7 +816,7 @@ impl From<PublishTextField> for Widget {
             label: Some(field.label.into()),
             value: field.value,
             placeholder: Some(field.placeholder.into()),
-            on_change: Some(field.on_change),
+            on_input: Some(field.on_change),
             width: Some(if layout.terminal {
                 layout.column_width - 2.0
             } else {

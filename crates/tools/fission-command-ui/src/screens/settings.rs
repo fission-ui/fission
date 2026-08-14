@@ -15,11 +15,8 @@ impl From<SettingsScreen> for Widget {
     fn from(_component: SettingsScreen) -> Self {
         let (ctx, view) = fission::build::current::<UiState>();
         let palette = UiPalette::for_mode(view.state().theme_mode);
-        let set_limit_input = with_reducer!(
-            ctx,
-            SetScrollbackLimitInput(String::new()),
-            set_scrollback_limit_input
-        );
+        let set_limit_input =
+            with_reducer!(ctx, SetScrollbackLimitInput, set_scrollback_limit_input);
         let compact = with_reducer!(ctx, ToggleCompactMode, toggle_compact_mode);
         let presets = [10_000usize, 100_000, 500_000, 1_000_000]
             .into_iter()

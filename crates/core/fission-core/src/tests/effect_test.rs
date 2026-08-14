@@ -86,6 +86,25 @@ impl Action for UploadFinished {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct RegisterUnusedCallback;
+
+impl Action for RegisterUnusedCallback {
+    fn static_id() -> ActionId {
+        ActionId::from_name("RegisterUnusedCallback")
+    }
+}
+
+fn register_unused_callback<'a, 'b, 'c>(
+    _: &mut TestState,
+    _: RegisterUnusedCallback,
+    ctx: &mut ReducerContext<'a, 'b, 'c, TestState>,
+) {
+    let _unused = ctx
+        .effects
+        .bind(UploadFinished, reduce_with!(on_upload_finished));
+}
+
 #[test]
 fn test_capability_effect_loop() {
     let mut runtime = Runtime::default();
@@ -141,6 +160,74 @@ fn test_capability_effect_loop() {
     let state = runtime.get_global_state::<TestState>().unwrap();
     assert_eq!(state.data, "uploaded 11 bytes");
     assert_eq!(state.completions, 1);
+}
+
+#[test]
+fn discard_pending_effects_removes_envelopes_and_one_shot_callbacks() {
+    let mut runtime = Runtime::default();
+    runtime
+        .add_global_state(Box::new(TestState::default()))
+        .unwrap();
+
+    let mut registry = crate::registry::ActionRegistry::new();
+    registry.register(reduce_with!(on_upload_requested));
+    runtime.absorb_registry(registry);
+    runtime
+        .dispatch(
+            ActionEnvelope {
+                id: UploadRequested::static_id(),
+                payload: UploadRequested.encode(),
+            },
+            crate::WidgetId::from_u128(0),
+        )
+        .unwrap();
+
+    let completion = runtime.pending_effects[0]
+        .on_ok
+        .clone()
+        .expect("capability continuation");
+    assert_eq!(runtime.discard_pending_effects(), 2);
+    assert!(runtime.pending_effects.is_empty());
+
+    runtime
+        .dispatch_with_input(
+            completion,
+            crate::WidgetId::from_u128(0),
+            &crate::ActionInput::CapabilityOk {
+                capability: "upload-file".into(),
+                req_id: 0,
+                payload: serde_json::to_vec(&UploadFileOk { bytes: 11 }).unwrap(),
+            },
+        )
+        .unwrap();
+    let state = runtime.get_global_state::<TestState>().unwrap();
+    assert!(state.loading);
+    assert_eq!(state.completions, 0);
+}
+
+#[test]
+fn discard_pending_effects_removes_unattached_callbacks() {
+    let mut runtime = Runtime::default();
+    runtime
+        .add_global_state(Box::new(TestState::default()))
+        .unwrap();
+    let mut registry = crate::registry::ActionRegistry::new();
+    registry.register(reduce_with!(register_unused_callback));
+    runtime.absorb_registry(registry);
+
+    runtime
+        .dispatch(
+            ActionEnvelope {
+                id: RegisterUnusedCallback::static_id(),
+                payload: RegisterUnusedCallback.encode(),
+            },
+            crate::WidgetId::from_u128(0),
+        )
+        .unwrap();
+
+    assert!(runtime.pending_effects.is_empty());
+    assert_eq!(runtime.discard_pending_effects(), 1);
+    assert_eq!(runtime.discard_pending_effects(), 0);
 }
 
 #[test]

@@ -2,7 +2,7 @@ use anyhow::Result;
 use fission_core::event::{ImeEvent, InputEvent};
 use fission_core::op::{Color, FlexDirection};
 use fission_core::ui::{Column, Container, Positioned, Scroll, Spacer, TextInput, Widget, ZStack};
-use fission_core::GlobalState;
+use fission_core::{GlobalState, ReducerContext};
 use fission_ir::semantics::Role;
 use fission_ir::{Op, PaintOp, WidgetId};
 use fission_test::{TestDriver, TestHarness};
@@ -15,10 +15,12 @@ struct State {
 impl GlobalState for State {}
 
 #[fission_macros::fission_action]
-struct UpdateText(String);
+struct UpdateText;
 
-fn update_text(state: &mut State, action: UpdateText) {
-    state.text = action.0;
+fn update_text(state: &mut State, _action: UpdateText, ctx: &mut ReducerContext<State>) {
+    if let Some(change) = ctx.input.text_change() {
+        state.text = change.new_text.clone();
+    }
 }
 
 #[derive(Clone)]
@@ -48,9 +50,9 @@ impl From<LargeScrollEditor> for Widget {
         let text_input = TextInput {
             id: Some(WidgetId::explicit("large.editor.body")),
             value: view.state().text.clone(),
-            on_change: Some(ctx.bind(
-                UpdateText(String::new()),
-                update_text as fn(&mut State, UpdateText),
+            on_input: Some(ctx.bind(
+                UpdateText,
+                update_text as fn(&mut State, UpdateText, &mut ReducerContext<State>),
             )),
             width: Some(672.0),
             height: Some(912.0),

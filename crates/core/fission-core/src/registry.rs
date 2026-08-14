@@ -12,10 +12,69 @@ use crate::{
     Action, ActionEnvelope, ActionId, BoxedReducer, GlobalState,
 };
 use anyhow::{anyhow, Result};
+use fission_diagnostics::prelude as diag;
 use fission_ir::WidgetId;
 use serde::Serialize;
 use std::any::TypeId;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::error::Error;
+use std::fmt;
+
+#[derive(Debug)]
+pub(crate) struct ActionDeserializationError;
+
+impl ActionDeserializationError {
+    pub(crate) fn new(_source: serde_json::Error) -> Self {
+        Self
+    }
+}
+
+impl fmt::Display for ActionDeserializationError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("failed to deserialize action payload")
+    }
+}
+
+impl Error for ActionDeserializationError {}
+
+pub(crate) fn emit_action_dispatch_failure(
+    action_id: ActionId,
+    target: WidgetId,
+    error: &anyhow::Error,
+) {
+    let failure_kind = if error.downcast_ref::<ActionDeserializationError>().is_some() {
+        "action_deserialization"
+    } else {
+        "reducer_dispatch"
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    eprintln!(
+        "{}",
+        action_dispatch_failure_message(action_id, target, failure_kind)
+    );
+    diag::emit(
+        diag::DiagCategory::Input,
+        diag::DiagLevel::Error,
+        diag::DiagEventKind::ActionDispatchFailed {
+            action_id: action_id.as_u128(),
+            target: target.as_u128(),
+            failure_kind: failure_kind.into(),
+        },
+    );
+}
+
+#[cfg(any(not(target_arch = "wasm32"), test))]
+fn action_dispatch_failure_message(
+    action_id: ActionId,
+    target: WidgetId,
+    failure_kind: &'static str,
+) -> String {
+    format!(
+        "Fission action dispatch failed: action_id={} target={} failure_kind={failure_kind}",
+        action_id.as_u128(),
+        target.as_u128()
+    )
+}
 
 /// The canonical 3-argument handler signature for modern reducers.
 ///
@@ -63,6 +122,37 @@ type TypedReducer<S> = Box<
         + Sync,
 >;
 
+fn into_boxed_runtime_reducer<S: GlobalState>(
+    state_type_id: TypeId,
+    typed_reducer: TypedReducer<S>,
+) -> BoxedReducer {
+    Box::new(
+        move |app_states: &mut HashMap<TypeId, Box<dyn GlobalState>>,
+              action: &ActionEnvelope,
+              target: WidgetId,
+              out_effects: &mut Vec<EffectEnvelope>,
+              input: &ActionInput,
+              callback_registry|
+              -> Result<()> {
+            if let Some(state_box) = app_states.get_mut(&state_type_id) {
+                let concrete_state = state_box
+                    .downcast_mut::<S>()
+                    .ok_or_else(|| anyhow!("Failed to downcast GlobalState to concrete type"))?;
+
+                let mut effects_builder = Effects::new_runtime(0, callback_registry.clone());
+
+                typed_reducer(concrete_state, action, target, &mut effects_builder, input)?;
+
+                out_effects.extend(effects_builder.out);
+
+                Ok(())
+            } else {
+                anyhow::bail!("Target GlobalState for reducer not found in runtime.");
+            }
+        },
+    )
+}
+
 /// A per-frame collection of action handlers registered during widget building.
 ///
 /// `ActionRegistry` is populated by [`BuildCtxHandle::bind`](crate::build::BuildCtxHandle::bind)
@@ -71,13 +161,15 @@ type TypedReducer<S> = Box<
 /// via [`Runtime::absorb_registry`](crate::Runtime::absorb_registry).
 pub struct ActionRegistry<S: GlobalState> {
     handlers: BTreeMap<ActionId, Vec<TypedReducer<S>>>,
-    runtime_handlers: BTreeMap<ActionId, Vec<BoxedReducer>>,
+    bound_handlers: BTreeMap<ActionId, TypedReducer<S>>,
+    runtime_handlers: BTreeMap<ActionId, BoxedReducer>,
 }
 
 impl<S: GlobalState> Default for ActionRegistry<S> {
     fn default() -> Self {
         Self {
             handlers: BTreeMap::new(),
+            bound_handlers: BTreeMap::new(),
             runtime_handlers: BTreeMap::new(),
         }
     }
@@ -88,6 +180,11 @@ impl<S: GlobalState> ActionRegistry<S> {
         Self::default()
     }
 
+    /// Registers an explicit handler for an action type.
+    ///
+    /// Every registered handler runs when the action is dispatched. Declarative
+    /// widget bindings use a separate exactly-once path; call `register` only
+    /// when multicast handling is intentional.
     pub fn register<A: Action, H: IntoHandler<S, A> + Send + Sync + 'static>(
         &mut self,
         handler: H,
@@ -100,7 +197,25 @@ impl<S: GlobalState> ActionRegistry<S> {
         action_id: ActionId,
         handler: H,
     ) {
-        let typed_reducer: TypedReducer<S> = Box::new(
+        self.handlers
+            .entry(action_id)
+            .or_default()
+            .push(Self::typed_reducer(handler));
+    }
+
+    pub(crate) fn register_bound<A: Action, H: IntoHandler<S, A> + Send + Sync + 'static>(
+        &mut self,
+        handler: H,
+    ) {
+        self.bound_handlers
+            .entry(A::static_id())
+            .or_insert_with(|| Self::typed_reducer(handler));
+    }
+
+    fn typed_reducer<A: Action, H: IntoHandler<S, A> + Send + Sync + 'static>(
+        handler: H,
+    ) -> TypedReducer<S> {
+        Box::new(
             move |state: &mut S,
                   envelope: &ActionEnvelope,
                   _target,
@@ -108,34 +223,29 @@ impl<S: GlobalState> ActionRegistry<S> {
                   input|
                   -> Result<()> {
                 let action: A = serde_json::from_slice(&envelope.payload)
-                    .map_err(|e| anyhow!("Failed to deserialize action: {}", e))?;
+                    .map_err(ActionDeserializationError::new)?;
 
                 let mut ctx = ReducerContext { effects, input };
 
                 handler.call(state, action, &mut ctx);
                 Ok(())
             },
-        );
-
-        self.handlers
-            .entry(action_id)
-            .or_default()
-            .push(typed_reducer);
+        )
     }
 
     pub fn action_ids(&self) -> Vec<ActionId> {
         self.handlers
             .keys()
+            .chain(self.bound_handlers.keys())
             .chain(self.runtime_handlers.keys())
             .copied()
+            .collect::<BTreeSet<_>>()
+            .into_iter()
             .collect()
     }
 
     pub(crate) fn register_runtime_reducer(&mut self, action_id: ActionId, reducer: BoxedReducer) {
-        self.runtime_handlers
-            .entry(action_id)
-            .or_default()
-            .push(reducer);
+        self.runtime_handlers.entry(action_id).or_insert(reducer);
     }
 
     pub fn dispatch_with_input(
@@ -147,10 +257,20 @@ impl<S: GlobalState> ActionRegistry<S> {
     ) -> Result<Vec<EffectEnvelope>> {
         let mut effects_builder = Effects::new_headless(0);
         let target: WidgetId = target.into();
-        if let Some(reducers) = self.handlers.get_mut(&action.id) {
-            for reducer in reducers {
+        let dispatch_result = (|| {
+            if let Some(reducers) = self.handlers.get_mut(&action.id) {
+                reducers.iter_mut().try_for_each(|reducer| {
+                    reducer(state, action, target, &mut effects_builder, input)
+                })?;
+            }
+            if let Some(reducer) = self.bound_handlers.get_mut(&action.id) {
                 reducer(state, action, target, &mut effects_builder, input)?;
             }
+            Ok(())
+        })();
+        if let Err(error) = dispatch_result {
+            emit_action_dispatch_failure(action.id, target, &error);
+            return Err(error);
         }
         Ok(effects_builder.out)
     }
@@ -168,54 +288,24 @@ impl<S: GlobalState> ActionRegistry<S> {
         let mut runtime_reducers: HashMap<ActionId, Vec<BoxedReducer>> = HashMap::new();
         let state_type_id = TypeId::of::<S>();
 
-        for (action_id, mut reducers) in self.runtime_handlers {
-            runtime_reducers
-                .entry(action_id)
-                .or_default()
-                .append(&mut reducers);
+        for (action_id, reducer) in self.runtime_handlers {
+            runtime_reducers.entry(action_id).or_default().push(reducer);
         }
 
         for (action_id, typed_reducers) in self.handlers {
             for typed_reducer in typed_reducers {
-                let boxed_reducer: BoxedReducer = Box::new(
-                    move |app_states: &mut HashMap<TypeId, Box<dyn GlobalState>>,
-                          action: &ActionEnvelope,
-                          target: WidgetId,
-                          out_effects: &mut Vec<EffectEnvelope>,
-                          input: &ActionInput,
-                          callback_registry|
-                          -> Result<()> {
-                        if let Some(state_box) = app_states.get_mut(&state_type_id) {
-                            let concrete_state =
-                                state_box.downcast_mut::<S>().ok_or_else(|| {
-                                    anyhow!("Failed to downcast GlobalState to concrete type")
-                                })?;
-
-                            let mut effects_builder =
-                                Effects::new_runtime(0, callback_registry.clone());
-
-                            typed_reducer(
-                                concrete_state,
-                                action,
-                                target,
-                                &mut effects_builder,
-                                input,
-                            )?;
-
-                            out_effects.extend(effects_builder.out);
-
-                            Ok(())
-                        } else {
-                            anyhow::bail!("Target GlobalState for reducer not found in runtime.");
-                        }
-                    },
-                );
-
                 runtime_reducers
                     .entry(action_id)
                     .or_default()
-                    .push(boxed_reducer);
+                    .push(into_boxed_runtime_reducer(state_type_id, typed_reducer));
             }
+        }
+
+        for (action_id, typed_reducer) in self.bound_handlers {
+            runtime_reducers
+                .entry(action_id)
+                .or_default()
+                .push(into_boxed_runtime_reducer(state_type_id, typed_reducer));
         }
         runtime_reducers
     }
@@ -662,5 +752,25 @@ impl ResourceRegistry {
         let index = self.declarations.len();
         self.seen_keys.insert(declaration.key.clone(), index);
         self.declarations.push(declaration);
+    }
+}
+
+#[cfg(test)]
+mod dispatch_failure_tests {
+    use super::action_dispatch_failure_message;
+    use crate::{ActionId, WidgetId};
+
+    #[test]
+    fn fallback_message_contains_only_sanitized_dispatch_metadata() {
+        let message = action_dispatch_failure_message(
+            ActionId::from_u128(7),
+            WidgetId::from_u128(11),
+            "action_deserialization",
+        );
+
+        assert_eq!(
+            message,
+            "Fission action dispatch failed: action_id=7 target=11 failure_kind=action_deserialization"
+        );
     }
 }
