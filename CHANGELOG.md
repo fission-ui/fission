@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Dynamic and repeated form fields** - Editing no longer destroys application context stored in the bound action. Aggregate drafts, schema-generated forms, property inspectors, and repeated rows can bind a stable field identifier and read the new value separately.
 - **Action failure diagnostics** - Reducer deserialization failures now emit a structured diagnostic without recording the action payload or raw error text, and a failed reducer remains registered for later valid actions.
+- **App Store-safe window dependency** - Fission now resolves the published `fission-winit` build that keeps private macOS blur APIs disabled unless an application explicitly enables the fork's opt-in feature, so crates.io consumers match the source qualified by the workspace.
 
 ### Migration notes
 

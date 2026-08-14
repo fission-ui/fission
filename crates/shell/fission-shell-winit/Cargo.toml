@@ -30,7 +30,7 @@ fission-ir = { path = "../../core/fission-ir", version = "0.11.0" }
 fission-semantics = { path = "../../core/fission-semantics", version = "0.11.0" }
 fission-theme = { path = "../../core/fission-theme", version = "0.11.0" }
 fission-3d = { path = "../../core/fission-3d", optional = true, version = "0.11.0" }
-winit = { package = "fission-winit", version = "0.30.13-fission.1" }
+winit = { package = "fission-winit", version = "0.30.13-fission.2" }
 fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.11.0" }
 fission-test-driver = { path = "../../tools/fission-test-driver", version = "0.11.0" }
 image = "0.25"
@@ -64,7 +64,7 @@ accesskit_winit = { package = "fission-accesskit-winit", version = "0.33.1-fissi
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"
 ndk-context = "0.1"
-winit = { package = "fission-winit", version = "0.30.13-fission.1", features = ["android-native-activity"] }
+winit = { package = "fission-winit", version = "0.30.13-fission.2", features = ["android-native-activity"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.58", features = [

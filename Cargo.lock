@@ -3334,8 +3334,8 @@ dependencies = [
 
 [[package]]
 name = "fission-winit"
-version = "0.30.13-fission.1"
-source = "git+https://github.com/worka-ai/winit.git?rev=699b7f82b10f1aa65f735e3dbbf33a9701050dea#699b7f82b10f1aa65f735e3dbbf33a9701050dea"
+version = "0.30.13-fission.2"
+source = "git+https://github.com/worka-ai/winit.git?rev=60bc28cac67e4f19c05389674e08870ba852be20#60bc28cac67e4f19c05389674e08870ba852be20"
 dependencies = [
  "ahash",
  "android-activity",
