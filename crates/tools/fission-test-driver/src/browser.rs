@@ -818,7 +818,12 @@ impl CdpClient {
                         .and_then(Value::as_str)
                         .unwrap_or("unknown browser log error");
                     if !text.contains("/__fission/renderer") {
-                        self.errors.push(format!("browser log error: {text}"));
+                        let url = message
+                            .pointer("/params/entry/url")
+                            .and_then(Value::as_str)
+                            .unwrap_or("unknown URL");
+                        self.errors
+                            .push(format!("browser log error at {url}: {text}"));
                     }
                 }
             }
