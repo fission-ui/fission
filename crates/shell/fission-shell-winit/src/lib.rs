@@ -1234,11 +1234,7 @@ async fn create_validated_webgpu_main_renderer(
     let device = &device_handle.device;
     let mut failures = Vec::new();
 
-    // BrowserWebGpu can successfully execute a trivial indirect workload while
-    // silently producing an empty target for a real retained scene. Prefer the
-    // conservative direct-dispatch recording on the web; it remains fully GPU
-    // accelerated and avoids depending on GPU-written dispatch counts.
-    for use_indirect_dispatch in [false, true] {
+    for use_indirect_dispatch in [true, false] {
         device.push_error_scope(wgpu::ErrorFilter::Validation);
         device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
         device.push_error_scope(wgpu::ErrorFilter::Internal);
@@ -7943,14 +7939,6 @@ where
                                                                     .expect(
                                                                         "failed to encode retained scene",
                                                                     );
-                                                            let workload_profile =
-                                                                workload_profile_for_encoded_scene(
-                                                                    retained_scene,
-                                                                    &presenter.scene,
-                                                                    render_target_size.0,
-                                                                    render_target_size.1,
-                                                                    scale_factor,
-                                                                );
                                                             if web_rendered_frames == 0 {
                                                                 let encoding =
                                                                     presenter.scene.encoding();
@@ -7966,20 +7954,19 @@ where
                                                                 );
                                                             }
                                                             renderer
-                                                                    .render_to_texture_with_workload_profile(
-                                                                        &device_handle.device,
-                                                                        &device_handle.queue,
-                                                                        &presenter.scene,
-                                                                        &presenter
-                                                                            .render_state
-                                                                            .surface
-                                                                            .target_view,
-                                                                        &render_params,
-                                                                        Some(&workload_profile),
-                                                                    )
-                                                                    .expect(
-                                                                        "failed to render webgpu frame",
-                                                                    );
+                                                                .render_to_texture(
+                                                                    &device_handle.device,
+                                                                    &device_handle.queue,
+                                                                    &presenter.scene,
+                                                                    &presenter
+                                                                        .render_state
+                                                                        .surface
+                                                                        .target_view,
+                                                                    &render_params,
+                                                                )
+                                                                .expect(
+                                                                    "failed to render webgpu frame",
+                                                                );
                                                         } else {
                                                             let force_full_compositor_redraw =
                                                                 invalidations.build
