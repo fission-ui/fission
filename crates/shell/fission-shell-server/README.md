@@ -19,7 +19,7 @@ Most applications should depend on the public `fission` facade with the
 
 ```toml
 [dependencies]
-fission = { version = "0.11.0", features = ["server"] }
+fission = { version = "0.11.1", features = ["server"] }
 ```
 
 Enable adapter features through the facade when you want to host the renderer
@@ -27,7 +27,7 @@ inside an existing HTTP stack:
 
 ```toml
 [dependencies]
-fission = { version = "0.11.0", features = ["server", "server-axum"] }
+fission = { version = "0.11.1", features = ["server", "server-axum"] }
 ```
 
 See the guides and reference at <https://fission.rs> for the server app model,

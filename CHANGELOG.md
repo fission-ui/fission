@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.1] - 2026-08-17
+
+### Added
+
+- **Web LiveTest transport** - `LiveTestClient::launch_browser` drives a test-built Fission Web application in Chromium through the same commands, semantic selectors, deterministic clock, text queries, and semantic-tree responses used by native live tests.
+- **Browser screenshots and waits** - Web LiveTests can use bounded selector, text, and motion waits plus browser-page PNG capture without adding Playwright, Selenium, or another test vocabulary.
+
+### Changed
+
+- **Stronger Web target testing** - `fission test --target web` now builds a test-control-enabled WASM application, launches isolated headless Chromium, pumps the real Web event loop, and queries the running Fission semantic tree.
+
+### Fixed
+
+- **Reliable Web test serving** - The temporary browser server serves JavaScript modules with the correct MIME type, accepts renderer diagnostics, keeps accepting after individual request failures, and uses blocking accepted sockets on platforms where listener flags are inherited.
+
+### Migration notes
+
+- Update Fission dependencies and `cargo-fission` to `0.11.1`. Existing native LiveTest code remains source-compatible. Web suites use `LiveTestClient::launch_browser(BrowserTestOptions::new(url).fission_canvas())` against output built by `fission test --target web` or another build with Web test control enabled.
+- The first release targets Chromium. It injects deterministic Fission input events rather than claiming browser-trusted input, exposes the Fission semantic tree rather than DOM selectors, and captures the browser page rather than reading back a WebGPU texture.
+
 ## [0.11.0] - 2026-08-13
 
 ### Added
