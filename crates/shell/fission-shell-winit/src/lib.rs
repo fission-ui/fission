@@ -1093,7 +1093,10 @@ async fn create_webgpu_presenter(
     };
     let main_renderer = {
         let device_handle = &render_cx.devices[dev_id];
-        create_webgpu_main_renderer(device_handle, request)?
+        device_handle.device.on_uncaptured_error(Box::new(|error| {
+            eprintln!("webgpu uncaptured error: {error}");
+        }));
+        create_validated_webgpu_main_renderer(device_handle, request).await?
     };
 
     let surface = render_cx
@@ -1190,6 +1193,86 @@ fn create_webgpu_main_renderer(
 }
 
 #[cfg(target_arch = "wasm32")]
+async fn create_validated_webgpu_main_renderer(
+    device_handle: &vello::util::DeviceHandle,
+    request: RendererRequest,
+) -> anyhow::Result<MainRenderer> {
+    let device = &device_handle.device;
+    device.push_error_scope(wgpu::ErrorFilter::Validation);
+    device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
+    device.push_error_scope(wgpu::ErrorFilter::Internal);
+
+    let result = create_webgpu_main_renderer(device_handle, request).and_then(|mut renderer| {
+        preflight_webgpu_main_renderer(device_handle, &mut renderer)?;
+        Ok(renderer)
+    });
+
+    let mut gpu_errors = Vec::new();
+    for stage in ["internal", "out-of-memory", "validation"] {
+        if let Some(error) = device.pop_error_scope().await {
+            gpu_errors.push(format!("{stage}: {error}"));
+        }
+    }
+    if !gpu_errors.is_empty() {
+        return Err(anyhow::anyhow!(
+            "webgpu Vello preflight failed: {}",
+            gpu_errors.join("; ")
+        ));
+    }
+
+    result
+}
+
+#[cfg(target_arch = "wasm32")]
+fn preflight_webgpu_main_renderer(
+    device_handle: &vello::util::DeviceHandle,
+    renderer: &mut MainRenderer,
+) -> anyhow::Result<()> {
+    let MainRenderer::Vello { renderer, .. } = renderer else {
+        return Ok(());
+    };
+    let texture = device_handle
+        .device
+        .create_texture(&wgpu::TextureDescriptor {
+            label: Some("Fission WebGPU Vello preflight target"),
+            size: wgpu::Extent3d {
+                width: 16,
+                height: 16,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let mut scene = Scene::new();
+    scene.fill(
+        vello::peniko::Fill::NonZero,
+        vello::kurbo::Affine::IDENTITY,
+        vello::peniko::Color::WHITE,
+        None,
+        &vello::kurbo::Rect::new(0.0, 0.0, 16.0, 16.0),
+    );
+    renderer
+        .render_to_texture(
+            &device_handle.device,
+            &device_handle.queue,
+            &scene,
+            &view,
+            &vello::RenderParams {
+                base_color: vello::peniko::Color::BLACK,
+                width: 16,
+                height: 16,
+                antialiasing_method: vello::AaConfig::Area,
+            },
+        )
+        .map_err(|error| anyhow::anyhow!("webgpu Vello preflight submission failed: {error}"))
+}
+
+#[cfg(target_arch = "wasm32")]
 fn publish_web_renderer_report(report: &RendererReport) {
     let line = report.concise_line();
     web_sys::console::info_1(&wasm_bindgen::JsValue::from_str(&format!(
@@ -1214,7 +1297,7 @@ struct WebInputLatency<'a> {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn publish_web_frame_perf(renderer: &str, total_ms: f64, presented_frames: u64) {
+fn publish_web_frame_perf(renderer: &str, total_ms: f64, rendered_frames: u64) {
     let perf = WebFramePerf { renderer, total_ms };
     append_web_perf_sample("frames", total_ms);
     diag::emit(
@@ -1226,7 +1309,7 @@ fn publish_web_frame_perf(renderer: &str, total_ms: f64, presented_frames: u64) 
         },
     );
     set_web_global_json("__FISSION_LAST_FRAME_PERF", &perf);
-    set_web_global_json("__FISSION_RENDERED_FRAME_COUNT", &presented_frames);
+    set_web_global_json("__FISSION_RENDERED_FRAME_COUNT", &rendered_frames);
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -4858,6 +4941,8 @@ where
         let mut webgpu_init_in_flight = false;
         #[cfg(target_arch = "wasm32")]
         let mut web_renderer_reported = false;
+        #[cfg(target_arch = "wasm32")]
+        let mut web_rendered_frames: u64 = 0;
         #[cfg(not(target_arch = "wasm32"))]
         let mut scene = Scene::new();
         #[cfg(not(target_arch = "wasm32"))]
@@ -7487,6 +7572,9 @@ where
                                             return;
                                         };
                                         let active_renderer = renderer.active_name().to_string();
+                                        let web_frame_has_content = pipeline
+                                            .retained_scene()
+                                            .is_some_and(|scene| !scene.roots.is_empty());
                                         match renderer {
                                             WebRenderer::Canvas2d(presenter) => {
                                                 let retained_scene = pipeline
@@ -7688,6 +7776,20 @@ where
                                                                     render_target_size.1,
                                                                     scale_factor,
                                                                 );
+                                                            if web_rendered_frames == 0 {
+                                                                let encoding =
+                                                                    presenter.scene.encoding();
+                                                                log::info!(
+                                                                    "Fission WebGPU first content frame: roots={}, paths={}, draws={}, glyph_runs={}, glyphs={}, target={}x{}",
+                                                                    retained_scene.roots.len(),
+                                                                    encoding.n_paths,
+                                                                    encoding.draw_tags.len(),
+                                                                    encoding.resources.glyph_runs.len(),
+                                                                    encoding.resources.glyphs.len(),
+                                                                    render_target_size.0,
+                                                                    render_target_size.1,
+                                                                );
+                                                            }
                                                             renderer
                                                                     .render_to_texture_with_workload_profile(
                                                                         &device_handle.device,
@@ -7787,6 +7889,10 @@ where
                                         invalidations = InvalidationSet::default();
 
                                         presented_frames = presented_frames.saturating_add(1);
+                                        if web_frame_has_content {
+                                            web_rendered_frames =
+                                                web_rendered_frames.saturating_add(1);
+                                        }
                                         flush_text_traces(
                                             text_trace_enabled,
                                             &mut pending_text_traces,
@@ -7797,7 +7903,7 @@ where
                                         publish_web_frame_perf(
                                             &active_renderer,
                                             total_ms,
-                                            presented_frames,
+                                            web_rendered_frames,
                                         );
                                         if let Some(input_at) = pending_web_input_at.take() {
                                             publish_web_input_latency(
