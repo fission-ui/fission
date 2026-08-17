@@ -156,6 +156,8 @@ mod ios_capabilities;
 mod macos_capabilities;
 #[cfg(target_arch = "wasm32")]
 mod web_capabilities;
+#[cfg(target_arch = "wasm32")]
+mod web_test_control;
 
 type EffectResult = AsyncMessage;
 
@@ -4947,7 +4949,7 @@ where
             })
             .unwrap_or(false);
         #[cfg(target_arch = "wasm32")]
-        let test_control_enabled = false;
+        let test_control_enabled = web_test_control::install(event_proxy.clone());
         #[cfg(not(target_os = "android"))]
         let _ = test_control_enabled;
         // Pending screenshot/pump: path + whether it needs a screenshot (vs pump).
@@ -7716,8 +7718,21 @@ where
                                             !pending_capture_settle || resize_settled;
                                         if capture_ready {
                                             pending_capture_settle = false;
-                                            let _ = pending_screenshot_path.take();
-                                            let _ = pending_screenshot_response_tx.take();
+                                            if let Some(path) = pending_screenshot_path.take() {
+                                                if let Some(response_tx) =
+                                                    pending_screenshot_response_tx.take()
+                                                {
+                                                    let response = if path == "__pump__" {
+                                                        fission_test_driver::TestResponse::Ok {}
+                                                    } else {
+                                                        fission_test_driver::TestResponse::Error {
+                                                            message: "Web renderer screenshots are captured by the browser test host"
+                                                                .into(),
+                                                        }
+                                                    };
+                                                    let _ = response_tx.send(response);
+                                                }
+                                            }
                                         }
 
                                         pending_resize = None;
