@@ -1234,7 +1234,11 @@ async fn create_validated_webgpu_main_renderer(
     let device = &device_handle.device;
     let mut failures = Vec::new();
 
-    for use_indirect_dispatch in [true, false] {
+    // BrowserWebGpu can successfully execute a trivial indirect workload while
+    // silently producing an empty target for a real retained scene. Prefer the
+    // conservative direct-dispatch recording on the web; it remains fully GPU
+    // accelerated and avoids depending on GPU-written dispatch counts.
+    for use_indirect_dispatch in [false, true] {
         device.push_error_scope(wgpu::ErrorFilter::Validation);
         device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
         device.push_error_scope(wgpu::ErrorFilter::Internal);
