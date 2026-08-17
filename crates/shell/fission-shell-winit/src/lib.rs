@@ -4,6 +4,22 @@
     allow(dead_code, unused_imports, unused_variables)
 )]
 
+macro_rules! eprintln {
+    () => {{
+        #[cfg(target_arch = "wasm32")]
+        crate::web_console::error("");
+        #[cfg(not(target_arch = "wasm32"))]
+        std::eprintln!();
+    }};
+    ($($arg:tt)*) => {{
+        let message = format!($($arg)*);
+        #[cfg(target_arch = "wasm32")]
+        crate::web_console::error(&message);
+        #[cfg(not(target_arch = "wasm32"))]
+        std::eprintln!("{message}");
+    }};
+}
+
 use anyhow::Result;
 use base64::Engine;
 use fission_core::internal::BuildCtx;
@@ -98,6 +114,8 @@ use renderer_diagnostics::renderer_request_from_value;
 use renderer_diagnostics::{emit_renderer_report, RendererReport, RendererRequest};
 mod software_fonts;
 mod software_renderer;
+#[cfg(target_arch = "wasm32")]
+mod web_console;
 use software_renderer::SoftwareRenderer;
 mod native_surface;
 use native_surface::NativeSurfaceRegistry;
@@ -1055,6 +1073,29 @@ async fn create_webgpu_presenter(
     canvas.set_width(viewport.physical_size.width.max(1));
     canvas.set_height(viewport.physical_size.height.max(1));
     let mut render_cx = RenderContext::new();
+
+    // Acquire the adapter/device and construct Vello before asking the visible
+    // canvas for its WebGPU context. A failed `getContext("webgpu")` ownership
+    // transition cannot be undone; Canvas2D fallback must still be able to use
+    // this canvas when GPU initialization fails.
+    let dev_id = match render_cx.device_result(None).await {
+        Ok(dev_id) => dev_id,
+        Err(first_error) => {
+            eprintln!(
+                "webgpu device initialization failed; retrying once before software fallback: {first_error}"
+            );
+            render_cx.device_result(None).await.map_err(|second_error| {
+                anyhow::anyhow!(
+                    "webgpu device initialization failed twice; first: {first_error}; second: {second_error}"
+                )
+            })?
+        }
+    };
+    let main_renderer = {
+        let device_handle = &render_cx.devices[dev_id];
+        create_webgpu_main_renderer(device_handle, request)?
+    };
+
     let surface = render_cx
         .instance
         .create_surface(wgpu::SurfaceTarget::Canvas(canvas))
@@ -1083,7 +1124,6 @@ async fn create_webgpu_presenter(
         target_texture_size.0,
         target_texture_size.1,
     );
-    let main_renderer = create_webgpu_main_renderer(device_handle, request)?;
     let active_renderer = match &main_renderer {
         MainRenderer::Vello { .. } => "webgpu-vello",
         MainRenderer::Software => "webgpu-software",
@@ -1174,7 +1214,7 @@ struct WebInputLatency<'a> {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn publish_web_frame_perf(renderer: &str, total_ms: f64) {
+fn publish_web_frame_perf(renderer: &str, total_ms: f64, presented_frames: u64) {
     let perf = WebFramePerf { renderer, total_ms };
     append_web_perf_sample("frames", total_ms);
     diag::emit(
@@ -1186,6 +1226,7 @@ fn publish_web_frame_perf(renderer: &str, total_ms: f64) {
         },
     );
     set_web_global_json("__FISSION_LAST_FRAME_PERF", &perf);
+    set_web_global_json("__FISSION_RENDERED_FRAME_COUNT", &presented_frames);
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -4705,12 +4746,16 @@ where
         mut self,
         #[cfg(target_os = "android")] android_app: Option<AndroidApp>,
     ) -> Result<()> {
+        #[cfg(target_arch = "wasm32")]
+        web_console::install();
+        diag::init_from_env();
+        #[cfg(target_arch = "wasm32")]
+        set_web_global_json("__FISSION_RENDERED_FRAME_COUNT", &0_u64);
         diag::emit(
             diag::DiagCategory::Frame,
             diag::DiagLevel::Info,
             diag::DiagEventKind::FrameStart { root: None },
         );
-        diag::init_from_env();
 
         // Build event loop with TestEvent as the user event type.
         // This allows the test control server to inject events via EventLoopProxy.
@@ -7749,7 +7794,11 @@ where
                                         );
 
                                         let total_ms = now.elapsed().as_secs_f64() * 1000.0;
-                                        publish_web_frame_perf(&active_renderer, total_ms);
+                                        publish_web_frame_perf(
+                                            &active_renderer,
+                                            total_ms,
+                                            presented_frames,
+                                        );
                                         if let Some(input_at) = pending_web_input_at.take() {
                                             publish_web_input_latency(
                                                 &active_renderer,
