@@ -488,12 +488,17 @@ impl StaticTestServer {
             while !thread_stop.load(std::sync::atomic::Ordering::Relaxed) {
                 match listener.accept() {
                     Ok((stream, _)) => {
-                        let _ = serve_static_test_request(stream, &root);
+                        if let Err(error) = serve_static_test_request(stream, &root) {
+                            eprintln!("Web test server request failed: {error}");
+                        }
                     }
                     Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                         std::thread::sleep(Duration::from_millis(20));
                     }
-                    Err(_) => break,
+                    Err(error) => {
+                        eprintln!("Web test server accept failed: {error}");
+                        std::thread::sleep(Duration::from_millis(20));
+                    }
                 }
             }
         });
