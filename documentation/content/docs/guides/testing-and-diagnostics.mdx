@@ -92,7 +92,7 @@ Live shell tests are for the cases where the headless harness is no longer enoug
 
 Sometimes you need a real shell. Maybe you care about overlay behavior in a real presented window. Maybe you want screenshots from the live host. Maybe you are validating shell-managed input flow or a target launch path.
 
-That is where `fission-test-driver::LiveTestClient` fits. It talks to a running app over the shell's Hypertext Transfer Protocol test-control server.
+That is where `fission-test-driver::LiveTestClient` fits. Native shells use the loopback Hypertext Transfer Protocol test-control server. Web tests use the same client and command protocol through a test-only Chromium bridge.
 
 In practice, the app is launched with `FISSION_TEST_CONTROL_PORT=<port>`, and the live client sends commands such as tap, type, scroll, screenshot, get visible text, get the semantic tree, pump, or simulate a resize.
 
@@ -102,7 +102,7 @@ Use live tests when you need confidence that the app behaves correctly in a runn
 
 Do not use live tests for logic that a reducer or harness test can already prove. Real shells are slower, more operationally involved, and more expensive to maintain.
 
-Also remember the current platform boundary: desktop and mobile public shells expose the test-control hook today, while the current web shell documentation still calls out browser-side live control as missing.
+The Web bridge is present only in Web test builds. The initial browser driver supports Chromium and deterministic Fission input; other browsers and trusted browser clipboard, file, accessibility, and IME integration remain separate host-specific work.
 
 A common mistake is using live tests as the first answer to every user interface question. They should sit above simpler layers, not replace them.
 
