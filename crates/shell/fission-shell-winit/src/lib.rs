@@ -96,7 +96,7 @@ use vello::util::{RenderContext, RenderSurface};
 use vello::wgpu;
 use vello::{AaSupport, Renderer as VelloSceneRenderer, RendererOptions, Scene};
 #[cfg(target_arch = "wasm32")]
-use wasm_bindgen::{Clamped, JsCast};
+use wasm_bindgen::{Clamped, JsCast, JsValue};
 #[cfg(target_arch = "wasm32")]
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, ImageData};
 #[cfg(target_arch = "wasm32")]
@@ -1045,6 +1045,29 @@ fn preferred_surface_alpha_mode(
         .unwrap_or(wgpu::CompositeAlphaMode::Opaque)
 }
 
+fn preferred_web_surface_alpha_mode(
+    supported: &[wgpu::CompositeAlphaMode],
+) -> wgpu::CompositeAlphaMode {
+    supported
+        .iter()
+        .copied()
+        .find(|mode| *mode == wgpu::CompositeAlphaMode::Opaque)
+        .or_else(|| {
+            supported
+                .iter()
+                .copied()
+                .find(|mode| *mode == wgpu::CompositeAlphaMode::PreMultiplied)
+        })
+        .or_else(|| {
+            supported
+                .iter()
+                .copied()
+                .find(|mode| *mode == wgpu::CompositeAlphaMode::PostMultiplied)
+        })
+        .or_else(|| supported.first().copied())
+        .unwrap_or(wgpu::CompositeAlphaMode::Opaque)
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SurfaceAcquireRecovery {
@@ -1115,7 +1138,17 @@ async fn create_webgpu_presenter(
 
     let device_handle = &render_cx.devices[surface.dev_id];
     let surface_caps = surface.surface.get_capabilities(device_handle.adapter());
-    surface.config.alpha_mode = preferred_surface_alpha_mode(&surface_caps.alpha_modes);
+    surface.config.alpha_mode = preferred_web_surface_alpha_mode(&surface_caps.alpha_modes);
+    surface.blitter =
+        wgpu::util::TextureBlitterBuilder::new(&device_handle.device, surface.config.format)
+            .blend_state(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING)
+            .build();
+    log::info!(
+        "Fission WebGPU canvas surface: format={:?}, alpha_mode={:?}, supported_alpha_modes={:?}",
+        surface.config.format,
+        surface.config.alpha_mode,
+        surface_caps.alpha_modes,
+    );
     surface
         .surface
         .configure(&device_handle.device, &surface.config);
@@ -1167,6 +1200,7 @@ async fn create_webgpu_presenter(
 fn create_webgpu_main_renderer(
     device_handle: &vello::util::DeviceHandle,
     request: RendererRequest,
+    use_indirect_dispatch: bool,
 ) -> anyhow::Result<MainRenderer> {
     if matches!(request, RendererRequest::Canvas2dSoftware) {
         return Err(anyhow::anyhow!(
@@ -1177,7 +1211,7 @@ fn create_webgpu_main_renderer(
         &device_handle.device,
         RendererOptions {
             use_cpu: false,
-            use_indirect_dispatch: true,
+            use_indirect_dispatch,
             antialiasing_support: AaSupport::all(),
             num_init_threads: None,
             pipeline_cache: None,
@@ -1198,33 +1232,61 @@ async fn create_validated_webgpu_main_renderer(
     request: RendererRequest,
 ) -> anyhow::Result<MainRenderer> {
     let device = &device_handle.device;
-    device.push_error_scope(wgpu::ErrorFilter::Validation);
-    device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
-    device.push_error_scope(wgpu::ErrorFilter::Internal);
+    let mut failures = Vec::new();
 
-    let result = create_webgpu_main_renderer(device_handle, request).and_then(|mut renderer| {
-        preflight_webgpu_main_renderer(device_handle, &mut renderer)?;
-        Ok(renderer)
-    });
+    for use_indirect_dispatch in [true, false] {
+        device.push_error_scope(wgpu::ErrorFilter::Validation);
+        device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
+        device.push_error_scope(wgpu::ErrorFilter::Internal);
 
-    let mut gpu_errors = Vec::new();
-    for stage in ["internal", "out-of-memory", "validation"] {
-        if let Some(error) = device.pop_error_scope().await {
-            gpu_errors.push(format!("{stage}: {error}"));
+        let result =
+            match create_webgpu_main_renderer(device_handle, request, use_indirect_dispatch) {
+                Ok(mut renderer) => preflight_webgpu_main_renderer(device_handle, &mut renderer)
+                    .await
+                    .map(|()| renderer),
+                Err(error) => Err(error),
+            };
+
+        let mut gpu_errors = Vec::new();
+        for stage in ["internal", "out-of-memory", "validation"] {
+            if let Some(error) = device.pop_error_scope().await {
+                gpu_errors.push(format!("{stage}: {error}"));
+            }
+        }
+
+        match (result, gpu_errors.is_empty()) {
+            (Ok(renderer), true) => {
+                log::info!(
+                    "Fission WebGPU Vello pixel preflight passed: indirect_dispatch={use_indirect_dispatch}"
+                );
+                return Ok(renderer);
+            }
+            (result, _) => {
+                let mode = if use_indirect_dispatch {
+                    "indirect"
+                } else {
+                    "direct"
+                };
+                let mut reasons = Vec::new();
+                if let Err(error) = result {
+                    reasons.push(error.to_string());
+                }
+                reasons.extend(gpu_errors);
+                let failure = format!("{mode} dispatch: {}", reasons.join("; "));
+                log::warn!("Fission WebGPU Vello pixel preflight failed: {failure}");
+                failures.push(failure);
+            }
         }
     }
-    if !gpu_errors.is_empty() {
-        return Err(anyhow::anyhow!(
-            "webgpu Vello preflight failed: {}",
-            gpu_errors.join("; ")
-        ));
-    }
 
-    result
+    Err(anyhow::anyhow!(
+        "webgpu Vello pixel preflight failed: {}",
+        failures.join(" | ")
+    ))
 }
 
 #[cfg(target_arch = "wasm32")]
-fn preflight_webgpu_main_renderer(
+async fn preflight_webgpu_main_renderer(
     device_handle: &vello::util::DeviceHandle,
     renderer: &mut MainRenderer,
 ) -> anyhow::Result<()> {
@@ -1244,7 +1306,9 @@ fn preflight_webgpu_main_renderer(
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
+            usage: wgpu::TextureUsages::STORAGE_BINDING
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -1256,8 +1320,34 @@ fn preflight_webgpu_main_renderer(
         None,
         &vello::kurbo::Rect::new(0.0, 0.0, 16.0, 16.0),
     );
+    let workload_profile = vello::RenderWorkloadProfile {
+        target: vello::TargetProfile {
+            width_px: 16,
+            height_px: 16,
+            scale_factor: 1.0,
+            dirty_tiles: None,
+        },
+        coverage: vello::TileCoverageProfile {
+            tile_width: 16,
+            tile_height: 16,
+            target_tiles: 1,
+            visible_tiles: 1,
+            total_draw_tile_coverage: 1,
+            total_path_tile_coverage: 1,
+            max_ops_per_tile: 1,
+            max_blend_depth: 0,
+        },
+        scene: vello::SceneComplexityProfile {
+            draw_ops: 1,
+            path_ops: 1,
+            path_points: 4,
+            estimated_path_segments: 4,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
     renderer
-        .render_to_texture(
+        .render_to_texture_with_workload_profile(
             &device_handle.device,
             &device_handle.queue,
             &scene,
@@ -1268,8 +1358,89 @@ fn preflight_webgpu_main_renderer(
                 height: 16,
                 antialiasing_method: vello::AaConfig::Area,
             },
+            Some(&workload_profile),
         )
-        .map_err(|error| anyhow::anyhow!("webgpu Vello preflight submission failed: {error}"))
+        .map_err(|error| {
+            anyhow::anyhow!("webgpu profiled Vello preflight submission failed: {error}")
+        })?;
+
+    const BYTES_PER_ROW: u32 = 256;
+    const HEIGHT: u32 = 16;
+    let readback = device_handle.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Fission WebGPU Vello preflight readback"),
+        size: u64::from(BYTES_PER_ROW * HEIGHT),
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut encoder =
+        device_handle
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Fission WebGPU Vello preflight readback encoder"),
+            });
+    encoder.copy_texture_to_buffer(
+        wgpu::TexelCopyTextureInfo {
+            texture: &texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::TexelCopyBufferInfo {
+            buffer: &readback,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(BYTES_PER_ROW),
+                rows_per_image: Some(HEIGHT),
+            },
+        },
+        wgpu::Extent3d {
+            width: 16,
+            height: HEIGHT,
+            depth_or_array_layers: 1,
+        },
+    );
+    device_handle.queue.submit(Some(encoder.finish()));
+
+    let promise = js_sys::Promise::new(&mut |resolve, reject| {
+        let resolve = resolve.clone();
+        let reject = reject.clone();
+        readback
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |result| match result {
+                Ok(()) => {
+                    let _ = resolve.call0(&JsValue::UNDEFINED);
+                }
+                Err(error) => {
+                    let _ =
+                        reject.call1(&JsValue::UNDEFINED, &JsValue::from_str(&error.to_string()));
+                }
+            });
+    });
+    wasm_bindgen_futures::JsFuture::from(promise)
+        .await
+        .map_err(|error| anyhow::anyhow!("webgpu Vello preflight readback failed: {error:?}"))?;
+
+    let mapped = readback.slice(..).get_mapped_range();
+    let mut non_black = 0_u32;
+    let mut non_transparent = 0_u32;
+    for row in mapped
+        .chunks_exact(BYTES_PER_ROW as usize)
+        .take(HEIGHT as usize)
+    {
+        for pixel in row[..16 * 4].chunks_exact(4) {
+            non_black = non_black.saturating_add(u32::from(pixel[..3] != [0, 0, 0]));
+            non_transparent = non_transparent.saturating_add(u32::from(pixel[3] != 0));
+        }
+    }
+    drop(mapped);
+    readback.unmap();
+
+    if non_black == 0 || non_transparent == 0 {
+        return Err(anyhow::anyhow!(
+            "webgpu Vello preflight produced an empty texture (non_black={non_black}, non_transparent={non_transparent})"
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -7850,6 +8021,31 @@ where
                                                             label: Some("WebGPU Surface Blit"),
                                                         },
                                                     );
+                                                {
+                                                    let _pass = encoder.begin_render_pass(
+                                                        &wgpu::RenderPassDescriptor {
+                                                            label: Some(
+                                                                "Fission WebGPU Surface Clear",
+                                                            ),
+                                                            color_attachments: &[Some(
+                                                                wgpu::RenderPassColorAttachment {
+                                                                    view: &surface_view,
+                                                                    resolve_target: None,
+                                                                    depth_slice: None,
+                                                                    ops: wgpu::Operations {
+                                                                        load: wgpu::LoadOp::Clear(
+                                                                            clear_color,
+                                                                        ),
+                                                                        store: wgpu::StoreOp::Store,
+                                                                    },
+                                                                },
+                                                            )],
+                                                            depth_stencil_attachment: None,
+                                                            timestamp_writes: None,
+                                                            occlusion_query_set: None,
+                                                        },
+                                                    );
+                                                }
                                                 presenter.render_state.surface.blitter.copy(
                                                     &device_handle.device,
                                                     &mut encoder,
@@ -9263,9 +9459,9 @@ mod tests {
         native_window_size_for_logical_viewport, normalize_scale_factor,
         normalize_winit_scroll_delta, physical_position_to_layout_point,
         physical_size_to_layout_size, preferred_native_present_mode, preferred_surface_alpha_mode,
-        present_frame_with_winit_coordination, rect_visible_in_scroll_ancestors,
-        repeating_animation_redraw_interval, resize_is_unsettled, resolve_build_viewport,
-        resolve_selector_record, should_auto_select_native_software,
+        preferred_web_surface_alpha_mode, present_frame_with_winit_coordination,
+        rect_visible_in_scroll_ancestors, repeating_animation_redraw_interval, resize_is_unsettled,
+        resolve_build_viewport, resolve_selector_record, should_auto_select_native_software,
         should_present_startup_clear_frame, surface_acquire_recovery,
         sync_tracked_target_texture_size_to_surface, texture_plans_fit_device_limits,
         visual_rect_for_node, window_insets_from_safe_area_frames, windows_shell_execute_succeeded,
@@ -9425,6 +9621,22 @@ mod tests {
             PostMultiplied
         );
         assert_eq!(preferred_surface_alpha_mode(&[]), Opaque);
+    }
+
+    #[test]
+    fn web_surface_prefers_opaque_composition() {
+        use super::wgpu::CompositeAlphaMode::{Inherit, Opaque, PostMultiplied, PreMultiplied};
+
+        assert_eq!(
+            preferred_web_surface_alpha_mode(&[PreMultiplied, Opaque, PostMultiplied]),
+            Opaque
+        );
+        assert_eq!(
+            preferred_web_surface_alpha_mode(&[PostMultiplied, PreMultiplied]),
+            PreMultiplied
+        );
+        assert_eq!(preferred_web_surface_alpha_mode(&[Inherit]), Inherit);
+        assert_eq!(preferred_web_surface_alpha_mode(&[]), Opaque);
     }
 
     #[test]
