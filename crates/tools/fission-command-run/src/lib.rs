@@ -532,14 +532,24 @@ fn serve_static_test_request(mut stream: TcpStream, root: &Path) -> Result<()> {
     let mut buffer = [0u8; 4096];
     let n = stream.read(&mut buffer)?;
     let request = String::from_utf8_lossy(&buffer[..n]);
-    let path = request
+    let mut request_parts = request
         .lines()
         .next()
-        .and_then(|line| line.split_whitespace().nth(1))
+        .unwrap_or_default()
+        .split_whitespace();
+    let method = request_parts.next().unwrap_or("GET");
+    let path = request_parts
+        .next()
         .unwrap_or("/")
         .split('?')
         .next()
         .unwrap_or("/");
+    if method == "POST" && path == "/__fission/renderer" {
+        stream.write_all(
+            b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        )?;
+        return Ok(());
+    }
     let relative = path.trim_start_matches('/');
     let mut candidate = root.join(relative);
     if path.ends_with('/') || candidate.is_dir() {
@@ -2308,6 +2318,28 @@ mod tests {
             module.into_string().expect("read module"),
             "export const ready = true;"
         );
+
+        drop(server);
+        fs::remove_dir_all(root).expect("remove test root");
+    }
+
+    #[test]
+    fn browser_test_server_accepts_renderer_diagnostics() {
+        let root = env::temp_dir().join(format!(
+            "fission-web-test-server-diagnostics-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).expect("create test root");
+
+        let server = StaticTestServer::start(root.clone()).expect("start test server");
+        let response = ureq::post(&format!("{}/__fission/renderer", server.base_url()))
+            .send_string(r#"{"active":"canvas2d-software"}"#)
+            .expect("post renderer diagnostics");
+        assert_eq!(response.status(), 204);
 
         drop(server);
         fs::remove_dir_all(root).expect("remove test root");
