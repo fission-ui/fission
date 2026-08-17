@@ -562,7 +562,7 @@ fn static_content_type(path: &Path) -> &'static str {
     {
         "html" => "text/html; charset=utf-8",
         "css" => "text/css; charset=utf-8",
-        "js" => "text/javascript; charset=utf-8",
+        "js" | "mjs" => "text/javascript; charset=utf-8",
         "wasm" => "application/wasm",
         "json" => "application/json; charset=utf-8",
         "svg" => "image/svg+xml",
@@ -2259,6 +2259,14 @@ mod tests {
             capabilities: BTreeSet::new(),
             native: Default::default(),
         }
+    }
+
+    #[test]
+    fn browser_test_server_serves_javascript_modules() {
+        assert_eq!(
+            static_content_type(Path::new("platforms/web/bootstrap.mjs")),
+            "text/javascript; charset=utf-8"
+        );
     }
 
     #[test]
