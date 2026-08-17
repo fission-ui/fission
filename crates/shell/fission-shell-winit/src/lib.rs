@@ -7939,6 +7939,14 @@ where
                                                                     .expect(
                                                                         "failed to encode retained scene",
                                                                     );
+                                                            let workload_profile =
+                                                                workload_profile_for_encoded_scene(
+                                                                    retained_scene,
+                                                                    &presenter.scene,
+                                                                    render_target_size.0,
+                                                                    render_target_size.1,
+                                                                    scale_factor,
+                                                                );
                                                             if web_rendered_frames == 0 {
                                                                 let encoding =
                                                                     presenter.scene.encoding();
@@ -7954,7 +7962,7 @@ where
                                                                 );
                                                             }
                                                             renderer
-                                                                .render_to_texture(
+                                                                .render_to_texture_with_workload_profile(
                                                                     &device_handle.device,
                                                                     &device_handle.queue,
                                                                     &presenter.scene,
@@ -7963,6 +7971,7 @@ where
                                                                         .surface
                                                                         .target_view,
                                                                     &render_params,
+                                                                    Some(&workload_profile),
                                                                 )
                                                                 .expect(
                                                                     "failed to render webgpu frame",
