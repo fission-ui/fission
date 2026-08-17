@@ -2,21 +2,22 @@
 
 Automated UI testing client and protocol for Fission applications.
 
-This crate provides both the JSON protocol types (shared between the test client and the desktop shell server) and a `LiveTestClient` that drives a running Fission application over HTTP.
+This crate provides the shared JSON protocol and a `LiveTestClient` that drives a running native or Web Fission application.
 
 ## Architecture
 
 ```
-Test process                        Application process
-+-----------------+                 +-------------------------+
-| LiveTestClient  | ---HTTP/JSON--> | test_control server     |
-|   .tap(x, y)    |                 |   (fission-shell-desktop)|
-|   .type_text()  |                 |   dispatches to Runtime |
-|   .screenshot() | <--HTTP/JSON--- |   returns TestResponse  |
-+-----------------+                 +-------------------------+
+Test process                         Application
++-----------------+                  +------------------------+
+| LiveTestClient  | -- native HTTP ->| native test control    |
+|                 | -- Chromium CDP ->| Web test-only bridge   |
++-----------------+                  +-----------+------------+
+                                                |
+                                                v
+                                          TestEvent / Runtime
 ```
 
-The application must be launched with `FISSION_TEST_CONTROL_PORT=<port>` to enable the test control server. The `LiveTestClient` connects to `http://127.0.0.1:<port>` and sends `TestCommand` JSON payloads to `/cmd`.
+Native applications use `FISSION_TEST_CONTROL_PORT=<port>`. Web applications use a test-only bridge included by `fission test --target web` or a WASM build with `FISSION_WEB_TEST_CONTROL=1`.
 
 ## Protocol types
 
@@ -91,6 +92,19 @@ use fission_test_driver::LiveTestClient;
 let client = LiveTestClient::connect(9876);
 client.wait_for_ready(5000)?; // Wait up to 5s for the app to start
 ```
+
+For a served Web test build:
+
+```rust
+use fission_test_driver::{BrowserTestOptions, LiveTestClient};
+
+let client = LiveTestClient::launch_browser(
+    BrowserTestOptions::new("http://127.0.0.1:8123/platforms/web/")
+        .fission_canvas(),
+)?;
+```
+
+The initial Web transport uses Chromium. Its screenshots capture the composited page, and its input commands exercise Fission's deterministic event path rather than claiming trusted browser-event coverage.
 
 ### Low-level methods
 

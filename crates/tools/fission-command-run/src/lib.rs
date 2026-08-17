@@ -386,17 +386,23 @@ pub fn site_serve(
 }
 
 fn browser_test_web(project_dir: &Path) -> Result<()> {
-    build_web(project_dir, false)?;
+    build_web_for_test(project_dir)?;
     let server = StaticTestServer::start(project_dir.to_path_buf())?;
     let url = format!("{}/platforms/web/", server.base_url());
-    let report = fission_test_driver::run_browser_smoke(
+    let client = fission_test_driver::LiveTestClient::launch_browser(
         fission_test_driver::BrowserTestOptions::new(url).fission_canvas(),
     )?;
+    client.pump()?;
+    let semantic_nodes = client.get_tree()?.len();
+    let report = client
+        .browser_report()
+        .context("browser test client did not return a readiness report")?;
     println!(
-        "Web browser smoke passed: renderer={} canvas={}x{}",
+        "Web browser live test passed: renderer={} canvas={}x{} semantic_nodes={}",
         report.renderer.unwrap_or_else(|| "unknown".into()),
         report.width,
-        report.height
+        report.height,
+        semantic_nodes
     );
     Ok(())
 }
@@ -482,12 +488,21 @@ impl StaticTestServer {
             while !thread_stop.load(std::sync::atomic::Ordering::Relaxed) {
                 match listener.accept() {
                     Ok((stream, _)) => {
-                        let _ = serve_static_test_request(stream, &root);
+                        if let Err(error) = stream.set_nonblocking(false) {
+                            eprintln!("Web test server connection setup failed: {error}");
+                            continue;
+                        }
+                        if let Err(error) = serve_static_test_request(stream, &root) {
+                            eprintln!("Web test server request failed: {error}");
+                        }
                     }
                     Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                         std::thread::sleep(Duration::from_millis(20));
                     }
-                    Err(_) => break,
+                    Err(error) => {
+                        eprintln!("Web test server accept failed: {error}");
+                        std::thread::sleep(Duration::from_millis(20));
+                    }
                 }
             }
         });
@@ -517,14 +532,24 @@ fn serve_static_test_request(mut stream: TcpStream, root: &Path) -> Result<()> {
     let mut buffer = [0u8; 4096];
     let n = stream.read(&mut buffer)?;
     let request = String::from_utf8_lossy(&buffer[..n]);
-    let path = request
+    let mut request_parts = request
         .lines()
         .next()
-        .and_then(|line| line.split_whitespace().nth(1))
+        .unwrap_or_default()
+        .split_whitespace();
+    let method = request_parts.next().unwrap_or("GET");
+    let path = request_parts
+        .next()
         .unwrap_or("/")
         .split('?')
         .next()
         .unwrap_or("/");
+    if method == "POST" && path == "/__fission/renderer" {
+        stream.write_all(
+            b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        )?;
+        return Ok(());
+    }
     let relative = path.trim_start_matches('/');
     let mut candidate = root.join(relative);
     if path.ends_with('/') || candidate.is_dir() {
@@ -556,7 +581,7 @@ fn static_content_type(path: &Path) -> &'static str {
     {
         "html" => "text/html; charset=utf-8",
         "css" => "text/css; charset=utf-8",
-        "js" => "text/javascript; charset=utf-8",
+        "js" | "mjs" => "text/javascript; charset=utf-8",
         "wasm" => "application/wasm",
         "json" => "application/json; charset=utf-8",
         "svg" => "image/svg+xml",
@@ -1118,6 +1143,18 @@ fn tail_log_file(path: &Path, follow: bool) -> Result<()> {
 }
 
 fn build_web(project_dir: &Path, release: bool) -> Result<()> {
+    build_web_with_test_control(project_dir, release, false)
+}
+
+fn build_web_for_test(project_dir: &Path) -> Result<()> {
+    build_web_with_test_control(project_dir, false, true)
+}
+
+fn build_web_with_test_control(
+    project_dir: &Path,
+    release: bool,
+    test_control: bool,
+) -> Result<()> {
     let project_dir = fs::canonicalize(project_dir).with_context(|| {
         format!(
             "failed to resolve project directory {}",
@@ -1134,6 +1171,9 @@ fn build_web(project_dir: &Path, release: bool) -> Result<()> {
         .arg("--out-dir")
         .arg(out_dir);
     command.arg(if release { "--release" } else { "--dev" });
+    if test_control {
+        command.env("FISSION_WEB_TEST_CONTROL", "1");
+    }
     run_status(&mut command, "web build")
 }
 
@@ -2238,6 +2278,71 @@ mod tests {
             capabilities: BTreeSet::new(),
             native: Default::default(),
         }
+    }
+
+    #[test]
+    fn browser_test_server_serves_javascript_modules() {
+        assert_eq!(
+            static_content_type(Path::new("platforms/web/bootstrap.mjs")),
+            "text/javascript; charset=utf-8"
+        );
+    }
+
+    #[test]
+    fn browser_test_server_serves_multiple_resources() {
+        let root = env::temp_dir().join(format!(
+            "fission-web-test-server-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).expect("create test root");
+        fs::write(root.join("index.html"), "ready").expect("write index");
+        fs::write(root.join("bootstrap.mjs"), "export const ready = true;").expect("write module");
+
+        let server = StaticTestServer::start(root.clone()).expect("start test server");
+        let index = ureq::get(&format!("{}/", server.base_url()))
+            .call()
+            .expect("fetch index");
+        assert_eq!(index.into_string().expect("read index"), "ready");
+        let module = ureq::get(&format!("{}/bootstrap.mjs", server.base_url()))
+            .call()
+            .expect("fetch module");
+        assert_eq!(
+            module.header("content-type"),
+            Some("text/javascript; charset=utf-8")
+        );
+        assert_eq!(
+            module.into_string().expect("read module"),
+            "export const ready = true;"
+        );
+
+        drop(server);
+        fs::remove_dir_all(root).expect("remove test root");
+    }
+
+    #[test]
+    fn browser_test_server_accepts_renderer_diagnostics() {
+        let root = env::temp_dir().join(format!(
+            "fission-web-test-server-diagnostics-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).expect("create test root");
+
+        let server = StaticTestServer::start(root.clone()).expect("start test server");
+        let response = ureq::post(&format!("{}/__fission/renderer", server.base_url()))
+            .send_string(r#"{"active":"canvas2d-software"}"#)
+            .expect("post renderer diagnostics");
+        assert_eq!(response.status(), 204);
+
+        drop(server);
+        fs::remove_dir_all(root).expect("remove test root");
     }
 
     #[test]

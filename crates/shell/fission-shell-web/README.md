@@ -13,11 +13,12 @@ What is ready today:
 - runnable `WebApp` wrapper backed by the shared winit runtime
 - checked-in `examples/web-smoke/` browser example
 - first-party `fission add-target web` launcher output
+- Chromium live testing through `fission test --target web` and `LiveTestClient`
 
 What is still missing:
 
-- host-side browser test control equivalent to the desktop/mobile TCP server
 - richer browser integration for clipboard, drag-and-drop, and IME edge cases
+- Firefox and WebKit live-test drivers
 
 ## WASM prerequisites
 
