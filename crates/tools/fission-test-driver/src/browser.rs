@@ -258,9 +258,7 @@ impl BrowserController {
             TestCommand::HoverSelector { query } => {
                 self.selector_action(query.clone(), TestCommand::HoverSelector { query })
             }
-            TestCommand::RightClickSelector { query } => {
-                self.selector_action(query.clone(), TestCommand::RightClickSelector { query })
-            }
+            TestCommand::RightClickSelector { query } => self.right_click_selector(query),
             TestCommand::FillText { query, text } => {
                 self.selector_action(query.clone(), TestCommand::FillText { query, text })
             }
@@ -284,8 +282,89 @@ impl BrowserController {
                 ensure_response_ok(self.send_bridge_command(TestCommand::Pump {})?)?;
                 self.capture_page_response()
             }
+            TestCommand::PressKey { key, modifiers } => self.press_dom_key(&key, modifiers),
             command => self.send_bridge_command(command),
         }
+    }
+
+    fn right_click_selector(&mut self, query: SelectorQuery) -> Result<TestResponse> {
+        ensure_response_ok(self.send_bridge_command(TestCommand::ScrollIntoView {
+            query: query.clone().include_hidden(),
+        })?)?;
+        ensure_response_ok(self.send_bridge_command(TestCommand::Pump {})?)?;
+        let response = self.send_bridge_command(TestCommand::ResolveSelector { query })?;
+        let TestResponse::SelectorResolved { node } = response else {
+            return Ok(response);
+        };
+        let bounds = node.visible_bounds.unwrap_or(node.logical_bounds);
+        let (offset_x, offset_y) = self.canvas_viewport_offset()?;
+        let x = offset_x + f64::from(bounds.x + bounds.width * 0.5);
+        let y = offset_y + f64::from(bounds.y + bounds.height * 0.5);
+        self.client.send(
+            "Input.dispatchMouseEvent",
+            json!({ "type": "mouseMoved", "x": x, "y": y }),
+        )?;
+        self.client.send(
+            "Input.dispatchMouseEvent",
+            json!({
+                "type": "mousePressed",
+                "x": x,
+                "y": y,
+                "button": "right",
+                "buttons": 2,
+                "clickCount": 1
+            }),
+        )?;
+        self.client.send(
+            "Input.dispatchMouseEvent",
+            json!({
+                "type": "mouseReleased",
+                "x": x,
+                "y": y,
+                "button": "right",
+                "buttons": 0,
+                "clickCount": 1
+            }),
+        )?;
+        ensure_response_ok(self.send_bridge_command(TestCommand::Pump {})?)?;
+        Ok(TestResponse::Ok {})
+    }
+
+    fn press_dom_key(&mut self, key: &str, modifiers: u8) -> Result<TestResponse> {
+        let cdp_modifiers = cdp_modifiers(modifiers);
+        let (dom_key, code) = dom_key_and_code(key);
+        for event_type in ["keyDown", "keyUp"] {
+            self.client.send(
+                "Input.dispatchKeyEvent",
+                json!({
+                    "type": event_type,
+                    "key": dom_key,
+                    "code": code,
+                    "modifiers": cdp_modifiers
+                }),
+            )?;
+        }
+        ensure_response_ok(self.send_bridge_command(TestCommand::Pump {})?)?;
+        Ok(TestResponse::Ok {})
+    }
+
+    fn canvas_viewport_offset(&mut self) -> Result<(f64, f64)> {
+        let result = self.client.send(
+            "Runtime.evaluate",
+            json!({
+                "expression": "(() => { const r = document.querySelector('canvas')?.getBoundingClientRect(); return r ? [r.left, r.top] : [0, 0]; })()",
+                "returnByValue": true
+            }),
+        )?;
+        runtime_exception(&result)?;
+        let values = result
+            .pointer("/result/value")
+            .and_then(Value::as_array)
+            .context("browser returned no canvas offset")?;
+        Ok((
+            values.first().and_then(Value::as_f64).unwrap_or(0.0),
+            values.get(1).and_then(Value::as_f64).unwrap_or(0.0),
+        ))
     }
 
     fn selector_action(
@@ -515,6 +594,55 @@ fn ensure_response_ok(response: TestResponse) -> Result<()> {
         TestResponse::Error { message } => Err(anyhow!(message)),
         TestResponse::SelectorError { failure } => Err(anyhow!(failure.message)),
         _ => Ok(()),
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn cdp_modifiers(fission: u8) -> u8 {
+    let mut cdp = 0;
+    if fission & 1 != 0 {
+        cdp |= 8;
+    }
+    if fission & 2 != 0 {
+        cdp |= 1;
+    }
+    if fission & 4 != 0 {
+        cdp |= 2;
+    }
+    if fission & 8 != 0 {
+        cdp |= 4;
+    }
+    cdp
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn dom_key_and_code(key: &str) -> (String, String) {
+    let named = match key {
+        "Left" => Some(("ArrowLeft", "ArrowLeft")),
+        "Right" => Some(("ArrowRight", "ArrowRight")),
+        "Up" => Some(("ArrowUp", "ArrowUp")),
+        "Down" => Some(("ArrowDown", "ArrowDown")),
+        "Space" => Some((" ", "Space")),
+        "Esc" => Some(("Escape", "Escape")),
+        "Enter" | "Escape" | "Tab" | "Backspace" | "Delete" | "Home" | "End" | "PageUp"
+        | "PageDown" => Some((key, key)),
+        _ => None,
+    };
+    if let Some((dom_key, code)) = named {
+        return (dom_key.to_owned(), code.to_owned());
+    }
+    let mut chars = key.chars();
+    if let (Some(ch), None) = (chars.next(), chars.next()) {
+        let code = if ch.is_ascii_alphabetic() {
+            format!("Key{}", ch.to_ascii_uppercase())
+        } else if ch.is_ascii_digit() {
+            format!("Digit{ch}")
+        } else {
+            String::new()
+        };
+        (ch.to_string(), code)
+    } else {
+        (key.to_owned(), key.to_owned())
     }
 }
 
@@ -940,5 +1068,24 @@ mod tests {
 
         assert!(status.test_bridge_ready);
         assert_eq!(status.renderer.as_deref(), Some("webgpu-vello"));
+    }
+
+    #[test]
+    fn browser_key_events_translate_fission_modifiers_to_cdp() {
+        assert_eq!(cdp_modifiers(1), 8); // Shift
+        assert_eq!(cdp_modifiers(2), 1); // Alt
+        assert_eq!(cdp_modifiers(4), 2); // Control
+        assert_eq!(cdp_modifiers(8), 4); // Meta
+        assert_eq!(cdp_modifiers(1 | 4 | 8), 8 | 2 | 4);
+    }
+
+    #[test]
+    fn browser_key_events_use_dom_key_names() {
+        assert_eq!(
+            dom_key_and_code("Left"),
+            ("ArrowLeft".into(), "ArrowLeft".into())
+        );
+        assert_eq!(dom_key_and_code("a"), ("a".into(), "KeyA".into()));
+        assert_eq!(dom_key_and_code("7"), ("7".into(), "Digit7".into()));
     }
 }
