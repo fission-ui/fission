@@ -1,7 +1,8 @@
 use super::{ControllerContext, InputController};
 use crate::env::TextSelectionHandleKind;
 use crate::event::{
-    InputEvent, KeyCode, KeyEvent, PointerEvent, MOD_ALT, MOD_CTRL, MOD_SHIFT, MOD_SUPER,
+    EditingCommand, InputEvent, KeyCode, KeyEvent, PointerEvent, MOD_ALT, MOD_CTRL, MOD_SHIFT,
+    MOD_SUPER,
 };
 use crate::ui::widgets::context_menu::TextContextMenuAction;
 use crate::ui::widgets::text_input::{
@@ -28,6 +29,7 @@ impl InputController for TextInputController {
                 key_code,
                 modifiers,
             }) => self.handle_key(ctx, key_code.clone(), *modifiers),
+            InputEvent::Editing(command) => self.handle_editing_command(ctx, command),
             InputEvent::Ime(ime) => self.handle_ime(ctx, ime),
             InputEvent::Pointer(PointerEvent::Down {
                 point,
@@ -565,6 +567,129 @@ impl InputController for TextInputController {
 }
 
 impl TextInputController {
+    fn handle_editing_command(
+        &mut self,
+        ctx: &mut ControllerContext,
+        command: &EditingCommand,
+    ) -> bool {
+        let Some(focused_id) = ctx.interaction.focused else {
+            return false;
+        };
+        let Some(semantics) = Self::text_input_semantics(ctx, focused_id) else {
+            return false;
+        };
+        if semantics.disabled {
+            return false;
+        }
+
+        let (value, caret, anchor) =
+            Self::resolve_editing_value(ctx, focused_id, semantics.value.as_deref().unwrap_or(""));
+        let caret = Self::clamp_caret_to_value(&value, caret);
+        let anchor = Self::clamp_caret_to_value(&value, anchor);
+        let selection = (caret != anchor).then_some((caret.min(anchor), caret.max(anchor)));
+
+        match command {
+            EditingCommand::Copy => {
+                if let (Some((start, end)), Some(clipboard)) = (selection, ctx.clipboard) {
+                    clipboard.set_text(&value[start..end]);
+                }
+            }
+            EditingCommand::Cut => {
+                if let Some((start, end)) = selection {
+                    if let Some(clipboard) = ctx.clipboard {
+                        clipboard.set_text(&value[start..end]);
+                    }
+                    if !semantics.read_only {
+                        let next = ctx.text_edit.get_mut_or_default(focused_id).apply_edit(
+                            start..end,
+                            "",
+                            start,
+                            start,
+                        );
+                        self.dispatch_change(ctx, &semantics, focused_id, next);
+                        Self::dispatch_cursor_change(ctx, &semantics, focused_id, start, start);
+                    }
+                }
+            }
+            EditingCommand::Paste(text) => {
+                if !semantics.read_only && !text.is_empty() {
+                    let (start, end) = selection.unwrap_or((caret, caret));
+                    if let Some(inserted) =
+                        Self::prepare_inserted_text(&semantics, &value, start, end, text)
+                    {
+                        let next_caret = start + inserted.len();
+                        let next = ctx.text_edit.get_mut_or_default(focused_id).apply_edit(
+                            start..end,
+                            &inserted,
+                            next_caret,
+                            next_caret,
+                        );
+                        self.dispatch_change(ctx, &semantics, focused_id, next);
+                        Self::dispatch_cursor_change(
+                            ctx, &semantics, focused_id, next_caret, next_caret,
+                        );
+                    }
+                }
+            }
+            EditingCommand::SelectAll => {
+                let state = ctx.text_edit.get_mut_or_default(focused_id);
+                state.caret = value.len();
+                state.anchor = 0;
+                state.clear_preedit();
+                Self::dispatch_cursor_change(ctx, &semantics, focused_id, value.len(), 0);
+            }
+            EditingCommand::Undo | EditingCommand::Redo => {
+                let edit = {
+                    let state = ctx.text_edit.get_mut_or_default(focused_id);
+                    match command {
+                        EditingCommand::Undo => state.undo(),
+                        EditingCommand::Redo => state.redo(),
+                        _ => unreachable!(),
+                    }
+                };
+                if let Some((next, next_caret, next_anchor)) = edit {
+                    self.dispatch_change(ctx, &semantics, focused_id, next);
+                    Self::dispatch_cursor_change(
+                        ctx,
+                        &semantics,
+                        focused_id,
+                        next_caret,
+                        next_anchor,
+                    );
+                }
+            }
+        }
+
+        let displayed_value = ctx
+            .text_edit
+            .get(focused_id)
+            .map(|state| state.committed_text().to_owned())
+            .unwrap_or(value);
+        Self::sync_text_input_affordances(
+            ctx,
+            focused_id,
+            &semantics,
+            displayed_value.as_str(),
+            false,
+            None,
+        );
+        true
+    }
+
+    fn text_input_semantics(ctx: &ControllerContext, focused_id: WidgetId) -> Option<Semantics> {
+        let mut current_id = Some(focused_id);
+        while let Some(node_id) = current_id {
+            let node = ctx.ir.nodes.get(&node_id)?;
+            if let Op::Semantics(semantics) = &node.op {
+                if semantics.role == fission_ir::semantics::Role::TextInput {
+                    return Some(semantics.clone());
+                }
+            }
+            current_id = node.parent;
+        }
+        None
+    }
+
     fn handle_key(
         &mut self,
         ctx: &mut ControllerContext,
@@ -620,14 +745,14 @@ impl TextInputController {
         let mut next_edit: Option<(std::ops::Range<usize>, String)> = None;
         let mut handled = false;
 
-        // Undo/Redo logic result
-        let mut undo_redo_result: Option<(String, usize, usize)> = None;
         let read_only = semantics.read_only;
         let disabled = semantics.disabled;
-        let is_apple = Self::is_apple_platform();
+        let convention = ctx.editing_convention;
+        let is_apple = convention.is_apple();
         let shift = Self::has_shift(modifiers);
-        let primary_shortcut = Self::has_primary_shortcut(modifiers);
-        let word_modifier = Self::has_word_modifier(modifiers);
+        let primary_shortcut =
+            convention.has_primary_shortcut(modifiers) && !convention.is_alt_gr(modifiers);
+        let word_modifier = convention.has_word_modifier(modifiers);
 
         if disabled {
             return false;
@@ -652,82 +777,22 @@ impl TextInputController {
             KeyCode::Char(ch) => {
                 let lower = ch.to_ascii_lowercase();
                 if primary_shortcut {
-                    let (s, e) = sel.unwrap_or((caret, caret));
-                    match lower {
-                        'a' => {
-                            next_caret = value.len();
-                            next_anchor = 0;
-                            handled = true;
-                        }
-                        'c' => {
-                            if s != e {
-                                let txt = value[s..e].to_string();
-                                if let Some(cb) = ctx.clipboard {
-                                    cb.set_text(&txt);
-                                }
-                            }
-                            handled = true;
-                        }
-                        'x' => {
-                            if s != e {
-                                let txt = value[s..e].to_string();
-                                if let Some(cb) = ctx.clipboard {
-                                    cb.set_text(&txt);
-                                }
-                                if !read_only {
-                                    next_edit = Some((s..e, String::new()));
-                                    next_caret = s;
-                                    next_anchor = s;
-                                }
-                            }
-                            handled = true;
-                        }
-                        'v' => {
-                            handled = true;
-                            if !read_only {
-                                let text_to_paste = if let Some(cb) = ctx.clipboard {
-                                    cb.get_text().unwrap_or_default()
-                                } else {
-                                    String::new()
-                                };
-                                if !text_to_paste.is_empty() {
-                                    if let Some(inserted) = Self::prepare_inserted_text(
-                                        semantics,
-                                        &value,
-                                        s,
-                                        e,
-                                        &text_to_paste,
-                                    ) {
-                                        next_caret = s + inserted.len();
-                                        next_anchor = next_caret;
-                                        next_edit = Some((s..e, inserted));
-                                    }
-                                }
-                            }
-                        }
-                        'z' => {
-                            let st = ctx.text_edit.get_mut_or_default(focused_id);
-                            if shift {
-                                if let Some((v, c, a)) = st.redo() {
-                                    undo_redo_result = Some((v, c, a));
-                                }
-                            } else if let Some((v, c, a)) = st.undo() {
-                                undo_redo_result = Some((v, c, a));
-                            }
-                            handled = true;
-                        }
-                        'y' if !is_apple => {
-                            let st = ctx.text_edit.get_mut_or_default(focused_id);
-                            if let Some((v, c, a)) = st.redo() {
-                                undo_redo_result = Some((v, c, a));
-                            }
-                            handled = true;
-                        }
-                        _ => {}
-                    }
-                    if handled {
-                        // Skip plain text insertion when a primary shortcut matched.
-                    }
+                    let command = match lower {
+                        'a' => Some(EditingCommand::SelectAll),
+                        'c' => Some(EditingCommand::Copy),
+                        'x' => Some(EditingCommand::Cut),
+                        'v' => Some(EditingCommand::Paste(
+                            ctx.clipboard
+                                .and_then(|clipboard| clipboard.get_text())
+                                .unwrap_or_default(),
+                        )),
+                        'z' if shift => Some(EditingCommand::Redo),
+                        'z' => Some(EditingCommand::Undo),
+                        'y' if !is_apple => Some(EditingCommand::Redo),
+                        _ => None,
+                    };
+                    return command
+                        .map_or(true, |command| self.handle_editing_command(ctx, &command));
                 }
 
                 if !handled
@@ -1013,21 +1078,6 @@ impl TextInputController {
             _ => {}
         }
 
-        if let Some((v, c, a)) = undo_redo_result {
-            // Apply undo/redo result
-            self.dispatch_change(ctx, semantics, focused_id, v);
-            Self::dispatch_cursor_change(ctx, semantics, focused_id, c, a);
-            Self::sync_text_input_affordances(
-                ctx,
-                focused_id,
-                semantics,
-                value.as_str(),
-                false,
-                None,
-            );
-            return true;
-        }
-
         if let Some((range, replacement)) = next_edit {
             // Apply text change
             let st = ctx.text_edit.get_mut_or_default(focused_id);
@@ -1061,10 +1111,6 @@ impl TextInputController {
         }
 
         handled
-    }
-
-    fn is_apple_platform() -> bool {
-        cfg!(target_os = "macos") || cfg!(target_os = "ios")
     }
 
     fn runtime_config(
@@ -1122,30 +1168,6 @@ impl TextInputController {
 
     fn has_super(modifiers: u8) -> bool {
         (modifiers & MOD_SUPER) != 0
-    }
-
-    fn has_primary_shortcut(modifiers: u8) -> bool {
-        if Self::is_apple_platform() {
-            Self::has_super(modifiers)
-        } else {
-            Self::has_ctrl(modifiers)
-        }
-    }
-
-    fn has_word_modifier(modifiers: u8) -> bool {
-        if Self::is_apple_platform() {
-            Self::has_alt(modifiers)
-        } else {
-            Self::has_ctrl(modifiers)
-        }
-    }
-
-    fn primary_shortcut_modifier() -> u8 {
-        if Self::is_apple_platform() {
-            MOD_SUPER
-        } else {
-            MOD_CTRL
-        }
     }
 
     fn node_or_ancestor_matches(
@@ -1211,20 +1233,17 @@ impl TextInputController {
         ctx: &mut ControllerContext,
         action: TextContextMenuAction,
     ) -> bool {
-        match action {
-            TextContextMenuAction::Copy => {
-                self.handle_key(ctx, KeyCode::Char('c'), Self::primary_shortcut_modifier())
-            }
-            TextContextMenuAction::Cut => {
-                self.handle_key(ctx, KeyCode::Char('x'), Self::primary_shortcut_modifier())
-            }
-            TextContextMenuAction::Paste => {
-                self.handle_key(ctx, KeyCode::Char('v'), Self::primary_shortcut_modifier())
-            }
-            TextContextMenuAction::SelectAll => {
-                self.handle_key(ctx, KeyCode::Char('a'), Self::primary_shortcut_modifier())
-            }
-        }
+        let command = match action {
+            TextContextMenuAction::Copy => EditingCommand::Copy,
+            TextContextMenuAction::Cut => EditingCommand::Cut,
+            TextContextMenuAction::Paste => EditingCommand::Paste(
+                ctx.clipboard
+                    .and_then(|clipboard| clipboard.get_text())
+                    .unwrap_or_default(),
+            ),
+            TextContextMenuAction::SelectAll => EditingCommand::SelectAll,
+        };
+        self.handle_editing_command(ctx, &command)
     }
 
     fn input_wrapper_geometry<'a>(

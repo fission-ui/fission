@@ -127,6 +127,20 @@ pub enum KeyEvent {
     Up { key_code: KeyCode, modifiers: u8 },
 }
 
+/// Semantic text-editing commands produced by a platform shell.
+///
+/// Browser shells should translate trusted `copy`, `cut`, and `paste` events
+/// into these commands instead of synthesizing platform-specific key chords.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EditingCommand {
+    Copy,
+    Cut,
+    Paste(String),
+    SelectAll,
+    Undo,
+    Redo,
+}
+
 /// Application lifecycle events.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum LifecycleEvent {
@@ -199,6 +213,8 @@ pub enum InputEvent {
     Keyboard(KeyEvent),
     /// Input Method Editor (IME) events for CJK and composed text.
     Ime(ImeEvent),
+    /// A platform-native semantic text-editing command.
+    Editing(EditingCommand),
     /// High-level gesture events.
     Gesture(GestureEvent),
     /// Desktop shell drag-and-drop events from outside the app.

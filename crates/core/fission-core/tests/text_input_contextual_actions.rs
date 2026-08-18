@@ -6,7 +6,8 @@ use fission_core::env::{
 use fission_core::event::{ImeEvent, InputEvent, KeyCode, KeyEvent};
 use fission_core::input::text::TextInputController;
 use fission_core::input::{
-    prepare_scoped_text_input_change, prepare_text_input_change, ControllerContext, InputController,
+    prepare_scoped_text_input_change, prepare_text_input_change, ControllerContext,
+    InputController, TextEditingConvention,
 };
 use fission_core::internal::{self, BuildCtx};
 use fission_core::ui::{Column, TextInput, Widget};
@@ -212,6 +213,7 @@ fn dispatch_native_edit(
         interaction: &mut interaction,
         scroll: &mut scroll,
         gesture: &mut gesture,
+        editing_convention: TextEditingConvention::Standard,
         clipboard: None,
         measurer: None,
         dispatched_actions: Vec::new(),
