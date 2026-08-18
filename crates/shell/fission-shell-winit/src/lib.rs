@@ -116,6 +116,7 @@ mod software_fonts;
 mod software_renderer;
 #[cfg(target_arch = "wasm32")]
 mod web_console;
+mod web_input;
 use software_renderer::SoftwareRenderer;
 mod native_surface;
 use native_surface::NativeSurfaceRegistry;
@@ -145,6 +146,7 @@ mod camera;
 pub use camera::{CameraHost, MemoryCameraHost, UnsupportedCameraHost};
 mod ime;
 use ime::{DesktopImeHandler, TextInputConfig};
+pub use web_input::BrowserDefaults;
 mod microphone;
 pub use microphone::{MemoryMicrophoneHost, MicrophoneHost, UnsupportedMicrophoneHost};
 mod notifications;
@@ -1585,6 +1587,7 @@ fn build_window(
     background_test_mode: bool,
     target: &EventLoopWindowTarget,
     _web_mount_selector: Option<&str>,
+    _browser_defaults: BrowserDefaults,
 ) -> anyhow::Result<Arc<Window>> {
     let reported_scale_factor = target
         .primary_monitor()
@@ -1595,6 +1598,7 @@ fn build_window(
         background_test_mode,
         false,
         _web_mount_selector,
+        _browser_defaults,
         reported_scale_factor,
     )?;
     Ok(Arc::new(target.create_window(window_attributes).map_err(
@@ -1610,6 +1614,7 @@ fn build_window_before_run(
     tray_skip_taskbar: bool,
     event_loop: &EventLoop<TestEvent>,
     _web_mount_selector: Option<&str>,
+    _browser_defaults: BrowserDefaults,
 ) -> anyhow::Result<Arc<Window>> {
     let window_attributes = build_window_attributes(
         title,
@@ -1617,6 +1622,7 @@ fn build_window_before_run(
         background_test_mode,
         tray_skip_taskbar,
         _web_mount_selector,
+        _browser_defaults,
         None,
     )?;
     #[allow(deprecated)]
@@ -1638,6 +1644,7 @@ fn build_window_attributes(
     background_test_mode: bool,
     tray_skip_taskbar: bool,
     _web_mount_selector: Option<&str>,
+    _browser_defaults: BrowserDefaults,
     _reported_scale_factor: Option<f64>,
 ) -> anyhow::Result<WindowAttributes> {
     let mut window_attributes = WindowAttributes::default()
@@ -1664,7 +1671,9 @@ fn build_window_attributes(
     }
     #[cfg(target_arch = "wasm32")]
     {
-        window_attributes = window_attributes.with_prevent_default(true);
+        window_attributes = window_attributes
+            .with_prevent_default(true)
+            .with_browser_defaults(web_input::to_winit(_browser_defaults));
         window_attributes = if let Some(selector) = _web_mount_selector {
             window_attributes.with_canvas(Some(canvas_for_mount_selector(selector)?))
         } else {
@@ -4469,6 +4478,8 @@ where
     env: Env,
     pipeline: Pipeline,
     measurer: Arc<VelloTextMeasurer>,
+    #[cfg(target_arch = "wasm32")]
+    clipboard: Arc<DesktopClipboard>,
     sync_env: Option<Arc<dyn Fn(&S, &mut Env) + Send + Sync>>,
     key_handler: Option<KeyHandler<S>>,
     frame_hook: Option<FrameHook<S>>,
@@ -4476,6 +4487,7 @@ where
     title: String,
     initial_maximized: bool,
     web_mount_selector: Option<String>,
+    browser_defaults: BrowserDefaults,
     test_control_port: Option<u16>,
     /// Channel pair for receiving completed background effect results.
     effect_result_tx: mpsc::Sender<AsyncMessage>,
@@ -4501,6 +4513,7 @@ where
 
     pub fn new_with_global_state(root_widget: W, global_state: S) -> Self {
         let mut runtime = Runtime::default();
+        runtime.editing_convention = web_input::host_text_editing_convention();
         runtime.add_global_state(Box::new(global_state)).unwrap();
 
         const DEFAULT_FONT_FAMILY: &str = "Fission Default";
@@ -4521,12 +4534,12 @@ where
             DEFAULT_FONT_FAMILY,
         ));
         let env = Env::new(measurer.clone() as Arc<dyn fission_layout::TextMeasurer>);
-        let clipboard: Arc<dyn fission_core::env::Clipboard> = Arc::new(DesktopClipboard::new());
+        let clipboard = Arc::new(DesktopClipboard::new());
 
         let layout_engine = LayoutEngine::new().with_measurer(measurer.clone());
         let runtime = runtime
             .with_measurer(measurer.clone())
-            .with_clipboard(clipboard);
+            .with_clipboard(clipboard.clone());
 
         let (effect_result_tx, effect_result_rx) = mpsc::channel();
         let mut async_registry = AsyncRegistry::new();
@@ -4539,6 +4552,8 @@ where
             env,
             pipeline: Pipeline::new(),
             measurer,
+            #[cfg(target_arch = "wasm32")]
+            clipboard,
             sync_env: None,
             key_handler: None,
             frame_hook: None,
@@ -4546,6 +4561,7 @@ where
             title: "Fission".into(),
             initial_maximized: false,
             web_mount_selector: None,
+            browser_defaults: BrowserDefaults::NONE,
             test_control_port: None,
             effect_result_tx,
             effect_result_rx,
@@ -4597,6 +4613,13 @@ where
 
     pub fn with_mount_selector(mut self, selector: impl Into<String>) -> Self {
         self.web_mount_selector = Some(selector.into());
+        self
+    }
+
+    /// Selectively delegates browser behavior while Fission continues to own
+    /// all other Web input defaults.
+    pub fn with_browser_defaults(mut self, defaults: BrowserDefaults) -> Self {
+        self.browser_defaults = defaults;
         self
     }
 
@@ -5076,6 +5099,7 @@ where
         let window_title = self.title.clone();
         let initial_maximized = self.initial_maximized;
         let web_mount_selector = self.web_mount_selector;
+        let browser_defaults = self.browser_defaults;
         let ime_handler = Arc::new(DesktopImeHandler::default());
         self.runtime = self.runtime.with_ime_handler(ime_handler.clone());
 
@@ -5087,6 +5111,7 @@ where
             tray_skip_taskbar,
             &event_loop,
             web_mount_selector.as_deref(),
+            browser_defaults,
         )?;
         #[cfg(not(target_os = "android"))]
         ime_handler.set_window(Some(platform_window.clone()));
@@ -5164,6 +5189,8 @@ where
         let mut players: HashMap<WidgetId, ActivePlayer> = HashMap::new();
 
         let mut last_cursor_position: Option<PhysicalPosition<f64>> = None;
+        #[cfg(target_arch = "wasm32")]
+        let mut last_web_secondary_up: Option<(LayoutPoint, Instant)> = None;
         let mut active_primary_touch: Option<u64> = None;
         let mut touch_positions: HashMap<u64, PhysicalPosition<f64>> = HashMap::new();
         let max_fps = std::env::var("FISSION_MAX_FPS")
@@ -6374,6 +6401,7 @@ where
                             background_test_mode,
                             elwt,
                             web_mount_selector.as_deref(),
+                            browser_defaults,
                         ) {
                             Ok(new_window) => {
                                 ime_handler.set_window(Some(new_window.clone()));
@@ -8655,6 +8683,9 @@ where
                                     window_physical_position_to_layout_point(window, position);
                                 if let Some(btn) = map_mouse_button(button) {
                                     let is_pressed = state.is_pressed();
+                                    #[cfg(target_arch = "wasm32")]
+                                    let is_secondary_release =
+                                        !is_pressed && matches!(btn, PointerButton::Secondary);
                                     handle_mouse_button(
                                         point.x,
                                         point.y,
@@ -8682,6 +8713,10 @@ where
                                         &mut frame_trace,
                                         &mut invalidations,
                                     );
+                                    #[cfg(target_arch = "wasm32")]
+                                    if is_secondary_release {
+                                        last_web_secondary_up = Some((point, Instant::now()));
+                                    }
                                 }
                             }
                         }
@@ -8901,7 +8936,7 @@ where
                             pending_web_input_at.get_or_insert_with(Instant::now);
                             if event.state.is_pressed() {
                                 use winit::keyboard::{Key, NamedKey};
-                                let key_code = match event.logical_key {
+                                let key_code = match &event.logical_key {
                                     Key::Named(NamedKey::Space) => Some(KeyCode::Space),
                                     Key::Named(NamedKey::Enter) => Some(KeyCode::Enter),
                                     Key::Named(NamedKey::Escape) => Some(KeyCode::Escape),
@@ -8916,16 +8951,28 @@ where
                                     Key::Named(NamedKey::End) => Some(KeyCode::End),
                                     Key::Named(NamedKey::PageUp) => Some(KeyCode::PageUp),
                                     Key::Named(NamedKey::PageDown) => Some(KeyCode::PageDown),
-                                    _ => {
-                                        if let Some(text) = &event.text {
-                                            text.chars().next().map(KeyCode::Char)
-                                        } else {
-                                            None
-                                        }
-                                    }
+                                    Key::Character(text) => text.chars().next().map(KeyCode::Char),
+                                    _ => event
+                                        .text
+                                        .as_ref()
+                                        .and_then(|text| text.chars().next())
+                                        .map(KeyCode::Char),
                                 };
 
                                 if let Some(code) = key_code {
+                                    #[cfg(target_arch = "wasm32")]
+                                    let browser_clipboard_chord = runtime
+                                        .editing_convention
+                                        .has_primary_shortcut(current_mods)
+                                        && matches!(
+                                            code,
+                                            KeyCode::Char('c' | 'C' | 'x' | 'X' | 'v' | 'V')
+                                        );
+                                    #[cfg(not(target_arch = "wasm32"))]
+                                    let browser_clipboard_chord = false;
+                                    if browser_clipboard_chord {
+                                        return;
+                                    }
                                     handle_key_down::<S>(
                                         code,
                                         current_mods,
@@ -8952,6 +8999,95 @@ where
                                         &mut invalidations,
                                     );
                                 }
+                            }
+                        }
+                        #[cfg(target_arch = "wasm32")]
+                        WindowEvent::WebInput(web_input) => {
+                            use fission_core::env::Clipboard as _;
+                            use fission_core::event::EditingCommand;
+                            use winit::event::{WebClipboardAction, WebInputEvent};
+
+                            pending_web_input_at.get_or_insert_with(Instant::now);
+                            let input_event = match &web_input {
+                                WebInputEvent::ContextMenuRequested { position, .. } => {
+                                    if browser_defaults.contains(BrowserDefaults::CONTEXT_MENU) {
+                                        return;
+                                    }
+                                    let point = window_physical_position_to_layout_point(
+                                        &window, *position,
+                                    );
+                                    let duplicate =
+                                        last_web_secondary_up.is_some_and(|(last_point, at)| {
+                                            at.elapsed() <= Duration::from_millis(500)
+                                                && (last_point.x - point.x).abs() <= 2.0
+                                                && (last_point.y - point.y).abs() <= 2.0
+                                        });
+                                    if duplicate {
+                                        None
+                                    } else {
+                                        Some(InputEvent::ContextMenuRequested {
+                                            point,
+                                            modifiers: current_mods,
+                                        })
+                                    }
+                                }
+                                WebInputEvent::Clipboard(event) => {
+                                    if browser_defaults.contains(BrowserDefaults::CLIPBOARD) {
+                                        return;
+                                    }
+                                    let command = match event.action {
+                                        WebClipboardAction::Copy => EditingCommand::Copy,
+                                        WebClipboardAction::Cut => EditingCommand::Cut,
+                                        WebClipboardAction::Paste => EditingCommand::Paste(
+                                            event.text.clone().unwrap_or_default(),
+                                        ),
+                                    };
+                                    if !matches!(event.action, WebClipboardAction::Paste) {
+                                        self.clipboard.set_text("");
+                                    }
+                                    Some(InputEvent::Editing(command))
+                                }
+                            };
+
+                            if let (Some(input_event), Some(ir), Some(layout)) = (
+                                input_event,
+                                pipeline.prev_ir.as_ref(),
+                                pipeline.last_snapshot.as_ref(),
+                            ) {
+                                if let Err(error) = runtime.handle_input(input_event, ir, layout) {
+                                    eprintln!("Web input handling error: {error:?}");
+                                }
+                                if let WebInputEvent::Clipboard(event) = web_input {
+                                    if !matches!(event.action, WebClipboardAction::Paste) {
+                                        event.set_text(
+                                            self.clipboard.get_text().unwrap_or_default(),
+                                        );
+                                    }
+                                }
+                                invalidations.mark_build();
+                                let _ = process_pending_effects(
+                                    &mut runtime,
+                                    &effect_result_tx,
+                                    &event_proxy,
+                                    &async_registry,
+                                    &mut active_services,
+                                    &mut service_bindings,
+                                    &mut next_service_instance_id,
+                                );
+                                reset_text_input_caret(
+                                    &mut runtime,
+                                    pipeline.prev_ir.as_ref(),
+                                    &mut last_blink_toggle,
+                                );
+                                request_redraw_logged(
+                                    &window,
+                                    elwt,
+                                    &mut last_redraw_at,
+                                    min_frame,
+                                    &mut redraw_pending,
+                                    &mut frame_trace,
+                                    "web_input",
+                                );
                             }
                         }
                         WindowEvent::Ime(ime) => {
@@ -9465,7 +9601,8 @@ mod tests {
         should_present_startup_clear_frame, surface_acquire_recovery,
         sync_tracked_target_texture_size_to_surface, texture_plans_fit_device_limits,
         visual_rect_for_node, window_insets_from_safe_area_frames, windows_shell_execute_succeeded,
-        windows_wide, LiveResizeController, SurfaceAcquireRecovery, WindowViewportState,
+        windows_wide, BrowserDefaults, LiveResizeController, SurfaceAcquireRecovery,
+        WindowViewportState,
     };
     use crate::pipeline::CompositorTexturePlan;
     use crate::renderer_diagnostics::RendererRequest;
@@ -9569,10 +9706,26 @@ mod tests {
 
     #[test]
     fn initial_window_maximization_is_opt_in() {
-        let default_attributes =
-            build_window_attributes("Fission", false, false, false, None, None).unwrap();
-        let maximized_attributes =
-            build_window_attributes("Fission", true, false, false, None, None).unwrap();
+        let default_attributes = build_window_attributes(
+            "Fission",
+            false,
+            false,
+            false,
+            None,
+            BrowserDefaults::NONE,
+            None,
+        )
+        .unwrap();
+        let maximized_attributes = build_window_attributes(
+            "Fission",
+            true,
+            false,
+            false,
+            None,
+            BrowserDefaults::NONE,
+            None,
+        )
+        .unwrap();
 
         assert!(!default_attributes.maximized);
         assert!(maximized_attributes.maximized);
