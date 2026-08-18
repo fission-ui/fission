@@ -1,8 +1,8 @@
-use fission_core::ui::{Button, Container, Positioned, Text, Widget, ZStack};
+use fission_core::ui::{Button, Column, Container, Positioned, Spacer, Text, Widget, ZStack};
 use fission_core::{GlobalState, WidgetId, WidgetIdExt};
 use fission_render::{DisplayOp, Fill};
 use fission_test::TestHarness;
-use fission_widgets::{Popover, Tooltip};
+use fission_widgets::{flyout, Popover, Tooltip};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -151,5 +151,68 @@ fn tooltip_surface_uses_intrinsic_size_inside_viewport_portal() {
         tooltip_rect.height() < display_list.bounds.height(),
         "tooltip must not fill the viewport height: tooltip={tooltip_rect:?} viewport={:?}",
         display_list.bounds
+    );
+}
+
+#[derive(Clone)]
+struct IntrinsicMenuRoot;
+
+impl From<IntrinsicMenuRoot> for Widget {
+    fn from(_component: IntrinsicMenuRoot) -> Self {
+        let (ctx, view) = fission_core::build::current::<State>();
+        let anchor_id = WidgetId::explicit("intrinsic-menu-anchor");
+        let menu_id = WidgetId::explicit("intrinsic-menu");
+        let menu = Container::new(Column {
+            children: vec![
+                Container::new(Spacer::default())
+                    .width(150.0)
+                    .height(36.0)
+                    .into(),
+                Container::new(Spacer::default())
+                    .width(150.0)
+                    .height(1.0)
+                    .into(),
+                Container::new(Spacer::default())
+                    .width(150.0)
+                    .height(36.0)
+                    .into(),
+            ],
+            gap: Some(2.0),
+            ..Default::default()
+        })
+        .width(158.0)
+        .padding_all(4.0)
+        .bg(view.env().theme.tokens.colors.surface)
+        .id(menu_id)
+        .into();
+        ctx.register_portal_with_layer(
+            fission_core::PortalLayer::Flyout,
+            Some(WidgetId::explicit("intrinsic-menu-portal")),
+            flyout(anchor_id, menu),
+        );
+
+        Container::new(Spacer::default())
+            .width(64.0)
+            .height(24.0)
+            .id(anchor_id)
+            .into()
+    }
+}
+
+#[test]
+fn default_stretch_container_keeps_intrinsic_flyout_height() {
+    let mut harness =
+        TestHarness::new_with_mock_measurer(State::default()).with_root_widget(IntrinsicMenuRoot);
+    harness.pump().expect("intrinsic menu frame");
+
+    let snapshot = harness.last_snapshot.as_ref().expect("snapshot");
+    let menu_id: WidgetId = WidgetId::explicit("intrinsic-menu").into();
+    let menu_rect = snapshot.get_node_rect(menu_id).expect("menu rect");
+
+    assert_eq!(menu_rect.height(), 85.0);
+    assert!(
+        menu_rect.height() < snapshot.viewport_size.height,
+        "intrinsic menu must not fill the viewport: menu={menu_rect:?} viewport={:?}",
+        snapshot.viewport_size
     );
 }
