@@ -4,12 +4,12 @@ use fission_shell::async_host::AsyncRegistry;
 use fission_shell_winit::WinitApp;
 
 pub use fission_shell_winit::{
-    BarcodeScannerHost, BiometricHost, BluetoothHost, CameraHost, ClipboardHost, GeolocationHost,
-    HapticHost, MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryBluetoothHost,
-    MemoryCameraHost, MemoryClipboardHost, MemoryGeolocationHost, MemoryHapticHost,
-    MemoryMicrophoneHost, MemoryNfcHost, MemoryNotificationHost, MemoryPasskeyHost,
-    MemoryVolumeHost, MemoryWifiHost, MicrophoneHost, NfcHost, NotificationHost, PasskeyHost,
-    UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedBluetoothHost,
+    BarcodeScannerHost, BiometricHost, BluetoothHost, BrowserDefaults, CameraHost, ClipboardHost,
+    GeolocationHost, HapticHost, MemoryBarcodeScannerHost, MemoryBiometricHost,
+    MemoryBluetoothHost, MemoryCameraHost, MemoryClipboardHost, MemoryGeolocationHost,
+    MemoryHapticHost, MemoryMicrophoneHost, MemoryNfcHost, MemoryNotificationHost,
+    MemoryPasskeyHost, MemoryVolumeHost, MemoryWifiHost, MicrophoneHost, NfcHost, NotificationHost,
+    PasskeyHost, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedBluetoothHost,
     UnsupportedCameraHost, UnsupportedGeolocationHost, UnsupportedHapticHost,
     UnsupportedMicrophoneHost, UnsupportedNfcHost, UnsupportedNotificationHost,
     UnsupportedPasskeyHost, UnsupportedVolumeHost, UnsupportedWifiHost, VolumeHost, WifiHost,
@@ -51,6 +51,13 @@ where
 
     pub fn with_mount_selector(mut self, selector: impl Into<String>) -> Self {
         self.inner = self.inner.with_mount_selector(selector);
+        self
+    }
+
+    /// Selectively permits browser-owned defaults. Fission owns every browser
+    /// input category unless it is explicitly included here.
+    pub fn with_browser_defaults(mut self, defaults: BrowserDefaults) -> Self {
+        self.inner = self.inner.with_browser_defaults(defaults);
         self
     }
 

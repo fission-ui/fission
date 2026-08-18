@@ -9,7 +9,9 @@ pub struct SliderController;
 impl InputController for SliderController {
     fn handle_event(&mut self, ctx: &mut ControllerContext, event: &InputEvent) -> bool {
         match event {
-            InputEvent::Pointer(PointerEvent::Down { point, .. }) => {
+            InputEvent::Pointer(PointerEvent::Down { point, button, .. })
+                if matches!(button, crate::event::PointerButton::Primary) =>
+            {
                 if let Some(hit_id) =
                     crate::hit_test::hit_test_with_scroll(ctx.ir, ctx.layout, ctx.scroll, *point)
                 {

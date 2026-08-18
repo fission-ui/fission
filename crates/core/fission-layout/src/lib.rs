@@ -3215,15 +3215,12 @@ impl LayoutEngine {
                             child_constraints.max_w = intrinsic_width;
                         }
                         let tight_width = child_constraints.min_w == child_constraints.max_w;
+                        // Stretch consumes space the box actually owns. A finite maximum on an
+                        // auto-sized axis is only a bound: tightening it here makes intrinsic
+                        // surfaces such as flyouts expand to the viewport.
                         let stretch_width =
                             tight_width && child_width.is_none() && child_max_width.is_none();
-                        if matches!(box_alignment, fission_ir::op::BoxAlignment::Stretch)
-                            && child_width.is_none()
-                            && child_max_width.is_none()
-                            && child_constraints.max_w.is_finite()
-                        {
-                            child_constraints.min_w = child_constraints.max_w;
-                        } else if stretch_width {
+                        if stretch_width {
                             child_constraints.min_w = child_constraints.max_w;
                         } else if tight_width
                             && (child_width.is_some() || child_max_width.is_some())
@@ -3233,13 +3230,7 @@ impl LayoutEngine {
                         let tight_height = child_constraints.min_h == child_constraints.max_h;
                         let stretch_height =
                             tight_height && child_height.is_none() && child_max_height.is_none();
-                        if matches!(box_alignment, fission_ir::op::BoxAlignment::Stretch)
-                            && child_height.is_none()
-                            && child_max_height.is_none()
-                            && child_constraints.max_h.is_finite()
-                        {
-                            child_constraints.min_h = child_constraints.max_h;
-                        } else if stretch_height {
+                        if stretch_height {
                             child_constraints.min_h = child_constraints.max_h;
                         } else if tight_height
                             && (child_height.is_some() || child_max_height.is_some())

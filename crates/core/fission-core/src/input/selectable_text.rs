@@ -1,5 +1,5 @@
 use super::{ControllerContext, InputController};
-use crate::event::{InputEvent, KeyCode, KeyEvent, PointerEvent, MOD_CTRL, MOD_SUPER};
+use crate::event::{EditingCommand, InputEvent, KeyCode, KeyEvent, PointerEvent};
 use crate::ui::widgets::context_menu::{text_context_menu_button_id, TextContextMenuAction};
 use fission_ir::{op::LayoutOp, Op, Semantics, WidgetId};
 use fission_layout::{LayoutNodeGeometry, LayoutPoint};
@@ -13,6 +13,7 @@ impl InputController for SelectableTextController {
                 key_code,
                 modifiers,
             }) => self.handle_key(ctx, key_code.clone(), *modifiers),
+            InputEvent::Editing(command) => self.handle_editing_command(ctx, command),
             InputEvent::Pointer(PointerEvent::Down {
                 point,
                 button,
@@ -82,11 +83,10 @@ impl InputController for SelectableTextController {
 }
 
 impl SelectableTextController {
-    fn handle_key(
+    fn handle_editing_command(
         &mut self,
         ctx: &mut ControllerContext,
-        key_code: KeyCode,
-        modifiers: u8,
+        command: &EditingCommand,
     ) -> bool {
         let Some(owner) = ctx.interaction.focused else {
             return false;
@@ -94,11 +94,8 @@ impl SelectableTextController {
         let Some(semantics) = Self::selectable_text_semantics(ctx, owner) else {
             return false;
         };
-        if !Self::has_primary_shortcut(modifiers) {
-            return false;
-        }
-        match key_code {
-            KeyCode::Char('c') | KeyCode::Char('C') => {
+        match command {
+            EditingCommand::Copy => {
                 if let Some(selected) = Self::selected_text(ctx, owner, &semantics) {
                     if let Some(clipboard) = ctx.clipboard {
                         clipboard.set_text(&selected);
@@ -106,15 +103,37 @@ impl SelectableTextController {
                 }
                 true
             }
-            KeyCode::Char('a') | KeyCode::Char('A') => {
+            EditingCommand::SelectAll => {
                 let len = semantics.value.as_deref().unwrap_or("").len();
                 let state = ctx.selectable_text.get_mut_or_default(owner);
                 state.anchor = 0;
                 state.caret = len;
                 true
             }
-            _ => false,
+            EditingCommand::Cut
+            | EditingCommand::Paste(_)
+            | EditingCommand::Undo
+            | EditingCommand::Redo => false,
         }
+    }
+
+    fn handle_key(
+        &mut self,
+        ctx: &mut ControllerContext,
+        key_code: KeyCode,
+        modifiers: u8,
+    ) -> bool {
+        if !ctx.editing_convention.has_primary_shortcut(modifiers)
+            || ctx.editing_convention.is_alt_gr(modifiers)
+        {
+            return false;
+        }
+        let command = match key_code {
+            KeyCode::Char('c') | KeyCode::Char('C') => Some(EditingCommand::Copy),
+            KeyCode::Char('a') | KeyCode::Char('A') => Some(EditingCommand::SelectAll),
+            _ => None,
+        };
+        command.is_some_and(|command| self.handle_editing_command(ctx, &command))
     }
 
     fn selectable_text_at_hit(
@@ -344,13 +363,5 @@ impl SelectableTextController {
 
     fn has_shift(modifiers: u8) -> bool {
         (modifiers & crate::event::MOD_SHIFT) != 0
-    }
-
-    fn has_primary_shortcut(modifiers: u8) -> bool {
-        if cfg!(target_os = "macos") || cfg!(target_os = "ios") {
-            (modifiers & MOD_SUPER) != 0
-        } else {
-            (modifiers & MOD_CTRL) != 0
-        }
     }
 }

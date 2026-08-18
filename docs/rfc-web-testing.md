@@ -146,8 +146,10 @@ bounded differences:
   renderer texture readback.
 - External file commands inject Fission's deterministic external-drag events;
   they do not create browser `File` objects.
-- Pointer, keyboard, text, and IME commands enter through `TestEvent`; they do
-  not claim to verify browser-generated trusted events.
+- `RightClickSelector` and `PressKey` cross the real DOM/CDP boundary before
+  entering Winit, so they cover browser button/modifier translation and the
+  trusted clipboard accelerator path. Deterministic text and IME commands
+  still enter through `TestEvent`; they do not claim to automate browser IME UI.
 - `Quit` closes the test application/browser session; it does not expose a
   network control endpoint.
 

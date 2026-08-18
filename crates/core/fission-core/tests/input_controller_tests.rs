@@ -3,11 +3,11 @@ use fission_core::env::{
     SelectableTextStateMap, TextEditStateMap,
 };
 use fission_core::event::{
-    ImeEvent, InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent, MOD_ALT, MOD_CTRL,
-    MOD_SHIFT, MOD_SUPER,
+    EditingCommand, ImeEvent, InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent, MOD_ALT,
+    MOD_CTRL, MOD_SHIFT, MOD_SUPER,
 };
 use fission_core::input::text::TextInputController;
-use fission_core::input::{ControllerContext, InputController};
+use fission_core::input::{ControllerContext, InputController, TextEditingConvention};
 use fission_core::ui::widgets::text_input::{
     DragStartBehavior, TextInputRuntimeConfig, TextUndoController,
 };
@@ -49,19 +49,11 @@ impl Clipboard for MockClipboard {
 }
 
 fn primary_shortcut_modifier() -> u8 {
-    if cfg!(any(target_os = "macos", target_os = "ios")) {
-        MOD_SUPER
-    } else {
-        MOD_CTRL
-    }
+    MOD_CTRL
 }
 
 fn word_navigation_modifier() -> u8 {
-    if cfg!(any(target_os = "macos", target_os = "ios")) {
-        MOD_ALT
-    } else {
-        MOD_CTRL
-    }
+    MOD_CTRL
 }
 
 #[derive(Default)]
@@ -372,6 +364,31 @@ fn setup_ctx<'a>(
     clipboard: &'a Arc<dyn Clipboard>,
     measurer: Option<&'a Arc<dyn TextMeasurer>>,
 ) -> ControllerContext<'a> {
+    setup_ctx_with_convention(
+        ir,
+        layout,
+        text_edit,
+        interaction,
+        scroll,
+        gesture,
+        clipboard,
+        measurer,
+        TextEditingConvention::Standard,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn setup_ctx_with_convention<'a>(
+    ir: &'a CoreIR,
+    layout: &'a LayoutSnapshot,
+    text_edit: &'a mut TextEditStateMap,
+    interaction: &'a mut InteractionStateMap,
+    scroll: &'a mut ScrollStateMap,
+    gesture: &'a mut fission_core::env::GestureState,
+    clipboard: &'a Arc<dyn Clipboard>,
+    measurer: Option<&'a Arc<dyn TextMeasurer>>,
+    editing_convention: TextEditingConvention,
+) -> ControllerContext<'a> {
     let selectable_text = Box::leak(Box::new(SelectableTextStateMap::default()));
     let context_menu = Box::leak(Box::new(ContextMenuState::default()));
     ControllerContext {
@@ -383,6 +400,7 @@ fn setup_ctx<'a>(
         interaction,
         scroll,
         gesture,
+        editing_convention,
         clipboard: Some(clipboard),
         measurer,
         dispatched_actions: Vec::new(),
@@ -1519,21 +1537,204 @@ fn test_primary_shortcut_select_all() {
         Some(&measurer),
     );
 
-    let primary_mod = if cfg!(any(target_os = "macos", target_os = "ios")) {
-        MOD_SUPER
-    } else {
-        MOD_CTRL
-    };
-
     let event = InputEvent::Keyboard(KeyEvent::Down {
         key_code: KeyCode::Char('a'),
-        modifiers: primary_mod,
+        modifiers: MOD_CTRL,
     });
     assert!(controller.handle_event(&mut ctx, &event));
 
     let st = ctx.text_edit.get(node_id).unwrap();
     assert_eq!(st.anchor, 0);
     assert_eq!(st.caret, initial_text.len());
+}
+
+#[test]
+fn test_apple_primary_shortcut_is_runtime_selected() {
+    let node_id = WidgetId::derived(201, &[0]);
+    let initial_text = "Select everything";
+    let ir = create_text_node(node_id, initial_text, false);
+    let layout = LayoutSnapshot::new(LayoutSize::new(200.0, 100.0));
+    let mut text_edit = TextEditStateMap::default();
+    let mut interaction = InteractionStateMap::default();
+    let mut scroll = ScrollStateMap::default();
+    let mut gesture = fission_core::env::GestureState::default();
+    let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
+    let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
+
+    interaction.set_focused(Some(node_id));
+    text_edit.set_caret(node_id, 3, Some(3));
+    let mut ctx = setup_ctx_with_convention(
+        &ir,
+        &layout,
+        &mut text_edit,
+        &mut interaction,
+        &mut scroll,
+        &mut gesture,
+        &clipboard,
+        Some(&measurer),
+        TextEditingConvention::Apple,
+    );
+
+    assert!(TextInputController.handle_event(
+        &mut ctx,
+        &InputEvent::Keyboard(KeyEvent::Down {
+            key_code: KeyCode::Char('a'),
+            modifiers: MOD_SUPER,
+        }),
+    ));
+    let state = ctx.text_edit.get(node_id).expect("text edit state");
+    assert_eq!((state.anchor, state.caret), (0, initial_text.len()));
+}
+
+#[test]
+fn test_unhandled_primary_chord_is_not_inserted() {
+    for (convention, modifier) in [
+        (TextEditingConvention::Standard, MOD_CTRL),
+        (TextEditingConvention::Apple, MOD_SUPER),
+    ] {
+        let node_id = WidgetId::derived(202, &[modifier as u32]);
+        let ir = create_text_node(node_id, "", false);
+        let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 40.0));
+        let mut text_edit = TextEditStateMap::default();
+        let mut interaction = InteractionStateMap::default();
+        let mut scroll = ScrollStateMap::default();
+        let mut gesture = fission_core::env::GestureState::default();
+        let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
+        let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
+        interaction.set_focused(Some(node_id));
+
+        let mut ctx = setup_ctx_with_convention(
+            &ir,
+            &layout,
+            &mut text_edit,
+            &mut interaction,
+            &mut scroll,
+            &mut gesture,
+            &clipboard,
+            Some(&measurer),
+            convention,
+        );
+        assert!(TextInputController.handle_event(
+            &mut ctx,
+            &InputEvent::Keyboard(KeyEvent::Down {
+                key_code: KeyCode::Char('q'),
+                modifiers: modifier,
+            }),
+        ));
+        assert!(ctx.dispatched_actions.is_empty());
+        assert_eq!(
+            ctx.text_edit
+                .get(node_id)
+                .expect("text edit state")
+                .committed_text(),
+            ""
+        );
+    }
+}
+
+#[test]
+fn test_standard_alt_gr_character_remains_text_input() {
+    let node_id = WidgetId::derived(203, &[0]);
+    let ir = create_text_node(node_id, "", false);
+    let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 40.0));
+    let mut text_edit = TextEditStateMap::default();
+    let mut interaction = InteractionStateMap::default();
+    let mut scroll = ScrollStateMap::default();
+    let mut gesture = fission_core::env::GestureState::default();
+    let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
+    let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
+    interaction.set_focused(Some(node_id));
+
+    let mut ctx = setup_ctx(
+        &ir,
+        &layout,
+        &mut text_edit,
+        &mut interaction,
+        &mut scroll,
+        &mut gesture,
+        &clipboard,
+        Some(&measurer),
+    );
+    assert!(TextInputController.handle_event(
+        &mut ctx,
+        &InputEvent::Keyboard(KeyEvent::Down {
+            key_code: KeyCode::Char('€'),
+            modifiers: MOD_CTRL | MOD_ALT,
+        }),
+    ));
+    assert_eq!(
+        ctx.dispatched_actions[0].2.text_change().unwrap().new_text,
+        "€"
+    );
+}
+
+#[test]
+fn test_semantic_editing_commands_share_text_input_state() {
+    let node_id = WidgetId::derived(204, &[0]);
+    let ir = create_text_node(node_id, "abc", false);
+    let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 40.0));
+    let mut text_edit = TextEditStateMap::default();
+    let mut interaction = InteractionStateMap::default();
+    let mut scroll = ScrollStateMap::default();
+    let mut gesture = fission_core::env::GestureState::default();
+    let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
+    let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
+    interaction.set_focused(Some(node_id));
+    let mut ctx = setup_ctx(
+        &ir,
+        &layout,
+        &mut text_edit,
+        &mut interaction,
+        &mut scroll,
+        &mut gesture,
+        &clipboard,
+        Some(&measurer),
+    );
+    let mut controller = TextInputController;
+
+    for command in [EditingCommand::SelectAll, EditingCommand::Copy] {
+        assert!(controller.handle_event(&mut ctx, &InputEvent::Editing(command)));
+    }
+    assert_eq!(clipboard.get_text().as_deref(), Some("abc"));
+
+    assert!(controller.handle_event(&mut ctx, &InputEvent::Editing(EditingCommand::Cut),));
+    assert_eq!(
+        ctx.text_edit
+            .get(node_id)
+            .expect("text edit state")
+            .committed_text(),
+        ""
+    );
+
+    assert!(controller.handle_event(
+        &mut ctx,
+        &InputEvent::Editing(EditingCommand::Paste("xyz".into())),
+    ));
+    assert_eq!(
+        ctx.text_edit
+            .get(node_id)
+            .expect("text edit state")
+            .committed_text(),
+        "xyz"
+    );
+
+    assert!(controller.handle_event(&mut ctx, &InputEvent::Editing(EditingCommand::Undo),));
+    assert_eq!(
+        ctx.text_edit
+            .get(node_id)
+            .expect("text edit state")
+            .committed_text(),
+        ""
+    );
+
+    assert!(controller.handle_event(&mut ctx, &InputEvent::Editing(EditingCommand::Redo),));
+    assert_eq!(
+        ctx.text_edit
+            .get(node_id)
+            .expect("text edit state")
+            .committed_text(),
+        "xyz"
+    );
 }
 
 #[test]
@@ -1581,10 +1782,6 @@ fn test_forward_delete_removes_next_grapheme() {
 
 #[test]
 fn test_apple_ctrl_bindings_cover_line_and_char_navigation() {
-    if !cfg!(any(target_os = "macos", target_os = "ios")) {
-        return;
-    }
-
     let node_id = WidgetId::derived(211, &[0]);
     let initial_text = "hello";
     let ir = create_text_node(node_id, initial_text, false);
@@ -1607,7 +1804,7 @@ fn test_apple_ctrl_bindings_cover_line_and_char_navigation() {
         (KeyCode::Char('a'), 0usize),
         (KeyCode::Char('e'), initial_text.len()),
     ] {
-        let mut ctx = setup_ctx(
+        let mut ctx = setup_ctx_with_convention(
             &ir,
             &layout,
             &mut text_edit,
@@ -1616,6 +1813,7 @@ fn test_apple_ctrl_bindings_cover_line_and_char_navigation() {
             &mut gesture,
             &clipboard,
             Some(&measurer),
+            TextEditingConvention::Apple,
         );
         let event = InputEvent::Keyboard(KeyEvent::Down {
             key_code,
@@ -1630,10 +1828,6 @@ fn test_apple_ctrl_bindings_cover_line_and_char_navigation() {
 
 #[test]
 fn test_apple_meta_delete_shortcuts_trim_current_line() {
-    if !cfg!(any(target_os = "macos", target_os = "ios")) {
-        return;
-    }
-
     let node_id = WidgetId::derived(213, &[0]);
     let initial_text = "hello world";
     let ir = create_text_node(node_id, initial_text, false);
@@ -1651,7 +1845,7 @@ fn test_apple_meta_delete_shortcuts_trim_current_line() {
     let mut controller = TextInputController;
 
     {
-        let mut ctx = setup_ctx(
+        let mut ctx = setup_ctx_with_convention(
             &ir,
             &layout,
             &mut text_edit,
@@ -1660,6 +1854,7 @@ fn test_apple_meta_delete_shortcuts_trim_current_line() {
             &mut gesture,
             &clipboard,
             Some(&measurer),
+            TextEditingConvention::Apple,
         );
         let event = InputEvent::Keyboard(KeyEvent::Down {
             key_code: KeyCode::Backspace,
@@ -1677,7 +1872,7 @@ fn test_apple_meta_delete_shortcuts_trim_current_line() {
     text_edit.set_caret(node_id, 6, Some(6));
 
     {
-        let mut ctx = setup_ctx(
+        let mut ctx = setup_ctx_with_convention(
             &ir,
             &layout,
             &mut text_edit,
@@ -1686,6 +1881,7 @@ fn test_apple_meta_delete_shortcuts_trim_current_line() {
             &mut gesture,
             &clipboard,
             Some(&measurer),
+            TextEditingConvention::Apple,
         );
         let event = InputEvent::Keyboard(KeyEvent::Down {
             key_code: KeyCode::Delete,
@@ -2119,14 +2315,9 @@ fn test_digits_only_formatter_filters_paste() {
         &clipboard,
         Some(&measurer),
     );
-    let paste_mod = if cfg!(any(target_os = "macos", target_os = "ios")) {
-        MOD_SUPER
-    } else {
-        MOD_CTRL
-    };
     let event = InputEvent::Keyboard(KeyEvent::Down {
         key_code: KeyCode::Char('v'),
-        modifiers: paste_mod,
+        modifiers: MOD_CTRL,
     });
     assert!(controller.handle_event(&mut ctx, &event));
     assert_eq!(

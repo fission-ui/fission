@@ -15,6 +15,9 @@ pub mod selectable_text;
 pub mod slider;
 pub mod text;
 
+mod editing_convention;
+pub use editing_convention::TextEditingConvention;
+
 pub struct ControllerContext<'a> {
     pub ir: &'a CoreIR,
     pub layout: &'a LayoutSnapshot,
@@ -24,6 +27,7 @@ pub struct ControllerContext<'a> {
     pub interaction: &'a mut InteractionStateMap,
     pub scroll: &'a mut ScrollStateMap,
     pub gesture: &'a mut crate::env::GestureState,
+    pub editing_convention: TextEditingConvention,
     pub clipboard: Option<&'a Arc<dyn Clipboard>>,
     pub measurer: Option<&'a Arc<dyn TextMeasurer>>,
     // We queue actions here instead of dispatching immediately to keep Controller pure logic

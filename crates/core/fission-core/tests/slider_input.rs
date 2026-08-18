@@ -50,6 +50,43 @@ fn slider_pointer_up_does_not_replay_template_change_payload() -> anyhow::Result
     Ok(())
 }
 
+#[test]
+fn secondary_click_does_not_change_slider_value() -> anyhow::Result<()> {
+    let action_id = ActionId::from_name("fission_core_test::SliderChanged");
+    let slider_id = WidgetId::explicit("slider");
+    let (ir, layout) = slider_tree(slider_id, action_id);
+    let mut runtime = Runtime::default();
+    runtime.add_app_state(Box::new(SliderState::default()))?;
+    runtime.register_reducer::<SliderState>(action_id, record_slider_change)?;
+
+    let point = LayoutPoint::new(150.0, 20.0);
+    runtime.handle_input(
+        InputEvent::Pointer(PointerEvent::Down {
+            point,
+            button: PointerButton::Secondary,
+            modifiers: 0,
+        }),
+        &ir,
+        &layout,
+    )?;
+    runtime.handle_input(
+        InputEvent::Pointer(PointerEvent::Up {
+            point,
+            button: PointerButton::Secondary,
+            modifiers: 0,
+        }),
+        &ir,
+        &layout,
+    )?;
+
+    let state = runtime
+        .get_app_state::<SliderState>()
+        .expect("slider state");
+    assert_eq!(state.changes, 0);
+    assert_eq!(state.value, 0.0);
+    Ok(())
+}
+
 fn record_slider_change(
     state: &mut SliderState,
     action: &ActionEnvelope,

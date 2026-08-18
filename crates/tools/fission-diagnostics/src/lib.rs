@@ -372,7 +372,24 @@ struct StdoutSinkImpl;
 impl SinkImpl for StdoutSinkImpl {
     fn write(&self, event: &DiagEvent) {
         // JSONL for stable tooling integration
-        let _ = serde_json::to_string(event).map(|line| println!("{}", line));
+        if let Ok(line) = serde_json::to_string(event) {
+            write_stdout(event.level, &line);
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn write_stdout(_level: DiagLevel, line: &str) {
+    println!("{line}");
+}
+
+#[cfg(target_arch = "wasm32")]
+fn write_stdout(level: DiagLevel, line: &str) {
+    let line = wasm_bindgen::JsValue::from_str(line);
+    if matches!(level, DiagLevel::Error) {
+        web_sys::console::error_1(&line);
+    } else {
+        web_sys::console::log_1(&line);
     }
 }
 

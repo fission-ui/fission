@@ -17,6 +17,13 @@ impl InputController for GestureController {
             InputEvent::Pointer(pe) => {
                 match pe {
                     PointerEvent::Down { point, button, .. } => {
+                        // GestureState currently models one active pointer-button
+                        // sequence. Do not let an additional button press replace
+                        // the button that must match the eventual release.
+                        if ctx.gesture.pressed_button.is_some() {
+                            return true;
+                        }
+
                         ctx.gesture.start_point = Some(*point);
                         ctx.gesture.last_point = Some(*point);
                         ctx.gesture.is_panning = false;
@@ -52,13 +59,23 @@ impl InputController for GestureController {
                             ctx.ir, ctx.layout, ctx.scroll, *point,
                         ) {
                             ctx.gesture.target_node = Some(hit);
-                            ctx.gesture.dragging_payload = self.find_drag_payload(ctx, hit);
+                            ctx.gesture.dragging_payload =
+                                matches!(button, crate::event::PointerButton::Primary)
+                                    .then(|| self.find_drag_payload(ctx, hit))
+                                    .flatten();
                         } else {
                             ctx.gesture.target_node = None;
                             ctx.gesture.dragging_payload = None;
                         }
                     }
                     PointerEvent::Move { point, .. } => {
+                        if !matches!(
+                            ctx.gesture.pressed_button,
+                            Some(crate::event::PointerButton::Primary)
+                        ) {
+                            return false;
+                        }
+
                         if let Some(drag) = ctx.gesture.scrollbar_drag {
                             if let Some(geometry) = scrollbar_geometry_for_node(
                                 ctx.ir,
@@ -154,15 +171,25 @@ impl InputController for GestureController {
                         }
                     }
                     PointerEvent::Up {
-                        point, modifiers, ..
+                        point,
+                        button,
+                        modifiers,
                     } => {
                         let scrollbar_drag = ctx.gesture.scrollbar_drag.take();
                         let mut handled = false;
-                        let was_secondary = matches!(
-                            ctx.gesture.pressed_button,
-                            Some(crate::event::PointerButton::Secondary)
-                        );
-                        if ctx.gesture.is_panning {
+                        let pressed_button = ctx.gesture.pressed_button.clone();
+                        let buttons_match = pressed_button.as_ref() == Some(button);
+                        let was_primary =
+                            matches!(pressed_button, Some(crate::event::PointerButton::Primary));
+                        let was_secondary =
+                            matches!(pressed_button, Some(crate::event::PointerButton::Secondary));
+
+                        if pressed_button.is_some() && !buttons_match {
+                            self.reset_pointer_sequence(ctx, *point);
+                            return true;
+                        }
+
+                        if buttons_match && ctx.gesture.is_panning {
                             // Internal Drop
                             if let Some(payload) = ctx.gesture.dragging_payload.take() {
                                 if let Some(up_hit) = crate::hit_test::hit_test_with_scroll(
@@ -184,7 +211,7 @@ impl InputController for GestureController {
                                 );
                             }
                             handled = true;
-                        } else if was_secondary {
+                        } else if buttons_match && was_secondary {
                             // Secondary click (right-click)
                             if let Some(target) = ctx.gesture.target_node {
                                 if let Some(up_hit) = crate::hit_test::hit_test_with_scroll(
@@ -234,7 +261,7 @@ impl InputController for GestureController {
                                     }
                                 }
                             }
-                        } else {
+                        } else if buttons_match && was_primary {
                             // Tap (primary click)
                             if let Some(target) = ctx.gesture.target_node {
                                 if let Some(up_hit) = crate::hit_test::hit_test_with_scroll(
@@ -280,12 +307,7 @@ impl InputController for GestureController {
                         if !was_secondary {
                             ctx.context_menu.close();
                         }
-                        ctx.gesture.start_point = None;
-                        ctx.gesture.is_panning = false;
-                        ctx.gesture.dragging_payload = None;
-                        self.clear_drag_target(ctx, *point);
-                        ctx.gesture.drag_session = None;
-                        ctx.gesture.pressed_button = None;
+                        self.reset_pointer_sequence(ctx, *point);
                         if scrollbar_drag.is_some() {
                             ctx.gesture.target_node = None;
                             return true;
@@ -368,6 +390,9 @@ impl InputController for GestureController {
                     return true;
                 }
             },
+            InputEvent::ContextMenuRequested { point, .. } => {
+                return self.handle_context_menu_request(ctx, *point);
+            }
             _ => {}
         }
         false
@@ -375,6 +400,46 @@ impl InputController for GestureController {
 }
 
 impl GestureController {
+    fn handle_context_menu_request(
+        &mut self,
+        ctx: &mut ControllerContext,
+        point: LayoutPoint,
+    ) -> bool {
+        let Some(hit) =
+            crate::hit_test::hit_test_with_scroll(ctx.ir, ctx.layout, ctx.scroll, point)
+        else {
+            return false;
+        };
+        if let Some(menu_owner) = self.find_context_menu_owner(ctx, hit) {
+            ctx.context_menu.open(menu_owner, point);
+            return true;
+        }
+        let rich_text_path = self.path_for_node(ctx, hit);
+        if let Some((annotation_node_id, annotation)) =
+            crate::input::hover::resolve_rich_text_annotation_at_point(ctx, &rich_text_path, point)
+        {
+            if self.dispatch_annotation_trigger(
+                ctx,
+                annotation_node_id,
+                &annotation,
+                ActionTrigger::SecondaryClick,
+                point,
+            ) {
+                return true;
+            }
+        }
+        self.dispatch_trigger(ctx, hit, ActionTrigger::SecondaryClick, point, None)
+    }
+
+    fn reset_pointer_sequence(&self, ctx: &mut ControllerContext, point: LayoutPoint) {
+        ctx.gesture.start_point = None;
+        ctx.gesture.is_panning = false;
+        ctx.gesture.dragging_payload = None;
+        self.clear_drag_target(ctx, point);
+        ctx.gesture.drag_session = None;
+        ctx.gesture.pressed_button = None;
+    }
+
     fn path_for_node(&self, ctx: &ControllerContext, node_id: WidgetId) -> Vec<WidgetId> {
         let mut path = Vec::new();
         let mut curr = Some(node_id);

@@ -4,6 +4,22 @@
     allow(dead_code, unused_imports, unused_variables)
 )]
 
+macro_rules! eprintln {
+    () => {{
+        #[cfg(target_arch = "wasm32")]
+        crate::web_console::error("");
+        #[cfg(not(target_arch = "wasm32"))]
+        std::eprintln!();
+    }};
+    ($($arg:tt)*) => {{
+        let message = format!($($arg)*);
+        #[cfg(target_arch = "wasm32")]
+        crate::web_console::error(&message);
+        #[cfg(not(target_arch = "wasm32"))]
+        std::eprintln!("{message}");
+    }};
+}
+
 use anyhow::Result;
 use base64::Engine;
 use fission_core::internal::BuildCtx;
@@ -80,7 +96,7 @@ use vello::util::{RenderContext, RenderSurface};
 use vello::wgpu;
 use vello::{AaSupport, Renderer as VelloSceneRenderer, RendererOptions, Scene};
 #[cfg(target_arch = "wasm32")]
-use wasm_bindgen::{Clamped, JsCast};
+use wasm_bindgen::{Clamped, JsCast, JsValue};
 #[cfg(target_arch = "wasm32")]
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, ImageData};
 #[cfg(target_arch = "wasm32")]
@@ -98,6 +114,9 @@ use renderer_diagnostics::renderer_request_from_value;
 use renderer_diagnostics::{emit_renderer_report, RendererReport, RendererRequest};
 mod software_fonts;
 mod software_renderer;
+#[cfg(target_arch = "wasm32")]
+mod web_console;
+mod web_input;
 use software_renderer::SoftwareRenderer;
 mod native_surface;
 use native_surface::NativeSurfaceRegistry;
@@ -127,6 +146,7 @@ mod camera;
 pub use camera::{CameraHost, MemoryCameraHost, UnsupportedCameraHost};
 mod ime;
 use ime::{DesktopImeHandler, TextInputConfig};
+pub use web_input::BrowserDefaults;
 mod microphone;
 pub use microphone::{MemoryMicrophoneHost, MicrophoneHost, UnsupportedMicrophoneHost};
 mod notifications;
@@ -1027,6 +1047,29 @@ fn preferred_surface_alpha_mode(
         .unwrap_or(wgpu::CompositeAlphaMode::Opaque)
 }
 
+fn preferred_web_surface_alpha_mode(
+    supported: &[wgpu::CompositeAlphaMode],
+) -> wgpu::CompositeAlphaMode {
+    supported
+        .iter()
+        .copied()
+        .find(|mode| *mode == wgpu::CompositeAlphaMode::Opaque)
+        .or_else(|| {
+            supported
+                .iter()
+                .copied()
+                .find(|mode| *mode == wgpu::CompositeAlphaMode::PreMultiplied)
+        })
+        .or_else(|| {
+            supported
+                .iter()
+                .copied()
+                .find(|mode| *mode == wgpu::CompositeAlphaMode::PostMultiplied)
+        })
+        .or_else(|| supported.first().copied())
+        .unwrap_or(wgpu::CompositeAlphaMode::Opaque)
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SurfaceAcquireRecovery {
@@ -1055,6 +1098,32 @@ async fn create_webgpu_presenter(
     canvas.set_width(viewport.physical_size.width.max(1));
     canvas.set_height(viewport.physical_size.height.max(1));
     let mut render_cx = RenderContext::new();
+
+    // Acquire the adapter/device and construct Vello before asking the visible
+    // canvas for its WebGPU context. A failed `getContext("webgpu")` ownership
+    // transition cannot be undone; Canvas2D fallback must still be able to use
+    // this canvas when GPU initialization fails.
+    let dev_id = match render_cx.device_result(None).await {
+        Ok(dev_id) => dev_id,
+        Err(first_error) => {
+            eprintln!(
+                "webgpu device initialization failed; retrying once before software fallback: {first_error}"
+            );
+            render_cx.device_result(None).await.map_err(|second_error| {
+                anyhow::anyhow!(
+                    "webgpu device initialization failed twice; first: {first_error}; second: {second_error}"
+                )
+            })?
+        }
+    };
+    let main_renderer = {
+        let device_handle = &render_cx.devices[dev_id];
+        device_handle.device.on_uncaptured_error(Box::new(|error| {
+            eprintln!("webgpu uncaptured error: {error}");
+        }));
+        create_validated_webgpu_main_renderer(device_handle, request).await?
+    };
+
     let surface = render_cx
         .instance
         .create_surface(wgpu::SurfaceTarget::Canvas(canvas))
@@ -1071,7 +1140,17 @@ async fn create_webgpu_presenter(
 
     let device_handle = &render_cx.devices[surface.dev_id];
     let surface_caps = surface.surface.get_capabilities(device_handle.adapter());
-    surface.config.alpha_mode = preferred_surface_alpha_mode(&surface_caps.alpha_modes);
+    surface.config.alpha_mode = preferred_web_surface_alpha_mode(&surface_caps.alpha_modes);
+    surface.blitter =
+        wgpu::util::TextureBlitterBuilder::new(&device_handle.device, surface.config.format)
+            .blend_state(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING)
+            .build();
+    log::info!(
+        "Fission WebGPU canvas surface: format={:?}, alpha_mode={:?}, supported_alpha_modes={:?}",
+        surface.config.format,
+        surface.config.alpha_mode,
+        surface_caps.alpha_modes,
+    );
     surface
         .surface
         .configure(&device_handle.device, &surface.config);
@@ -1083,7 +1162,6 @@ async fn create_webgpu_presenter(
         target_texture_size.0,
         target_texture_size.1,
     );
-    let main_renderer = create_webgpu_main_renderer(device_handle, request)?;
     let active_renderer = match &main_renderer {
         MainRenderer::Vello { .. } => "webgpu-vello",
         MainRenderer::Software => "webgpu-software",
@@ -1124,6 +1202,7 @@ async fn create_webgpu_presenter(
 fn create_webgpu_main_renderer(
     device_handle: &vello::util::DeviceHandle,
     request: RendererRequest,
+    use_indirect_dispatch: bool,
 ) -> anyhow::Result<MainRenderer> {
     if matches!(request, RendererRequest::Canvas2dSoftware) {
         return Err(anyhow::anyhow!(
@@ -1134,7 +1213,7 @@ fn create_webgpu_main_renderer(
         &device_handle.device,
         RendererOptions {
             use_cpu: false,
-            use_indirect_dispatch: true,
+            use_indirect_dispatch,
             antialiasing_support: AaSupport::all(),
             num_init_threads: None,
             pipeline_cache: None,
@@ -1147,6 +1226,223 @@ fn create_webgpu_main_renderer(
         renderer,
         texture_compositor,
     })
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn create_validated_webgpu_main_renderer(
+    device_handle: &vello::util::DeviceHandle,
+    request: RendererRequest,
+) -> anyhow::Result<MainRenderer> {
+    let device = &device_handle.device;
+    let mut failures = Vec::new();
+
+    for use_indirect_dispatch in [true, false] {
+        device.push_error_scope(wgpu::ErrorFilter::Validation);
+        device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
+        device.push_error_scope(wgpu::ErrorFilter::Internal);
+
+        let result =
+            match create_webgpu_main_renderer(device_handle, request, use_indirect_dispatch) {
+                Ok(mut renderer) => preflight_webgpu_main_renderer(device_handle, &mut renderer)
+                    .await
+                    .map(|()| renderer),
+                Err(error) => Err(error),
+            };
+
+        let mut gpu_errors = Vec::new();
+        for stage in ["internal", "out-of-memory", "validation"] {
+            if let Some(error) = device.pop_error_scope().await {
+                gpu_errors.push(format!("{stage}: {error}"));
+            }
+        }
+
+        match (result, gpu_errors.is_empty()) {
+            (Ok(renderer), true) => {
+                log::info!(
+                    "Fission WebGPU Vello pixel preflight passed: indirect_dispatch={use_indirect_dispatch}"
+                );
+                return Ok(renderer);
+            }
+            (result, _) => {
+                let mode = if use_indirect_dispatch {
+                    "indirect"
+                } else {
+                    "direct"
+                };
+                let mut reasons = Vec::new();
+                if let Err(error) = result {
+                    reasons.push(error.to_string());
+                }
+                reasons.extend(gpu_errors);
+                let failure = format!("{mode} dispatch: {}", reasons.join("; "));
+                log::warn!("Fission WebGPU Vello pixel preflight failed: {failure}");
+                failures.push(failure);
+            }
+        }
+    }
+
+    Err(anyhow::anyhow!(
+        "webgpu Vello pixel preflight failed: {}",
+        failures.join(" | ")
+    ))
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn preflight_webgpu_main_renderer(
+    device_handle: &vello::util::DeviceHandle,
+    renderer: &mut MainRenderer,
+) -> anyhow::Result<()> {
+    let MainRenderer::Vello { renderer, .. } = renderer else {
+        return Ok(());
+    };
+    let texture = device_handle
+        .device
+        .create_texture(&wgpu::TextureDescriptor {
+            label: Some("Fission WebGPU Vello preflight target"),
+            size: wgpu::Extent3d {
+                width: 16,
+                height: 16,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::STORAGE_BINDING
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let mut scene = Scene::new();
+    scene.fill(
+        vello::peniko::Fill::NonZero,
+        vello::kurbo::Affine::IDENTITY,
+        vello::peniko::Color::WHITE,
+        None,
+        &vello::kurbo::Rect::new(0.0, 0.0, 16.0, 16.0),
+    );
+    let workload_profile = vello::RenderWorkloadProfile {
+        target: vello::TargetProfile {
+            width_px: 16,
+            height_px: 16,
+            scale_factor: 1.0,
+            dirty_tiles: None,
+        },
+        coverage: vello::TileCoverageProfile {
+            tile_width: 16,
+            tile_height: 16,
+            target_tiles: 1,
+            visible_tiles: 1,
+            total_draw_tile_coverage: 1,
+            total_path_tile_coverage: 1,
+            max_ops_per_tile: 1,
+            max_blend_depth: 0,
+        },
+        scene: vello::SceneComplexityProfile {
+            draw_ops: 1,
+            path_ops: 1,
+            path_points: 4,
+            estimated_path_segments: 4,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    renderer
+        .render_to_texture_with_workload_profile(
+            &device_handle.device,
+            &device_handle.queue,
+            &scene,
+            &view,
+            &vello::RenderParams {
+                base_color: vello::peniko::Color::BLACK,
+                width: 16,
+                height: 16,
+                antialiasing_method: vello::AaConfig::Area,
+            },
+            Some(&workload_profile),
+        )
+        .map_err(|error| {
+            anyhow::anyhow!("webgpu profiled Vello preflight submission failed: {error}")
+        })?;
+
+    const BYTES_PER_ROW: u32 = 256;
+    const HEIGHT: u32 = 16;
+    let readback = device_handle.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Fission WebGPU Vello preflight readback"),
+        size: u64::from(BYTES_PER_ROW * HEIGHT),
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut encoder =
+        device_handle
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Fission WebGPU Vello preflight readback encoder"),
+            });
+    encoder.copy_texture_to_buffer(
+        wgpu::TexelCopyTextureInfo {
+            texture: &texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::TexelCopyBufferInfo {
+            buffer: &readback,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(BYTES_PER_ROW),
+                rows_per_image: Some(HEIGHT),
+            },
+        },
+        wgpu::Extent3d {
+            width: 16,
+            height: HEIGHT,
+            depth_or_array_layers: 1,
+        },
+    );
+    device_handle.queue.submit(Some(encoder.finish()));
+
+    let promise = js_sys::Promise::new(&mut |resolve, reject| {
+        let resolve = resolve.clone();
+        let reject = reject.clone();
+        readback
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |result| match result {
+                Ok(()) => {
+                    let _ = resolve.call0(&JsValue::UNDEFINED);
+                }
+                Err(error) => {
+                    let _ =
+                        reject.call1(&JsValue::UNDEFINED, &JsValue::from_str(&error.to_string()));
+                }
+            });
+    });
+    wasm_bindgen_futures::JsFuture::from(promise)
+        .await
+        .map_err(|error| anyhow::anyhow!("webgpu Vello preflight readback failed: {error:?}"))?;
+
+    let mapped = readback.slice(..).get_mapped_range();
+    let mut non_black = 0_u32;
+    let mut non_transparent = 0_u32;
+    for row in mapped
+        .chunks_exact(BYTES_PER_ROW as usize)
+        .take(HEIGHT as usize)
+    {
+        for pixel in row[..16 * 4].chunks_exact(4) {
+            non_black = non_black.saturating_add(u32::from(pixel[..3] != [0, 0, 0]));
+            non_transparent = non_transparent.saturating_add(u32::from(pixel[3] != 0));
+        }
+    }
+    drop(mapped);
+    readback.unmap();
+
+    if non_black == 0 || non_transparent == 0 {
+        return Err(anyhow::anyhow!(
+            "webgpu Vello preflight produced an empty texture (non_black={non_black}, non_transparent={non_transparent})"
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -1174,7 +1470,7 @@ struct WebInputLatency<'a> {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn publish_web_frame_perf(renderer: &str, total_ms: f64) {
+fn publish_web_frame_perf(renderer: &str, total_ms: f64, rendered_frames: u64) {
     let perf = WebFramePerf { renderer, total_ms };
     append_web_perf_sample("frames", total_ms);
     diag::emit(
@@ -1186,6 +1482,7 @@ fn publish_web_frame_perf(renderer: &str, total_ms: f64) {
         },
     );
     set_web_global_json("__FISSION_LAST_FRAME_PERF", &perf);
+    set_web_global_json("__FISSION_RENDERED_FRAME_COUNT", &rendered_frames);
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -1290,6 +1587,7 @@ fn build_window(
     background_test_mode: bool,
     target: &EventLoopWindowTarget,
     _web_mount_selector: Option<&str>,
+    _browser_defaults: BrowserDefaults,
 ) -> anyhow::Result<Arc<Window>> {
     let reported_scale_factor = target
         .primary_monitor()
@@ -1300,6 +1598,7 @@ fn build_window(
         background_test_mode,
         false,
         _web_mount_selector,
+        _browser_defaults,
         reported_scale_factor,
     )?;
     Ok(Arc::new(target.create_window(window_attributes).map_err(
@@ -1315,6 +1614,7 @@ fn build_window_before_run(
     tray_skip_taskbar: bool,
     event_loop: &EventLoop<TestEvent>,
     _web_mount_selector: Option<&str>,
+    _browser_defaults: BrowserDefaults,
 ) -> anyhow::Result<Arc<Window>> {
     let window_attributes = build_window_attributes(
         title,
@@ -1322,6 +1622,7 @@ fn build_window_before_run(
         background_test_mode,
         tray_skip_taskbar,
         _web_mount_selector,
+        _browser_defaults,
         None,
     )?;
     #[allow(deprecated)]
@@ -1343,6 +1644,7 @@ fn build_window_attributes(
     background_test_mode: bool,
     tray_skip_taskbar: bool,
     _web_mount_selector: Option<&str>,
+    _browser_defaults: BrowserDefaults,
     _reported_scale_factor: Option<f64>,
 ) -> anyhow::Result<WindowAttributes> {
     let mut window_attributes = WindowAttributes::default()
@@ -1369,7 +1671,9 @@ fn build_window_attributes(
     }
     #[cfg(target_arch = "wasm32")]
     {
-        window_attributes = window_attributes.with_prevent_default(true);
+        window_attributes = window_attributes
+            .with_prevent_default(true)
+            .with_browser_defaults(web_input::to_winit(_browser_defaults));
         window_attributes = if let Some(selector) = _web_mount_selector {
             window_attributes.with_canvas(Some(canvas_for_mount_selector(selector)?))
         } else {
@@ -4174,6 +4478,8 @@ where
     env: Env,
     pipeline: Pipeline,
     measurer: Arc<VelloTextMeasurer>,
+    #[cfg(target_arch = "wasm32")]
+    clipboard: Arc<DesktopClipboard>,
     sync_env: Option<Arc<dyn Fn(&S, &mut Env) + Send + Sync>>,
     key_handler: Option<KeyHandler<S>>,
     frame_hook: Option<FrameHook<S>>,
@@ -4181,6 +4487,7 @@ where
     title: String,
     initial_maximized: bool,
     web_mount_selector: Option<String>,
+    browser_defaults: BrowserDefaults,
     test_control_port: Option<u16>,
     /// Channel pair for receiving completed background effect results.
     effect_result_tx: mpsc::Sender<AsyncMessage>,
@@ -4206,6 +4513,7 @@ where
 
     pub fn new_with_global_state(root_widget: W, global_state: S) -> Self {
         let mut runtime = Runtime::default();
+        runtime.editing_convention = web_input::host_text_editing_convention();
         runtime.add_global_state(Box::new(global_state)).unwrap();
 
         const DEFAULT_FONT_FAMILY: &str = "Fission Default";
@@ -4226,12 +4534,12 @@ where
             DEFAULT_FONT_FAMILY,
         ));
         let env = Env::new(measurer.clone() as Arc<dyn fission_layout::TextMeasurer>);
-        let clipboard: Arc<dyn fission_core::env::Clipboard> = Arc::new(DesktopClipboard::new());
+        let clipboard = Arc::new(DesktopClipboard::new());
 
         let layout_engine = LayoutEngine::new().with_measurer(measurer.clone());
         let runtime = runtime
             .with_measurer(measurer.clone())
-            .with_clipboard(clipboard);
+            .with_clipboard(clipboard.clone());
 
         let (effect_result_tx, effect_result_rx) = mpsc::channel();
         let mut async_registry = AsyncRegistry::new();
@@ -4244,6 +4552,8 @@ where
             env,
             pipeline: Pipeline::new(),
             measurer,
+            #[cfg(target_arch = "wasm32")]
+            clipboard,
             sync_env: None,
             key_handler: None,
             frame_hook: None,
@@ -4251,6 +4561,7 @@ where
             title: "Fission".into(),
             initial_maximized: false,
             web_mount_selector: None,
+            browser_defaults: BrowserDefaults::NONE,
             test_control_port: None,
             effect_result_tx,
             effect_result_rx,
@@ -4302,6 +4613,13 @@ where
 
     pub fn with_mount_selector(mut self, selector: impl Into<String>) -> Self {
         self.web_mount_selector = Some(selector.into());
+        self
+    }
+
+    /// Selectively delegates browser behavior while Fission continues to own
+    /// all other Web input defaults.
+    pub fn with_browser_defaults(mut self, defaults: BrowserDefaults) -> Self {
+        self.browser_defaults = defaults;
         self
     }
 
@@ -4705,12 +5023,16 @@ where
         mut self,
         #[cfg(target_os = "android")] android_app: Option<AndroidApp>,
     ) -> Result<()> {
+        #[cfg(target_arch = "wasm32")]
+        web_console::install();
+        diag::init_from_env();
+        #[cfg(target_arch = "wasm32")]
+        set_web_global_json("__FISSION_RENDERED_FRAME_COUNT", &0_u64);
         diag::emit(
             diag::DiagCategory::Frame,
             diag::DiagLevel::Info,
             diag::DiagEventKind::FrameStart { root: None },
         );
-        diag::init_from_env();
 
         // Build event loop with TestEvent as the user event type.
         // This allows the test control server to inject events via EventLoopProxy.
@@ -4777,6 +5099,7 @@ where
         let window_title = self.title.clone();
         let initial_maximized = self.initial_maximized;
         let web_mount_selector = self.web_mount_selector;
+        let browser_defaults = self.browser_defaults;
         let ime_handler = Arc::new(DesktopImeHandler::default());
         self.runtime = self.runtime.with_ime_handler(ime_handler.clone());
 
@@ -4788,6 +5111,7 @@ where
             tray_skip_taskbar,
             &event_loop,
             web_mount_selector.as_deref(),
+            browser_defaults,
         )?;
         #[cfg(not(target_os = "android"))]
         ime_handler.set_window(Some(platform_window.clone()));
@@ -4813,6 +5137,8 @@ where
         let mut webgpu_init_in_flight = false;
         #[cfg(target_arch = "wasm32")]
         let mut web_renderer_reported = false;
+        #[cfg(target_arch = "wasm32")]
+        let mut web_rendered_frames: u64 = 0;
         #[cfg(not(target_arch = "wasm32"))]
         let mut scene = Scene::new();
         #[cfg(not(target_arch = "wasm32"))]
@@ -4863,6 +5189,8 @@ where
         let mut players: HashMap<WidgetId, ActivePlayer> = HashMap::new();
 
         let mut last_cursor_position: Option<PhysicalPosition<f64>> = None;
+        #[cfg(target_arch = "wasm32")]
+        let mut last_web_secondary_up: Option<(LayoutPoint, Instant)> = None;
         let mut active_primary_touch: Option<u64> = None;
         let mut touch_positions: HashMap<u64, PhysicalPosition<f64>> = HashMap::new();
         let max_fps = std::env::var("FISSION_MAX_FPS")
@@ -6073,6 +6401,7 @@ where
                             background_test_mode,
                             elwt,
                             web_mount_selector.as_deref(),
+                            browser_defaults,
                         ) {
                             Ok(new_window) => {
                                 ime_handler.set_window(Some(new_window.clone()));
@@ -7442,6 +7771,9 @@ where
                                             return;
                                         };
                                         let active_renderer = renderer.active_name().to_string();
+                                        let web_frame_has_content = pipeline
+                                            .retained_scene()
+                                            .is_some_and(|scene| !scene.roots.is_empty());
                                         match renderer {
                                             WebRenderer::Canvas2d(presenter) => {
                                                 let retained_scene = pipeline
@@ -7643,21 +7975,35 @@ where
                                                                     render_target_size.1,
                                                                     scale_factor,
                                                                 );
+                                                            if web_rendered_frames == 0 {
+                                                                let encoding =
+                                                                    presenter.scene.encoding();
+                                                                log::info!(
+                                                                    "Fission WebGPU first content frame: roots={}, paths={}, draws={}, glyph_runs={}, glyphs={}, target={}x{}",
+                                                                    retained_scene.roots.len(),
+                                                                    encoding.n_paths,
+                                                                    encoding.draw_tags.len(),
+                                                                    encoding.resources.glyph_runs.len(),
+                                                                    encoding.resources.glyphs.len(),
+                                                                    render_target_size.0,
+                                                                    render_target_size.1,
+                                                                );
+                                                            }
                                                             renderer
-                                                                    .render_to_texture_with_workload_profile(
-                                                                        &device_handle.device,
-                                                                        &device_handle.queue,
-                                                                        &presenter.scene,
-                                                                        &presenter
-                                                                            .render_state
-                                                                            .surface
-                                                                            .target_view,
-                                                                        &render_params,
-                                                                        Some(&workload_profile),
-                                                                    )
-                                                                    .expect(
-                                                                        "failed to render webgpu frame",
-                                                                    );
+                                                                .render_to_texture_with_workload_profile(
+                                                                    &device_handle.device,
+                                                                    &device_handle.queue,
+                                                                    &presenter.scene,
+                                                                    &presenter
+                                                                        .render_state
+                                                                        .surface
+                                                                        .target_view,
+                                                                    &render_params,
+                                                                    Some(&workload_profile),
+                                                                )
+                                                                .expect(
+                                                                    "failed to render webgpu frame",
+                                                                );
                                                         } else {
                                                             let force_full_compositor_redraw =
                                                                 invalidations.build
@@ -7703,6 +8049,31 @@ where
                                                             label: Some("WebGPU Surface Blit"),
                                                         },
                                                     );
+                                                {
+                                                    let _pass = encoder.begin_render_pass(
+                                                        &wgpu::RenderPassDescriptor {
+                                                            label: Some(
+                                                                "Fission WebGPU Surface Clear",
+                                                            ),
+                                                            color_attachments: &[Some(
+                                                                wgpu::RenderPassColorAttachment {
+                                                                    view: &surface_view,
+                                                                    resolve_target: None,
+                                                                    depth_slice: None,
+                                                                    ops: wgpu::Operations {
+                                                                        load: wgpu::LoadOp::Clear(
+                                                                            clear_color,
+                                                                        ),
+                                                                        store: wgpu::StoreOp::Store,
+                                                                    },
+                                                                },
+                                                            )],
+                                                            depth_stencil_attachment: None,
+                                                            timestamp_writes: None,
+                                                            occlusion_query_set: None,
+                                                        },
+                                                    );
+                                                }
                                                 presenter.render_state.surface.blitter.copy(
                                                     &device_handle.device,
                                                     &mut encoder,
@@ -7742,6 +8113,10 @@ where
                                         invalidations = InvalidationSet::default();
 
                                         presented_frames = presented_frames.saturating_add(1);
+                                        if web_frame_has_content {
+                                            web_rendered_frames =
+                                                web_rendered_frames.saturating_add(1);
+                                        }
                                         flush_text_traces(
                                             text_trace_enabled,
                                             &mut pending_text_traces,
@@ -7749,7 +8124,11 @@ where
                                         );
 
                                         let total_ms = now.elapsed().as_secs_f64() * 1000.0;
-                                        publish_web_frame_perf(&active_renderer, total_ms);
+                                        publish_web_frame_perf(
+                                            &active_renderer,
+                                            total_ms,
+                                            web_rendered_frames,
+                                        );
                                         if let Some(input_at) = pending_web_input_at.take() {
                                             publish_web_input_latency(
                                                 &active_renderer,
@@ -8304,6 +8683,9 @@ where
                                     window_physical_position_to_layout_point(window, position);
                                 if let Some(btn) = map_mouse_button(button) {
                                     let is_pressed = state.is_pressed();
+                                    #[cfg(target_arch = "wasm32")]
+                                    let is_secondary_release =
+                                        !is_pressed && matches!(btn, PointerButton::Secondary);
                                     handle_mouse_button(
                                         point.x,
                                         point.y,
@@ -8331,6 +8713,10 @@ where
                                         &mut frame_trace,
                                         &mut invalidations,
                                     );
+                                    #[cfg(target_arch = "wasm32")]
+                                    if is_secondary_release {
+                                        last_web_secondary_up = Some((point, Instant::now()));
+                                    }
                                 }
                             }
                         }
@@ -8550,7 +8936,7 @@ where
                             pending_web_input_at.get_or_insert_with(Instant::now);
                             if event.state.is_pressed() {
                                 use winit::keyboard::{Key, NamedKey};
-                                let key_code = match event.logical_key {
+                                let key_code = match &event.logical_key {
                                     Key::Named(NamedKey::Space) => Some(KeyCode::Space),
                                     Key::Named(NamedKey::Enter) => Some(KeyCode::Enter),
                                     Key::Named(NamedKey::Escape) => Some(KeyCode::Escape),
@@ -8565,16 +8951,28 @@ where
                                     Key::Named(NamedKey::End) => Some(KeyCode::End),
                                     Key::Named(NamedKey::PageUp) => Some(KeyCode::PageUp),
                                     Key::Named(NamedKey::PageDown) => Some(KeyCode::PageDown),
-                                    _ => {
-                                        if let Some(text) = &event.text {
-                                            text.chars().next().map(KeyCode::Char)
-                                        } else {
-                                            None
-                                        }
-                                    }
+                                    Key::Character(text) => text.chars().next().map(KeyCode::Char),
+                                    _ => event
+                                        .text
+                                        .as_ref()
+                                        .and_then(|text| text.chars().next())
+                                        .map(KeyCode::Char),
                                 };
 
                                 if let Some(code) = key_code {
+                                    #[cfg(target_arch = "wasm32")]
+                                    let browser_clipboard_chord = runtime
+                                        .editing_convention
+                                        .has_primary_shortcut(current_mods)
+                                        && matches!(
+                                            code,
+                                            KeyCode::Char('c' | 'C' | 'x' | 'X' | 'v' | 'V')
+                                        );
+                                    #[cfg(not(target_arch = "wasm32"))]
+                                    let browser_clipboard_chord = false;
+                                    if browser_clipboard_chord {
+                                        return;
+                                    }
                                     handle_key_down::<S>(
                                         code,
                                         current_mods,
@@ -8601,6 +8999,95 @@ where
                                         &mut invalidations,
                                     );
                                 }
+                            }
+                        }
+                        #[cfg(target_arch = "wasm32")]
+                        WindowEvent::WebInput(web_input) => {
+                            use fission_core::env::Clipboard as _;
+                            use fission_core::event::EditingCommand;
+                            use winit::event::{WebClipboardAction, WebInputEvent};
+
+                            pending_web_input_at.get_or_insert_with(Instant::now);
+                            let input_event = match &web_input {
+                                WebInputEvent::ContextMenuRequested { position, .. } => {
+                                    if browser_defaults.contains(BrowserDefaults::CONTEXT_MENU) {
+                                        return;
+                                    }
+                                    let point = window_physical_position_to_layout_point(
+                                        &window, *position,
+                                    );
+                                    let duplicate =
+                                        last_web_secondary_up.is_some_and(|(last_point, at)| {
+                                            at.elapsed() <= Duration::from_millis(500)
+                                                && (last_point.x - point.x).abs() <= 2.0
+                                                && (last_point.y - point.y).abs() <= 2.0
+                                        });
+                                    if duplicate {
+                                        None
+                                    } else {
+                                        Some(InputEvent::ContextMenuRequested {
+                                            point,
+                                            modifiers: current_mods,
+                                        })
+                                    }
+                                }
+                                WebInputEvent::Clipboard(event) => {
+                                    if browser_defaults.contains(BrowserDefaults::CLIPBOARD) {
+                                        return;
+                                    }
+                                    let command = match event.action {
+                                        WebClipboardAction::Copy => EditingCommand::Copy,
+                                        WebClipboardAction::Cut => EditingCommand::Cut,
+                                        WebClipboardAction::Paste => EditingCommand::Paste(
+                                            event.text.clone().unwrap_or_default(),
+                                        ),
+                                    };
+                                    if !matches!(event.action, WebClipboardAction::Paste) {
+                                        self.clipboard.set_text("");
+                                    }
+                                    Some(InputEvent::Editing(command))
+                                }
+                            };
+
+                            if let (Some(input_event), Some(ir), Some(layout)) = (
+                                input_event,
+                                pipeline.prev_ir.as_ref(),
+                                pipeline.last_snapshot.as_ref(),
+                            ) {
+                                if let Err(error) = runtime.handle_input(input_event, ir, layout) {
+                                    eprintln!("Web input handling error: {error:?}");
+                                }
+                                if let WebInputEvent::Clipboard(event) = web_input {
+                                    if !matches!(event.action, WebClipboardAction::Paste) {
+                                        event.set_text(
+                                            self.clipboard.get_text().unwrap_or_default(),
+                                        );
+                                    }
+                                }
+                                invalidations.mark_build();
+                                let _ = process_pending_effects(
+                                    &mut runtime,
+                                    &effect_result_tx,
+                                    &event_proxy,
+                                    &async_registry,
+                                    &mut active_services,
+                                    &mut service_bindings,
+                                    &mut next_service_instance_id,
+                                );
+                                reset_text_input_caret(
+                                    &mut runtime,
+                                    pipeline.prev_ir.as_ref(),
+                                    &mut last_blink_toggle,
+                                );
+                                request_redraw_logged(
+                                    &window,
+                                    elwt,
+                                    &mut last_redraw_at,
+                                    min_frame,
+                                    &mut redraw_pending,
+                                    &mut frame_trace,
+                                    "web_input",
+                                );
                             }
                         }
                         WindowEvent::Ime(ime) => {
@@ -9108,13 +9595,14 @@ mod tests {
         native_window_size_for_logical_viewport, normalize_scale_factor,
         normalize_winit_scroll_delta, physical_position_to_layout_point,
         physical_size_to_layout_size, preferred_native_present_mode, preferred_surface_alpha_mode,
-        present_frame_with_winit_coordination, rect_visible_in_scroll_ancestors,
-        repeating_animation_redraw_interval, resize_is_unsettled, resolve_build_viewport,
-        resolve_selector_record, should_auto_select_native_software,
+        preferred_web_surface_alpha_mode, present_frame_with_winit_coordination,
+        rect_visible_in_scroll_ancestors, repeating_animation_redraw_interval, resize_is_unsettled,
+        resolve_build_viewport, resolve_selector_record, should_auto_select_native_software,
         should_present_startup_clear_frame, surface_acquire_recovery,
         sync_tracked_target_texture_size_to_surface, texture_plans_fit_device_limits,
         visual_rect_for_node, window_insets_from_safe_area_frames, windows_shell_execute_succeeded,
-        windows_wide, LiveResizeController, SurfaceAcquireRecovery, WindowViewportState,
+        windows_wide, BrowserDefaults, LiveResizeController, SurfaceAcquireRecovery,
+        WindowViewportState,
     };
     use crate::pipeline::CompositorTexturePlan;
     use crate::renderer_diagnostics::RendererRequest;
@@ -9218,10 +9706,26 @@ mod tests {
 
     #[test]
     fn initial_window_maximization_is_opt_in() {
-        let default_attributes =
-            build_window_attributes("Fission", false, false, false, None, None).unwrap();
-        let maximized_attributes =
-            build_window_attributes("Fission", true, false, false, None, None).unwrap();
+        let default_attributes = build_window_attributes(
+            "Fission",
+            false,
+            false,
+            false,
+            None,
+            BrowserDefaults::NONE,
+            None,
+        )
+        .unwrap();
+        let maximized_attributes = build_window_attributes(
+            "Fission",
+            true,
+            false,
+            false,
+            None,
+            BrowserDefaults::NONE,
+            None,
+        )
+        .unwrap();
 
         assert!(!default_attributes.maximized);
         assert!(maximized_attributes.maximized);
@@ -9270,6 +9774,22 @@ mod tests {
             PostMultiplied
         );
         assert_eq!(preferred_surface_alpha_mode(&[]), Opaque);
+    }
+
+    #[test]
+    fn web_surface_prefers_opaque_composition() {
+        use super::wgpu::CompositeAlphaMode::{Inherit, Opaque, PostMultiplied, PreMultiplied};
+
+        assert_eq!(
+            preferred_web_surface_alpha_mode(&[PreMultiplied, Opaque, PostMultiplied]),
+            Opaque
+        );
+        assert_eq!(
+            preferred_web_surface_alpha_mode(&[PostMultiplied, PreMultiplied]),
+            PreMultiplied
+        );
+        assert_eq!(preferred_web_surface_alpha_mode(&[Inherit]), Inherit);
+        assert_eq!(preferred_web_surface_alpha_mode(&[]), Opaque);
     }
 
     #[test]
