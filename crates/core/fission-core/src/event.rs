@@ -215,6 +215,12 @@ pub enum InputEvent {
     Ime(ImeEvent),
     /// A platform-native semantic text-editing command.
     Editing(EditingCommand),
+    /// A platform requested Fission's contextual action at this position.
+    ContextMenuRequested {
+        point: LayoutPoint,
+        /// Modifier bitmask (Shift=1, Alt=2, Ctrl=4, Super=8).
+        modifiers: u8,
+    },
     /// High-level gesture events.
     Gesture(GestureEvent),
     /// Desktop shell drag-and-drop events from outside the app.

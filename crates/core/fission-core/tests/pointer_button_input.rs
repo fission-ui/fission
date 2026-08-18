@@ -109,6 +109,25 @@ fn primary_release_without_primary_press_does_not_activate_default() -> anyhow::
     Ok(())
 }
 
+#[test]
+fn semantic_context_menu_request_dispatches_secondary_only() -> anyhow::Result<()> {
+    let (mut runtime, ir, layout, _) = click_runtime(true)?;
+
+    runtime.handle_input(
+        InputEvent::ContextMenuRequested {
+            point: LayoutPoint::new(20.0, 20.0),
+            modifiers: 0,
+        },
+        &ir,
+        &layout,
+    )?;
+
+    let state = runtime.get_app_state::<ClickState>().expect("click state");
+    assert_eq!(state.primary, 0);
+    assert_eq!(state.secondary, 1);
+    Ok(())
+}
+
 fn click_runtime(
     with_secondary_action: bool,
 ) -> anyhow::Result<(Runtime, CoreIR, LayoutSnapshot, WidgetId)> {

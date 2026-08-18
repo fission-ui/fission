@@ -390,6 +390,9 @@ impl InputController for GestureController {
                     return true;
                 }
             },
+            InputEvent::ContextMenuRequested { point, .. } => {
+                return self.handle_context_menu_request(ctx, *point);
+            }
             _ => {}
         }
         false
@@ -397,6 +400,37 @@ impl InputController for GestureController {
 }
 
 impl GestureController {
+    fn handle_context_menu_request(
+        &mut self,
+        ctx: &mut ControllerContext,
+        point: LayoutPoint,
+    ) -> bool {
+        let Some(hit) =
+            crate::hit_test::hit_test_with_scroll(ctx.ir, ctx.layout, ctx.scroll, point)
+        else {
+            return false;
+        };
+        if let Some(menu_owner) = self.find_context_menu_owner(ctx, hit) {
+            ctx.context_menu.open(menu_owner, point);
+            return true;
+        }
+        let rich_text_path = self.path_for_node(ctx, hit);
+        if let Some((annotation_node_id, annotation)) =
+            crate::input::hover::resolve_rich_text_annotation_at_point(ctx, &rich_text_path, point)
+        {
+            if self.dispatch_annotation_trigger(
+                ctx,
+                annotation_node_id,
+                &annotation,
+                ActionTrigger::SecondaryClick,
+                point,
+            ) {
+                return true;
+            }
+        }
+        self.dispatch_trigger(ctx, hit, ActionTrigger::SecondaryClick, point, None)
+    }
+
     fn reset_pointer_sequence(&self, ctx: &mut ControllerContext, point: LayoutPoint) {
         ctx.gesture.start_point = None;
         ctx.gesture.is_panning = false;
