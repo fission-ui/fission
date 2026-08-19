@@ -32,6 +32,6 @@ lazy_static = "1.4"
 blake3 = "1.5"
 unicode-segmentation = "1.10"
 glam = "0.29"
-fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.11.1" }
+fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.11.1", default-features = false }
 
 [dev-dependencies]

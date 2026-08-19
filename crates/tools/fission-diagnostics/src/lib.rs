@@ -383,7 +383,7 @@ fn write_stdout(_level: DiagLevel, line: &str) {
     println!("{line}");
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "web-console"))]
 fn write_stdout(level: DiagLevel, line: &str) {
     let line = wasm_bindgen::JsValue::from_str(line);
     if matches!(level, DiagLevel::Error) {
@@ -392,6 +392,9 @@ fn write_stdout(level: DiagLevel, line: &str) {
         web_sys::console::log_1(&line);
     }
 }
+
+#[cfg(all(target_arch = "wasm32", not(feature = "web-console")))]
+fn write_stdout(_level: DiagLevel, _line: &str) {}
 
 struct FileSinkImpl {
     file: RwLock<File>,

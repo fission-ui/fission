@@ -18,9 +18,11 @@ readme = "README.md"
 path = "src/lib.rs"
 
 [features]
+default = ["web-console"]
 # When disabled, emission macros become near no-ops at runtime (still compiled).
 # We can later make this a true compile-time gate across the workspace.
 fission_diagnostics = []
+web-console = ["dep:wasm-bindgen", "dep:web-sys"]
 
 [dependencies]
 once_cell = "1"
@@ -30,5 +32,5 @@ parking_lot = "0.12"
 bitflags = "2"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "0.2"
-web-sys = { version = "0.3", features = ["console"] }
+wasm-bindgen = { version = "0.2", optional = true }
+web-sys = { version = "0.3", features = ["console"], optional = true }
