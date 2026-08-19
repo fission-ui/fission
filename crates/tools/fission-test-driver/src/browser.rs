@@ -547,14 +547,12 @@ impl BrowserController {
             .context("Chrome returned invalid screenshot base64")
     }
 
-    fn fail_on_browser_errors(&self) -> Result<()> {
+    fn fail_on_browser_errors(&mut self) -> Result<()> {
         if self.client.errors.is_empty() {
             Ok(())
         } else {
-            Err(anyhow!(
-                "browser reported errors:\n{}",
-                self.client.errors.join("\n")
-            ))
+            let errors = std::mem::take(&mut self.client.errors);
+            Err(anyhow!("browser reported errors:\n{}", errors.join("\n")))
         }
     }
 }
