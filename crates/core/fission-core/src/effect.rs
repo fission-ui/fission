@@ -187,7 +187,7 @@ pub struct EffectEnvelope {
 ///     }
 /// }
 /// ```
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ActionInput {
     /// No extra input.
     None,
@@ -303,6 +303,17 @@ pub enum ActionInput {
 }
 
 impl ActionInput {
+    /// Encodes this runtime input into an opaque representation suitable for
+    /// storage or transport.
+    pub fn encode_opaque(&self) -> Result<Vec<u8>, ActionInputCodecError> {
+        serde_json::to_vec(self).map_err(ActionInputCodecError)
+    }
+
+    /// Decodes an input previously produced by [`Self::encode_opaque`].
+    pub fn decode_opaque(bytes: &[u8]) -> Result<Self, ActionInputCodecError> {
+        serde_json::from_slice(bytes).map_err(ActionInputCodecError)
+    }
+
     pub fn scoped_raw(scope_id: u128, target: WidgetId, input: ActionInput) -> Self {
         Self::ScopedRaw {
             scope_id,
@@ -561,5 +572,43 @@ impl ActionInput {
             | ActionInput::ServiceCommandErr { instance_id, .. } => Some(*instance_id),
             _ => None,
         }
+    }
+}
+
+/// Failure to encode or decode an opaque [`ActionInput`] representation.
+#[derive(Debug)]
+pub struct ActionInputCodecError(serde_json::Error);
+
+impl std::fmt::Display for ActionInputCodecError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("action input codec failed")
+    }
+}
+
+impl std::error::Error for ActionInputCodecError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.0)
+    }
+}
+
+#[cfg(test)]
+mod action_input_codec_tests {
+    use super::*;
+
+    #[test]
+    fn opaque_codec_round_trips_full_width_scope_ids() {
+        let input = ActionInput::scoped_raw(
+            u128::MAX - 1,
+            WidgetId::from_u128(u128::MAX - 2),
+            ActionInput::TextChanged(UpdateTextInput {
+                node_id: WidgetId::from_u128(7),
+                new_text: "hello".into(),
+                new_caret: 4,
+                new_anchor: 1,
+            }),
+        );
+        let bytes = input.encode_opaque().expect("input should encode");
+        let decoded = ActionInput::decode_opaque(&bytes).expect("input should decode");
+        assert_eq!(decoded, input);
     }
 }
