@@ -6,7 +6,7 @@ pub(crate) mod node;
 pub(crate) mod traits;
 pub mod widgets;
 
-pub use node::{CustomWidget, Widget, WidgetIdExt};
+pub use node::{CustomWidget, Widget, WidgetIdExt, WidgetKind};
 pub use widgets::{
     provider, ActionScope, Align, BadgeTone, Builder, Button, ButtonContentAlign, ButtonHierarchy,
     ButtonMotion, ButtonVariant, CardPattern, Checkbox, Column, ComponentSize, ComponentState,

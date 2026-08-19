@@ -536,8 +536,15 @@ impl Runtime {
 
         let action_id = action.id;
 
-        if crate::scoped_action_handlers::dispatch_scoped_action_handler(&action, target, input)? {
-            return Ok(());
+        if let Some(resolution) =
+            crate::scoped_action_handlers::dispatch_scoped_action_handler(&action, target, input)?
+        {
+            match resolution {
+                crate::scoped_action_handlers::ScopedActionResolution::Handled => return Ok(()),
+                crate::scoped_action_handlers::ScopedActionResolution::Forward(forwarded) => {
+                    return self.try_dispatch_node_with_input(forwarded, target, input);
+                }
+            }
         }
 
         // Collect effects from this dispatch (both persistent and per-frame reducers).

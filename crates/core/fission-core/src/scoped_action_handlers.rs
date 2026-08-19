@@ -11,8 +11,22 @@ use anyhow::{anyhow, Result};
 
 use crate::{ActionEnvelope, ActionId, ActionInput, ActionScopeId, WidgetId};
 
-pub type ScopedActionHandler =
-    Box<dyn FnMut(&ActionEnvelope, WidgetId, &ActionInput) -> Result<()> + Send + 'static>;
+/// Result of handling an action emitted inside an [`ActionScope`](crate::ui::ActionScope).
+///
+/// Handlers can consume the action directly or forward it as a new envelope for
+/// normal reducer and effect processing. The original target and input are
+/// preserved when forwarding.
+#[derive(Clone, Debug)]
+pub enum ScopedActionResolution {
+    Handled,
+    Forward(ActionEnvelope),
+}
+
+pub type ScopedActionHandler = Box<
+    dyn FnMut(&ActionEnvelope, WidgetId, &ActionInput) -> Result<ScopedActionResolution>
+        + Send
+        + 'static,
+>;
 
 type ScopedActionHandlerMap = BTreeMap<(u128, ActionId), Vec<ScopedActionHandler>>;
 
@@ -49,20 +63,24 @@ pub(crate) fn dispatch_scoped_action_handler(
     action: &ActionEnvelope,
     target: WidgetId,
     input: &ActionInput,
-) -> Result<bool> {
+) -> Result<Option<ScopedActionResolution>> {
     let Some(scope_id) = input.action_scope_id() else {
-        return Ok(false);
+        return Ok(None);
     };
     let mut handlers = handlers()
         .lock()
         .map_err(|_| anyhow!("scoped action handler registry is poisoned"))?;
     let Some(scoped_handlers) = handlers.get_mut(&(scope_id, action.id)) else {
-        return Ok(false);
+        return Ok(None);
     };
+    let mut resolution = ScopedActionResolution::Handled;
     for handler in scoped_handlers {
-        handler(action, target, input)?;
+        let next = handler(action, target, input)?;
+        if matches!(next, ScopedActionResolution::Forward(_)) {
+            resolution = next;
+        }
     }
-    Ok(true)
+    Ok(Some(resolution))
 }
 
 #[cfg(test)]
@@ -83,7 +101,7 @@ mod tests {
             action,
             Box::new(move |_, _, _| {
                 *calls_for_handler.lock().unwrap() += 1;
-                Ok(())
+                Ok(ScopedActionResolution::Handled)
             }),
         )
         .unwrap();
@@ -94,14 +112,54 @@ mod tests {
         };
         let target = WidgetId::from_u128(7);
         assert!(
-            !dispatch_scoped_action_handler(&envelope, target, &ActionInput::None).unwrap(),
+            dispatch_scoped_action_handler(&envelope, target, &ActionInput::None)
+                .unwrap()
+                .is_none(),
             "unscoped input must not invoke scoped action handlers"
         );
         assert_eq!(*calls.lock().unwrap(), 0);
 
         let scoped = ActionInput::scoped_raw(scope.as_u128(), target, ActionInput::None);
-        assert!(dispatch_scoped_action_handler(&envelope, target, &scoped).unwrap());
+        assert!(matches!(
+            dispatch_scoped_action_handler(&envelope, target, &scoped).unwrap(),
+            Some(ScopedActionResolution::Handled)
+        ));
         assert_eq!(*calls.lock().unwrap(), 1);
+
+        clear_scoped_action_handlers(scope).unwrap();
+    }
+
+    #[test]
+    fn scoped_handler_can_forward_a_rewritten_envelope() {
+        let scope = ActionScopeId::from_name("test.forwarding.scope");
+        let emitted_action = ActionId::from_name("test.emitted.action");
+        let forwarded_action = ActionId::from_name("test.forwarded.action");
+        clear_scoped_action_handlers(scope).unwrap();
+        register_scoped_action_handler(
+            scope,
+            emitted_action,
+            Box::new(move |_, _, _| {
+                Ok(ScopedActionResolution::Forward(ActionEnvelope {
+                    id: forwarded_action,
+                    payload: b"forwarded".to_vec(),
+                }))
+            }),
+        )
+        .unwrap();
+
+        let emitted = ActionEnvelope {
+            id: emitted_action,
+            payload: b"emitted".to_vec(),
+        };
+        let target = WidgetId::from_u128(11);
+        let input = ActionInput::scoped_raw(scope.as_u128(), target, ActionInput::None);
+        let resolution = dispatch_scoped_action_handler(&emitted, target, &input).unwrap();
+
+        let Some(ScopedActionResolution::Forward(forwarded)) = resolution else {
+            panic!("scoped handler should forward a rewritten envelope");
+        };
+        assert_eq!(forwarded.id, forwarded_action);
+        assert_eq!(forwarded.payload, b"forwarded");
 
         clear_scoped_action_handlers(scope).unwrap();
     }
