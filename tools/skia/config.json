@@ -526,6 +526,8 @@
       "kind": "native",
       "status": "planned",
       "gn_args": {"target_cpu": "x64", "target_os": "linux"},
+      "system_libraries": ["fontconfig"],
+      "frameworks": [],
       "allowed_gn_overrides": [],
       "deployment_fields": ["libc", "libc_version", "cxx_runtime"]
     },
@@ -534,6 +536,8 @@
       "kind": "native",
       "status": "planned",
       "gn_args": {"target_cpu": "arm64", "target_os": "linux"},
+      "system_libraries": ["fontconfig"],
+      "frameworks": [],
       "allowed_gn_overrides": [],
       "deployment_fields": ["libc", "libc_version", "cxx_runtime"]
     },
@@ -542,6 +546,8 @@
       "kind": "native",
       "status": "planned",
       "gn_args": {"target_cpu": "x64", "target_os": "linux"},
+      "system_libraries": ["fontconfig"],
+      "frameworks": [],
       "allowed_gn_overrides": [],
       "deployment_fields": ["libc", "libc_version", "cxx_runtime"]
     },

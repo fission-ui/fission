@@ -95,8 +95,8 @@ class SkiaToolTests(unittest.TestCase):
                         "fission_skia_bridge",
                         *profile["upstream_libraries"],
                     ],
-                    "system_libraries": [],
-                    "frameworks": [],
+                    "system_libraries": recipe["system_libraries"],
+                    "frameworks": recipe["frameworks"],
                 }
             ),
             encoding="utf-8",
@@ -196,7 +196,7 @@ class SkiaToolTests(unittest.TestCase):
             ],
         )
         self.assertEqual(raster_recipe["bridge_defines"], {})
-        self.assertEqual(raster_recipe["system_libraries"], [])
+        self.assertEqual(raster_recipe["system_libraries"], ["fontconfig"])
         self.assertEqual(raster_recipe["frameworks"], [])
         self.assertEqual(
             raster_recipe["required_licenses"],
@@ -570,6 +570,7 @@ class SkiaToolTests(unittest.TestCase):
                 "aarch64-unknown-linux-gnu",
                 links,
             )
+
         apple_links = {
             "system_libraries": ["c++"],
             "frameworks": [
@@ -631,6 +632,26 @@ class SkiaToolTests(unittest.TestCase):
                 "aarch64-linux-android",
                 android_links,
             )
+
+    def test_native_raster_inherits_target_link_contract(self) -> None:
+        recipe = skia.resolve_build_plan(
+            self.config,
+            "native-raster",
+            "aarch64-unknown-linux-gnu",
+            {},
+        )
+        self.assertEqual(recipe["system_libraries"], ["fontconfig"])
+        self.assertEqual(recipe["frameworks"], [])
+
+        profile = self.config["profiles"]["native-raster"]
+        target = self.config["targets"]["aarch64-unknown-linux-gnu"]
+        skia.validate_profile_target_links(
+            profile,
+            "native-raster",
+            "aarch64-unknown-linux-gnu",
+            {"system_libraries": ["fontconfig"], "frameworks": []},
+            target,
+        )
 
     def test_gn_overrides_are_closed_to_the_target_allowlist(self) -> None:
         with self.assertRaisesRegex(skia.SkiaToolError, "not allowed"):

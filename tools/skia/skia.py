@@ -168,6 +168,10 @@ def load_config(path: Path) -> dict[str, Any]:
         )
         if any(not NAME_RE.fullmatch(licence) for licence in licences):
             raise SkiaToolError(f"config.targets.{name}.required_licenses has an unsafe name")
+        for field in ("system_libraries", "frameworks"):
+            values = require_string_list(target.get(field, []), f"config.targets.{name}.{field}")
+            if any(not NAME_RE.fullmatch(value) for value in values):
+                raise SkiaToolError(f"config.targets.{name}.{field} contains an unsafe name")
         allowed = require_string_list(
             target.get("allowed_gn_overrides"),
             f"config.targets.{name}.allowed_gn_overrides",
@@ -321,9 +325,12 @@ def validate_profile_target_links(
     profile_name: str,
     target_name: str,
     links: Mapping[str, Any],
+    target: Mapping[str, Any] | None = None,
 ) -> None:
     recipe = select_profile_target_recipe(profile, profile_name, target_name)
-    owner = recipe if recipe is not None else profile
+    owner = recipe
+    if owner is None:
+        owner = target if target is not None and "system_libraries" in target else profile
     for field in ("system_libraries", "frameworks"):
         expected = require_string_list(owner.get(field), f"profile target recipe {field}")
         if links.get(field) != expected:
@@ -599,7 +606,9 @@ def resolve_build_plan(
             raise SkiaToolError("Android GN argument ndk_api must be an integer >= 24")
     bridge_source_owner = target_recipe if target_recipe is not None else profile
     bridge_define_owner = target_recipe if target_recipe is not None else profile
-    link_owner = target_recipe if target_recipe is not None else profile
+    link_owner = target_recipe
+    if link_owner is None:
+        link_owner = target if "system_libraries" in target else profile
     return {
         "schema_version": BUILD_PLAN_SCHEMA_VERSION,
         "skia_revision": require_string(config["source"]["revision"], "source revision"),
@@ -1086,7 +1095,7 @@ def package_native(args: argparse.Namespace, config: dict[str, Any]) -> None:
         Path(args.link_metadata).expanduser().resolve(),
         required_library_order,
     )
-    validate_profile_target_links(profile, args.profile, args.target, links)
+    validate_profile_target_links(profile, args.profile, args.target, links, target)
     licences = parse_named_paths(args.license, "licence")
     target_recipe = select_profile_target_recipe(profile, args.profile, args.target)
     required_licences = set(required_native_licenses(profile, target, target_recipe))
@@ -1309,7 +1318,7 @@ def verify_artifact_directory(
         raise SkiaToolError(f"artifact does not declare required bridge header: {header}")
     native = require_object(manifest.get("native"), "manifest.native")
     links = load_link_metadata_object(native)
-    validate_profile_target_links(profile, profile_name, target_name, links)
+    validate_profile_target_links(profile, profile_name, target_name, links, target)
     expected_library_paths = {
         f"lib/{canonical_library_filename(name, target_name)}" for name in links["static_libraries"]
     }
