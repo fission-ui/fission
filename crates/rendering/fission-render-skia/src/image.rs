@@ -607,7 +607,8 @@ mod tests {
                 source,
                 ..ImageRequest::default()
             };
-            let node_id = fission_ir::WidgetId::explicit(format!("image.source.{index}"));
+            let widget_key = format!("image.source.{index}");
+            let node_id = fission_ir::WidgetId::explicit(&widget_key);
             let resources = ResourceSnapshot::try_new(
                 ResourceEpoch(index as u64 + 1),
                 [entry(

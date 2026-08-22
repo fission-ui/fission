@@ -1406,8 +1406,8 @@ mod tests {
     use fission_ir::op::ImageSource;
     use fission_render::frame::ResourceEpoch;
     use fission_render::resource::{
-        ResourceContentIdentity, ResourceEntry, ResourceId, ResourceKind, ResourcePayload,
-        ResourceProvenance, ResourceSource,
+        resolved_resource_content_identity, ResourceEntry, ResourceId, ResourceKind,
+        ResourcePayload, ResourceProvenance, ResourceSource,
     };
     use fission_render::{DisplayList, LayoutRect};
 
@@ -1885,13 +1885,14 @@ mod tests {
         encoded.extend_from_slice(&[255, 0, 0, 255, 0, 255, 0, 255]);
         let node_id = fission_ir::WidgetId::explicit("image.ready");
         let request = memory_image_request(&encoded);
-        let identity = request.source.stable_identity();
+        let identity =
+            resolved_resource_content_identity(&ResourceKind::Image, &request.source, &encoded);
         let scene = image_scene(request, node_id);
         let resources = ResourceSnapshot::try_new(
             ResourceEpoch(1),
             [ResourceEntry::ready(
                 ResourceId(7),
-                ResourceContentIdentity::try_new(identity).unwrap(),
+                identity,
                 ResourceKind::Image,
                 ResourceProvenance {
                     source: ResourceSource::Memory,

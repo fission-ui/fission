@@ -185,6 +185,7 @@ mod tests {
     use fission_render::{Color, DisplayList, DisplayOp, Fill, LayoutRect, RenderScene};
 
     use super::super::{compile_scene_inner, PictureCompilation};
+    use crate::compiler::SvgCompilation;
     use crate::native::NativeSkiaApi;
     use crate::picture::SkiaPictureCache;
     use crate::svg::SkiaSvgCache;
@@ -226,7 +227,7 @@ mod tests {
                 BLACK,
                 None,
                 None,
-                super::SvgCompilation::Native(&svg_cache),
+                SvgCompilation::Native(&svg_cache),
                 Some(PictureCompilation {
                     cache: &cache,
                     recorder: &api,

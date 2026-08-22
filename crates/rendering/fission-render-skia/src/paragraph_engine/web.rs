@@ -299,7 +299,7 @@ fn paragraph_bridge_error(error: impl fmt::Display) -> ParagraphError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fission_ir::op::{TextParagraphStyle, TextStyle};
+    use fission_ir::op::{Color, TextParagraphStyle, TextStyle};
     use fission_layout::{ParagraphStyleRun, Utf8Range};
 
     #[test]
@@ -325,7 +325,7 @@ mod tests {
                 range,
                 TextStyle {
                     font_size: 16.0,
-                    color: fission_ir::Color::BLACK,
+                    color: Color::BLACK,
                     underline: false,
                     font_family: Some("Author Font".into()),
                     locale: None,
