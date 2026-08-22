@@ -1,6 +1,7 @@
 #include "fission_skia_internal.h"
 #include "fission_skia_paragraph_internal.h"
 
+#include "include/core/SkBlurTypes.h"
 #include "include/core/SkCanvas.h"
 #include "include/core/SkColorSpace.h"
 #include "include/core/SkMaskFilter.h"
