@@ -254,3 +254,43 @@ fn skia_loss_kind(error: &BackendError) -> Option<LossKind> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn metrics_reject_invalid_scale_before_native_attachment() {
+        for scale in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            let error = build_metrics(BackendOperation::Attach, 10, 20, scale).unwrap_err();
+            assert_eq!(error.code, "skia-ganesh-invalid-scale-factor");
+        }
+
+        let metrics = build_metrics(BackendOperation::Resize, 320, 240, 1.5).unwrap();
+        assert_eq!(metrics.size, PhysicalSize::new(320, 240));
+        assert_eq!(metrics.scale_factor.get(), 1.5);
+    }
+
+    #[test]
+    fn recovery_classifier_accepts_only_stable_skia_loss_codes() {
+        let surface = contract_error(
+            BackendOperation::Render,
+            "skia-surface-lost",
+            "surface unavailable",
+        );
+        let device = contract_error(
+            BackendOperation::Present,
+            "skia-device-lost",
+            "device unavailable",
+        );
+        let unrelated = contract_error(
+            BackendOperation::Present,
+            "surface-outdated",
+            "host surface changed",
+        );
+
+        assert_eq!(skia_loss_kind(&surface), Some(LossKind::Surface));
+        assert_eq!(skia_loss_kind(&device), Some(LossKind::Device));
+        assert_eq!(skia_loss_kind(&unrelated), None);
+    }
+}
