@@ -684,7 +684,6 @@ fn verify_canvaskit_contract(manifest: &InstalledCanvasKitManifest) -> Result<()
         "libpng",
         "libwebp",
         "skia",
-        "woff2",
         "wuffs",
         "zlib",
     ];
@@ -1296,7 +1295,6 @@ mod tests {
             "libpng",
             "libwebp",
             "skia",
-            "woff2",
             "wuffs",
             "zlib",
         ];

@@ -95,7 +95,7 @@ class SkiaToolTests(unittest.TestCase):
                         "fission_skia_bridge",
                         *profile["upstream_libraries"],
                     ],
-                    "system_libraries": ["dl"],
+                    "system_libraries": [],
                     "frameworks": [],
                 }
             ),
@@ -189,6 +189,12 @@ class SkiaToolTests(unittest.TestCase):
             ],
         )
         self.assertEqual(raster_recipe["bridge_defines"], {})
+        self.assertEqual(raster_recipe["system_libraries"], [])
+        self.assertEqual(raster_recipe["frameworks"], [])
+        self.assertEqual(
+            raster_recipe["required_licenses"],
+            self.config["profiles"]["native-raster"]["required_licenses"],
+        )
         for profile in self.config["profiles"].values():
             self.assertIs(profile["qualified"], False)
             self.assertTrue({"fission", "skia"}.issubset(profile["required_licenses"]))
@@ -213,6 +219,27 @@ class SkiaToolTests(unittest.TestCase):
         profile = self.config["profiles"]["native-raster"]
         self.assertIn("cpu-features", skia.required_native_licenses(profile, android))
         self.assertNotIn("cpu-features", skia.required_native_licenses(profile, linux))
+        for target_name, target in self.config["targets"].items():
+            if target["kind"] != "native":
+                continue
+            with self.subTest(target=target_name):
+                licenses = skia.required_native_licenses(profile, target)
+                self.assertEqual(
+                    "cpu-features" in licenses,
+                    target["platform"] == "Android",
+                )
+
+    def test_ganesh_gpu_notices_match_the_target_recipe(self) -> None:
+        profile = self.config["profiles"]["native-ganesh"]
+        for target_name, recipe in profile["target_recipes"].items():
+            if recipe["status"] != "available":
+                continue
+            target = self.config["targets"][target_name]
+            licenses = skia.required_native_licenses(profile, target, recipe)
+            uses_vulkan = recipe["gn_args"].get("skia_use_vulkan") is True
+            with self.subTest(target=target_name):
+                self.assertEqual("vulkan-headers" in licenses, uses_vulkan)
+                self.assertEqual("vulkan-memory-allocator" in licenses, uses_vulkan)
 
     def test_source_and_tool_identities_omit_host_paths(self) -> None:
         with tempfile.TemporaryDirectory() as raw_temporary:
@@ -317,9 +344,11 @@ class SkiaToolTests(unittest.TestCase):
         )
         self.assertTrue(
             {"vulkan-headers", "vulkan-memory-allocator"}.issubset(
-                profile["required_licenses"]
+                recipe["required_licenses"]
             )
         )
+        self.assertEqual(recipe["system_libraries"], ["dl", "fontconfig", "vulkan"])
+        self.assertEqual(recipe["frameworks"], [])
 
     def test_native_ganesh_selects_exact_macos_metal_recipe(self) -> None:
         recipe = skia.resolve_build_plan(
@@ -331,6 +360,8 @@ class SkiaToolTests(unittest.TestCase):
         self.assertIs(recipe["gn_args"]["skia_enable_ganesh"], True)
         self.assertIs(recipe["gn_args"]["skia_use_metal"], True)
         self.assertIs(recipe["gn_args"]["skia_use_vulkan"], False)
+        self.assertNotIn("vulkan-headers", recipe["required_licenses"])
+        self.assertNotIn("vulkan-memory-allocator", recipe["required_licenses"])
         self.assertEqual(
             recipe["bridge_sources"][-2:],
             [

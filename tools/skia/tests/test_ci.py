@@ -68,6 +68,24 @@ class SkiaCiTests(unittest.TestCase):
             keys,
         )
 
+    def test_every_native_ci_recipe_binds_packaging_inputs(self) -> None:
+        for row in ci.native_matrix(self.config, self.qualification_manifest):
+            overrides: dict[str, object] = {}
+            if row["platform"] == "Android":
+                overrides = {"ndk": "/pinned/ndk", "ndk_api": 24}
+            elif row["platform"] == "iOS":
+                overrides = {"ios_min_target": "13.0"}
+            recipe = ci.foundation.resolve_build_plan(
+                self.config,
+                row["profile"],
+                row["target"],
+                overrides,
+            )
+            with self.subTest(profile=row["profile"], target=row["target"]):
+                self.assertIsInstance(recipe["required_licenses"], list)
+                self.assertIsInstance(recipe["system_libraries"], list)
+                self.assertIsInstance(recipe["frameworks"], list)
+
     def test_key_value_parser_rejects_ambiguous_metadata(self) -> None:
         self.assertEqual(
             ci.parse_key_values(["libc=glibc", "libc_version=2.39"], "fixture"),
@@ -98,14 +116,37 @@ class SkiaCiTests(unittest.TestCase):
             notice.write_text("Android cpu features notice", encoding="utf-8")
             profile = self.config["profiles"]["native-raster"]
             target = self.config["targets"]["aarch64-linux-android"]
+            required = ci.foundation.required_native_licenses(profile, target)
             with mock.patch.object(ci, "resolve_license", return_value=root / "common"):
                 arguments = ci.license_arguments(
-                    profile,
-                    target,
+                    required,
                     root,
                     {"cpu-features": notice},
                 )
             self.assertIn(f"cpu-features={notice}", arguments)
+
+    def test_native_profile_target_licenses_follow_the_selected_gpu_recipe(self) -> None:
+        profile = self.config["profiles"]["native-ganesh"]
+        linux = self.config["targets"]["x86_64-unknown-linux-gnu"]
+        macos = self.config["targets"]["aarch64-apple-darwin"]
+        linux_recipe = ci.foundation.select_profile_target_recipe(
+            profile, "native-ganesh", "x86_64-unknown-linux-gnu"
+        )
+        macos_recipe = ci.foundation.select_profile_target_recipe(
+            profile, "native-ganesh", "aarch64-apple-darwin"
+        )
+
+        linux_licenses = ci.foundation.required_native_licenses(
+            profile, linux, linux_recipe
+        )
+        macos_licenses = ci.foundation.required_native_licenses(
+            profile, macos, macos_recipe
+        )
+
+        self.assertIn("vulkan-headers", linux_licenses)
+        self.assertIn("vulkan-memory-allocator", linux_licenses)
+        self.assertNotIn("vulkan-headers", macos_licenses)
+        self.assertNotIn("vulkan-memory-allocator", macos_licenses)
 
     def test_provenance_set_verifies_every_archive_against_one_source(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -186,6 +227,11 @@ class SkiaCiTests(unittest.TestCase):
         self.assertIn("- promote\n", workflow)
         self.assertIn("uses: actions/attest@v4", workflow)
         self.assertIn("tools/backend-qualification/collect.py", workflow)
+        self.assertIn("cargo test --locked -p fission-skia-artifacts", workflow)
+        self.assertIn("--no-default-features --features test-shim", workflow)
+        self.assertIn("web/protocol_fixture.mjs", workflow)
+        self.assertIn("web/paragraph_fixture.mjs", workflow)
+        self.assertIn("web/executor_fixture.mjs", workflow)
         self.assertNotIn("continue-on-error", workflow)
 
 

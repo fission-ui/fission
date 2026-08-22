@@ -30,7 +30,7 @@ SOURCE_RECEIPT = "FISSION_SKIA_SOURCE_REVISION"
 BUILD_PLAN = "fission-skia-build-plan.json"
 BUILD_METADATA = "fission-skia-build.json"
 MANIFEST = "manifest.json"
-BUILD_PLAN_SCHEMA_VERSION = 1
+BUILD_PLAN_SCHEMA_VERSION = 2
 BUILD_RECEIPT_SCHEMA_VERSION = 1
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.+-]*$")
@@ -144,6 +144,14 @@ def load_config(path: Path) -> dict[str, Any]:
                     raise SkiaToolError(
                         f"config.profiles.{name}.bridge_defines contains an invalid C preprocessor name"
                     )
+                for field in ("system_libraries", "frameworks"):
+                    values = require_string_list(
+                        profile.get(field), f"config.profiles.{name}.{field}"
+                    )
+                    if any(not NAME_RE.fullmatch(value) for value in values):
+                        raise SkiaToolError(
+                            f"config.profiles.{name}.{field} contains an unsafe name"
+                        )
             elif "bridge_sources" in profile or "bridge_defines" in profile:
                 raise SkiaToolError(
                     f"config.profiles.{name} must keep target-selected bridge recipes only in target_recipes"
@@ -201,6 +209,7 @@ def load_config(path: Path) -> dict[str, Any]:
                     "bridge_sources",
                     "bridge_defines",
                     "gn_args",
+                    "required_licenses",
                     "system_libraries",
                     "frameworks",
                 }:
@@ -224,10 +233,21 @@ def load_config(path: Path) -> dict[str, Any]:
                     raise SkiaToolError(f"{context}.gn_args contains an invalid GN name")
                 for value in gn_args.values():
                     gn_literal(value)
+                recipe_licenses = require_string_list(
+                    recipe.get("required_licenses"), f"{context}.required_licenses"
+                )
+                if any(not NAME_RE.fullmatch(value) for value in recipe_licenses):
+                    raise SkiaToolError(
+                        f"{context}.required_licenses contains an unsafe name"
+                    )
                 for field in ("system_libraries", "frameworks"):
                     values = require_string_list(recipe.get(field), f"{context}.{field}")
                     if any(not NAME_RE.fullmatch(value) for value in values):
                         raise SkiaToolError(f"{context}.{field} contains an unsafe name")
+                target = require_object(
+                    targets.get(target_name), f"config.targets.{target_name}"
+                )
+                required_native_licenses(profile, target, recipe)
             elif status in {"pending", "unsupported"}:
                 if set(recipe) != {"status", "reason"}:
                     raise SkiaToolError(f"{context} has unknown or missing unavailable-recipe fields")
@@ -242,7 +262,9 @@ def load_config(path: Path) -> dict[str, Any]:
 
 
 def required_native_licenses(
-    profile: Mapping[str, Any], target: Mapping[str, Any]
+    profile: Mapping[str, Any],
+    target: Mapping[str, Any],
+    target_recipe: Mapping[str, Any] | None = None,
 ) -> list[str]:
     profile_licenses = require_string_list(
         profile.get("required_licenses"), "profile required_licenses"
@@ -250,9 +272,13 @@ def required_native_licenses(
     target_licenses = require_string_list(
         target.get("required_licenses", []), "target required_licenses"
     )
-    combined = [*profile_licenses, *target_licenses]
+    recipe_licenses = require_string_list(
+        target_recipe.get("required_licenses", []) if target_recipe is not None else [],
+        "profile target recipe required_licenses",
+    )
+    combined = [*profile_licenses, *target_licenses, *recipe_licenses]
     if len(set(combined)) != len(combined):
-        raise SkiaToolError("native profile and target repeat a required licence")
+        raise SkiaToolError("native profile, target, and recipe repeat a required licence")
     return combined
 
 
@@ -297,10 +323,9 @@ def validate_profile_target_links(
     links: Mapping[str, Any],
 ) -> None:
     recipe = select_profile_target_recipe(profile, profile_name, target_name)
-    if recipe is None:
-        return
+    owner = recipe if recipe is not None else profile
     for field in ("system_libraries", "frameworks"):
-        expected = require_string_list(recipe.get(field), f"profile target recipe {field}")
+        expected = require_string_list(owner.get(field), f"profile target recipe {field}")
         if links.get(field) != expected:
             raise SkiaToolError(
                 f"native.{field} does not match the declared {profile_name}/{target_name} "
@@ -574,6 +599,7 @@ def resolve_build_plan(
             raise SkiaToolError("Android GN argument ndk_api must be an integer >= 24")
     bridge_source_owner = target_recipe if target_recipe is not None else profile
     bridge_define_owner = target_recipe if target_recipe is not None else profile
+    link_owner = target_recipe if target_recipe is not None else profile
     return {
         "schema_version": BUILD_PLAN_SCHEMA_VERSION,
         "skia_revision": require_string(config["source"]["revision"], "source revision"),
@@ -598,6 +624,13 @@ def resolve_build_plan(
             profile.get("upstream_libraries"),
             "profile upstream_libraries",
         ),
+        "required_licenses": required_native_licenses(profile, target, target_recipe),
+        "system_libraries": require_string_list(
+            link_owner.get("system_libraries"), "selected system_libraries"
+        ),
+        "frameworks": require_string_list(
+            link_owner.get("frameworks"), "selected frameworks"
+        ),
     }
 
 
@@ -619,6 +652,9 @@ def validate_build_recipe(
         "gn_args",
         "ninja_targets",
         "upstream_libraries",
+        "required_licenses",
+        "system_libraries",
+        "frameworks",
     }
     if set(recipe) != expected_fields:
         raise SkiaToolError("build receipt recipe has unknown or missing fields")
@@ -1052,7 +1088,8 @@ def package_native(args: argparse.Namespace, config: dict[str, Any]) -> None:
     )
     validate_profile_target_links(profile, args.profile, args.target, links)
     licences = parse_named_paths(args.license, "licence")
-    required_licences = set(required_native_licenses(profile, target))
+    target_recipe = select_profile_target_recipe(profile, args.profile, args.target)
+    required_licences = set(required_native_licenses(profile, target, target_recipe))
     if set(licences) != required_licences:
         raise SkiaToolError(
             "licence set does not match the profile; "
@@ -1281,7 +1318,8 @@ def verify_artifact_directory(
             f"artifact is missing declared static libraries: {sorted(expected_library_paths - declared)}"
         )
 
-    required_licences = set(required_native_licenses(profile, target))
+    target_recipe = select_profile_target_recipe(profile, profile_name, target_name)
+    required_licences = set(required_native_licenses(profile, target, target_recipe))
     actual_licence_paths = {
         path for path in declared if path.startswith("licenses/")
     }

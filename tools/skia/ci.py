@@ -235,17 +235,12 @@ def resolve_license(component: str, source_dir: Path) -> Path:
 
 
 def license_arguments(
-    profile: Mapping[str, Any],
-    target: Mapping[str, Any] | None,
+    required_components: Iterable[str],
     source_dir: Path,
     explicit: Mapping[str, Path] | None = None,
 ) -> list[str]:
-    components = (
-        foundation.required_native_licenses(profile, target)
-        if target is not None
-        else foundation.require_string_list(
-            profile.get("required_licenses"), "profile required_licenses"
-        )
+    components = foundation.require_string_list(
+        list(required_components), "required artifact licences"
     )
     explicit = dict(explicit or {})
     unexpected = set(explicit) - set(components)
@@ -315,7 +310,9 @@ def package_native_command(args: argparse.Namespace, config: Mapping[str, Any]) 
                 / "crates/rendering/fission-skia-sys/include/fission_skia.h"
             ),
             library=libraries,
-            license=license_arguments(profile, target, source_dir, explicit_licenses),
+            license=license_arguments(
+                recipe["required_licenses"], source_dir, explicit_licenses
+            ),
             link_metadata=str(link_path),
             deployment_metadata=str(deployment_path),
             output=str(output),
@@ -360,7 +357,7 @@ def package_canvaskit_command(args: argparse.Namespace, config: Mapping[str, Any
                 REPOSITORY_ROOT / "crates/rendering/fission-skia-sys/web"
             ),
             deployment_metadata=str(deployment_path),
-            license=license_arguments(profile, None, source_dir),
+            license=license_arguments(profile["required_licenses"], source_dir),
             output=str(output),
             archive=str(Path(args.archive).expanduser().resolve()),
             source_date_epoch=args.source_date_epoch,

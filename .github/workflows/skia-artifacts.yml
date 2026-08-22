@@ -71,8 +71,28 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
       - name: Test artifact, qualification, and promotion policy
         run: python3 -m unittest discover -s tools/skia/tests
+
+      - name: Test fail-closed artifact resolution and native ABI ownership
+        run: |
+          cargo test --locked -p fission-skia-artifacts
+          cargo test --locked -p fission-skia-sys \
+            --no-default-features --features test-shim
+
+      - name: Test CanvasKit protocol, paragraph, and executor contracts
+        run: |
+          node crates/rendering/fission-skia-sys/web/protocol_fixture.mjs
+          node crates/rendering/fission-skia-sys/web/paragraph_fixture.mjs
+          node crates/rendering/fission-skia-sys/web/executor_fixture.mjs
 
       - name: Validate release identity
         id: identity

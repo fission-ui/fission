@@ -4,7 +4,7 @@ This directory owns the reproducible-input and artifact-layout contract for the
 direct Fission Skia integration. It does not contain or advertise a production
 artifact yet.
 
-The current direct bridge contract is ABI v13. ABI changes are explicit artifact
+The current direct bridge contract is ABI v14. ABI changes are explicit artifact
 identity changes; the tooling will not package or verify a header from another
 bridge ABI.
 
@@ -107,14 +107,14 @@ header ABI and binds the header, library digest, sources, and defines into the
 artifact manifest. A raster bridge receipt therefore cannot be relabelled as a
 Ganesh artifact.
 
-The native profiles deliberately ship one stable notice bundle across their
-supported targets. Their common required components are Fission, Skia, Expat,
-FreeType, HarfBuzz, ICU, libjpeg-turbo, libpng, libwebp, Wuffs, zlib, and
-Android's conditional cpu-features dependency. `native-ganesh` additionally
-includes the Vulkan headers and Vulkan Memory Allocator notices. Expat and the
-other explicitly non-system libraries are built from the pinned Skia
-dependency checkout; target-conditional notices remain in every artifact so a
-profile's contract does not vary by host.
+Native notice bundles follow the exact selected build recipe. Every native
+profile includes Fission, Skia, Expat, FreeType, HarfBuzz, ICU,
+libjpeg-turbo, libpng, libwebp, Wuffs, and zlib. Android targets additionally
+include the NDK cpu-features notice. Vulkan Ganesh recipes on Linux and Android
+also include the Vulkan Headers and Vulkan Memory Allocator notices; Metal and
+Direct3D recipes do not claim code they did not build. The selected notice set,
+native link libraries, and frameworks are bound into the strict build receipt,
+so packaging cannot relabel a receipt with a different target contract.
 
 CanvasKit has a separate offline command because its Emscripten toolchain is
 part of the artifact identity. It accepts only the two declared profiles and
@@ -201,6 +201,9 @@ Every runtime module is a named, hashed manifest asset. Packaging requires the
 complete fixed bridge set from one directory so an executor, protocol decoder,
 or paragraph dependency cannot be omitted accidentally. Test fixtures and
 `package.json` are not shipped.
+CanvasKit's WOFF2 support is part of its FreeType build and uses Brotli; those
+two notices cover the code actually linked, so there is no fabricated
+standalone WOFF2 notice input.
 
 ## Packaging and verification
 
@@ -232,7 +235,6 @@ python3 tools/skia/skia.py package-native \
   --license libwebp=/absolute/path/to/libwebp/COPYING \
   --license wuffs=/absolute/path/to/wuffs/LICENSE \
   --license zlib=/absolute/path/to/zlib/LICENSE \
-  --license cpu-features=/absolute/path/to/cpu-features/LICENSE \
   --output /absolute/path/to/staged-artifact \
   --archive /absolute/path/to/fission-skia.tar.gz \
   --source-date-epoch 1786406400
@@ -256,9 +258,11 @@ deployment keys come from the selected target:
 }
 ```
 
-The selected profile declares the exact required licence and upstream-library
-sets; missing and extra inputs both fail. The supplied upstream libraries must
-match the completed build receipt byte for byte.
+The selected profile and target recipe declare the exact required licence,
+upstream-library, system-library, and framework sets; missing and extra inputs
+all fail. Add `cpu-features` only for Android and the Vulkan notices only for a
+Vulkan Ganesh recipe. The supplied upstream libraries must match the completed
+build receipt byte for byte.
 
 Package a completed CanvasKit build by supplying its two receipted outputs, the
 Fission-owned runtime module directory, exact deployment metadata, and all

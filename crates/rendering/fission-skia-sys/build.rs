@@ -14,6 +14,8 @@ mod native_contract;
 
 const ABI_VERSION: u32 = 14;
 const SKIA_REVISION: &str = "cf5c36972b73698eb3939cda147ea47152670312";
+#[cfg(feature = "skia-build-from-source")]
+const SKIA_BUILD_PLAN_SCHEMA_VERSION: u64 = 2;
 const STATIC_LIBRARIES: &[&str] = &[
     "fission_skia_bridge",
     "svg",
@@ -662,7 +664,7 @@ fn configure_source() {
     let target = env::var("TARGET").expect("Cargo must set TARGET");
     let profile = env::var("FISSION_SKIA_PROFILE").unwrap_or_else(|_| "native-raster".into());
     validate_profile_target(&profile, &target);
-    verify_bridge_source_plan(&build, &profile, &target);
+    let (system_libraries, frameworks) = verify_bridge_source_plan(&build, &profile, &target);
     if profile == "native-ganesh" {
         verify_ganesh_source_plan(&build, &target);
     }
@@ -685,19 +687,20 @@ fn configure_source() {
     for library in libraries {
         println!("cargo:rustc-link-lib=static={library}");
     }
-    if profile == "native-ganesh" {
-        let (system_libraries, frameworks) = ganesh_link_contract(&target);
-        for library in system_libraries {
-            println!("cargo:rustc-link-lib={library}");
-        }
-        for framework in frameworks {
-            println!("cargo:rustc-link-lib=framework={framework}");
-        }
+    for library in system_libraries {
+        println!("cargo:rustc-link-lib={library}");
+    }
+    for framework in frameworks {
+        println!("cargo:rustc-link-lib=framework={framework}");
     }
 }
 
 #[cfg(feature = "skia-build-from-source")]
-fn verify_bridge_source_plan(build: &Path, profile: &str, target: &str) {
+fn verify_bridge_source_plan(
+    build: &Path,
+    profile: &str,
+    target: &str,
+) -> (Vec<String>, Vec<String>) {
     let path = build.join("fission-skia-build-plan.json");
     let raw = fs::read(&path).unwrap_or_else(|error| {
         panic!(
@@ -707,10 +710,30 @@ fn verify_bridge_source_plan(build: &Path, profile: &str, target: &str) {
     });
     let plan: serde_json::Value = serde_json::from_slice(&raw)
         .unwrap_or_else(|error| panic!("failed to parse {}: {error}", path.display()));
+    if plan
+        .get("schema_version")
+        .and_then(serde_json::Value::as_u64)
+        != Some(SKIA_BUILD_PLAN_SCHEMA_VERSION)
+    {
+        panic!(
+            "{} does not use Skia build plan schema {SKIA_BUILD_PLAN_SCHEMA_VERSION}",
+            path.display()
+        );
+    }
     let recipe = plan
         .get("recipe")
         .and_then(serde_json::Value::as_object)
         .unwrap_or_else(|| panic!("{} has no build recipe", path.display()));
+    if recipe
+        .get("schema_version")
+        .and_then(serde_json::Value::as_u64)
+        != Some(SKIA_BUILD_PLAN_SCHEMA_VERSION)
+    {
+        panic!(
+            "{} does not use Skia recipe schema {SKIA_BUILD_PLAN_SCHEMA_VERSION}",
+            path.display()
+        );
+    }
     if recipe.get("profile").and_then(serde_json::Value::as_str) != Some(profile)
         || recipe.get("target").and_then(serde_json::Value::as_str) != Some(target)
     {
@@ -751,6 +774,50 @@ fn verify_bridge_source_plan(build: &Path, profile: &str, target: &str) {
             path.display()
         );
     }
+    let (expected_system_libraries, expected_frameworks) = if profile == "native-ganesh" {
+        ganesh_link_contract(target)
+    } else {
+        (&[][..], &[][..])
+    };
+    let system_libraries = source_plan_strings(recipe, "system_libraries", &path);
+    let frameworks = source_plan_strings(recipe, "frameworks", &path);
+    if system_libraries
+        .iter()
+        .map(String::as_str)
+        .ne(expected_system_libraries.iter().copied())
+        || frameworks
+            .iter()
+            .map(String::as_str)
+            .ne(expected_frameworks.iter().copied())
+    {
+        panic!(
+            "{} has the wrong {profile}/{target} native link contract",
+            path.display()
+        );
+    }
+    (system_libraries, frameworks)
+}
+
+#[cfg(feature = "skia-build-from-source")]
+fn source_plan_strings(
+    recipe: &serde_json::Map<String, serde_json::Value>,
+    field: &str,
+    path: &Path,
+) -> Vec<String> {
+    recipe
+        .get(field)
+        .and_then(serde_json::Value::as_array)
+        .unwrap_or_else(|| panic!("{} has no {field} list", path.display()))
+        .iter()
+        .map(|value| {
+            let value = value
+                .as_str()
+                .unwrap_or_else(|| panic!("{} has a non-string {field} entry", path.display()));
+            native_contract::validate_link_name(value, field)
+                .unwrap_or_else(|error| panic!("{error}"));
+            value.to_owned()
+        })
+        .collect()
 }
 
 #[cfg(feature = "skia-build-from-source")]

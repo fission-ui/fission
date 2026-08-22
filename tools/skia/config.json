@@ -75,6 +75,8 @@
         "cpp/fission_skia_paragraph.cpp"
       ],
       "bridge_defines": {},
+      "system_libraries": [],
+      "frameworks": [],
       "features": {
         "gpu": "none",
         "raster_fallback": true,
@@ -117,8 +119,6 @@
         "libpng",
         "libwebp",
         "skia",
-        "vulkan-headers",
-        "vulkan-memory-allocator",
         "wuffs",
         "zlib"
       ],
@@ -166,6 +166,7 @@
             "skia_use_vulkan": true,
             "skia_use_x11": false
           },
+          "required_licenses": ["vulkan-headers", "vulkan-memory-allocator"],
           "system_libraries": ["dl", "fontconfig", "vulkan"],
           "frameworks": []
         },
@@ -188,6 +189,7 @@
             "skia_use_vulkan": true,
             "skia_use_x11": false
           },
+          "required_licenses": ["vulkan-headers", "vulkan-memory-allocator"],
           "system_libraries": ["dl", "fontconfig", "vulkan"],
           "frameworks": []
         },
@@ -208,6 +210,7 @@
           ],
           "bridge_defines": {"FISSION_SKIA_ENABLE_GANESH_METAL": "1"},
           "gn_args": {"skia_use_direct3d": false, "skia_use_metal": true, "skia_use_vulkan": false},
+          "required_licenses": [],
           "system_libraries": ["c++"],
           "frameworks": ["AppKit", "CoreFoundation", "CoreGraphics", "Foundation", "Metal", "QuartzCore"]
         },
@@ -224,6 +227,7 @@
           ],
           "bridge_defines": {"FISSION_SKIA_ENABLE_GANESH_METAL": "1"},
           "gn_args": {"skia_use_direct3d": false, "skia_use_metal": true, "skia_use_vulkan": false},
+          "required_licenses": [],
           "system_libraries": ["c++"],
           "frameworks": ["AppKit", "CoreFoundation", "CoreGraphics", "Foundation", "Metal", "QuartzCore"]
         },
@@ -240,6 +244,7 @@
           ],
           "bridge_defines": {"FISSION_SKIA_ENABLE_GANESH_D3D": "1"},
           "gn_args": {"skia_use_direct3d": true, "skia_use_metal": false, "skia_use_vulkan": false},
+          "required_licenses": [],
           "system_libraries": ["d3d12", "dxgi", "user32", "kernel32"],
           "frameworks": []
         },
@@ -256,6 +261,7 @@
           ],
           "bridge_defines": {"FISSION_SKIA_ENABLE_GANESH_D3D": "1"},
           "gn_args": {"skia_use_direct3d": true, "skia_use_metal": false, "skia_use_vulkan": false},
+          "required_licenses": [],
           "system_libraries": ["d3d12", "dxgi", "user32", "kernel32"],
           "frameworks": []
         },
@@ -277,6 +283,7 @@
             "skia_use_vma": true,
             "skia_use_vulkan": true
           },
+          "required_licenses": ["vulkan-headers", "vulkan-memory-allocator"],
           "system_libraries": ["android", "vulkan", "c++_shared"],
           "frameworks": []
         },
@@ -298,6 +305,7 @@
             "skia_use_vma": true,
             "skia_use_vulkan": true
           },
+          "required_licenses": ["vulkan-headers", "vulkan-memory-allocator"],
           "system_libraries": ["android", "vulkan", "c++_shared"],
           "frameworks": []
         },
@@ -319,6 +327,7 @@
             "skia_use_vma": true,
             "skia_use_vulkan": true
           },
+          "required_licenses": ["vulkan-headers", "vulkan-memory-allocator"],
           "system_libraries": ["android", "vulkan", "c++_shared"],
           "frameworks": []
         },
@@ -340,6 +349,7 @@
             "skia_use_vma": true,
             "skia_use_vulkan": true
           },
+          "required_licenses": ["vulkan-headers", "vulkan-memory-allocator"],
           "system_libraries": ["android", "vulkan", "c++_shared"],
           "frameworks": []
         },
@@ -356,6 +366,7 @@
           ],
           "bridge_defines": {"FISSION_SKIA_ENABLE_GANESH_IOS_METAL": "1"},
           "gn_args": {"skia_use_direct3d": false, "skia_use_metal": true, "skia_use_vulkan": false},
+          "required_licenses": [],
           "system_libraries": ["c++"],
           "frameworks": ["CoreFoundation", "CoreGraphics", "Foundation", "Metal", "QuartzCore", "UIKit"]
         },
@@ -372,6 +383,7 @@
           ],
           "bridge_defines": {"FISSION_SKIA_ENABLE_GANESH_IOS_METAL": "1"},
           "gn_args": {"skia_use_direct3d": false, "skia_use_metal": true, "skia_use_vulkan": false},
+          "required_licenses": [],
           "system_libraries": ["c++"],
           "frameworks": ["CoreFoundation", "CoreGraphics", "Foundation", "Metal", "QuartzCore", "UIKit"]
         },
@@ -388,6 +400,7 @@
           ],
           "bridge_defines": {"FISSION_SKIA_ENABLE_GANESH_IOS_METAL": "1"},
           "gn_args": {"skia_use_direct3d": false, "skia_use_metal": true, "skia_use_vulkan": false},
+          "required_licenses": [],
           "system_libraries": ["c++"],
           "frameworks": ["CoreFoundation", "CoreGraphics", "Foundation", "Metal", "QuartzCore", "UIKit"]
         }
