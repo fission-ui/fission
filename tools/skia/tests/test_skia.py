@@ -170,7 +170,14 @@ class SkiaToolTests(unittest.TestCase):
         self.assertIs(self.config["common_native_gn_args"]["skia_use_expat"], True)
         self.assertEqual(
             self.config["profiles"]["native-raster"]["upstream_libraries"],
-            ["svg", "skparagraph", "skshaper", "skunicode", "skia"],
+            [
+                "svg",
+                "skparagraph",
+                "skshaper",
+                "skunicode_icu",
+                "skunicode_core",
+                "skia",
+            ],
         )
         raster_recipe = skia.resolve_build_plan(
             self.config,
@@ -305,7 +312,14 @@ class SkiaToolTests(unittest.TestCase):
         self.assertEqual(profile["build_recipe"], "available")
         self.assertEqual(
             recipe["upstream_libraries"],
-            ["svg", "skparagraph", "skshaper", "skunicode", "skia"],
+            [
+                "svg",
+                "skparagraph",
+                "skshaper",
+                "skunicode_icu",
+                "skunicode_core",
+                "skia",
+            ],
         )
         self.assertIs(recipe["gn_args"]["skia_enable_ganesh"], True)
         self.assertIs(recipe["gn_args"]["skia_use_vulkan"], True)

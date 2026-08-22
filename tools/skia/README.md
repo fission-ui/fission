@@ -168,7 +168,8 @@ payload file. Its native link section always has this shape:
     "svg",
     "skparagraph",
     "skshaper",
-    "skunicode",
+    "skunicode_icu",
+    "skunicode_core",
     "skia"
   ],
   "system_libraries": [],
@@ -220,7 +221,8 @@ python3 tools/skia/skia.py package-native \
   --library skia=/absolute/path/to/libskia.a \
   --library skparagraph=/absolute/path/to/libskparagraph.a \
   --library skshaper=/absolute/path/to/libskshaper.a \
-  --library skunicode=/absolute/path/to/libskunicode.a \
+  --library skunicode_icu=/absolute/path/to/libskunicode_icu.a \
+  --library skunicode_core=/absolute/path/to/libskunicode_core.a \
   --library svg=/absolute/path/to/libsvg.a \
   --link-metadata /absolute/path/to/link.json \
   --deployment-metadata /absolute/path/to/deployment.json \

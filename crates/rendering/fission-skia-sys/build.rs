@@ -21,7 +21,8 @@ const STATIC_LIBRARIES: &[&str] = &[
     "svg",
     "skparagraph",
     "skshaper",
-    "skunicode",
+    "skunicode_icu",
+    "skunicode_core",
     "skia",
 ];
 const GANESH_LINUX_SYSTEM_LIBRARIES: &[&str] = &["dl", "fontconfig", "vulkan"];
@@ -681,7 +682,7 @@ fn configure_source() {
     compile_bridge(&source, &build, &profile, &target);
     println!("cargo:rustc-link-search=native={}", build.display());
     let links = env::var("FISSION_SKIA_LINK_LIBS")
-        .unwrap_or_else(|_| "svg,skparagraph,skshaper,skunicode,skia".into());
+        .unwrap_or_else(|_| "svg,skparagraph,skshaper,skunicode_icu,skunicode_core,skia".into());
     let libraries =
         native_contract::parse_link_override(&links).unwrap_or_else(|error| panic!("{error}"));
     for library in libraries {

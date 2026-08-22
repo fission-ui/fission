@@ -66,7 +66,14 @@
         "wuffs",
         "zlib"
       ],
-      "upstream_libraries": ["svg", "skparagraph", "skshaper", "skunicode", "skia"],
+      "upstream_libraries": [
+        "svg",
+        "skparagraph",
+        "skshaper",
+        "skunicode_icu",
+        "skunicode_core",
+        "skia"
+      ],
       "bridge_sources": [
         "cpp/fission_skia.cpp",
         "cpp/fission_skia_registry.cpp",
@@ -122,7 +129,14 @@
         "wuffs",
         "zlib"
       ],
-      "upstream_libraries": ["svg", "skparagraph", "skshaper", "skunicode", "skia"],
+      "upstream_libraries": [
+        "svg",
+        "skparagraph",
+        "skshaper",
+        "skunicode_icu",
+        "skunicode_core",
+        "skia"
+      ],
       "features": {
         "gpu": "target-native-ganesh",
         "presentation": ["android", "appkit", "uikit", "wayland", "win32", "xcb", "xlib"],
