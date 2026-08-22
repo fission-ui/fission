@@ -4789,6 +4789,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "interactive-canvas-example"
+version = "0.11.1"
+dependencies = [
+ "anyhow",
+ "console_error_panic_hook",
+ "fission",
+ "serde",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "interpolate_name"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
