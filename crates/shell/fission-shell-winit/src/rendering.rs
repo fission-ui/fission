@@ -24,6 +24,8 @@ use fission_render::capabilities::RenderMode;
     )
 ))]
 use fission_render::surface::SessionState;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::JsCast;
 
 pub(super) struct ActivePlayer {
     pub(super) player: Box<dyn VideoPlayer>,
@@ -1594,7 +1596,9 @@ mod webgpu;
 #[cfg(target_arch = "wasm32")]
 use webgpu::create_validated_webgpu_main_renderer;
 #[cfg(any(target_arch = "wasm32", test))]
-pub(super) use webgpu::webgpu_preflight_dispatch_modes;
+pub(super) fn webgpu_preflight_dispatch_modes() -> [bool; 2] {
+    webgpu::webgpu_preflight_dispatch_modes()
+}
 
 #[cfg(target_arch = "wasm32")]
 pub(super) fn publish_web_renderer_report(report: &RendererReport) {

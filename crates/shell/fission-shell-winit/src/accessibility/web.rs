@@ -756,14 +756,8 @@ fn handle_dom_event(
             }
             let text = event
                 .dyn_ref::<CompositionEvent>()
-                .map(CompositionEvent::data)
-                .unwrap_or_default();
-            let cursor = Some((text.len(), text.len()));
-            Some(WebAccessibilityEvent::Preedit {
-                target: widget,
-                text,
-                cursor,
-            })
+                .and_then(CompositionEvent::data);
+            composition_update_event(widget, text)
         }
         "compositionend" => {
             if !target.has_attribute("data-fission-ime-control") {
@@ -771,17 +765,9 @@ fn handle_dom_event(
             }
             let text = event
                 .dyn_ref::<CompositionEvent>()
-                .map(CompositionEvent::data)
-                .unwrap_or_default();
+                .and_then(CompositionEvent::data);
             set_web_ime_composing(false);
-            if text.is_empty() {
-                Some(WebAccessibilityEvent::Cancel(widget))
-            } else {
-                Some(WebAccessibilityEvent::Commit {
-                    target: widget,
-                    text,
-                })
-            }
+            Some(composition_end_event(widget, text))
         }
         "keydown" => keyboard_event(widget, &target, &event),
         _ => None,
@@ -789,6 +775,26 @@ fn handle_dom_event(
     if let Some(queued) = queued {
         events.borrow_mut().push_back(queued);
         let _ = proxy.send_event(TestEvent::Wake);
+    }
+}
+
+fn composition_update_event(
+    target: WidgetId,
+    text: Option<String>,
+) -> Option<WebAccessibilityEvent> {
+    let text = text?;
+    let end = text.len();
+    Some(WebAccessibilityEvent::Preedit {
+        target,
+        text,
+        cursor: Some((end, end)),
+    })
+}
+
+fn composition_end_event(target: WidgetId, text: Option<String>) -> WebAccessibilityEvent {
+    match text {
+        Some(text) if !text.is_empty() => WebAccessibilityEvent::Commit { target, text },
+        Some(_) | None => WebAccessibilityEvent::Cancel(target),
     }
 }
 

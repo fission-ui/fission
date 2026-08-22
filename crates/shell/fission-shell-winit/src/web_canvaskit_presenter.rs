@@ -3,6 +3,7 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::thread::ThreadId;
 
 use fission_layout::ParagraphResultStore;
@@ -30,12 +31,12 @@ use crate::renderer_diagnostics::{RendererReport, RendererRequest};
 
 const EXECUTOR_FACTORY_GLOBAL: &str = "__FISSION_CANVASKIT_CREATE_EXECUTOR";
 
-/// Browser-side implementation of Fission's owned CanvasKit packet boundary.
-///
-/// The generated Web bootstrap installs an initialized JavaScript executor
-/// factory on `globalThis` before starting the application Wasm module. Every
-/// exchange copies both sides of the packet so neither runtime retains a view
-/// into the other's linear memory.
+// Browser-side implementation of Fission's owned CanvasKit packet boundary.
+//
+// The generated Web bootstrap installs an initialized JavaScript executor
+// factory on `globalThis` before starting the application Wasm module. Every
+// exchange copies both sides of the packet so neither runtime retains a view
+// into the other's linear memory.
 thread_local! {
     static CANVASKIT_EXECUTORS: RefCell<ExecutorRegistry> =
         RefCell::new(ExecutorRegistry::default());
@@ -496,6 +497,8 @@ impl fmt::Display for BrowserCanvasKitHostError {
         formatter.write_str(&self.0)
     }
 }
+
+impl std::error::Error for BrowserCanvasKitHostError {}
 
 #[derive(Debug)]
 struct WebCanvasTarget {

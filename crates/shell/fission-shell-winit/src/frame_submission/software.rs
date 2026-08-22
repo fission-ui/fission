@@ -14,7 +14,7 @@ pub(super) struct HostComposition {
 /// The transformed scene and its filtered bindings are owned together so a
 /// caller cannot accidentally submit the original bindings after DrawSurface
 /// operations have been removed or replaced.
-pub(super) struct HostCompositedFrame<'a> {
+pub(crate) struct HostCompositedFrame<'a> {
     submission: &'a super::FrameSubmission,
     composition: HostComposition,
 }
@@ -27,7 +27,7 @@ impl<'a> HostCompositedFrame<'a> {
         }
     }
 
-    pub(super) fn interactive_frame(&self) -> InteractiveFrame<'_> {
+    pub(crate) fn interactive_frame(&self) -> InteractiveFrame<'_> {
         InteractiveFrame::new(
             &self.composition.scene,
             &self.submission.metadata,
@@ -39,7 +39,7 @@ impl<'a> HostCompositedFrame<'a> {
 }
 
 impl super::FrameSubmission {
-    pub(super) fn host_composited_frame<'a>(
+    pub(crate) fn host_composited_frame<'a>(
         &'a self,
         scene: &RenderScene,
     ) -> HostCompositedFrame<'a> {

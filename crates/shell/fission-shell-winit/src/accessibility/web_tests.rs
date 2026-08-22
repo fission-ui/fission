@@ -1,6 +1,7 @@
 use super::{
-    clamp_boundary, directed_dom_selection, keyboard_intent, replacement_delta, safe_scale,
-    scroll_semantic, KeyboardIntent, ScrollCommand,
+    clamp_boundary, composition_end_event, composition_update_event, directed_dom_selection,
+    keyboard_intent, replacement_delta, safe_scale, scroll_semantic, KeyboardIntent, ScrollCommand,
+    WebAccessibilityEvent,
 };
 use fission_core::Runtime;
 use fission_ir::{CoreIR, CoreNode, FlexDirection, LayoutOp, Op, Role, Semantics, WidgetId};
@@ -94,6 +95,48 @@ fn composition_and_key_repeat_do_not_submit_or_reactivate_controls() {
         ),
         Some(KeyboardIntent::Submit)
     );
+}
+
+#[test]
+fn composition_payloads_preserve_missing_empty_and_committed_states() {
+    let target = WidgetId::explicit("web-composition");
+
+    assert!(composition_update_event(target, None).is_none());
+    match composition_update_event(target, Some(String::new())) {
+        Some(WebAccessibilityEvent::Preedit {
+            target: event_target,
+            text,
+            cursor,
+        }) => {
+            assert_eq!(event_target, target);
+            assert!(text.is_empty());
+            assert_eq!(cursor, Some((0, 0)));
+        }
+        event => panic!("expected an explicit empty preedit event, got {event:?}"),
+    }
+    match composition_update_event(target, Some("界".into())) {
+        Some(WebAccessibilityEvent::Preedit { text, cursor, .. }) => {
+            assert_eq!(text, "界");
+            assert_eq!(cursor, Some(("界".len(), "界".len())));
+        }
+        event => panic!("expected a populated preedit event, got {event:?}"),
+    }
+
+    assert!(matches!(
+        composition_end_event(target, None),
+        WebAccessibilityEvent::Cancel(event_target) if event_target == target
+    ));
+    assert!(matches!(
+        composition_end_event(target, Some(String::new())),
+        WebAccessibilityEvent::Cancel(event_target) if event_target == target
+    ));
+    assert!(matches!(
+        composition_end_event(target, Some("確定".into())),
+        WebAccessibilityEvent::Commit {
+            target: event_target,
+            ref text,
+        } if event_target == target && text == "確定"
+    ));
 }
 
 #[test]
