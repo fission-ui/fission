@@ -261,7 +261,8 @@ impl<'driver> GraphicsBackendSession<'driver> {
 
     pub fn resize(&mut self, metrics: SurfaceMetrics) -> BackendResult<()> {
         self.require_attached(BackendOperation::Resize, "resize")?;
-        self.driver.resize(metrics)
+        let result = self.driver.resize(metrics);
+        self.finish_attached_operation(BackendOperation::Resize, result)
     }
 
     /// Validate the complete frame before backend implementation code can
@@ -276,12 +277,14 @@ impl<'driver> GraphicsBackendSession<'driver> {
         let validated = (*frame)
             .validate_for(&capabilities)
             .map_err(|error| BackendError::from_frame_gate(frame.metadata().frame_id, error))?;
-        self.driver.render_validated(&validated)
+        let result = self.driver.render_validated(&validated);
+        self.finish_attached_operation(BackendOperation::Render, result)
     }
 
     pub fn present(&mut self) -> BackendResult<PresentReport> {
         self.require_attached(BackendOperation::Present, "present")?;
-        self.driver.present()
+        let result = self.driver.present();
+        self.finish_attached_operation(BackendOperation::Present, result)
     }
 
     pub fn readback(&mut self, request: ReadbackRequest) -> BackendResult<Readback> {
@@ -307,7 +310,8 @@ impl<'driver> GraphicsBackendSession<'driver> {
                 ),
             ));
         }
-        self.driver.readback(request)
+        let result = self.driver.readback(request);
+        self.finish_attached_operation(BackendOperation::Readback, result)
     }
 
     pub fn suspend(&mut self) -> BackendResult<()> {
@@ -442,6 +446,27 @@ impl<'driver> GraphicsBackendSession<'driver> {
             Err(BackendError::driver_state_mismatch(
                 operation, expected, actual,
             ))
+        }
+    }
+
+    fn finish_attached_operation<T>(
+        &mut self,
+        operation: BackendOperation,
+        result: BackendResult<T>,
+    ) -> BackendResult<T> {
+        let actual = self.driver.state();
+        if actual == SessionState::Attached {
+            return result;
+        }
+
+        self.fail_closed_after_lifecycle_error();
+        match result {
+            Err(error) => Err(error),
+            Ok(_) => Err(BackendError::driver_state_mismatch(
+                operation,
+                SessionState::Attached,
+                actual,
+            )),
         }
     }
 
@@ -643,6 +668,7 @@ mod tests {
         state: SessionState,
         fail_attach: bool,
         fail_suspend: bool,
+        lose_during_render: bool,
     }
 
     impl LifecycleDriver {
@@ -686,6 +712,14 @@ mod tests {
             frame: &ValidatedInteractiveFrame<'_>,
         ) -> BackendResult<RenderReport> {
             self.record(BackendOperation::Render);
+            if self.lose_during_render {
+                self.state = SessionState::Lost;
+                return Err(BackendError::new(
+                    BackendOperation::Render,
+                    "injected-render-surface-loss",
+                    "injected asynchronous surface loss",
+                ));
+            }
             Ok(RenderReport {
                 frame_id: Some(frame.frame().metadata().frame_id),
                 ..RenderReport::default()
@@ -999,6 +1033,7 @@ mod tests {
             state: SessionState::Detached,
             fail_attach: false,
             fail_suspend: false,
+            lose_during_render: false,
         })
         .unwrap();
 
@@ -1052,6 +1087,52 @@ mod tests {
     }
 
     #[test]
+    fn asynchronous_driver_loss_marks_the_session_lost() {
+        let bounds = LayoutRect::new(0.0, 0.0, 10.0, 10.0);
+        let scene = RenderScene::new(bounds);
+        let metadata = FrameMetadata {
+            frame_id: FrameId(91),
+            viewport: FrameViewport {
+                logical_size: bounds.size,
+                physical_size: PhysicalSize::new(10, 10),
+                scale_factor: ScaleFactor::ONE,
+            },
+            damage: DamageRegion::Full,
+            resource_epoch: ResourceEpoch(1),
+            semantics_epoch: SemanticsEpoch(1),
+        };
+        let resources = ResourceSnapshot::empty(metadata.resource_epoch);
+        let bindings = ExternalSurfaceBindings::new();
+        let frame = frame_fixture(&scene, &metadata, &resources, &bindings);
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let mut session = GraphicsBackendSession::new(LifecycleDriver {
+            capabilities: GraphicsCapabilities::empty(BackendIdentity::new(
+                "lifecycle",
+                "1",
+                "test",
+            )),
+            calls: Arc::clone(&calls),
+            recovery: Recovery::Reattached,
+            state: SessionState::Detached,
+            fail_attach: false,
+            fail_suspend: false,
+            lose_during_render: true,
+        })
+        .unwrap();
+        session.attach(&test_target()).unwrap();
+
+        let error = session.render(&frame).unwrap_err();
+
+        assert_eq!(error.code, "injected-render-surface-loss");
+        assert_eq!(session.state(), SessionState::Lost);
+        assert_eq!(session.diagnostics().session_state, SessionState::Lost);
+        assert_eq!(
+            *calls.lock().unwrap(),
+            vec![BackendOperation::Attach, BackendOperation::Render]
+        );
+    }
+
+    #[test]
     fn unrecoverable_loss_keeps_session_lost_and_blocks_rendering() {
         let bounds = LayoutRect::new(0.0, 0.0, 10.0, 10.0);
         let scene = RenderScene::new(bounds);
@@ -1081,6 +1162,7 @@ mod tests {
             state: SessionState::Detached,
             fail_attach: false,
             fail_suspend: false,
+            lose_during_render: false,
         })
         .unwrap();
         session.attach(&test_target()).unwrap();
@@ -1111,6 +1193,7 @@ mod tests {
             state: SessionState::Attached,
             fail_attach: false,
             fail_suspend: false,
+            lose_during_render: false,
         })
         .err()
         .expect("a live driver must be rejected");
@@ -1134,6 +1217,7 @@ mod tests {
             state: SessionState::Detached,
             fail_attach: false,
             fail_suspend: true,
+            lose_during_render: false,
         })
         .unwrap();
         session.attach(&test_target()).unwrap();
@@ -1163,6 +1247,7 @@ mod tests {
             state: SessionState::Detached,
             fail_attach: true,
             fail_suspend: false,
+            lose_during_render: false,
         })
         .unwrap();
 
@@ -1193,6 +1278,7 @@ mod tests {
             state: SessionState::Detached,
             fail_attach: false,
             fail_suspend: false,
+            lose_during_render: false,
         })
         .unwrap();
         unsupported.attach(&test_target()).unwrap();
@@ -1217,6 +1303,7 @@ mod tests {
             state: SessionState::Detached,
             fail_attach: false,
             fail_suspend: false,
+            lose_during_render: false,
         })
         .unwrap();
         wrong_format.attach(&test_target()).unwrap();
@@ -1241,6 +1328,7 @@ mod tests {
             state: SessionState::Detached,
             fail_attach: false,
             fail_suspend: false,
+            lose_during_render: false,
         })
         .unwrap();
         supported.attach(&test_target()).unwrap();
