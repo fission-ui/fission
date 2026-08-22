@@ -544,6 +544,7 @@ struct RawResult {
     approximate_bytes: usize,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Drop for RawResult {
     fn drop(&mut self) {
         let mut error = ffi::Error::default();

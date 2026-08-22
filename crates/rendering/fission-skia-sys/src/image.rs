@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+#[cfg(not(target_arch = "wasm32"))]
 use crate::error::status_result;
 use crate::{ffi, Error, ErrorKind, Result};
 
@@ -23,6 +24,7 @@ impl DecodedImage {
     /// `max_decoded_bytes` is mandatory and bounds cumulative allocations made
     /// by SkCodec. The oriented N32 premultiplied-sRGB output is preflighted
     /// against the same limit before pixel allocation.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn decode_encoded(encoded: &[u8], max_decoded_bytes: usize) -> Result<Self> {
         if encoded.is_empty() {
             return Err(Error::local(
@@ -73,6 +75,15 @@ impl DecodedImage {
         })
     }
 
+    #[cfg(target_arch = "wasm32")]
+    pub fn decode_encoded(_encoded: &[u8], _max_decoded_bytes: usize) -> Result<Self> {
+        Err(Error::local(
+            ErrorKind::Unsupported,
+            "DecodedImage::decode_encoded",
+            "native Skia image handles are unavailable in browser builds; use the CanvasKit resource protocol",
+        ))
+    }
+
     pub fn width(&self) -> u32 {
         self.inner.width
     }
@@ -121,6 +132,7 @@ struct RawImage {
     approximate_decoded_bytes: usize,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Drop for RawImage {
     fn drop(&mut self) {
         let mut error = ffi::Error::default();
@@ -131,6 +143,7 @@ impl Drop for RawImage {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn validate_info(info: &ffi::ImageInfo, max_decoded_bytes: usize, operation: &str) -> Result<()> {
     if info.width == 0 || info.height == 0 {
         return Err(Error::local(

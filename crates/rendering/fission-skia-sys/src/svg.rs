@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+#[cfg(not(target_arch = "wasm32"))]
 use crate::error::status_result;
 use crate::{ffi, Error, ErrorKind, Result};
 
@@ -27,6 +28,7 @@ impl SvgDocument {
     /// Inputs are bounded by [`MAX_SVG_DOCUMENT_BYTES`]. Embedded NUL, malformed
     /// UTF-8, and DTD/entity declarations are rejected before entering Skia.
     /// The native bridge independently repeats those checks for raw ABI callers.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn parse(source: &[u8]) -> Result<Self> {
         validate_source(source)?;
 
@@ -57,6 +59,15 @@ impl SvgDocument {
                 source_bytes_len: source.len(),
             }),
         })
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn parse(_source: &[u8]) -> Result<Self> {
+        Err(Error::local(
+            ErrorKind::Unsupported,
+            "SvgDocument::parse",
+            "native Skia SVG handles are unavailable in browser builds; use the CanvasKit resource protocol",
+        ))
     }
 
     /// Exact length of the validated UTF-8 source used to create this DOM.
@@ -95,6 +106,7 @@ struct RawSvgDocument {
     source_bytes_len: usize,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Drop for RawSvgDocument {
     fn drop(&mut self) {
         let mut error = ffi::Error::default();
@@ -105,6 +117,7 @@ impl Drop for RawSvgDocument {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn validate_source(source: &[u8]) -> Result<()> {
     if source.is_empty() {
         return Err(invalid("SVG document bytes must not be empty"));
@@ -130,12 +143,14 @@ fn validate_source(source: &[u8]) -> Result<()> {
     Ok(())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn contains_ascii_case_insensitive(haystack: &[u8], needle: &[u8]) -> bool {
     haystack
         .windows(needle.len())
         .any(|window| window.eq_ignore_ascii_case(needle))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn invalid(message: impl Into<String>) -> Error {
     Error::local(ErrorKind::InvalidArgument, "SvgDocument::parse", message)
 }

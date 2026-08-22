@@ -75,6 +75,7 @@ struct RawPicture {
     handle: ffi::PictureHandle,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Drop for RawPicture {
     fn drop(&mut self) {
         let mut error = ffi::Error::default();

@@ -7,7 +7,16 @@ HOST="${FISSION_WEB_HOST:-127.0.0.1}"
 PORT="${FISSION_WEB_PORT:-8123}"
 CDP_PORT="${FISSION_WEB_CDP_PORT:-9222}"
 URL="http://${HOST}:${PORT}/platforms/web/"
+RENDERER="${FISSION_WEB_RENDERER:-}"
 PROFILE_DIR="$SCRIPT_DIR/build/chrome-profile"
+
+if [[ -n "$RENDERER" ]]; then
+  if [[ ! "$RENDERER" =~ ^[a-z0-9-]+$ ]]; then
+    printf 'FISSION_WEB_RENDERER must contain only lowercase ASCII letters, digits, and hyphens.\n' >&2
+    exit 1
+  fi
+  URL="${URL}?fission_renderer=${RENDERER}"
+fi
 
 require_node_websocket() {
   if ! command -v node >/dev/null 2>&1; then

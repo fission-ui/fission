@@ -11,6 +11,9 @@ crate-type = ["cdylib", "rlib"]
 default = ["standalone-entry"]
 standalone-entry = []
 
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-O", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
+
 [dependencies]
 anyhow = "1.0"
 fission = { path = "../../crates/authoring/fission", default-features = false, features = ["desktop", "web", "android", "ios"] }

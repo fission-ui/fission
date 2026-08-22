@@ -14,7 +14,7 @@ use fission_render::surface::{
     LossKind, MemoryPressure, PhysicalSize, Recovery, ScaleFactor, SessionState, SurfaceDescriptor,
     SurfaceId, SurfaceKind, SurfaceTarget, ThreadAffinity,
 };
-use fission_render_skia_web::{
+use fission_render_skia::{
     CanvasKitBackendPreference, CanvasKitFont, CanvasKitHost, CanvasKitParagraphHost,
     CanvasKitPixelRegion, CanvasKitProfile, CanvasKitReadback,
 };
@@ -403,7 +403,7 @@ impl CanvasKitParagraphHost for BrowserCanvasKitHost {
 
     fn destroy_paragraph(
         &mut self,
-        handle: fission_render_skia_web::ResourceHandle,
+        handle: fission_render_skia::ResourceHandle,
     ) -> Result<(), Self::Error> {
         self.with_executor("destroy a CanvasKit paragraph", |host| {
             let value = Object::new();
