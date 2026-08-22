@@ -295,7 +295,7 @@ fn vello_cpu_override_never_changes_an_explicit_skia_request() {
     );
 }
 
-#[cfg(all(not(target_arch = "wasm32"), not(feature = "skia")))]
+#[cfg(all(not(target_arch = "wasm32"), not(feature = "skia-runtime")))]
 #[test]
 fn explicit_skia_request_fails_before_surface_initialization_when_feature_is_absent() {
     let error = require_compiled_native_renderer(RendererRequest::NativeSkiaRaster).unwrap_err();
@@ -312,7 +312,7 @@ fn explicit_skia_request_fails_before_surface_initialization_when_feature_is_abs
     assert!(software.details.contains("`skia` Cargo feature"));
 }
 
-#[cfg(all(not(target_arch = "wasm32"), feature = "skia"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "skia-runtime"))]
 #[test]
 fn native_software_alias_requires_and_accepts_the_skia_profile() {
     require_compiled_native_renderer(RendererRequest::NativeSoftware).unwrap();
@@ -338,7 +338,7 @@ fn direct_ganesh_is_the_only_native_request_that_skips_wgpu_initialization() {
 }
 
 #[cfg(all(
-    feature = "skia",
+    feature = "skia-runtime",
     feature = "three-d",
     any(
         target_os = "linux",

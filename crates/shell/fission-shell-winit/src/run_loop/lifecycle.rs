@@ -60,7 +60,7 @@ where
         {
             if let Some(render_window) = self.platform_window.active_window_arc() {
                 #[cfg(all(
-                    feature = "skia",
+                    feature = "skia-runtime",
                     any(
                         target_os = "linux",
                         target_os = "macos",
@@ -91,7 +91,7 @@ where
                         false
                     };
                 #[cfg(not(all(
-                    feature = "skia",
+                    feature = "skia-runtime",
                     any(
                         target_os = "linux",
                         target_os = "macos",
@@ -112,9 +112,9 @@ where
                         current_viewport,
                         is_linux_wayland_event_loop(elwt),
                         self.renderer_request,
-                        #[cfg(feature = "skia")]
+                        #[cfg(feature = "skia-runtime")]
                         self.skia_profile.as_ref(),
-                        #[cfg(feature = "skia")]
+                        #[cfg(feature = "skia-runtime")]
                         self.presenter.suspended_skia_mut(),
                     ) {
                         Ok(mut state) => {

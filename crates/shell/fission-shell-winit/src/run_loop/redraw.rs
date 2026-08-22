@@ -274,7 +274,7 @@ where
                     return;
                 };
                 #[cfg(all(
-                    feature = "skia",
+                    feature = "skia-runtime",
                     any(
                         target_os = "linux",
                         target_os = "macos",
@@ -306,7 +306,7 @@ where
                         false
                     };
                 #[cfg(not(all(
-                    feature = "skia",
+                    feature = "skia-runtime",
                     any(
                         target_os = "linux",
                         target_os = "macos",
@@ -327,9 +327,9 @@ where
                         viewport_state,
                         is_linux_wayland_event_loop(elwt),
                         self.renderer_request,
-                        #[cfg(feature = "skia")]
+                        #[cfg(feature = "skia-runtime")]
                         self.skia_profile.as_ref(),
-                        #[cfg(feature = "skia")]
+                        #[cfg(feature = "skia-runtime")]
                         self.presenter.suspended_skia_mut(),
                     ) {
                         Ok(state) => self.presenter.attach(state),
@@ -357,7 +357,7 @@ where
                 }
             }
             #[cfg(all(
-                feature = "skia",
+                feature = "skia-runtime",
                 any(
                     target_os = "linux",
                     target_os = "macos",
@@ -394,7 +394,7 @@ where
                 }
             }
             #[cfg(not(all(
-                feature = "skia",
+                feature = "skia-runtime",
                 any(
                     target_os = "linux",
                     target_os = "macos",
@@ -419,7 +419,7 @@ where
             }
         }
 
-        #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+        #[cfg(all(feature = "skia-runtime", not(target_arch = "wasm32")))]
         if self.renderer_request == RendererRequest::Auto && self.presenter.has_skia_raster() {
             let Some(profile) = self.skia_profile.clone() else {
                 eprintln!(
@@ -681,7 +681,7 @@ where
                         return;
                     }
                 };
-                #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+                #[cfg(all(feature = "skia-runtime", not(target_arch = "wasm32")))]
                 let automatic_skia_fallback = (self.renderer_request == RendererRequest::Auto)
                     .then(|| {
                         submission
@@ -690,7 +690,7 @@ where
                             .and_then(|error| error.backend_fallback_reason())
                     })
                     .flatten();
-                #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+                #[cfg(all(feature = "skia-runtime", not(target_arch = "wasm32")))]
                 if let Some(reason) = automatic_skia_fallback {
                     let Some(profile) = self.skia_profile.clone() else {
                         eprintln!(
@@ -1150,7 +1150,7 @@ where
                 #[cfg(not(target_arch = "wasm32"))]
                 {
                     #[cfg(all(
-                        feature = "skia",
+                        feature = "skia-runtime",
                         any(
                             target_os = "linux",
                             target_os = "macos",
@@ -1510,7 +1510,7 @@ where
                                 }
                             }
                         }
-                        #[cfg(feature = "skia")]
+                        #[cfg(feature = "skia-runtime")]
                         MainRenderer::SkiaRaster(presenter) => {
                             let retained_scene = self
                                 .pipeline
@@ -1697,7 +1697,7 @@ where
         }
     }
 
-    #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+    #[cfg(all(feature = "skia-runtime", not(target_arch = "wasm32")))]
     fn activate_skia_raster_profile(&mut self, profile: &fission_render_skia::SkiaRasterProfile) {
         let paragraph_store = Arc::new(ParagraphResultStore::new(Arc::new(
             profile.paragraph_engine(),

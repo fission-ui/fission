@@ -116,10 +116,10 @@ where
     pub(super) presenter: WinitPresenter<'static>,
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) renderer_request: RendererRequest,
-    #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+    #[cfg(all(feature = "skia-runtime", not(target_arch = "wasm32")))]
     pub(super) skia_profile: Option<fission_render_skia::SkiaRasterProfile>,
     #[cfg(all(
-        feature = "skia",
+        feature = "skia-runtime",
         any(
             target_os = "linux",
             target_os = "macos",

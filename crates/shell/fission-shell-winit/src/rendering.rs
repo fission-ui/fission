@@ -1,6 +1,6 @@
 use super::*;
 #[cfg(all(
-    feature = "skia",
+    feature = "skia-runtime",
     any(
         target_os = "linux",
         target_os = "macos",
@@ -10,11 +10,11 @@ use super::*;
     )
 ))]
 use crate::skia_ganesh_presenter::WinitSkiaGaneshPresenter;
-#[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+#[cfg(all(feature = "skia-runtime", not(target_arch = "wasm32")))]
 use crate::skia_presenter::WinitSkiaRasterPresenter;
 use fission_render::capabilities::RenderMode;
 #[cfg(all(
-    feature = "skia",
+    feature = "skia-runtime",
     any(
         target_os = "linux",
         target_os = "macos",
@@ -56,10 +56,10 @@ pub(super) struct RenderState<'w> {
 /// native-window session directly without constructing a wgpu context.
 pub(super) struct WinitPresenter<'w> {
     state: Option<RenderState<'w>>,
-    #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+    #[cfg(all(feature = "skia-runtime", not(target_arch = "wasm32")))]
     suspended_skia: Option<WinitSkiaRasterPresenter>,
     #[cfg(all(
-        feature = "skia",
+        feature = "skia-runtime",
         any(
             target_os = "linux",
             target_os = "macos",
@@ -75,10 +75,10 @@ impl<'w> WinitPresenter<'w> {
     pub(super) fn detached() -> Self {
         Self {
             state: None,
-            #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+            #[cfg(all(feature = "skia-runtime", not(target_arch = "wasm32")))]
             suspended_skia: None,
             #[cfg(all(
-                feature = "skia",
+                feature = "skia-runtime",
                 any(
                     target_os = "linux",
                     target_os = "macos",
@@ -94,7 +94,7 @@ impl<'w> WinitPresenter<'w> {
     pub(super) fn is_attached(&self) -> bool {
         self.state.is_some() || {
             #[cfg(all(
-                feature = "skia",
+                feature = "skia-runtime",
                 any(
                     target_os = "linux",
                     target_os = "macos",
@@ -109,7 +109,7 @@ impl<'w> WinitPresenter<'w> {
                     .is_some_and(|presenter| presenter.state() == SessionState::Attached)
             }
             #[cfg(not(all(
-                feature = "skia",
+                feature = "skia-runtime",
                 any(
                     target_os = "linux",
                     target_os = "macos",
@@ -126,7 +126,7 @@ impl<'w> WinitPresenter<'w> {
 
     pub(super) fn attach(&mut self, state: RenderState<'w>) {
         #[cfg(all(
-            feature = "skia",
+            feature = "skia-runtime",
             any(
                 target_os = "linux",
                 target_os = "macos",
@@ -143,14 +143,14 @@ impl<'w> WinitPresenter<'w> {
         self.state.as_mut()
     }
 
-    #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+    #[cfg(all(feature = "skia-runtime", not(target_arch = "wasm32")))]
     pub(super) fn has_skia_raster(&self) -> bool {
         self.state
             .as_ref()
             .is_some_and(|state| matches!(&state.main_renderer, MainRenderer::SkiaRaster(_)))
     }
 
-    #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+    #[cfg(all(feature = "skia-runtime", not(target_arch = "wasm32")))]
     pub(super) fn switch_to_skia_raster(
         &mut self,
         profile: &fission_render_skia::SkiaRasterProfile,
@@ -193,7 +193,7 @@ impl<'w> WinitPresenter<'w> {
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn frame_capabilities(&self) -> fission_render::capabilities::GraphicsCapabilities {
         #[cfg(all(
-            feature = "skia",
+            feature = "skia-runtime",
             any(
                 target_os = "linux",
                 target_os = "macos",
@@ -215,7 +215,7 @@ impl<'w> WinitPresenter<'w> {
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn suspend(&mut self) -> fission_render::backend::BackendResult<()> {
         #[cfg(all(
-            feature = "skia",
+            feature = "skia-runtime",
             any(
                 target_os = "linux",
                 target_os = "macos",
@@ -233,7 +233,7 @@ impl<'w> WinitPresenter<'w> {
             return Ok(());
         };
 
-        #[cfg(feature = "skia")]
+        #[cfg(feature = "skia-runtime")]
         {
             if let Some(mut presenter) = state.into_skia_renderer() {
                 presenter.suspend()?;
@@ -241,7 +241,7 @@ impl<'w> WinitPresenter<'w> {
                 self.suspended_skia = Some(presenter);
             }
         }
-        #[cfg(not(feature = "skia"))]
+        #[cfg(not(feature = "skia-runtime"))]
         drop(state);
         Ok(())
     }
@@ -255,7 +255,7 @@ impl<'w> WinitPresenter<'w> {
             state.main_renderer.trim_memory(pressure)?;
         }
         #[cfg(all(
-            feature = "skia",
+            feature = "skia-runtime",
             any(
                 target_os = "linux",
                 target_os = "macos",
@@ -267,7 +267,7 @@ impl<'w> WinitPresenter<'w> {
         if let Some(presenter) = self.direct_ganesh.as_mut() {
             presenter.trim_memory(pressure)?;
         }
-        #[cfg(feature = "skia")]
+        #[cfg(feature = "skia-runtime")]
         if let Some(presenter) = self.suspended_skia.as_mut() {
             presenter.trim_memory(pressure)?;
         }
@@ -277,7 +277,7 @@ impl<'w> WinitPresenter<'w> {
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn detach(&mut self) -> fission_render::backend::BackendResult<()> {
         #[cfg(all(
-            feature = "skia",
+            feature = "skia-runtime",
             any(
                 target_os = "linux",
                 target_os = "macos",
@@ -290,29 +290,29 @@ impl<'w> WinitPresenter<'w> {
             presenter.detach()?;
         }
         if let Some(state) = self.state.take() {
-            #[cfg(feature = "skia")]
+            #[cfg(feature = "skia-runtime")]
             {
                 if let Some(mut presenter) = state.into_skia_renderer() {
                     presenter.detach()?;
                 }
             }
-            #[cfg(not(feature = "skia"))]
+            #[cfg(not(feature = "skia-runtime"))]
             drop(state);
         }
-        #[cfg(feature = "skia")]
+        #[cfg(feature = "skia-runtime")]
         if let Some(mut presenter) = self.suspended_skia.take() {
             presenter.detach()?;
         }
         Ok(())
     }
 
-    #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+    #[cfg(all(feature = "skia-runtime", not(target_arch = "wasm32")))]
     pub(super) fn suspended_skia_mut(&mut self) -> &mut Option<WinitSkiaRasterPresenter> {
         &mut self.suspended_skia
     }
 
     #[cfg(all(
-        feature = "skia",
+        feature = "skia-runtime",
         any(
             target_os = "linux",
             target_os = "macos",
@@ -326,7 +326,7 @@ impl<'w> WinitPresenter<'w> {
     }
 
     #[cfg(all(
-        feature = "skia",
+        feature = "skia-runtime",
         any(
             target_os = "linux",
             target_os = "macos",
@@ -340,7 +340,7 @@ impl<'w> WinitPresenter<'w> {
     }
 
     #[cfg(all(
-        feature = "skia",
+        feature = "skia-runtime",
         any(
             target_os = "linux",
             target_os = "macos",
@@ -355,7 +355,7 @@ impl<'w> WinitPresenter<'w> {
     }
 }
 
-#[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+#[cfg(all(feature = "skia-runtime", not(target_arch = "wasm32")))]
 impl RenderState<'_> {
     fn into_skia_renderer(self) -> Option<WinitSkiaRasterPresenter> {
         match self.main_renderer {
@@ -371,7 +371,7 @@ pub(super) enum MainRenderer {
         texture_compositor: TextureLayerCompositor,
         render_mode: RenderMode,
     },
-    #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+    #[cfg(all(feature = "skia-runtime", not(target_arch = "wasm32")))]
     SkiaRaster(WinitSkiaRasterPresenter),
 }
 
@@ -379,7 +379,7 @@ impl MainRenderer {
     pub(super) fn frame_capabilities(&self) -> fission_render::capabilities::GraphicsCapabilities {
         match self {
             Self::Vello { render_mode, .. } => winit_vello_capabilities(*render_mode),
-            #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+            #[cfg(all(feature = "skia-runtime", not(target_arch = "wasm32")))]
             Self::SkiaRaster(presenter) => winit_skia_raster_capabilities(presenter.capabilities()),
         }
     }
@@ -392,7 +392,7 @@ impl MainRenderer {
         scale_factor: f64,
     ) -> fission_render::backend::BackendResult<()> {
         match self {
-            #[cfg(feature = "skia")]
+            #[cfg(feature = "skia-runtime")]
             Self::SkiaRaster(presenter) => {
                 presenter.sync_surface_metrics(width, height, scale_factor)
             }
@@ -406,7 +406,7 @@ impl MainRenderer {
         pressure: fission_render::surface::MemoryPressure,
     ) -> fission_render::backend::BackendResult<()> {
         match self {
-            #[cfg(feature = "skia")]
+            #[cfg(feature = "skia-runtime")]
             Self::SkiaRaster(presenter) => presenter.trim_memory(pressure),
             Self::Vello { .. } => Ok(()),
         }
@@ -589,8 +589,8 @@ pub(super) fn create_render_state<'w>(
     viewport: WindowViewportState,
     linux_wayland: bool,
     request: RendererRequest,
-    #[cfg(feature = "skia")] skia_profile: Option<&fission_render_skia::SkiaRasterProfile>,
-    #[cfg(feature = "skia")] suspended_skia: &mut Option<WinitSkiaRasterPresenter>,
+    #[cfg(feature = "skia-runtime")] skia_profile: Option<&fission_render_skia::SkiaRasterProfile>,
+    #[cfg(feature = "skia-runtime")] suspended_skia: &mut Option<WinitSkiaRasterPresenter>,
 ) -> anyhow::Result<RenderState<'w>> {
     if request == RendererRequest::NativeSkiaGanesh {
         return Err(anyhow::Error::new(
@@ -650,9 +650,9 @@ pub(super) fn create_render_state<'w>(
         viewport.physical_size.width,
         viewport.physical_size.height,
         viewport.scale_factor,
-        #[cfg(feature = "skia")]
+        #[cfg(feature = "skia-runtime")]
         skia_profile,
-        #[cfg(feature = "skia")]
+        #[cfg(feature = "skia-runtime")]
         suspended_skia,
     )?;
     emit_renderer_report(&renderer_report);
@@ -721,7 +721,7 @@ pub(super) fn sync_wgpu_render_state(
 }
 
 #[cfg(all(
-    feature = "skia",
+    feature = "skia-runtime",
     any(
         target_os = "linux",
         target_os = "macos",
@@ -797,7 +797,7 @@ pub(super) fn attach_or_resume_native_ganesh(
 }
 
 #[cfg(all(
-    feature = "skia",
+    feature = "skia-runtime",
     any(
         target_os = "linux",
         target_os = "macos",
@@ -955,7 +955,7 @@ pub(super) fn require_compiled_native_renderer(
     request: RendererRequest,
 ) -> Result<(), RequestedRendererInitializationError> {
     if (request.uses_skia_raster() || request == RendererRequest::NativeSkiaGanesh)
-        && !cfg!(feature = "skia")
+        && !cfg!(feature = "skia-runtime")
     {
         Err(RequestedRendererInitializationError::new(
             request,
@@ -1056,7 +1056,7 @@ pub(super) fn query_param(search: &str, name: &str) -> Option<String> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-#[cfg(feature = "skia")]
+#[cfg(feature = "skia-runtime")]
 fn create_or_resume_skia_raster_presenter(
     profile: &fission_render_skia::SkiaRasterProfile,
     suspended: &mut Option<WinitSkiaRasterPresenter>,
@@ -1080,8 +1080,8 @@ pub(super) fn create_native_main_renderer(
     width: u32,
     height: u32,
     scale_factor: f64,
-    #[cfg(feature = "skia")] skia_profile: Option<&fission_render_skia::SkiaRasterProfile>,
-    #[cfg(feature = "skia")] suspended_skia: &mut Option<WinitSkiaRasterPresenter>,
+    #[cfg(feature = "skia-runtime")] skia_profile: Option<&fission_render_skia::SkiaRasterProfile>,
+    #[cfg(feature = "skia-runtime")] suspended_skia: &mut Option<WinitSkiaRasterPresenter>,
 ) -> anyhow::Result<(MainRenderer, RendererReport)> {
     let request = request
         .for_target(RendererTarget::Native)
@@ -1097,9 +1097,9 @@ pub(super) fn create_native_main_renderer(
     }
     let adapter_info = device_handle.adapter().get_info();
     let (backend, adapter) = adapter_labels_from_info(&adapter_info);
-    #[cfg(feature = "skia")]
+    #[cfg(feature = "skia-runtime")]
     let mut preferred_skia_error = None;
-    #[cfg(feature = "skia")]
+    #[cfg(feature = "skia-runtime")]
     let auto_skia_adapter = should_auto_select_native_skia_raster(
         request,
         cfg!(target_os = "windows"),
@@ -1107,7 +1107,7 @@ pub(super) fn create_native_main_renderer(
         &adapter_info.name,
     );
     if request.uses_skia_raster() {
-        #[cfg(feature = "skia")]
+        #[cfg(feature = "skia-runtime")]
         {
             let profile = skia_profile.ok_or_else(|| {
                 anyhow::Error::new(RequestedRendererInitializationError::new(
@@ -1146,7 +1146,7 @@ pub(super) fn create_native_main_renderer(
                 ),
             ));
         }
-        #[cfg(not(feature = "skia"))]
+        #[cfg(not(feature = "skia-runtime"))]
         {
             return Err(anyhow::Error::new(
                 RequestedRendererInitializationError::new(
@@ -1158,7 +1158,7 @@ pub(super) fn create_native_main_renderer(
         }
     }
 
-    #[cfg(feature = "skia")]
+    #[cfg(feature = "skia-runtime")]
     if auto_skia_adapter {
         if let Some(profile) = skia_profile {
             match create_or_resume_skia_raster_presenter(
@@ -1210,7 +1210,7 @@ pub(super) fn create_native_main_renderer(
             } else {
                 None
             };
-            #[cfg(feature = "skia")]
+            #[cfg(feature = "skia-runtime")]
             let fallback_reason = preferred_skia_error
                 .map(|error| format!("preferred_skia_raster_init_failed:{error}"))
                 .or(fallback_reason);
@@ -1243,11 +1243,11 @@ pub(super) fn create_native_main_renderer(
             ),
         )),
         Err(gpu_error) => {
-            #[cfg(feature = "skia")]
+            #[cfg(feature = "skia-runtime")]
             let mut skia_error = preferred_skia_error;
-            #[cfg(not(feature = "skia"))]
+            #[cfg(not(feature = "skia-runtime"))]
             let skia_error: Option<String> = None;
-            #[cfg(feature = "skia")]
+            #[cfg(feature = "skia-runtime")]
             if skia_error.is_none() {
                 if let Some(profile) = skia_profile {
                     match create_or_resume_skia_raster_presenter(
@@ -1735,7 +1735,7 @@ pub(super) fn web_bool_global(name: &str) -> bool {
         .unwrap_or(false)
 }
 
-#[cfg(all(test, feature = "skia", not(target_arch = "wasm32")))]
+#[cfg(all(test, feature = "skia-runtime", not(target_arch = "wasm32")))]
 mod skia_lifecycle_tests {
     use super::*;
     use fission_render::surface::{MemoryPressure, SessionState};

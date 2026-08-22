@@ -11,9 +11,7 @@ fn reserve_control_port() -> u16 {
 }
 
 fn launch_counter(control_port: u16) -> Child {
-    let bin =
-        std::env::var("CARGO_BIN_EXE_counter").unwrap_or_else(|_| "target/debug/counter".into());
-    Command::new(bin)
+    Command::new(env!("CARGO_BIN_EXE_counter"))
         .env("FISSION_TEST_CONTROL_PORT", control_port.to_string())
         .env("FISSION_BACKGROUND_TEST", "1")
         .spawn()

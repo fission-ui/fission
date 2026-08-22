@@ -52,6 +52,8 @@ use winit::{
     window::{CursorIcon, Theme as WindowTheme, Window, WindowAttributes, WindowId},
 };
 
+#[cfg(all(feature = "skia-runtime", not(target_arch = "wasm32")))]
+use app::DEFAULT_FONT_FAMILY;
 use fission_core::env::{VideoStatus, WindowInsets};
 use fission_core::internal::downcast_render_object;
 use fission_core::internal::InternalLoweringCx;
@@ -201,7 +203,7 @@ use rendering::*;
 ))]
 mod native_window_target;
 #[cfg(all(
-    feature = "skia",
+    feature = "skia-runtime",
     any(
         target_os = "linux",
         target_os = "macos",
@@ -211,7 +213,7 @@ mod native_window_target;
     )
 ))]
 mod skia_ganesh_presenter;
-#[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+#[cfg(all(feature = "skia-runtime", not(target_arch = "wasm32")))]
 mod skia_presenter;
 #[cfg(target_arch = "wasm32")]
 mod web_canvaskit_presenter;
@@ -242,9 +244,9 @@ mod tests;
 fn paragraph_engine_for_native_renderer(
     request: RendererRequest,
     vello: Arc<VelloTextMeasurer>,
-    #[cfg(feature = "skia")] skia_profile: Option<&fission_render_skia::SkiaRasterProfile>,
+    #[cfg(feature = "skia-runtime")] skia_profile: Option<&fission_render_skia::SkiaRasterProfile>,
     #[cfg(all(
-        feature = "skia",
+        feature = "skia-runtime",
         any(
             target_os = "linux",
             target_os = "macos",
@@ -256,7 +258,7 @@ fn paragraph_engine_for_native_renderer(
     skia_ganesh_profile: Option<&fission_render_skia::SkiaGaneshProfile>,
 ) -> Arc<dyn ParagraphEngine> {
     if request.uses_skia_raster() {
-        #[cfg(feature = "skia")]
+        #[cfg(feature = "skia-runtime")]
         {
             return Arc::new(
                 skia_profile
@@ -264,12 +266,12 @@ fn paragraph_engine_for_native_renderer(
                     .paragraph_engine(),
             );
         }
-        #[cfg(not(feature = "skia"))]
+        #[cfg(not(feature = "skia-runtime"))]
         unreachable!("native renderer validation rejects Skia when its feature is disabled");
     }
     if request == RendererRequest::NativeSkiaGanesh {
         #[cfg(all(
-            feature = "skia",
+            feature = "skia-runtime",
             any(
                 target_os = "linux",
                 target_os = "macos",
@@ -286,7 +288,7 @@ fn paragraph_engine_for_native_renderer(
             );
         }
         #[cfg(not(all(
-            feature = "skia",
+            feature = "skia-runtime",
             any(
                 target_os = "linux",
                 target_os = "macos",
@@ -321,7 +323,7 @@ where
         );
         #[cfg(not(target_arch = "wasm32"))]
         let renderer_request = native_renderer_request()?;
-        #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+        #[cfg(all(feature = "skia-runtime", not(target_arch = "wasm32")))]
         let skia_profile = (renderer_request == RendererRequest::Auto
             || renderer_request.uses_skia_raster())
         .then(|| {
@@ -332,7 +334,7 @@ where
         })
         .transpose()?;
         #[cfg(all(
-            feature = "skia",
+            feature = "skia-runtime",
             any(
                 target_os = "linux",
                 target_os = "macos",
@@ -353,10 +355,10 @@ where
         let paragraph_engine = paragraph_engine_for_native_renderer(
             renderer_request,
             self.measurer.clone(),
-            #[cfg(feature = "skia")]
+            #[cfg(feature = "skia-runtime")]
             skia_profile.as_ref(),
             #[cfg(all(
-                feature = "skia",
+                feature = "skia-runtime",
                 any(
                     target_os = "linux",
                     target_os = "macos",
@@ -687,10 +689,10 @@ where
             presenter,
             #[cfg(not(target_arch = "wasm32"))]
             renderer_request,
-            #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+            #[cfg(all(feature = "skia-runtime", not(target_arch = "wasm32")))]
             skia_profile,
             #[cfg(all(
-                feature = "skia",
+                feature = "skia-runtime",
                 any(
                     target_os = "linux",
                     target_os = "macos",

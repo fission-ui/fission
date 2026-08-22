@@ -20,8 +20,9 @@ tray = ["dep:tray-icon", "dep:gtk"]
 three-d = ["dep:fission-3d-model", "dep:fission-render-wgpu3d"]
 video = ["dep:gstreamer", "dep:gstreamer-video"]
 skia = ["skia-prebuilt"]
-skia-prebuilt = ["dep:fission-render-skia", "fission-render-skia/skia-prebuilt"]
-skia-build-from-source = ["dep:fission-render-skia", "fission-render-skia/skia-build-from-source"]
+skia-runtime = ["dep:fission-render-skia"]
+skia-prebuilt = ["skia-runtime", "fission-render-skia/skia-prebuilt"]
+skia-build-from-source = ["skia-runtime", "fission-render-skia/skia-build-from-source"]
 
 [dependencies]
 fission-shell = { path = "../fission-shell", version = "0.11.1" }

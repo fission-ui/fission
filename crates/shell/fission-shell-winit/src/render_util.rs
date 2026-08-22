@@ -43,7 +43,7 @@ pub(super) fn register_packaged_fonts(
     }
 }
 
-#[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
+#[cfg(all(feature = "skia-runtime", not(target_arch = "wasm32")))]
 pub(super) fn packaged_skia_font_faces(
     fonts: &[fission_theme::PackagedFont],
 ) -> Vec<fission_render_skia::SkiaFontFace> {
@@ -469,7 +469,7 @@ pub(super) fn native_window_size_for_logical_viewport(
     winit::dpi::LogicalSize::new(size.width as f64, size.height as f64)
 }
 
-#[cfg(all(test, feature = "skia", not(target_arch = "wasm32")))]
+#[cfg(all(test, feature = "skia-runtime", not(target_arch = "wasm32")))]
 mod skia_font_tests {
     use super::*;
 
