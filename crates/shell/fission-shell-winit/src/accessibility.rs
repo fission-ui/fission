@@ -247,7 +247,7 @@ mod imp {
             Action::Blur => set_focus(runtime, ir, None),
             Action::ReplaceSelectedText => {
                 if !editable_text_input(semantics) || !has_text_input_action(semantics) {
-                    crate::log_input_dispatch_failure(
+                    crate::driver_support::log_input_dispatch_failure(
                         "accessibility_replace_selected_text_rejected",
                         Some(target),
                     );
@@ -947,7 +947,7 @@ mod imp {
         let Some((envelope, input)) = prepare_scoped_text_input_change(
             ir, semantics, target, new_text, new_caret, new_anchor,
         ) else {
-            crate::log_input_dispatch_failure(
+            crate::driver_support::log_input_dispatch_failure(
                 "accessibility_text_input_missing_action",
                 Some(target),
             );

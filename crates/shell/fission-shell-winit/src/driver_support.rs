@@ -496,7 +496,7 @@ pub(super) fn scoped_action_input_for_node(
     input
 }
 
-fn log_input_dispatch_failure(origin: &str, target: Option<WidgetId>) {
+pub(super) fn log_input_dispatch_failure(origin: &str, target: Option<WidgetId>) {
     match target {
         Some(target) => eprintln!("Fission input dispatch failed ({origin}, target {target})"),
         None => eprintln!("Fission input dispatch failed ({origin})"),
