@@ -2449,11 +2449,17 @@ fn composite_transform_matrix(
     let rotation_matrix = rotation_z_matrix(rotation);
     let motion_translate = translation_matrix(translate_x, translate_y);
 
+    // Matrices use translation in indices 12/13 and are applied to points in
+    // row-vector order. Compose operations in that same order so scale and
+    // rotation preserve the widget's visual center.
     multiply_matrix(
-        motion_translate,
+        from_center,
         multiply_matrix(
-            to_center,
-            multiply_matrix(rotation_matrix, multiply_matrix(scale_matrix, from_center)),
+            scale_matrix,
+            multiply_matrix(
+                rotation_matrix,
+                multiply_matrix(to_center, motion_translate),
+            ),
         ),
     )
 }
@@ -2605,8 +2611,8 @@ fn translate_rect(rect: LayoutRect, offset: LayoutPoint) -> LayoutRect {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_local_paint_list, scroll_offsets_changed, translation_matrix, InvalidationSet,
-        Pipeline,
+        build_local_paint_list, composite_transform_matrix, scroll_offsets_changed,
+        translation_matrix, InvalidationSet, Pipeline,
     };
     use fission_core::env::{Env, VideoState, VideoStateMap, WebState, WebStateMap};
     use fission_core::MotionPropertyId;
@@ -2626,6 +2632,37 @@ mod tests {
     use std::sync::Arc;
 
     struct NullRenderer;
+
+    fn transform_point(matrix: [f32; 16], x: f32, y: f32) -> (f32, f32) {
+        (
+            matrix[0] * x + matrix[4] * y + matrix[12],
+            matrix[1] * x + matrix[5] * y + matrix[13],
+        )
+    }
+
+    #[test]
+    fn composite_scale_preserves_the_layout_center() {
+        let rect = LayoutRect::new(100.0, 40.0, 80.0, 60.0);
+        let transform = composite_transform_matrix(rect, 0.0, 0.0, 0.5, 0.0);
+
+        let center = transform_point(transform, 140.0, 70.0);
+        let top_left = transform_point(transform, 100.0, 40.0);
+
+        assert!((center.0 - 140.0).abs() < 0.001);
+        assert!((center.1 - 70.0).abs() < 0.001);
+        assert!((top_left.0 - 120.0).abs() < 0.001);
+        assert!((top_left.1 - 55.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn composite_translation_moves_the_preserved_center() {
+        let rect = LayoutRect::new(100.0, 40.0, 80.0, 60.0);
+        let transform = composite_transform_matrix(rect, 12.0, -8.0, 0.75, 0.0);
+        let center = transform_point(transform, 140.0, 70.0);
+
+        assert!((center.0 - 152.0).abs() < 0.001);
+        assert!((center.1 - 62.0).abs() < 0.001);
+    }
 
     impl Renderer for NullRenderer {
         fn render_scene(&mut self, _scene: &RenderScene) -> anyhow::Result<()> {
