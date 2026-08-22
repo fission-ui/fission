@@ -489,6 +489,7 @@ class CanvasKitToolTests(unittest.TestCase):
                     )
                     with contextlib.redirect_stdout(io.StringIO()):
                         canvaskit.build_canvaskit(args, self.config)
+                        canvaskit.build_canvaskit(args, self.config)
                     receipt = canvaskit.validate_build_receipt(
                         json.loads(
                             (build / canvaskit.BUILD_METADATA).read_text(encoding="utf-8")
@@ -501,6 +502,12 @@ class CanvasKitToolTests(unittest.TestCase):
                         canvaskit.EMSDK_REVISION,
                     )
                     self.assertEqual(receipt["plan"]["recipe"]["profile"], profile)
+                    self.assertIs(
+                        receipt["plan"]["recipe"]["gn_args"][
+                            "skia_enable_fontmgr_custom_embedded"
+                        ],
+                        True,
+                    )
                     expected_webgl = profile == canvaskit.PRODUCTION_PROFILE
                     self.assertIs(
                         receipt["plan"]["recipe"]["gn_args"]["skia_use_webgl"],

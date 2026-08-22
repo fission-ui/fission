@@ -112,7 +112,7 @@ COMMON_GN_ARGS: dict[str, Any] = {
     "skia_canvaskit_legacy_draw_vertices_blend_mode": False,
     "skia_canvaskit_profile_build": False,
     "skia_enable_fontmgr_custom_directory": False,
-    "skia_enable_fontmgr_custom_embedded": False,
+    "skia_enable_fontmgr_custom_embedded": True,
     "skia_enable_fontmgr_custom_empty": True,
     "skia_enable_ganesh": False,
     "skia_enable_graphite": False,
@@ -573,7 +573,7 @@ def build_canvaskit(args: argparse.Namespace, config: dict[str, Any]) -> None:
     emsdk = emsdk_identity(emsdk_dir)
     paths, identities = tool_identities(source_dir, emsdk_dir, args)
     plan = build_plan(config, source, emsdk, args.toolchain_id, identities, args.profile)
-    foundation.assert_empty_output(build_dir)
+    foundation.check_reusable_build_dir(build_dir, plan, BUILD_PLAN)
     foundation.write_json(build_dir / BUILD_PLAN, plan)
 
     rendered = profile_gn_args(args.profile)

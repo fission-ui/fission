@@ -693,16 +693,20 @@ def validate_build_recipe(
     return recipe
 
 
-def check_reusable_build_dir(build_dir: Path, plan: Mapping[str, Any]) -> None:
+def check_reusable_build_dir(
+    build_dir: Path,
+    plan: Mapping[str, Any],
+    plan_name: str = BUILD_PLAN,
+) -> None:
     if not build_dir.exists():
         build_dir.mkdir(parents=True)
         return
     if not build_dir.is_dir():
         raise SkiaToolError(f"build output is not a directory: {build_dir}")
-    existing_plan = build_dir / BUILD_PLAN
+    existing_plan = build_dir / plan_name
     if any(build_dir.iterdir()) and not existing_plan.is_file():
         raise SkiaToolError(
-            f"refusing to reuse non-empty build directory without {BUILD_PLAN}: {build_dir}"
+            f"refusing to reuse non-empty build directory without {plan_name}: {build_dir}"
         )
     if existing_plan.is_file() and load_json(existing_plan) != plan:
         raise SkiaToolError(
