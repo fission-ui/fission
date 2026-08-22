@@ -1056,7 +1056,11 @@ impl Runtime {
     pub fn post_layout_hook(&mut self, ir: &CoreIR, layout: &LayoutSnapshot) -> bool {
         let mut needs_follow_up_frame = self.apply_pending_scroll_into_view(ir, layout);
         self.runtime_state.viewport.reconcile(ir);
-        needs_follow_up_frame |= self.runtime_state.viewport.advance_inertia(ir, layout);
+        let current_time = self.clock().current_time();
+        needs_follow_up_frame |=
+            self.runtime_state
+                .viewport
+                .advance_inertia(ir, layout, current_time);
         let active_scroll_nodes: HashSet<WidgetId> = ir
             .nodes
             .iter()
@@ -1343,12 +1347,14 @@ impl Runtime {
         }
 
         let (viewport_handled, viewport_actions) = {
+            let current_time = self.clock().current_time();
             let mut ctx = crate::input::viewport::ViewportControllerContext {
                 ir,
                 layout,
                 scroll: &self.runtime_state.scroll,
                 viewport: &mut self.runtime_state.viewport,
                 gesture: &mut self.runtime_state.gesture,
+                current_time,
                 dispatched_actions: Vec::new(),
             };
             let mut controller = crate::input::viewport::ViewportController;

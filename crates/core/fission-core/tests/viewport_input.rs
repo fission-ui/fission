@@ -276,3 +276,46 @@ fn controlled_transform_remains_the_authority_on_every_rebuild() {
         Some(declared)
     );
 }
+
+#[test]
+fn inertia_uses_the_runtime_clock() {
+    let (mut ir, layout, viewer) = viewport_tree(false);
+    let Op::Layout(LayoutOp::InteractiveViewport { friction, .. }) =
+        &mut ir.nodes.get_mut(&viewer).expect("viewer node").op
+    else {
+        panic!("expected interactive viewport");
+    };
+    *friction = 0.0000135;
+
+    let mut runtime = runtime(&ir, &layout);
+    runtime
+        .handle_input(
+            pointer(0, PointerKind::Mouse, (10.0, 10.0), down),
+            &ir,
+            &layout,
+        )
+        .unwrap();
+    runtime.tick(16).unwrap();
+    runtime
+        .handle_input(
+            pointer(0, PointerKind::Mouse, (30.0, 10.0), moved),
+            &ir,
+            &layout,
+        )
+        .unwrap();
+    runtime
+        .handle_input(
+            pointer(0, PointerKind::Mouse, (30.0, 10.0), up),
+            &ir,
+            &layout,
+        )
+        .unwrap();
+    let before = runtime.runtime_state.viewport.transform(viewer).unwrap();
+
+    runtime.tick(16).unwrap();
+    assert!(runtime.post_layout_hook(&ir, &layout));
+    let after = runtime.runtime_state.viewport.transform(viewer).unwrap();
+
+    assert!(after.translation[0] > before.translation[0]);
+    assert_eq!(after.translation[1], before.translation[1]);
+}

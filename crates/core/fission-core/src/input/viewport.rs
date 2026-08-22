@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::time::Instant;
 
 use fission_ir::{
     ActionEntry, CoreIR, LayoutOp, Op, ViewportBoundary, ViewportPanAxis, ViewportTransform,
@@ -11,7 +10,7 @@ use super::scoped_action_input;
 use crate::event::{
     InputEvent, PointerButton, PointerEvent, PointerId, PointerKind, PointerPhase, ScrollDeltaMode,
 };
-use crate::{ActionEnvelope, ActionId, ActionInput};
+use crate::{ActionEnvelope, ActionId, ActionInput, CurrentTime};
 
 const PAN_THRESHOLD_SQUARED: f32 = 25.0;
 const LINE_DELTA_POINTS: f32 = 16.0;
@@ -61,8 +60,8 @@ pub struct ViewportRuntimeState {
     last_distance: Option<f32>,
     interacting: bool,
     velocity: LayoutPoint,
-    last_motion_at: Option<Instant>,
-    inertia_tick: Option<Instant>,
+    last_motion_at: Option<CurrentTime>,
+    inertia_tick: Option<CurrentTime>,
 }
 
 impl ViewportRuntimeState {
@@ -136,8 +135,12 @@ impl ViewportStateMap {
         self.captures.retain(|_, id| active.contains(id));
     }
 
-    pub fn advance_inertia(&mut self, ir: &CoreIR, layout: &LayoutSnapshot) -> bool {
-        let now = Instant::now();
+    pub fn advance_inertia(
+        &mut self,
+        ir: &CoreIR,
+        layout: &LayoutSnapshot,
+        now: CurrentTime,
+    ) -> bool {
         let mut active = false;
         for (id, state) in &mut self.states {
             let Some(last_tick) = state.inertia_tick else {
@@ -151,7 +154,7 @@ impl ViewportStateMap {
                 state.inertia_tick = None;
                 continue;
             }
-            let elapsed = now.duration_since(last_tick).as_secs_f32().min(0.05);
+            let elapsed = (now.saturating_sub(last_tick) as f32 / 1_000.0).min(0.05);
             state.inertia_tick = Some(now);
             let decay = (-config.friction * elapsed * 1_000_000.0).exp();
             state.velocity.x *= decay;
@@ -186,6 +189,7 @@ pub struct ViewportControllerContext<'a> {
     pub scroll: &'a crate::ScrollStateMap,
     pub viewport: &'a mut ViewportStateMap,
     pub gesture: &'a mut crate::env::GestureState,
+    pub current_time: CurrentTime,
     pub dispatched_actions: Vec<(WidgetId, ActionEnvelope, ActionInput)>,
 }
 
@@ -264,7 +268,7 @@ impl ViewportController {
         };
         state.inertia_tick = None;
         state.velocity = LayoutPoint::ZERO;
-        state.last_motion_at = Some(Instant::now());
+        state.last_motion_at = Some(ctx.current_time);
         state.contacts.insert(
             pointer_id,
             Contact {
@@ -376,9 +380,9 @@ impl ViewportController {
             clamp_boundary(transform, config.boundary, viewer_rect(ctx.layout, target));
         state.last_centroid = Some(centroid);
         state.last_distance = distance;
-        let now = Instant::now();
+        let now = ctx.current_time;
         if let Some(previous) = state.last_motion_at {
-            let elapsed = now.duration_since(previous).as_secs_f32();
+            let elapsed = now.saturating_sub(previous) as f32 / 1_000.0;
             if elapsed > 0.0 {
                 state.velocity = LayoutPoint::new(pan.x / elapsed, pan.y / elapsed);
             }
@@ -441,7 +445,7 @@ impl ViewportController {
             state.interacting = false;
             state.last_motion_at = None;
             if !cancelled && friction > 0.0 && state.velocity.x.hypot(state.velocity.y) >= 5.0 {
-                state.inertia_tick = Some(Instant::now());
+                state.inertia_tick = Some(ctx.current_time);
             } else {
                 state.inertia_tick = None;
                 state.velocity = LayoutPoint::ZERO;
