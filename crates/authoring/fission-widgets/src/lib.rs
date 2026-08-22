@@ -43,6 +43,12 @@ pub use fission_core::ui::{
 };
 pub use fission_core::{BuildCtxHandle, Selector, ViewHandle};
 
+#[cfg(feature = "interactive-canvas")]
+pub use fission_core::ui::{
+    InteractiveViewer, ViewportBoundary, ViewportClip, ViewportMargin, ViewportPanAxis,
+    ViewportTransform, ViewportZoomPolicy,
+};
+
 mod motion_support;
 
 pub mod dropdown;
@@ -227,6 +233,15 @@ pub use router::{Route, RouteParams, Router};
 
 pub mod spotlight;
 pub use spotlight::Spotlight;
+
+#[cfg(feature = "interactive-canvas")]
+pub mod infinite_canvas;
+#[cfg(feature = "interactive-canvas")]
+pub use infinite_canvas::{
+    CanvasEdgeEndpoint, CanvasEdgeId, CanvasEdgeRoute, CanvasGrid, CanvasNodeAnchor, CanvasNodeId,
+    CanvasSelectionPolicy, CanvasSnap, InfiniteCanvas, InfiniteCanvasActions, InfiniteCanvasEdge,
+    InfiniteCanvasNode,
+};
 
 use fission_core::{
     internal::{InternalIrBuilder, InternalLowerer, InternalLoweringCx},

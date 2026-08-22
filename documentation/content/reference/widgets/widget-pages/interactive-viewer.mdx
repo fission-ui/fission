@@ -1,0 +1,57 @@
+---
+title: InteractiveViewer
+description: Pan and zoom one retained widget subtree with mouse, touch, stylus, wheel, or trackpad input.
+slug: /widgets/interactive-viewer
+---
+# InteractiveViewer
+
+`InteractiveViewer` gives one retained child a runtime-owned two-dimensional camera. It is the low-level choice for maps, diagrams, image inspection, and other surfaces that need pan and uniform zoom without adopting the node-and-edge model of [`InfiniteCanvas`](/reference/widgets/infinite-canvas).
+
+The widget is available with the `desktop`, `android`, `ios`, `mobile`, and `web` Fission features. It is intentionally absent from Static site, SSR, and Terminal-only builds.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+let viewer: Widget = InteractiveViewer {
+    id: Some(WidgetId::explicit("document-viewport")),
+    child: Image::asset("floor-plan.png").into(),
+    min_scale: 0.25,
+    max_scale: 8.0,
+    pan_axis: ViewportPanAxis::Both,
+    zoom_policy: ViewportZoomPolicy::WheelWithModifier,
+    ..Default::default()
+}
+.into();
+```
+
+With `transform: None`, Fission owns transient pan, pinch, magnification, wheel, and inertial state. Set `transform: Some(...)` when application state is authoritative. `initial_transform` only seeds an uncontrolled viewer.
+
+## Interaction callbacks
+
+The `on_interaction_start`, `on_interaction_update`, and `on_interaction_end` envelopes keep their bound payload. Live camera facts arrive separately through `ctx.input.viewport_interaction()`:
+
+- target `WidgetId` and lifecycle phase;
+- complete `ViewportTransform`;
+- viewport and world focal points;
+- pan delta and multiplicative scale factor;
+- input family and active modifiers.
+
+This lets one reducer bind stable document context without encoding runtime coordinates into its action value.
+
+## Behavior
+
+- A single primary pointer pans after the movement threshold.
+- Two contacts pan and pinch around their centroid. Adding a second contact cancels a pending child tap or drag and captures the nearest viewer.
+- Releasing one of two contacts resets the baseline, avoiding a camera jump.
+- macOS magnification gestures and Web browser pinch gestures zoom around their focal point.
+- Modifier-wheel zoom and unmodified wheel pan follow `zoom_policy` and `pan_axis`.
+- `boundary`, `min_scale`, and `max_scale` are enforced by the shared runtime, independent of renderer.
+- `clip` controls whether transformed content is clipped at the viewport edge.
+
+Interactive descendants win a single-pointer drag. Multi-touch remains reserved for the nearest viewer so pinch gestures are reliable around draggable children.
+
+## Related
+
+[`InfiniteCanvas`](/reference/widgets/infinite-canvas), [`Transform`](/reference/widgets/transform), [`GestureDetector`](/reference/widgets/gesture-detector), and [`Clip`](/reference/widgets/clip).

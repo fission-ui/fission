@@ -17,12 +17,16 @@ readme = "README.md"
 [features]
 default = []
 charts = ["dep:fission-charts"]
-desktop = ["dep:fission-shell-desktop"]
+desktop = ["dep:fission-shell-desktop", "interactive-canvas"]
 desktop-tray = ["desktop", "fission-shell-desktop?/tray"]
 icons-reflection = ["fission-icons/reflection"]
-ios = ["dep:fission-shell-mobile"]
-android = ["dep:fission-shell-mobile"]
-mobile = ["dep:fission-shell-mobile"]
+interactive-canvas = [
+    "fission-core/interactive-canvas",
+    "fission-widgets/interactive-canvas",
+]
+ios = ["dep:fission-shell-mobile", "interactive-canvas"]
+android = ["dep:fission-shell-mobile", "interactive-canvas"]
+mobile = ["dep:fission-shell-mobile", "interactive-canvas"]
 platform-shells = [
     "desktop",
     "mobile",
@@ -47,7 +51,7 @@ video = [
     "fission-shell-mobile?/video",
     "fission-shell-web?/video",
 ]
-web = ["dep:fission-shell-web"]
+web = ["dep:fission-shell-web", "interactive-canvas"]
 
 [dependencies]
 fission-core = { path = "../../core/fission-core", version = "0.11.1" }
