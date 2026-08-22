@@ -1,7 +1,8 @@
 use std::any::Any;
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
+use std::rc::Rc;
 use std::thread::ThreadId;
 
 use fission_layout::ParagraphResultStore;
@@ -9,16 +10,19 @@ use fission_render::backend::{GraphicsBackendSession, ReadbackRequest, SurfaceMe
 use fission_render::capabilities::{ColorFormat, GraphicsCapabilities};
 use fission_render::frame::InteractiveFrame;
 use fission_render::surface::{
-    LossKind, MemoryPressure, PhysicalSize, Recovery, ScaleFactor, SurfaceDescriptor, SurfaceId,
-    SurfaceKind, SurfaceTarget, ThreadAffinity,
+    LossKind, MemoryPressure, PhysicalSize, Recovery, ScaleFactor, SessionState, SurfaceDescriptor,
+    SurfaceId, SurfaceKind, SurfaceTarget, ThreadAffinity,
 };
 use fission_render_skia_web::{
     CanvasKitBackendPreference, CanvasKitFont, CanvasKitHost, CanvasKitParagraphHost,
     CanvasKitPixelRegion, CanvasKitProfile, CanvasKitReadback,
 };
+use fission_test_driver::TestEvent;
 use js_sys::{ArrayBuffer, Function, Object, Reflect, Uint8Array};
+use wasm_bindgen::closure::Closure;
 use wasm_bindgen::{JsCast, JsValue};
 use web_sys::HtmlCanvasElement;
+use winit::event_loop::EventLoopProxy;
 use winit::platform::web::WindowExtWebSys;
 use winit::window::Window;
 
@@ -50,11 +54,16 @@ struct BrowserCanvasKitExecutor {
     destroy_paragraph: Function,
     read_pixels: Function,
     trim_memory: Function,
-    destroy: Option<Function>,
+    destroy: Function,
+    lifecycle_events: BrowserLifecycleEvents,
+    lifecycle_sink: Option<Closure<dyn FnMut(JsValue)>>,
 }
 
 impl BrowserCanvasKitExecutor {
-    fn from_global(canvas: &HtmlCanvasElement) -> Result<Self, BrowserCanvasKitHostError> {
+    fn from_global(
+        canvas: &HtmlCanvasElement,
+        event_proxy: EventLoopProxy<TestEvent>,
+    ) -> Result<Self, BrowserCanvasKitHostError> {
         let global = js_sys::global();
         let factory = Reflect::get(
             &global,
@@ -67,27 +76,71 @@ impl BrowserCanvasKitExecutor {
                 "globalThis.{EXECUTOR_FACTORY_GLOBAL} is not a function; the Web bootstrap must initialize Fission's CanvasKit executor factory before starting application Wasm"
             ))
         })?;
-        let executor = factory
-            .call2(&global, canvas.as_ref(), &JsValue::NULL)
-            .map_err(|error| BrowserCanvasKitHostError::js("create CanvasKit executor", error))?;
+        let lifecycle_events = BrowserLifecycleEvents::default();
+        let lifecycle_sink_events = lifecycle_events.clone();
+        let lifecycle_sink = Closure::<dyn FnMut(JsValue)>::new(move |event| {
+            let (lifecycle, packet) = match copied_lifecycle_event(event) {
+                Ok((lifecycle, packet)) => (Some(lifecycle), Ok(packet)),
+                Err(error) => (None, Err(error)),
+            };
+            let should_wake = lifecycle != Some(BrowserCanvasLifecycle::ContextLost);
+            if lifecycle_sink_events.push(lifecycle, packet) && should_wake {
+                let _ = event_proxy.send_event(TestEvent::Wake);
+            }
+        });
+        let executor = match factory.call2(&global, canvas.as_ref(), lifecycle_sink.as_ref()) {
+            Ok(executor) => executor,
+            Err(error) => {
+                lifecycle_events.close();
+                lifecycle_sink.forget();
+                return Err(BrowserCanvasKitHostError::js(
+                    "create CanvasKit executor",
+                    error,
+                ));
+            }
+        };
         if executor.is_null() || executor.is_undefined() {
+            lifecycle_events.close();
+            lifecycle_sink.forget();
             return Err(BrowserCanvasKitHostError(
                 "CanvasKit executor factory returned no executor".to_string(),
             ));
         }
-        let submit = Reflect::get(&executor, &JsValue::from_str("submit"))
-            .map_err(|error| BrowserCanvasKitHostError::js("read CanvasKit submit", error))?
-            .dyn_into::<Function>()
-            .map_err(|_| {
-                BrowserCanvasKitHostError("CanvasKit executor.submit is not a function".to_string())
-            })?;
-        let destroy = Reflect::get(&executor, &JsValue::from_str("destroy"))
-            .ok()
-            .and_then(|value| value.dyn_into::<Function>().ok());
-        let layout_paragraph = required_method(&executor, "layoutParagraph")?;
-        let destroy_paragraph = required_method(&executor, "destroyParagraph")?;
-        let read_pixels = required_method(&executor, "readPixels")?;
-        let trim_memory = required_method(&executor, "trimMemory")?;
+        let destroy = match required_method(&executor, "destroy") {
+            Ok(destroy) => destroy,
+            Err(error) => {
+                // Without the factory's teardown hook, JavaScript may still
+                // own context listeners that reference this callback. Leak a
+                // closed no-op callback rather than leave a dangling Wasm
+                // function behind a malformed executor implementation.
+                lifecycle_events.close();
+                lifecycle_sink.forget();
+                return Err(error);
+            }
+        };
+        let methods: Result<
+            (Function, Function, Function, Function, Function),
+            BrowserCanvasKitHostError,
+        > = (|| {
+            Ok((
+                required_method(&executor, "submit")?,
+                required_method(&executor, "layoutParagraph")?,
+                required_method(&executor, "destroyParagraph")?,
+                required_method(&executor, "readPixels")?,
+                required_method(&executor, "trimMemory")?,
+            ))
+        })();
+        let (submit, layout_paragraph, destroy_paragraph, read_pixels, trim_memory) = match methods
+        {
+            Ok(methods) => methods,
+            Err(error) => {
+                lifecycle_events.close();
+                if destroy.call0(&executor).is_err() {
+                    lifecycle_sink.forget();
+                }
+                return Err(error);
+            }
+        };
         Ok(Self {
             executor,
             submit,
@@ -96,15 +149,88 @@ impl BrowserCanvasKitExecutor {
             read_pixels,
             trim_memory,
             destroy,
+            lifecycle_events,
+            lifecycle_sink: Some(lifecycle_sink),
         })
     }
 }
 
 impl Drop for BrowserCanvasKitExecutor {
     fn drop(&mut self) {
-        if let Some(destroy) = &self.destroy {
-            let _ = destroy.call0(&self.executor);
+        // Stop accepting callbacks before removing the JavaScript listeners.
+        // The Closure remains alive until after `destroy` returns, so even a
+        // re-entrant browser event cannot target a retired Rust presenter.
+        self.lifecycle_events.close();
+        if self.destroy.call0(&self.executor).is_err() {
+            // Listener removal is unproven after a throwing teardown. Keep the
+            // now-closed callback callable rather than let JavaScript invoke a
+            // dropped wasm-bindgen Closure.
+            if let Some(lifecycle_sink) = self.lifecycle_sink.take() {
+                lifecycle_sink.forget();
+            }
         }
+    }
+}
+
+type BrowserLifecycleEvent = Result<Vec<u8>, BrowserCanvasKitHostError>;
+
+#[derive(Clone, Default)]
+struct BrowserLifecycleEvents(Rc<RefCell<BrowserLifecycleEventState>>);
+
+#[derive(Default)]
+struct BrowserLifecycleEventState {
+    accepting: bool,
+    pending: VecDeque<BrowserLifecycleEvent>,
+    lifecycle: BrowserCanvasLifecycle,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum BrowserCanvasLifecycle {
+    #[default]
+    Ready,
+    ContextLost,
+    ContextRestored,
+    ContextRestoreFailed,
+}
+
+impl BrowserLifecycleEvents {
+    fn open(&self) {
+        self.0.borrow_mut().accepting = true;
+    }
+
+    fn push(
+        &self,
+        lifecycle: Option<BrowserCanvasLifecycle>,
+        event: BrowserLifecycleEvent,
+    ) -> bool {
+        let mut state = self.0.borrow_mut();
+        if !state.accepting {
+            return false;
+        }
+        if let Some(lifecycle) = lifecycle {
+            state.lifecycle = lifecycle;
+        }
+        state.pending.push_back(event);
+        true
+    }
+
+    fn pop(&self) -> Result<Option<Vec<u8>>, BrowserCanvasKitHostError> {
+        self.0.borrow_mut().pending.pop_front().transpose()
+    }
+
+    fn close(&self) {
+        let mut state = self.0.borrow_mut();
+        state.accepting = false;
+        state.pending.clear();
+        state.lifecycle = BrowserCanvasLifecycle::Ready;
+    }
+
+    fn lifecycle(&self) -> BrowserCanvasLifecycle {
+        self.0.borrow().lifecycle
+    }
+
+    fn mark_ready(&self) {
+        self.0.borrow_mut().lifecycle = BrowserCanvasLifecycle::Ready;
     }
 }
 
@@ -119,8 +245,13 @@ struct BrowserCanvasKitHost {
 }
 
 impl BrowserCanvasKitHost {
-    fn from_global(canvas: &HtmlCanvasElement) -> Result<Self, BrowserCanvasKitHostError> {
-        let executor = BrowserCanvasKitExecutor::from_global(canvas)?;
+    fn from_global(
+        canvas: &HtmlCanvasElement,
+        event_proxy: EventLoopProxy<TestEvent>,
+    ) -> Result<(Self, BrowserLifecycleEvents), BrowserCanvasKitHostError> {
+        let executor = BrowserCanvasKitExecutor::from_global(canvas, event_proxy)?;
+        let lifecycle_events = executor.lifecycle_events.clone();
+        lifecycle_events.open();
         let key = CANVASKIT_EXECUTORS.with(|registry| {
             let mut registry = registry.borrow_mut();
             let next = registry.next_key.checked_add(1).ok_or_else(|| {
@@ -133,10 +264,13 @@ impl BrowserCanvasKitHost {
             registry.executors.insert(key, executor);
             Ok(key)
         })?;
-        Ok(Self {
-            key,
-            owner: std::thread::current().id(),
-        })
+        Ok((
+            Self {
+                key,
+                owner: std::thread::current().id(),
+            },
+            lifecycle_events,
+        ))
     }
 
     fn with_executor<T>(
@@ -244,6 +378,12 @@ impl CanvasKitHost for BrowserCanvasKitHost {
             Ok(true)
         })
     }
+
+    fn poll_lifecycle_event(&mut self) -> Result<Option<Vec<u8>>, Self::Error> {
+        self.with_executor("poll CanvasKit lifecycle events", |host| {
+            host.lifecycle_events.pop()
+        })
+    }
 }
 
 impl CanvasKitParagraphHost for BrowserCanvasKitHost {
@@ -307,6 +447,36 @@ fn copied_packet(value: JsValue, operation: &str) -> Result<Vec<u8>, BrowserCanv
     Err(BrowserCanvasKitHostError(format!(
         "{operation} must synchronously return Uint8Array or ArrayBuffer"
     )))
+}
+
+fn copied_lifecycle_event(
+    event: JsValue,
+) -> Result<(BrowserCanvasLifecycle, Vec<u8>), BrowserCanvasKitHostError> {
+    let event_type = Reflect::get(&event, &JsValue::from_str("type"))
+        .map_err(|error| {
+            BrowserCanvasKitHostError::js("read CanvasKit lifecycle event type", error)
+        })?
+        .as_string()
+        .ok_or_else(|| {
+            BrowserCanvasKitHostError("CanvasKit lifecycle event type must be a string".into())
+        })?;
+    let lifecycle = match event_type.as_str() {
+        "context-lost" => BrowserCanvasLifecycle::ContextLost,
+        "context-restored" => BrowserCanvasLifecycle::ContextRestored,
+        "context-restore-failed" => BrowserCanvasLifecycle::ContextRestoreFailed,
+        _ => {
+            return Err(BrowserCanvasKitHostError(format!(
+                "unknown CanvasKit lifecycle event type {event_type:?}"
+            )))
+        }
+    };
+    let packet = Reflect::get(&event, &JsValue::from_str("packet")).map_err(|error| {
+        BrowserCanvasKitHostError::js("read CanvasKit lifecycle event packet", error)
+    })?;
+    Ok((
+        lifecycle,
+        copied_packet(packet, "CanvasKit lifecycle event packet")?,
+    ))
 }
 
 #[derive(Debug)]
@@ -382,6 +552,7 @@ pub(super) struct WebCanvasKitPresenter {
     paragraph_store: Arc<ParagraphResultStore>,
     session: GraphicsBackendSession<'static>,
     target: WebCanvasTarget,
+    lifecycle_events: BrowserLifecycleEvents,
     pub(super) report: RendererReport,
 }
 
@@ -395,12 +566,14 @@ pub(super) enum CanvasKitCapture {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum CanvasKitFrameOutcome {
     Presented(CanvasKitCapture),
+    SurfaceRecoveryPending,
     SurfaceRecovered(Recovery),
 }
 
 impl WebCanvasKitPresenter {
     pub(super) fn new(
         window: &Window,
+        event_proxy: EventLoopProxy<TestEvent>,
         request: RendererRequest,
         fallback_reason: Option<String>,
         width: u32,
@@ -411,7 +584,8 @@ impl WebCanvasKitPresenter {
         let canvas = window
             .canvas()
             .ok_or_else(|| anyhow::anyhow!("winit web window did not expose a canvas"))?;
-        let host = BrowserCanvasKitHost::from_global(&canvas).map_err(anyhow::Error::new)?;
+        let (host, lifecycle_events) =
+            BrowserCanvasKitHost::from_global(&canvas, event_proxy).map_err(anyhow::Error::new)?;
         let profile = CanvasKitProfile::new(
             host,
             crate::app::DEFAULT_FONT_FAMILY,
@@ -460,6 +634,7 @@ impl WebCanvasKitPresenter {
             paragraph_store,
             session,
             target,
+            lifecycle_events,
             report: RendererReport::new(
                 active,
                 request,
@@ -486,7 +661,26 @@ impl WebCanvasKitPresenter {
         width: u32,
         height: u32,
         scale_factor: f64,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<Option<CanvasKitFrameOutcome>> {
+        match self.lifecycle_events.lifecycle() {
+            BrowserCanvasLifecycle::ContextLost => {
+                return Ok(Some(CanvasKitFrameOutcome::SurfaceRecoveryPending));
+            }
+            BrowserCanvasLifecycle::ContextRestored
+            | BrowserCanvasLifecycle::ContextRestoreFailed => {
+                let recovery = self.session.recover(LossKind::Surface).map_err(|error| {
+                    anyhow::anyhow!("CanvasKit surface recovery failed: {error}")
+                })?;
+                if recovery == Recovery::Unrecoverable {
+                    return Err(anyhow::anyhow!(
+                        "CanvasKit browser context restoration was unrecoverable"
+                    ));
+                }
+                self.lifecycle_events.mark_ready();
+                return Ok(Some(CanvasKitFrameOutcome::SurfaceRecovered(recovery)));
+            }
+            BrowserCanvasLifecycle::Ready => {}
+        }
         if self.target.update(width, height, scale_factor)? {
             self.session
                 .resize(self.target.metrics())
@@ -495,7 +689,7 @@ impl WebCanvasKitPresenter {
         self.report.width = width.max(1);
         self.report.height = height.max(1);
         self.report.scale_factor = scale_factor;
-        Ok(())
+        Ok(None)
     }
 
     pub(super) fn render_and_present(
@@ -503,6 +697,9 @@ impl WebCanvasKitPresenter {
         frame: &InteractiveFrame<'_>,
         capture_requested: bool,
     ) -> anyhow::Result<CanvasKitFrameOutcome> {
+        if self.lifecycle_events.lifecycle() == BrowserCanvasLifecycle::ContextLost {
+            return Ok(CanvasKitFrameOutcome::SurfaceRecoveryPending);
+        }
         if let Err(error) = self.session.render(frame) {
             return self.recover_surface_or_error("render", error);
         }
@@ -552,7 +749,12 @@ impl WebCanvasKitPresenter {
         operation: &str,
         error: fission_render::backend::BackendError,
     ) -> anyhow::Result<CanvasKitFrameOutcome> {
-        if error.code != "canvaskit-host-surface-lost" {
+        // An asynchronous context-loss event is drained before the next
+        // operation. The driver transitions to Lost and that operation then
+        // reports its ordinary invalid-state error, while a synchronous loss
+        // reports canvaskit-host-surface-lost directly. Session state is the
+        // shared authority for both paths.
+        if !session_requires_surface_recovery(self.session.state()) {
             return Err(anyhow::anyhow!("CanvasKit {operation} failed: {error}"));
         }
         let recovery = self
@@ -568,10 +770,52 @@ impl WebCanvasKitPresenter {
                 "CanvasKit {operation} lost its surface and it was unrecoverable: {error}"
             ));
         }
+        self.lifecycle_events.mark_ready();
         Ok(CanvasKitFrameOutcome::SurfaceRecovered(recovery))
     }
 }
 
 fn checked_scale_factor(value: f64) -> anyhow::Result<ScaleFactor> {
     ScaleFactor::new(value).map_err(|error| anyhow::anyhow!(error.to_string()))
+}
+
+fn session_requires_surface_recovery(state: SessionState) -> bool {
+    state == SessionState::Lost
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lifecycle_events_are_owned_ordered_and_closed_with_the_executor() {
+        let events = BrowserLifecycleEvents::default();
+        events.open();
+        assert!(events.push(Some(BrowserCanvasLifecycle::ContextLost), Ok(vec![1, 2, 3])));
+        assert_eq!(events.lifecycle(), BrowserCanvasLifecycle::ContextLost);
+        assert!(events.push(
+            Some(BrowserCanvasLifecycle::ContextRestored),
+            Err(BrowserCanvasKitHostError("injected event failure".into())),
+        ));
+        assert_eq!(events.lifecycle(), BrowserCanvasLifecycle::ContextRestored);
+
+        assert_eq!(events.pop().unwrap(), Some(vec![1, 2, 3]));
+        assert_eq!(
+            events.pop().unwrap_err().to_string(),
+            "injected event failure"
+        );
+
+        events.close();
+        assert!(!events.push(None, Ok(vec![4, 5, 6])));
+        assert_eq!(events.pop().unwrap(), None);
+        assert_eq!(events.lifecycle(), BrowserCanvasLifecycle::Ready);
+    }
+
+    #[test]
+    fn only_a_lost_session_enters_canvas_surface_recovery() {
+        assert!(session_requires_surface_recovery(SessionState::Lost));
+        assert!(!session_requires_surface_recovery(SessionState::Attached));
+        assert!(!session_requires_surface_recovery(SessionState::Suspended));
+        assert!(!session_requires_surface_recovery(SessionState::Detached));
+    }
 }

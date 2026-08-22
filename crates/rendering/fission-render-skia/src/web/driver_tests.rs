@@ -609,6 +609,39 @@ fn queued_context_loss_and_restoration_reconcile_response_sequence() {
 }
 
 #[test]
+fn render_after_queued_context_events_exposes_lost_state_then_retries() {
+    let control = MockControl::default();
+    let driver = CanvasKitDriver::new(control.host(), CanvasKitBackendPreference::WebGl);
+    let mut session = GraphicsBackendSession::new(driver).unwrap();
+    let target = TestTarget::new(PhysicalSize::new(64, 32), 1.0);
+    session.attach(&target).unwrap();
+
+    control.context_lost();
+    control.context_restored();
+    let fixture = FrameFixture::new(
+        1,
+        1,
+        target.descriptor.size,
+        1.0,
+        DamageRegion::Full,
+        ResourceSnapshot::empty(ResourceEpoch(1)),
+    );
+
+    let error = session.render(&fixture.frame()).unwrap_err();
+    assert_eq!(error.code, "canvaskit-invalid-session-state");
+    assert_eq!(session.state(), SessionState::Lost);
+    assert_eq!(
+        session.recover(LossKind::Surface).unwrap(),
+        Recovery::Reattached
+    );
+    assert_eq!(control.requests().len(), 1);
+
+    session.render(&fixture.frame()).unwrap();
+    session.present().unwrap();
+    assert_eq!(session.state(), SessionState::Attached);
+}
+
+#[test]
 fn failed_initial_surface_can_reinitialize_from_retained_target_metrics() {
     let control = MockControl::default();
     control.reply(Reply::Error(

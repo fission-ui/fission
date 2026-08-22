@@ -757,37 +757,56 @@ where
                                 .pipeline
                                 .retained_scene()
                                 .expect("retained render scene missing before CanvasKit render");
-                            if let Err(error) = presenter.sync_surface_metrics(
+                            let surface_outcome = match presenter.sync_surface_metrics(
                                 render_target_size.0,
                                 render_target_size.1,
                                 scale_factor,
                             ) {
-                                eprintln!("fission-shell-winit: {error}");
-                                diag::end_frame(diag::FrameStats::default());
-                                return;
-                            }
-                            let host_frame = submission
-                                .has_external_surfaces()
-                                .then(|| submission.host_composited_frame(retained_scene));
-                            let frame = host_frame.as_ref().map_or_else(
-                                || submission.interactive_frame(retained_scene),
-                                |frame| frame.interactive_frame(),
+                                Ok(outcome) => outcome,
+                                Err(error) => {
+                                    eprintln!("fission-shell-winit: {error}");
+                                    diag::end_frame(diag::FrameStats::default());
+                                    return;
+                                }
+                            };
+                            let outcome = surface_outcome.map_or_else(
+                                || {
+                                    let host_frame = submission
+                                        .has_external_surfaces()
+                                        .then(|| submission.host_composited_frame(retained_scene));
+                                    let frame = host_frame.as_ref().map_or_else(
+                                        || submission.interactive_frame(retained_scene),
+                                        |frame| frame.interactive_frame(),
+                                    );
+                                    let frame = frame.with_clear_color(fission_render::Color {
+                                        r: self.env.theme.tokens.colors.background.r,
+                                        g: self.env.theme.tokens.colors.background.g,
+                                        b: self.env.theme.tokens.colors.background.b,
+                                        a: self.env.theme.tokens.colors.background.a,
+                                    });
+                                    let capture_ready =
+                                        !self.pending_capture_settle || resize_settled;
+                                    let capture_requested = capture_ready
+                                        && self
+                                            .pending_screenshot_path
+                                            .as_deref()
+                                            .is_some_and(|path| path != "__pump__");
+                                    presenter.render_and_present(&frame, capture_requested)
+                                },
+                                Ok,
                             );
-                            let frame = frame.with_clear_color(fission_render::Color {
-                                r: self.env.theme.tokens.colors.background.r,
-                                g: self.env.theme.tokens.colors.background.g,
-                                b: self.env.theme.tokens.colors.background.b,
-                                a: self.env.theme.tokens.colors.background.a,
-                            });
-                            let capture_ready = !self.pending_capture_settle || resize_settled;
-                            let capture_requested = capture_ready
-                                && self
-                                    .pending_screenshot_path
-                                    .as_deref()
-                                    .is_some_and(|path| path != "__pump__");
-                            match presenter.render_and_present(&frame, capture_requested) {
+                            match outcome {
                                 Ok(CanvasKitFrameOutcome::Presented(capture)) => {
                                     canvaskit_capture = Some(capture);
+                                }
+                                Ok(CanvasKitFrameOutcome::SurfaceRecoveryPending) => {
+                                    // WebGL restoration is browser-driven. The
+                                    // CanvasKit lifecycle callback wakes this
+                                    // event loop once restoration succeeds or
+                                    // fails, so do not spin or reinitialize a
+                                    // canvas whose context is still lost.
+                                    diag::end_frame(diag::FrameStats::default());
+                                    return;
                                 }
                                 Ok(CanvasKitFrameOutcome::SurfaceRecovered(recovery)) => {
                                     eprintln!(
@@ -1707,6 +1726,7 @@ where
     ) -> anyhow::Result<()> {
         let presenter = WebCanvasKitPresenter::new(
             window,
+            self.event_proxy.clone(),
             request,
             Some(fallback_reason),
             render_target_size.0,
