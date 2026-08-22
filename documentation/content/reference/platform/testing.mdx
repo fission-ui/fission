@@ -41,18 +41,30 @@ This is a tooling advantage, not a statement that desktop is the only serious ta
 
 ## Web
 
-The browser target is real and runnable today, with checked-in smoke coverage and generated browser host output. The current difference is the testing API, not the target's legitimacy.
+The browser target supports checked-in smoke coverage, generated browser host output, and first-party Chromium live control. `fission test --target web` builds the application with a test-only bridge, launches an isolated Chromium session, pumps the running Fission shell, and queries its semantic tree.
 
-Today the browser wrapper does not expose a public live-control endpoint equivalent to the desktop and mobile shells. That means browser automation is not yet using the same first-party `LiveTestClient` path.
+Application-specific browser tests can use the same `LiveTestClient` methods and semantic selectors as native tests:
 
-What you can still test reliably on browser targets today is substantial:
+```rust
+use fission_test_driver::{BrowserTestOptions, LiveTestClient, SelectorQuery};
+
+let client = LiveTestClient::launch_browser(
+    BrowserTestOptions::new("http://127.0.0.1:8123/platforms/web/")
+        .fission_canvas(),
+)?;
+client.tap_selector(SelectorQuery::test_id("settings.save"))?;
+client.assert_text_visible("Saved")?;
+```
+
+The application must be served before `launch_browser` is called and must have been built by `fission test --target web`, or with `FISSION_WEB_TEST_CONTROL=1` set for the WASM build. Ordinary Web builds do not expose the bridge.
+
+Browser tests cover:
 
 - shared app behavior through headless deterministic tests
-- browser build and serve paths through the checked-in and generated launcher scripts
-- real browser presentation, layout, and interaction checks in the actual browser host
-- browser-specific validation for viewport sizing, packaging, rendering, and integration details that only the browser can prove
+- semantic selectors, visible text, the semantic tree, Fission input, resize, pump, waits, and deterministic time through `LiveTestClient`
+- browser build, serving, canvas presentation, renderer readiness, console errors, and page screenshots through Chromium
 
-So the practical browser strategy is not "wait until browser tooling catches up." It is "prove shared behavior headlessly, then validate browser-specific behavior in the real browser host." The missing live-control hook is a testing-tooling gap, not evidence that browser apps are not production-capable.
+The initial implementation deliberately uses Chromium and Fission's deterministic `TestEvent` input path. Firefox, WebKit, trusted browser input, browser clipboard permissions, browser `File` objects, and the browser accessibility tree are deferred. Web screenshots capture the composited browser page rather than renderer texture readback.
 
 ## Android
 
@@ -93,8 +105,6 @@ Start with headless tests for shared behavior.
 Add live-driver tests where the current shell exposes that API and the interaction really needs a running host.
 
 Use Web, Android, iOS, Terminal, Static site, and SSR host paths to validate the target-specific behavior only those hosts can prove.
-
-That approach keeps the browser target in the same serious testing story as every other target while still being honest about the current difference in first-party live-control tooling.
 
 ## Related reference pages
 

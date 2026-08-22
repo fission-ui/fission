@@ -214,9 +214,14 @@ fn test_ime_commit_replaces_preedit_range_and_dispatches_change() {
     assert_eq!(state.caret, "hello 世界".len());
     assert_eq!(state.anchor, "hello 世界".len());
     assert_eq!(ctx.dispatched_actions.len(), 1);
-    let (_, change, _) = &ctx.dispatched_actions[0];
-    let changed_text: String = serde_json::from_slice(&change.payload).unwrap();
-    assert_eq!(changed_text, "hello 世界");
+    let (target, envelope, input) = &ctx.dispatched_actions[0];
+    assert_eq!(*target, node_id);
+    assert_eq!(envelope.payload, b"null");
+    let change = input.text_change().expect("text change input");
+    assert_eq!(change.node_id, node_id);
+    assert_eq!(change.new_text, "hello 世界");
+    assert_eq!(change.new_caret, "hello 世界".len());
+    assert_eq!(change.new_anchor, "hello 世界".len());
 }
 
 #[test]

@@ -1,6 +1,6 @@
 [package]
 name = "fission-render-skia"
-version = "0.10.1"
+version = "0.11.1"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/fission-ui/fission"
@@ -21,9 +21,9 @@ skia-build-from-source = ["fission-skia-sys/skia-build-from-source"]
 test-shim = ["fission-skia-sys/test-shim"]
 
 [dependencies]
-fission-ir = { path = "../../core/fission-ir", version = "0.10.1" }
-fission-layout = { path = "../../core/fission-layout", version = "0.10.1" }
-fission-render = { path = "../fission-render", version = "0.10.1" }
-fission-skia-sys = { path = "../fission-skia-sys", version = "0.10.1", default-features = false }
+fission-ir = { path = "../../core/fission-ir", version = "0.11.1" }
+fission-layout = { path = "../../core/fission-layout", version = "0.11.1" }
+fission-render = { path = "../fission-render", version = "0.11.1" }
+fission-skia-sys = { path = "../fission-skia-sys", version = "0.11.1", default-features = false }
 kurbo = "0.12"
 raw-window-handle = "0.6"

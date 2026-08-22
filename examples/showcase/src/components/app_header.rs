@@ -30,11 +30,7 @@ impl From<ExpandedHeader> for Widget {
     fn from(_component: ExpandedHeader) -> Self {
         let (ctx, view) = fission::build::current::<ShowcaseState>();
         let tokens = &view.env().theme.tokens;
-        let search = with_reducer!(
-            ctx,
-            SearchChanged(view.state().search.clone()),
-            on_search_changed
-        );
+        let search = with_reducer!(ctx, SearchChanged, on_search_changed);
         let open_github = with_reducer!(
             ctx,
             OpenSource("https://github.com/fission-ui/fission".into()),
@@ -55,7 +51,7 @@ impl From<ExpandedHeader> for Widget {
                     semantics_identifier: Some("showcase.search".into()),
                     value: view.state().search.clone(),
                     placeholder: Some(TextContent::Key("showcase.nav.search".into())),
-                    on_change: Some(search),
+                    on_input: Some(search),
                     width: Some(tokens.spacing.xxxxl * 2.6),
                     ..Default::default()
                 },
@@ -91,11 +87,7 @@ impl From<CompactHeader> for Widget {
     fn from(_component: CompactHeader) -> Self {
         let (ctx, view) = fission::build::current::<ShowcaseState>();
         let tokens = &view.env().theme.tokens;
-        let search = with_reducer!(
-            ctx,
-            SearchChanged(view.state().search.clone()),
-            on_search_changed
-        );
+        let search = with_reducer!(ctx, SearchChanged, on_search_changed);
         Container::new(Column {
             children: widgets![
                 Row {
@@ -115,7 +107,7 @@ impl From<CompactHeader> for Widget {
                     semantics_identifier: Some("showcase.search".into()),
                     value: view.state().search.clone(),
                     placeholder: Some(TextContent::Key("showcase.nav.search".into())),
-                    on_change: Some(search),
+                    on_input: Some(search),
                     ..Default::default()
                 },
             ],

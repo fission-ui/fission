@@ -48,6 +48,18 @@ fn missing_webgpu_action(request: RendererRequest) -> MissingWebGpuAction {
 }
 
 #[cfg(any(target_arch = "wasm32", test))]
+fn webgpu_initialization_failure_action(
+    request: RendererRequest,
+    error: &WebGpuInitializationError,
+) -> MissingWebGpuAction {
+    if request == RendererRequest::Auto && error.permits_canvaskit_fallback() {
+        MissingWebGpuAction::UseCanvasKitBeforeContextAcquisition
+    } else {
+        MissingWebGpuAction::Exit
+    }
+}
+
+#[cfg(any(target_arch = "wasm32", test))]
 fn webgpu_initialization_failure_diagnostic(
     request: RendererRequest,
     details: impl std::fmt::Display,
@@ -92,6 +104,7 @@ where
     pub(super) window_title: String,
     pub(super) initial_maximized: bool,
     pub(super) web_mount_selector: Option<String>,
+    pub(super) browser_defaults: BrowserDefaults,
     pub(super) ime_handler: Arc<DesktopImeHandler>,
     #[cfg(not(target_os = "android"))]
     pub(super) platform_window: Arc<Window>,
@@ -125,7 +138,11 @@ where
     #[cfg(target_arch = "wasm32")]
     pub(super) web_renderer_reported: bool,
     #[cfg(target_arch = "wasm32")]
+    pub(super) web_rendered_frames: u64,
+    #[cfg(target_arch = "wasm32")]
     pub(super) packaged_fonts: Vec<fission_theme::PackagedFont>,
+    #[cfg(target_arch = "wasm32")]
+    pub(super) clipboard: Arc<DesktopClipboard>,
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) scene: Scene,
     #[cfg(not(target_arch = "wasm32"))]
@@ -153,6 +170,8 @@ where
     pub(super) web_backend: PlatformWebBackend,
     pub(super) players: HashMap<WidgetId, ActivePlayer>,
     pub(super) last_cursor_position: Option<PhysicalPosition<f64>>,
+    #[cfg(target_arch = "wasm32")]
+    pub(super) last_web_secondary_up: Option<(LayoutPoint, Instant)>,
     pub(super) active_primary_touch: Option<u64>,
     pub(super) touch_positions: HashMap<u64, PhysicalPosition<f64>>,
     pub(super) min_frame: Duration,
@@ -311,9 +330,28 @@ mod tests {
     }
 
     #[test]
+    fn automatic_webgpu_failure_only_falls_back_before_context_acquisition() {
+        let before = WebGpuInitializationError::BeforeCanvasContext(anyhow::anyhow!("device"));
+        let after = WebGpuInitializationError::AfterCanvasContext(anyhow::anyhow!("surface"));
+
+        assert_eq!(
+            webgpu_initialization_failure_action(RendererRequest::Auto, &before),
+            MissingWebGpuAction::UseCanvasKitBeforeContextAcquisition
+        );
+        assert_eq!(
+            webgpu_initialization_failure_action(RendererRequest::Auto, &after),
+            MissingWebGpuAction::Exit
+        );
+        assert_eq!(
+            webgpu_initialization_failure_action(RendererRequest::WebGpuVello, &before),
+            MissingWebGpuAction::Exit
+        );
+    }
+
+    #[test]
     fn automatic_late_failure_does_not_claim_canvas_fallback() {
-        let diagnostic =
-            webgpu_initialization_failure_diagnostic(RendererRequest::Auto, "adapter failed");
+        let error = WebGpuInitializationError::AfterCanvasContext(anyhow::anyhow!("surface"));
+        let diagnostic = webgpu_initialization_failure_diagnostic(RendererRequest::Auto, error);
 
         assert!(diagnostic.contains("CanvasKit software fallback is unavailable"));
         assert!(diagnostic.contains("fission_renderer=web-canvaskit-software"));

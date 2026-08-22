@@ -288,28 +288,12 @@ impl From<AndroidBoard> for Widget {
     fn from(board: AndroidBoard) -> Widget {
         let (ctx, view) = fission::build::current::<PublishUiState>();
         let m = metrics(board.layout);
-        let set_play = with_reducer!(
-            ctx,
-            PublishSetPlayJson(String::new()),
-            publish_set_play_json
-        );
-        let set_jks = with_reducer!(
-            ctx,
-            PublishSetAndroidJks(String::new()),
-            publish_set_android_jks
-        );
-        let set_alias = with_reducer!(
-            ctx,
-            PublishSetAndroidAlias(String::new()),
-            publish_set_android_alias
-        );
-        let set_pass = with_reducer!(
-            ctx,
-            PublishSetAndroidPassword(String::new()),
-            publish_set_android_password
-        );
-        let set_track = with_reducer!(ctx, PublishSetTrack(String::new()), publish_set_track);
-        let set_locales = with_reducer!(ctx, PublishSetLocales(String::new()), publish_set_locales);
+        let set_play = with_reducer!(ctx, PublishSetPlayJson, publish_set_play_json);
+        let set_jks = with_reducer!(ctx, PublishSetAndroidJks, publish_set_android_jks);
+        let set_alias = with_reducer!(ctx, PublishSetAndroidAlias, publish_set_android_alias);
+        let set_pass = with_reducer!(ctx, PublishSetAndroidPassword, publish_set_android_password);
+        let set_track = with_reducer!(ctx, PublishSetTrack, publish_set_track);
+        let set_locales = with_reducer!(ctx, PublishSetLocales, publish_set_locales);
         let pick_play = with_reducer!(
             ctx,
             PublishOpenFilePicker(FilePurpose::PlayServiceJson),
@@ -341,11 +325,7 @@ impl From<AndroidBoard> for Widget {
             PublishStartTask(PublishTaskKind::Publish),
             publish_start_task
         );
-        let confirm = with_reducer!(
-            ctx,
-            PublishSetConfirmation(String::new()),
-            publish_set_confirmation
-        );
+        let confirm = with_reducer!(ctx, PublishSetConfirmation, publish_set_confirmation);
         BoardRows { rows: vec![
             vec![
                 NumberedPanel { number: 1, title: "Android-specific preflight".into(), subtitle: "We'll check your Android toolchain and environment.".into(), width: m.col, height: m.top_h, tone: tone_for_checks(&view.state().package_checks), children: widgets![
@@ -450,17 +430,13 @@ impl From<IosBoard> for Widget {
         let third = (m.full - board.layout.gap * 2.0) / 3.0;
         let key_path = with_reducer!(
             ctx,
-            PublishSetAppStoreKeyPath(String::new()),
+            PublishSetAppStoreKeyPath,
             publish_set_app_store_key_path
         );
-        let key_id = with_reducer!(
-            ctx,
-            PublishSetAppStoreKeyId(String::new()),
-            publish_set_app_store_key_id
-        );
+        let key_id = with_reducer!(ctx, PublishSetAppStoreKeyId, publish_set_app_store_key_id);
         let issuer = with_reducer!(
             ctx,
-            PublishSetAppStoreIssuerId(String::new()),
+            PublishSetAppStoreIssuerId,
             publish_set_app_store_issuer_id
         );
         let browse = with_reducer!(
@@ -484,11 +460,7 @@ impl From<IosBoard> for Widget {
             PublishStartTask(PublishTaskKind::Publish),
             publish_start_task
         );
-        let confirm = with_reducer!(
-            ctx,
-            PublishSetConfirmation(String::new()),
-            publish_set_confirmation
-        );
+        let confirm = with_reducer!(ctx, PublishSetConfirmation, publish_set_confirmation);
         BoardRows { rows: vec![
             vec![
                 NumberedPanel { number: 1, title: "Preflight: iOS Environment".into(), subtitle: "Check host, Xcode, toolchain, and signing setup.".into(), width: third, height: m.top_h, tone: tone_for_checks(&view.state().package_checks), children: widgets![CheckList { checks: view.state().package_checks.clone(), limit: 10 }, Callout { tone: StatusTone::Info, text: "All checks are local and can be re-run before upload.".into() }]},
@@ -542,31 +514,11 @@ impl From<WindowsBoard> for Widget {
         let (ctx, view) = fission::build::current::<PublishUiState>();
         let m = metrics(board.layout);
         let third = (m.full - board.layout.gap * 2.0) / 3.0;
-        let pfx = with_reducer!(
-            ctx,
-            PublishSetWindowsPfx(String::new()),
-            publish_set_windows_pfx
-        );
-        let password = with_reducer!(
-            ctx,
-            PublishSetWindowsPassword(String::new()),
-            publish_set_windows_password
-        );
-        let tenant = with_reducer!(
-            ctx,
-            PublishSetAzureTenant(String::new()),
-            publish_set_azure_tenant
-        );
-        let client = with_reducer!(
-            ctx,
-            PublishSetAzureClient(String::new()),
-            publish_set_azure_client
-        );
-        let secret = with_reducer!(
-            ctx,
-            PublishSetMicrosoftSecret(String::new()),
-            publish_set_microsoft_secret
-        );
+        let pfx = with_reducer!(ctx, PublishSetWindowsPfx, publish_set_windows_pfx);
+        let password = with_reducer!(ctx, PublishSetWindowsPassword, publish_set_windows_password);
+        let tenant = with_reducer!(ctx, PublishSetAzureTenant, publish_set_azure_tenant);
+        let client = with_reducer!(ctx, PublishSetAzureClient, publish_set_azure_client);
+        let secret = with_reducer!(ctx, PublishSetMicrosoftSecret, publish_set_microsoft_secret);
         let browse = with_reducer!(
             ctx,
             PublishOpenFilePicker(FilePurpose::WindowsCertificate),
@@ -588,11 +540,7 @@ impl From<WindowsBoard> for Widget {
             PublishStartTask(PublishTaskKind::Publish),
             publish_start_task
         );
-        let confirm = with_reducer!(
-            ctx,
-            PublishSetConfirmation(String::new()),
-            publish_set_confirmation
-        );
+        let confirm = with_reducer!(ctx, PublishSetConfirmation, publish_set_confirmation);
         BoardRows { rows: vec![
             vec![
                 NumberedPanel { number: 1, title: "Windows preflight".into(), subtitle: "Verify your environment before building and submitting.".into(), width: third, height: m.top_h, tone: tone_for_checks(&view.state().package_checks), children: widgets![CheckList { checks: view.state().package_checks.clone(), limit: 9 }, Callout { tone: StatusTone::Info, text: "Issues must be resolved before continuing to submission.".into() }]},
@@ -626,31 +574,11 @@ impl From<S3Board> for Widget {
     fn from(board: S3Board) -> Widget {
         let (ctx, view) = fission::build::current::<PublishUiState>();
         let m = metrics(board.layout);
-        let profile = with_reducer!(
-            ctx,
-            PublishSetAwsProfile(String::new()),
-            publish_set_aws_profile
-        );
-        let region = with_reducer!(
-            ctx,
-            PublishSetAwsRegion(String::new()),
-            publish_set_aws_region
-        );
-        let endpoint = with_reducer!(
-            ctx,
-            PublishSetAwsEndpoint(String::new()),
-            publish_set_aws_endpoint
-        );
-        let access = with_reducer!(
-            ctx,
-            PublishSetAwsAccessKey(String::new()),
-            publish_set_aws_access_key
-        );
-        let secret = with_reducer!(
-            ctx,
-            PublishSetAwsSecretKey(String::new()),
-            publish_set_aws_secret_key
-        );
+        let profile = with_reducer!(ctx, PublishSetAwsProfile, publish_set_aws_profile);
+        let region = with_reducer!(ctx, PublishSetAwsRegion, publish_set_aws_region);
+        let endpoint = with_reducer!(ctx, PublishSetAwsEndpoint, publish_set_aws_endpoint);
+        let access = with_reducer!(ctx, PublishSetAwsAccessKey, publish_set_aws_access_key);
+        let secret = with_reducer!(ctx, PublishSetAwsSecretKey, publish_set_aws_secret_key);
         let save = with_reducer!(ctx, PublishSaveCredentials, publish_save_credentials);
         let package = with_reducer!(
             ctx,
@@ -667,11 +595,7 @@ impl From<S3Board> for Widget {
             PublishStartTask(PublishTaskKind::Publish),
             publish_start_task
         );
-        let confirm = with_reducer!(
-            ctx,
-            PublishSetConfirmation(String::new()),
-            publish_set_confirmation
-        );
+        let confirm = with_reducer!(ctx, PublishSetConfirmation, publish_set_confirmation);
         BoardRows { rows: vec![
             vec![
                 NumberedPanel { number: 1, title: "S3 Preflight".into(), subtitle: "Ensure the environment is ready to publish.".into(), width: m.col, height: m.top_h, tone: tone_for_checks(&view.state().distribution_checks), children: widgets![CheckList { checks: view.state().distribution_checks.clone(), limit: 8 }, Callout { tone: StatusTone::Info, text: "One item needing review blocks final upload until resolved.".into() }]},

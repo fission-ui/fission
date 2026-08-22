@@ -1,10 +1,6 @@
 use super::*;
 
 impl TextInputController {
-    pub(super) fn is_apple_platform() -> bool {
-        cfg!(target_os = "macos") || cfg!(target_os = "ios")
-    }
-
     pub(super) fn runtime_config(
         ctx: &ControllerContext,
         focused_id: WidgetId,
@@ -67,30 +63,6 @@ impl TextInputController {
 
     pub(super) fn has_super(modifiers: u8) -> bool {
         (modifiers & MOD_SUPER) != 0
-    }
-
-    pub(super) fn has_primary_shortcut(modifiers: u8) -> bool {
-        if Self::is_apple_platform() {
-            Self::has_super(modifiers)
-        } else {
-            Self::has_ctrl(modifiers)
-        }
-    }
-
-    pub(super) fn has_word_modifier(modifiers: u8) -> bool {
-        if Self::is_apple_platform() {
-            Self::has_alt(modifiers)
-        } else {
-            Self::has_ctrl(modifiers)
-        }
-    }
-
-    pub(super) fn primary_shortcut_modifier() -> u8 {
-        if Self::is_apple_platform() {
-            MOD_SUPER
-        } else {
-            MOD_CTRL
-        }
     }
 
     pub(super) fn node_or_ancestor_matches(
@@ -156,20 +128,17 @@ impl TextInputController {
         ctx: &mut ControllerContext,
         action: TextContextMenuAction,
     ) -> bool {
-        match action {
-            TextContextMenuAction::Copy => {
-                self.handle_key(ctx, KeyCode::Char('c'), Self::primary_shortcut_modifier())
-            }
-            TextContextMenuAction::Cut => {
-                self.handle_key(ctx, KeyCode::Char('x'), Self::primary_shortcut_modifier())
-            }
-            TextContextMenuAction::Paste => {
-                self.handle_key(ctx, KeyCode::Char('v'), Self::primary_shortcut_modifier())
-            }
-            TextContextMenuAction::SelectAll => {
-                self.handle_key(ctx, KeyCode::Char('a'), Self::primary_shortcut_modifier())
-            }
-        }
+        let command = match action {
+            TextContextMenuAction::Copy => EditingCommand::Copy,
+            TextContextMenuAction::Cut => EditingCommand::Cut,
+            TextContextMenuAction::Paste => EditingCommand::Paste(
+                ctx.clipboard
+                    .and_then(|clipboard| clipboard.get_text())
+                    .unwrap_or_default(),
+            ),
+            TextContextMenuAction::SelectAll => EditingCommand::SelectAll,
+        };
+        self.handle_editing_command(ctx, &command)
     }
 
     pub(super) fn input_wrapper_geometry<'a>(

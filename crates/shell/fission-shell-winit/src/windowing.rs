@@ -6,6 +6,7 @@ pub(super) fn build_window(
     background_test_mode: bool,
     target: &EventLoopWindowTarget,
     _web_mount_selector: Option<&str>,
+    _browser_defaults: BrowserDefaults,
 ) -> anyhow::Result<Arc<Window>> {
     let reported_scale_factor = target
         .primary_monitor()
@@ -16,6 +17,7 @@ pub(super) fn build_window(
         background_test_mode,
         false,
         _web_mount_selector,
+        _browser_defaults,
         reported_scale_factor,
     )?;
     Ok(Arc::new(target.create_window(window_attributes).map_err(
@@ -31,6 +33,7 @@ pub(super) fn build_window_before_run(
     tray_skip_taskbar: bool,
     event_loop: &EventLoop<TestEvent>,
     _web_mount_selector: Option<&str>,
+    _browser_defaults: BrowserDefaults,
 ) -> anyhow::Result<Arc<Window>> {
     let window_attributes = build_window_attributes(
         title,
@@ -38,6 +41,7 @@ pub(super) fn build_window_before_run(
         background_test_mode,
         tray_skip_taskbar,
         _web_mount_selector,
+        _browser_defaults,
         None,
     )?;
     #[allow(deprecated)]
@@ -59,6 +63,7 @@ pub(super) fn build_window_attributes(
     background_test_mode: bool,
     tray_skip_taskbar: bool,
     _web_mount_selector: Option<&str>,
+    _browser_defaults: BrowserDefaults,
     _reported_scale_factor: Option<f64>,
 ) -> anyhow::Result<WindowAttributes> {
     let mut window_attributes = WindowAttributes::default()
@@ -85,7 +90,9 @@ pub(super) fn build_window_attributes(
     }
     #[cfg(target_arch = "wasm32")]
     {
-        window_attributes = window_attributes.with_prevent_default(true);
+        window_attributes = window_attributes
+            .with_prevent_default(true)
+            .with_browser_defaults(web_input::to_winit(_browser_defaults));
         window_attributes = if let Some(selector) = _web_mount_selector {
             window_attributes.with_canvas(Some(canvas_for_mount_selector(selector)?))
         } else {

@@ -138,13 +138,35 @@ where
                         self.web_renderer = Some(WebRenderer::WebGpu(presenter));
                     }
                     Err(error) => {
-                        eprintln!(
-                            "fission-shell-winit: {}",
-                            webgpu_initialization_failure_diagnostic(request, error)
-                        );
-                        elwt.exit();
-                        diag::end_frame(diag::FrameStats::default());
-                        return;
+                        if matches!(
+                            webgpu_initialization_failure_action(request, &error),
+                            MissingWebGpuAction::UseCanvasKitBeforeContextAcquisition
+                        ) {
+                            let reason =
+                                format!("webgpu_initialization_failed_before_context:{error}");
+                            if let Err(fallback_error) = self.activate_canvaskit_renderer(
+                                window,
+                                request,
+                                reason,
+                                render_target_size,
+                                scale_factor,
+                            ) {
+                                eprintln!(
+                                    "fission-shell-winit: automatic CanvasKit fallback initialization failed after {error}: {fallback_error}"
+                                );
+                                elwt.exit();
+                                diag::end_frame(diag::FrameStats::default());
+                                return;
+                            }
+                        } else {
+                            eprintln!(
+                                "fission-shell-winit: {}",
+                                webgpu_initialization_failure_diagnostic(request, error)
+                            );
+                            elwt.exit();
+                            diag::end_frame(diag::FrameStats::default());
+                            return;
+                        }
                     }
                 }
             } else if self.webgpu_init_in_flight {
@@ -160,52 +182,36 @@ where
                 diag::end_frame(diag::FrameStats::default());
                 return;
             } else if request.uses_canvaskit() {
-                match WebCanvasKitPresenter::new(
+                if let Err(error) = self.activate_canvaskit_renderer(
                     window,
                     request,
-                    Some("forced_by_renderer_request".to_string()),
-                    render_target_size.0,
-                    render_target_size.1,
+                    "forced_by_renderer_request".to_string(),
+                    render_target_size,
                     scale_factor,
-                    &self.packaged_fonts,
                 ) {
-                    Ok(presenter) => {
-                        self.activate_web_paragraph_store(presenter.paragraph_store());
-                        self.web_renderer = Some(WebRenderer::CanvasKit(presenter));
-                    }
-                    Err(err) => {
-                        eprintln!(
-                            "fission-shell-winit: CanvasKit renderer initialization failed: {err}"
-                        );
-                        elwt.exit();
-                        diag::end_frame(diag::FrameStats::default());
-                        return;
-                    }
+                    eprintln!(
+                        "fission-shell-winit: CanvasKit renderer initialization failed: {error}"
+                    );
+                    elwt.exit();
+                    diag::end_frame(diag::FrameStats::default());
+                    return;
                 }
             } else if !browser_exposes_webgpu() {
                 match missing_webgpu_action(request) {
                     MissingWebGpuAction::UseCanvasKitBeforeContextAcquisition => {
-                        match WebCanvasKitPresenter::new(
+                        if let Err(error) = self.activate_canvaskit_renderer(
                             window,
                             request,
-                            Some("webgpu_api_unavailable_before_context_acquisition".to_string()),
-                            render_target_size.0,
-                            render_target_size.1,
+                            "webgpu_api_unavailable_before_context_acquisition".to_string(),
+                            render_target_size,
                             scale_factor,
-                            &self.packaged_fonts,
                         ) {
-                            Ok(presenter) => {
-                                self.activate_web_paragraph_store(presenter.paragraph_store());
-                                self.web_renderer = Some(WebRenderer::CanvasKit(presenter));
-                            }
-                            Err(error) => {
-                                eprintln!(
-                                    "fission-shell-winit: automatic CanvasKit fallback initialization failed: {error}"
-                                );
-                                elwt.exit();
-                                diag::end_frame(diag::FrameStats::default());
-                                return;
-                            }
+                            eprintln!(
+                                "fission-shell-winit: automatic CanvasKit fallback initialization failed: {error}"
+                            );
+                            elwt.exit();
+                            diag::end_frame(diag::FrameStats::default());
+                            return;
                         }
                     }
                     MissingWebGpuAction::Exit => {
@@ -229,9 +235,8 @@ where
                         let init_viewport = viewport_state;
                         self.webgpu_init_in_flight = true;
                         wasm_bindgen_futures::spawn_local(async move {
-                            let result = create_webgpu_presenter(canvas, init_viewport, request)
-                                .await
-                                .map_err(|error| error.to_string());
+                            let result =
+                                create_webgpu_presenter(canvas, init_viewport, request).await;
                             *pending_generation.borrow_mut() = Some(result);
                             let _ = proxy.send_event(TestEvent::Wake);
                         });
@@ -738,6 +743,7 @@ where
 
                 #[cfg(target_arch = "wasm32")]
                 {
+                    let web_frame_has_content = !retained_scene.roots.is_empty();
                     let Some(renderer) = self.web_renderer.as_mut() else {
                         eprintln!("web renderer is unavailable");
                         diag::end_frame(diag::FrameStats::default());
@@ -930,6 +936,19 @@ where
                                             diag::end_frame(diag::FrameStats::default());
                                             return;
                                         }
+                                        if self.web_rendered_frames == 0 && web_frame_has_content {
+                                            let encoding = presenter.scene.encoding();
+                                            log::info!(
+                                                "Fission WebGPU first content frame: roots={}, paths={}, draws={}, glyph_runs={}, glyphs={}, target={}x{}",
+                                                retained_scene.roots.len(),
+                                                encoding.n_paths,
+                                                encoding.draw_tags.len(),
+                                                encoding.resources.glyph_runs.len(),
+                                                encoding.resources.glyphs.len(),
+                                                render_target_size.0,
+                                                render_target_size.1,
+                                            );
+                                        }
                                         let workload_profile = workload_profile_for_encoded_scene(
                                             render_scene,
                                             &presenter.scene,
@@ -992,6 +1011,26 @@ where
                                     label: Some("WebGPU Surface Blit"),
                                 },
                             );
+                            {
+                                let _pass =
+                                    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                                        label: Some("Fission WebGPU Surface Clear"),
+                                        color_attachments: &[Some(
+                                            wgpu::RenderPassColorAttachment {
+                                                view: &surface_view,
+                                                resolve_target: None,
+                                                depth_slice: None,
+                                                ops: wgpu::Operations {
+                                                    load: wgpu::LoadOp::Clear(clear_color),
+                                                    store: wgpu::StoreOp::Store,
+                                                },
+                                            },
+                                        )],
+                                        depth_stencil_attachment: None,
+                                        timestamp_writes: None,
+                                        occlusion_query_set: None,
+                                    });
+                            }
                             presenter.render_state.surface.blitter.copy(
                                 &device_handle.device,
                                 &mut encoder,
@@ -1069,6 +1108,9 @@ where
                     self.invalidations = InvalidationSet::default();
 
                     self.presented_frames = self.presented_frames.saturating_add(1);
+                    if web_frame_has_content {
+                        self.web_rendered_frames = self.web_rendered_frames.saturating_add(1);
+                    }
                     flush_text_traces(
                         self.text_trace_enabled,
                         &mut self.pending_text_traces,
@@ -1076,7 +1118,7 @@ where
                     );
 
                     let total_ms = now.elapsed().as_secs_f64() * 1000.0;
-                    publish_web_frame_perf(&active_renderer, total_ms);
+                    publish_web_frame_perf(&active_renderer, total_ms, self.web_rendered_frames);
                     if let Some(input_at) = self.pending_web_input_at.take() {
                         publish_web_input_latency(
                             &active_renderer,
@@ -1652,6 +1694,29 @@ where
         self.pipeline.invalidate_layout_all();
         self.retained_scene_cache.clear();
         self.invalidations.mark_layout();
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn activate_canvaskit_renderer(
+        &mut self,
+        window: &Window,
+        request: RendererRequest,
+        fallback_reason: String,
+        render_target_size: (u32, u32),
+        scale_factor: f64,
+    ) -> anyhow::Result<()> {
+        let presenter = WebCanvasKitPresenter::new(
+            window,
+            request,
+            Some(fallback_reason),
+            render_target_size.0,
+            render_target_size.1,
+            scale_factor,
+            &self.packaged_fonts,
+        )?;
+        self.activate_web_paragraph_store(presenter.paragraph_store());
+        self.web_renderer = Some(WebRenderer::CanvasKit(presenter));
+        Ok(())
     }
 
     #[cfg(target_arch = "wasm32")]

@@ -33,6 +33,21 @@ impl HtmlRenderer<'_> {
         semantics: &Semantics,
     ) -> Result<String> {
         let mut attrs = self.native_control_attrs(node, semantics);
+        if self.options.browser_action_bindings
+            && matches!(semantics.role, Role::TextInput | Role::Input)
+            && !semantics.disabled
+            && !semantics.read_only
+            && semantics
+                .actions
+                .entries
+                .iter()
+                .any(|entry| entry.trigger == ActionTrigger::TextChanged)
+        {
+            attrs.push_str(&format!(
+                " data-fission-browser-text-action=\"true\" data-fission-action-target=\"{}\"",
+                node.id.as_u128()
+            ));
+        }
         let children = self.render_children(&node.children, &HashSet::new())?;
         let label_text = semantics.label.as_deref().unwrap_or_default();
         match semantics.role {

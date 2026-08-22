@@ -14,11 +14,32 @@ What is ready today:
 - CanvasKit CPU rendering for the production Web software profile
 - checked-in `examples/web-smoke/` browser example
 - first-party `fission add-target web` launcher output
+- Chromium live testing through `fission test --target web` and `LiveTestClient`
+- Fission-owned keyboard shortcuts, clipboard events, contextual actions, and
+  IME composition
+- deny-by-default browser behavior with explicit `BrowserDefaults` opt-ins
 
 What is still missing:
 
-- host-side browser test control equivalent to the desktop/mobile TCP server
-- richer browser integration for clipboard, drag-and-drop, and IME edge cases
+- browser autocorrect/autofill and soft-keyboard replacement edge cases
+- Firefox and WebKit live-test drivers
+
+## Browser defaults
+
+Fission suppresses browser behavior by default so application input is
+consistent with native targets. Delegate only the categories your application
+intentionally wants the browser to own:
+
+```rust
+WebApp::new(App)
+    .with_browser_defaults(
+        BrowserDefaults::CONTEXT_MENU | BrowserDefaults::WHEEL,
+    )
+    .run()
+```
+
+Categories not included in the allowlist remain Fission-owned. The default is
+`BrowserDefaults::NONE`.
 
 ## WASM prerequisites
 

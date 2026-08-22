@@ -132,6 +132,8 @@ pub struct Runtime {
     pub clipboard_backend: Option<Arc<dyn Clipboard>>,
     /// Platform-provided IME (Input Method Editor) handler.
     pub ime_handler: Option<Arc<dyn ImeHandler>>,
+    /// Text-editing conventions for the host that owns this runtime.
+    pub editing_convention: crate::input::TextEditingConvention,
     /// Effects emitted by reducers, awaiting platform execution.
     pub pending_effects: Vec<EffectEnvelope>,
     /// Post-layout scroll requests that need computed geometry before applying.
@@ -158,6 +160,7 @@ impl Default for Runtime {
             paragraph_store: None,
             clipboard_backend: None,
             ime_handler: None,
+            editing_convention: crate::input::TextEditingConvention::default(),
             pending_effects: Vec::new(),
             pending_scroll_into_view: Vec::new(),
             focus_barriers: Vec::new(),
@@ -491,6 +494,20 @@ impl Runtime {
         self.pending_effects.push(envelope);
     }
 
+    /// Rejects every queued host effect and its one-shot completion callbacks.
+    ///
+    /// This is only for shells that intentionally do not execute any effects
+    /// produced by a dispatch. Executing or retaining an effect after calling
+    /// this method would make its completion callback unavailable.
+    ///
+    /// Returns the total number of discarded effect envelopes and callbacks.
+    #[doc(hidden)]
+    pub fn discard_pending_effects(&mut self) -> usize {
+        let discarded = self.pending_effects.len() + self.effect_callbacks.clear();
+        self.pending_effects.clear();
+        discarded
+    }
+
     pub fn dispatch_with_input(
         &mut self,
         action: ActionEnvelope,
@@ -505,6 +522,20 @@ impl Runtime {
     }
 
     fn dispatch_node_with_input(
+        &mut self,
+        action: ActionEnvelope,
+        target: WidgetId,
+        input: &ActionInput,
+    ) -> Result<()> {
+        let action_id = action.id;
+        let result = self.try_dispatch_node_with_input(action, target, input);
+        if let Err(error) = &result {
+            crate::registry::emit_action_dispatch_failure(action_id, target, error);
+        }
+        result
+    }
+
+    fn try_dispatch_node_with_input(
         &mut self,
         action: ActionEnvelope,
         target: WidgetId,
@@ -559,7 +590,7 @@ impl Runtime {
             );
 
             let mut temp_reducers: Vec<BoxedReducer> = reducers.drain(..).collect();
-            for reducer_wrapper in temp_reducers.iter_mut() {
+            let dispatch_result = temp_reducers.iter_mut().try_for_each(|reducer_wrapper| {
                 reducer_wrapper(
                     &mut self.app_states,
                     &action,
@@ -567,9 +598,10 @@ impl Runtime {
                     &mut effects,
                     input,
                     &callback_registry,
-                )?;
-            }
+                )
+            });
             reducers.extend(temp_reducers);
+            dispatch_result?;
         }
 
         if let Some(reducers) = self.reducers.get_mut(&action_id) {
@@ -584,7 +616,7 @@ impl Runtime {
             );
 
             let mut temp_reducers: Vec<BoxedReducer> = reducers.drain(..).collect();
-            for reducer_wrapper in temp_reducers.iter_mut() {
+            let dispatch_result = temp_reducers.iter_mut().try_for_each(|reducer_wrapper| {
                 reducer_wrapper(
                     &mut self.app_states,
                     &action,
@@ -592,9 +624,10 @@ impl Runtime {
                     &mut effects,
                     input,
                     &callback_registry,
-                )?;
-            }
+                )
+            });
             reducers.extend(temp_reducers);
+            dispatch_result?;
         }
 
         for envelope in effects {
@@ -852,6 +885,7 @@ impl Runtime {
                     interaction: &mut self.runtime_state.interaction,
                     scroll: &mut self.runtime_state.scroll,
                     gesture: &mut self.runtime_state.gesture,
+                    editing_convention: self.editing_convention,
                     clipboard: self.clipboard_backend.as_ref(),
                     measurer: self.measurer.as_ref(),
                     paragraphs: self.paragraph_store.as_ref(),
@@ -950,7 +984,13 @@ impl Runtime {
                             let result = render_obj.handle_event(nid, &event, node_rect);
                             if result.handled {
                                 // Set focus to this node so keyboard events route here
-                                if matches!(event, InputEvent::Pointer(PointerEvent::Down { .. })) {
+                                if matches!(
+                                    event,
+                                    InputEvent::Pointer(PointerEvent::Down {
+                                        button: PointerButton::Primary,
+                                        ..
+                                    })
+                                ) {
                                     let old_focused_id = self.runtime_state.interaction.focused;
                                     if Some(nid) != old_focused_id {
                                         self.clear_text_pending_on_blur(old_focused_id, Some(nid));
@@ -987,7 +1027,10 @@ impl Runtime {
         // (if any) and walk up its ancestor chain looking for a custom render
         // object.  This allows custom editor nodes to handle arrow keys,
         // typing, etc. before the framework's default focus-navigation logic.
-        if matches!(event, InputEvent::Keyboard(_) | InputEvent::Ime(_)) {
+        if matches!(
+            event,
+            InputEvent::Keyboard(_) | InputEvent::Ime(_) | InputEvent::Editing(_)
+        ) {
             if let Some(focused_id) = self.runtime_state.interaction.focused {
                 let mut walk_id = Some(focused_id);
                 while let Some(nid) = walk_id {
@@ -1021,6 +1064,7 @@ impl Runtime {
                 interaction: &mut self.runtime_state.interaction,
                 scroll: &mut self.runtime_state.scroll,
                 gesture: &mut self.runtime_state.gesture,
+                editing_convention: self.editing_convention,
                 clipboard: self.clipboard_backend.as_ref(),
                 measurer: self.measurer.as_ref(),
                 paragraphs: self.paragraph_store.as_ref(),
@@ -1241,7 +1285,11 @@ impl Runtime {
                 }
                 _ => {}
             },
-            InputEvent::Pointer(PointerEvent::Down { point, .. }) => {
+            InputEvent::Pointer(PointerEvent::Down {
+                point,
+                button: PointerButton::Primary,
+                ..
+            }) => {
                 if let Some(hit_node_id) =
                     hit_test_with_scroll(ir, layout, &self.runtime_state.scroll, point)
                 {
@@ -1347,51 +1395,63 @@ impl Runtime {
                     self.runtime_state.interaction.set_focused(None);
                 }
             }
-            InputEvent::Pointer(PointerEvent::Up { point, .. }) => {
+            InputEvent::Pointer(PointerEvent::Up {
+                point,
+                button: PointerButton::Primary,
+                ..
+            }) => {
                 self.runtime_state.interaction.pressed.clear();
-                self.runtime_state.interaction.last_down_point = None;
-                if let Some(hit_node_id) =
-                    hit_test_with_scroll(ir, layout, &self.runtime_state.scroll, point)
-                {
-                    let mut current_id = Some(hit_node_id);
-                    while let Some(node_id) = current_id {
-                        if let Some(node) = ir.nodes.get(&node_id) {
-                            if let Op::Semantics(semantics) = &node.op {
-                                if semantics.role == fission_ir::semantics::Role::TextInput {
-                                    // No action
-                                } else if let Some(action_entry) =
-                                    semantics.actions.entries.iter().find(|entry| {
-                                        entry.trigger
-                                            == fission_ir::semantics::ActionTrigger::Default
-                                    })
-                                {
-                                    if let Some(payload) = &action_entry.payload_data {
-                                        let envelope = ActionEnvelope {
-                                            id: ActionId::from_u128(action_entry.action_id),
-                                            payload: payload.clone(),
-                                        };
-                                        diag::emit(
-                                            diag::DiagCategory::Input,
-                                            diag::DiagLevel::Debug,
-                                            diag::DiagEventKind::InputEvent {
-                                                kind: "pointer_up_dispatch".into(),
-                                                target: Some(node_id.as_u128()),
-                                                position: Some((point.x, point.y)),
-                                            },
-                                        );
-                                        let input = crate::input::scoped_action_input(
-                                            ir,
-                                            node_id,
-                                            ActionInput::None,
-                                        );
-                                        return self
-                                            .dispatch_node_with_input(envelope, node_id, &input);
+                let had_primary_down = self
+                    .runtime_state
+                    .interaction
+                    .last_down_point
+                    .take()
+                    .is_some();
+                if had_primary_down {
+                    if let Some(hit_node_id) =
+                        hit_test_with_scroll(ir, layout, &self.runtime_state.scroll, point)
+                    {
+                        let mut current_id = Some(hit_node_id);
+                        while let Some(node_id) = current_id {
+                            if let Some(node) = ir.nodes.get(&node_id) {
+                                if let Op::Semantics(semantics) = &node.op {
+                                    if semantics.role == fission_ir::semantics::Role::TextInput {
+                                        // No action
+                                    } else if let Some(action_entry) =
+                                        semantics.actions.entries.iter().find(|entry| {
+                                            entry.trigger
+                                                == fission_ir::semantics::ActionTrigger::Default
+                                        })
+                                    {
+                                        if let Some(payload) = &action_entry.payload_data {
+                                            let envelope = ActionEnvelope {
+                                                id: ActionId::from_u128(action_entry.action_id),
+                                                payload: payload.clone(),
+                                            };
+                                            diag::emit(
+                                                diag::DiagCategory::Input,
+                                                diag::DiagLevel::Debug,
+                                                diag::DiagEventKind::InputEvent {
+                                                    kind: "pointer_up_dispatch".into(),
+                                                    target: Some(node_id.as_u128()),
+                                                    position: Some((point.x, point.y)),
+                                                },
+                                            );
+                                            let input = crate::input::scoped_action_input(
+                                                ir,
+                                                node_id,
+                                                ActionInput::None,
+                                            );
+                                            return self.dispatch_node_with_input(
+                                                envelope, node_id, &input,
+                                            );
+                                        }
                                     }
                                 }
+                                current_id = node.parent;
+                            } else {
+                                break;
                             }
-                            current_id = node.parent;
-                        } else {
-                            break;
                         }
                     }
                 }
@@ -1417,6 +1477,7 @@ impl Runtime {
                 interaction: &mut self.runtime_state.interaction,
                 scroll: &mut self.runtime_state.scroll,
                 gesture: &mut self.runtime_state.gesture,
+                editing_convention: self.editing_convention,
                 clipboard: self.clipboard_backend.as_ref(),
                 measurer: self.measurer.as_ref(),
                 paragraphs: self.paragraph_store.as_ref(),
@@ -1491,6 +1552,7 @@ impl Runtime {
                     interaction: &mut self.runtime_state.interaction,
                     scroll: &mut self.runtime_state.scroll,
                     gesture: &mut self.runtime_state.gesture,
+                    editing_convention: self.editing_convention,
                     clipboard: self.clipboard_backend.as_ref(),
                     measurer: self.measurer.as_ref(),
                     paragraphs: self.paragraph_store.as_ref(),

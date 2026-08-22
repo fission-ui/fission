@@ -84,7 +84,7 @@ impl From<FileTreeEntry> for Widget {
                 id: Some(fission::WidgetId::explicit("rename_input")),
                 value: view.state().rename_input.clone(),
                 placeholder: Some("New name".into()),
-                on_change: Some(component.rename_input_action.clone()),
+                on_input: Some(component.rename_input_action.clone()),
                 ..Default::default()
             }
             .into()

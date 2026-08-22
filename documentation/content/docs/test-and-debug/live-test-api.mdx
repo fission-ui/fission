@@ -1,11 +1,11 @@
 ---
 title: LiveTest API
-description: Drive a real Fission app with /health, /cmd, semantic selectors, screenshots, and wait commands.
+description: Drive a real native or Web Fission app with semantic selectors, screenshots, and wait commands.
 ---
 
 # LiveTest API
 
-LiveTest is the runtime control surface for real Fission hosts. It lets tests and manual QA drive the current frame without calculating coordinates by hand.
+LiveTest is the runtime control surface for real Fission hosts. It lets tests and manual QA drive the current frame without calculating coordinates by hand. Native hosts expose `/health` and `/cmd`; Web test builds expose the same command contract through Chromium.
 
 Enable the server by launching an app with `FISSION_TEST_CONTROL_PORT`.
 
@@ -28,6 +28,21 @@ curl -s http://127.0.0.1:9876/cmd   -H 'content-type: application/json'   -d '{"
 ```
 
 Prefer `LiveTestClient` in Rust tests and `curl` for quick manual QA or screenshot capture.
+
+For Web, build and serve the application with `fission test --target web`, or set `FISSION_WEB_TEST_CONTROL=1` while building WASM, then connect to the served URL:
+
+```rust
+use fission_test_driver::{BrowserTestOptions, LiveTestClient};
+
+let client = LiveTestClient::launch_browser(
+    BrowserTestOptions::new("http://127.0.0.1:8123/platforms/web/")
+        .fission_canvas(),
+)?;
+client.pump()?;
+client.assert_text_visible("Ready")?;
+```
+
+Web screenshots are composited Chromium page captures. The initial driver does not claim Firefox/WebKit coverage or trusted browser clipboard, file, accessibility, and IME event coverage.
 
 ## Selector-driven actions
 

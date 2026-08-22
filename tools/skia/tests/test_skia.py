@@ -159,7 +159,7 @@ class SkiaToolTests(unittest.TestCase):
                 / "crates/rendering/fission-skia-artifacts/artifacts.lock.json"
             ).read_text(encoding="utf-8")
         )
-        self.assertEqual(lock["fission_version"], "0.10.1")
+        self.assertEqual(lock["fission_version"], "0.11.1")
         self.assertEqual(lock["bridge_abi_version"], self.config["bridge"]["abi_version"])
         self.assertEqual(lock["skia_revision"], self.config["source"]["revision"])
         self.assertEqual(lock["provenance"]["repository"], "fission-ui/fission")

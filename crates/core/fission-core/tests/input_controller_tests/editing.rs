@@ -32,10 +32,10 @@ fn test_text_input_typing() {
     });
     assert!(controller.handle_event(&mut ctx, &event));
 
-    let (target, env, _input) = &ctx.dispatched_actions[0];
+    let (target, env, input) = &ctx.dispatched_actions[0];
     assert_eq!(*target, node_id);
-    let new_text: String = serde_json::from_slice(&env.payload).unwrap();
-    assert_eq!(new_text, "Hello!");
+    assert_eq!(env.payload, b"null");
+    assert_eq!(input.text_change().unwrap().new_text, "Hello!");
 
     let st = ctx.text_edit.get(node_id).unwrap();
     assert_eq!(st.caret, 6);
@@ -81,12 +81,14 @@ fn test_text_input_typing_without_relayout_does_not_drop_chars() {
     assert!(controller.handle_event(&mut ctx, &event_b));
     assert_eq!(ctx.dispatched_actions.len(), 2);
 
-    let first_payload: String =
-        serde_json::from_slice(&ctx.dispatched_actions[0].1.payload).unwrap();
-    let second_payload: String =
-        serde_json::from_slice(&ctx.dispatched_actions[1].1.payload).unwrap();
-    assert_eq!(first_payload, "a");
-    assert_eq!(second_payload, "ab");
+    assert_eq!(
+        ctx.dispatched_actions[0].2.text_change().unwrap().new_text,
+        "a"
+    );
+    assert_eq!(
+        ctx.dispatched_actions[1].2.text_change().unwrap().new_text,
+        "ab"
+    );
 
     let st = ctx.text_edit.get(node_id).unwrap();
     assert_eq!(st.buffer.to_string(), "ab");
@@ -150,9 +152,10 @@ fn test_text_input_copy_paste() {
         });
         assert!(controller.handle_event(&mut ctx, &event));
 
-        let new_text: String =
-            serde_json::from_slice(&ctx.dispatched_actions[0].1.payload).unwrap();
-        assert_eq!(new_text, "SelectMeSelect");
+        assert_eq!(
+            ctx.dispatched_actions[0].2.text_change().unwrap().new_text,
+            "SelectMeSelect"
+        );
     }
 }
 
@@ -194,9 +197,10 @@ fn test_emoji_navigation_and_deletion() {
         });
         assert!(controller.handle_event(&mut ctx, &event));
 
-        let new_text: String =
-            serde_json::from_slice(&ctx.dispatched_actions[0].1.payload).unwrap();
-        assert_eq!(new_text, "Hi ");
+        assert_eq!(
+            ctx.dispatched_actions[0].2.text_change().unwrap().new_text,
+            "Hi "
+        );
 
         let st = ctx.text_edit.get(node_id).unwrap();
         assert_eq!(st.caret, 3);
@@ -412,9 +416,9 @@ fn test_selection_mechanics() {
         });
         assert!(controller.handle_event(&mut ctx, &event));
 
-        let (_target, env, _input) = &ctx.dispatched_actions[0];
-        let new_text: String = serde_json::from_slice(&env.payload).unwrap();
-        assert_eq!(new_text, "XCD");
+        let (_target, env, input) = &ctx.dispatched_actions[0];
+        assert_eq!(env.payload, b"null");
+        assert_eq!(input.text_change().unwrap().new_text, "XCD");
 
         let st = ctx.text_edit.get(node_id).unwrap();
         assert_eq!(st.caret, 1);
@@ -511,21 +515,204 @@ fn test_primary_shortcut_select_all() {
         Some(&measurer),
     );
 
-    let primary_mod = if cfg!(any(target_os = "macos", target_os = "ios")) {
-        MOD_SUPER
-    } else {
-        MOD_CTRL
-    };
-
     let event = InputEvent::Keyboard(KeyEvent::Down {
         key_code: KeyCode::Char('a'),
-        modifiers: primary_mod,
+        modifiers: MOD_CTRL,
     });
     assert!(controller.handle_event(&mut ctx, &event));
 
     let st = ctx.text_edit.get(node_id).unwrap();
     assert_eq!(st.anchor, 0);
     assert_eq!(st.caret, initial_text.len());
+}
+
+#[test]
+fn test_apple_primary_shortcut_is_runtime_selected() {
+    let node_id = WidgetId::derived(201, &[0]);
+    let initial_text = "Select everything";
+    let ir = create_text_node(node_id, initial_text, false);
+    let layout = LayoutSnapshot::new(LayoutSize::new(200.0, 100.0));
+    let mut text_edit = TextEditStateMap::default();
+    let mut interaction = InteractionStateMap::default();
+    let mut scroll = ScrollStateMap::default();
+    let mut gesture = fission_core::env::GestureState::default();
+    let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
+    let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
+
+    interaction.set_focused(Some(node_id));
+    text_edit.set_caret(node_id, 3, Some(3));
+    let mut ctx = setup_ctx_with_convention(
+        &ir,
+        &layout,
+        &mut text_edit,
+        &mut interaction,
+        &mut scroll,
+        &mut gesture,
+        &clipboard,
+        Some(&measurer),
+        TextEditingConvention::Apple,
+    );
+
+    assert!(TextInputController.handle_event(
+        &mut ctx,
+        &InputEvent::Keyboard(KeyEvent::Down {
+            key_code: KeyCode::Char('a'),
+            modifiers: MOD_SUPER,
+        }),
+    ));
+    let state = ctx.text_edit.get(node_id).expect("text edit state");
+    assert_eq!((state.anchor, state.caret), (0, initial_text.len()));
+}
+
+#[test]
+fn test_unhandled_primary_chord_is_not_inserted() {
+    for (convention, modifier) in [
+        (TextEditingConvention::Standard, MOD_CTRL),
+        (TextEditingConvention::Apple, MOD_SUPER),
+    ] {
+        let node_id = WidgetId::derived(202, &[modifier as u32]);
+        let ir = create_text_node(node_id, "", false);
+        let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 40.0));
+        let mut text_edit = TextEditStateMap::default();
+        let mut interaction = InteractionStateMap::default();
+        let mut scroll = ScrollStateMap::default();
+        let mut gesture = fission_core::env::GestureState::default();
+        let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
+        let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
+        interaction.set_focused(Some(node_id));
+
+        let mut ctx = setup_ctx_with_convention(
+            &ir,
+            &layout,
+            &mut text_edit,
+            &mut interaction,
+            &mut scroll,
+            &mut gesture,
+            &clipboard,
+            Some(&measurer),
+            convention,
+        );
+        assert!(TextInputController.handle_event(
+            &mut ctx,
+            &InputEvent::Keyboard(KeyEvent::Down {
+                key_code: KeyCode::Char('q'),
+                modifiers: modifier,
+            }),
+        ));
+        assert!(ctx.dispatched_actions.is_empty());
+        assert_eq!(
+            ctx.text_edit
+                .get(node_id)
+                .expect("text edit state")
+                .committed_text(),
+            ""
+        );
+    }
+}
+
+#[test]
+fn test_standard_alt_gr_character_remains_text_input() {
+    let node_id = WidgetId::derived(203, &[0]);
+    let ir = create_text_node(node_id, "", false);
+    let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 40.0));
+    let mut text_edit = TextEditStateMap::default();
+    let mut interaction = InteractionStateMap::default();
+    let mut scroll = ScrollStateMap::default();
+    let mut gesture = fission_core::env::GestureState::default();
+    let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
+    let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
+    interaction.set_focused(Some(node_id));
+
+    let mut ctx = setup_ctx(
+        &ir,
+        &layout,
+        &mut text_edit,
+        &mut interaction,
+        &mut scroll,
+        &mut gesture,
+        &clipboard,
+        Some(&measurer),
+    );
+    assert!(TextInputController.handle_event(
+        &mut ctx,
+        &InputEvent::Keyboard(KeyEvent::Down {
+            key_code: KeyCode::Char('€'),
+            modifiers: MOD_CTRL | MOD_ALT,
+        }),
+    ));
+    assert_eq!(
+        ctx.dispatched_actions[0].2.text_change().unwrap().new_text,
+        "€"
+    );
+}
+
+#[test]
+fn test_semantic_editing_commands_share_text_input_state() {
+    let node_id = WidgetId::derived(204, &[0]);
+    let ir = create_text_node(node_id, "abc", false);
+    let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 40.0));
+    let mut text_edit = TextEditStateMap::default();
+    let mut interaction = InteractionStateMap::default();
+    let mut scroll = ScrollStateMap::default();
+    let mut gesture = fission_core::env::GestureState::default();
+    let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
+    let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
+    interaction.set_focused(Some(node_id));
+    let mut ctx = setup_ctx(
+        &ir,
+        &layout,
+        &mut text_edit,
+        &mut interaction,
+        &mut scroll,
+        &mut gesture,
+        &clipboard,
+        Some(&measurer),
+    );
+    let mut controller = TextInputController;
+
+    for command in [EditingCommand::SelectAll, EditingCommand::Copy] {
+        assert!(controller.handle_event(&mut ctx, &InputEvent::Editing(command)));
+    }
+    assert_eq!(clipboard.get_text().as_deref(), Some("abc"));
+
+    assert!(controller.handle_event(&mut ctx, &InputEvent::Editing(EditingCommand::Cut),));
+    assert_eq!(
+        ctx.text_edit
+            .get(node_id)
+            .expect("text edit state")
+            .committed_text(),
+        ""
+    );
+
+    assert!(controller.handle_event(
+        &mut ctx,
+        &InputEvent::Editing(EditingCommand::Paste("xyz".into())),
+    ));
+    assert_eq!(
+        ctx.text_edit
+            .get(node_id)
+            .expect("text edit state")
+            .committed_text(),
+        "xyz"
+    );
+
+    assert!(controller.handle_event(&mut ctx, &InputEvent::Editing(EditingCommand::Undo),));
+    assert_eq!(
+        ctx.text_edit
+            .get(node_id)
+            .expect("text edit state")
+            .committed_text(),
+        ""
+    );
+
+    assert!(controller.handle_event(&mut ctx, &InputEvent::Editing(EditingCommand::Redo),));
+    assert_eq!(
+        ctx.text_edit
+            .get(node_id)
+            .expect("text edit state")
+            .committed_text(),
+        "xyz"
+    );
 }
 
 #[test]
@@ -561,8 +748,10 @@ fn test_forward_delete_removes_next_grapheme() {
     });
     assert!(controller.handle_event(&mut ctx, &event));
 
-    let new_text: String = serde_json::from_slice(&ctx.dispatched_actions[0].1.payload).unwrap();
-    assert_eq!(new_text, "acd");
+    assert_eq!(
+        ctx.dispatched_actions[0].2.text_change().unwrap().new_text,
+        "acd"
+    );
 
     let st = ctx.text_edit.get(node_id).unwrap();
     assert_eq!(st.caret, 1);
@@ -571,10 +760,6 @@ fn test_forward_delete_removes_next_grapheme() {
 
 #[test]
 fn test_apple_ctrl_bindings_cover_line_and_char_navigation() {
-    if !cfg!(any(target_os = "macos", target_os = "ios")) {
-        return;
-    }
-
     let node_id = WidgetId::derived(211, &[0]);
     let initial_text = "hello";
     let ir = create_text_node(node_id, initial_text, false);
@@ -597,7 +782,7 @@ fn test_apple_ctrl_bindings_cover_line_and_char_navigation() {
         (KeyCode::Char('a'), 0usize),
         (KeyCode::Char('e'), initial_text.len()),
     ] {
-        let mut ctx = setup_ctx(
+        let mut ctx = setup_ctx_with_convention(
             &ir,
             &layout,
             &mut text_edit,
@@ -606,6 +791,7 @@ fn test_apple_ctrl_bindings_cover_line_and_char_navigation() {
             &mut gesture,
             &clipboard,
             Some(&measurer),
+            TextEditingConvention::Apple,
         );
         let event = InputEvent::Keyboard(KeyEvent::Down {
             key_code,
@@ -620,10 +806,6 @@ fn test_apple_ctrl_bindings_cover_line_and_char_navigation() {
 
 #[test]
 fn test_apple_meta_delete_shortcuts_trim_current_line() {
-    if !cfg!(any(target_os = "macos", target_os = "ios")) {
-        return;
-    }
-
     let node_id = WidgetId::derived(213, &[0]);
     let initial_text = "hello world";
     let ir = create_text_node(node_id, initial_text, false);
@@ -641,7 +823,7 @@ fn test_apple_meta_delete_shortcuts_trim_current_line() {
     let mut controller = TextInputController;
 
     {
-        let mut ctx = setup_ctx(
+        let mut ctx = setup_ctx_with_convention(
             &ir,
             &layout,
             &mut text_edit,
@@ -650,15 +832,17 @@ fn test_apple_meta_delete_shortcuts_trim_current_line() {
             &mut gesture,
             &clipboard,
             Some(&measurer),
+            TextEditingConvention::Apple,
         );
         let event = InputEvent::Keyboard(KeyEvent::Down {
             key_code: KeyCode::Backspace,
             modifiers: MOD_SUPER,
         });
         assert!(controller.handle_event(&mut ctx, &event));
-        let new_text: String =
-            serde_json::from_slice(&ctx.dispatched_actions[0].1.payload).unwrap();
-        assert_eq!(new_text, " world");
+        assert_eq!(
+            ctx.dispatched_actions[0].2.text_change().unwrap().new_text,
+            " world"
+        );
         let st = ctx.text_edit.get(node_id).unwrap();
         assert_eq!(st.caret, 0);
     }
@@ -666,7 +850,7 @@ fn test_apple_meta_delete_shortcuts_trim_current_line() {
     text_edit.set_caret(node_id, 6, Some(6));
 
     {
-        let mut ctx = setup_ctx(
+        let mut ctx = setup_ctx_with_convention(
             &ir,
             &layout,
             &mut text_edit,
@@ -675,15 +859,17 @@ fn test_apple_meta_delete_shortcuts_trim_current_line() {
             &mut gesture,
             &clipboard,
             Some(&measurer),
+            TextEditingConvention::Apple,
         );
         let event = InputEvent::Keyboard(KeyEvent::Down {
             key_code: KeyCode::Delete,
             modifiers: MOD_SUPER,
         });
         assert!(controller.handle_event(&mut ctx, &event));
-        let new_text: String =
-            serde_json::from_slice(&ctx.dispatched_actions[0].1.payload).unwrap();
-        assert_eq!(new_text, "hello ");
+        assert_eq!(
+            ctx.dispatched_actions[0].2.text_change().unwrap().new_text,
+            "hello "
+        );
         let st = ctx.text_edit.get(node_id).unwrap();
         assert_eq!(st.caret, 6);
     }
@@ -1073,8 +1259,10 @@ fn test_text_capitalization_words_applies_to_inserted_text() {
         modifiers: 0,
     });
     assert!(controller.handle_event(&mut ctx, &event));
-    let new_text: String = serde_json::from_slice(&ctx.dispatched_actions[0].1.payload).unwrap();
-    assert_eq!(new_text, "hello W");
+    assert_eq!(
+        ctx.dispatched_actions[0].2.text_change().unwrap().new_text,
+        "hello W"
+    );
 }
 
 #[test]
@@ -1105,18 +1293,15 @@ fn test_digits_only_formatter_filters_paste() {
         &clipboard,
         Some(&measurer),
     );
-    let paste_mod = if cfg!(any(target_os = "macos", target_os = "ios")) {
-        MOD_SUPER
-    } else {
-        MOD_CTRL
-    };
     let event = InputEvent::Keyboard(KeyEvent::Down {
         key_code: KeyCode::Char('v'),
-        modifiers: paste_mod,
+        modifiers: MOD_CTRL,
     });
     assert!(controller.handle_event(&mut ctx, &event));
-    let new_text: String = serde_json::from_slice(&ctx.dispatched_actions[0].1.payload).unwrap();
-    assert_eq!(new_text, "123");
+    assert_eq!(
+        ctx.dispatched_actions[0].2.text_change().unwrap().new_text,
+        "123"
+    );
 }
 
 #[test]
@@ -1150,79 +1335,8 @@ fn test_number_keyboard_hint_filters_ime_commit_but_dispatches_text() {
         text: "12ab.3".into(),
     });
     assert!(controller.handle_event(&mut ctx, &event));
-    let new_text: String = serde_json::from_slice(&ctx.dispatched_actions[0].1.payload).unwrap();
-    assert_eq!(new_text, "12.3");
-}
-
-#[test]
-fn test_explicit_number_change_trigger_dispatches_float_payload() {
-    let node_id = WidgetId::derived(29, &[2]);
-    let mut ir = create_text_node(node_id, "", false);
-    set_input_type(&mut ir, node_id, TextInputType::Number);
-    set_change_trigger(&mut ir, node_id, ActionTrigger::NumberChange);
-    let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
-    let mut text_edit = TextEditStateMap::default();
-    let mut interaction = InteractionStateMap::default();
-    let mut scroll = ScrollStateMap::default();
-    let mut gesture = fission_core::env::GestureState::default();
-    let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
-    let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
-
-    interaction.set_focused(Some(node_id));
-    text_edit.set_caret(node_id, 0, Some(0));
-
-    let mut controller = TextInputController;
-    let mut ctx = setup_ctx(
-        &ir,
-        &layout,
-        &mut text_edit,
-        &mut interaction,
-        &mut scroll,
-        &mut gesture,
-        &clipboard,
-        Some(&measurer),
-    );
-    let event = InputEvent::Ime(fission_core::event::ImeEvent::Commit {
-        text: "12ab.3".into(),
-    });
-    assert!(controller.handle_event(&mut ctx, &event));
-    let new_val: f32 = serde_json::from_slice(&ctx.dispatched_actions[0].1.payload).unwrap();
-    assert_eq!(new_val, 12.3);
-}
-
-#[test]
-fn test_explicit_number_change_trigger_skips_invalid_float_commit() {
-    let node_id = WidgetId::derived(29, &[1]);
-    let mut ir = create_text_node(node_id, "", false);
-    set_input_type(&mut ir, node_id, TextInputType::Number);
-    set_change_trigger(&mut ir, node_id, ActionTrigger::NumberChange);
-    let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
-    let mut text_edit = TextEditStateMap::default();
-    let mut interaction = InteractionStateMap::default();
-    let mut scroll = ScrollStateMap::default();
-    let mut gesture = fission_core::env::GestureState::default();
-    let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
-    let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
-
-    interaction.set_focused(Some(node_id));
-    text_edit.set_caret(node_id, 0, Some(0));
-
-    let mut controller = TextInputController;
-    let mut ctx = setup_ctx(
-        &ir,
-        &layout,
-        &mut text_edit,
-        &mut interaction,
-        &mut scroll,
-        &mut gesture,
-        &clipboard,
-        Some(&measurer),
-    );
-    let event = InputEvent::Ime(fission_core::event::ImeEvent::Commit { text: "-".into() });
-
-    assert!(controller.handle_event(&mut ctx, &event));
-    assert!(
-        ctx.dispatched_actions.is_empty(),
-        "invalid numeric text should update editing state without dispatching a f32 payload"
+    assert_eq!(
+        ctx.dispatched_actions[0].2.text_change().unwrap().new_text,
+        "12.3"
     );
 }

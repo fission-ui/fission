@@ -40,18 +40,6 @@ pub enum DragStartBehavior {
     Down,
 }
 
-/// Payload contract used by [`TextInput::on_change`].
-///
-/// The default keeps text input generic and dispatches `String` payloads even
-/// when the platform keyboard hint is numeric. Widgets that own a numeric
-/// contract, such as `NumberInput`, can opt into `Number` explicitly.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub enum TextInputChangePayload {
-    #[default]
-    Text,
-    Number,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TextUndoController {
     pub capacity: usize,
@@ -221,12 +209,12 @@ pub(crate) fn text_input_toolbar_button_id(
 /// # Example
 ///
 /// ```rust,ignore
-/// let on_change = ctx.bind(TextChanged { .. }, reduce_with!(handle_text));
+/// let on_input = ctx.bind(EditSearch, reduce_with!(handle_search_input));
 ///
 /// TextInput {
 ///     value: view.state().query.clone(),
 ///     placeholder: Some("Search...".into()),
-///     on_change: Some(on_change),
+///     on_input: Some(on_input),
 ///     ..Default::default()
 /// }
 /// ```
@@ -267,10 +255,10 @@ pub struct TextInput {
     /// Optional explicit counter text shown below the field.
     pub counter_text: Option<TextContent>,
     /// Action dispatched when the text changes.
-    pub on_change: Option<ActionEnvelope>,
-    /// Payload type dispatched for `on_change`.
-    #[serde(default)]
-    pub change_payload: TextInputChangePayload,
+    ///
+    /// The bound action payload is preserved. The reducer reads the live text,
+    /// widget identity, caret, and anchor from [`crate::ActionInput::text_change`].
+    pub on_input: Option<ActionEnvelope>,
     /// Action dispatched when the user submits the field (for example by pressing Enter
     /// on a single-line input).
     pub on_submit: Option<ActionEnvelope>,
@@ -769,8 +757,7 @@ impl Default for TextInput {
             helper_text: None,
             error_text: None,
             counter_text: None,
-            on_change: None,
-            change_payload: TextInputChangePayload::Text,
+            on_input: None,
             on_submit: None,
             on_editing_complete: None,
             on_tap_outside: None,
@@ -1672,16 +1659,11 @@ impl InternalLower for TextInput {
             capture_tab: self.capture_tab,
             auto_indent: self.auto_indent,
         };
-        if let Some(env) = &self.on_change {
+        if let Some(env) = &self.on_input {
             semantics.actions.entries.push(fission_ir::ActionEntry {
-                trigger: match self.change_payload {
-                    TextInputChangePayload::Text => fission_ir::semantics::ActionTrigger::Change,
-                    TextInputChangePayload::Number => {
-                        fission_ir::semantics::ActionTrigger::NumberChange
-                    }
-                },
+                trigger: fission_ir::semantics::ActionTrigger::TextChanged,
                 action_id: env.id.as_u128(),
-                payload_data: None,
+                payload_data: Some(env.payload.clone()),
             });
         }
         if let Some(env) = &self.on_cursor_change {

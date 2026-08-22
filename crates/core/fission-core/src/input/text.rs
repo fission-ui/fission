@@ -1,7 +1,8 @@
 use super::{ControllerContext, InputController};
 use crate::env::TextSelectionHandleKind;
 use crate::event::{
-    InputEvent, KeyCode, KeyEvent, PointerEvent, MOD_ALT, MOD_CTRL, MOD_SHIFT, MOD_SUPER,
+    EditingCommand, InputEvent, KeyCode, KeyEvent, PointerEvent, MOD_ALT, MOD_CTRL, MOD_SHIFT,
+    MOD_SUPER,
 };
 use crate::ui::widgets::context_menu::TextContextMenuAction;
 use crate::ui::widgets::text_input::{
@@ -33,6 +34,7 @@ impl InputController for TextInputController {
                 key_code,
                 modifiers,
             }) => self.handle_key(ctx, key_code.clone(), *modifiers),
+            InputEvent::Editing(command) => self.handle_editing_command(ctx, command),
             InputEvent::Ime(ime) => self.handle_ime(ctx, ime),
             InputEvent::Pointer(PointerEvent::Down {
                 point,

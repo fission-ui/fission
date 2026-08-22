@@ -126,7 +126,7 @@ impl From<FooterIdentity> for Widget {
                     ..Default::default()
                 }
                 .into(),
-                Text::new("Fission 0.10.1")
+                Text::new("Fission 0.11.1")
                     .size(tokens.typography.font_size_sm)
                     .family(tokens.typography.font_family_mono.clone())
                     .color(tokens.colors.text_muted)

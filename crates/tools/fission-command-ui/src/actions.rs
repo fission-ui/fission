@@ -40,34 +40,48 @@ pub fn select_command_session(state: &mut UiState, id: u64) {
 }
 
 #[fission_reducer(SetInitName)]
-pub fn set_init_name(state: &mut UiState, value: String) {
-    state.init_name = value;
+pub fn set_init_name(state: &mut UiState, ctx: &mut ReducerContext<UiState>) {
+    if let Some(change) = ctx.input.text_change() {
+        state.init_name = change.new_text.clone();
+    }
 }
 
 #[fission_reducer(SetInitAppId)]
-pub fn set_init_app_id(state: &mut UiState, value: String) {
-    state.init_app_id = value;
+pub fn set_init_app_id(state: &mut UiState, ctx: &mut ReducerContext<UiState>) {
+    if let Some(change) = ctx.input.text_change() {
+        state.init_app_id = change.new_text.clone();
+    }
 }
 
 #[fission_reducer(SetInitLocalPath)]
-pub fn set_init_local_path(state: &mut UiState, value: String) {
-    state.init_local_path = value;
+pub fn set_init_local_path(state: &mut UiState, ctx: &mut ReducerContext<UiState>) {
+    if let Some(change) = ctx.input.text_change() {
+        state.init_local_path = change.new_text.clone();
+    }
 }
 
 #[fission_reducer(SetHost)]
-pub fn set_host(state: &mut UiState, value: String) {
-    state.host = value;
+pub fn set_host(state: &mut UiState, ctx: &mut ReducerContext<UiState>) {
+    if let Some(change) = ctx.input.text_change() {
+        state.host = change.new_text.clone();
+    }
 }
 
 #[fission_reducer(SetPort)]
-pub fn set_port(state: &mut UiState, value: String) {
-    state.port = value;
+pub fn set_port(state: &mut UiState, ctx: &mut ReducerContext<UiState>) {
+    if let Some(change) = ctx.input.text_change() {
+        state.port = change.new_text.clone();
+    }
 }
 
 #[fission_reducer(SetScrollbackLimitInput)]
-pub fn set_scrollback_limit_input(state: &mut UiState, value: String) {
+pub fn set_scrollback_limit_input(state: &mut UiState, ctx: &mut ReducerContext<UiState>) {
+    let Some(change) = ctx.input.text_change() else {
+        return;
+    };
+    let value = &change.new_text;
     state.scrollback_limit_input = value.clone();
-    if let Some(limit) = parse_scrollback_limit(&value) {
+    if let Some(limit) = parse_scrollback_limit(value) {
         state.set_scrollback_limit(limit);
     }
 }

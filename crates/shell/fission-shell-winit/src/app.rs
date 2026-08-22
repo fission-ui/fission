@@ -15,6 +15,8 @@ where
     pub(super) env: Env,
     pub(super) pipeline: Pipeline,
     pub(super) measurer: Arc<VelloTextMeasurer>,
+    #[cfg(target_arch = "wasm32")]
+    pub(super) clipboard: Arc<DesktopClipboard>,
     pub(super) packaged_fonts: Vec<fission_theme::PackagedFont>,
     pub(super) sync_env: Option<Arc<dyn Fn(&S, &mut Env) + Send + Sync>>,
     pub(super) key_handler: Option<KeyHandler<S>>,
@@ -23,6 +25,7 @@ where
     pub(super) title: String,
     pub(super) initial_maximized: bool,
     pub(super) web_mount_selector: Option<String>,
+    pub(super) browser_defaults: BrowserDefaults,
     pub(super) test_control_port: Option<u16>,
     /// Channel pair for receiving completed background effect results.
     pub(super) effect_result_tx: mpsc::Sender<AsyncMessage>,
@@ -48,6 +51,7 @@ where
 
     pub fn new_with_global_state(root_widget: W, global_state: S) -> Self {
         let mut runtime = Runtime::default();
+        runtime.editing_convention = web_input::host_text_editing_convention();
         runtime.add_global_state(Box::new(global_state)).unwrap();
 
         let font_cx = Arc::new(Mutex::new(build_font_context()));
@@ -67,12 +71,12 @@ where
             DEFAULT_FONT_FAMILY,
         ));
         let env = Env::new(measurer.clone() as Arc<dyn fission_layout::TextMeasurer>);
-        let clipboard: Arc<dyn fission_core::env::Clipboard> = Arc::new(DesktopClipboard::new());
+        let clipboard = Arc::new(DesktopClipboard::new());
 
         let layout_engine = LayoutEngine::new().with_measurer(measurer.clone());
         let runtime = runtime
             .with_measurer(measurer.clone())
-            .with_clipboard(clipboard);
+            .with_clipboard(clipboard.clone());
 
         let (effect_result_tx, effect_result_rx) = mpsc::channel();
         let mut async_registry = AsyncRegistry::new();
@@ -85,6 +89,8 @@ where
             env,
             pipeline: Pipeline::new(),
             measurer,
+            #[cfg(target_arch = "wasm32")]
+            clipboard,
             packaged_fonts: vec![fission_theme::PackagedFont {
                 family: DEFAULT_FONT_FAMILY,
                 weight: 400,
@@ -100,6 +106,7 @@ where
             title: "Fission".into(),
             initial_maximized: false,
             web_mount_selector: None,
+            browser_defaults: BrowserDefaults::NONE,
             test_control_port: None,
             effect_result_tx,
             effect_result_rx,
@@ -151,6 +158,13 @@ where
 
     pub fn with_mount_selector(mut self, selector: impl Into<String>) -> Self {
         self.web_mount_selector = Some(selector.into());
+        self
+    }
+
+    /// Selectively delegates browser behavior while Fission continues to own
+    /// all other Web input defaults.
+    pub fn with_browser_defaults(mut self, defaults: BrowserDefaults) -> Self {
+        self.browser_defaults = defaults;
         self
     }
 

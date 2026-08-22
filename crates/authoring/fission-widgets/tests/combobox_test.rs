@@ -24,7 +24,7 @@ fn test_combobox_build() {
         is_open: true,
         width: Some(320.0),
         max_popup_height: Some(200.0),
-        on_change: None,
+        on_input: None,
         on_select: None,
         on_toggle: None,
     };

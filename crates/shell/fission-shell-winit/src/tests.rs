@@ -8,28 +8,114 @@ use super::{
     logical_viewport_to_render_target_size, native_window_size_for_logical_viewport,
     normalize_scale_factor, normalize_winit_scroll_delta, physical_position_to_layout_point,
     physical_size_to_layout_size, preferred_native_present_mode, preferred_surface_alpha_mode,
-    present_frame_with_winit_coordination, rect_visible_in_scroll_ancestors,
-    repeating_animation_redraw_interval, resize_is_unsettled, resolve_build_viewport,
-    resolve_selector_record, rgba_screenshot, should_present_startup_clear_frame,
-    surface_acquire_recovery, sync_tracked_target_texture_size_to_surface,
-    texture_plans_fit_device_limits, visual_rect_for_node, window_insets_from_safe_area_frames,
-    windows_shell_execute_succeeded, windows_wide, LiveResizeController, SurfaceAcquireRecovery,
-    WindowViewportState, WinitPresenter,
+    preferred_web_surface_alpha_mode, present_frame_with_winit_coordination,
+    rect_visible_in_scroll_ancestors, repeating_animation_redraw_interval, resize_is_unsettled,
+    resolve_build_viewport, resolve_selector_record, rgba_screenshot,
+    should_present_startup_clear_frame, surface_acquire_recovery,
+    sync_tracked_target_texture_size_to_surface, texture_plans_fit_device_limits,
+    visual_rect_for_node, webgpu_preflight_dispatch_modes, window_insets_from_safe_area_frames,
+    windows_shell_execute_succeeded, windows_wide, BrowserDefaults, LiveResizeController,
+    SurfaceAcquireRecovery, WindowViewportState, WinitPresenter,
 };
 use crate::pipeline::CompositorTexturePlan;
 use crate::renderer_diagnostics::RendererRequest;
 use crate::InvalidationSet;
+use fission_core::{
+    Action as FissionAction, ActionId as FissionActionId, ActionRegistry, DeepLinkConfig,
+    GlobalState, MotionPropertyId, ReducerContext, Runtime, UpdateTextInput, WidgetId,
+};
 use fission_core::{ActiveMotion, MotionEasing, MotionStateMap, MotionValue, ScrollStateMap};
-use fission_core::{DeepLinkConfig, MotionPropertyId, WidgetId};
-use fission_ir::semantics::MouseCursor;
+use fission_ir::semantics::{ActionTrigger, MouseCursor};
 use fission_ir::{CoreIR, FlexDirection, LayoutOp, Op, Role, Semantics};
 use fission_layout::{LayoutNodeGeometry, LayoutRect, LayoutSize, LayoutSnapshot};
+use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::time::Duration;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::MouseScrollDelta;
 use winit::window::CursorIcon;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct LiveTextAction(String);
+
+impl FissionAction for LiveTextAction {
+    fn static_id() -> FissionActionId {
+        FissionActionId::from_name("winit_live_test::LiveTextAction")
+    }
+}
+
+#[derive(Debug, Default)]
+struct LiveTextState {
+    edit: Option<(String, UpdateTextInput)>,
+}
+
+impl GlobalState for LiveTextState {}
+
+fn record_live_text(
+    state: &mut LiveTextState,
+    action: LiveTextAction,
+    context: &mut ReducerContext<LiveTextState>,
+) {
+    state.edit = Some((
+        action.0,
+        context
+            .input
+            .text_change()
+            .expect("live text input")
+            .clone(),
+    ));
+}
+
+fn live_text_runtime() -> Runtime {
+    let mut runtime = Runtime::default().with_global_state(LiveTextState::default());
+    let mut registry = ActionRegistry::<LiveTextState>::new();
+    registry.register(
+        record_live_text
+            as fn(&mut LiveTextState, LiveTextAction, &mut ReducerContext<LiveTextState>),
+    );
+    runtime.absorb_registry(registry);
+    runtime
+}
+
+fn live_text_pipeline(payload: Option<Vec<u8>>) -> (crate::Pipeline, WidgetId) {
+    let target = WidgetId::explicit("live-text-input");
+    let mut ir = CoreIR::new();
+    let actions = payload
+        .map(|payload_data| fission_ir::ActionSet {
+            entries: vec![fission_ir::ActionEntry {
+                trigger: ActionTrigger::TextChanged,
+                action_id: LiveTextAction::static_id().as_u128(),
+                payload_data: Some(payload_data),
+            }],
+        })
+        .unwrap_or_default();
+    ir.add_node(
+        target,
+        Op::Semantics(Semantics {
+            role: Role::TextInput,
+            identifier: Some("live.text".into()),
+            value: Some(String::new()),
+            actions,
+            focusable: true,
+            ..Semantics::default()
+        }),
+        Vec::new(),
+    );
+    ir.set_root(target);
+    let mut snapshot = LayoutSnapshot::new(LayoutSize::new(320.0, 80.0));
+    snapshot.nodes.insert(
+        target,
+        LayoutNodeGeometry {
+            rect: LayoutRect::new(12.0, 12.0, 240.0, 40.0),
+            content_size: LayoutSize::new(240.0, 40.0),
+        },
+    );
+    let mut pipeline = crate::Pipeline::new();
+    pipeline.prev_ir = Some(ir);
+    pipeline.last_snapshot = Some(snapshot);
+    (pipeline, target)
+}
 
 #[test]
 fn native_presenter_starts_detached() {
@@ -39,10 +125,26 @@ fn native_presenter_starts_detached() {
 
 #[test]
 fn initial_window_maximization_is_opt_in() {
-    let default_attributes =
-        build_window_attributes("Fission", false, false, false, None, None).unwrap();
-    let maximized_attributes =
-        build_window_attributes("Fission", true, false, false, None, None).unwrap();
+    let default_attributes = build_window_attributes(
+        "Fission",
+        false,
+        false,
+        false,
+        None,
+        BrowserDefaults::NONE,
+        None,
+    )
+    .unwrap();
+    let maximized_attributes = build_window_attributes(
+        "Fission",
+        true,
+        false,
+        false,
+        None,
+        BrowserDefaults::NONE,
+        None,
+    )
+    .unwrap();
 
     assert!(!default_attributes.maximized);
     assert!(maximized_attributes.maximized);
@@ -91,6 +193,27 @@ fn surface_alpha_mode_always_comes_from_the_supported_set() {
         PostMultiplied
     );
     assert_eq!(preferred_surface_alpha_mode(&[]), Opaque);
+}
+
+#[test]
+fn web_surface_prefers_opaque_composition() {
+    use super::wgpu::CompositeAlphaMode::{Inherit, Opaque, PostMultiplied, PreMultiplied};
+
+    assert_eq!(
+        preferred_web_surface_alpha_mode(&[PreMultiplied, Opaque, PostMultiplied]),
+        Opaque
+    );
+    assert_eq!(
+        preferred_web_surface_alpha_mode(&[PostMultiplied, PreMultiplied]),
+        PreMultiplied
+    );
+    assert_eq!(preferred_web_surface_alpha_mode(&[Inherit]), Inherit);
+    assert_eq!(preferred_web_surface_alpha_mode(&[]), Opaque);
+}
+
+#[test]
+fn webgpu_preflight_prefers_indirect_then_falls_back_to_direct_dispatch() {
+    assert_eq!(webgpu_preflight_dispatch_modes(), [true, false]);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -428,6 +551,88 @@ fn get_tree_metadata_keeps_identifier_separate_and_masks_value() {
         node.visibility,
         fission_test_driver::VisibilityState::FullyVisible
     );
+}
+
+#[test]
+fn live_test_fill_text_preserves_bound_payload_and_reports_runtime_edit() {
+    let (pipeline, target) = live_text_pipeline(Some(LiveTextAction("smtp_host".into()).encode()));
+    let mut runtime = live_text_runtime();
+    let query = fission_test_driver::SelectorQuery::semantic_identifier("live.text");
+
+    let response = super::handle_fill_text_selector(&query, "greenmail", &mut runtime, &pipeline);
+
+    assert!(matches!(response, fission_test_driver::TestResponse::Ok {}));
+    let (field, change) = runtime
+        .get_global_state::<LiveTextState>()
+        .and_then(|state| state.edit.as_ref())
+        .expect("live text edit");
+    assert_eq!(field, "smtp_host");
+    assert_eq!(change.node_id, target);
+    assert_eq!(change.new_text, "greenmail");
+    assert_eq!(change.new_caret, "greenmail".len());
+    assert_eq!(change.new_anchor, "greenmail".len());
+}
+
+#[test]
+fn live_test_fill_text_fails_when_text_input_has_no_input_action() {
+    let (pipeline, target) = live_text_pipeline(None);
+    let mut runtime = live_text_runtime();
+    let query = fission_test_driver::SelectorQuery::semantic_identifier("live.text");
+
+    let response =
+        super::handle_fill_text_selector(&query, "not-retained", &mut runtime, &pipeline);
+
+    match response {
+        fission_test_driver::TestResponse::SelectorError { failure } => {
+            assert_eq!(
+                failure.kind,
+                fission_test_driver::SelectorFailureKind::UnsupportedAction
+            );
+            assert_eq!(failure.message, "text input edit could not be dispatched");
+        }
+        other => panic!("expected selector error, got {other:?}"),
+    }
+    assert!(runtime
+        .get_global_state::<LiveTextState>()
+        .expect("live text state")
+        .edit
+        .is_none());
+    assert!(runtime.runtime_state.text_edit.get(target).is_none());
+}
+
+#[test]
+fn live_test_fill_text_fails_and_restores_editor_state_on_dispatch_error() {
+    let (pipeline, target) = live_text_pipeline(Some(b"not-json".to_vec()));
+    let mut runtime = live_text_runtime();
+    runtime
+        .runtime_state
+        .text_edit
+        .sync_from_runtime(target, "before", None, None);
+    runtime
+        .runtime_state
+        .text_edit
+        .set_caret(target, 2, Some(1));
+    let query = fission_test_driver::SelectorQuery::semantic_identifier("live.text");
+
+    let response =
+        super::handle_fill_text_selector(&query, "private-value", &mut runtime, &pipeline);
+
+    assert!(matches!(
+        response,
+        fission_test_driver::TestResponse::SelectorError { .. }
+    ));
+    assert!(runtime
+        .get_global_state::<LiveTextState>()
+        .expect("live text state")
+        .edit
+        .is_none());
+    let editor = runtime
+        .runtime_state
+        .text_edit
+        .get(target)
+        .expect("restored editor state");
+    assert_eq!(editor.buffer.to_string(), "before");
+    assert_eq!((editor.caret, editor.anchor), (2, 1));
 }
 
 #[test]

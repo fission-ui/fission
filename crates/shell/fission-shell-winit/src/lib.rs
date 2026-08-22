@@ -4,6 +4,22 @@
     allow(dead_code, unused_imports, unused_variables)
 )]
 
+macro_rules! eprintln {
+    () => {{
+        #[cfg(target_arch = "wasm32")]
+        crate::web_console::error("");
+        #[cfg(not(target_arch = "wasm32"))]
+        std::eprintln!();
+    }};
+    ($($arg:tt)*) => {{
+        let message = format!($($arg)*);
+        #[cfg(target_arch = "wasm32")]
+        crate::web_console::error(&message);
+        #[cfg(not(target_arch = "wasm32"))]
+        std::eprintln!("{message}");
+    }};
+}
+
 use anyhow::Result;
 use base64::Engine;
 use fission_core::internal::BuildCtx;
@@ -114,6 +130,12 @@ mod video_backend;
 use video_backend::create_video_backend;
 mod web_backend;
 use web_backend::PlatformWebBackend;
+#[cfg(target_arch = "wasm32")]
+mod web_console;
+mod web_input;
+pub use web_input::BrowserDefaults;
+#[cfg(target_arch = "wasm32")]
+mod web_test_control;
 
 mod clipboard;
 use clipboard::DesktopClipboard;
@@ -287,13 +309,16 @@ where
         mut self,
         #[cfg(target_os = "android")] android_app: Option<AndroidApp>,
     ) -> Result<()> {
+        #[cfg(target_arch = "wasm32")]
+        web_console::install();
+        diag::init_from_env();
+        #[cfg(target_arch = "wasm32")]
+        set_web_global_json("__FISSION_RENDERED_FRAME_COUNT", &0_u64);
         diag::emit(
             diag::DiagCategory::Frame,
             diag::DiagLevel::Info,
             diag::DiagEventKind::FrameStart { root: None },
         );
-        diag::init_from_env();
-
         #[cfg(not(target_arch = "wasm32"))]
         let renderer_request = native_renderer_request()?;
         #[cfg(all(feature = "skia", not(target_arch = "wasm32")))]
@@ -427,6 +452,7 @@ where
         let window_title = self.title.clone();
         let initial_maximized = self.initial_maximized;
         let web_mount_selector = self.web_mount_selector;
+        let browser_defaults = self.browser_defaults;
         #[cfg(not(target_os = "android"))]
         let ime_handler = Arc::new(DesktopImeHandler::default());
         #[cfg(target_os = "android")]
@@ -441,6 +467,7 @@ where
             tray_skip_taskbar,
             &event_loop,
             web_mount_selector.as_deref(),
+            browser_defaults,
         )?;
         #[cfg(not(target_os = "android"))]
         ime_handler.set_window(Some(platform_window.clone()));
@@ -604,7 +631,7 @@ where
             })
             .unwrap_or(false);
         #[cfg(target_arch = "wasm32")]
-        let test_control_enabled = false;
+        let test_control_enabled = web_test_control::install(event_proxy.clone());
         #[cfg(not(target_os = "android"))]
         let _ = test_control_enabled;
         // Pending screenshot/pump: path + whether it needs a screenshot (vs pump).
@@ -651,6 +678,7 @@ where
             window_title,
             initial_maximized,
             web_mount_selector,
+            browser_defaults,
             ime_handler,
             platform_window,
             #[cfg(not(target_arch = "wasm32"))]
@@ -681,7 +709,11 @@ where
             #[cfg(target_arch = "wasm32")]
             web_renderer_reported,
             #[cfg(target_arch = "wasm32")]
+            web_rendered_frames: 0,
+            #[cfg(target_arch = "wasm32")]
             packaged_fonts,
+            #[cfg(target_arch = "wasm32")]
+            clipboard: self.clipboard,
             #[cfg(not(target_arch = "wasm32"))]
             scene,
             #[cfg(not(target_arch = "wasm32"))]
@@ -709,6 +741,8 @@ where
             web_backend,
             players,
             last_cursor_position,
+            #[cfg(target_arch = "wasm32")]
+            last_web_secondary_up: None,
             active_primary_touch,
             touch_positions,
             min_frame,

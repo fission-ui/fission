@@ -1137,6 +1137,30 @@ fn server_renderer_serves_site_css_and_enhancement_script() {
     let runtime = runtime.body_string();
     assert!(runtime.contains("fission_bridge_alloc"));
     assert!(runtime.contains("fission-site-text-run"));
+    assert!(runtime.contains("data-fission-browser-text-action"));
+    assert!(runtime.contains("selectionDirection"));
+    assert!(runtime.contains("textEncoder.encode(value.slice(0,bounded)).length"));
+    assert!(runtime.contains("compositionCommitValue"));
+    assert!(runtime.contains("__FISSION_SERVER_RUNTIME_TEST_HOOK__"));
+}
+
+#[test]
+fn server_runtime_dom_event_fixture_passes_when_node_is_available() {
+    let node = match std::process::Command::new("node").arg("--version").output() {
+        Ok(output) if output.status.success() => "node",
+        Ok(_) | Err(_) => {
+            eprintln!("node is unavailable; skipping server runtime DOM-event fixture");
+            return;
+        }
+    };
+    let fixture =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/server-runtime.test.mjs");
+    let status = std::process::Command::new(node)
+        .arg("--test")
+        .arg(&fixture)
+        .status()
+        .expect("failed to launch server runtime DOM-event fixture");
+    assert!(status.success(), "server runtime DOM-event fixture failed");
 }
 
 #[test]

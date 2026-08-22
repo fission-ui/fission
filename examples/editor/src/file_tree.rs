@@ -129,10 +129,14 @@ impl From<FileTree> for Widget {
             .id;
 
         let rename_input_id = ctx.bind(
-            UpdateRenameInput(String::new()),
+            UpdateRenameInput,
             reduce_with!(
-                (|s: &mut EditorState, a: UpdateRenameInput, _| {
-                    s.rename_input = a.0;
+                (|s: &mut EditorState,
+                  _a: UpdateRenameInput,
+                  ctx: &mut fission::core::ReducerContext<EditorState>| {
+                    if let Some(change) = ctx.input.text_change() {
+                        s.rename_input = change.new_text.clone();
+                    }
                 })
             ),
         );

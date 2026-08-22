@@ -18,10 +18,9 @@ impl From<ProjectScreen> for Widget {
         let palette = UiPalette::for_mode(view.state().theme_mode);
         let init = with_reducer!(ctx, RequestCommand(UiCommand::InitProject), request_command);
         let refresh = with_reducer!(ctx, RequestCommand(UiCommand::Refresh), request_command);
-        let set_name = with_reducer!(ctx, SetInitName(String::new()), set_init_name);
-        let set_app_id = with_reducer!(ctx, SetInitAppId(String::new()), set_init_app_id);
-        let set_local_path =
-            with_reducer!(ctx, SetInitLocalPath(String::new()), set_init_local_path);
+        let set_name = with_reducer!(ctx, SetInitName, set_init_name);
+        let set_app_id = with_reducer!(ctx, SetInitAppId, set_init_app_id);
+        let set_local_path = with_reducer!(ctx, SetInitLocalPath, set_init_local_path);
         let mut target_buttons = Vec::new();
         for target in all_targets() {
             let configured = view.state().targets.contains(&target);

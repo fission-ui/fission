@@ -464,7 +464,8 @@ impl WebRenderer {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub(super) type PendingWebGpuInit = Rc<RefCell<Option<Result<WebGpuPresenter, String>>>>;
+pub(super) type PendingWebGpuInit =
+    Rc<RefCell<Option<std::result::Result<WebGpuPresenter, WebGpuInitializationError>>>>;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct WindowViewportState {
@@ -1395,6 +1396,29 @@ pub(super) fn preferred_surface_alpha_mode(
         .unwrap_or(wgpu::CompositeAlphaMode::Opaque)
 }
 
+pub(super) fn preferred_web_surface_alpha_mode(
+    supported: &[wgpu::CompositeAlphaMode],
+) -> wgpu::CompositeAlphaMode {
+    supported
+        .iter()
+        .copied()
+        .find(|mode| *mode == wgpu::CompositeAlphaMode::Opaque)
+        .or_else(|| {
+            supported
+                .iter()
+                .copied()
+                .find(|mode| *mode == wgpu::CompositeAlphaMode::PreMultiplied)
+        })
+        .or_else(|| {
+            supported
+                .iter()
+                .copied()
+                .find(|mode| *mode == wgpu::CompositeAlphaMode::PostMultiplied)
+        })
+        .or_else(|| supported.first().copied())
+        .unwrap_or(wgpu::CompositeAlphaMode::Opaque)
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum SurfaceAcquireRecovery {
@@ -1414,19 +1438,78 @@ pub(super) fn surface_acquire_recovery(error: &wgpu::SurfaceError) -> SurfaceAcq
     }
 }
 
+#[cfg(any(target_arch = "wasm32", test))]
+#[derive(Debug)]
+pub(super) enum WebGpuInitializationError {
+    BeforeCanvasContext(anyhow::Error),
+    AfterCanvasContext(anyhow::Error),
+}
+
+#[cfg(any(target_arch = "wasm32", test))]
+impl WebGpuInitializationError {
+    pub(super) fn permits_canvaskit_fallback(&self) -> bool {
+        matches!(self, Self::BeforeCanvasContext(_))
+    }
+}
+
+#[cfg(any(target_arch = "wasm32", test))]
+impl std::fmt::Display for WebGpuInitializationError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::BeforeCanvasContext(error) => {
+                write!(formatter, "before canvas context acquisition: {error}")
+            }
+            Self::AfterCanvasContext(error) => {
+                write!(formatter, "after canvas context acquisition began: {error}")
+            }
+        }
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 pub(super) async fn create_webgpu_presenter(
     canvas: HtmlCanvasElement,
     viewport: WindowViewportState,
     request: RendererRequest,
-) -> anyhow::Result<WebGpuPresenter> {
+) -> std::result::Result<WebGpuPresenter, WebGpuInitializationError> {
     canvas.set_width(viewport.physical_size.width.max(1));
     canvas.set_height(viewport.physical_size.height.max(1));
     let mut render_cx = RenderContext::new();
+
+    // Do not acquire the visible canvas WebGPU context until the adapter,
+    // device, Vello pipelines, and a pixel-producing preflight all succeed.
+    // CanvasKit can still claim the canvas when this phase fails.
+    let dev_id = match render_cx.device_result(None).await {
+        Ok(dev_id) => dev_id,
+        Err(first_error) => {
+            eprintln!(
+                "webgpu device initialization failed; retrying once before CanvasKit fallback: {first_error}"
+            );
+            render_cx.device_result(None).await.map_err(|second_error| {
+                WebGpuInitializationError::BeforeCanvasContext(anyhow::anyhow!(
+                    "webgpu device initialization failed twice; first: {first_error}; second: {second_error}"
+                ))
+            })?
+        }
+    };
+    let main_renderer = {
+        let device_handle = &render_cx.devices[dev_id];
+        device_handle.device.on_uncaptured_error(Box::new(|error| {
+            eprintln!("webgpu uncaptured error: {error}");
+        }));
+        create_validated_webgpu_main_renderer(device_handle, request)
+            .await
+            .map_err(WebGpuInitializationError::BeforeCanvasContext)?
+    };
+
     let surface = render_cx
         .instance
         .create_surface(wgpu::SurfaceTarget::Canvas(canvas))
-        .map_err(|error| anyhow::anyhow!("failed to create webgpu canvas surface: {error}"))?;
+        .map_err(|error| {
+            WebGpuInitializationError::AfterCanvasContext(anyhow::anyhow!(
+                "failed to create webgpu canvas surface: {error}"
+            ))
+        })?;
     let mut surface = render_cx
         .create_render_surface(
             surface,
@@ -1435,11 +1518,33 @@ pub(super) async fn create_webgpu_presenter(
             wgpu::PresentMode::AutoVsync,
         )
         .await
-        .map_err(|error| anyhow::anyhow!("failed to create webgpu render surface: {error}"))?;
+        .map_err(|error| {
+            WebGpuInitializationError::AfterCanvasContext(anyhow::anyhow!(
+                "failed to create webgpu render surface: {error}"
+            ))
+        })?;
+
+    if surface.dev_id != dev_id {
+        return Err(WebGpuInitializationError::AfterCanvasContext(
+            anyhow::anyhow!(
+                "preflight WebGPU adapter is incompatible with the application canvas surface"
+            ),
+        ));
+    }
 
     let device_handle = &render_cx.devices[surface.dev_id];
     let surface_caps = surface.surface.get_capabilities(device_handle.adapter());
-    surface.config.alpha_mode = preferred_surface_alpha_mode(&surface_caps.alpha_modes);
+    surface.config.alpha_mode = preferred_web_surface_alpha_mode(&surface_caps.alpha_modes);
+    surface.blitter =
+        wgpu::util::TextureBlitterBuilder::new(&device_handle.device, surface.config.format)
+            .blend_state(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING)
+            .build();
+    log::info!(
+        "Fission WebGPU canvas surface: format={:?}, alpha_mode={:?}, supported_alpha_modes={:?}",
+        surface.config.format,
+        surface.config.alpha_mode,
+        surface_caps.alpha_modes,
+    );
     surface
         .surface
         .configure(&device_handle.device, &surface.config);
@@ -1451,7 +1556,6 @@ pub(super) async fn create_webgpu_presenter(
         target_texture_size.0,
         target_texture_size.1,
     );
-    let main_renderer = create_webgpu_main_renderer(device_handle, request)?;
     let active_renderer = "webgpu-vello";
     let (backend, adapter) = adapter_labels(device_handle.adapter());
     let renderer_report = RendererReport::new(
@@ -1485,38 +1589,12 @@ pub(super) async fn create_webgpu_presenter(
     })
 }
 
+#[cfg(any(target_arch = "wasm32", test))]
+mod webgpu;
 #[cfg(target_arch = "wasm32")]
-pub(super) fn create_webgpu_main_renderer(
-    device_handle: &vello::util::DeviceHandle,
-    request: RendererRequest,
-) -> anyhow::Result<MainRenderer> {
-    let request = request
-        .for_target(RendererTarget::Web)
-        .map_err(anyhow::Error::new)?;
-    if request.uses_canvaskit() {
-        return Err(anyhow::anyhow!(
-            "webgpu renderer disabled by renderer request"
-        ));
-    }
-    let renderer = VelloSceneRenderer::new(
-        &device_handle.device,
-        RendererOptions {
-            use_cpu: false,
-            use_indirect_dispatch: true,
-            antialiasing_support: AaSupport::all(),
-            num_init_threads: None,
-            pipeline_cache: None,
-        },
-    )
-    .map_err(|error| anyhow::anyhow!("failed to create webgpu Vello renderer: {error}"))?;
-    let texture_compositor =
-        TextureLayerCompositor::new(&device_handle.device, wgpu::TextureFormat::Rgba8Unorm);
-    Ok(MainRenderer::Vello {
-        renderer,
-        texture_compositor,
-        render_mode: RenderMode::Gpu,
-    })
-}
+use webgpu::create_validated_webgpu_main_renderer;
+#[cfg(any(target_arch = "wasm32", test))]
+pub(super) use webgpu::webgpu_preflight_dispatch_modes;
 
 #[cfg(target_arch = "wasm32")]
 pub(super) fn publish_web_renderer_report(report: &RendererReport) {
@@ -1543,7 +1621,7 @@ pub(super) struct WebInputLatency<'a> {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub(super) fn publish_web_frame_perf(renderer: &str, total_ms: f64) {
+pub(super) fn publish_web_frame_perf(renderer: &str, total_ms: f64, rendered_frames: u64) {
     let perf = WebFramePerf { renderer, total_ms };
     append_web_perf_sample("frames", total_ms);
     diag::emit(
@@ -1555,6 +1633,7 @@ pub(super) fn publish_web_frame_perf(renderer: &str, total_ms: f64) {
         },
     );
     set_web_global_json("__FISSION_LAST_FRAME_PERF", &perf);
+    set_web_global_json("__FISSION_RENDERED_FRAME_COUNT", &rendered_frames);
 }
 
 #[cfg(target_arch = "wasm32")]

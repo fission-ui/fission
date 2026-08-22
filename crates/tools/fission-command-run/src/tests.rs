@@ -24,6 +24,71 @@ fn project() -> FissionProject {
 }
 
 #[test]
+fn browser_test_server_serves_javascript_modules() {
+    assert_eq!(
+        static_content_type(Path::new("platforms/web/bootstrap.mjs")),
+        "text/javascript; charset=utf-8"
+    );
+}
+
+#[test]
+fn browser_test_server_serves_multiple_resources() {
+    let root = env::temp_dir().join(format!(
+        "fission-web-test-server-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).expect("create test root");
+    fs::write(root.join("index.html"), "ready").expect("write index");
+    fs::write(root.join("bootstrap.mjs"), "export const ready = true;").expect("write module");
+
+    let server = StaticTestServer::start(root.clone()).expect("start test server");
+    let index = ureq::get(&format!("{}/", server.base_url()))
+        .call()
+        .expect("fetch index");
+    assert_eq!(index.into_string().expect("read index"), "ready");
+    let module = ureq::get(&format!("{}/bootstrap.mjs", server.base_url()))
+        .call()
+        .expect("fetch module");
+    assert_eq!(
+        module.header("content-type"),
+        Some("text/javascript; charset=utf-8")
+    );
+    assert_eq!(
+        module.into_string().expect("read module"),
+        "export const ready = true;"
+    );
+
+    drop(server);
+    fs::remove_dir_all(root).expect("remove test root");
+}
+
+#[test]
+fn browser_test_server_accepts_renderer_diagnostics() {
+    let root = env::temp_dir().join(format!(
+        "fission-web-test-server-diagnostics-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).expect("create test root");
+
+    let server = StaticTestServer::start(root.clone()).expect("start test server");
+    let response = ureq::post(&format!("{}/__fission/renderer", server.base_url()))
+        .send_string(r#"{"active":"canvas2d-software"}"#)
+        .expect("post renderer diagnostics");
+    assert_eq!(response.status(), 204);
+
+    drop(server);
+    fs::remove_dir_all(root).expect("remove test root");
+}
+
+#[test]
 fn linux_development_entry_uses_app_identity() {
     let entry = render_linux_desktop_entry(&project(), Path::new("/tmp/field-inspector"));
     assert!(entry.contains("Name=Field Inspector"));

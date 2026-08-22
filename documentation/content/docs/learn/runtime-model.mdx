@@ -61,8 +61,11 @@ A reducer is just a function that receives the current state plus an action and 
 
 ```rust
 #[fission_reducer(UpdateDraft)]
-fn on_update_draft(state: &mut NoteState, draft: String) {
-    state.draft = draft;
+fn on_update_draft(state: &mut NoteState, ctx: &mut ReducerContext<NoteState>) {
+    let Some(change) = ctx.input.text_change() else {
+        return;
+    };
+    state.draft = change.new_text.clone();
     state.save_error = None;
 }
 
@@ -80,7 +83,11 @@ fn on_save_failed(state: &mut NoteState) {
 
 The syntax in a reducer signature is easier than it first appears.
 
-`state: &mut NoteState` means the reducer receives a mutable reference to the current app state, so it is allowed to change that state. `#[fission_reducer(UpdateDraft)]` means this reducer handles the generated `UpdateDraft` action. The `draft: String` parameter becomes the payload inside that generated action, so the widget can later construct `UpdateDraft(String::new())` when it wires the text field.
+`state: &mut NoteState` means the reducer receives a mutable reference to the
+current app state, so it is allowed to change that state.
+`#[fission_reducer(UpdateDraft)]` means this reducer handles the generated unit
+action. `ctx.input.text_change()` reads the runtime edit that accompanied that
+action.
 
 So if you strip away the syntax noise, the first reducer reads like this: "when an `UpdateDraft` action arrives, change the note state by replacing the draft and clearing any old save error."
 
@@ -117,7 +124,7 @@ impl From<NoteEditor> for Widget {
                 TextInput {
                     value: view.state().draft.clone(),
                     placeholder: Some("Write something...".into()),
-                    on_change: Some(with_reducer!(ctx, UpdateDraft(String::new()), on_update_draft)),
+                    on_input: Some(with_reducer!(ctx, UpdateDraft, on_update_draft)),
                     ..Default::default()
                 }
                 .into(),
@@ -144,7 +151,7 @@ The Rust scaffolding around the widget is doing a few predictable jobs.
 Inside the widget, there are a few pieces of syntax that are worth translating instead of ignoring:
 
 - `view.state().draft.clone()` means "read the current draft text from state and make a copy of the string so the text input can own it."
-- `UpdateDraft(String::new())` is a placeholder action value used so `with_reducer!(...)` knows which action type to wire up. The runtime replaces the placeholder string with the real current input text when the user edits the field.
+- `UpdateDraft` is the stable application action. The runtime preserves it and delivers the current edit separately through `ctx.input.text_change()`.
 - `with_reducer!(ctx, action, reducer)` creates the `ActionEnvelope` a widget stores for later dispatch.
 - `..Default::default()` means "use the normal default values for every field I did not set by hand."
 
@@ -185,9 +192,17 @@ If the type name `ViewHandle<S>` looks abstract, read it as "the read-only input
 
 The `ctx` argument has a very different job. `BuildCtxHandle` is for recording what the runtime should wire up around the user interface description.
 
-The most common use is `with_reducer!(...)`. Binding connects a widget event, such as a button press or text change, to an action and reducer handler. In the note editor example, `with_reducer!(ctx, UpdateDraft(...), on_update_draft)` creates the action path that lets typing update state.
+The most common use is `with_reducer!(...)`. Binding connects a widget event,
+such as a button press or text input, to an action and reducer handler. In the
+note editor example, `with_reducer!(ctx, UpdateDraft, on_update_draft)` creates
+the action path that lets typing update state.
 
-This is also the place where Rust type hints can look noisier than the underlying idea. A call such as `with_reducer!(ctx, UpdateDraft(String::new()), on_update_draft)` is really doing one simple thing: it tells the runtime, "when this event happens, dispatch an `UpdateDraft` action and send it to `on_update_draft`."
+This is also the place where Rust type hints can look noisier than the
+underlying idea. A call such as
+`with_reducer!(ctx, UpdateDraft, on_update_draft)` tells the runtime, "when this
+event happens, dispatch an `UpdateDraft` action and send it to
+`on_update_draft`." The reducer then reads event-specific data from its
+`ReducerContext`.
 
 As an app grows, `BuildCtxHandle` also lets widgets declare other runtime-managed behavior such as animations, portals, media registrations, web views, and resources. The shared idea is the same in every case: `BuildCtxHandle` records intent for the runtime. It does not perform the work right now.
 

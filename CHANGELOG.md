@@ -5,6 +5,63 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.1] - 2026-08-17
+
+### Added
+
+- **Web LiveTest transport** - `LiveTestClient::launch_browser` drives a test-built Fission Web application in Chromium through the same commands, semantic selectors, deterministic clock, text queries, and semantic-tree responses used by native live tests.
+- **Browser screenshots and waits** - Web LiveTests can use bounded selector, text, and motion waits plus browser-page PNG capture without adding Playwright, Selenium, or another test vocabulary.
+
+### Changed
+
+- **Stronger Web target testing** - `fission test --target web` now builds a test-control-enabled WASM application, launches isolated headless Chromium, pumps the real Web event loop, and queries the running Fission semantic tree.
+
+### Fixed
+
+- **Reliable Web test serving** - The temporary browser server serves JavaScript modules with the correct MIME type, accepts renderer diagnostics, keeps accepting after individual request failures, and uses blocking accepted sockets on platforms where listener flags are inherited.
+
+### Migration notes
+
+- Update Fission dependencies and `cargo-fission` to `0.11.1`. Existing native LiveTest code remains source-compatible. Web suites use `LiveTestClient::launch_browser(BrowserTestOptions::new(url).fission_canvas())` against output built by `fission test --target web` or another build with Web test control enabled.
+- The first release targets Chromium. It injects deterministic Fission input events rather than claiming browser-trusted input, exposes the Fission semantic tree rather than DOM selectors, and captures the browser page rather than reading back a WebGPU texture.
+
+## [0.11.0] - 2026-08-13
+
+### Added
+
+- **Universal text-input event data** - Every `TextInput` edit now preserves the bound action and delivers an `UpdateTextInput` through `ReducerContext::input.text_change()`. The event contains the complete text, target widget ID, caret, and selection anchor.
+- **Cross-shell text-edit contract** - Native keyboard and IME edits, desktop accessibility edits, Web edits, and interactive SSR browser-island edits now use `ActionInput::TextChanged` and `ActionTrigger::TextChanged`.
+
+### Changed
+
+- **Breaking `TextInput` API** - `TextInput::on_change` is replaced by `TextInput::on_input`. The runtime no longer overwrites an action payload with a string or number. Reducers must read text-edit data from `ctx.input.text_change()`.
+- **Text edits are event data, not actions** - `UpdateTextInput` no longer implements `Action`; it is available only as the structured runtime value returned by `ctx.input.text_change()`.
+- **Text-based authoring widgets** - `Combobox`, `Editable`, and `NumberInput` expose `on_input` for typed edits and use the same preserved-action contract.
+- **Numeric parsing belongs to reducers** - `NumberInput` forwards the user's text edit instead of asking the generic text runtime to synthesize an `f32` action payload. Applications decide how to handle empty, partial, invalid, clamped, or formatted numeric input.
+- **Declarative bindings are single-handler** - Repeated `ctx.bind(...)` or `ctx.bind_local(...)` calls for the same effective action ID retain each envelope's payload but install one reducer handler per build. Put per-widget context in the action payload; use explicit `register(...)` only when intentional multicast handling is required.
+- **Public event enums** - `ActionInput::TextChanged`, `ActionTrigger::TextChanged`, and `DiagEventKind::ActionDispatchFailed` are public variants. Downstream exhaustive matches over these enums must add an arm.
+
+### Fixed
+
+- **Dynamic and repeated form fields** - Editing no longer destroys application context stored in the bound action. Aggregate drafts, schema-generated forms, property inspectors, and repeated rows can bind a stable field identifier and read the new value separately.
+- **Action failure diagnostics** - Reducer deserialization failures now emit a structured diagnostic without recording the action payload or raw error text, and a failed reducer remains registered for later valid actions.
+- **App Store-safe window dependency** - Fission now resolves the published `fission-winit` build that keeps private macOS blur APIs disabled unless an application explicitly enables the fork's opt-in feature, so crates.io consumers match the source qualified by the workspace.
+
+### Migration notes
+
+- Update Fission dependencies to `0.11.0`:
+
+```toml
+fission = { version = "0.11.0", default-features = false, features = ["desktop"] }
+```
+
+- Rename `TextInput::on_change` to `on_input`, preserve only stable application context in the bound action, and read the live edit with `ctx.input.text_change()` inside the reducer. This migration is required even for a reducer that only needs the new string.
+- Replace any direct dispatch of `UpdateTextInput` with an application action bound to `on_input`; read the `UpdateTextInput` event from the reducer context.
+- Rename `Combobox::on_change`, `Editable::on_change`, and `NumberInput::on_change` to `on_input`. Parse `NumberInput` text in the reducer.
+- If several widgets bind the same action type, keep their differing context in the action value rather than in distinct reducer closures. Explicit `register(...)` remains multicast.
+- Code that exhaustively matches `ActionInput` or `ActionTrigger` must handle `TextChanged`. Diagnostics consumers that exhaustively match `DiagEventKind` must handle `ActionDispatchFailed`. These public API changes are why this release is `0.11.0`.
+- Static site output and ordinary SSR HTML remain inert. Per-keystroke reducers run on native and Web targets and in explicitly mounted SSR browser islands.
+
 ## [0.10.1] - 2026-08-10
 
 ### Added

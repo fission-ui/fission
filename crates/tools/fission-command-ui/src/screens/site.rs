@@ -22,8 +22,8 @@ impl From<SiteScreen> for Widget {
         let serve = with_reducer!(ctx, RequestCommand(UiCommand::SiteServe), request_command);
         let release = with_reducer!(ctx, ToggleRelease, toggle_release);
         let no_open = with_reducer!(ctx, ToggleNoOpen, toggle_no_open);
-        let host = with_reducer!(ctx, SetHost(String::new()), set_host);
-        let port = with_reducer!(ctx, SetPort(String::new()), set_port);
+        let host = with_reducer!(ctx, SetHost, set_host);
+        let port = with_reducer!(ctx, SetPort, set_port);
 
         Column {
             gap: Some(1.0),

@@ -62,11 +62,17 @@ impl<S: GlobalState> BuildCtx<S> {
         }
     }
 
+    /// Binds an action payload to the handler for its action type.
+    ///
+    /// A build pass installs one bound handler per [`ActionId`]. Repeated
+    /// bindings of the same action type share that handler while retaining
+    /// their distinct payloads. Use [`Self::register`] when intentional
+    /// multicast handling is required.
     pub fn bind<A: Action, H>(&mut self, action: A, handler: H) -> ActionEnvelope
     where
         H: IntoHandler<S, A> + Send + Sync + 'static,
     {
-        self.registry.register(handler);
+        self.registry.register_bound(handler);
 
         ActionEnvelope {
             id: A::static_id(),

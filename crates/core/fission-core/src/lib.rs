@@ -196,7 +196,9 @@ pub mod public {
         pub use crate::view::*;
     }
 
-    pub use crate::action::{Action, ActionEnvelope, ActionId, ActionScopeId, GlobalState};
+    pub use crate::action::{
+        Action, ActionEnvelope, ActionId, ActionScopeId, GlobalState, UpdateTextInput,
+    };
     pub use crate::async_runtime::{
         BoxFuture, JobCtx, JobRef, JobSpec, ResourceExecutionContext, ServiceBindings, ServiceCtx,
         ServiceRunner, ServiceSlot, ServiceSpec, ServiceType,
@@ -372,7 +374,10 @@ pub mod public {
 #[cfg(test)]
 mod tests;
 
-pub use action::{Action, ActionEnvelope, ActionId, ActionScopeId, GlobalState, ShellRouteChanged};
+pub use action::{
+    Action, ActionEnvelope, ActionId, ActionScopeId, GlobalState, ShellRouteChanged,
+    UpdateTextInput,
+};
 pub use async_runtime::{
     BoxFuture, JobCtx, JobRef, JobSpec, ResourceExecutionContext, ServiceBindings, ServiceCtx,
     ServiceRunner, ServiceSlot, ServiceSpec, ServiceType,
@@ -732,5 +737,15 @@ impl EffectCallbackRegistry {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .remove(&action_id)
             .unwrap_or_default()
+    }
+
+    pub(crate) fn clear(&self) -> usize {
+        let mut reducers = self
+            .reducers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let callback_count = reducers.values().map(Vec::len).sum();
+        reducers.clear();
+        callback_count
     }
 }

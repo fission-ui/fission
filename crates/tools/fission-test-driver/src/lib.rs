@@ -1,14 +1,14 @@
 //! Automated UI testing client and protocol for Fission applications.
 //!
-//! This crate provides the JSON protocol types (shared between the test client
-//! and the desktop shell server) and a [`LiveTestClient`] that drives a running
-//! Fission application over HTTP.
+//! This crate provides the JSON protocol types shared by the test client and
+//! platform shells, plus a [`LiveTestClient`] that drives a running native or
+//! Web Fission application.
 //!
 //! # Architecture
 //!
-//! The application must be launched with `FISSION_TEST_CONTROL_PORT=<port>`.
-//! The [`LiveTestClient`] connects to `http://127.0.0.1:<port>` and sends
-//! [`TestCommand`] JSON payloads to `/cmd`, receiving [`TestResponse`] replies.
+//! Native applications expose the loopback test-control server. Web
+//! applications built through `fission test --target web` expose a test-only
+//! in-page bridge driven through Chromium.
 
 #[cfg(not(target_arch = "wasm32"))]
 use anyhow::{anyhow, Result};
@@ -607,22 +607,52 @@ pub type TestResponseSender = std::sync::mpsc::Sender<TestResponse>;
 /// ```
 #[cfg(not(target_arch = "wasm32"))]
 pub struct LiveTestClient {
-    base_url: String,
+    transport: LiveTestTransport,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+enum LiveTestTransport {
+    Http { base_url: String },
+    Browser(std::sync::Mutex<browser::BrowserController>),
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl LiveTestClient {
     pub fn connect(port: u16) -> Self {
         Self {
-            base_url: format!("http://127.0.0.1:{}", port),
+            transport: LiveTestTransport::Http {
+                base_url: format!("http://127.0.0.1:{port}"),
+            },
+        }
+    }
+
+    /// Launches Chromium and connects to a Web application built with
+    /// Fission's test-only browser bridge.
+    pub fn launch_browser(options: BrowserTestOptions) -> Result<Self> {
+        let controller = browser::BrowserController::launch(options, true)?;
+        Ok(Self {
+            transport: LiveTestTransport::Browser(std::sync::Mutex::new(controller)),
+        })
+    }
+
+    /// Returns browser readiness details for a Web client.
+    pub fn browser_report(&self) -> Option<BrowserSmokeReport> {
+        match &self.transport {
+            LiveTestTransport::Http { .. } => None,
+            LiveTestTransport::Browser(controller) => {
+                controller.lock().ok().map(|controller| controller.report())
+            }
         }
     }
 
     pub fn wait_for_ready(&self, timeout_ms: u64) -> Result<()> {
+        let LiveTestTransport::Http { base_url } = &self.transport else {
+            return Ok(());
+        };
         let start = std::time::Instant::now();
         let timeout = std::time::Duration::from_millis(timeout_ms);
         loop {
-            match ureq::get(&format!("{}/health", self.base_url)).call() {
+            match ureq::get(&format!("{base_url}/health")).call() {
                 Ok(_) => return Ok(()),
                 Err(_) => {
                     if start.elapsed() > timeout {
@@ -635,15 +665,22 @@ impl LiveTestClient {
     }
 
     fn send(&self, cmd: TestCommand) -> Result<TestResponse> {
-        let body = serde_json::to_string(&cmd)?;
-        let resp = ureq::post(&format!("{}/cmd", self.base_url))
-            .set("Content-Type", "application/json")
-            .send_string(&body)
-            .map_err(|e| anyhow!("request failed: {}", e))?;
-        let text = resp.into_string()?;
-        let response: TestResponse = serde_json::from_str(&text)?;
+        let response = match &self.transport {
+            LiveTestTransport::Http { base_url } => {
+                let body = serde_json::to_string(&cmd)?;
+                let response = ureq::post(&format!("{base_url}/cmd"))
+                    .set("Content-Type", "application/json")
+                    .send_string(&body)
+                    .map_err(|error| anyhow!("request failed: {error}"))?;
+                serde_json::from_str(&response.into_string()?)?
+            }
+            LiveTestTransport::Browser(controller) => controller
+                .lock()
+                .map_err(|_| anyhow!("browser test controller lock is poisoned"))?
+                .send_test_command(cmd)?,
+        };
         if let TestResponse::Error { message } = &response {
-            return Err(anyhow!("server error: {}", message));
+            return Err(anyhow!("test host error: {message}"));
         }
         if let TestResponse::SelectorError { failure } = &response {
             return Err(anyhow!("selector error: {}", failure.message));

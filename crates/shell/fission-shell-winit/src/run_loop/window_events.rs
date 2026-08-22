@@ -234,6 +234,9 @@ where
                     let point = window_physical_position_to_layout_point(window, position);
                     if let Some(btn) = map_mouse_button(button) {
                         let is_pressed = state.is_pressed();
+                        #[cfg(target_arch = "wasm32")]
+                        let is_secondary_release =
+                            !is_pressed && matches!(btn, PointerButton::Secondary);
                         handle_mouse_button(
                             point.x,
                             point.y,
@@ -261,6 +264,10 @@ where
                             &mut self.frame_trace,
                             &mut self.invalidations,
                         );
+                        #[cfg(target_arch = "wasm32")]
+                        if is_secondary_release {
+                            self.last_web_secondary_up = Some((point, Instant::now()));
+                        }
                         #[cfg(target_arch = "wasm32")]
                         if is_pressed {
                             self.accessibility_bridge.focus_runtime_text_control(
@@ -490,7 +497,7 @@ where
                 self.pending_web_input_at.get_or_insert_with(Instant::now);
                 if event.state.is_pressed() {
                     use winit::keyboard::{Key, NamedKey};
-                    let key_code = match event.logical_key {
+                    let key_code = match &event.logical_key {
                         Key::Named(NamedKey::Space) => Some(KeyCode::Space),
                         Key::Named(NamedKey::Enter) => Some(KeyCode::Enter),
                         Key::Named(NamedKey::Escape) => Some(KeyCode::Escape),
@@ -505,16 +512,26 @@ where
                         Key::Named(NamedKey::End) => Some(KeyCode::End),
                         Key::Named(NamedKey::PageUp) => Some(KeyCode::PageUp),
                         Key::Named(NamedKey::PageDown) => Some(KeyCode::PageDown),
-                        _ => {
-                            if let Some(text) = &event.text {
-                                text.chars().next().map(KeyCode::Char)
-                            } else {
-                                None
-                            }
-                        }
+                        Key::Character(text) => text.chars().next().map(KeyCode::Char),
+                        _ => event
+                            .text
+                            .as_ref()
+                            .and_then(|text| text.chars().next())
+                            .map(KeyCode::Char),
                     };
 
                     if let Some(code) = key_code {
+                        #[cfg(target_arch = "wasm32")]
+                        let browser_clipboard_chord = self
+                            .runtime
+                            .editing_convention
+                            .has_primary_shortcut(self.current_mods)
+                            && matches!(code, KeyCode::Char('c' | 'C' | 'x' | 'X' | 'v' | 'V'));
+                        #[cfg(not(target_arch = "wasm32"))]
+                        let browser_clipboard_chord = false;
+                        if browser_clipboard_chord {
+                            return;
+                        }
                         handle_key_down::<S>(
                             code,
                             self.current_mods,
@@ -541,6 +558,94 @@ where
                             &mut self.invalidations,
                         );
                     }
+                }
+            }
+            #[cfg(target_arch = "wasm32")]
+            WindowEvent::WebInput(web_input) => {
+                use fission_core::env::Clipboard as _;
+                use fission_core::event::EditingCommand;
+                use winit::event::{WebClipboardAction, WebInputEvent};
+
+                self.pending_web_input_at.get_or_insert_with(Instant::now);
+                let input_event = match &web_input {
+                    WebInputEvent::ContextMenuRequested { position, .. } => {
+                        if self
+                            .browser_defaults
+                            .contains(BrowserDefaults::CONTEXT_MENU)
+                        {
+                            return;
+                        }
+                        let point = window_physical_position_to_layout_point(window, *position);
+                        let duplicate =
+                            self.last_web_secondary_up.is_some_and(|(last_point, at)| {
+                                at.elapsed() <= Duration::from_millis(500)
+                                    && (last_point.x - point.x).abs() <= 2.0
+                                    && (last_point.y - point.y).abs() <= 2.0
+                            });
+                        if duplicate {
+                            None
+                        } else {
+                            Some(InputEvent::ContextMenuRequested {
+                                point,
+                                modifiers: self.current_mods,
+                            })
+                        }
+                    }
+                    WebInputEvent::Clipboard(event) => {
+                        if self.browser_defaults.contains(BrowserDefaults::CLIPBOARD) {
+                            return;
+                        }
+                        let command = match event.action {
+                            WebClipboardAction::Copy => EditingCommand::Copy,
+                            WebClipboardAction::Cut => EditingCommand::Cut,
+                            WebClipboardAction::Paste => {
+                                EditingCommand::Paste(event.text.clone().unwrap_or_default())
+                            }
+                        };
+                        if !matches!(event.action, WebClipboardAction::Paste) {
+                            self.clipboard.set_text("");
+                        }
+                        Some(InputEvent::Editing(command))
+                    }
+                };
+
+                if let (Some(input_event), Some(ir), Some(layout)) = (
+                    input_event,
+                    self.pipeline.prev_ir.as_ref(),
+                    self.pipeline.last_snapshot.as_ref(),
+                ) {
+                    if let Err(error) = self.runtime.handle_input(input_event, ir, layout) {
+                        eprintln!("Web input handling error: {error:?}");
+                    }
+                    if let WebInputEvent::Clipboard(event) = web_input {
+                        if !matches!(event.action, WebClipboardAction::Paste) {
+                            event.set_text(self.clipboard.get_text().unwrap_or_default());
+                        }
+                    }
+                    self.invalidations.mark_build();
+                    let _ = process_pending_effects(
+                        &mut self.runtime,
+                        &self.effect_result_tx,
+                        &self.event_proxy,
+                        &self.async_registry,
+                        &mut self.active_services,
+                        &mut self.service_bindings,
+                        &mut self.next_service_instance_id,
+                    );
+                    reset_text_input_caret(
+                        &mut self.runtime,
+                        self.pipeline.prev_ir.as_ref(),
+                        &mut self.last_blink_toggle,
+                    );
+                    request_redraw_logged(
+                        window,
+                        elwt,
+                        &mut self.last_redraw_at,
+                        self.min_frame,
+                        &mut self.redraw_pending,
+                        &mut self.frame_trace,
+                        "web_input",
+                    );
                 }
             }
             WindowEvent::Ime(ime) => {

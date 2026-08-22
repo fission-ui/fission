@@ -8,8 +8,8 @@ use crate::layout::{
 use crate::minimap::Minimap;
 use crate::model::{EditorState, UpdateCursorPosition, UpdateEditorDocument};
 use crate::palette::{BORDER_COLOR, BRIGHT_TEXT, EDITOR_SELECTION, WELCOME_BG};
-use fission::core::reduce_with;
 use fission::core::ui::{Container, Row, TextInput, Widget};
+use fission::core::{reduce_with, ReducerContext};
 use fission::widgets::{Spacer, VStack};
 use fission::WidgetId;
 
@@ -64,9 +64,14 @@ impl From<EditorSurface> for Widget {
         let path = tab.path.clone();
 
         let update_document = ctx.bind(
-            UpdateEditorDocument(String::new()),
+            UpdateEditorDocument,
             reduce_with!(
-                (|s: &mut EditorState, a: UpdateEditorDocument, _| {
+                (|s: &mut EditorState,
+                  _a: UpdateEditorDocument,
+                  ctx: &mut ReducerContext<EditorState>| {
+                    let Some(change) = ctx.input.text_change() else {
+                        return;
+                    };
                     if let Some(tab) = s.open_tabs.get(s.active_tab) {
                         let path = tab.path.clone();
                         if let Some(buf) = s.file_contents.get_mut(&path) {
@@ -74,7 +79,7 @@ impl From<EditorSurface> for Widget {
                                 s.status_message = Some("This document is not editable".into());
                                 return;
                             }
-                            buf.replace_document(&a.0);
+                            buf.replace_document(&change.new_text);
                         }
                         s.mark_active_tab_dirty();
                         s.notify_buffer_changed(&path);
@@ -101,7 +106,7 @@ impl From<EditorSurface> for Widget {
         let editor_input: Widget = TextInput {
             id: Some(WidgetId::explicit(&format!("editor_input_{}", path))),
             value: buffer.display_content(),
-            on_change: Some(update_document),
+            on_input: Some(update_document),
             on_cursor_change: Some(update_cursor),
             width: Some(editor_viewport_width),
             height: Some(editor_viewport_height),

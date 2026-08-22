@@ -1,6 +1,6 @@
 [package]
 name = "web-smoke"
-version = "0.10.1"
+version = "0.11.1"
 edition = "2021"
 
 [lib]

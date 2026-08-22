@@ -1,0 +1,86 @@
+---
+title: Fission 0.11.1: Web LiveTest
+description: Drive real Fission Web applications in Chromium with the same semantic test contract used by native shells.
+authors:
+  - fission
+categories:
+  - Releases
+tags:
+  - release
+  - testing
+  - web
+  - chromium
+  - accessibility
+show_adjacent_posts: true
+---
+
+# Fission 0.11.1: Web LiveTest
+
+Fission 0.11.1 extends the existing LiveTest contract to real Web applications.
+Tests can now launch Chromium, query the Fission semantic tree, use semantic
+selectors, inject deterministic input, control time, wait for application state,
+and capture PNG screenshots through the same `LiveTestClient` used by native
+shells.
+
+## One testing vocabulary
+
+Web testing reuses `TestCommand`, `SelectorQuery`, `TestEvent`, and
+`TestResponse`. Canvas-rendered widgets are selected through Fission semantics,
+not a parallel DOM-selector model:
+
+```rust
+let client = LiveTestClient::launch_browser(
+    BrowserTestOptions::new("http://127.0.0.1:8080/").fission_canvas(),
+)?;
+
+client.wait_for_text("Inbox", 5_000)?;
+client.tap_semantic_identifier("inbox.compose")?;
+client.fill_text_semantic_identifier("message.subject", "Hello from Web")?;
+client.wait_for_idle(5_000, true)?;
+let screenshot = client.capture_screenshot_png()?;
+```
+
+Native callers continue to use `LiveTestClient::connect(port)`. The client API
+above is additive, and the existing native transport is unchanged.
+
+## The CLI proves live control
+
+`fission test --target web` now performs more than a canvas-ready smoke check.
+It builds test-control-enabled WASM, serves it on an ephemeral loopback port,
+launches an isolated headless Chromium profile, pumps the Web event loop, and
+queries the running Fission semantic tree. Build failures, browser errors,
+bridge failures, and protocol errors fail the command.
+
+Ordinary Web builds do not install the test bridge. The bridge opens no
+application control port and is selected only when producing a Web test build.
+
+## Intentionally bounded
+
+This first release supports Chromium without adding Playwright, Selenium, or
+WebDriver. Its input commands enter through Fission's deterministic event path;
+they do not claim to be browser-generated trusted events. Screenshots capture
+the browser page, including the canvas and browser-composited surfaces, rather
+than reading back a WebGPU texture. Tests inspect the Fission semantic tree,
+while browser accessibility-tree assertions and Firefox/WebKit drivers remain
+future work.
+
+These limits keep the implementation small and make the native and Web testing
+models genuinely consistent. The transport boundary leaves room for another
+browser driver later without changing application tests.
+
+## Upgrade
+
+Update the application dependency:
+
+```toml
+fission = { version = "0.11.1", default-features = false, features = ["web"] }
+```
+
+Install the matching CLI for `fission test --target web`:
+
+```sh
+cargo install cargo-fission --version 0.11.1 --locked
+```
+
+The complete design and deferred scope are recorded in
+[`docs/rfc-web-testing.md`](https://github.com/fission-ui/fission/blob/main/docs/rfc-web-testing.md).

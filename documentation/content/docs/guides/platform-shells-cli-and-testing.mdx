@@ -142,7 +142,7 @@ This is the most important distinction on the page.
 
 Fission's cross-platform production story rests on the shared runtime and real host paths that already exist across the public target set. That is the framework-readiness claim.
 
-Testing-tooling differences are a different category. For example, desktop and mobile currently expose `with_test_control_port(...)`, which opens a live shell-control endpoint over transmission control protocol (TCP), the standard reliable transport used for local network connections. The browser wrapper does not yet expose that same live-control path publicly. That is a limitation in the current browser testing API. It is not evidence that browser apps built with Fission are not viable.
+Testing transport differs by host. Desktop and mobile expose `with_test_control_port(...)`, which opens a loopback live shell-control endpoint. Web test builds expose the same LiveTest command contract through a test-only Chromium bridge without opening another network listener.
 
 Target caveats are a third category. Browser clipboard behavior, drag-and-drop details, and input method editor edge cases still need direct browser validation. Mobile touch handling, safe-area behavior, soft-keyboard behavior, and some mobile lifecycle integration still deserve direct Android and iOS validation. Terminal layout must be checked against terminal cells and supported interaction modes. Static site output must be checked as static HTML. SSR output must be checked under request, cache, action, worker, and island behavior. Those caveats are about proving host-specific behavior where it actually lives.
 
@@ -152,7 +152,7 @@ When those categories stay separate, the platform story becomes much clearer. Th
 
 Desktop is a strong host for fast iteration because it offers native windows, a short local run loop, and the richest current live-testing API. That makes it convenient, but convenience is not the same thing as legitimacy.
 
-Web runs through the browser shell and WebAssembly, which is the compiled format that lets Rust run in the browser. The checked-in web shell, browser smoke example, and generated browser target are real host paths today. The current missing browser live-control hook is a testing-tooling gap. Richer browser integration around clipboard, drag-and-drop, and input method editor handling is a host integration area to validate carefully. Neither point changes the fact that the browser target itself is real.
+Web runs through the browser shell and WebAssembly, which is the compiled format that lets Rust run in the browser. The checked-in Web shell, browser smoke example, generated browser target, and Chromium LiveTest path are real host paths today. Richer browser integration around clipboard, drag-and-drop, trusted browser input, and input method editor handling remains host-specific work.
 
 Android runs through generated or checked-in mobile hosts and currently has a verified emulator path. Android development adds the usual host setup, including the Android software development kit (SDK) for platform tooling and the Android native development kit (NDK) for the native toolchain used by this Rust-based path. Those are normal Android-host concerns, not signs that the shared runtime is less serious there.
 

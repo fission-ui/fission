@@ -4,7 +4,7 @@ use fission_core::env::{
 };
 use fission_core::event::{InputEvent, PointerButton, PointerEvent};
 use fission_core::input::gesture::GestureController;
-use fission_core::input::{ControllerContext, InputController};
+use fission_core::input::{ControllerContext, InputController, TextEditingConvention};
 use fission_core::scrollbar::scrollbar_geometry_for_node;
 use fission_core::Runtime;
 use fission_ir::{CompositeStyle, CoreIR, CoreNode, FlexDirection, LayoutOp, Op, WidgetId};
@@ -50,6 +50,7 @@ fn dragging_scrollbar_thumb_updates_scroll_offset_directly() {
         interaction: &mut interaction,
         scroll: &mut scroll_map,
         gesture: &mut gesture,
+        editing_convention: TextEditingConvention::Standard,
         clipboard: Some(&clipboard),
         measurer: None,
         paragraphs: None,
@@ -159,6 +160,7 @@ fn dragging_nested_scrollbar_uses_visual_pointer_coordinates() {
         interaction: &mut interaction,
         scroll: &mut scroll_map,
         gesture: &mut gesture,
+        editing_convention: TextEditingConvention::Standard,
         clipboard: Some(&clipboard),
         measurer: None,
         paragraphs: None,

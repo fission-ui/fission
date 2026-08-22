@@ -3,11 +3,11 @@ use fission_core::env::{
     SelectableTextStateMap, TextEditStateMap,
 };
 use fission_core::event::{
-    ImeEvent, InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent, MOD_ALT, MOD_CTRL,
-    MOD_SHIFT, MOD_SUPER,
+    EditingCommand, ImeEvent, InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent, MOD_ALT,
+    MOD_CTRL, MOD_SHIFT, MOD_SUPER,
 };
 use fission_core::input::text::TextInputController;
-use fission_core::input::{ControllerContext, InputController};
+use fission_core::input::{ControllerContext, InputController, TextEditingConvention};
 use fission_core::ui::widgets::text_input::{
     DragStartBehavior, TextInputRuntimeConfig, TextUndoController,
 };
@@ -49,19 +49,11 @@ impl Clipboard for MockClipboard {
 }
 
 fn primary_shortcut_modifier() -> u8 {
-    if cfg!(any(target_os = "macos", target_os = "ios")) {
-        MOD_SUPER
-    } else {
-        MOD_CTRL
-    }
+    MOD_CTRL
 }
 
 fn word_navigation_modifier() -> u8 {
-    if cfg!(any(target_os = "macos", target_os = "ios")) {
-        MOD_ALT
-    } else {
-        MOD_CTRL
-    }
+    MOD_CTRL
 }
 
 #[derive(Default)]
@@ -372,6 +364,31 @@ fn setup_ctx<'a>(
     clipboard: &'a Arc<dyn Clipboard>,
     measurer: Option<&'a Arc<dyn TextMeasurer>>,
 ) -> ControllerContext<'a> {
+    setup_ctx_with_convention(
+        ir,
+        layout,
+        text_edit,
+        interaction,
+        scroll,
+        gesture,
+        clipboard,
+        measurer,
+        TextEditingConvention::Standard,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn setup_ctx_with_convention<'a>(
+    ir: &'a CoreIR,
+    layout: &'a LayoutSnapshot,
+    text_edit: &'a mut TextEditStateMap,
+    interaction: &'a mut InteractionStateMap,
+    scroll: &'a mut ScrollStateMap,
+    gesture: &'a mut fission_core::env::GestureState,
+    clipboard: &'a Arc<dyn Clipboard>,
+    measurer: Option<&'a Arc<dyn TextMeasurer>>,
+    editing_convention: TextEditingConvention,
+) -> ControllerContext<'a> {
     let selectable_text = Box::leak(Box::new(SelectableTextStateMap::default()));
     let context_menu = Box::leak(Box::new(ContextMenuState::default()));
     ControllerContext {
@@ -383,6 +400,7 @@ fn setup_ctx<'a>(
         interaction,
         scroll,
         gesture,
+        editing_convention,
         clipboard: Some(clipboard),
         measurer,
         paragraphs: None,
@@ -405,9 +423,9 @@ fn create_text_node(id: WidgetId, val: &str, multiline: bool) -> CoreIR {
                 identifier: None,
                 actions: ActionSet {
                     entries: vec![ActionEntry {
-                        trigger: ActionTrigger::Change,
+                        trigger: ActionTrigger::TextChanged,
                         action_id: 1,
-                        payload_data: None,
+                        payload_data: Some(b"null".to_vec()),
                     }],
                 },
                 action_scope_id: None,
@@ -532,21 +550,6 @@ fn set_input_type(ir: &mut CoreIR, id: WidgetId, input_type: TextInputType) {
     }
 }
 
-fn set_change_trigger(ir: &mut CoreIR, id: WidgetId, trigger: ActionTrigger) {
-    if let Some(node) = ir.nodes.get_mut(&id) {
-        if let Op::Semantics(semantics) = &mut node.op {
-            if let Some(entry) = semantics
-                .actions
-                .entries
-                .iter_mut()
-                .find(|entry| entry.trigger == ActionTrigger::Change)
-            {
-                entry.trigger = trigger;
-            }
-        }
-    }
-}
-
 fn create_rich_text_input_tree(
     input_id: WidgetId,
     scroll_id: WidgetId,
@@ -569,9 +572,9 @@ fn create_rich_text_input_tree(
                 identifier: None,
                 actions: ActionSet {
                     entries: vec![ActionEntry {
-                        trigger: ActionTrigger::Change,
+                        trigger: ActionTrigger::TextChanged,
                         action_id: 1,
-                        payload_data: None,
+                        payload_data: Some(b"null".to_vec()),
                     }],
                 },
                 action_scope_id: None,

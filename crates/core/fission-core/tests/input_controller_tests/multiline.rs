@@ -33,10 +33,10 @@ fn test_multiline_enter_key() {
     });
     assert!(controller.handle_event(&mut ctx, &event));
 
-    let (target, env, _input) = &ctx.dispatched_actions[0];
+    let (target, env, input) = &ctx.dispatched_actions[0];
     assert_eq!(*target, node_id);
-    let new_text: String = serde_json::from_slice(&env.payload).unwrap();
-    assert_eq!(new_text, "Line One\n");
+    assert_eq!(env.payload, b"null");
+    assert_eq!(input.text_change().unwrap().new_text, "Line One\n");
     assert_eq!(
         ctx.text_edit.get(node_id).unwrap().caret,
         "Line One\n".len()

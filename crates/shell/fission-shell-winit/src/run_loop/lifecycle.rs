@@ -18,6 +18,7 @@ where
                 self.background_test_mode,
                 elwt,
                 self.web_mount_selector.as_deref(),
+                self.browser_defaults,
             ) {
                 Ok(new_window) => {
                     self.ime_handler.set_window(Some(new_window.clone()));

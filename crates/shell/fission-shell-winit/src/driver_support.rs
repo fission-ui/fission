@@ -496,6 +496,13 @@ pub(super) fn scoped_action_input_for_node(
     input
 }
 
+fn log_input_dispatch_failure(origin: &str, target: Option<WidgetId>) {
+    match target {
+        Some(target) => eprintln!("Fission input dispatch failed ({origin}, target {target})"),
+        None => eprintln!("Fission input dispatch failed ({origin})"),
+    }
+}
+
 pub(super) fn dispatch_text_change(
     ir: &CoreIR,
     runtime: &mut Runtime,
@@ -503,27 +510,15 @@ pub(super) fn dispatch_text_change(
     semantics: &Semantics,
     new_text: String,
 ) -> bool {
-    let Some(entry) = semantics
-        .actions
-        .entries
-        .iter()
-        .find(|entry| entry.trigger == ActionTrigger::Change)
-    else {
+    let selection = new_text.len();
+    let Some((envelope, input)) = fission_core::input::prepare_scoped_text_input_change(
+        ir, semantics, target, new_text, selection, selection,
+    ) else {
+        log_input_dispatch_failure("live_test_fill_text_missing_action", Some(target));
         return false;
     };
-    let Ok(payload) = serde_json::to_vec(&new_text) else {
-        return false;
-    };
-    let input = scoped_action_input_for_node(ir, target, ActionInput::None);
     runtime
-        .dispatch_with_input(
-            ActionEnvelope {
-                id: ActionId::from_u128(entry.action_id),
-                payload,
-            },
-            target,
-            &input,
-        )
+        .dispatch_with_input(envelope, target, &input)
         .is_ok()
 }
 
@@ -615,6 +610,7 @@ pub(super) fn set_text_value_for_test(
     {
         return false;
     }
+    let previous_text_state = runtime.runtime_state.text_edit.get(record.id).cloned();
     set_focus_for_test(runtime, ir, record.id, &record.semantics);
     runtime.runtime_state.text_edit.sync_from_runtime(
         record.id,
@@ -634,9 +630,26 @@ pub(super) fn set_text_value_for_test(
         state.pending_model_sync = true;
         state.clear_preedit();
     }
-    let mut changed =
-        dispatch_text_change(ir, runtime, record.id, &record.semantics, value.to_string());
-    changed |= dispatch_cursor_change(
+    if !dispatch_text_change(ir, runtime, record.id, &record.semantics, value.to_string()) {
+        if let Some(previous) = previous_text_state {
+            runtime
+                .runtime_state
+                .text_edit
+                .states
+                .insert(record.id, previous);
+        } else {
+            runtime.runtime_state.text_edit.states.remove(&record.id);
+        }
+        return false;
+    }
+
+    let has_cursor_action = record
+        .semantics
+        .actions
+        .entries
+        .iter()
+        .any(|entry| entry.trigger == ActionTrigger::CursorChange);
+    let cursor_changed = dispatch_cursor_change(
         ir,
         runtime,
         record.id,
@@ -644,7 +657,7 @@ pub(super) fn set_text_value_for_test(
         value.len(),
         value.len(),
     );
-    changed
+    !has_cursor_action || cursor_changed
 }
 
 pub(super) fn resolve_selector_response(
@@ -861,8 +874,19 @@ pub(super) fn handle_fill_text_selector(
             vec![(record, Some("not a text input".into()))],
         );
     }
-    set_text_value_for_test(runtime, ir, &record, text);
-    fission_test_driver::TestResponse::Ok {}
+    if set_text_value_for_test(runtime, ir, &record, text) {
+        fission_test_driver::TestResponse::Ok {}
+    } else {
+        selector_failure(
+            query.clone(),
+            fission_test_driver::SelectorFailureKind::UnsupportedAction,
+            "text input edit could not be dispatched",
+            vec![(
+                record,
+                Some("text input action unavailable or rejected".into()),
+            )],
+        )
+    }
 }
 
 pub(super) fn handle_toggle_selector(

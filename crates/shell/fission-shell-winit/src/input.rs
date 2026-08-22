@@ -575,9 +575,7 @@ pub(super) fn handle_key_down<S: GlobalState>(
             key_code: code,
             modifiers,
         });
-        if let Err(e) = runtime.handle_input(input_event, ir, layout) {
-            eprintln!("Keyboard error: {:?}", e);
-        }
+        let _ = runtime.handle_input(input_event, ir, layout);
         invalidations.mark_build();
         mark_text_trace_handled(pending_text_traces, trace_seq);
         if process_pending_effects(

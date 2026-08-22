@@ -1,6 +1,6 @@
 [package]
 name = "fission-3d"
-version = "0.10.1"
+version = "0.11.1"
 edition = "2021"
 
 license = "MIT"
@@ -16,12 +16,12 @@ readme = "README.md"
 platforms = ["android", "ios", "linux", "macos", "windows", "web"]
 
 [dependencies]
-fission-3d-model = { path = "../fission-3d-model", version = "0.10.1" }
-fission-core = { path = "../fission-core", version = "0.10.1" }
-fission-ir = { path = "../fission-ir", version = "0.10.1" }
-fission-render-wgpu3d = { path = "../../rendering/fission-render-wgpu3d", version = "0.10.1" }
+fission-3d-model = { path = "../fission-3d-model", version = "0.11.1" }
+fission-core = { path = "../fission-core", version = "0.11.1" }
+fission-ir = { path = "../fission-ir", version = "0.11.1" }
+fission-render-wgpu3d = { path = "../../rendering/fission-render-wgpu3d", version = "0.11.1" }
 serde = { version = "1.0", features = ["derive"] }
 wgpu = "26.0"
 
 [dev-dependencies]
-fission-render = { path = "../../rendering/fission-render", version = "0.10.1" }
+fission-render = { path = "../../rendering/fission-render", version = "0.11.1" }

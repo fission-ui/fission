@@ -118,7 +118,7 @@ In the winit shell path, macOS and iOS use AVFoundation player layers, Windows u
 Native Linux video is behind the `video` Cargo feature so ordinary desktop apps do not need GStreamer development packages unless they use embedded video:
 
 ```toml
-fission = { version = "0.10.1", default-features = false, features = ["desktop", "video"] }
+fission = { version = "0.11.1", default-features = false, features = ["desktop", "video"] }
 ```
 
 On Debian or Ubuntu, enabling that feature requires:
