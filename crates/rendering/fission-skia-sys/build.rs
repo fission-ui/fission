@@ -26,6 +26,7 @@ const STATIC_LIBRARIES: &[&str] = &[
     "skia",
 ];
 const GANESH_LINUX_SYSTEM_LIBRARIES: &[&str] = &["dl", "fontconfig", "vulkan"];
+const RASTER_LINUX_SYSTEM_LIBRARIES: &[&str] = &["fontconfig"];
 const GANESH_APPLE_SYSTEM_LIBRARIES: &[&str] = &["c++"];
 const GANESH_WINDOWS_SYSTEM_LIBRARIES: &[&str] = &["d3d12", "dxgi", "user32", "kernel32"];
 const GANESH_ANDROID_SYSTEM_LIBRARIES: &[&str] = &["android", "vulkan", "c++_shared"];
@@ -479,6 +480,15 @@ fn ganesh_link_contract(target: &str) -> (&'static [&'static str], &'static [&'s
     }
 }
 
+fn raster_link_contract(target: &str) -> (&'static [&'static str], &'static [&'static str]) {
+    match target {
+        "x86_64-unknown-linux-gnu" | "aarch64-unknown-linux-gnu" | "x86_64-unknown-linux-musl" => {
+            (RASTER_LINUX_SYSTEM_LIBRARIES, &[])
+        }
+        _ => (&[], &[]),
+    }
+}
+
 fn validate_bridge_recipe(
     profile: &str,
     target: &str,
@@ -661,6 +671,10 @@ fn optional_boolean_environment(variable: &str) -> bool {
 fn configure_source() {
     let source = required_dir("FISSION_SKIA_SOURCE_DIR");
     let build = required_dir("FISSION_SKIA_BUILD_DIR");
+    println!(
+        "cargo:rerun-if-changed={}",
+        build.join("fission-skia-build-plan.json").display()
+    );
     verify_source_revision(&source);
     let target = env::var("TARGET").expect("Cargo must set TARGET");
     let profile = env::var("FISSION_SKIA_PROFILE").unwrap_or_else(|_| "native-raster".into());
@@ -778,7 +792,7 @@ fn verify_bridge_source_plan(
     let (expected_system_libraries, expected_frameworks) = if profile == "native-ganesh" {
         ganesh_link_contract(target)
     } else {
-        (&[][..], &[][..])
+        raster_link_contract(target)
     };
     let system_libraries = source_plan_strings(recipe, "system_libraries", &path);
     let frameworks = source_plan_strings(recipe, "frameworks", &path);
