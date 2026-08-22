@@ -181,7 +181,7 @@
             "skia_use_x11": false
           },
           "required_licenses": ["vulkan-headers", "vulkan-memory-allocator"],
-          "system_libraries": ["dl", "fontconfig", "vulkan"],
+          "system_libraries": ["dl", "fontconfig", "stdc++", "vulkan"],
           "frameworks": []
         },
         "aarch64-unknown-linux-gnu": {
@@ -204,7 +204,7 @@
             "skia_use_x11": false
           },
           "required_licenses": ["vulkan-headers", "vulkan-memory-allocator"],
-          "system_libraries": ["dl", "fontconfig", "vulkan"],
+          "system_libraries": ["dl", "fontconfig", "stdc++", "vulkan"],
           "frameworks": []
         },
         "x86_64-unknown-linux-musl": {
@@ -526,7 +526,7 @@
       "kind": "native",
       "status": "planned",
       "gn_args": {"target_cpu": "x64", "target_os": "linux"},
-      "system_libraries": ["fontconfig"],
+      "system_libraries": ["fontconfig", "stdc++"],
       "frameworks": [],
       "allowed_gn_overrides": [],
       "deployment_fields": ["libc", "libc_version", "cxx_runtime"]
@@ -536,7 +536,7 @@
       "kind": "native",
       "status": "planned",
       "gn_args": {"target_cpu": "arm64", "target_os": "linux"},
-      "system_libraries": ["fontconfig"],
+      "system_libraries": ["fontconfig", "stdc++"],
       "frameworks": [],
       "allowed_gn_overrides": [],
       "deployment_fields": ["libc", "libc_version", "cxx_runtime"]
@@ -546,7 +546,7 @@
       "kind": "native",
       "status": "planned",
       "gn_args": {"target_cpu": "x64", "target_os": "linux"},
-      "system_libraries": ["fontconfig"],
+      "system_libraries": ["fontconfig", "stdc++"],
       "frameworks": [],
       "allowed_gn_overrides": [],
       "deployment_fields": ["libc", "libc_version", "cxx_runtime"]

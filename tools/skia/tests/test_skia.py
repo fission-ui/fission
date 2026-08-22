@@ -196,7 +196,7 @@ class SkiaToolTests(unittest.TestCase):
             ],
         )
         self.assertEqual(raster_recipe["bridge_defines"], {})
-        self.assertEqual(raster_recipe["system_libraries"], ["fontconfig"])
+        self.assertEqual(raster_recipe["system_libraries"], ["fontconfig", "stdc++"])
         self.assertEqual(raster_recipe["frameworks"], [])
         self.assertEqual(
             raster_recipe["required_licenses"],
@@ -334,7 +334,7 @@ class SkiaToolTests(unittest.TestCase):
             self.assertIs(recipe["gn_args"][name], False)
         self.assertEqual(
             profile["target_recipes"]["x86_64-unknown-linux-gnu"]["system_libraries"],
-            ["dl", "fontconfig", "vulkan"],
+            ["dl", "fontconfig", "stdc++", "vulkan"],
         )
         self.assertEqual(
             profile["features"]["presentation"],
@@ -361,7 +361,7 @@ class SkiaToolTests(unittest.TestCase):
                 recipe["required_licenses"]
             )
         )
-        self.assertEqual(recipe["system_libraries"], ["dl", "fontconfig", "vulkan"])
+        self.assertEqual(recipe["system_libraries"], ["dl", "fontconfig", "stdc++", "vulkan"])
         self.assertEqual(recipe["frameworks"], [])
 
     def test_native_ganesh_selects_exact_macos_metal_recipe(self) -> None:
@@ -553,7 +553,7 @@ class SkiaToolTests(unittest.TestCase):
     def test_native_ganesh_link_contract_is_exact(self) -> None:
         profile = self.config["profiles"]["native-ganesh"]
         links = {
-            "system_libraries": ["dl", "fontconfig", "vulkan"],
+            "system_libraries": ["dl", "fontconfig", "stdc++", "vulkan"],
             "frameworks": [],
         }
         skia.validate_profile_target_links(
@@ -562,7 +562,7 @@ class SkiaToolTests(unittest.TestCase):
             "aarch64-unknown-linux-gnu",
             links,
         )
-        links["system_libraries"] = ["dl", "fontconfig"]
+        links["system_libraries"] = ["dl", "fontconfig", "stdc++"]
         with self.assertRaisesRegex(skia.SkiaToolError, "system_libraries"):
             skia.validate_profile_target_links(
                 profile,
@@ -640,7 +640,7 @@ class SkiaToolTests(unittest.TestCase):
             "aarch64-unknown-linux-gnu",
             {},
         )
-        self.assertEqual(recipe["system_libraries"], ["fontconfig"])
+        self.assertEqual(recipe["system_libraries"], ["fontconfig", "stdc++"])
         self.assertEqual(recipe["frameworks"], [])
 
         profile = self.config["profiles"]["native-raster"]
@@ -649,7 +649,7 @@ class SkiaToolTests(unittest.TestCase):
             profile,
             "native-raster",
             "aarch64-unknown-linux-gnu",
-            {"system_libraries": ["fontconfig"], "frameworks": []},
+            {"system_libraries": ["fontconfig", "stdc++"], "frameworks": []},
             target,
         )
 

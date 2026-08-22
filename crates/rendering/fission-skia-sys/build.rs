@@ -25,8 +25,8 @@ const STATIC_LIBRARIES: &[&str] = &[
     "skunicode_core",
     "skia",
 ];
-const GANESH_LINUX_SYSTEM_LIBRARIES: &[&str] = &["dl", "fontconfig", "vulkan"];
-const RASTER_LINUX_SYSTEM_LIBRARIES: &[&str] = &["fontconfig"];
+const GANESH_LINUX_SYSTEM_LIBRARIES: &[&str] = &["dl", "fontconfig", "stdc++", "vulkan"];
+const RASTER_LINUX_SYSTEM_LIBRARIES: &[&str] = &["fontconfig", "stdc++"];
 const GANESH_APPLE_SYSTEM_LIBRARIES: &[&str] = &["c++"];
 const GANESH_WINDOWS_SYSTEM_LIBRARIES: &[&str] = &["d3d12", "dxgi", "user32", "kernel32"];
 const GANESH_ANDROID_SYSTEM_LIBRARIES: &[&str] = &["android", "vulkan", "c++_shared"];
