@@ -123,6 +123,7 @@ impl InternalLower for GestureDetector {
             identifier: self.semantics_identifier.clone(),
             value: None,
             actions: Default::default(),
+            canvas_target: None,
             action_scope_id: None,
             focusable: self.on_tap.is_some(),
             focus_policy: fission_ir::FocusPolicy::FocusOnPointer,

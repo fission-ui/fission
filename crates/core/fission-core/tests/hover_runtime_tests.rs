@@ -147,6 +147,8 @@ fn move_pointer(
     runtime
         .handle_input(
             InputEvent::Pointer(PointerEvent::Move {
+                pointer_id: Default::default(),
+                kind: Default::default(),
                 point: LayoutPoint::new(x, y),
                 modifiers: 0,
             }),

@@ -147,6 +147,8 @@ fn internal_drag_dispatches_drop_payload_and_drag_boundaries() -> Result<()> {
 
     runtime.handle_input(
         InputEvent::Pointer(PointerEvent::Down {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point: source_point,
             button: PointerButton::Primary,
             modifiers: 0,
@@ -156,6 +158,8 @@ fn internal_drag_dispatches_drop_payload_and_drag_boundaries() -> Result<()> {
     )?;
     runtime.handle_input(
         InputEvent::Pointer(PointerEvent::Move {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point: target_point,
             modifiers: 0,
         }),
@@ -164,6 +168,8 @@ fn internal_drag_dispatches_drop_payload_and_drag_boundaries() -> Result<()> {
     )?;
     runtime.handle_input(
         InputEvent::Pointer(PointerEvent::Up {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point: target_point,
             button: PointerButton::Primary,
             modifiers: 0,
@@ -193,6 +199,8 @@ fn drag_leave_fires_when_internal_drag_moves_off_target() -> Result<()> {
 
     runtime.handle_input(
         InputEvent::Pointer(PointerEvent::Down {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point: LayoutPoint::new(20.0, 20.0),
             button: PointerButton::Primary,
             modifiers: 0,
@@ -202,6 +210,8 @@ fn drag_leave_fires_when_internal_drag_moves_off_target() -> Result<()> {
     )?;
     runtime.handle_input(
         InputEvent::Pointer(PointerEvent::Move {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point: LayoutPoint::new(150.0, 30.0),
             modifiers: 0,
         }),
@@ -210,6 +220,8 @@ fn drag_leave_fires_when_internal_drag_moves_off_target() -> Result<()> {
     )?;
     runtime.handle_input(
         InputEvent::Pointer(PointerEvent::Move {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point: LayoutPoint::new(245.0, 100.0),
             modifiers: 0,
         }),

@@ -56,6 +56,7 @@ impl InternalLower for FocusScope {
             identifier: None,
             value: None,
             actions: Default::default(),
+            canvas_target: None,
             action_scope_id: None,
             focusable: false,
             focus_policy: fission_ir::FocusPolicy::FocusOnPointer,

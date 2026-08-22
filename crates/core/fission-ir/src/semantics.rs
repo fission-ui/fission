@@ -138,6 +138,12 @@ pub enum ActionTrigger {
     /// The bound action payload remains unchanged. The edited value, widget
     /// identity, caret, and anchor are delivered as runtime action input.
     TextChanged,
+    /// An interactive viewport began a pan or zoom gesture.
+    ViewportInteractionStart,
+    /// An interactive viewport's camera changed during a gesture.
+    ViewportInteractionUpdate,
+    /// An interactive viewport gesture ended; configured inertia may continue.
+    ViewportInteractionEnd,
 }
 
 #[cfg(test)]
@@ -160,6 +166,9 @@ mod tests {
         assert_eq!(ActionTrigger::EditingComplete as u8, 12);
         assert_eq!(ActionTrigger::SecondaryClick as u8, 18);
         assert_eq!(ActionTrigger::TextChanged as u8, 19);
+        assert_eq!(ActionTrigger::ViewportInteractionStart as u8, 20);
+        assert_eq!(ActionTrigger::ViewportInteractionUpdate as u8, 21);
+        assert_eq!(ActionTrigger::ViewportInteractionEnd as u8, 22);
     }
 }
 
@@ -292,6 +301,94 @@ pub struct ActionEntry {
     pub payload_data: Option<Vec<u8>>,
 }
 
+/// Canvas-specific semantic target used by the shared gesture controller.
+///
+/// This keeps stable document identity and geometry in backend-neutral IR while
+/// action payloads remain entirely application-defined.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CanvasTarget {
+    pub canvas_id: u128,
+    pub kind: CanvasTargetKind,
+    pub selection_policy: CanvasSelectionPolicy,
+    pub snap_spacing: Option<f32>,
+    pub snap_threshold: f32,
+}
+
+impl std::hash::Hash for CanvasTarget {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.canvas_id.hash(state);
+        self.kind.hash(state);
+        self.selection_policy.hash(state);
+        self.snap_spacing.map(f32::to_bits).hash(state);
+        self.snap_threshold.to_bits().hash(state);
+    }
+}
+
+/// Declarative selection behavior requested by an infinite canvas.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum CanvasSelectionPolicy {
+    None,
+    Single,
+    Toggle,
+    Marquee,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum CanvasTargetKind {
+    Node {
+        node_id: u128,
+        bounds: [f32; 4],
+    },
+    ResizeHandle {
+        node_id: u128,
+        handle: u8,
+        bounds: [f32; 4],
+    },
+    Edge {
+        edge_id: u128,
+        points: Vec<[f32; 2]>,
+        cubic: bool,
+        hit_tolerance: f32,
+    },
+    Marquee,
+}
+
+impl std::hash::Hash for CanvasTargetKind {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        match self {
+            Self::Node { node_id, bounds } => {
+                node_id.hash(state);
+                bounds.iter().for_each(|value| value.to_bits().hash(state));
+            }
+            Self::ResizeHandle {
+                node_id,
+                handle,
+                bounds,
+            } => {
+                node_id.hash(state);
+                handle.hash(state);
+                bounds.iter().for_each(|value| value.to_bits().hash(state));
+            }
+            Self::Edge {
+                edge_id,
+                points,
+                cubic,
+                hit_tolerance,
+            } => {
+                edge_id.hash(state);
+                for point in points {
+                    point[0].to_bits().hash(state);
+                    point[1].to_bits().hash(state);
+                }
+                cubic.hash(state);
+                hit_tolerance.to_bits().hash(state);
+            }
+            Self::Marquee => {}
+        }
+    }
+}
+
 impl ActionEntry {
     /// Creates a non-dispatched cursor request consumed by hover handling.
     pub fn hover_cursor(cursor: MouseCursor) -> Self {
@@ -348,6 +445,9 @@ pub struct Semantics {
     pub value: Option<String>,
     /// The set of actions this node responds to.
     pub actions: ActionSet,
+    /// Structured InfiniteCanvas target metadata for contextual gesture input.
+    #[serde(default)]
+    pub canvas_target: Option<CanvasTarget>,
     /// Optional raw action dispatch scope inherited by descendant actions.
     #[serde(default)]
     pub action_scope_id: Option<u128>,
@@ -448,6 +548,7 @@ impl std::hash::Hash for Semantics {
         self.identifier.hash(state);
         self.value.hash(state);
         self.actions.hash(state);
+        self.canvas_target.hash(state);
         self.action_scope_id.hash(state);
         self.focusable.hash(state);
         self.focus_policy.hash(state);
@@ -502,6 +603,7 @@ impl Default for Semantics {
             identifier: None,
             value: None,
             actions: ActionSet::default(),
+            canvas_target: None,
             action_scope_id: None,
             focusable: false,
             focus_policy: FocusPolicy::FocusOnPointer,

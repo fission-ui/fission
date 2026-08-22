@@ -60,8 +60,9 @@ use fission_core::{
     Action, ActionEnvelope, ActionId, ActionRegistry, DeepLink, DeepLinkConfig, DeepLinkReceived,
     Env, ExternalDragEvent, GlobalState, InputEvent, KeyCode, KeyEvent as FissionKeyEvent,
     NotificationResponse, NotificationResponseReceived, OpenUrlRequest, PointerButton,
-    PointerEvent, Runtime, ScrollAlignment, ScrollAxis, ScrollBehavior, ScrollIntoViewRequest,
-    ServiceBindings, View, Widget, WidgetIdExt, OPEN_URL,
+    PointerEvent, PointerId, PointerKind, PointerPhase, Runtime, ScrollAlignment, ScrollAxis,
+    ScrollBehavior, ScrollDeltaMode, ScrollIntoViewRequest, ServiceBindings, View, Widget,
+    WidgetIdExt, OPEN_URL,
 };
 use fission_core::{ActionInput, CapabilityInvocationPayload, Effect};
 use fission_diagnostics::prelude as diag;
@@ -85,7 +86,7 @@ use fontique::{
 use raw_window_handle::HasWindowHandle;
 use read_fonts::types::Tag;
 
-use fission_test_driver::TestEvent;
+use fission_test_driver::{TestEvent, TestPointerKind, TestPointerPhase, TestScrollDeltaMode};
 
 // Vello / WGPU
 #[cfg(not(target_arch = "wasm32"))]
@@ -2758,6 +2759,39 @@ fn map_test_button(button: u8) -> PointerButton {
     }
 }
 
+fn map_test_pointer_kind(kind: TestPointerKind) -> PointerKind {
+    match kind {
+        TestPointerKind::Mouse => PointerKind::Mouse,
+        TestPointerKind::Touch => PointerKind::Touch,
+        TestPointerKind::Stylus => PointerKind::Stylus,
+        TestPointerKind::Unknown => PointerKind::Unknown,
+    }
+}
+
+fn map_test_pointer_id(id: u64, kind: TestPointerKind) -> PointerId {
+    if matches!(kind, TestPointerKind::Mouse) {
+        PointerId::MOUSE
+    } else {
+        PointerId::contact(id)
+    }
+}
+
+fn map_test_pointer_phase(phase: TestPointerPhase) -> PointerPhase {
+    match phase {
+        TestPointerPhase::Started => PointerPhase::Started,
+        TestPointerPhase::Moved => PointerPhase::Moved,
+        TestPointerPhase::Ended => PointerPhase::Ended,
+        TestPointerPhase::Cancelled => PointerPhase::Cancelled,
+    }
+}
+
+fn map_test_scroll_delta_mode(mode: TestScrollDeltaMode) -> ScrollDeltaMode {
+    match mode {
+        TestScrollDeltaMode::Line => ScrollDeltaMode::Line,
+        TestScrollDeltaMode::Pixel => ScrollDeltaMode::Pixel,
+    }
+}
+
 fn cursor_icon_for(cursor: MouseCursor) -> CursorIcon {
     match cursor {
         MouseCursor::Default => CursorIcon::Default,
@@ -2780,7 +2814,10 @@ fn sync_window_cursor(window: &Window, runtime: &Runtime) {
 
 const LINE_SCROLL_POINTS: f32 = 50.0;
 
-fn normalize_winit_scroll_delta(delta: &MouseScrollDelta, scale_factor: f64) -> (f32, f32) {
+fn normalize_winit_scroll_delta(
+    delta: &MouseScrollDelta,
+    scale_factor: f64,
+) -> (f32, f32, ScrollDeltaMode) {
     let scale_factor = if scale_factor.is_finite() && scale_factor > 0.0 {
         scale_factor
     } else {
@@ -2790,10 +2827,34 @@ fn normalize_winit_scroll_delta(delta: &MouseScrollDelta, scale_factor: f64) -> 
         // Fission scroll offsets increase down/right. Winit reports positive
         // wheel lines upward/leftward; the OS has already applied any natural
         // scrolling preference before the event reaches us.
-        MouseScrollDelta::LineDelta(x, y) => (-x * LINE_SCROLL_POINTS, -y * LINE_SCROLL_POINTS),
-        MouseScrollDelta::PixelDelta(p) => {
-            (-(p.x / scale_factor) as f32, -(p.y / scale_factor) as f32)
-        }
+        MouseScrollDelta::LineDelta(x, y) => (
+            -x * LINE_SCROLL_POINTS,
+            -y * LINE_SCROLL_POINTS,
+            ScrollDeltaMode::Line,
+        ),
+        MouseScrollDelta::PixelDelta(p) => (
+            -(p.x / scale_factor) as f32,
+            -(p.y / scale_factor) as f32,
+            ScrollDeltaMode::Pixel,
+        ),
+    }
+}
+
+fn map_touch_phase(phase: TouchPhase) -> PointerPhase {
+    match phase {
+        TouchPhase::Started => PointerPhase::Started,
+        TouchPhase::Moved => PointerPhase::Moved,
+        TouchPhase::Ended => PointerPhase::Ended,
+        TouchPhase::Cancelled => PointerPhase::Cancelled,
+    }
+}
+
+fn magnification_scale_factor(delta: f64) -> f32 {
+    let factor = 1.0 + delta as f32;
+    if factor.is_finite() && factor > 0.0 {
+        factor
+    } else {
+        1.0
     }
 }
 
@@ -2839,6 +2900,8 @@ fn window_physical_position_to_layout_point(
 fn handle_cursor_moved(
     x: f32,
     y: f32,
+    pointer_id: PointerId,
+    kind: PointerKind,
     modifiers: u8,
     runtime: &mut Runtime,
     pipeline: &Pipeline,
@@ -2858,7 +2921,12 @@ fn handle_cursor_moved(
 ) {
     if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
         let point = LayoutPoint { x, y };
-        let event = InputEvent::Pointer(PointerEvent::Move { point, modifiers });
+        let event = InputEvent::Pointer(PointerEvent::Move {
+            pointer_id,
+            kind,
+            point,
+            modifiers,
+        });
         if let Err(e) = runtime.handle_input(event, ir, layout) {
             eprintln!("Input handling error: {:?}", e);
         }
@@ -2959,6 +3027,8 @@ fn handle_mouse_button(
     y: f32,
     button: PointerButton,
     is_pressed: bool,
+    pointer_id: PointerId,
+    kind: PointerKind,
     modifiers: u8,
     runtime: &mut Runtime,
     pipeline: &Pipeline,
@@ -2985,12 +3055,16 @@ fn handle_mouse_button(
         let point = LayoutPoint { x, y };
         let pointer_event = if is_pressed {
             PointerEvent::Down {
+                pointer_id,
+                kind,
                 point,
                 button,
                 modifiers,
             }
         } else {
             PointerEvent::Up {
+                pointer_id,
+                kind,
                 point,
                 button,
                 modifiers,
@@ -3074,6 +3148,8 @@ fn handle_scroll(
     point_y: f32,
     delta_x: f32,
     delta_y: f32,
+    delta_mode: ScrollDeltaMode,
+    phase: PointerPhase,
     modifiers: u8,
     runtime: &mut Runtime,
     pipeline: &Pipeline,
@@ -3103,6 +3179,8 @@ fn handle_scroll(
         let event = InputEvent::Pointer(PointerEvent::Scroll {
             point,
             delta: scroll_delta,
+            delta_mode,
+            phase,
             modifiers,
         });
         if let Err(e) = runtime.handle_input(event, ir, layout) {
@@ -3141,6 +3219,54 @@ fn handle_scroll(
             redraw_pending,
             frame_trace,
             "scroll",
+        );
+    }
+}
+
+fn handle_pointer_signal(
+    event: PointerEvent,
+    redraw_reason: &'static str,
+    runtime: &mut Runtime,
+    pipeline: &Pipeline,
+    effect_result_tx: &mpsc::Sender<EffectResult>,
+    event_proxy: &EventLoopProxy<TestEvent>,
+    async_registry: &AsyncRegistry,
+    active_services: &mut HashMap<ServiceKey, ActiveServiceHandle>,
+    service_bindings: &mut HashMap<ServiceBindingKey, ServiceBindings>,
+    next_service_instance_id: &mut u64,
+    window: &Window,
+    elwt: &EventLoopWindowTarget,
+    last_redraw_at: &mut Instant,
+    min_frame: Duration,
+    redraw_pending: &mut bool,
+    frame_trace: &mut FrameTraceState,
+    invalidations: &mut InvalidationSet,
+) {
+    if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
+        if let Err(error) = runtime.handle_input(InputEvent::Pointer(event), ir, layout) {
+            eprintln!("Pointer input error: {error:?}");
+        }
+        sync_window_cursor(window, runtime);
+        invalidations.mark_build();
+        if process_pending_effects(
+            runtime,
+            effect_result_tx,
+            event_proxy,
+            async_registry,
+            active_services,
+            service_bindings,
+            next_service_instance_id,
+        ) {
+            invalidations.mark_build();
+        }
+        request_redraw_logged(
+            window,
+            elwt,
+            last_redraw_at,
+            min_frame,
+            redraw_pending,
+            frame_trace,
+            redraw_reason,
         );
     }
 }
@@ -4085,12 +4211,16 @@ fn handle_pointer_selector(
     };
     let event = if click {
         PointerEvent::Down {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point,
             button: button.clone(),
             modifiers: 0,
         }
     } else {
         PointerEvent::Move {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point,
             modifiers: 0,
         }
@@ -4099,6 +4229,8 @@ fn handle_pointer_selector(
     if click {
         let _ = runtime.handle_input(
             InputEvent::Pointer(PointerEvent::Up {
+                pointer_id: Default::default(),
+                kind: Default::default(),
                 point,
                 button,
                 modifiers: 0,
@@ -4394,6 +4526,8 @@ fn handle_tap_text(
             let point = LayoutPoint::new(cx, cy);
             let _ = runtime.handle_input(
                 InputEvent::Pointer(PointerEvent::Down {
+                    pointer_id: Default::default(),
+                    kind: Default::default(),
                     point,
                     button: PointerButton::Primary,
                     modifiers: 0,
@@ -4403,6 +4537,8 @@ fn handle_tap_text(
             );
             let _ = runtime.handle_input(
                 InputEvent::Pointer(PointerEvent::Up {
+                    pointer_id: Default::default(),
+                    kind: Default::default(),
                     point,
                     button: PointerButton::Primary,
                     modifiers: 0,
@@ -5191,7 +5327,6 @@ where
         let mut last_cursor_position: Option<PhysicalPosition<f64>> = None;
         #[cfg(target_arch = "wasm32")]
         let mut last_web_secondary_up: Option<(LayoutPoint, Instant)> = None;
-        let mut active_primary_touch: Option<u64> = None;
         let mut touch_positions: HashMap<u64, PhysicalPosition<f64>> = HashMap::new();
         let max_fps = std::env::var("FISSION_MAX_FPS")
             .ok()
@@ -5328,6 +5463,8 @@ where
                         handle_cursor_moved(
                             x,
                             y,
+                            PointerId::MOUSE,
+                            PointerKind::Mouse,
                             0,
                             &mut runtime,
                             &pipeline,
@@ -5356,6 +5493,8 @@ where
                             y,
                             btn,
                             true,
+                            PointerId::MOUSE,
+                            PointerKind::Mouse,
                             0,
                             &mut runtime,
                             &pipeline,
@@ -5389,6 +5528,8 @@ where
                             y,
                             btn,
                             false,
+                            PointerId::MOUSE,
+                            PointerKind::Mouse,
                             0,
                             &mut runtime,
                             &pipeline,
@@ -5408,6 +5549,154 @@ where
                             &mut next_text_trace_seq,
                             presented_frames,
                             &mut last_blink_toggle,
+                            &mut frame_trace,
+                            &mut invalidations,
+                        );
+                    }
+                    TestEvent::PointerDown {
+                        pointer_id,
+                        kind,
+                        x,
+                        y,
+                        modifiers,
+                    } => {
+                        let Some(window) = platform_window.active_window() else {
+                            return;
+                        };
+                        handle_mouse_button(
+                            x,
+                            y,
+                            PointerButton::Primary,
+                            true,
+                            map_test_pointer_id(pointer_id, kind),
+                            map_test_pointer_kind(kind),
+                            modifiers,
+                            &mut runtime,
+                            &pipeline,
+                            &effect_result_tx,
+                            &event_proxy,
+                            &async_registry,
+                            &mut active_services,
+                            &mut service_bindings,
+                            &mut next_service_instance_id,
+                            window,
+                            elwt,
+                            &mut last_redraw_at,
+                            min_frame,
+                            &mut redraw_pending,
+                            text_trace_enabled,
+                            &mut pending_text_traces,
+                            &mut next_text_trace_seq,
+                            presented_frames,
+                            &mut last_blink_toggle,
+                            &mut frame_trace,
+                            &mut invalidations,
+                        );
+                    }
+                    TestEvent::PointerMove {
+                        pointer_id,
+                        kind,
+                        x,
+                        y,
+                        modifiers,
+                    } => {
+                        let Some(window) = platform_window.active_window() else {
+                            return;
+                        };
+                        handle_cursor_moved(
+                            x,
+                            y,
+                            map_test_pointer_id(pointer_id, kind),
+                            map_test_pointer_kind(kind),
+                            modifiers,
+                            &mut runtime,
+                            &pipeline,
+                            &effect_result_tx,
+                            &event_proxy,
+                            &async_registry,
+                            &mut active_services,
+                            &mut service_bindings,
+                            &mut next_service_instance_id,
+                            window,
+                            elwt,
+                            &mut last_redraw_at,
+                            min_frame,
+                            &mut redraw_pending,
+                            &mut frame_trace,
+                            &mut invalidations,
+                        );
+                    }
+                    TestEvent::PointerUp {
+                        pointer_id,
+                        kind,
+                        x,
+                        y,
+                        modifiers,
+                    } => {
+                        let Some(window) = platform_window.active_window() else {
+                            return;
+                        };
+                        handle_mouse_button(
+                            x,
+                            y,
+                            PointerButton::Primary,
+                            false,
+                            map_test_pointer_id(pointer_id, kind),
+                            map_test_pointer_kind(kind),
+                            modifiers,
+                            &mut runtime,
+                            &pipeline,
+                            &effect_result_tx,
+                            &event_proxy,
+                            &async_registry,
+                            &mut active_services,
+                            &mut service_bindings,
+                            &mut next_service_instance_id,
+                            window,
+                            elwt,
+                            &mut last_redraw_at,
+                            min_frame,
+                            &mut redraw_pending,
+                            text_trace_enabled,
+                            &mut pending_text_traces,
+                            &mut next_text_trace_seq,
+                            presented_frames,
+                            &mut last_blink_toggle,
+                            &mut frame_trace,
+                            &mut invalidations,
+                        );
+                    }
+                    TestEvent::PointerCancel {
+                        pointer_id,
+                        kind,
+                        x,
+                        y,
+                        modifiers,
+                    } => {
+                        let Some(window) = platform_window.active_window() else {
+                            return;
+                        };
+                        handle_pointer_signal(
+                            PointerEvent::Cancel {
+                                pointer_id: map_test_pointer_id(pointer_id, kind),
+                                kind: map_test_pointer_kind(kind),
+                                point: LayoutPoint::new(x, y),
+                                modifiers,
+                            },
+                            "test_pointer_cancel",
+                            &mut runtime,
+                            &pipeline,
+                            &effect_result_tx,
+                            &event_proxy,
+                            &async_registry,
+                            &mut active_services,
+                            &mut service_bindings,
+                            &mut next_service_instance_id,
+                            window,
+                            elwt,
+                            &mut last_redraw_at,
+                            min_frame,
+                            &mut redraw_pending,
                             &mut frame_trace,
                             &mut invalidations,
                         );
@@ -5661,7 +5950,81 @@ where
                             y,
                             dx,
                             dy,
+                            ScrollDeltaMode::Pixel,
+                            PointerPhase::Moved,
                             0,
+                            &mut runtime,
+                            &pipeline,
+                            &effect_result_tx,
+                            &event_proxy,
+                            &async_registry,
+                            &mut active_services,
+                            &mut service_bindings,
+                            &mut next_service_instance_id,
+                            window,
+                            elwt,
+                            &mut last_redraw_at,
+                            min_frame,
+                            &mut redraw_pending,
+                            &mut frame_trace,
+                            &mut invalidations,
+                        );
+                    }
+                    TestEvent::PointerScroll {
+                        x,
+                        y,
+                        dx,
+                        dy,
+                        delta_mode,
+                        phase,
+                        modifiers,
+                    } => {
+                        let Some(window) = platform_window.active_window() else {
+                            return;
+                        };
+                        handle_scroll(
+                            x,
+                            y,
+                            dx,
+                            dy,
+                            map_test_scroll_delta_mode(delta_mode),
+                            map_test_pointer_phase(phase),
+                            modifiers,
+                            &mut runtime,
+                            &pipeline,
+                            &effect_result_tx,
+                            &event_proxy,
+                            &async_registry,
+                            &mut active_services,
+                            &mut service_bindings,
+                            &mut next_service_instance_id,
+                            window,
+                            elwt,
+                            &mut last_redraw_at,
+                            min_frame,
+                            &mut redraw_pending,
+                            &mut frame_trace,
+                            &mut invalidations,
+                        );
+                    }
+                    TestEvent::Magnify {
+                        x,
+                        y,
+                        scale_factor,
+                        phase,
+                        modifiers,
+                    } => {
+                        let Some(window) = platform_window.active_window() else {
+                            return;
+                        };
+                        handle_pointer_signal(
+                            PointerEvent::Magnify {
+                                point: LayoutPoint::new(x, y),
+                                scale_factor,
+                                phase: map_test_pointer_phase(phase),
+                                modifiers,
+                            },
+                            "test_magnify",
                             &mut runtime,
                             &pipeline,
                             &effect_result_tx,
@@ -6506,7 +6869,6 @@ where
                         pending_capture_settle = false;
                         last_built_viewport = None;
                         last_cursor_position = None;
-                        active_primary_touch = None;
                         touch_positions.clear();
                     }
                 }
@@ -7739,9 +8101,12 @@ where
                                 (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref())
                             {
                                 if runtime.post_layout_hook(ir, layout) {
-                                    invalidations.mark_layout();
+                                    // Runtime-owned viewport inertia can change the visible
+                                    // world used by authored canvas grid/edge batches.
+                                    invalidations.mark_build();
                                 }
                             }
+                            pipeline.set_viewport_state(&runtime.runtime_state.viewport);
                             if let (Some(ir), Some(layout)) =
                                 (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref())
                             {
@@ -8560,6 +8925,8 @@ where
                             handle_cursor_moved(
                                 point.x,
                                 point.y,
+                                PointerId::MOUSE,
+                                PointerKind::Mouse,
                                 current_mods,
                                 &mut runtime,
                                 &pipeline,
@@ -8691,6 +9058,8 @@ where
                                         point.y,
                                         btn,
                                         is_pressed,
+                                        PointerId::MOUSE,
+                                        PointerKind::Mouse,
                                         current_mods,
                                         &mut runtime,
                                         &pipeline,
@@ -8720,7 +9089,7 @@ where
                                 }
                             }
                         }
-                        WindowEvent::MouseWheel { delta, .. } => {
+                        WindowEvent::MouseWheel { delta, phase, .. } => {
                             #[cfg(target_arch = "wasm32")]
                             pending_web_input_at.get_or_insert_with(Instant::now);
                             if let Some(position) = last_cursor_position {
@@ -8728,7 +9097,8 @@ where
                                 let point =
                                     window_physical_position_to_layout_point(window, position);
 
-                                let (dx, dy) = normalize_winit_scroll_delta(&delta, scale_factor);
+                                let (dx, dy, delta_mode) =
+                                    normalize_winit_scroll_delta(&delta, scale_factor);
 
                                 if std::env::var("FISSION_SCROLL_TRACE").ok().as_deref()
                                     == Some("1")
@@ -8743,6 +9113,8 @@ where
                                     point.y,
                                     dx,
                                     dy,
+                                    delta_mode,
+                                    map_touch_phase(phase),
                                     current_mods,
                                     &mut runtime,
                                     &pipeline,
@@ -8762,6 +9134,41 @@ where
                                 );
                             }
                         }
+                        WindowEvent::PinchGesture { delta, phase, .. } => {
+                            let physical_point = last_cursor_position.unwrap_or_else(|| {
+                                let size = window.inner_size();
+                                PhysicalPosition::new(
+                                    f64::from(size.width) * 0.5,
+                                    f64::from(size.height) * 0.5,
+                                )
+                            });
+                            let point =
+                                window_physical_position_to_layout_point(window, physical_point);
+                            handle_pointer_signal(
+                                PointerEvent::Magnify {
+                                    point,
+                                    scale_factor: magnification_scale_factor(delta),
+                                    phase: map_touch_phase(phase),
+                                    modifiers: current_mods,
+                                },
+                                "magnify",
+                                &mut runtime,
+                                &pipeline,
+                                &effect_result_tx,
+                                &event_proxy,
+                                &async_registry,
+                                &mut active_services,
+                                &mut service_bindings,
+                                &mut next_service_instance_id,
+                                &window,
+                                elwt,
+                                &mut last_redraw_at,
+                                min_frame,
+                                &mut redraw_pending,
+                                &mut frame_trace,
+                                &mut invalidations,
+                            );
+                        }
                         WindowEvent::Touch(touch) => {
                             #[cfg(target_arch = "wasm32")]
                             pending_web_input_at.get_or_insert_with(Instant::now);
@@ -8779,139 +9186,145 @@ where
                             last_cursor_position = Some(position);
 
                             let point = window_physical_position_to_layout_point(window, position);
+                            let pointer_id = PointerId::contact(touch.id);
 
                             match touch.phase {
                                 TouchPhase::Started => {
                                     touch_positions.insert(touch.id, position);
-                                    if active_primary_touch.is_none() {
-                                        active_primary_touch = Some(touch.id);
-                                    }
-                                    if active_primary_touch == Some(touch.id) {
-                                        handle_cursor_moved(
-                                            point.x,
-                                            point.y,
-                                            current_mods,
-                                            &mut runtime,
-                                            &pipeline,
-                                            &effect_result_tx,
-                                            &event_proxy,
-                                            &async_registry,
-                                            &mut active_services,
-                                            &mut service_bindings,
-                                            &mut next_service_instance_id,
-                                            &window,
-                                            elwt,
-                                            &mut last_redraw_at,
-                                            min_frame,
-                                            &mut redraw_pending,
-                                            &mut frame_trace,
-                                            &mut invalidations,
-                                        );
-                                        handle_mouse_button(
-                                            point.x,
-                                            point.y,
-                                            PointerButton::Primary,
-                                            true,
-                                            current_mods,
-                                            &mut runtime,
-                                            &pipeline,
-                                            &effect_result_tx,
-                                            &event_proxy,
-                                            &async_registry,
-                                            &mut active_services,
-                                            &mut service_bindings,
-                                            &mut next_service_instance_id,
-                                            &window,
-                                            elwt,
-                                            &mut last_redraw_at,
-                                            min_frame,
-                                            &mut redraw_pending,
-                                            text_trace_enabled,
-                                            &mut pending_text_traces,
-                                            &mut next_text_trace_seq,
-                                            presented_frames,
-                                            &mut last_blink_toggle,
-                                            &mut frame_trace,
-                                            &mut invalidations,
-                                        );
-                                    }
+                                    handle_cursor_moved(
+                                        point.x,
+                                        point.y,
+                                        pointer_id,
+                                        PointerKind::Touch,
+                                        current_mods,
+                                        &mut runtime,
+                                        &pipeline,
+                                        &effect_result_tx,
+                                        &event_proxy,
+                                        &async_registry,
+                                        &mut active_services,
+                                        &mut service_bindings,
+                                        &mut next_service_instance_id,
+                                        &window,
+                                        elwt,
+                                        &mut last_redraw_at,
+                                        min_frame,
+                                        &mut redraw_pending,
+                                        &mut frame_trace,
+                                        &mut invalidations,
+                                    );
+                                    handle_mouse_button(
+                                        point.x,
+                                        point.y,
+                                        PointerButton::Primary,
+                                        true,
+                                        pointer_id,
+                                        PointerKind::Touch,
+                                        current_mods,
+                                        &mut runtime,
+                                        &pipeline,
+                                        &effect_result_tx,
+                                        &event_proxy,
+                                        &async_registry,
+                                        &mut active_services,
+                                        &mut service_bindings,
+                                        &mut next_service_instance_id,
+                                        &window,
+                                        elwt,
+                                        &mut last_redraw_at,
+                                        min_frame,
+                                        &mut redraw_pending,
+                                        text_trace_enabled,
+                                        &mut pending_text_traces,
+                                        &mut next_text_trace_seq,
+                                        presented_frames,
+                                        &mut last_blink_toggle,
+                                        &mut frame_trace,
+                                        &mut invalidations,
+                                    );
                                 }
                                 TouchPhase::Moved => {
                                     touch_positions.insert(touch.id, position);
-                                    if active_primary_touch == Some(touch.id) {
-                                        handle_cursor_moved(
-                                            point.x,
-                                            point.y,
-                                            current_mods,
-                                            &mut runtime,
-                                            &pipeline,
-                                            &effect_result_tx,
-                                            &event_proxy,
-                                            &async_registry,
-                                            &mut active_services,
-                                            &mut service_bindings,
-                                            &mut next_service_instance_id,
-                                            &window,
-                                            elwt,
-                                            &mut last_redraw_at,
-                                            min_frame,
-                                            &mut redraw_pending,
-                                            &mut frame_trace,
-                                            &mut invalidations,
-                                        );
-                                    }
+                                    handle_cursor_moved(
+                                        point.x,
+                                        point.y,
+                                        pointer_id,
+                                        PointerKind::Touch,
+                                        current_mods,
+                                        &mut runtime,
+                                        &pipeline,
+                                        &effect_result_tx,
+                                        &event_proxy,
+                                        &async_registry,
+                                        &mut active_services,
+                                        &mut service_bindings,
+                                        &mut next_service_instance_id,
+                                        &window,
+                                        elwt,
+                                        &mut last_redraw_at,
+                                        min_frame,
+                                        &mut redraw_pending,
+                                        &mut frame_trace,
+                                        &mut invalidations,
+                                    );
                                 }
-                                TouchPhase::Ended | TouchPhase::Cancelled => {
-                                    if active_primary_touch == Some(touch.id) {
-                                        handle_cursor_moved(
-                                            point.x,
-                                            point.y,
-                                            current_mods,
-                                            &mut runtime,
-                                            &pipeline,
-                                            &effect_result_tx,
-                                            &event_proxy,
-                                            &async_registry,
-                                            &mut active_services,
-                                            &mut service_bindings,
-                                            &mut next_service_instance_id,
-                                            &window,
-                                            elwt,
-                                            &mut last_redraw_at,
-                                            min_frame,
-                                            &mut redraw_pending,
-                                            &mut frame_trace,
-                                            &mut invalidations,
-                                        );
-                                        handle_mouse_button(
-                                            point.x,
-                                            point.y,
-                                            PointerButton::Primary,
-                                            false,
-                                            current_mods,
-                                            &mut runtime,
-                                            &pipeline,
-                                            &effect_result_tx,
-                                            &event_proxy,
-                                            &async_registry,
-                                            &mut active_services,
-                                            &mut service_bindings,
-                                            &mut next_service_instance_id,
-                                            &window,
-                                            elwt,
-                                            &mut last_redraw_at,
-                                            min_frame,
-                                            &mut redraw_pending,
-                                            text_trace_enabled,
-                                            &mut pending_text_traces,
-                                            &mut next_text_trace_seq,
-                                            presented_frames,
-                                            &mut last_blink_toggle,
-                                            &mut frame_trace,
-                                            &mut invalidations,
-                                        );
-                                        active_primary_touch = None;
-                                    }
+                                TouchPhase::Ended => {
+                                    handle_mouse_button(
+                                        point.x,
+                                        point.y,
+                                        PointerButton::Primary,
+                                        false,
+                                        pointer_id,
+                                        PointerKind::Touch,
+                                        current_mods,
+                                        &mut runtime,
+                                        &pipeline,
+                                        &effect_result_tx,
+                                        &event_proxy,
+                                        &async_registry,
+                                        &mut active_services,
+                                        &mut service_bindings,
+                                        &mut next_service_instance_id,
+                                        &window,
+                                        elwt,
+                                        &mut last_redraw_at,
+                                        min_frame,
+                                        &mut redraw_pending,
+                                        text_trace_enabled,
+                                        &mut pending_text_traces,
+                                        &mut next_text_trace_seq,
+                                        presented_frames,
+                                        &mut last_blink_toggle,
+                                        &mut frame_trace,
+                                        &mut invalidations,
+                                    );
+                                    touch_positions.remove(&touch.id);
+                                }
+                                TouchPhase::Cancelled => {
+                                    handle_pointer_signal(
+                                        PointerEvent::Cancel {
+                                            pointer_id,
+                                            kind: PointerKind::Touch,
+                                            point,
+                                            modifiers: current_mods,
+                                        },
+                                        "touch_cancel",
+                                        &mut runtime,
+                                        &pipeline,
+                                        &effect_result_tx,
+                                        &event_proxy,
+                                        &async_registry,
+                                        &mut active_services,
+                                        &mut service_bindings,
+                                        &mut next_service_instance_id,
+                                        &window,
+                                        elwt,
+                                        &mut last_redraw_at,
+                                        min_frame,
+                                        &mut redraw_pending,
+                                        &mut frame_trace,
+                                        &mut invalidations,
+                                    );
                                     touch_positions.remove(&touch.id);
                                 }
                             }
@@ -9592,6 +10005,8 @@ mod tests {
         collect_semantic_records, collect_startup_deep_links_from, cursor_icon_for,
         downscale_rgba_box, handle_fill_text_selector, layout_size_to_image_dimensions,
         logical_viewport_to_physical_size, logical_viewport_to_render_target_size,
+        magnification_scale_factor, map_test_pointer_id, map_test_pointer_kind,
+        map_test_pointer_phase, map_test_scroll_delta_mode, map_touch_phase,
         native_window_size_for_logical_viewport, normalize_scale_factor,
         normalize_winit_scroll_delta, physical_position_to_layout_point,
         physical_size_to_layout_size, preferred_native_present_mode, preferred_surface_alpha_mode,
@@ -9609,18 +10024,20 @@ mod tests {
     use crate::InvalidationSet;
     use fission_core::{
         Action as FissionAction, ActionId as FissionActionId, ActionRegistry, DeepLinkConfig,
-        GlobalState, MotionPropertyId, ReducerContext, Runtime, UpdateTextInput, WidgetId,
+        GlobalState, MotionPropertyId, PointerId, PointerKind, PointerPhase, ReducerContext,
+        Runtime, ScrollDeltaMode, UpdateTextInput, WidgetId,
     };
     use fission_core::{ActiveMotion, MotionEasing, MotionStateMap, MotionValue, ScrollStateMap};
     use fission_ir::semantics::{ActionTrigger, MouseCursor};
     use fission_ir::{CoreIR, FlexDirection, LayoutOp, Op, Role, Semantics};
     use fission_layout::{LayoutNodeGeometry, LayoutRect, LayoutSize, LayoutSnapshot};
+    use fission_test_driver::{TestPointerKind, TestPointerPhase, TestScrollDeltaMode};
     use serde::{Deserialize, Serialize};
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::time::Duration;
     use winit::dpi::{PhysicalPosition, PhysicalSize};
-    use winit::event::MouseScrollDelta;
+    use winit::event::{MouseScrollDelta, TouchPhase};
     use winit::window::CursorIcon;
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -9897,15 +10314,56 @@ mod tests {
     fn winit_scroll_delta_normalizes_to_positive_down_and_right() {
         assert_eq!(
             normalize_winit_scroll_delta(&MouseScrollDelta::LineDelta(-1.0, -2.0), 1.0),
-            (50.0, 100.0)
+            (50.0, 100.0, ScrollDeltaMode::Line)
         );
         assert_eq!(
             normalize_winit_scroll_delta(
                 &MouseScrollDelta::PixelDelta(PhysicalPosition::new(-20.0, -40.0)),
                 2.0,
             ),
-            (10.0, 20.0)
+            (10.0, 20.0, ScrollDeltaMode::Pixel)
         );
+    }
+
+    #[test]
+    fn pointer_signal_phases_and_test_vocabulary_map_without_loss() {
+        assert_eq!(map_touch_phase(TouchPhase::Started), PointerPhase::Started);
+        assert_eq!(
+            map_touch_phase(TouchPhase::Cancelled),
+            PointerPhase::Cancelled
+        );
+        assert_eq!(
+            map_test_pointer_kind(TestPointerKind::Touch),
+            PointerKind::Touch
+        );
+        assert_eq!(
+            map_test_pointer_kind(TestPointerKind::Stylus),
+            PointerKind::Stylus
+        );
+        assert_eq!(
+            map_test_pointer_id(0, TestPointerKind::Mouse),
+            PointerId::MOUSE
+        );
+        assert_ne!(
+            map_test_pointer_id(0, TestPointerKind::Touch),
+            PointerId::MOUSE
+        );
+        assert_eq!(
+            map_test_pointer_phase(TestPointerPhase::Ended),
+            PointerPhase::Ended
+        );
+        assert_eq!(
+            map_test_scroll_delta_mode(TestScrollDeltaMode::Line),
+            ScrollDeltaMode::Line
+        );
+    }
+
+    #[test]
+    fn native_magnification_is_converted_to_a_safe_multiplicative_factor() {
+        assert_eq!(magnification_scale_factor(0.25), 1.25);
+        assert_eq!(magnification_scale_factor(-0.25), 0.75);
+        assert_eq!(magnification_scale_factor(f64::NAN), 1.0);
+        assert_eq!(magnification_scale_factor(-2.0), 1.0);
     }
 
     #[test]

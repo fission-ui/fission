@@ -276,6 +276,10 @@ pub enum ActionInput {
     /// The action envelope retains the application-defined payload, while this
     /// input carries the edited value and selection independently.
     TextChanged(UpdateTextInput),
+    /// Runtime details accompanying an interactive viewport action.
+    ViewportInteraction(crate::input::viewport::ViewportInteraction),
+    /// Runtime details accompanying an InfiniteCanvas action.
+    CanvasInteraction(crate::input::canvas::CanvasInteraction),
     /// External file drop (e.g. from the OS file manager).
     Drop {
         paths: Vec<String>,
@@ -363,6 +367,22 @@ impl ActionInput {
     pub fn text_change(&self) -> Option<&UpdateTextInput> {
         match self.unscoped() {
             ActionInput::TextChanged(change) => Some(change),
+            _ => None,
+        }
+    }
+
+    /// Returns the camera change accompanying an interactive-viewport action.
+    pub fn viewport_interaction(&self) -> Option<&crate::input::viewport::ViewportInteraction> {
+        match self.unscoped() {
+            ActionInput::ViewportInteraction(interaction) => Some(interaction),
+            _ => None,
+        }
+    }
+
+    /// Returns the node, edge, resize, or marquee change for a canvas action.
+    pub fn canvas_interaction(&self) -> Option<&crate::input::canvas::CanvasInteraction> {
+        match self.unscoped() {
+            ActionInput::CanvasInteraction(interaction) => Some(interaction),
             _ => None,
         }
     }

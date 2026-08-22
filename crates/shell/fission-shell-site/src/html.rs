@@ -1672,6 +1672,9 @@ impl HtmlRenderer<'_> {
                 "fission-site-node fission-site-transform",
                 vec![format!("transform:matrix3d({})", matrix3d(transform))],
             ),
+            LayoutOp::InteractiveViewport { .. } => {
+                bail!("interactive viewports are unavailable in Static site and SSR targets")
+            }
             LayoutOp::Clip { path } => {
                 let mut style = vec!["overflow:hidden".to_string()];
                 if let Some(path) = path {

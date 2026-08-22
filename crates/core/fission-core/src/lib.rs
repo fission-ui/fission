@@ -152,6 +152,11 @@ pub mod internal {
         widget.as_gesture_detector()
     }
 
+    #[cfg(feature = "interactive-canvas")]
+    pub fn widget_as_interactive_viewer(widget: &Widget) -> Option<&crate::ui::InteractiveViewer> {
+        widget.as_interactive_viewer()
+    }
+
     pub fn widget_as_zstack(widget: &Widget) -> Option<&crate::ui::ZStack> {
         widget.as_zstack()
     }
@@ -232,7 +237,13 @@ pub mod public {
     pub use crate::build::{BuildCtxHandle, ViewHandle};
     pub use crate::event::{
         ExternalDragEvent, InputEvent, KeyCode, KeyEvent, LifecycleEvent, PointerButton,
-        PointerEvent,
+        PointerEvent, PointerId, PointerKind, PointerPhase, ScrollDeltaMode,
+    };
+    pub use crate::input::canvas::{
+        CanvasInteraction, CanvasInteractionKind, CanvasInteractionPhase,
+    };
+    pub use crate::input::viewport::{
+        ViewportInputKind, ViewportInteraction, ViewportInteractionPhase, ViewportStateMap,
     };
     pub use crate::motion::*;
     pub use crate::platform::{
@@ -412,6 +423,7 @@ pub use state::{LocalStateKey, LocalStateStore, StateField};
 pub use build::{BuildCtxHandle, ViewHandle};
 pub use event::{
     ExternalDragEvent, InputEvent, KeyCode, KeyEvent, LifecycleEvent, PointerButton, PointerEvent,
+    PointerId, PointerKind, PointerPhase, ScrollDeltaMode,
 };
 pub use fission_ir::op;
 pub use fission_ir::op::{
@@ -422,6 +434,10 @@ pub use fission_ir::{EmbedKind, FocusPolicy, Op, Role, Semantics, WidgetId};
 pub use fission_layout::{
     BoxConstraints, FlexDirection, LayoutEngine, LayoutInspection, LayoutNodeGeometry, LayoutOp,
     LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot, LayoutUnit, TextMeasurer,
+};
+pub use input::canvas::{CanvasInteraction, CanvasInteractionKind, CanvasInteractionPhase};
+pub use input::viewport::{
+    ViewportInputKind, ViewportInteraction, ViewportInteractionPhase, ViewportStateMap,
 };
 pub use platform::{
     CancelAllNotificationsCapability, CancelNotificationCapability, CancelNotificationRequest,

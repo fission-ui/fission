@@ -176,6 +176,7 @@ pub trait ImeHandler: Send + Sync {
 pub struct RuntimeState {
     pub local_widget_state: LocalStateStore,
     pub scroll: ScrollStateMap,
+    pub viewport: crate::input::viewport::ViewportStateMap,
     pub video: VideoStateMap,
     pub web: WebStateMap,
     pub motion: MotionStateMap,
@@ -203,6 +204,9 @@ pub struct GestureState {
     pub target_node: Option<WidgetId>,
     pub dragging_payload: Option<Vec<u8>>,
     pub pressed_button: Option<crate::event::PointerButton>,
+    pub pointer_kind: crate::event::PointerKind,
+    /// Modifier bitmask for the active pointer sequence.
+    pub modifiers: u8,
     pub scrollbar_drag: Option<crate::scrollbar::ScrollbarDragState>,
     /// Runtime drag state used by widgets to render previews and hovered
     /// drop-target feedback during the current frame.

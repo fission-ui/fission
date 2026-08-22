@@ -5,7 +5,7 @@ use fission_core::env::{Env, VideoStateMap, WebStateMap};
 use fission_core::internal::build_layout_tree;
 use fission_core::internal::downcast_render_object;
 use fission_core::scrollbar::scrollbar_geometry_for_node;
-use fission_core::{LayoutPoint, ScrollStateMap};
+use fission_core::{LayoutPoint, ScrollStateMap, ViewportStateMap};
 use fission_core::{MotionPropertyId, MotionStateMap};
 use fission_diagnostics::prelude as diag;
 use fission_diagnostics::{SnapshotBlob, SnapshotKind, SnapshotProvider};
@@ -124,6 +124,7 @@ struct TransformBinding {
     rect: LayoutRect,
     layout_transform: Option<[f32; 16]>,
     scroll: Option<ScrollTransform>,
+    viewport: Option<WidgetId>,
     translate_x: Option<CompositeScalar>,
     translate_y: Option<CompositeScalar>,
     scale: Option<CompositeScalar>,
@@ -191,6 +192,7 @@ pub struct Pipeline {
     runtime_dynamic_subtrees: HashMap<WidgetId, bool>,
     retained_texture_plans: Vec<CompositorTexturePlan>,
     retained_texture_root_transform: Option<[f32; 16]>,
+    viewport_state: ViewportStateMap,
 }
 
 pub struct PipelineStats {
@@ -227,7 +229,12 @@ impl Pipeline {
             runtime_dynamic_subtrees: HashMap::new(),
             retained_texture_plans: Vec::new(),
             retained_texture_root_transform: None,
+            viewport_state: ViewportStateMap::default(),
         }
+    }
+
+    pub fn set_viewport_state(&mut self, viewport_state: &ViewportStateMap) {
+        self.viewport_state = viewport_state.clone();
     }
 
     pub fn take_video_surfaces(&mut self) -> Vec<VideoSurfaceFrame> {
@@ -429,6 +436,7 @@ impl Pipeline {
                 video_map,
                 web_map,
                 scroll_map,
+                &self.viewport_state,
                 animation_map,
                 LayoutPoint::ZERO,
                 render_viewport,
@@ -454,6 +462,7 @@ impl Pipeline {
                     ir,
                     snapshot,
                     scroll_map,
+                    &self.viewport_state,
                     animation_map,
                     &mut self.paint_cache,
                     &mut self.boundary_cache,
@@ -588,8 +597,11 @@ impl Pipeline {
         };
 
         for node in ir.nodes.values() {
-            let mut node_is_runtime_dynamic =
-                matches!(node.op, Op::Layout(LayoutOp::Scroll { .. }));
+            let mut node_is_runtime_dynamic = matches!(
+                node.op,
+                Op::Layout(LayoutOp::Scroll { .. })
+                    | Op::Layout(LayoutOp::InteractiveViewport { .. })
+            );
             if matches!(node.op, Op::Layout(LayoutOp::Scroll { .. })) {
                 self.scroll_nodes.insert(node.id);
             }
@@ -678,7 +690,10 @@ impl Pipeline {
             return false;
         };
 
-        let mut dynamic = matches!(node.op, Op::Layout(LayoutOp::Scroll { .. }));
+        let mut dynamic = matches!(
+            node.op,
+            Op::Layout(LayoutOp::Scroll { .. }) | Op::Layout(LayoutOp::InteractiveViewport { .. })
+        );
         dynamic |= node
             .composite
             .opacity
@@ -774,8 +789,12 @@ impl Pipeline {
 
         for binding in &self.retained_dynamic_ops.transform {
             if let Some(layer) = layer_mut_at_path(scene, &binding.layer_path) {
-                layer.style.transform =
-                    compose_dynamic_layer_transform(binding, scroll_map, animation_map);
+                layer.style.transform = compose_dynamic_layer_transform(
+                    binding,
+                    scroll_map,
+                    &self.viewport_state,
+                    animation_map,
+                );
             }
         }
 
@@ -1415,6 +1434,7 @@ fn presentation_transform_matrix(
 fn compose_dynamic_layer_transform(
     binding: &TransformBinding,
     scroll_map: &ScrollStateMap,
+    viewport_map: &ViewportStateMap,
     animation_map: &MotionStateMap,
 ) -> Option<[f32; 16]> {
     let mut matrix: Option<[f32; 16]> = None;
@@ -1426,6 +1446,15 @@ fn compose_dynamic_layer_transform(
             FlexDirection::Column => translation_matrix(0.0, -offset),
         };
         matrix = append_transform(matrix, scroll_matrix);
+    }
+
+    if let Some(viewport) = binding.viewport {
+        if let Some(transform) = viewport_map.transform(viewport) {
+            matrix = append_transform(
+                matrix,
+                viewport_transform_matrix(transform, binding.rect.origin),
+            );
+        }
     }
 
     if let Some(layout_transform) = binding.layout_transform {
@@ -1467,6 +1496,30 @@ fn compose_dynamic_layer_transform(
     matrix.filter(|value| !is_identity_matrix(value))
 }
 
+fn viewport_transform_matrix(
+    transform: fission_ir::ViewportTransform,
+    origin: LayoutPoint,
+) -> [f32; 16] {
+    [
+        transform.scale,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        transform.scale,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        origin.x - origin.x * transform.scale + transform.translation[0],
+        origin.y - origin.y * transform.scale + transform.translation[1],
+        0.0,
+        1.0,
+    ]
+}
+
 fn append_transform(current: Option<[f32; 16]>, next: [f32; 16]) -> Option<[f32; 16]> {
     Some(match current {
         Some(existing) => multiply_matrix(existing, next),
@@ -1479,6 +1532,7 @@ fn generate_render_layer_recursive(
     ir: &CoreIR,
     snapshot: &LayoutSnapshot,
     scroll_map: &ScrollStateMap,
+    viewport_map: &ViewportStateMap,
     animation_map: &MotionStateMap,
     paint_cache: &mut HashMap<WidgetId, (u64, DisplayList)>,
     boundary_cache: &mut HashMap<WidgetId, BoundaryCacheEntry>,
@@ -1596,12 +1650,14 @@ fn generate_render_layer_recursive(
         }),
         _ => None,
     };
+    let viewport =
+        matches!(node.op, Op::Layout(LayoutOp::InteractiveViewport { .. })).then_some(node_id);
     let layout_transform = match &node.op {
         Op::Layout(LayoutOp::Transform { transform }) => Some(*transform),
         _ => None,
     };
     let has_own_transform = needs_dynamic_transform || layout_transform.is_some();
-    let has_dynamic_transform = has_own_transform || scroll.is_some();
+    let has_dynamic_transform = has_own_transform || scroll.is_some() || viewport.is_some();
     let has_dynamic_style = emit_opacity_layer || has_dynamic_transform || has_runtime_clip;
     let has_dynamic_children = node.children.iter().any(|child| {
         runtime_dynamic_subtrees
@@ -1621,6 +1677,11 @@ fn generate_render_layer_recursive(
         Op::Layout(LayoutOp::Scroll { .. }) | Op::Layout(LayoutOp::Clip { .. }) => {
             Some(LayerClip::Rect(rect))
         }
+        Op::Layout(LayoutOp::InteractiveViewport { clip, .. })
+            if !matches!(clip, fission_ir::ViewportClip::None) =>
+        {
+            Some(LayerClip::Rect(rect))
+        }
         _ if has_runtime_clip => Some(LayerClip::Rect(rect)),
         _ => None,
     };
@@ -1634,12 +1695,14 @@ fn generate_render_layer_recursive(
             rect,
             layout_transform,
             scroll: None,
+            viewport: None,
             translate_x: node.composite.translate_x.clone(),
             translate_y: node.composite.translate_y.clone(),
             scale: node.composite.scale.clone(),
             rotation: node.composite.rotation.clone(),
         },
         scroll_map,
+        viewport_map,
         animation_map,
     ) {
         layer.style.transform = Some(transform);
@@ -1687,6 +1750,7 @@ fn generate_render_layer_recursive(
             rect,
             layout_transform,
             scroll: None,
+            viewport: None,
             translate_x: node.composite.translate_x.clone(),
             translate_y: node.composite.translate_y.clone(),
             scale: node.composite.scale.clone(),
@@ -1705,12 +1769,14 @@ fn generate_render_layer_recursive(
                 rect,
                 layout_transform: None,
                 scroll: Some(scroll.clone()),
+                viewport: None,
                 translate_x: None,
                 translate_y: None,
                 scale: None,
                 rotation: None,
             },
             scroll_map,
+            viewport_map,
             animation_map,
         );
         content_layer.style.transform_clip = false;
@@ -1719,6 +1785,7 @@ fn generate_render_layer_recursive(
             rect,
             layout_transform: None,
             scroll: Some(scroll),
+            viewport: None,
             translate_x: None,
             translate_y: None,
             scale: None,
@@ -1734,6 +1801,7 @@ fn generate_render_layer_recursive(
                 ir,
                 snapshot,
                 scroll_map,
+                viewport_map,
                 animation_map,
                 paint_cache,
                 boundary_cache,
@@ -1752,6 +1820,54 @@ fn generate_render_layer_recursive(
         if !content_layer.children.is_empty() {
             layer.children.push(RenderNode::Layer(content_layer));
         }
+    } else if let Some(viewport) = viewport {
+        let content_index = layer.children.len();
+        let mut content_path = layer_path.clone();
+        content_path.push(content_index);
+        let mut content_layer = RenderLayer::new(rect);
+        let binding = TransformBinding {
+            layer_path: content_path.clone(),
+            rect,
+            layout_transform: None,
+            scroll: None,
+            viewport: Some(viewport),
+            translate_x: None,
+            translate_y: None,
+            scale: None,
+            rotation: None,
+        };
+        content_layer.style.transform =
+            compose_dynamic_layer_transform(&binding, scroll_map, viewport_map, animation_map);
+        content_layer.style.transform_clip = false;
+        bindings.transform.push(binding);
+
+        for child in &node.children {
+            let child_index = content_layer.children.len();
+            let mut child_path = content_path.clone();
+            child_path.push(child_index);
+            if let Some(child_layer) = generate_render_layer_recursive(
+                *child,
+                ir,
+                snapshot,
+                scroll_map,
+                viewport_map,
+                animation_map,
+                paint_cache,
+                boundary_cache,
+                runtime_dynamic_subtrees,
+                miss_count,
+                hit_count,
+                scene_cache_allowed,
+                visited,
+                bindings,
+                child_path,
+            ) {
+                content_layer.children.push(RenderNode::Layer(child_layer));
+            }
+        }
+        if !content_layer.children.is_empty() {
+            layer.children.push(RenderNode::Layer(content_layer));
+        }
     } else {
         for child in &node.children {
             let child_index = layer.children.len();
@@ -1762,6 +1878,7 @@ fn generate_render_layer_recursive(
                 ir,
                 snapshot,
                 scroll_map,
+                viewport_map,
                 animation_map,
                 paint_cache,
                 boundary_cache,
@@ -1897,6 +2014,7 @@ fn collect_video_surfaces(
     video_map: &VideoStateMap,
     web_map: &WebStateMap,
     scroll_map: &ScrollStateMap,
+    viewport_map: &ViewportStateMap,
     animation_map: &MotionStateMap,
     accumulated_offset: LayoutPoint,
     accumulated_clip: LayoutRect,
@@ -1915,6 +2033,7 @@ fn collect_video_surfaces(
         video_map,
         web_map,
         scroll_map,
+        viewport_map,
         animation_map,
         accumulated_offset,
         accumulated_clip,
@@ -1935,6 +2054,7 @@ fn collect_video_surfaces_with_visited(
     video_map: &VideoStateMap,
     web_map: &WebStateMap,
     scroll_map: &ScrollStateMap,
+    viewport_map: &ViewportStateMap,
     animation_map: &MotionStateMap,
     accumulated_offset: LayoutPoint,
     accumulated_clip: LayoutRect,
@@ -1962,12 +2082,15 @@ fn collect_video_surfaces_with_visited(
                     _ => None,
                 },
                 scroll: None,
+                viewport: matches!(node.op, Op::Layout(LayoutOp::InteractiveViewport { .. }))
+                    .then_some(node_id),
                 translate_x: node.composite.translate_x.clone(),
                 translate_y: node.composite.translate_y.clone(),
                 scale: node.composite.scale.clone(),
                 rotation: node.composite.rotation.clone(),
             },
             scroll_map,
+            viewport_map,
             animation_map,
         );
         let effective_transform = match node_transform {
@@ -2005,6 +2128,20 @@ fn collect_video_surfaces_with_visited(
         // Clip nodes restrict children to their bounds.
         if matches!(&node.op, Op::Layout(LayoutOp::Clip { .. })) {
             let clip_rect = transform_rect_bounds(translated_node_rect, effective_transform);
+            child_clip = intersect_rects(child_clip, clip_rect).unwrap_or(LayoutRect::new(
+                clip_rect.x(),
+                clip_rect.y(),
+                0.0,
+                0.0,
+            ));
+        }
+
+        if matches!(
+            &node.op,
+            Op::Layout(LayoutOp::InteractiveViewport { clip, .. })
+                if !matches!(clip, fission_ir::ViewportClip::None)
+        ) {
+            let clip_rect = transform_rect_bounds(translated_node_rect, accumulated_transform);
             child_clip = intersect_rects(child_clip, clip_rect).unwrap_or(LayoutRect::new(
                 clip_rect.x(),
                 clip_rect.y(),
@@ -2104,6 +2241,7 @@ fn collect_video_surfaces_with_visited(
                 video_map,
                 web_map,
                 scroll_map,
+                viewport_map,
                 animation_map,
                 child_offset,
                 child_clip,
@@ -2605,8 +2743,8 @@ fn translate_rect(rect: LayoutRect, offset: LayoutPoint) -> LayoutRect {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_local_paint_list, scroll_offsets_changed, translation_matrix, InvalidationSet,
-        Pipeline,
+        build_local_paint_list, scroll_offsets_changed, transform_rect_bounds, translation_matrix,
+        viewport_transform_matrix, InvalidationSet, Pipeline,
     };
     use fission_core::env::{Env, VideoState, VideoStateMap, WebState, WebStateMap};
     use fission_core::MotionPropertyId;
@@ -2620,7 +2758,7 @@ mod tests {
         ActionEntry, CompositeScalar, CompositeStyle, CoreIR, EmbedKind, LayoutOp, Op, PaintOp,
         WidgetId,
     };
-    use fission_layout::{LayoutEngine, LayoutRect, LayoutSize};
+    use fission_layout::{LayoutEngine, LayoutPoint, LayoutRect, LayoutSize};
     use fission_render::{DisplayOp, RenderScene, Renderer};
     use std::collections::HashMap;
     use std::sync::Arc;
@@ -4215,5 +4353,17 @@ mod tests {
         assert!((surface.rect.x() - 40.0).abs() < 0.01);
         assert!((surface.rect.y() - 25.0).abs() < 0.01);
         assert!((surface.opacity - 0.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn viewport_transform_scales_around_layout_origin_then_translates() {
+        let matrix = viewport_transform_matrix(
+            fission_ir::ViewportTransform::new(10.0, 20.0, 2.0),
+            LayoutPoint::new(100.0, 50.0),
+        );
+        let transformed =
+            transform_rect_bounds(LayoutRect::new(110.0, 60.0, 10.0, 5.0), Some(matrix));
+
+        assert_eq!(transformed, LayoutRect::new(130.0, 90.0, 20.0, 10.0));
     }
 }

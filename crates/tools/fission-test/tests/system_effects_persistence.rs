@@ -57,11 +57,15 @@ fn persistent_reducers_survive_clear_reducers_frames() -> Result<()> {
     // Click button -> 1 effect
     let point = fission_core::LayoutPoint { x: 10.0, y: 10.0 };
     h.send_event(InputEvent::Pointer(PointerEvent::Down {
+        pointer_id: Default::default(),
+        kind: Default::default(),
         point,
         button: PointerButton::Primary,
         modifiers: 0,
     }))?;
     h.send_event(InputEvent::Pointer(PointerEvent::Up {
+        pointer_id: Default::default(),
+        kind: Default::default(),
         point,
         button: PointerButton::Primary,
         modifiers: 0,
@@ -73,11 +77,15 @@ fn persistent_reducers_survive_clear_reducers_frames() -> Result<()> {
 
     // Click again; persistent reducer should still be present -> 2 effects
     h.send_event(InputEvent::Pointer(PointerEvent::Down {
+        pointer_id: Default::default(),
+        kind: Default::default(),
         point,
         button: PointerButton::Primary,
         modifiers: 0,
     }))?;
     h.send_event(InputEvent::Pointer(PointerEvent::Up {
+        pointer_id: Default::default(),
+        kind: Default::default(),
         point,
         button: PointerButton::Primary,
         modifiers: 0,

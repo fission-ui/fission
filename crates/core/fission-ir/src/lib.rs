@@ -1,6 +1,10 @@
 pub mod op;
 pub mod semantics;
+pub mod viewport;
 pub mod widget_id;
+
+#[cfg(test)]
+mod op_tests;
 
 use serde::{Deserialize, Serialize};
 use std::any::Any;
@@ -9,9 +13,13 @@ use std::sync::Arc;
 
 pub use op::{
     AlignItems, CompositeScalar, CompositeStyle, EmbedKind, FlexDirection, FlexWrap, GridPlacement,
-    GridTrack, JustifyContent, LayoutOp, Op, PaintOp, StructuralOp,
+    GridTrack, JustifyContent, LayoutOp, Op, PaintOp, StructuralOp, ViewportBoundary, ViewportClip,
+    ViewportMargin, ViewportPanAxis, ViewportTransform, ViewportZoomPolicy,
 };
-pub use semantics::{ActionEntry, ActionSet, FocusPolicy, Role, Semantics};
+pub use semantics::{
+    ActionEntry, ActionSet, ActionTrigger, CanvasSelectionPolicy, CanvasTarget, CanvasTargetKind,
+    FocusPolicy, Role, Semantics,
+};
 pub use widget_id::WidgetId;
 
 pub const IR_VERSION: u32 = 1;

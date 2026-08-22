@@ -567,9 +567,9 @@ fn chart_area_for_size(chart: &Chart, outer_w: f32, outer_h: f32) -> ChartArea {
 
 fn chart_event_point(event: &InputEvent) -> Option<(ChartInteractionKind, LayoutPoint, u8)> {
     match event {
-        InputEvent::Pointer(PointerEvent::Move { point, modifiers }) => {
-            Some((ChartInteractionKind::Hover, *point, *modifiers))
-        }
+        InputEvent::Pointer(PointerEvent::Move {
+            point, modifiers, ..
+        }) => Some((ChartInteractionKind::Hover, *point, *modifiers)),
         InputEvent::Pointer(PointerEvent::Down {
             point, modifiers, ..
         }) => Some((ChartInteractionKind::Press, *point, *modifiers)),

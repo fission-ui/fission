@@ -545,34 +545,51 @@ fn map_mouse_event(
     let modifiers = modifier_bits(modifiers);
     match kind {
         MouseEventKind::Down(button) => Some(InputEvent::Pointer(PointerEvent::Down {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point,
             button: map_mouse_button(button),
             modifiers,
         })),
         MouseEventKind::Up(button) => Some(InputEvent::Pointer(PointerEvent::Up {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point,
             button: map_mouse_button(button),
             modifiers,
         })),
         MouseEventKind::Drag(_) | MouseEventKind::Moved => {
-            Some(InputEvent::Pointer(PointerEvent::Move { point, modifiers }))
+            Some(InputEvent::Pointer(PointerEvent::Move {
+                pointer_id: Default::default(),
+                kind: Default::default(),
+                point,
+                modifiers,
+            }))
         }
         MouseEventKind::ScrollDown => Some(InputEvent::Pointer(PointerEvent::Scroll {
+            delta_mode: Default::default(),
+            phase: Default::default(),
             point,
             delta: LayoutPoint::new(0.0, 3.0),
             modifiers,
         })),
         MouseEventKind::ScrollUp => Some(InputEvent::Pointer(PointerEvent::Scroll {
+            delta_mode: Default::default(),
+            phase: Default::default(),
             point,
             delta: LayoutPoint::new(0.0, -3.0),
             modifiers,
         })),
         MouseEventKind::ScrollLeft => Some(InputEvent::Pointer(PointerEvent::Scroll {
+            delta_mode: Default::default(),
+            phase: Default::default(),
             point,
             delta: LayoutPoint::new(-3.0, 0.0),
             modifiers,
         })),
         MouseEventKind::ScrollRight => Some(InputEvent::Pointer(PointerEvent::Scroll {
+            delta_mode: Default::default(),
+            phase: Default::default(),
             point,
             delta: LayoutPoint::new(3.0, 0.0),
             modifiers,

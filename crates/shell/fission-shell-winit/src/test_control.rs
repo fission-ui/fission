@@ -179,6 +179,124 @@ fn dispatch_command(cmd: TestCommand, injector: &EventInjector) -> TestResponse 
             );
             TestResponse::Ok {}
         }
+        TestCommand::PointerDown {
+            pointer_id,
+            kind,
+            x,
+            y,
+            modifiers,
+        } => {
+            inject_event(
+                injector,
+                TestEvent::PointerDown {
+                    pointer_id,
+                    kind,
+                    x,
+                    y,
+                    modifiers,
+                },
+            );
+            TestResponse::Ok {}
+        }
+        TestCommand::PointerMove {
+            pointer_id,
+            kind,
+            x,
+            y,
+            modifiers,
+        } => {
+            inject_event(
+                injector,
+                TestEvent::PointerMove {
+                    pointer_id,
+                    kind,
+                    x,
+                    y,
+                    modifiers,
+                },
+            );
+            TestResponse::Ok {}
+        }
+        TestCommand::PointerUp {
+            pointer_id,
+            kind,
+            x,
+            y,
+            modifiers,
+        } => {
+            inject_event(
+                injector,
+                TestEvent::PointerUp {
+                    pointer_id,
+                    kind,
+                    x,
+                    y,
+                    modifiers,
+                },
+            );
+            TestResponse::Ok {}
+        }
+        TestCommand::PointerCancel {
+            pointer_id,
+            kind,
+            x,
+            y,
+            modifiers,
+        } => {
+            inject_event(
+                injector,
+                TestEvent::PointerCancel {
+                    pointer_id,
+                    kind,
+                    x,
+                    y,
+                    modifiers,
+                },
+            );
+            TestResponse::Ok {}
+        }
+        TestCommand::PointerScroll {
+            x,
+            y,
+            dx,
+            dy,
+            delta_mode,
+            phase,
+            modifiers,
+        } => {
+            inject_event(
+                injector,
+                TestEvent::PointerScroll {
+                    x,
+                    y,
+                    dx,
+                    dy,
+                    delta_mode,
+                    phase,
+                    modifiers,
+                },
+            );
+            TestResponse::Ok {}
+        }
+        TestCommand::Magnify {
+            x,
+            y,
+            scale_factor,
+            phase,
+            modifiers,
+        } => {
+            inject_event(
+                injector,
+                TestEvent::Magnify {
+                    x,
+                    y,
+                    scale_factor,
+                    phase,
+                    modifiers,
+                },
+            );
+            TestResponse::Ok {}
+        }
         TestCommand::TapText { text } => query_event(injector, |response_tx| TestEvent::TapText {
             text,
             response_tx,

@@ -1846,6 +1846,7 @@ impl InternalLower for TextInput {
             identifier: self.semantics_identifier.clone(),
             value: Some(semantic_value),
             actions: Default::default(),
+            canvas_target: None,
             action_scope_id: None,
             focusable: self.enabled,
             focus_policy: fission_ir::FocusPolicy::FocusOnPointer,

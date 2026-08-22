@@ -30,6 +30,7 @@ fn dragging_scrollbar_thumb_updates_scroll_offset_directly() {
     let mut interaction = InteractionStateMap::default();
     let mut scroll_map = ScrollStateMap::default();
     let mut gesture = GestureState::default();
+    let viewport = fission_core::ViewportStateMap::default();
     let clipboard: Arc<dyn Clipboard> = Arc::new(NoClipboard);
     let mut controller = GestureController;
 
@@ -49,6 +50,7 @@ fn dragging_scrollbar_thumb_updates_scroll_offset_directly() {
         context_menu: &mut ContextMenuState::default(),
         interaction: &mut interaction,
         scroll: &mut scroll_map,
+        viewport: &viewport,
         gesture: &mut gesture,
         editing_convention: TextEditingConvention::Standard,
         clipboard: Some(&clipboard),
@@ -59,6 +61,8 @@ fn dragging_scrollbar_thumb_updates_scroll_offset_directly() {
     assert!(controller.handle_event(
         &mut ctx,
         &InputEvent::Pointer(PointerEvent::Down {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point: down,
             button: PointerButton::Primary,
             modifiers: 0,
@@ -69,6 +73,8 @@ fn dragging_scrollbar_thumb_updates_scroll_offset_directly() {
     assert!(controller.handle_event(
         &mut ctx,
         &InputEvent::Pointer(PointerEvent::Move {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point: move_to,
             modifiers: 0,
         })
@@ -78,6 +84,8 @@ fn dragging_scrollbar_thumb_updates_scroll_offset_directly() {
     assert!(controller.handle_event(
         &mut ctx,
         &InputEvent::Pointer(PointerEvent::Up {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point: move_to,
             button: PointerButton::Primary,
             modifiers: 0,
@@ -148,6 +156,7 @@ fn dragging_nested_scrollbar_uses_visual_pointer_coordinates() {
     let mut scroll_map = ScrollStateMap::default();
     scroll_map.set_offset(parent, 100.0);
     let mut gesture = GestureState::default();
+    let viewport = fission_core::ViewportStateMap::default();
     let clipboard: Arc<dyn Clipboard> = Arc::new(NoClipboard);
     let mut controller = GestureController;
     let mut ctx = ControllerContext {
@@ -158,6 +167,7 @@ fn dragging_nested_scrollbar_uses_visual_pointer_coordinates() {
         context_menu: &mut ContextMenuState::default(),
         interaction: &mut interaction,
         scroll: &mut scroll_map,
+        viewport: &viewport,
         gesture: &mut gesture,
         editing_convention: TextEditingConvention::Standard,
         clipboard: Some(&clipboard),
@@ -168,6 +178,8 @@ fn dragging_nested_scrollbar_uses_visual_pointer_coordinates() {
     assert!(controller.handle_event(
         &mut ctx,
         &InputEvent::Pointer(PointerEvent::Down {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point: LayoutPoint::new(50.0, 104.0),
             button: PointerButton::Primary,
             modifiers: 0,
@@ -176,6 +188,8 @@ fn dragging_nested_scrollbar_uses_visual_pointer_coordinates() {
     assert!(controller.handle_event(
         &mut ctx,
         &InputEvent::Pointer(PointerEvent::Move {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point: LayoutPoint::new(98.0, 104.0),
             modifiers: 0,
         })
@@ -203,6 +217,8 @@ fn wheel_scroll_on_vertical_scrollbar_rail_updates_scroll_offset() {
                     geometry.rail_rect.origin.y + 80.0,
                 ),
                 delta: LayoutPoint::new(0.0, 90.0),
+                delta_mode: Default::default(),
+                phase: Default::default(),
                 modifiers: 0,
             }),
             &ir,
@@ -228,6 +244,8 @@ fn wheel_scroll_on_horizontal_scrollbar_rail_updates_scroll_offset() {
                     geometry.rail_rect.origin.y + 1.0,
                 ),
                 delta: LayoutPoint::new(90.0, 0.0),
+                delta_mode: Default::default(),
+                phase: Default::default(),
                 modifiers: 0,
             }),
             &ir,

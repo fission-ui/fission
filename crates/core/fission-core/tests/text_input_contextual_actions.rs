@@ -204,6 +204,7 @@ fn dispatch_native_edit(
     interaction.set_focused(Some(node_id));
     let mut scroll = ScrollStateMap::default();
     let mut gesture = fission_core::env::GestureState::default();
+    let viewport = fission_core::ViewportStateMap::default();
     let mut context = ControllerContext {
         ir: &ir,
         layout: &layout,
@@ -212,6 +213,7 @@ fn dispatch_native_edit(
         context_menu: &mut context_menu,
         interaction: &mut interaction,
         scroll: &mut scroll,
+        viewport: &viewport,
         gesture: &mut gesture,
         editing_convention: TextEditingConvention::Standard,
         clipboard: None,

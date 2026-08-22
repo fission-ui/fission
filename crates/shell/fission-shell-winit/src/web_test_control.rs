@@ -139,6 +139,106 @@ fn dispatch(command: TestCommand, proxy: &EventLoopProxy<TestEvent>) -> PendingR
             });
             ready_after(proxy, events)
         }
+        TestCommand::PointerDown {
+            pointer_id,
+            kind,
+            x,
+            y,
+            modifiers,
+        } => ready_after(
+            proxy,
+            [TestEvent::PointerDown {
+                pointer_id,
+                kind,
+                x,
+                y,
+                modifiers,
+            }],
+        ),
+        TestCommand::PointerMove {
+            pointer_id,
+            kind,
+            x,
+            y,
+            modifiers,
+        } => ready_after(
+            proxy,
+            [TestEvent::PointerMove {
+                pointer_id,
+                kind,
+                x,
+                y,
+                modifiers,
+            }],
+        ),
+        TestCommand::PointerUp {
+            pointer_id,
+            kind,
+            x,
+            y,
+            modifiers,
+        } => ready_after(
+            proxy,
+            [TestEvent::PointerUp {
+                pointer_id,
+                kind,
+                x,
+                y,
+                modifiers,
+            }],
+        ),
+        TestCommand::PointerCancel {
+            pointer_id,
+            kind,
+            x,
+            y,
+            modifiers,
+        } => ready_after(
+            proxy,
+            [TestEvent::PointerCancel {
+                pointer_id,
+                kind,
+                x,
+                y,
+                modifiers,
+            }],
+        ),
+        TestCommand::PointerScroll {
+            x,
+            y,
+            dx,
+            dy,
+            delta_mode,
+            phase,
+            modifiers,
+        } => ready_after(
+            proxy,
+            [TestEvent::PointerScroll {
+                x,
+                y,
+                dx,
+                dy,
+                delta_mode,
+                phase,
+                modifiers,
+            }],
+        ),
+        TestCommand::Magnify {
+            x,
+            y,
+            scale_factor,
+            phase,
+            modifiers,
+        } => ready_after(
+            proxy,
+            [TestEvent::Magnify {
+                x,
+                y,
+                scale_factor,
+                phase,
+                modifiers,
+            }],
+        ),
         TestCommand::TapText { text } => query(proxy, |response_tx| TestEvent::TapText {
             text,
             response_tx,

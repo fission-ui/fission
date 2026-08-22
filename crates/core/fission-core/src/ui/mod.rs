@@ -20,3 +20,9 @@ pub use widgets::{
     TextContextMenuAction, TextContextMenuConfig, TextFontStyle, TextInput, TextRunStyle, Video,
     VideoAudioActivation, VideoAudioOptions, VideoAudioPolicy, VideoSource, ZStack,
 };
+#[cfg(feature = "interactive-canvas")]
+pub use widgets::{
+    InteractiveViewer, ViewportBoundary, ViewportClip, ViewportMargin, ViewportPanAxis,
+    ViewportTransform, ViewportZoomPolicy, DEFAULT_MAX_VIEWPORT_SCALE, DEFAULT_MIN_VIEWPORT_SCALE,
+    DEFAULT_VIEWPORT_FRICTION,
+};

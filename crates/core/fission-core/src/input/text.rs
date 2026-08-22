@@ -37,8 +37,13 @@ impl InputController for TextInputController {
                 modifiers,
                 ..
             }) => {
-                let hit =
-                    crate::hit_test::hit_test_with_scroll(ctx.ir, ctx.layout, ctx.scroll, *point);
+                let hit = crate::hit_test::hit_test_with_viewports(
+                    ctx.ir,
+                    ctx.layout,
+                    ctx.scroll,
+                    ctx.viewport,
+                    *point,
+                );
 
                 if let Some(focused_id) = ctx.interaction.focused {
                     if let Some(node) = ctx.ir.nodes.get(&focused_id) {

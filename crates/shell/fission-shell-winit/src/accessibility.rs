@@ -13,8 +13,8 @@ mod imp {
     use fission_core::input::prepare_scoped_text_input_change;
     use fission_core::{ActionEnvelope, ActionId, ActionInput, InputEvent, Runtime};
     use fission_ir::semantics::{ActionTrigger, Role, TextInputType};
-    use fission_ir::{CoreIR, Op, PaintOp, Semantics, WidgetId};
-    use fission_layout::{LayoutRect, LayoutSnapshot};
+    use fission_ir::{CoreIR, LayoutOp, Op, PaintOp, Semantics, WidgetId};
+    use fission_layout::{LayoutPoint, LayoutRect, LayoutSnapshot};
     use fission_test_driver::TestEvent;
     use winit::event::WindowEvent;
     use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
@@ -426,7 +426,7 @@ mod imp {
                     let access_id = self.node_id_for(node_id);
                     let mut node = Node::new(AccessRole::Label);
                     node.set_value(text.clone());
-                    if let Some(rect) = self.layout.get_node_rect(node_id) {
+                    if let Some(rect) = self.visual_rect(node_id) {
                         node.set_bounds(accesskit_rect(rect, self.scale_factor));
                     }
                     if inside_semantics {
@@ -443,7 +443,7 @@ mod imp {
                     let access_id = self.node_id_for(node_id);
                     let mut node = Node::new(AccessRole::Label);
                     node.set_value(text);
-                    if let Some(rect) = self.layout.get_node_rect(node_id) {
+                    if let Some(rect) = self.visual_rect(node_id) {
                         node.set_bounds(accesskit_rect(rect, self.scale_factor));
                     }
                     if inside_semantics {
@@ -485,7 +485,7 @@ mod imp {
             semantics: &Semantics,
         ) -> Node {
             let mut node = Node::new(access_role_for(semantics));
-            if let Some(rect) = self.layout.get_node_rect(node_id) {
+            if let Some(rect) = self.visual_rect(node_id) {
                 node.set_bounds(accesskit_rect(rect, self.scale_factor));
             }
             if let Some(identifier) = semantics.identifier.as_deref() {
@@ -607,6 +607,65 @@ mod imp {
             }
             node
         }
+
+        fn visual_rect(&self, node_id: WidgetId) -> Option<LayoutRect> {
+            let mut rect = self.layout.get_node_rect(node_id)?;
+            let mut current = self.ir.nodes.get(&node_id).and_then(|node| node.parent);
+            while let Some(parent_id) = current {
+                let parent = self.ir.nodes.get(&parent_id)?;
+                match &parent.op {
+                    Op::Layout(LayoutOp::Scroll { direction, .. }) => {
+                        let offset = self.runtime.runtime_state.scroll.get_offset(parent_id);
+                        match direction {
+                            fission_ir::FlexDirection::Row => rect.origin.x -= offset,
+                            fission_ir::FlexDirection::Column => rect.origin.y -= offset,
+                        }
+                        let viewport = self.layout.get_node_rect(parent_id)?;
+                        rect = intersect_layout_rect(rect, viewport)?;
+                    }
+                    Op::Layout(LayoutOp::Transform { transform }) => {
+                        let parent_rect = self.layout.get_node_rect(parent_id)?;
+                        rect = transform_layout_rect(rect, parent_rect.origin, *transform);
+                    }
+                    Op::Layout(LayoutOp::InteractiveViewport { clip, .. }) => {
+                        let viewport = self.layout.get_node_rect(parent_id)?;
+                        let transform = self
+                            .runtime
+                            .runtime_state
+                            .viewport
+                            .transform(parent_id)
+                            .unwrap_or_default();
+                        let matrix = [
+                            transform.scale,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            transform.scale,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            1.0,
+                            0.0,
+                            viewport.x() - viewport.x() * transform.scale
+                                + transform.translation[0],
+                            viewport.y() - viewport.y() * transform.scale
+                                + transform.translation[1],
+                            0.0,
+                            1.0,
+                        ];
+                        rect = transform_layout_rect(rect, LayoutPoint::ZERO, matrix);
+                        if !matches!(clip, fission_ir::ViewportClip::None) {
+                            rect = intersect_layout_rect(rect, viewport)?;
+                        }
+                    }
+                    _ => {}
+                }
+                current = parent.parent;
+            }
+            Some(rect)
+        }
     }
 
     fn include_semantics(semantics: &Semantics) -> bool {
@@ -649,6 +708,43 @@ mod imp {
             Role::ListItem => AccessRole::ListItem,
             Role::Generic => AccessRole::GenericContainer,
         }
+    }
+
+    fn intersect_layout_rect(first: LayoutRect, second: LayoutRect) -> Option<LayoutRect> {
+        let left = first.x().max(second.x());
+        let top = first.y().max(second.y());
+        let right = first.right().min(second.right());
+        let bottom = first.bottom().min(second.bottom());
+        (right > left && bottom > top)
+            .then(|| LayoutRect::new(left, top, right - left, bottom - top))
+    }
+
+    fn transform_layout_rect(
+        rect: LayoutRect,
+        origin: LayoutPoint,
+        matrix: [f32; 16],
+    ) -> LayoutRect {
+        let corners = [
+            (rect.x(), rect.y()),
+            (rect.right(), rect.y()),
+            (rect.right(), rect.bottom()),
+            (rect.x(), rect.bottom()),
+        ];
+        let mut min_x = f32::INFINITY;
+        let mut min_y = f32::INFINITY;
+        let mut max_x = f32::NEG_INFINITY;
+        let mut max_y = f32::NEG_INFINITY;
+        for (x, y) in corners {
+            let local_x = x - origin.x;
+            let local_y = y - origin.y;
+            let transformed_x = matrix[0] * local_x + matrix[4] * local_y + matrix[12] + origin.x;
+            let transformed_y = matrix[1] * local_x + matrix[5] * local_y + matrix[13] + origin.y;
+            min_x = min_x.min(transformed_x);
+            min_y = min_y.min(transformed_y);
+            max_x = max_x.max(transformed_x);
+            max_y = max_y.max(transformed_y);
+        }
+        LayoutRect::new(min_x, min_y, max_x - min_x, max_y - min_y)
     }
 
     fn accesskit_rect(rect: LayoutRect, scale_factor: f64) -> Rect {

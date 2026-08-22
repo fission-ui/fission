@@ -9,11 +9,13 @@ use fission_ir::{CoreIR, Op, Semantics, WidgetId};
 use fission_layout::{LayoutSnapshot, TextMeasurer};
 use std::sync::Arc;
 
+pub mod canvas;
 pub mod gesture;
 pub mod hover;
 pub mod selectable_text;
 pub mod slider;
 pub mod text;
+pub mod viewport;
 
 mod editing_convention;
 pub use editing_convention::TextEditingConvention;
@@ -26,6 +28,7 @@ pub struct ControllerContext<'a> {
     pub context_menu: &'a mut ContextMenuState,
     pub interaction: &'a mut InteractionStateMap,
     pub scroll: &'a mut ScrollStateMap,
+    pub viewport: &'a viewport::ViewportStateMap,
     pub gesture: &'a mut crate::env::GestureState,
     pub editing_convention: TextEditingConvention,
     pub clipboard: Option<&'a Arc<dyn Clipboard>>,

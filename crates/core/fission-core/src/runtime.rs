@@ -1054,7 +1054,9 @@ impl Runtime {
     /// Returns `true` when the hook changed runtime state and the shell should
     /// schedule another frame.
     pub fn post_layout_hook(&mut self, ir: &CoreIR, layout: &LayoutSnapshot) -> bool {
-        let needs_follow_up_frame = self.apply_pending_scroll_into_view(ir, layout);
+        let mut needs_follow_up_frame = self.apply_pending_scroll_into_view(ir, layout);
+        self.runtime_state.viewport.reconcile(ir);
+        needs_follow_up_frame |= self.runtime_state.viewport.advance_inertia(ir, layout);
         let active_scroll_nodes: HashSet<WidgetId> = ir
             .nodes
             .iter()
@@ -1122,7 +1124,7 @@ impl Runtime {
         layout: &LayoutSnapshot,
     ) -> Result<()> {
         use crate::hit_test::{
-            find_neighbor_focus_node, find_next_focus_node, hit_test_with_scroll, FocusDirection,
+            find_neighbor_focus_node, find_next_focus_node, hit_test_with_viewports, FocusDirection,
         };
         use crate::input::gesture::GestureController;
         use crate::input::hover::HoverController;
@@ -1166,6 +1168,7 @@ impl Runtime {
                     context_menu: &mut self.runtime_state.context_menu,
                     interaction: &mut self.runtime_state.interaction,
                     scroll: &mut self.runtime_state.scroll,
+                    viewport: &self.runtime_state.viewport,
                     gesture: &mut self.runtime_state.gesture,
                     editing_convention: self.editing_convention,
                     clipboard: self.clipboard_backend.as_ref(),
@@ -1202,9 +1205,13 @@ impl Runtime {
 
         if !pointer_targets_scrollbar {
             if let Some(point) = Self::event_point(&event) {
-                if let Some(hit_node_id) =
-                    hit_test_with_scroll(ir, layout, &self.runtime_state.scroll, point)
-                {
+                if let Some(hit_node_id) = hit_test_with_viewports(
+                    ir,
+                    layout,
+                    &self.runtime_state.scroll,
+                    &self.runtime_state.viewport,
+                    point,
+                ) {
                     // Find the custom render object for this click.  Walk up from the
                     // hit node first; if not found, check all registered render objects
                     // by rect containment (the hit may be on a wrapper node above the
@@ -1335,6 +1342,32 @@ impl Runtime {
             }
         }
 
+        let (viewport_handled, viewport_actions) = {
+            let mut ctx = crate::input::viewport::ViewportControllerContext {
+                ir,
+                layout,
+                scroll: &self.runtime_state.scroll,
+                viewport: &mut self.runtime_state.viewport,
+                gesture: &mut self.runtime_state.gesture,
+                dispatched_actions: Vec::new(),
+            };
+            let mut controller = crate::input::viewport::ViewportController;
+            let handled = controller.handle_event(&mut ctx, &event);
+            (handled, ctx.dispatched_actions)
+        };
+        self.dispatch_input_actions(viewport_actions)?;
+        if viewport_handled {
+            if matches!(
+                event,
+                InputEvent::Pointer(PointerEvent::Up { .. } | PointerEvent::Cancel { .. })
+            ) {
+                self.runtime_state.interaction.pressed.clear();
+                self.runtime_state.interaction.last_down_point = None;
+            }
+            self.update_focused_ime_state(ir, layout);
+            return Ok(());
+        }
+
         let (handled, dispatched_actions) = {
             let mut ctx = ControllerContext {
                 ir,
@@ -1344,6 +1377,7 @@ impl Runtime {
                 context_menu: &mut self.runtime_state.context_menu,
                 interaction: &mut self.runtime_state.interaction,
                 scroll: &mut self.runtime_state.scroll,
+                viewport: &self.runtime_state.viewport,
                 gesture: &mut self.runtime_state.gesture,
                 editing_convention: self.editing_convention,
                 clipboard: self.clipboard_backend.as_ref(),
@@ -1377,7 +1411,10 @@ impl Runtime {
         self.dispatch_input_actions(dispatched_actions)?;
 
         if handled {
-            if matches!(event, InputEvent::Pointer(PointerEvent::Up { .. })) {
+            if matches!(
+                event,
+                InputEvent::Pointer(PointerEvent::Up { .. } | PointerEvent::Cancel { .. })
+            ) {
                 self.runtime_state.interaction.pressed.clear();
                 self.runtime_state.interaction.last_down_point = None;
             }
@@ -1398,7 +1435,13 @@ impl Runtime {
                 let hit_node_id = scrollbar_hit_test(ir, layout, &self.runtime_state.scroll, point)
                     .map(|hit| hit.geometry.node_id)
                     .or_else(|| {
-                        hit_test_with_scroll(ir, layout, &self.runtime_state.scroll, point)
+                        hit_test_with_viewports(
+                            ir,
+                            layout,
+                            &self.runtime_state.scroll,
+                            &self.runtime_state.viewport,
+                            point,
+                        )
                     });
                 if let Some(hit_node_id) = hit_node_id {
                     if trace_scroll {
@@ -1570,9 +1613,13 @@ impl Runtime {
                 button: PointerButton::Primary,
                 ..
             }) => {
-                if let Some(hit_node_id) =
-                    hit_test_with_scroll(ir, layout, &self.runtime_state.scroll, point)
-                {
+                if let Some(hit_node_id) = hit_test_with_viewports(
+                    ir,
+                    layout,
+                    &self.runtime_state.scroll,
+                    &self.runtime_state.viewport,
+                    point,
+                ) {
                     diag::emit(
                         diag::DiagCategory::Input,
                         diag::DiagLevel::Debug,
@@ -1688,9 +1735,13 @@ impl Runtime {
                     .take()
                     .is_some();
                 if had_primary_down {
-                    if let Some(hit_node_id) =
-                        hit_test_with_scroll(ir, layout, &self.runtime_state.scroll, point)
-                    {
+                    if let Some(hit_node_id) = hit_test_with_viewports(
+                        ir,
+                        layout,
+                        &self.runtime_state.scroll,
+                        &self.runtime_state.viewport,
+                        point,
+                    ) {
                         let mut current_id = Some(hit_node_id);
                         while let Some(node_id) = current_id {
                             if let Some(node) = ir.nodes.get(&node_id) {
@@ -1756,6 +1807,7 @@ impl Runtime {
                 context_menu: &mut self.runtime_state.context_menu,
                 interaction: &mut self.runtime_state.interaction,
                 scroll: &mut self.runtime_state.scroll,
+                viewport: &self.runtime_state.viewport,
                 gesture: &mut self.runtime_state.gesture,
                 editing_convention: self.editing_convention,
                 clipboard: self.clipboard_backend.as_ref(),
@@ -1830,6 +1882,7 @@ impl Runtime {
                     context_menu: &mut self.runtime_state.context_menu,
                     interaction: &mut self.runtime_state.interaction,
                     scroll: &mut self.runtime_state.scroll,
+                    viewport: &self.runtime_state.viewport,
                     gesture: &mut self.runtime_state.gesture,
                     editing_convention: self.editing_convention,
                     clipboard: self.clipboard_backend.as_ref(),
@@ -2023,7 +2076,9 @@ impl Runtime {
             InputEvent::Pointer(PointerEvent::Down { point, .. })
             | InputEvent::Pointer(PointerEvent::Up { point, .. })
             | InputEvent::Pointer(PointerEvent::Move { point, .. })
-            | InputEvent::Pointer(PointerEvent::Scroll { point, .. }) => Some(*point),
+            | InputEvent::Pointer(PointerEvent::Cancel { point, .. })
+            | InputEvent::Pointer(PointerEvent::Scroll { point, .. })
+            | InputEvent::Pointer(PointerEvent::Magnify { point, .. }) => Some(*point),
             _ => None,
         }
     }

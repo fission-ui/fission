@@ -358,11 +358,15 @@ fn click_rect(h: &mut TestHarness<InboxState>, rect: LayoutRect) -> Result<()> {
         rect.y() + rect.height() / 2.0,
     );
     h.send_event(InputEvent::Pointer(PointerEvent::Down {
+        pointer_id: Default::default(),
+        kind: Default::default(),
         point,
         button: PointerButton::Primary,
         modifiers: 0,
     }))?;
     h.send_event(InputEvent::Pointer(PointerEvent::Up {
+        pointer_id: Default::default(),
+        kind: Default::default(),
         point,
         button: PointerButton::Primary,
         modifiers: 0,
@@ -533,11 +537,15 @@ macro_rules! semantics_test {
 fn click(h: &mut TestHarness<InboxState>, x: f32, y: f32) -> Result<()> {
     let point = fission::core::LayoutPoint::new(x, y);
     h.send_event(InputEvent::Pointer(PointerEvent::Down {
+        pointer_id: Default::default(),
+        kind: Default::default(),
         point,
         button: PointerButton::Primary,
         modifiers: 0,
     }))?;
     h.send_event(InputEvent::Pointer(PointerEvent::Up {
+        pointer_id: Default::default(),
+        kind: Default::default(),
         point,
         button: PointerButton::Primary,
         modifiers: 0,

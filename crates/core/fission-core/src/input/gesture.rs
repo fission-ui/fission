@@ -7,7 +7,66 @@ use crate::scrollbar::{
 use crate::{ActionEnvelope, ActionId, ActionInput, DragSessionPayload, DragSessionState};
 use fission_ir::op::RichTextAnnotation;
 use fission_ir::{semantics::ActionTrigger, Op, WidgetId};
-use fission_layout::LayoutPoint;
+use fission_layout::{LayoutPoint, LayoutSnapshot};
+
+pub(crate) fn cancel_active_drag_for_viewport(
+    ir: &fission_ir::CoreIR,
+    layout: &LayoutSnapshot,
+    viewport: &crate::input::viewport::ViewportStateMap,
+    gesture: &crate::env::GestureState,
+    point: LayoutPoint,
+    dispatched_actions: &mut Vec<(WidgetId, ActionEnvelope, ActionInput)>,
+) {
+    let Some(start_node) = gesture.target_node.filter(|_| gesture.is_panning) else {
+        return;
+    };
+    let mut current_id = Some(start_node);
+    while let Some(node_id) = current_id {
+        let Some(node) = ir.nodes.get(&node_id) else {
+            break;
+        };
+        if let Op::Semantics(semantics) = &node.op {
+            if let Some(entry) = semantics
+                .actions
+                .entries
+                .iter()
+                .find(|entry| entry.trigger == ActionTrigger::DragEnd)
+            {
+                let input = if let Some(target) = &semantics.canvas_target {
+                    ActionInput::CanvasInteraction(crate::input::canvas::canvas_interaction(
+                        node_id,
+                        target,
+                        crate::input::canvas::CanvasInteractionPhase::Cancel,
+                        point,
+                        LayoutPoint::ZERO,
+                        gesture.start_point,
+                        layout,
+                        viewport,
+                        gesture.pointer_kind,
+                        gesture.modifiers,
+                    ))
+                } else {
+                    ActionInput::Pointer {
+                        x: point.x,
+                        y: point.y,
+                        delta_x: 0.0,
+                        delta_y: 0.0,
+                    }
+                };
+                dispatched_actions.push((
+                    node_id,
+                    ActionEnvelope {
+                        id: ActionId::from_u128(entry.action_id),
+                        payload: entry.payload_data.clone().unwrap_or_default(),
+                    },
+                    crate::input::scoped_action_input(ir, node_id, input),
+                ));
+                return;
+            }
+        }
+        current_id = node.parent;
+    }
+}
 
 pub struct GestureController;
 
@@ -16,7 +75,13 @@ impl InputController for GestureController {
         match event {
             InputEvent::Pointer(pe) => {
                 match pe {
-                    PointerEvent::Down { point, button, .. } => {
+                    PointerEvent::Down {
+                        point,
+                        button,
+                        kind,
+                        modifiers,
+                        ..
+                    } => {
                         // GestureState currently models one active pointer-button
                         // sequence. Do not let an additional button press replace
                         // the button that must match the eventual release.
@@ -28,6 +93,8 @@ impl InputController for GestureController {
                         ctx.gesture.last_point = Some(*point);
                         ctx.gesture.is_panning = false;
                         ctx.gesture.pressed_button = Some(button.clone());
+                        ctx.gesture.pointer_kind = *kind;
+                        ctx.gesture.modifiers = *modifiers;
                         ctx.gesture.scrollbar_drag = None;
 
                         if matches!(button, crate::event::PointerButton::Primary) {
@@ -55,8 +122,12 @@ impl InputController for GestureController {
                             }
                         }
 
-                        if let Some(hit) = crate::hit_test::hit_test_with_scroll(
-                            ctx.ir, ctx.layout, ctx.scroll, *point,
+                        if let Some(hit) = crate::hit_test::hit_test_with_viewports(
+                            ctx.ir,
+                            ctx.layout,
+                            ctx.scroll,
+                            ctx.viewport,
+                            *point,
                         ) {
                             ctx.gesture.target_node = Some(hit);
                             ctx.gesture.dragging_payload =
@@ -68,7 +139,14 @@ impl InputController for GestureController {
                             ctx.gesture.dragging_payload = None;
                         }
                     }
-                    PointerEvent::Move { point, .. } => {
+                    PointerEvent::Move {
+                        point,
+                        kind,
+                        modifiers,
+                        ..
+                    } => {
+                        ctx.gesture.pointer_kind = *kind;
+                        ctx.gesture.modifiers = *modifiers;
                         if !matches!(
                             ctx.gesture.pressed_button,
                             Some(crate::event::PointerButton::Primary)
@@ -173,8 +251,12 @@ impl InputController for GestureController {
                     PointerEvent::Up {
                         point,
                         button,
+                        kind,
                         modifiers,
+                        ..
                     } => {
+                        ctx.gesture.pointer_kind = *kind;
+                        ctx.gesture.modifiers = *modifiers;
                         let scrollbar_drag = ctx.gesture.scrollbar_drag.take();
                         let mut handled = false;
                         let pressed_button = ctx.gesture.pressed_button.clone();
@@ -192,8 +274,12 @@ impl InputController for GestureController {
                         if buttons_match && ctx.gesture.is_panning {
                             // Internal Drop
                             if let Some(payload) = ctx.gesture.dragging_payload.take() {
-                                if let Some(up_hit) = crate::hit_test::hit_test_with_scroll(
-                                    ctx.ir, ctx.layout, ctx.scroll, *point,
+                                if let Some(up_hit) = crate::hit_test::hit_test_with_viewports(
+                                    ctx.ir,
+                                    ctx.layout,
+                                    ctx.scroll,
+                                    ctx.viewport,
+                                    *point,
                                 ) {
                                     let _ = self.dispatch_internal_drop(
                                         ctx, up_hit, payload, *point, *modifiers,
@@ -214,8 +300,12 @@ impl InputController for GestureController {
                         } else if buttons_match && was_secondary {
                             // Secondary click (right-click)
                             if let Some(target) = ctx.gesture.target_node {
-                                if let Some(up_hit) = crate::hit_test::hit_test_with_scroll(
-                                    ctx.ir, ctx.layout, ctx.scroll, *point,
+                                if let Some(up_hit) = crate::hit_test::hit_test_with_viewports(
+                                    ctx.ir,
+                                    ctx.layout,
+                                    ctx.scroll,
+                                    ctx.viewport,
+                                    *point,
                                 ) {
                                     if up_hit == target
                                         || self.is_descendant(ctx, up_hit, target)
@@ -264,8 +354,12 @@ impl InputController for GestureController {
                         } else if buttons_match && was_primary {
                             // Tap (primary click)
                             if let Some(target) = ctx.gesture.target_node {
-                                if let Some(up_hit) = crate::hit_test::hit_test_with_scroll(
-                                    ctx.ir, ctx.layout, ctx.scroll, *point,
+                                if let Some(up_hit) = crate::hit_test::hit_test_with_viewports(
+                                    ctx.ir,
+                                    ctx.layout,
+                                    ctx.scroll,
+                                    ctx.viewport,
+                                    *point,
                                 ) {
                                     if up_hit == target
                                         || self.is_descendant(ctx, up_hit, target)
@@ -313,6 +407,34 @@ impl InputController for GestureController {
                             return true;
                         }
                         return handled;
+                    }
+                    PointerEvent::Cancel {
+                        point,
+                        kind,
+                        modifiers,
+                        ..
+                    } => {
+                        let had_sequence = ctx.gesture.pressed_button.is_some()
+                            || ctx.gesture.drag_session.is_some()
+                            || ctx.gesture.scrollbar_drag.is_some();
+                        ctx.gesture.pointer_kind = *kind;
+                        ctx.gesture.modifiers = *modifiers;
+                        if ctx.gesture.is_panning {
+                            if let Some(target) = ctx.gesture.target_node {
+                                self.dispatch_trigger_with_phase(
+                                    ctx,
+                                    target,
+                                    ActionTrigger::DragEnd,
+                                    *point,
+                                    None,
+                                    Some(crate::input::canvas::CanvasInteractionPhase::Cancel),
+                                );
+                            }
+                        }
+                        ctx.gesture.scrollbar_drag = None;
+                        self.reset_pointer_sequence(ctx, *point);
+                        ctx.gesture.target_node = None;
+                        return had_sequence;
                     }
                     _ => {}
                 }
@@ -405,9 +527,13 @@ impl GestureController {
         ctx: &mut ControllerContext,
         point: LayoutPoint,
     ) -> bool {
-        let Some(hit) =
-            crate::hit_test::hit_test_with_scroll(ctx.ir, ctx.layout, ctx.scroll, point)
-        else {
+        let Some(hit) = crate::hit_test::hit_test_with_viewports(
+            ctx.ir,
+            ctx.layout,
+            ctx.scroll,
+            ctx.viewport,
+            point,
+        ) else {
             return false;
         };
         if let Some(menu_owner) = self.find_context_menu_owner(ctx, hit) {
@@ -582,9 +708,14 @@ impl GestureController {
     }
 
     fn update_drag_target(&self, ctx: &mut ControllerContext, point: LayoutPoint) {
-        let next_target =
-            crate::hit_test::hit_test_with_scroll(ctx.ir, ctx.layout, ctx.scroll, point)
-                .and_then(|hit| self.find_drop_target(ctx, hit));
+        let next_target = crate::hit_test::hit_test_with_viewports(
+            ctx.ir,
+            ctx.layout,
+            ctx.scroll,
+            ctx.viewport,
+            point,
+        )
+        .and_then(|hit| self.find_drop_target(ctx, hit));
 
         let previous_target = ctx
             .gesture
@@ -718,6 +849,18 @@ impl GestureController {
         point: LayoutPoint,
         delta: Option<LayoutPoint>,
     ) -> bool {
+        self.dispatch_trigger_with_phase(ctx, start_node, trigger, point, delta, None)
+    }
+
+    fn dispatch_trigger_with_phase(
+        &self,
+        ctx: &mut ControllerContext,
+        start_node: WidgetId,
+        trigger: ActionTrigger,
+        point: LayoutPoint,
+        delta: Option<LayoutPoint>,
+        phase: Option<crate::input::canvas::CanvasInteractionPhase>,
+    ) -> bool {
         let mut current_id = Some(start_node);
         while let Some(node_id) = current_id {
             if let Some(node) = ctx.ir.nodes.get(&node_id) {
@@ -729,16 +872,31 @@ impl GestureController {
                                 payload: entry.payload_data.clone().unwrap_or_default(),
                             };
 
-                            let input = crate::input::scoped_action_input(
-                                ctx.ir,
-                                node_id,
+                            let delta = delta.unwrap_or(LayoutPoint::ZERO);
+                            let input = if let Some(target) = &sem.canvas_target {
+                                ActionInput::CanvasInteraction(
+                                    crate::input::canvas::canvas_interaction(
+                                        node_id,
+                                        target,
+                                        phase.unwrap_or_else(|| canvas_phase(trigger)),
+                                        point,
+                                        delta,
+                                        ctx.gesture.start_point,
+                                        ctx.layout,
+                                        ctx.viewport,
+                                        ctx.gesture.pointer_kind,
+                                        ctx.gesture.modifiers,
+                                    ),
+                                )
+                            } else {
                                 ActionInput::Pointer {
                                     x: point.x,
                                     y: point.y,
-                                    delta_x: delta.map(|d| d.x).unwrap_or(0.0),
-                                    delta_y: delta.map(|d| d.y).unwrap_or(0.0),
-                                },
-                            );
+                                    delta_x: delta.x,
+                                    delta_y: delta.y,
+                                }
+                            };
+                            let input = crate::input::scoped_action_input(ctx.ir, node_id, input);
 
                             ctx.dispatched_actions.push((node_id, envelope, input));
                             return true;
@@ -796,5 +954,15 @@ impl GestureController {
             }
         }
         false
+    }
+}
+
+fn canvas_phase(trigger: ActionTrigger) -> crate::input::canvas::CanvasInteractionPhase {
+    use crate::input::canvas::CanvasInteractionPhase;
+    match trigger {
+        ActionTrigger::DragStart => CanvasInteractionPhase::Start,
+        ActionTrigger::DragUpdate => CanvasInteractionPhase::Update,
+        ActionTrigger::DragEnd => CanvasInteractionPhase::End,
+        _ => CanvasInteractionPhase::Activate,
     }
 }

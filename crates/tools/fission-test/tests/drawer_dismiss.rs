@@ -61,12 +61,16 @@ fn drawer_renders_content_and_backdrop_dismisses() -> Result<()> {
     // Click outside the drawer panel (right side) to hit backdrop.
     let outside = fission_core::LayoutPoint::new(790.0, 10.0);
     h.send_event(fission_core::InputEvent::Pointer(PointerEvent::Down {
+        pointer_id: Default::default(),
+        kind: Default::default(),
         point: outside,
         button: PointerButton::Primary,
         modifiers: 0,
     }))?;
     h.pump()?;
     h.send_event(fission_core::InputEvent::Pointer(PointerEvent::Up {
+        pointer_id: Default::default(),
+        kind: Default::default(),
         point: outside,
         button: PointerButton::Primary,
         modifiers: 0,

@@ -51,6 +51,8 @@ fn text_input_focus_has_no_ir_cycles() -> Result<()> {
 
     h.send_event(InputEvent::Pointer(
         fission_core::event::PointerEvent::Down {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point: center,
             button: fission_core::event::PointerButton::Primary,
             modifiers: 0,
@@ -114,12 +116,16 @@ fn checkbox_toggle_has_no_ir_cycles() -> Result<()> {
     );
 
     h.send_event(fission_core::InputEvent::Pointer(PointerEvent::Down {
+        pointer_id: Default::default(),
+        kind: Default::default(),
         point: center,
         button: PointerButton::Primary,
         modifiers: 0,
     }))?;
     h.pump()?;
     h.send_event(fission_core::InputEvent::Pointer(PointerEvent::Up {
+        pointer_id: Default::default(),
+        kind: Default::default(),
         point: center,
         button: PointerButton::Primary,
         modifiers: 0,

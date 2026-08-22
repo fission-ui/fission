@@ -1,5 +1,7 @@
 use super::custom_render::CustomRenderObject;
 use super::traits::{InternalLower, InternalLowerer};
+#[cfg(feature = "interactive-canvas")]
+use super::widgets::InteractiveViewer;
 use super::widgets::{
     ActionScope, Align, Button, Checkbox, Clip, Column, Composite, Container, ContextMenuRegion,
     FocusScope, GestureDetector, Grid, GridItem, Icon, Image, LazyColumn, Overlay, Positioned,
@@ -18,7 +20,10 @@ pub struct Widget {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 enum WidgetKind {
-    Identified { id: WidgetId, child: Widget },
+    Identified {
+        id: WidgetId,
+        child: Widget,
+    },
     ActionScope(ActionScope),
     Row(Row),
     Column(Column),
@@ -28,6 +33,8 @@ enum WidgetKind {
     Text(Text),
     RichText(RichText),
     Transform(Transform),
+    #[cfg(feature = "interactive-canvas")]
+    InteractiveViewer(InteractiveViewer),
     Button(Button),
     Pressable(Pressable),
     TextInput(TextInput),
@@ -103,6 +110,11 @@ impl Widget {
             WidgetKind::Transform(mut w) => {
                 w.id = Some(id);
                 WidgetKind::Transform(w)
+            }
+            #[cfg(feature = "interactive-canvas")]
+            WidgetKind::InteractiveViewer(mut w) => {
+                w.id = Some(id);
+                WidgetKind::InteractiveViewer(w)
             }
             WidgetKind::Button(mut w) => {
                 w.id = Some(id);
@@ -250,6 +262,8 @@ impl Widget {
             WidgetKind::Text(_) => "Text",
             WidgetKind::RichText(_) => "RichText",
             WidgetKind::Transform(_) => "Transform",
+            #[cfg(feature = "interactive-canvas")]
+            WidgetKind::InteractiveViewer(_) => "InteractiveViewer",
             WidgetKind::Button(_) => "Button",
             WidgetKind::Pressable(_) => "Pressable",
             WidgetKind::TextInput(_) => "TextInput",
@@ -358,6 +372,15 @@ impl Widget {
             _ => None,
         }
     }
+
+    #[cfg(feature = "interactive-canvas")]
+    pub(crate) fn as_interactive_viewer(&self) -> Option<&InteractiveViewer> {
+        match &*self.kind {
+            WidgetKind::Identified { child, .. } => child.as_interactive_viewer(),
+            WidgetKind::InteractiveViewer(widget) => Some(widget),
+            _ => None,
+        }
+    }
 }
 
 pub trait WidgetIdExt: Into<Widget> + Sized {
@@ -398,6 +421,8 @@ impl Widget {
             WidgetKind::Text(w) => w.lower(cx),
             WidgetKind::RichText(w) => w.lower(cx),
             WidgetKind::Transform(w) => w.lower(cx),
+            #[cfg(feature = "interactive-canvas")]
+            WidgetKind::InteractiveViewer(w) => w.lower(cx),
             WidgetKind::Button(w) => w.lower(cx),
             WidgetKind::Pressable(w) => w.lower(cx),
             WidgetKind::TextInput(w) => w.lower(cx),
@@ -516,6 +541,14 @@ impl From<Transform> for Widget {
     fn from(w: Transform) -> Self {
         Self {
             kind: Box::new(WidgetKind::Transform(w)),
+        }
+    }
+}
+#[cfg(feature = "interactive-canvas")]
+impl From<InteractiveViewer> for Widget {
+    fn from(w: InteractiveViewer) -> Self {
+        Self {
+            kind: Box::new(WidgetKind::InteractiveViewer(w)),
         }
     }
 }

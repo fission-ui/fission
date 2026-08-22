@@ -165,6 +165,7 @@ impl InternalLower for Switch {
                 "false".into()
             }),
             actions: Default::default(),
+            canvas_target: None,
             action_scope_id: None,
             focusable: true,
             focus_policy: fission_ir::FocusPolicy::FocusOnPointer,

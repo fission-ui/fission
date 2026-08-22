@@ -235,6 +235,8 @@ fn strict_incremental_checkbox_textinput_checkbox_sequence() -> Result<()> {
     let p = LayoutPoint::new(r.x() + r.width() / 2.0, r.y() + r.height() / 2.0);
     runtime.handle_input(
         InputEvent::Pointer(fission_core::event::PointerEvent::Down {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point: p,
             button: fission_core::event::PointerButton::Primary,
             modifiers: 0,
@@ -245,6 +247,8 @@ fn strict_incremental_checkbox_textinput_checkbox_sequence() -> Result<()> {
     let (_ir2, _sn2) = pump(&mut runtime, &mut layout, &mut pipe, &env, &root);
     runtime.handle_input(
         InputEvent::Pointer(fission_core::event::PointerEvent::Up {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point: p,
             button: fission_core::event::PointerButton::Primary,
             modifiers: 0,
@@ -270,6 +274,8 @@ fn strict_incremental_checkbox_textinput_checkbox_sequence() -> Result<()> {
     let tp = LayoutPoint::new(tr.x() + tr.width() / 2.0, tr.y() + tr.height() / 2.0);
     runtime.handle_input(
         InputEvent::Pointer(fission_core::event::PointerEvent::Down {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point: tp,
             button: fission_core::event::PointerButton::Primary,
             modifiers: 0,
@@ -283,6 +289,8 @@ fn strict_incremental_checkbox_textinput_checkbox_sequence() -> Result<()> {
     let (ir6, sn6) = pump(&mut runtime, &mut layout, &mut pipe, &env, &root);
     runtime.handle_input(
         InputEvent::Pointer(fission_core::event::PointerEvent::Down {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point: p,
             button: fission_core::event::PointerButton::Primary,
             modifiers: 0,
@@ -293,6 +301,8 @@ fn strict_incremental_checkbox_textinput_checkbox_sequence() -> Result<()> {
     let (_ir7, _sn7) = pump(&mut runtime, &mut layout, &mut pipe, &env, &root);
     runtime.handle_input(
         InputEvent::Pointer(fission_core::event::PointerEvent::Up {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point: p,
             button: fission_core::event::PointerButton::Primary,
             modifiers: 0,
