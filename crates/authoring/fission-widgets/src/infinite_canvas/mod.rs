@@ -116,15 +116,14 @@ impl From<InfiniteCanvas> for Widget {
 
 impl InternalLowerer for InfiniteCanvas {
     fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
-        let resolved = self.resolved_widget(cx);
+        let canvas_id = self.id.unwrap_or_else(|| cx.next_node_id());
+        let resolved = self.resolved_widget(cx, canvas_id);
         fission_core::internal::lower_widget(&resolved, cx)
     }
 
     fn widget_id(&self) -> Option<WidgetId> {
-        let canvas_id = self
-            .id
-            .unwrap_or_else(|| WidgetId::explicit("fission.infinite-canvas"));
-        Some(WidgetId::derived(canvas_id.as_u128(), &[0xCA4A5]))
+        self.id
+            .map(|canvas_id| WidgetId::derived(canvas_id.as_u128(), &[0xCA4A5]))
     }
 
     fn stable_key(&self) -> u64 {
@@ -135,10 +134,7 @@ impl InternalLowerer for InfiniteCanvas {
 }
 
 impl InfiniteCanvas {
-    fn resolved_widget(&self, cx: &InternalLoweringCx<'_>) -> Widget {
-        let canvas_id = self
-            .id
-            .unwrap_or_else(|| WidgetId::explicit("fission.infinite-canvas"));
+    fn resolved_widget(&self, cx: &InternalLoweringCx<'_>, canvas_id: WidgetId) -> Widget {
         let transform = self
             .transform
             .or_else(|| cx.runtime_state.viewport.transform(canvas_id))
@@ -324,5 +320,25 @@ mod tests {
         assert_eq!(wrapper.children.len(), 1);
         assert_ne!(wrapper.children[0], root);
         assert!(cx.ir.nodes.contains_key(&canvas_id));
+    }
+
+    #[test]
+    fn unnamed_canvases_receive_distinct_scoped_identities() {
+        let widget: Widget = ZStack {
+            id: None,
+            children: vec![
+                InfiniteCanvas::default().into(),
+                InfiniteCanvas::default().into(),
+            ],
+        }
+        .into();
+        let env = Env::default();
+        let runtime = RuntimeState::default();
+        let mut cx = fission_core::internal::InternalLoweringCx::new(&env, &runtime, None, None);
+
+        let root = fission_core::internal::lower_widget(&widget, &mut cx);
+        let stack = cx.ir.nodes.get(&root).expect("canvas stack");
+        assert_eq!(stack.children.len(), 2);
+        assert_ne!(stack.children[0], stack.children[1]);
     }
 }
