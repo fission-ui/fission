@@ -28,6 +28,31 @@ pub use browser::{
 
 // --- Protocol types (shared between client and server) ---
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TestPointerKind {
+    Mouse,
+    Touch,
+    Stylus,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TestPointerPhase {
+    Started,
+    Moved,
+    Ended,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TestScrollDeltaMode {
+    Line,
+    Pixel,
+}
+
 /// A command sent from the test client to the running application.
 ///
 /// Serialized with `#[serde(tag = "cmd")]`. See the crate-level docs for
@@ -45,6 +70,50 @@ pub enum TestCommand {
         end_x: f32,
         end_y: f32,
         steps: u32,
+    },
+    PointerDown {
+        pointer_id: u64,
+        kind: TestPointerKind,
+        x: f32,
+        y: f32,
+        modifiers: u8,
+    },
+    PointerMove {
+        pointer_id: u64,
+        kind: TestPointerKind,
+        x: f32,
+        y: f32,
+        modifiers: u8,
+    },
+    PointerUp {
+        pointer_id: u64,
+        kind: TestPointerKind,
+        x: f32,
+        y: f32,
+        modifiers: u8,
+    },
+    PointerCancel {
+        pointer_id: u64,
+        kind: TestPointerKind,
+        x: f32,
+        y: f32,
+        modifiers: u8,
+    },
+    PointerScroll {
+        x: f32,
+        y: f32,
+        dx: f32,
+        dy: f32,
+        delta_mode: TestScrollDeltaMode,
+        phase: TestPointerPhase,
+        modifiers: u8,
+    },
+    Magnify {
+        x: f32,
+        y: f32,
+        scale_factor: f32,
+        phase: TestPointerPhase,
+        modifiers: u8,
     },
     TapText {
         text: String,
@@ -210,6 +279,34 @@ pub enum TestEvent {
         y: f32,
         button: u8,
     },
+    PointerDown {
+        pointer_id: u64,
+        kind: TestPointerKind,
+        x: f32,
+        y: f32,
+        modifiers: u8,
+    },
+    PointerMove {
+        pointer_id: u64,
+        kind: TestPointerKind,
+        x: f32,
+        y: f32,
+        modifiers: u8,
+    },
+    PointerUp {
+        pointer_id: u64,
+        kind: TestPointerKind,
+        x: f32,
+        y: f32,
+        modifiers: u8,
+    },
+    PointerCancel {
+        pointer_id: u64,
+        kind: TestPointerKind,
+        x: f32,
+        y: f32,
+        modifiers: u8,
+    },
     KeyDown {
         key_code: String,
         modifiers: u8,
@@ -234,6 +331,22 @@ pub enum TestEvent {
         y: f32,
         dx: f32,
         dy: f32,
+    },
+    PointerScroll {
+        x: f32,
+        y: f32,
+        dx: f32,
+        dy: f32,
+        delta_mode: TestScrollDeltaMode,
+        phase: TestPointerPhase,
+        modifiers: u8,
+    },
+    Magnify {
+        x: f32,
+        y: f32,
+        scale_factor: f32,
+        phase: TestPointerPhase,
+        modifiers: u8,
     },
     ExternalFileHover {
         x: f32,
@@ -870,6 +983,119 @@ impl LiveTestClient {
         Ok(())
     }
 
+    pub fn pointer_down(
+        &self,
+        pointer_id: u64,
+        kind: TestPointerKind,
+        x: f32,
+        y: f32,
+        modifiers: u8,
+    ) -> Result<()> {
+        self.send(TestCommand::PointerDown {
+            pointer_id,
+            kind,
+            x,
+            y,
+            modifiers,
+        })?;
+        Ok(())
+    }
+
+    pub fn pointer_move(
+        &self,
+        pointer_id: u64,
+        kind: TestPointerKind,
+        x: f32,
+        y: f32,
+        modifiers: u8,
+    ) -> Result<()> {
+        self.send(TestCommand::PointerMove {
+            pointer_id,
+            kind,
+            x,
+            y,
+            modifiers,
+        })?;
+        Ok(())
+    }
+
+    pub fn pointer_up(
+        &self,
+        pointer_id: u64,
+        kind: TestPointerKind,
+        x: f32,
+        y: f32,
+        modifiers: u8,
+    ) -> Result<()> {
+        self.send(TestCommand::PointerUp {
+            pointer_id,
+            kind,
+            x,
+            y,
+            modifiers,
+        })?;
+        Ok(())
+    }
+
+    pub fn pointer_cancel(
+        &self,
+        pointer_id: u64,
+        kind: TestPointerKind,
+        x: f32,
+        y: f32,
+        modifiers: u8,
+    ) -> Result<()> {
+        self.send(TestCommand::PointerCancel {
+            pointer_id,
+            kind,
+            x,
+            y,
+            modifiers,
+        })?;
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn pointer_scroll(
+        &self,
+        x: f32,
+        y: f32,
+        dx: f32,
+        dy: f32,
+        delta_mode: TestScrollDeltaMode,
+        phase: TestPointerPhase,
+        modifiers: u8,
+    ) -> Result<()> {
+        self.send(TestCommand::PointerScroll {
+            x,
+            y,
+            dx,
+            dy,
+            delta_mode,
+            phase,
+            modifiers,
+        })?;
+        Ok(())
+    }
+
+    pub fn magnify(
+        &self,
+        x: f32,
+        y: f32,
+        scale_factor: f32,
+        phase: TestPointerPhase,
+        modifiers: u8,
+    ) -> Result<()> {
+        self.send(TestCommand::Magnify {
+            x,
+            y,
+            scale_factor,
+            phase,
+            modifiers,
+        })?;
+        Ok(())
+    }
+
     pub fn external_file_hover(&self, x: f32, y: f32, paths: impl Into<Vec<String>>) -> Result<()> {
         self.send(TestCommand::ExternalFileHover {
             x,
@@ -1109,7 +1335,7 @@ fn screenshot_bytes(response: TestResponse) -> Result<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
-    use super::TestCommand;
+    use super::{TestCommand, TestPointerKind, TestPointerPhase, TestScrollDeltaMode};
 
     #[test]
     fn deterministic_motion_commands_have_stable_wire_shapes() {
@@ -1134,5 +1360,41 @@ mod tests {
                 "ignore_repeating_motion": true
             })
         );
+    }
+
+    #[test]
+    fn multi_pointer_commands_have_explicit_wire_metadata() {
+        let pointer = TestCommand::PointerDown {
+            pointer_id: 7,
+            kind: TestPointerKind::Touch,
+            x: 12.0,
+            y: 24.0,
+            modifiers: 0,
+        };
+        assert_eq!(
+            serde_json::to_value(pointer).unwrap(),
+            serde_json::json!({
+                "cmd": "PointerDown",
+                "pointer_id": 7,
+                "kind": "touch",
+                "x": 12.0,
+                "y": 24.0,
+                "modifiers": 0
+            })
+        );
+
+        let scroll = TestCommand::PointerScroll {
+            x: 5.0,
+            y: 6.0,
+            dx: 1.0,
+            dy: -2.0,
+            delta_mode: TestScrollDeltaMode::Pixel,
+            phase: TestPointerPhase::Moved,
+            modifiers: 4,
+        };
+        let value = serde_json::to_value(scroll).unwrap();
+        assert_eq!(value["delta_mode"], "pixel");
+        assert_eq!(value["phase"], "moved");
+        assert_eq!(value["modifiers"], 4);
     }
 }

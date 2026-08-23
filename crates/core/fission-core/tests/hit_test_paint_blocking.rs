@@ -149,6 +149,8 @@ fn paint_blocking_preserves_runtime_dispatch_for_visible_backdrop() -> anyhow::R
     let tap = |runtime: &mut Runtime, point: LayoutPoint| -> anyhow::Result<()> {
         runtime.handle_input(
             InputEvent::Pointer(PointerEvent::Down {
+                pointer_id: Default::default(),
+                kind: Default::default(),
                 point,
                 button: PointerButton::Primary,
                 modifiers: 0,
@@ -158,6 +160,8 @@ fn paint_blocking_preserves_runtime_dispatch_for_visible_backdrop() -> anyhow::R
         )?;
         runtime.handle_input(
             InputEvent::Pointer(PointerEvent::Up {
+                pointer_id: Default::default(),
+                kind: Default::default(),
                 point,
                 button: PointerButton::Primary,
                 modifiers: 0,

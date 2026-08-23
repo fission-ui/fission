@@ -4884,7 +4884,9 @@ impl LayoutEngine {
                 content_size = size;
                 size
             }
-            LayoutOp::Transform { .. } | LayoutOp::Clip { .. } => {
+            LayoutOp::Transform { .. }
+            | LayoutOp::InteractiveViewport { .. }
+            | LayoutOp::Clip { .. } => {
                 let mut child_size = LayoutSize::ZERO;
                 if let Some(child_id) = node.children_ids.first() {
                     child_size = self.layout_node_constraints(

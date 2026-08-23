@@ -391,6 +391,7 @@ fn setup_ctx_with_convention<'a>(
 ) -> ControllerContext<'a> {
     let selectable_text = Box::leak(Box::new(SelectableTextStateMap::default()));
     let context_menu = Box::leak(Box::new(ContextMenuState::default()));
+    let viewport = Box::leak(Box::new(fission_core::ViewportStateMap::default()));
     ControllerContext {
         ir,
         layout,
@@ -399,6 +400,7 @@ fn setup_ctx_with_convention<'a>(
         context_menu,
         interaction,
         scroll,
+        viewport,
         gesture,
         editing_convention,
         clipboard: Some(clipboard),
@@ -452,6 +454,7 @@ fn create_text_node(id: WidgetId, val: &str, multiline: bool) -> CoreIR {
                 is_focus_barrier: false,
                 drag_payload: None,
                 hero_tag: None,
+                canvas_target: None,
                 focus_index: None,
                 text_input_type: fission_ir::semantics::TextInputType::Text,
                 text_input_action: fission_ir::semantics::TextInputAction::Done,
@@ -865,6 +868,7 @@ fn create_rich_text_input_tree(
                 is_focus_barrier: false,
                 drag_payload: None,
                 hero_tag: None,
+                canvas_target: None,
                 focus_index: None,
                 text_input_type: fission_ir::semantics::TextInputType::Text,
                 text_input_action: fission_ir::semantics::TextInputAction::Done,
@@ -2523,6 +2527,8 @@ fn test_drag_start_behavior_down_skips_pointer_slop() {
     );
 
     let down = InputEvent::Pointer(PointerEvent::Down {
+        pointer_id: Default::default(),
+        kind: Default::default(),
         point: LayoutPoint::new(200.0, 44.0),
         button: PointerButton::Primary,
         modifiers: 0,
@@ -2535,6 +2541,8 @@ fn test_drag_start_behavior_down_skips_pointer_slop() {
     );
 
     let drag = InputEvent::Pointer(PointerEvent::Move {
+        pointer_id: Default::default(),
+        kind: Default::default(),
         point: LayoutPoint::new(201.0, 44.0),
         modifiers: 0,
     });
@@ -2591,6 +2599,8 @@ fn test_multiline_pointer_hit_test_applies_vertical_scroll_offset() {
     );
 
     let down = InputEvent::Pointer(PointerEvent::Down {
+        pointer_id: Default::default(),
+        kind: Default::default(),
         point: LayoutPoint::new(205.0, 40.0),
         button: PointerButton::Primary,
         modifiers: 0,
@@ -2755,6 +2765,8 @@ fn test_pointer_hit_test_handles_draw_rich_text_single_line() {
         Some(&measurer),
     );
     let event = InputEvent::Pointer(PointerEvent::Down {
+        pointer_id: Default::default(),
+        kind: Default::default(),
         point: LayoutPoint::new(260.0, 44.0),
         button: PointerButton::Primary,
         modifiers: 0,
@@ -2811,6 +2823,8 @@ fn test_shift_click_extends_selection_from_existing_anchor() {
         Some(&measurer),
     );
     let event = InputEvent::Pointer(PointerEvent::Down {
+        pointer_id: Default::default(),
+        kind: Default::default(),
         point: LayoutPoint::new(280.0, 44.0),
         button: PointerButton::Primary,
         modifiers: MOD_SHIFT,
@@ -2871,6 +2885,8 @@ fn test_secondary_click_shows_text_toolbar_affordance() {
         Some(&measurer),
     );
     let event = InputEvent::Pointer(PointerEvent::Down {
+        pointer_id: Default::default(),
+        kind: Default::default(),
         point: LayoutPoint::new(248.0, 50.0),
         button: PointerButton::Secondary,
         modifiers: 0,
@@ -2947,6 +2963,8 @@ fn test_pointer_down_outside_focused_input_clears_text_affordances() {
         Some(&measurer),
     );
     let outside_click = InputEvent::Pointer(PointerEvent::Down {
+        pointer_id: Default::default(),
+        kind: Default::default(),
         point: LayoutPoint::new(20.0, 20.0),
         button: PointerButton::Primary,
         modifiers: 0,
@@ -3024,6 +3042,8 @@ fn test_toolbar_copy_button_click_uses_derived_node_id() {
         Some(&measurer),
     );
     let event = InputEvent::Pointer(PointerEvent::Down {
+        pointer_id: Default::default(),
+        kind: Default::default(),
         point: LayoutPoint::new(220.0, 16.0),
         button: PointerButton::Primary,
         modifiers: 0,
@@ -3090,6 +3110,8 @@ fn test_selection_handle_drag_updates_selection_and_toolbar_lifecycle() {
     );
 
     let down = InputEvent::Pointer(PointerEvent::Down {
+        pointer_id: Default::default(),
+        kind: Default::default(),
         point: LayoutPoint::new(220.0, 50.0),
         button: PointerButton::Primary,
         modifiers: 0,
@@ -3104,6 +3126,8 @@ fn test_selection_handle_drag_updates_selection_and_toolbar_lifecycle() {
     assert!(!affordances.toolbar_visible);
 
     let drag = InputEvent::Pointer(PointerEvent::Move {
+        pointer_id: Default::default(),
+        kind: Default::default(),
         point: LayoutPoint::new(212.0, 50.0),
         modifiers: 0,
     });
@@ -3118,6 +3142,8 @@ fn test_selection_handle_drag_updates_selection_and_toolbar_lifecycle() {
     );
 
     let up = InputEvent::Pointer(PointerEvent::Up {
+        pointer_id: Default::default(),
+        kind: Default::default(),
         point: LayoutPoint::new(212.0, 50.0),
         button: PointerButton::Primary,
         modifiers: 0,
@@ -3176,6 +3202,8 @@ fn test_masked_pointer_hit_testing_maps_back_to_source_offsets() {
         Some(&measurer),
     );
     let event = InputEvent::Pointer(PointerEvent::Down {
+        pointer_id: Default::default(),
+        kind: Default::default(),
         point: LayoutPoint::new(225.0, 44.0),
         button: PointerButton::Primary,
         modifiers: 0,

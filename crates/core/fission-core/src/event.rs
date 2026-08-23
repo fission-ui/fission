@@ -6,6 +6,75 @@
 use fission_layout::{LayoutPoint, LayoutSize};
 use serde::{Deserialize, Serialize};
 
+/// Stable identity for one active pointer contact.
+///
+/// Pointer ids are only required to be unique among simultaneously active
+/// pointers. Mouse input uses [`PointerId::MOUSE`]; touch ids come from the
+/// platform shell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct PointerId(pub u128);
+
+impl PointerId {
+    pub const MOUSE: Self = Self(0);
+
+    /// Namespaces a platform contact id away from the singleton mouse id.
+    pub const fn contact(platform_id: u64) -> Self {
+        Self(platform_id as u128 + 1)
+    }
+}
+
+impl Default for PointerId {
+    fn default() -> Self {
+        Self::MOUSE
+    }
+}
+
+/// Physical input source which produced a pointer event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PointerKind {
+    Mouse,
+    Touch,
+    Stylus,
+    Unknown,
+}
+
+impl Default for PointerKind {
+    fn default() -> Self {
+        Self::Mouse
+    }
+}
+
+/// Lifecycle phase shared by continuous pointer signals.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PointerPhase {
+    Started,
+    Moved,
+    Ended,
+    Cancelled,
+}
+
+impl Default for PointerPhase {
+    fn default() -> Self {
+        Self::Moved
+    }
+}
+
+/// Units reported by a scroll input source.
+///
+/// This deliberately describes the reported delta rather than guessing whether
+/// a high-resolution device is a wheel or trackpad.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ScrollDeltaMode {
+    Line,
+    Pixel,
+}
+
+impl Default for ScrollDeltaMode {
+    fn default() -> Self {
+        Self::Pixel
+    }
+}
+
 /// Identifies which mouse button or touch produced a pointer event.
 ///
 /// # Variants
@@ -32,8 +101,11 @@ pub enum PointerButton {
 ///
 /// ```rust,ignore
 /// let event = InputEvent::Pointer(PointerEvent::Down {
+///     pointer_id: PointerId::MOUSE,
+///     kind: PointerKind::Mouse,
 ///     point: LayoutPoint::new(100.0, 200.0),
 ///     button: PointerButton::Primary,
+///     modifiers: 0,
 /// });
 /// runtime.handle_input(event, &ir, &layout)?;
 /// ```
@@ -41,6 +113,8 @@ pub enum PointerButton {
 pub enum PointerEvent {
     /// A button was pressed at the given point.
     Down {
+        pointer_id: PointerId,
+        kind: PointerKind,
         point: LayoutPoint,
         button: PointerButton,
         /// Modifier bitmask (Shift=1, Alt=2, Ctrl=4, Super=8).
@@ -48,6 +122,8 @@ pub enum PointerEvent {
     },
     /// A button was released at the given point.
     Up {
+        pointer_id: PointerId,
+        kind: PointerKind,
         point: LayoutPoint,
         button: PointerButton,
         /// Modifier bitmask (Shift=1, Alt=2, Ctrl=4, Super=8).
@@ -55,6 +131,16 @@ pub enum PointerEvent {
     },
     /// The pointer moved (no button state change).
     Move {
+        pointer_id: PointerId,
+        kind: PointerKind,
+        point: LayoutPoint,
+        /// Modifier bitmask (Shift=1, Alt=2, Ctrl=4, Super=8).
+        modifiers: u8,
+    },
+    /// An active pointer sequence was cancelled by the platform.
+    Cancel {
+        pointer_id: PointerId,
+        kind: PointerKind,
         point: LayoutPoint,
         /// Modifier bitmask (Shift=1, Alt=2, Ctrl=4, Super=8).
         modifiers: u8,
@@ -64,6 +150,20 @@ pub enum PointerEvent {
         point: LayoutPoint,
         /// Scroll delta in layout units (positive = scroll down / right).
         delta: LayoutPoint,
+        /// Whether the platform supplied line or pixel deltas.
+        delta_mode: ScrollDeltaMode,
+        /// Lifecycle phase supplied by the platform.
+        phase: PointerPhase,
+        /// Modifier bitmask (Shift=1, Alt=2, Ctrl=4, Super=8).
+        modifiers: u8,
+    },
+    /// A platform-recognized magnification gesture, such as a trackpad pinch.
+    Magnify {
+        /// Gesture focal point in layout coordinates.
+        point: LayoutPoint,
+        /// Multiplicative scale factor for this update (`1.0` means unchanged).
+        scale_factor: f32,
+        phase: PointerPhase,
         /// Modifier bitmask (Shift=1, Alt=2, Ctrl=4, Super=8).
         modifiers: u8,
     },
@@ -245,4 +345,48 @@ pub enum ImeEvent {
     Cancel,
     /// The user confirmed the composed text.
     Commit { text: String },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pointer_contact_identity_round_trips() {
+        let event = PointerEvent::Cancel {
+            pointer_id: PointerId::contact(42),
+            kind: PointerKind::Touch,
+            point: LayoutPoint::new(12.0, 18.0),
+            modifiers: MOD_SHIFT,
+        };
+        let encoded = serde_json::to_string(&event).unwrap();
+        assert_eq!(
+            serde_json::from_str::<PointerEvent>(&encoded).unwrap(),
+            event
+        );
+    }
+
+    #[test]
+    fn detailed_pointer_signals_round_trip() {
+        let scroll = PointerEvent::Scroll {
+            point: LayoutPoint::new(3.0, 5.0),
+            delta: LayoutPoint::new(-2.0, 7.0),
+            delta_mode: ScrollDeltaMode::Line,
+            phase: PointerPhase::Started,
+            modifiers: MOD_CTRL,
+        };
+        let magnify = PointerEvent::Magnify {
+            point: LayoutPoint::new(9.0, 11.0),
+            scale_factor: 1.25,
+            phase: PointerPhase::Moved,
+            modifiers: 0,
+        };
+        for event in [scroll, magnify] {
+            let encoded = serde_json::to_string(&event).unwrap();
+            assert_eq!(
+                serde_json::from_str::<PointerEvent>(&encoded).unwrap(),
+                event
+            );
+        }
+    }
 }

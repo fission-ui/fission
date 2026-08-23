@@ -95,6 +95,8 @@ fn primary_release_without_primary_press_does_not_activate_default() -> anyhow::
 
     runtime.handle_input(
         InputEvent::Pointer(PointerEvent::Up {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point,
             button: PointerButton::Primary,
             modifiers: 0,
@@ -192,6 +194,8 @@ fn click(
     let point = LayoutPoint::new(20.0, 20.0);
     runtime.handle_input(
         InputEvent::Pointer(PointerEvent::Down {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point,
             button: down_button,
             modifiers: 0,
@@ -201,6 +205,8 @@ fn click(
     )?;
     runtime.handle_input(
         InputEvent::Pointer(PointerEvent::Up {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point,
             button: up_button,
             modifiers: 0,

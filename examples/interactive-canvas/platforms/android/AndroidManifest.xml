@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dev.fission.interactive_canvas">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+
+    <uses-sdk
+        android:minSdkVersion="24"
+        android:targetSdkVersion="35" />
+
+    <application
+        android:extractNativeLibs="true"
+        android:hasCode="true"
+        android:icon="@drawable/app_icon"
+        android:label="InteractiveCanvas">
+
+        <activity
+            android:name="rs.fission.runtime.FissionActivity"
+            android:configChanges="orientation|keyboardHidden|screenSize|screenLayout|smallestScreenSize|uiMode|density"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@style/FissionLaunchTheme">
+            <meta-data
+                android:name="android.app.lib_name"
+                android:value="interactive_canvas" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

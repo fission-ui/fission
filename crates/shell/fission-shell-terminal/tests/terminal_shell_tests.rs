@@ -174,6 +174,8 @@ fn terminal_renderer_clips_and_offsets_scroll_content() {
     app.send_event(InputEvent::Pointer(PointerEvent::Scroll {
         point: LayoutPoint::new(1.0, 1.0),
         delta: LayoutPoint::new(0.0, 4.0),
+        delta_mode: Default::default(),
+        phase: Default::default(),
         modifiers: 0,
     }))
     .expect("scroll event");
@@ -190,6 +192,8 @@ fn terminal_renderer_shows_text_input_caret_when_focused() {
     let mut app = TerminalApp::<State, _>::new(TextInputApp);
     app.render_frame(24, 6).expect("initial render");
     app.send_event(InputEvent::Pointer(PointerEvent::Down {
+        pointer_id: Default::default(),
+        kind: Default::default(),
         point: LayoutPoint::new(2.0, 1.0),
         button: fission_core::PointerButton::Primary,
         modifiers: 0,

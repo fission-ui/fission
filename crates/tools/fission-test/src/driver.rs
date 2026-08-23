@@ -143,12 +143,16 @@ impl<S: GlobalState> TestDriver<S> {
         let point = LayoutPoint::new(x, y);
         self.harness
             .send_event(InputEvent::Pointer(PointerEvent::Down {
+                pointer_id: Default::default(),
+                kind: Default::default(),
                 point,
                 button: PointerButton::Primary,
                 modifiers: 0,
             }))?;
         self.harness
             .send_event(InputEvent::Pointer(PointerEvent::Up {
+                pointer_id: Default::default(),
+                kind: Default::default(),
                 point,
                 button: PointerButton::Primary,
                 modifiers: 0,
@@ -173,6 +177,8 @@ impl<S: GlobalState> TestDriver<S> {
             .send_event(InputEvent::Pointer(PointerEvent::Scroll {
                 point: at,
                 delta,
+                delta_mode: Default::default(),
+                phase: Default::default(),
                 modifiers: 0,
             }))?;
         if self.auto_pump {

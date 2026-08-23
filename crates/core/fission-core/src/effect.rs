@@ -276,6 +276,10 @@ pub enum ActionInput {
     /// The action envelope retains the application-defined payload, while this
     /// input carries the edited value and selection independently.
     TextChanged(UpdateTextInput),
+    /// Runtime details accompanying an interactive viewport action.
+    ViewportInteraction(crate::input::viewport::ViewportInteraction),
+    /// Runtime details accompanying an InfiniteCanvas action.
+    CanvasInteraction(crate::input::canvas::CanvasInteraction),
     /// External file drop (e.g. from the OS file manager).
     Drop {
         paths: Vec<String>,
@@ -374,6 +378,22 @@ impl ActionInput {
     pub fn text_change(&self) -> Option<&UpdateTextInput> {
         match self.unscoped() {
             ActionInput::TextChanged(change) => Some(change),
+            _ => None,
+        }
+    }
+
+    /// Returns the camera change accompanying an interactive-viewport action.
+    pub fn viewport_interaction(&self) -> Option<&crate::input::viewport::ViewportInteraction> {
+        match self.unscoped() {
+            ActionInput::ViewportInteraction(interaction) => Some(interaction),
+            _ => None,
+        }
+    }
+
+    /// Returns the node, edge, resize, or marquee change for a canvas action.
+    pub fn canvas_interaction(&self) -> Option<&crate::input::canvas::CanvasInteraction> {
+        match self.unscoped() {
+            ActionInput::CanvasInteraction(interaction) => Some(interaction),
             _ => None,
         }
     }
@@ -594,6 +614,13 @@ impl std::error::Error for ActionInputCodecError {
 #[cfg(test)]
 mod action_input_codec_tests {
     use super::*;
+    use crate::event::PointerKind;
+    use crate::input::canvas::{CanvasInteraction, CanvasInteractionKind, CanvasInteractionPhase};
+    use crate::input::viewport::{
+        ViewportInputKind, ViewportInteraction, ViewportInteractionPhase,
+    };
+    use fission_ir::{CanvasSelectionPolicy, ViewportTransform};
+    use fission_layout::{LayoutPoint, LayoutRect};
 
     #[test]
     fn opaque_codec_round_trips_full_width_scope_ids() {
@@ -607,6 +634,49 @@ mod action_input_codec_tests {
                 new_anchor: 1,
             }),
         );
+        let bytes = input.encode_opaque().expect("input should encode");
+        let decoded = ActionInput::decode_opaque(&bytes).expect("input should decode");
+        assert_eq!(decoded, input);
+    }
+
+    #[test]
+    fn opaque_codec_round_trips_viewport_interactions() {
+        let input = ActionInput::ViewportInteraction(ViewportInteraction {
+            node_id: WidgetId::from_u128(9),
+            phase: ViewportInteractionPhase::Update,
+            transform: ViewportTransform::new(12.0, -4.0, 1.5),
+            viewport_focal_point: LayoutPoint::new(40.0, 50.0),
+            world_focal_point: LayoutPoint::new(18.0, 36.0),
+            pan_delta: LayoutPoint::new(3.0, -2.0),
+            scale_factor: 1.1,
+            input_kind: ViewportInputKind::Touch,
+            modifiers: 1,
+        });
+
+        let bytes = input.encode_opaque().expect("input should encode");
+        let decoded = ActionInput::decode_opaque(&bytes).expect("input should decode");
+        assert_eq!(decoded, input);
+    }
+
+    #[test]
+    fn opaque_codec_round_trips_canvas_interactions() {
+        let input = ActionInput::CanvasInteraction(CanvasInteraction {
+            canvas_id: WidgetId::from_u128(10),
+            target_id: WidgetId::from_u128(11),
+            kind: CanvasInteractionKind::MoveNode { node_id: 12 },
+            selection_policy: CanvasSelectionPolicy::Toggle,
+            phase: CanvasInteractionPhase::Update,
+            input_kind: PointerKind::Mouse,
+            modifiers: 8,
+            screen_point: LayoutPoint::new(42.0, 24.0),
+            world_point: LayoutPoint::new(21.0, 12.0),
+            screen_delta: LayoutPoint::new(6.0, -4.0),
+            world_delta: LayoutPoint::new(3.0, -2.0),
+            bounds_before: Some(LayoutRect::new(1.0, 2.0, 30.0, 40.0)),
+            bounds_after: Some(LayoutRect::new(4.0, 0.0, 30.0, 40.0)),
+            marquee: None,
+        });
+
         let bytes = input.encode_opaque().expect("input should encode");
         let decoded = ActionInput::decode_opaque(&bytes).expect("input should decode");
         assert_eq!(decoded, input);

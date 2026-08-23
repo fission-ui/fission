@@ -16,6 +16,7 @@ documentation = "https://fission.rs"
 readme = "README.md"
 [features]
 default = []
+interactive-canvas = ["fission-core/interactive-canvas"]
 terminal = [
     "dep:arboard",
     "dep:portable-pty",

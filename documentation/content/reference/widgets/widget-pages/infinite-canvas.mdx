@@ -1,0 +1,97 @@
+---
+title: InfiniteCanvas
+description: Build a declarative, pannable node-and-edge editor with selection, snapping, grid, marquee, and resize interactions.
+slug: /widgets/infinite-canvas
+---
+# InfiniteCanvas
+
+`InfiniteCanvas` is Fission's declarative node-and-edge editing surface. It is built on [`InteractiveViewer`](/reference/widgets/interactive-viewer), while nodes, edges, selection, and committed geometry remain ordinary application state.
+
+The widget is available with the `desktop`, `android`, `ios`, `mobile`, and `web` Fission features. Static site, SSR, and Terminal-only builds do not expose it.
+
+## Example
+
+```rust
+use fission::prelude::*;
+use fission::op::{Color, Fill, LineCap, LineJoin, Stroke};
+
+let source = InfiniteCanvasNode::new(
+    CanvasNodeId::explicit("source"),
+    LayoutRect::new(-160.0, 40.0, 140.0, 72.0),
+    Card {
+        child: Text::new("Source").into(),
+        ..Default::default()
+    },
+);
+let output = InfiniteCanvasNode::new(
+    CanvasNodeId::explicit("output"),
+    LayoutRect::new(120.0, 40.0, 140.0, 72.0),
+    Card {
+        child: Text::new("Output").into(),
+        ..Default::default()
+    },
+);
+
+let canvas: Widget = InfiniteCanvas {
+    id: Some(WidgetId::explicit("pipeline")),
+    nodes: vec![source.clone(), output.clone()],
+    edges: vec![InfiniteCanvasEdge {
+        id: CanvasEdgeId::explicit("source-output"),
+        from: CanvasEdgeEndpoint::Node {
+            node: source.id,
+            anchor: CanvasNodeAnchor::Right,
+        },
+        to: CanvasEdgeEndpoint::Node {
+            node: output.id,
+            anchor: CanvasNodeAnchor::Left,
+        },
+        route: CanvasEdgeRoute::Straight,
+        stroke: Stroke {
+            fill: Fill::Solid(Color::BLACK),
+            width: 2.0,
+            dash_array: None,
+            line_cap: LineCap::Round,
+            line_join: LineJoin::Round,
+        },
+        label: Some("records".into()),
+    }],
+    selection_policy: CanvasSelectionPolicy::Marquee,
+    snap: CanvasSnap {
+        enabled: true,
+        spacing: 16.0,
+        threshold: 4.0,
+    },
+    ..Default::default()
+}
+.into();
+```
+
+## Declarative ownership
+
+Fission does not introduce a mutable canvas controller as a second source of truth. Supply the current `nodes`, `edges`, `selected_nodes`, `selected_edges`, and optional controlled camera on every build. Reducers commit interaction results to that state.
+
+`InfiniteCanvasActions` binds callbacks for selection, node movement, node resizing, edge selection, and camera interaction. Each envelope preserves its application payload. Use `ctx.input.canvas_interaction()` to read the target canvas and node or edge ID, lifecycle phase, screen and world coordinates, deltas, before/after bounds, marquee rectangle, input kind, and modifiers.
+
+## Built-in behavior
+
+- Stable node and edge identities scoped to the canvas.
+- Negative and positive world coordinates.
+- Stable z-order by `z_index` and declaration order.
+- Straight and cubic edges with optional retained text labels.
+- Style-batched grid and edge paths bounded to the visible world region.
+- Single, toggle, or marquee selection policies.
+- Node movement and eight constant-screen-size resize handles.
+- Optional symmetric grid snapping for negative and positive coordinates.
+- Precise edge hit testing rather than rectangular edge hit regions.
+- Screen-space marquee and resize overlays over the transformed world.
+- Controlled or runtime-owned camera state inherited from `InteractiveViewer`.
+
+Nodes remain normal Fission widgets, so their own retained identity, semantics, and child interactions continue to work. A node drag wins over single-pointer canvas pan; a two-contact gesture promotes to viewport pan and zoom.
+
+## Accessibility
+
+Node semantics remain the semantics of their ordinary child widgets. Fission transforms descendant accessibility bounds with the active camera and clips nodes outside a clipped viewport. Provide ordinary accessible zoom controls when a product needs keyboard or assistive-technology zoom commands; the platform accessibility API does not define one portable zoom action.
+
+## Related
+
+[`InteractiveViewer`](/reference/widgets/interactive-viewer), [`ZStack`](/reference/widgets/z-stack), [`Positioned`](/reference/widgets/positioned), and [`CustomWidget`](/reference/widgets/custom-widget).

@@ -47,6 +47,7 @@ fn test_semantics_serialization() {
         is_focus_barrier: false,
         drag_payload: None,
         hero_tag: None,
+        canvas_target: None,
         focus_index: None,
         text_input_type: fission_ir::semantics::TextInputType::Text,
         text_input_action: fission_ir::semantics::TextInputAction::Done,

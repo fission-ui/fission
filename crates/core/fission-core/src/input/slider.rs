@@ -12,9 +12,13 @@ impl InputController for SliderController {
             InputEvent::Pointer(PointerEvent::Down { point, button, .. })
                 if matches!(button, crate::event::PointerButton::Primary) =>
             {
-                if let Some(hit_id) =
-                    crate::hit_test::hit_test_with_scroll(ctx.ir, ctx.layout, ctx.scroll, *point)
-                {
+                if let Some(hit_id) = crate::hit_test::hit_test_with_viewports(
+                    ctx.ir,
+                    ctx.layout,
+                    ctx.scroll,
+                    ctx.viewport,
+                    *point,
+                ) {
                     let mut current_id = Some(hit_id);
                     while let Some(node_id) = current_id {
                         if let Some(node) = ctx.ir.nodes.get(&node_id) {

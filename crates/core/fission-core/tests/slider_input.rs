@@ -25,6 +25,8 @@ fn slider_pointer_up_does_not_replay_template_change_payload() -> anyhow::Result
     let point = LayoutPoint::new(150.0, 20.0);
     runtime.handle_input(
         InputEvent::Pointer(PointerEvent::Down {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point,
             button: PointerButton::Primary,
             modifiers: 0,
@@ -34,6 +36,8 @@ fn slider_pointer_up_does_not_replay_template_change_payload() -> anyhow::Result
     )?;
     runtime.handle_input(
         InputEvent::Pointer(PointerEvent::Up {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point,
             button: PointerButton::Primary,
             modifiers: 0,
@@ -62,6 +66,8 @@ fn secondary_click_does_not_change_slider_value() -> anyhow::Result<()> {
     let point = LayoutPoint::new(150.0, 20.0);
     runtime.handle_input(
         InputEvent::Pointer(PointerEvent::Down {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point,
             button: PointerButton::Secondary,
             modifiers: 0,
@@ -71,6 +77,8 @@ fn secondary_click_does_not_change_slider_value() -> anyhow::Result<()> {
     )?;
     runtime.handle_input(
         InputEvent::Pointer(PointerEvent::Up {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point,
             button: PointerButton::Secondary,
             modifiers: 0,

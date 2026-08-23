@@ -1,5 +1,4 @@
 use crate::event::{InputEvent, PointerEvent};
-use crate::hit_test::hit_test_with_scroll;
 use crate::input::{ControllerContext, InputController};
 use crate::{ActionEnvelope, ActionId, ActionInput};
 use fission_ir::op::{PaintOp, RichTextAnnotation};
@@ -17,7 +16,13 @@ impl HoverController {
     }
 
     fn hover_path_at_point(ctx: &ControllerContext, point: LayoutPoint) -> Vec<WidgetId> {
-        let Some(hit_node_id) = hit_test_with_scroll(ctx.ir, ctx.layout, ctx.scroll, point) else {
+        let Some(hit_node_id) = crate::hit_test::hit_test_with_viewports(
+            ctx.ir,
+            ctx.layout,
+            ctx.scroll,
+            ctx.viewport,
+            point,
+        ) else {
             return Vec::new();
         };
 
@@ -109,9 +114,21 @@ impl HoverController {
 impl InputController for HoverController {
     fn handle_event(&mut self, ctx: &mut ControllerContext, event: &InputEvent) -> bool {
         match event {
-            InputEvent::Pointer(PointerEvent::Down { point, .. })
-            | InputEvent::Pointer(PointerEvent::Up { point, .. })
-            | InputEvent::Pointer(PointerEvent::Move { point, .. })
+            InputEvent::Pointer(PointerEvent::Down {
+                point,
+                kind: crate::event::PointerKind::Mouse | crate::event::PointerKind::Stylus,
+                ..
+            })
+            | InputEvent::Pointer(PointerEvent::Up {
+                point,
+                kind: crate::event::PointerKind::Mouse | crate::event::PointerKind::Stylus,
+                ..
+            })
+            | InputEvent::Pointer(PointerEvent::Move {
+                point,
+                kind: crate::event::PointerKind::Mouse | crate::event::PointerKind::Stylus,
+                ..
+            })
             | InputEvent::Pointer(PointerEvent::Scroll { point, .. }) => {
                 let next_path = Self::hover_path_at_point(ctx, *point);
                 let _ = Self::apply_hover_path(ctx, next_path, Some(*point));

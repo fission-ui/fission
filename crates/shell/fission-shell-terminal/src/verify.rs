@@ -66,6 +66,10 @@ fn verify_layout(node_id: WidgetId, layout: &LayoutOp) -> Result<(), TerminalSup
             node_id,
             "matrix transforms are not representable in a terminal cell grid",
         )),
+        LayoutOp::InteractiveViewport { .. } => Err(unsupported(
+            node_id,
+            "interactive viewports are unavailable in the terminal shell",
+        )),
     }
 }
 

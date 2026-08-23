@@ -97,6 +97,8 @@ fn click_ribbon_button(runtime: &mut Runtime, ir: &CoreIR, layout: &LayoutSnapsh
     let point = LayoutPoint::new(24.0, 24.0);
     runtime.handle_input(
         InputEvent::Pointer(PointerEvent::Down {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point,
             button: PointerButton::Primary,
             modifiers: 0,
@@ -106,6 +108,8 @@ fn click_ribbon_button(runtime: &mut Runtime, ir: &CoreIR, layout: &LayoutSnapsh
     )?;
     runtime.handle_input(
         InputEvent::Pointer(PointerEvent::Up {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point,
             button: PointerButton::Primary,
             modifiers: 0,
@@ -148,6 +152,8 @@ fn default_pointer_focus_button_still_takes_focus() -> Result<()> {
 
     runtime.handle_input(
         InputEvent::Pointer(PointerEvent::Down {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point: LayoutPoint::new(24.0, 24.0),
             button: PointerButton::Primary,
             modifiers: 0,

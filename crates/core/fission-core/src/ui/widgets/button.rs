@@ -632,6 +632,7 @@ fn default_button_semantics() -> Semantics {
         identifier: None,
         value: None,
         actions: ActionSet::default(),
+        canvas_target: None,
         action_scope_id: None,
         focusable: true,
         focus_policy: FocusPolicy::FocusOnPointer,

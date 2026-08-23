@@ -1,0 +1,19 @@
+[package]
+name = "interactive-canvas-example"
+version = "0.11.1"
+edition = "2021"
+
+[lib]
+name = "interactive_canvas_example"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["standalone-entry"]
+standalone-entry = []
+
+[dependencies]
+anyhow = "1.0"
+console_error_panic_hook = "0.1"
+fission = { path = "../../crates/authoring/fission", default-features = false, features = ["desktop", "web", "android", "ios"] }
+serde = { version = "1.0", features = ["derive"] }
+wasm-bindgen = "0.2"

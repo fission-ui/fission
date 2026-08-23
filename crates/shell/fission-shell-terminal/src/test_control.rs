@@ -75,11 +75,15 @@ where
                 steps,
             } => {
                 self.pointer(PointerEvent::Move {
-                    point: LayoutPoint::new(start_x, start_y),
+            pointer_id: Default::default(),
+            kind: Default::default(),
+            point: LayoutPoint::new(start_x, start_y),
                     modifiers: 0,
                 })?;
                 self.pointer(PointerEvent::Down {
-                    point: LayoutPoint::new(start_x, start_y),
+            pointer_id: Default::default(),
+            kind: Default::default(),
+            point: LayoutPoint::new(start_x, start_y),
                     button: PointerButton::Primary,
                     modifiers: 0,
                 })?;
@@ -87,7 +91,9 @@ where
                 for step in 1..=steps {
                     let t = step as f32 / steps as f32;
                     self.pointer(PointerEvent::Move {
-                        point: LayoutPoint::new(
+            pointer_id: Default::default(),
+            kind: Default::default(),
+            point: LayoutPoint::new(
                             start_x + (end_x - start_x) * t,
                             start_y + (end_y - start_y) * t,
                         ),
@@ -95,7 +101,9 @@ where
                     })?;
                 }
                 self.pointer(PointerEvent::Up {
-                    point: LayoutPoint::new(end_x, end_y),
+            pointer_id: Default::default(),
+            kind: Default::default(),
+            point: LayoutPoint::new(end_x, end_y),
                     button: PointerButton::Primary,
                     modifiers: 0,
                 })?;
@@ -115,6 +123,8 @@ where
                 self.pointer(PointerEvent::Scroll {
                     point: LayoutPoint::new(x, y),
                     delta: LayoutPoint::new(dx, dy),
+                    delta_mode: Default::default(),
+                    phase: Default::default(),
                     modifiers: 0,
                 })?;
                 self.pump()?;
@@ -191,7 +201,9 @@ where
             }
             TestCommand::SimulateMouseMove { x, y } => {
                 self.pointer(PointerEvent::Move {
-                    point: LayoutPoint::new(x, y),
+            pointer_id: Default::default(),
+            kind: Default::default(),
+            point: LayoutPoint::new(x, y),
                     modifiers: 0,
                 })?;
                 Ok(TestResponse::Ok {})
@@ -210,6 +222,14 @@ where
             | TestCommand::ExternalFileDrop { .. }
             | TestCommand::ExternalFileCancel {} => Ok(TestResponse::Error {
                 message: "external file drag-and-drop is not supported by the terminal backend".into(),
+            }),
+            TestCommand::PointerDown { .. }
+            | TestCommand::PointerMove { .. }
+            | TestCommand::PointerUp { .. }
+            | TestCommand::PointerCancel { .. }
+            | TestCommand::PointerScroll { .. }
+            | TestCommand::Magnify { .. } => Ok(TestResponse::Error {
+                message: "multi-pointer and magnification input is not supported by the terminal backend".into(),
             }),
             TestCommand::PauseAnimations {}
             | TestCommand::ResumeAnimations {}
@@ -244,15 +264,21 @@ where
     fn click(&mut self, x: f32, y: f32, button: PointerButton) -> Result<()> {
         let point = LayoutPoint::new(x, y);
         self.pointer(PointerEvent::Move {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point,
             modifiers: 0,
         })?;
         self.pointer(PointerEvent::Down {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point,
             button: button.clone(),
             modifiers: 0,
         })?;
         self.pointer(PointerEvent::Up {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point,
             button,
             modifiers: 0,

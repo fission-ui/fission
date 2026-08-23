@@ -20,8 +20,13 @@ impl InputController for SelectableTextController {
                 modifiers,
                 ..
             }) => {
-                let hit =
-                    crate::hit_test::hit_test_with_scroll(ctx.ir, ctx.layout, ctx.scroll, *point);
+                let hit = crate::hit_test::hit_test_with_viewports(
+                    ctx.ir,
+                    ctx.layout,
+                    ctx.scroll,
+                    ctx.viewport,
+                    *point,
+                );
                 if let (Some(owner), Some(hit_node_id)) = (ctx.context_menu.owner, hit) {
                     if let Some(action) = Self::toolbar_action_hit(ctx.ir, owner, hit_node_id) {
                         return self.execute_action(ctx, owner, action);

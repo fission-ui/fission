@@ -1,4 +1,5 @@
 use crate::env::ScrollStateMap;
+use crate::input::viewport::ViewportStateMap;
 use crate::ui::custom_render::downcast_render_object;
 use fission_diagnostics::prelude as diag;
 use fission_ir::{CoreIR, LayoutOp, Op, PaintOp, WidgetId};
@@ -19,7 +20,7 @@ pub fn hit_test(
     scroll_map: &ScrollStateMap,
     point: LayoutPoint,
 ) -> Option<WidgetId> {
-    hit_test_internal(ir, layout, Some(scroll_map), point)
+    hit_test_internal(ir, layout, Some(scroll_map), None, point)
 }
 
 pub fn hit_test_with_scroll(
@@ -28,18 +29,29 @@ pub fn hit_test_with_scroll(
     scroll_map: &ScrollStateMap,
     point: LayoutPoint,
 ) -> Option<WidgetId> {
-    hit_test_internal(ir, layout, Some(scroll_map), point)
+    hit_test_internal(ir, layout, Some(scroll_map), None, point)
+}
+
+pub fn hit_test_with_viewports(
+    ir: &CoreIR,
+    layout: &LayoutSnapshot,
+    scroll_map: &ScrollStateMap,
+    viewport_map: &ViewportStateMap,
+    point: LayoutPoint,
+) -> Option<WidgetId> {
+    hit_test_internal(ir, layout, Some(scroll_map), Some(viewport_map), point)
 }
 
 fn hit_test_internal(
     ir: &CoreIR,
     layout: &LayoutSnapshot,
     scroll_map: Option<&ScrollStateMap>,
+    viewport_map: Option<&ViewportStateMap>,
     point: LayoutPoint,
 ) -> Option<WidgetId> {
     let result = ir
         .root
-        .and_then(|root| hit_test_recursive(root, ir, layout, scroll_map, point));
+        .and_then(|root| hit_test_recursive(root, ir, layout, scroll_map, viewport_map, point));
 
     if let Some(id) = result {
         diag::emit(
@@ -60,15 +72,19 @@ fn hit_test_recursive(
     ir: &CoreIR,
     layout: &LayoutSnapshot,
     scroll_map: Option<&ScrollStateMap>,
+    viewport_map: Option<&ViewportStateMap>,
     point: LayoutPoint,
 ) -> Option<WidgetId> {
     let node = ir.nodes.get(&node_id)?;
     let geom = layout.get_node_geometry(node_id)?;
 
-    let is_clip_container = matches!(
-        node.op,
-        Op::Layout(LayoutOp::Clip { .. }) | Op::Layout(LayoutOp::Scroll { .. })
-    );
+    let is_clip_container = match &node.op {
+        Op::Layout(LayoutOp::Clip { .. }) | Op::Layout(LayoutOp::Scroll { .. }) => true,
+        Op::Layout(LayoutOp::InteractiveViewport { clip, .. }) => {
+            !matches!(clip, fission_ir::ViewportClip::None)
+        }
+        _ => false,
+    };
 
     if is_clip_container && !geom.rect.contains(point) {
         return None;
@@ -101,8 +117,20 @@ fn hit_test_recursive(
         );
     }
 
+    if let (Some(map), Op::Layout(LayoutOp::InteractiveViewport { .. })) = (viewport_map, &node.op)
+    {
+        if let Some(transform) = map.transform(node_id) {
+            let local = [point.x - geom.rect.origin.x, point.y - geom.rect.origin.y];
+            let world = transform.screen_to_world(local);
+            child_point =
+                LayoutPoint::new(world[0] + geom.rect.origin.x, world[1] + geom.rect.origin.y);
+        }
+    }
+
     for child_id in node.children.iter().rev() {
-        if let Some(hit) = hit_test_recursive(*child_id, ir, layout, scroll_map, child_point) {
+        if let Some(hit) =
+            hit_test_recursive(*child_id, ir, layout, scroll_map, viewport_map, child_point)
+        {
             return Some(hit);
         }
     }
@@ -127,10 +155,21 @@ fn hit_test_recursive(
         return Some(node_id);
     }
 
+    let semantic_hit = match &node.op {
+        Op::Semantics(semantics) => match semantics.canvas_target.as_ref() {
+            Some(target) if matches!(target.kind, fission_ir::CanvasTargetKind::Edge { .. }) => {
+                canvas_target_hit(target, point)
+            }
+            _ => geom.rect.contains(point),
+        },
+        _ => geom.rect.contains(point),
+    };
     let mut current_is_hit = false;
-    if geom.rect.contains(point) {
+    if semantic_hit {
         match &node.op {
-            Op::Layout(LayoutOp::Scroll { .. }) | Op::Layout(LayoutOp::Embed { .. }) => {
+            Op::Layout(LayoutOp::Scroll { .. })
+            | Op::Layout(LayoutOp::Embed { .. })
+            | Op::Layout(LayoutOp::InteractiveViewport { .. }) => {
                 current_is_hit = true;
             }
             Op::Semantics(semantics) => {
@@ -152,6 +191,73 @@ fn hit_test_recursive(
     } else {
         None
     }
+}
+
+fn canvas_target_hit(target: &fission_ir::CanvasTarget, point: LayoutPoint) -> bool {
+    let fission_ir::CanvasTargetKind::Edge {
+        points,
+        cubic,
+        hit_tolerance,
+        ..
+    } = &target.kind
+    else {
+        return false;
+    };
+    if points.len() < 2 {
+        return false;
+    }
+    let tolerance_squared = hit_tolerance.max(1.0).powi(2);
+    if *cubic && points.len() >= 4 {
+        let mut previous = LayoutPoint::new(points[0][0], points[0][1]);
+        for step in 1..=24 {
+            let t = step as f32 / 24.0;
+            let next = cubic_point(points, t);
+            if point_segment_distance_squared(point, previous, next) <= tolerance_squared {
+                return true;
+            }
+            previous = next;
+        }
+        false
+    } else {
+        let first = LayoutPoint::new(points[0][0], points[0][1]);
+        let second = LayoutPoint::new(points[1][0], points[1][1]);
+        point_segment_distance_squared(point, first, second) <= tolerance_squared
+    }
+}
+
+fn cubic_point(points: &[[f32; 2]], t: f32) -> LayoutPoint {
+    let inverse = 1.0 - t;
+    let weights = [
+        inverse * inverse * inverse,
+        3.0 * inverse * inverse * t,
+        3.0 * inverse * t * t,
+        t * t * t,
+    ];
+    LayoutPoint::new(
+        points
+            .iter()
+            .zip(weights)
+            .map(|(point, weight)| point[0] * weight)
+            .sum(),
+        points
+            .iter()
+            .zip(weights)
+            .map(|(point, weight)| point[1] * weight)
+            .sum(),
+    )
+}
+
+fn point_segment_distance_squared(point: LayoutPoint, start: LayoutPoint, end: LayoutPoint) -> f32 {
+    let dx = end.x - start.x;
+    let dy = end.y - start.y;
+    let length_squared = dx * dx + dy * dy;
+    if length_squared <= f32::EPSILON {
+        return (point.x - start.x).powi(2) + (point.y - start.y).powi(2);
+    }
+    let t =
+        (((point.x - start.x) * dx + (point.y - start.y) * dy) / length_squared).clamp(0.0, 1.0);
+    let nearest = LayoutPoint::new(start.x + dx * t, start.y + dy * t);
+    (point.x - nearest.x).powi(2) + (point.y - nearest.y).powi(2)
 }
 
 fn paint_op_blocks_hit_testing(op: &Op) -> bool {
@@ -450,4 +556,40 @@ pub fn find_neighbor_focus_node(
     }
 
     best_candidate
+}
+
+#[cfg(test)]
+mod canvas_hit_tests {
+    use super::canvas_target_hit;
+    use fission_ir::{CanvasSelectionPolicy, CanvasTarget, CanvasTargetKind};
+    use fission_layout::LayoutPoint;
+
+    fn edge(points: Vec<[f32; 2]>, cubic: bool) -> CanvasTarget {
+        CanvasTarget {
+            canvas_id: 1,
+            kind: CanvasTargetKind::Edge {
+                edge_id: 2,
+                points,
+                cubic,
+                hit_tolerance: 4.0,
+            },
+            selection_policy: CanvasSelectionPolicy::Single,
+            snap_spacing: None,
+            snap_threshold: 0.0,
+        }
+    }
+
+    #[test]
+    fn edge_hit_testing_uses_stroke_geometry_instead_of_its_bounding_box() {
+        let straight = edge(vec![[10.0, 10.0], [90.0, 90.0]], false);
+        assert!(canvas_target_hit(&straight, LayoutPoint::new(50.0, 52.0)));
+        assert!(!canvas_target_hit(&straight, LayoutPoint::new(10.0, 90.0)));
+
+        let cubic = edge(
+            vec![[0.0, 50.0], [25.0, 0.0], [75.0, 100.0], [100.0, 50.0]],
+            true,
+        );
+        assert!(canvas_target_hit(&cubic, LayoutPoint::new(50.0, 50.0)));
+        assert!(!canvas_target_hit(&cubic, LayoutPoint::new(50.0, 5.0)));
+    }
 }

@@ -21,6 +21,28 @@
 //! use fission::text_engine::*;       // Rope-backed text buffer
 //! ```
 
+#![cfg_attr(
+    feature = "interactive-canvas",
+    doc = r#"
+Graphical application features expose the interactive canvas widgets:
+
+```rust
+use fission::{InfiniteCanvas, InteractiveViewer};
+```
+"#
+)]
+#![cfg_attr(
+    not(feature = "interactive-canvas"),
+    doc = r#"
+Interactive canvas widgets are intentionally absent without a graphical
+application feature:
+
+```compile_fail
+use fission::{InfiniteCanvas, InteractiveViewer};
+```
+"#
+)]
+
 extern crate self as fission;
 
 // ── Sub-crate re-exports ─────────────────────────────────────────────────
@@ -289,8 +311,15 @@ pub mod build {
 }
 
 // Core event types
-pub use fission_core::event::{InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent};
+pub use fission_core::event::{
+    InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent, PointerId, PointerKind,
+    PointerPhase, ScrollDeltaMode,
+};
 pub use fission_core::{reduce, reduce_with, widgets, with_reducer};
+pub use fission_core::{
+    CanvasInteraction, CanvasInteractionKind, CanvasInteractionPhase, ViewportInputKind,
+    ViewportInteraction, ViewportInteractionPhase,
+};
 
 // Core env types
 pub use fission_core::env::Env;
@@ -308,6 +337,13 @@ pub use fission_layout::{
 };
 
 // Authoring widgets (HStack, VStack, etc.)
+#[cfg(feature = "interactive-canvas")]
+pub use fission_widgets::{
+    CanvasEdgeEndpoint, CanvasEdgeId, CanvasEdgeRoute, CanvasGrid, CanvasNodeAnchor, CanvasNodeId,
+    CanvasSelectionPolicy, CanvasSnap, InfiniteCanvas, InfiniteCanvasActions, InfiniteCanvasEdge,
+    InfiniteCanvasNode, InteractiveViewer, ViewportBoundary, ViewportClip, ViewportMargin,
+    ViewportPanAxis, ViewportTransform, ViewportZoomPolicy,
+};
 pub use fission_widgets::{HStack, VStack};
 
 // Platform shells
@@ -403,7 +439,10 @@ pub mod prelude {
 
     // Actions
     pub use fission_core::env::Env;
-    pub use fission_core::event::{InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent};
+    pub use fission_core::event::{
+        InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent, PointerId, PointerKind,
+        PointerPhase, ScrollDeltaMode,
+    };
     pub use fission_core::op::{
         BoxAlignment, BoxGridPlacement, BoxPosition, BoxStyle, Color, Fill, GridPlacement,
         GridTrack, Length, Overflow, PaintOp,
@@ -493,6 +532,10 @@ pub mod prelude {
         CapturePhotoCapability, GetCameraAvailabilityCapability, RequestCameraPermissionCapability,
         SetCameraFlashlightCapability, CANCEL_CAMERA_CAPTURE, CAPTURE_PHOTO,
         GET_CAMERA_AVAILABILITY, REQUEST_CAMERA_PERMISSION, SET_CAMERA_FLASHLIGHT,
+    };
+    pub use fission_core::{
+        CanvasInteraction, CanvasInteractionKind, CanvasInteractionPhase, ViewportInputKind,
+        ViewportInteraction, ViewportInteractionPhase,
     };
     pub use fission_core::{
         ClearClipboardCapability, ClipboardContent, ClipboardEffects, ClipboardError,

@@ -10,6 +10,8 @@ pub mod context_menu;
 pub mod grid;
 pub mod icon;
 pub mod image;
+#[cfg(feature = "interactive-canvas")]
+pub mod interactive_viewer;
 pub mod lazy_column;
 pub mod overlay;
 pub mod positioned;
@@ -49,6 +51,12 @@ pub use icon::Icon;
 pub use image::{
     HttpHeader, Image, ImageAlignment, ImageCachePolicy, ImageErrorBehavior, ImageLoadingBehavior,
     ImageRequest, ImageSource,
+};
+#[cfg(feature = "interactive-canvas")]
+pub use interactive_viewer::{
+    InteractiveViewer, ViewportBoundary, ViewportClip, ViewportMargin, ViewportPanAxis,
+    ViewportTransform, ViewportZoomPolicy, DEFAULT_MAX_VIEWPORT_SCALE, DEFAULT_MIN_VIEWPORT_SCALE,
+    DEFAULT_VIEWPORT_FRICTION,
 };
 pub use lazy_column::LazyColumn;
 pub use overlay::Overlay;

@@ -411,11 +411,15 @@ mod tests {
         );
 
         h.send_event(InputEvent::Pointer(PointerEvent::Down {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point: subject_center,
             button: PointerButton::Primary,
             modifiers: 0,
         }))?;
         h.send_event(InputEvent::Pointer(PointerEvent::Up {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point: subject_center,
             button: PointerButton::Primary,
             modifiers: 0,
@@ -446,11 +450,15 @@ mod tests {
         );
 
         h.send_event(InputEvent::Pointer(PointerEvent::Down {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point: body_center,
             button: PointerButton::Primary,
             modifiers: 0,
         }))?;
         h.send_event(InputEvent::Pointer(PointerEvent::Up {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point: body_center,
             button: PointerButton::Primary,
             modifiers: 0,
@@ -527,11 +535,15 @@ mod tests {
         );
 
         h.send_event(InputEvent::Pointer(PointerEvent::Down {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point: center,
             button: PointerButton::Primary,
             modifiers: 0,
         }))?;
         h.send_event(InputEvent::Pointer(PointerEvent::Up {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point: center,
             button: PointerButton::Primary,
             modifiers: 0,
@@ -654,11 +666,15 @@ mod tests {
         }
 
         h.send_event(InputEvent::Pointer(PointerEvent::Down {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point: center2,
             button: PointerButton::Primary,
             modifiers: 0,
         }))?;
         h.send_event(InputEvent::Pointer(PointerEvent::Up {
+            pointer_id: Default::default(),
+            kind: Default::default(),
             point: center2,
             button: PointerButton::Primary,
             modifiers: 0,
