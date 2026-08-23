@@ -7,7 +7,7 @@ if ! command -v rg >/dev/null 2>&1; then
 fi
 
 readonly implementation_crate_name='(fission-render-[[:alnum:]_-]+|fission-(skia|vello|winit)[[:alnum:]_-]*|parley([_-][[:alnum:]_-]+)?|skia([_-][[:alnum:]_-]+)?|vello([_-][[:alnum:]_-]+)?|wgpu([_-][[:alnum:]_-]+)?|winit([_-][[:alnum:]_-]+)?)'
-readonly implementation_dependency_pattern="^[[:space:]]*['\"]?${implementation_crate_name}['\"]?[[:space:]]*(\\.workspace[[:space:]]*)?="
+readonly implementation_dependency_pattern="^[[:space:]]*['\"]?${implementation_crate_name}['\"]?[[:space:]]*(\\.workspace[[:space:]]*)?=[[:space:]]*(['\"{]|true)"
 readonly implementation_dotted_dependency_pattern="^[[:space:]]*([^#=]+\\.[[:space:]]*)?['\"]?((dev|build)-)?dependencies['\"]?[[:space:]]*\\.[[:space:]]*['\"]?${implementation_crate_name}['\"]?[[:space:]]*(\\.workspace[[:space:]]*)?="
 readonly implementation_dependency_table_pattern="^[[:space:]]*\\[[^]]*['\"]?((dev|build)-)?dependencies['\"]?[[:space:]]*\\.[[:space:]]*['\"]?${implementation_crate_name}['\"]?[[:space:]]*\\]"
 readonly implementation_package_pattern="^[[:space:]]*([^#]*[{},.][[:space:]]*)?package[[:space:]]*=[[:space:]]*['\"]${implementation_crate_name}['\"]"

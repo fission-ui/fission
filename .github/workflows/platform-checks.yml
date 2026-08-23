@@ -12,6 +12,67 @@ permissions:
   contents: read
 
 jobs:
+  source-boundaries:
+    name: Source architecture boundaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Check Rust file-size boundary
+        run: ./scripts/check_rust_file_size.sh
+
+      - name: Check multi-backend dependency boundaries
+        run: ./scripts/check_multi_backend_boundaries.sh
+
+  backend-contracts:
+    name: Backend contracts and module boundaries
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux native build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev pkg-config
+
+      - name: Check non-graphical dependency graphs
+        run: ./scripts/check_non_graphical_dependency_graphs.sh
+
+      - name: Test rendering and paragraph contracts
+        run: |
+          cargo test --lib \
+            -p fission-render-vello \
+            -p fission-render-software \
+            -p fission-3d-model \
+            -p fission-render-wgpu3d
+          cargo test -p fission-render
+          cargo test -p fission-layout
+          cargo test -p fission-3d --all-targets
+          cargo test -p fission-shell-winit
+          cargo test -p fission-shell-winit --features three-d
+
+      - name: Test modularized framework crates
+        run: |
+          cargo test -p fission-core
+          cargo test --lib \
+            -p fission-theme \
+            -p fission-charts \
+            -p fission-shell-site \
+            -p fission-shell-server \
+            -p fission-command-core \
+            -p fission-command-package \
+            -p fission-command-release \
+            -p fission-command-run \
+            -p fission-design-system-codegen
+
   cli:
     name: CLI platform script tests
     if: >-
@@ -61,6 +122,7 @@ jobs:
           cargo check -p fission-core --target wasm32-unknown-unknown
           cargo check -p fission-widgets --target wasm32-unknown-unknown
           cargo check -p fission-charts --target wasm32-unknown-unknown
+          cargo check -p fission --target wasm32-unknown-unknown --no-default-features --features web,three-d
           cargo check -p web-smoke --target wasm32-unknown-unknown
 
       - name: Install wasm-pack
@@ -127,6 +189,7 @@ jobs:
           export AR_aarch64_linux_android="$ANDROID_TOOLCHAIN/llvm-ar"
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$CC_aarch64_linux_android"
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="$AR_aarch64_linux_android"
+          cargo check -p fission --target aarch64-linux-android --no-default-features --features android,three-d
           cargo check -p mobile-smoke --target aarch64-linux-android
 
       - name: Package mobile-smoke APK
@@ -156,10 +219,14 @@ jobs:
         run: cargo run -p cargo-fission --bin fission -- doctor ios --project-dir examples/mobile-smoke --strict
 
       - name: Check mobile-smoke for iOS simulator
-        run: cargo check -p mobile-smoke --target aarch64-apple-ios-sim
+        run: |
+          cargo check -p fission --target aarch64-apple-ios-sim --no-default-features --features ios,three-d
+          cargo check -p mobile-smoke --target aarch64-apple-ios-sim
 
       - name: Check mobile-smoke for iOS device
-        run: cargo check -p mobile-smoke --target aarch64-apple-ios
+        run: |
+          cargo check -p fission --target aarch64-apple-ios --no-default-features --features ios,three-d
+          cargo check -p mobile-smoke --target aarch64-apple-ios
 
       - name: Package mobile-smoke simulator app
         run: ./platforms/ios/package-sim.sh
