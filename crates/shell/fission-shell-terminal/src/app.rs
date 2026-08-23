@@ -204,6 +204,7 @@ where
         };
         verify_terminal_ir(&ir).context("terminal shell support check failed")?;
         self.runtime.reconcile_focus(&ir)?;
+        self.runtime.reconcile_ir(&ir);
 
         let layout_input_nodes = build_layout_tree(&ir, &self.env);
         self.layout_engine.update(&layout_input_nodes);
