@@ -149,11 +149,18 @@ impl PackedParagraphOutput {
             .into_vec()
             .into_iter()
             .map(|caret| {
+                let index = indices.index(caret.index, "carets.index")?;
+                let requested_line = line_index(caret.line_index, "carets.line_index")?;
                 Ok(ParagraphCaret {
-                    index: indices.index(caret.index, "carets.index")?,
+                    index,
                     affinity: affinity(caret.affinity, "carets.affinity")?,
                     rect: rect(caret.rect),
-                    line_index: line_index(caret.line_index, "carets.line_index")?,
+                    line_index: normalize_point_line(
+                        &lines,
+                        requested_line,
+                        index,
+                        "carets.line_index",
+                    )?,
                 })
             })
             .collect::<Result<Vec<_>, ParagraphError>>()?;
@@ -163,11 +170,18 @@ impl PackedParagraphOutput {
             .into_vec()
             .into_iter()
             .map(|hit| {
+                let index = indices.index(hit.index, "hit_regions.index")?;
+                let requested_line = line_index(hit.line_index, "hit_regions.line_index")?;
                 Ok(ParagraphHitRegion {
                     rect: rect(hit.rect),
-                    index: indices.index(hit.index, "hit_regions.index")?,
+                    index,
                     affinity: affinity(hit.affinity, "hit_regions.affinity")?,
-                    line_index: line_index(hit.line_index, "hit_regions.line_index")?,
+                    line_index: normalize_point_line(
+                        &lines,
+                        requested_line,
+                        index,
+                        "hit_regions.line_index",
+                    )?,
                 })
             })
             .collect::<Result<Vec<_>, ParagraphError>>()?;
@@ -336,6 +350,38 @@ fn line_index(raw: u64, field: &'static str) -> Result<usize, ParagraphError> {
     usize::try_from(raw).map_err(|_| {
         ParagraphError::invalid_result(field, format!("native index {raw} does not fit usize"))
     })
+}
+
+fn normalize_point_line(
+    lines: &[ParagraphLine],
+    requested: usize,
+    index: Utf8Index,
+    field: &'static str,
+) -> Result<usize, ParagraphError> {
+    let requested_line = lines.get(requested).ok_or_else(|| {
+        ParagraphError::invalid_result(
+            field,
+            format!(
+                "native line index {requested} is outside {} lines",
+                lines.len()
+            ),
+        )
+    })?;
+    if requested_line.range.start() <= index && index <= requested_line.range.end() {
+        return Ok(requested);
+    }
+    lines
+        .iter()
+        .position(|line| line.range.start() <= index && index <= line.range.end())
+        .ok_or_else(|| {
+            ParagraphError::invalid_result(
+                field,
+                format!(
+                    "text index {} is outside every returned line",
+                    index.byte_offset()
+                ),
+            )
+        })
 }
 
 fn direction(raw: u8, field: &'static str) -> Result<ParagraphDirection, ParagraphError> {

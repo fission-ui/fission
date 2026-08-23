@@ -338,6 +338,114 @@ fn native_offset_inside_utf16_surrogate_pair_is_rejected() {
 }
 
 #[test]
+fn point_geometry_is_reassociated_with_the_line_containing_its_index() {
+    let text = "abcdef";
+    let mut output = base_output(INDEX_ENCODING_UTF8, text.len() as u64);
+    output.size.height = 40.0;
+    output.lines = vec![
+        PackedLine {
+            range: packed_range(0, 3),
+            rect: rect(0.0, 30.0),
+            baseline: 15.0,
+            ascent: 12.0,
+            descent: 4.0,
+            leading: 4.0,
+            hard_break: false,
+            direction: DIRECTION_LEFT_TO_RIGHT,
+        },
+        PackedLine {
+            range: packed_range(3, 6),
+            rect: PackedRect {
+                x: 0.0,
+                y: 20.0,
+                width: 30.0,
+                height: 20.0,
+            },
+            baseline: 35.0,
+            ascent: 12.0,
+            descent: 4.0,
+            leading: 4.0,
+            hard_break: false,
+            direction: DIRECTION_LEFT_TO_RIGHT,
+        },
+    ]
+    .into();
+    output.clusters = vec![
+        PackedCluster {
+            range: packed_range(0, 3),
+            rect: rect(0.0, 30.0),
+            line_index: 0,
+            direction: DIRECTION_LEFT_TO_RIGHT,
+            starts_grapheme: true,
+            starts_word: true,
+        },
+        PackedCluster {
+            range: packed_range(3, 6),
+            rect: PackedRect {
+                x: 0.0,
+                y: 20.0,
+                width: 30.0,
+                height: 20.0,
+            },
+            line_index: 1,
+            direction: DIRECTION_LEFT_TO_RIGHT,
+            starts_grapheme: true,
+            starts_word: false,
+        },
+    ]
+    .into();
+    let mut carets = output.carets.into_vec();
+    carets.push(PackedCaret {
+        index: 4,
+        affinity: AFFINITY_DOWNSTREAM,
+        rect: PackedRect {
+            x: 10.0,
+            y: 20.0,
+            width: 1.0,
+            height: 20.0,
+        },
+        line_index: 0,
+    });
+    output.carets = carets.into_boxed_slice();
+    let mut hit_regions = output.hit_regions.into_vec();
+    hit_regions.push(PackedHitRegion {
+        rect: PackedRect {
+            x: 10.0,
+            y: 20.0,
+            width: 10.0,
+            height: 20.0,
+        },
+        index: 4,
+        affinity: AFFINITY_DOWNSTREAM,
+        line_index: 0,
+    });
+    output.hit_regions = hit_regions.into_boxed_slice();
+
+    let (engine, _) = engine(output);
+    let result = engine.layout(&description(text)).expect("paragraph layout");
+    assert_eq!(
+        result
+            .geometry()
+            .carets()
+            .iter()
+            .find(|caret| caret.index == Utf8Index::new(4))
+            .expect("reassociated caret")
+            .line_index,
+        1
+    );
+    assert_eq!(
+        result
+            .geometry()
+            .hit_regions()
+            .iter()
+            .find(|hit| hit.index == Utf8Index::new(4))
+            .expect("reassociated hit region")
+            .line_index,
+        1
+    );
+}
+
+#[test]
 fn malformed_native_enums_and_geometry_are_rejected() {
     let mut bad_direction = base_output(INDEX_ENCODING_UTF8, 1);
     bad_direction.lines[0].direction = 99;
