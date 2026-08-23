@@ -62,7 +62,7 @@ fission-macros = { path = "../fission-macros", version = "0.11.1" }
 fission-icons = { path = "../fission-icons", version = "0.11.1" }
 fission-charts = { path = "../fission-charts", version = "0.11.1", optional = true }
 fission-render = { path = "../../rendering/fission-render", version = "0.11.1" }
-fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.11.1" }
+fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.11.1", default-features = false }
 fission-shell-site = { path = "../../shell/fission-shell-site", version = "0.11.1", optional = true }
 fission-shell-server = { path = "../../shell/fission-shell-server", version = "0.11.1", optional = true }
 fission-shell-terminal = { path = "../../shell/fission-shell-terminal", version = "0.11.1", optional = true }
