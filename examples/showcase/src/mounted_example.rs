@@ -5,7 +5,7 @@ use fission_core::scoped_action_handlers::{
 };
 use fission_core::{
     build, ActionEnvelope, ActionScopeId, ReducerContext, ResourceKey, Runtime,
-    RuntimeResourceKind, View,
+    RuntimeResourceKind, ScopedActionResolution, View,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -197,7 +197,7 @@ fn install_action_handlers(
                     .expect("mounted example runtime mutex poisoned");
                 runtime.dispatch_with_input(action.clone(), target, input.unscoped())?;
                 runtime.pending_effects.clear();
-                Ok(())
+                Ok(ScopedActionResolution::Handled)
             }),
         )
         .expect("mounted example action handler must register");

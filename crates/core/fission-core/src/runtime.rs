@@ -534,18 +534,24 @@ impl Runtime {
             return Ok(());
         }
 
-        let action_id = action.id;
-
-        if let Some(resolution) =
+        let action = if let Some(resolution) =
             crate::scoped_action_handlers::dispatch_scoped_action_handler(&action, target, input)?
         {
             match resolution {
                 crate::scoped_action_handlers::ScopedActionResolution::Handled => return Ok(()),
                 crate::scoped_action_handlers::ScopedActionResolution::Forward(forwarded) => {
-                    return self.try_dispatch_node_with_input(forwarded, target, input);
+                    if crate::media::handle_video_action(&mut self.runtime_state.video, &forwarded)?
+                    {
+                        return Ok(());
+                    }
+                    forwarded
                 }
             }
-        }
+        } else {
+            action
+        };
+
+        let action_id = action.id;
 
         // Collect effects from this dispatch (both persistent and per-frame reducers).
         let mut effects = Vec::new();

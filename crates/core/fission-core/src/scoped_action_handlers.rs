@@ -73,20 +73,27 @@ pub(crate) fn dispatch_scoped_action_handler(
     let Some(scoped_handlers) = handlers.get_mut(&(scope_id, action.id)) else {
         return Ok(None);
     };
-    let mut resolution = ScopedActionResolution::Handled;
+    let mut forwarded = None;
     for handler in scoped_handlers {
-        let next = handler(action, target, input)?;
-        if matches!(next, ScopedActionResolution::Forward(_)) {
-            resolution = next;
+        if let ScopedActionResolution::Forward(envelope) = handler(action, target, input)? {
+            if forwarded.replace(envelope).is_some() {
+                return Err(anyhow!(
+                    "multiple scoped action handlers attempted to forward one action"
+                ));
+            }
         }
     }
-    Ok(Some(resolution))
+    Ok(Some(
+        forwarded
+            .map(ScopedActionResolution::Forward)
+            .unwrap_or(ScopedActionResolution::Handled),
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ActionInput;
+    use crate::{ActionInput, GlobalState, Runtime};
     use std::sync::{Arc, Mutex};
 
     #[test]
@@ -161,6 +168,108 @@ mod tests {
         assert_eq!(forwarded.id, forwarded_action);
         assert_eq!(forwarded.payload, b"forwarded");
 
+        clear_scoped_action_handlers(scope).unwrap();
+    }
+
+    #[derive(Debug, Default)]
+    struct ForwardState {
+        reducer_calls: usize,
+    }
+
+    impl GlobalState for ForwardState {}
+
+    fn count_forwarded_action(
+        state: &mut ForwardState,
+        _action: &ActionEnvelope,
+        _target: WidgetId,
+    ) -> Result<()> {
+        state.reducer_calls += 1;
+        Ok(())
+    }
+
+    #[test]
+    fn forwarding_the_same_action_bypasses_the_scoped_handler() {
+        let scope = ActionScopeId::from_name("test.forwarding.same-action.scope");
+        let action_id = ActionId::from_name("test.forwarding.same-action");
+        clear_scoped_action_handlers(scope).unwrap();
+        let handler_calls = Arc::new(Mutex::new(0usize));
+        let calls_for_handler = handler_calls.clone();
+        register_scoped_action_handler(
+            scope,
+            action_id,
+            Box::new(move |action, _, _| {
+                *calls_for_handler.lock().unwrap() += 1;
+                Ok(ScopedActionResolution::Forward(action.clone()))
+            }),
+        )
+        .unwrap();
+
+        let mut runtime = Runtime::default();
+        runtime
+            .add_app_state(Box::new(ForwardState::default()))
+            .unwrap();
+        runtime
+            .register_reducer::<ForwardState>(action_id, count_forwarded_action)
+            .unwrap();
+        let target = WidgetId::from_u128(13);
+        let input = ActionInput::scoped_raw(scope.as_u128(), target, ActionInput::None);
+        runtime
+            .dispatch_with_input(
+                ActionEnvelope {
+                    id: action_id,
+                    payload: Vec::new(),
+                },
+                target,
+                &input,
+            )
+            .unwrap();
+
+        assert_eq!(*handler_calls.lock().unwrap(), 1);
+        assert_eq!(
+            runtime
+                .get_app_state::<ForwardState>()
+                .expect("forward state")
+                .reducer_calls,
+            1
+        );
+        clear_scoped_action_handlers(scope).unwrap();
+    }
+
+    #[test]
+    fn multiple_forwarding_handlers_are_rejected() {
+        let scope = ActionScopeId::from_name("test.forwarding.ambiguous.scope");
+        let action_id = ActionId::from_name("test.forwarding.ambiguous");
+        clear_scoped_action_handlers(scope).unwrap();
+        for payload in [b"first".as_slice(), b"second".as_slice()] {
+            let payload = payload.to_vec();
+            register_scoped_action_handler(
+                scope,
+                action_id,
+                Box::new(move |_, _, _| {
+                    Ok(ScopedActionResolution::Forward(ActionEnvelope {
+                        id: action_id,
+                        payload: payload.clone(),
+                    }))
+                }),
+            )
+            .unwrap();
+        }
+
+        let target = WidgetId::from_u128(17);
+        let input = ActionInput::scoped_raw(scope.as_u128(), target, ActionInput::None);
+        let error = dispatch_scoped_action_handler(
+            &ActionEnvelope {
+                id: action_id,
+                payload: Vec::new(),
+            },
+            target,
+            &input,
+        )
+        .expect_err("ambiguous forwarding must fail");
+
+        assert!(error
+            .to_string()
+            .contains("multiple scoped action handlers"));
         clear_scoped_action_handlers(scope).unwrap();
     }
 }
