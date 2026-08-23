@@ -101,15 +101,41 @@ pub mod internal {
     }
 
     pub fn lower_widget(widget: &Widget, cx: &mut InternalLoweringCx) -> WidgetId {
-        widget.lower(cx)
+        let root = cx.next_widget_root();
+        lower_widget_with_root(widget, cx, root)
+    }
+
+    pub fn lower_widget_with_root(
+        widget: &Widget,
+        cx: &mut InternalLoweringCx,
+        root: WidgetId,
+    ) -> WidgetId {
+        widget.clone().resolve_identities(root).lower(cx)
     }
 
     pub fn lower_widget_to_ir(widget: &Widget) -> fission_ir::CoreIR {
+        lower_widget_to_ir_with_root(widget, WidgetId::app_root())
+    }
+
+    pub fn lower_widget_to_ir_with_root(widget: &Widget, root: WidgetId) -> fission_ir::CoreIR {
         let env = crate::Env::default();
         let runtime_state = crate::RuntimeState::default();
         let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
-        widget.lower(&mut cx);
+        let root_id = widget.clone().resolve_identities(root).lower(&mut cx);
+        cx.ir.root = Some(root_id);
         cx.ir
+    }
+
+    pub fn resolve_widget_identities(widget: &Widget, root: WidgetId) -> Widget {
+        widget.clone().resolve_identities(root)
+    }
+
+    pub fn shell_root_id(authored_root: WidgetId) -> WidgetId {
+        WidgetId::derived(authored_root.as_u128(), &[0xF155_5E11])
+    }
+
+    pub fn widget_id(widget: &Widget) -> Option<WidgetId> {
+        widget.declared_id()
     }
 
     pub fn widget_kind_name(widget: &Widget) -> &'static str {
@@ -586,15 +612,25 @@ macro_rules! reduce {
 /// Builds a `Vec<Widget>` from widget expressions without repeated `.into()` calls.
 ///
 /// Dynamic children may still be produced with normal iterators and
-/// `collect::<Vec<Widget>>()`; this macro is only syntax sugar for
-/// literal child lists.
+/// `collect::<Vec<Widget>>()`. In both forms, children without explicit IDs
+/// receive deterministic position-based identity. Set an explicit ID on a
+/// logical collection item when retained state should follow the item through
+/// reordering.
 #[macro_export]
 macro_rules! widgets {
     ($($widget:expr),* $(,)?) => {
         {
             let mut widgets = ::std::vec::Vec::<$crate::Widget>::new();
+            let collection_scope = $crate::build::collection_scope(file!(), line!(), column!());
             $(
-                widgets.push($crate::Widget::from($widget));
+                let child_index = widgets.len() as u32;
+                let child_scope = $crate::WidgetId::derived(
+                    collection_scope.as_u128(),
+                    &[child_index],
+                );
+                widgets.push($crate::build::with_implicit_widget_id(child_scope, || {
+                    $crate::Widget::from($widget)
+                }));
             )*
             widgets
         }

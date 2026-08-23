@@ -47,6 +47,14 @@ impl<'a> InternalLoweringCx<'a> {
         }
     }
 
+    pub(crate) fn next_widget_root(&mut self) -> WidgetId {
+        if self.ir.nodes.is_empty() && self.id_stack.is_empty() && self.global_seq == 0 {
+            WidgetId::app_root()
+        } else {
+            self.next_node_id()
+        }
+    }
+
     pub fn push_scope(&mut self, node_id: WidgetId) {
         self.id_stack.push((node_id, 0));
     }

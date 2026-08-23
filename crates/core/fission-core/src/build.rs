@@ -22,9 +22,10 @@ struct BuildScope {
     runtime: *const crate::RuntimeState,
     env: *const crate::Env,
     layout: Option<*const crate::LayoutSnapshot>,
-    local_state_ordinals: HashMap<(&'static str, &'static str), usize>,
+    local_state_ordinals: HashMap<(crate::WidgetId, &'static str, &'static str), usize>,
     local_state_seen: HashSet<crate::state::LocalStateKey>,
     widget_id_stack: Vec<crate::WidgetId>,
+    identity_stack: Vec<crate::WidgetId>,
     implicit_widget_seq: u32,
     providers: HashMap<TypeId, Vec<Box<dyn Any + Send + Sync>>>,
 }
@@ -64,6 +65,23 @@ pub fn enter<S, R>(ctx: &mut BuildCtx<S>, view: &View<'_, S>, f: impl FnOnce() -
 where
     S: GlobalState,
 {
+    enter_with_root(ctx, view, crate::WidgetId::app_root(), f)
+}
+
+/// Runs an authoring pass beneath a deterministic application mount identity.
+///
+/// First-party shells use this to pass their configured root. Embedders hosting
+/// multiple independent trees in one runtime must provide distinct root ids.
+#[doc(hidden)]
+pub fn enter_with_root<S, R>(
+    ctx: &mut BuildCtx<S>,
+    view: &View<'_, S>,
+    root_id: crate::WidgetId,
+    f: impl FnOnce() -> R,
+) -> R
+where
+    S: GlobalState,
+{
     BUILD_SCOPES.with(|scopes| {
         scopes.borrow_mut().push(BuildScope {
             state_type: TypeId::of::<S>(),
@@ -85,6 +103,7 @@ where
             local_state_ordinals: HashMap::new(),
             local_state_seen: HashSet::new(),
             widget_id_stack: Vec::new(),
+            identity_stack: vec![root_id],
             implicit_widget_seq: 0,
             providers: HashMap::new(),
         });
@@ -147,20 +166,31 @@ where
         };
 
         let key_path = scope
-            .widget_id_stack
+            .identity_stack
             .iter()
             .map(|id| id.as_u128().to_string())
             .collect::<Vec<_>>();
-        let ordinal = if key_path.is_empty() {
-            let next = scope
+        let identity = scope
+            .identity_stack
+            .last()
+            .copied()
+            .unwrap_or_else(crate::WidgetId::app_root);
+        if scope.widget_id_stack.last().copied() == Some(identity)
+            && scope.identity_stack.len() > 1
+        {
+            let parent = scope.identity_stack[scope.identity_stack.len() - 2];
+            scope
                 .local_state_ordinals
-                .entry((component, field))
+                .entry((parent, component, field))
                 .and_modify(|next| *next += 1)
                 .or_insert(0);
-            *next
-        } else {
-            0
-        };
+        }
+        let next = scope
+            .local_state_ordinals
+            .entry((identity, component, field))
+            .and_modify(|next| *next += 1)
+            .or_insert(0);
+        let ordinal = *next;
         let key = crate::state::LocalStateKey::new_scoped(component, field, key_path, ordinal);
         if !scope.local_state_seen.insert(key.clone()) {
             panic!(
@@ -181,6 +211,7 @@ pub fn with_widget_id<R>(id: crate::WidgetId, f: impl FnOnce() -> R) -> R {
         let mut scopes = scopes.borrow_mut();
         if let Some(scope) = scopes.last_mut() {
             scope.widget_id_stack.push(id);
+            scope.identity_stack.push(id);
             true
         } else {
             false
@@ -194,6 +225,7 @@ pub fn with_widget_id<R>(id: crate::WidgetId, f: impl FnOnce() -> R) -> R {
                 BUILD_SCOPES.with(|scopes| {
                     if let Some(scope) = scopes.borrow_mut().last_mut() {
                         scope.widget_id_stack.pop();
+                        scope.identity_stack.pop();
                     }
                 });
             }
@@ -202,6 +234,57 @@ pub fn with_widget_id<R>(id: crate::WidgetId, f: impl FnOnce() -> R) -> R {
 
     let _guard = PopGuard(pushed);
     f()
+}
+
+/// Runs child construction beneath an automatically derived structural scope.
+///
+/// The scope participates in local-state identity but is not an explicit
+/// application-visible widget id.
+#[doc(hidden)]
+pub fn with_implicit_widget_id<R>(id: crate::WidgetId, f: impl FnOnce() -> R) -> R {
+    let pushed = BUILD_SCOPES.with(|scopes| {
+        let mut scopes = scopes.borrow_mut();
+        if let Some(scope) = scopes.last_mut() {
+            scope.identity_stack.push(id);
+            true
+        } else {
+            false
+        }
+    });
+
+    struct PopGuard(bool);
+    impl Drop for PopGuard {
+        fn drop(&mut self) {
+            if self.0 {
+                BUILD_SCOPES.with(|scopes| {
+                    if let Some(scope) = scopes.borrow_mut().last_mut() {
+                        scope.identity_stack.pop();
+                    }
+                });
+            }
+        }
+    }
+
+    let _guard = PopGuard(pushed);
+    f()
+}
+
+/// Returns the current structural identity used by authoring helpers.
+#[doc(hidden)]
+pub fn current_identity() -> Option<crate::WidgetId> {
+    BUILD_SCOPES.with(|scopes| {
+        scopes
+            .borrow()
+            .last()
+            .and_then(|scope| scope.identity_stack.last().copied())
+    })
+}
+
+/// Derives a stable scope for one invocation of `widgets!`.
+#[doc(hidden)]
+pub fn collection_scope(file: &str, line: u32, column: u32) -> crate::WidgetId {
+    let parent = current_identity().unwrap_or_else(crate::WidgetId::app_root);
+    crate::WidgetId::scoped_location(parent.as_u128(), file, line, column)
 }
 
 pub fn current_widget_id() -> Option<crate::WidgetId> {
@@ -218,7 +301,7 @@ pub(crate) fn next_implicit_widget_id(salt: u32) -> Option<crate::WidgetId> {
         let mut scopes = scopes.borrow_mut();
         let scope = scopes.last_mut()?;
         let parent = scope
-            .widget_id_stack
+            .identity_stack
             .last()
             .map(|id| id.as_u128())
             .unwrap_or(0x1337_C0DE_0000_0000);
