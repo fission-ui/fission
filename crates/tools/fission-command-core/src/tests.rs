@@ -11,6 +11,21 @@ fn unique_dir(name: &str) -> PathBuf {
 }
 
 #[test]
+fn mobile_smoke_android_host_matches_the_generated_contract() {
+    let checked_in = include_str!(
+        "../../../../examples/mobile-smoke/platforms/android/java/rs/fission/runtime/FissionActivity.java"
+    );
+    let generated = render_android_activity_java();
+
+    assert_eq!(checked_in, generated);
+    assert!(generated.contains("private static final int FISSION_HOST_CONTRACT_VERSION = 1;"));
+    assert!(generated.contains("public boolean fissionInstallHost(long token)"));
+    assert!(generated.contains("public void fissionUpdateSemantics("));
+    assert!(generated.contains("public void fissionUpdateIme("));
+    assert!(generated.contains("public String[] fissionDrainHostEvents()"));
+}
+
+#[test]
 fn project_assets_stage_nested_resources_and_replace_stale_output() {
     let dir = unique_dir("stage-project-assets");
     let project = dir.join("project");
