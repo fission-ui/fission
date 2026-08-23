@@ -21,8 +21,8 @@ use fission_core::internal::InternalLoweringCx;
 use fission_core::ui::{Container, Overlay, Widget, ZStack};
 use fission_core::{
     Env, GlobalState, InputEvent, KeyCode, KeyEvent, LayoutEngine, LayoutPoint, LayoutSize,
-    LayoutSnapshot, PointerButton, PointerEvent, Runtime, RuntimeState, View, WidgetIdExt,
-    WindowTitle,
+    LayoutSnapshot, PointerButton, PointerEvent, Runtime, RuntimeState, View, WidgetId,
+    WidgetIdExt, WindowTitle,
 };
 use fission_ir::CoreIR;
 use fission_layout::TextMeasurer;
@@ -58,6 +58,7 @@ where
     W: Clone + Into<Widget>,
 {
     root: W,
+    root_id: WidgetId,
     runtime: Runtime,
     layout_engine: LayoutEngine,
     env: Env,
@@ -97,6 +98,7 @@ where
         env.viewport_size = LayoutSize::new(100.0, 32.0);
         Self {
             root,
+            root_id: WidgetId::app_root(),
             runtime,
             layout_engine: LayoutEngine::new().with_measurer(measurer.clone()),
             env,
@@ -121,6 +123,11 @@ where
         *self.runtime.get_global_state_mut::<S>().expect(
             "Fission global state must be registered before TerminalApp::with_global_state is called",
         ) = global_state;
+        self
+    }
+
+    pub fn with_root_id(mut self, root_id: WidgetId) -> Self {
+        self.root_id = root_id;
         self
     }
 
@@ -198,7 +205,9 @@ where
                 Some(&self.measurer),
                 self.last_snapshot.as_ref(),
             );
-            let root_id = fission_core::internal::lower_widget(&node_tree, &mut cx);
+            let shell_root_id = fission_core::internal::shell_root_id(self.root_id);
+            let root_id =
+                fission_core::internal::lower_widget_with_root(&node_tree, &mut cx, shell_root_id);
             cx.ir.root = Some(root_id);
             (cx.ir, root_id)
         };
@@ -394,7 +403,10 @@ where
             self.last_snapshot.as_ref(),
         );
         let mut ctx = BuildCtx::<S>::new();
-        let tree = fission_core::build::enter(&mut ctx, &view, || self.root.clone().into());
+        let tree = fission_core::build::enter_with_root(&mut ctx, &view, self.root_id, || {
+            self.root.clone().into()
+        });
+        let tree = fission_core::internal::resolve_widget_identities(&tree, self.root_id);
 
         self.runtime.clear_reducers();
         let motion_declarations = ctx.take_motion_declarations();

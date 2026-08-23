@@ -1,5 +1,5 @@
 use anyhow::Result;
-use fission_core::{Action, ActionRegistry, Env, GlobalState, Widget};
+use fission_core::{Action, ActionRegistry, Env, GlobalState, Widget, WidgetId};
 use fission_shell::async_host::AsyncRegistry;
 use fission_shell_winit::WinitApp;
 
@@ -41,6 +41,11 @@ where
 
     pub fn with_global_state(mut self, global_state: S) -> Self {
         self.inner = self.inner.with_global_state(global_state);
+        self
+    }
+
+    pub fn with_root_id(mut self, root_id: WidgetId) -> Self {
+        self.inner = self.inner.with_root_id(root_id);
         self
     }
 

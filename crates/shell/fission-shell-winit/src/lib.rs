@@ -4611,6 +4611,7 @@ where
     runtime: Runtime,
     layout_engine: LayoutEngine,
     root_widget: W,
+    root_widget_id: WidgetId,
     env: Env,
     pipeline: Pipeline,
     measurer: Arc<VelloTextMeasurer>,
@@ -4685,6 +4686,7 @@ where
             runtime,
             layout_engine,
             root_widget,
+            root_widget_id: WidgetId::app_root(),
             env,
             pipeline: Pipeline::new(),
             measurer,
@@ -4716,6 +4718,15 @@ where
         *self.runtime.get_global_state_mut::<S>().expect(
             "Fission global state must be registered before WinitApp::with_global_state is called",
         ) = global_state;
+        self
+    }
+
+    /// Sets the stable identity namespace for the application's authored root.
+    ///
+    /// The default is [`WidgetId::app_root`]. An explicit ID set directly on
+    /// the root widget remains authoritative.
+    pub fn with_root_id(mut self, root_id: WidgetId) -> Self {
+        self.root_widget_id = root_id;
         self
     }
 
@@ -5299,6 +5310,7 @@ where
         }
         let mut layout_engine = self.layout_engine;
         let root_widget = self.root_widget;
+        let root_widget_id = self.root_widget_id;
         let mut env = self.env;
         env.window.title = fission_core::WindowTitle::plain(window_title.clone());
         let mut applied_window_title = window_title.clone();
@@ -7953,9 +7965,16 @@ where
                                         pipeline.last_snapshot.as_ref(),
                                     );
                                     let mut ctx = BuildCtx::new();
-                                    let node = fission_core::build::enter(&mut ctx, &view, || {
-                                        root_widget.clone().into()
-                                    });
+                                    let node = fission_core::build::enter_with_root(
+                                        &mut ctx,
+                                        &view,
+                                        root_widget_id,
+                                        || root_widget.clone().into(),
+                                    );
+                                    let node = fission_core::internal::resolve_widget_identities(
+                                        &node,
+                                        root_widget_id,
+                                    );
                                     let resources = ctx.take_resources();
                                     let motion_declarations = ctx.take_motion_declarations();
                                     let videos = ctx.take_video_registrations();
@@ -8058,9 +8077,12 @@ where
                                         runtime.measurer.as_ref(),
                                         pipeline.last_snapshot.as_ref(),
                                     );
-                                    let root_id = fission_core::internal::lower_widget(
+                                    let shell_root_id =
+                                        fission_core::internal::shell_root_id(root_widget_id);
+                                    let root_id = fission_core::internal::lower_widget_with_root(
                                         &final_root,
                                         &mut lower_cx,
+                                        shell_root_id,
                                     );
                                     lower_cx.ir.root = Some(root_id);
                                     lower_cx.ir
