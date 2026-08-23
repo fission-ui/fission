@@ -187,7 +187,7 @@ pub struct EffectEnvelope {
 ///     }
 /// }
 /// ```
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ActionInput {
     /// No extra input.
     None,
@@ -307,6 +307,17 @@ pub enum ActionInput {
 }
 
 impl ActionInput {
+    /// Encodes this runtime input into an opaque representation suitable for
+    /// storage or transport.
+    pub fn encode_opaque(&self) -> Result<Vec<u8>, ActionInputCodecError> {
+        serde_json::to_vec(self).map_err(ActionInputCodecError)
+    }
+
+    /// Decodes an input previously produced by [`Self::encode_opaque`].
+    pub fn decode_opaque(bytes: &[u8]) -> Result<Self, ActionInputCodecError> {
+        serde_json::from_slice(bytes).map_err(ActionInputCodecError)
+    }
+
     pub fn scoped_raw(scope_id: u128, target: WidgetId, input: ActionInput) -> Self {
         Self::ScopedRaw {
             scope_id,
@@ -581,5 +592,93 @@ impl ActionInput {
             | ActionInput::ServiceCommandErr { instance_id, .. } => Some(*instance_id),
             _ => None,
         }
+    }
+}
+
+/// Failure to encode or decode an opaque [`ActionInput`] representation.
+#[derive(Debug)]
+pub struct ActionInputCodecError(serde_json::Error);
+
+impl std::fmt::Display for ActionInputCodecError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("action input codec failed")
+    }
+}
+
+impl std::error::Error for ActionInputCodecError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.0)
+    }
+}
+
+#[cfg(test)]
+mod action_input_codec_tests {
+    use super::*;
+    use crate::event::PointerKind;
+    use crate::input::canvas::{CanvasInteraction, CanvasInteractionKind, CanvasInteractionPhase};
+    use crate::input::viewport::{
+        ViewportInputKind, ViewportInteraction, ViewportInteractionPhase,
+    };
+    use fission_ir::{CanvasSelectionPolicy, ViewportTransform};
+    use fission_layout::{LayoutPoint, LayoutRect};
+
+    #[test]
+    fn opaque_codec_round_trips_full_width_scope_ids() {
+        let input = ActionInput::scoped_raw(
+            u128::MAX - 1,
+            WidgetId::from_u128(u128::MAX - 2),
+            ActionInput::TextChanged(UpdateTextInput {
+                node_id: WidgetId::from_u128(7),
+                new_text: "hello".into(),
+                new_caret: 4,
+                new_anchor: 1,
+            }),
+        );
+        let bytes = input.encode_opaque().expect("input should encode");
+        let decoded = ActionInput::decode_opaque(&bytes).expect("input should decode");
+        assert_eq!(decoded, input);
+    }
+
+    #[test]
+    fn opaque_codec_round_trips_viewport_interactions() {
+        let input = ActionInput::ViewportInteraction(ViewportInteraction {
+            node_id: WidgetId::from_u128(9),
+            phase: ViewportInteractionPhase::Update,
+            transform: ViewportTransform::new(12.0, -4.0, 1.5),
+            viewport_focal_point: LayoutPoint::new(40.0, 50.0),
+            world_focal_point: LayoutPoint::new(18.0, 36.0),
+            pan_delta: LayoutPoint::new(3.0, -2.0),
+            scale_factor: 1.1,
+            input_kind: ViewportInputKind::Touch,
+            modifiers: 1,
+        });
+
+        let bytes = input.encode_opaque().expect("input should encode");
+        let decoded = ActionInput::decode_opaque(&bytes).expect("input should decode");
+        assert_eq!(decoded, input);
+    }
+
+    #[test]
+    fn opaque_codec_round_trips_canvas_interactions() {
+        let input = ActionInput::CanvasInteraction(CanvasInteraction {
+            canvas_id: WidgetId::from_u128(10),
+            target_id: WidgetId::from_u128(11),
+            kind: CanvasInteractionKind::MoveNode { node_id: 12 },
+            selection_policy: CanvasSelectionPolicy::Toggle,
+            phase: CanvasInteractionPhase::Update,
+            input_kind: PointerKind::Mouse,
+            modifiers: 8,
+            screen_point: LayoutPoint::new(42.0, 24.0),
+            world_point: LayoutPoint::new(21.0, 12.0),
+            screen_delta: LayoutPoint::new(6.0, -4.0),
+            world_delta: LayoutPoint::new(3.0, -2.0),
+            bounds_before: Some(LayoutRect::new(1.0, 2.0, 30.0, 40.0)),
+            bounds_after: Some(LayoutRect::new(4.0, 0.0, 30.0, 40.0)),
+            marquee: None,
+        });
+
+        let bytes = input.encode_opaque().expect("input should encode");
+        let decoded = ActionInput::decode_opaque(&bytes).expect("input should decode");
+        assert_eq!(decoded, input);
     }
 }

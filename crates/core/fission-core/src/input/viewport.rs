@@ -5,6 +5,7 @@ use fission_ir::{
     ViewportZoomPolicy, WidgetId,
 };
 use fission_layout::{LayoutPoint, LayoutRect, LayoutSnapshot};
+use serde::{Deserialize, Serialize};
 
 use super::scoped_action_input;
 use crate::event::{
@@ -17,7 +18,7 @@ const LINE_DELTA_POINTS: f32 = 16.0;
 const WHEEL_ZOOM_SENSITIVITY: f32 = 0.002;
 
 /// Lifecycle stage for a viewport interaction delivered to a reducer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ViewportInteractionPhase {
     Start,
     Update,
@@ -26,7 +27,7 @@ pub enum ViewportInteractionPhase {
 }
 
 /// Physical gesture family that changed an interactive viewport.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ViewportInputKind {
     Mouse,
     Touch,
@@ -37,7 +38,7 @@ pub enum ViewportInputKind {
 }
 
 /// Live event facts accompanying an interactive-viewport action.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ViewportInteraction {
     pub node_id: WidgetId,
     pub phase: ViewportInteractionPhase,

@@ -1,10 +1,11 @@
 use fission_ir::{CanvasSelectionPolicy, CanvasTarget, CanvasTargetKind, WidgetId};
 use fission_layout::{LayoutPoint, LayoutRect, LayoutSnapshot};
+use serde::{Deserialize, Serialize};
 
 use crate::event::PointerKind;
 use crate::input::viewport::ViewportStateMap;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CanvasInteractionPhase {
     Start,
     Update,
@@ -13,7 +14,7 @@ pub enum CanvasInteractionPhase {
     Cancel,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CanvasInteractionKind {
     SelectNode { node_id: u128 },
     MoveNode { node_id: u128 },
@@ -22,7 +23,7 @@ pub enum CanvasInteractionKind {
     Marquee,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CanvasInteraction {
     pub canvas_id: WidgetId,
     pub target_id: WidgetId,

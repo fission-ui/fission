@@ -3,14 +3,15 @@ use super::traits::{InternalLower, InternalLowerer};
 #[cfg(feature = "interactive-canvas")]
 use super::widgets::InteractiveViewer;
 use super::widgets::{
-    ActionScope, Align, Button, Checkbox, Clip, Column, Composite, Container, ContextMenuRegion,
-    FocusScope, GestureDetector, Grid, GridItem, Icon, Image, LazyColumn, Overlay, Positioned,
-    Pressable, Radio, Responsive, RichText, Row, SafeArea, Scroll, SemanticsRegion, Slider, Spacer,
-    Switch, Text, TextInput, Transform, Video, ZStack,
+    ActionScope, Align, Button, Checkbox, Clip, Column, Composite, Container, ContextMenuEntry,
+    ContextMenuRegion, FocusScope, GestureDetector, Grid, GridItem, Icon, Image, LazyColumn,
+    Overlay, Positioned, Pressable, Radio, Responsive, RichText, Row, SafeArea, Scroll,
+    SemanticsRegion, Slider, Spacer, Switch, Text, TextInput, Transform, Video, ZStack,
 };
 use crate::lowering::InternalLoweringCx;
 use fission_ir::{Op, StructuralOp, WidgetId};
 use serde::{Deserialize, Serialize};
+use std::ops::ControlFlow;
 use std::sync::Arc;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -19,7 +20,7 @@ pub struct Widget {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-enum WidgetKind {
+pub enum WidgetKind {
     Identified {
         id: WidgetId,
         child: Widget,
@@ -64,6 +65,90 @@ enum WidgetKind {
 }
 
 impl Widget {
+    /// Returns the concrete kind represented by this type-erased widget.
+    pub fn kind(&self) -> &WidgetKind {
+        self.kind.as_ref()
+    }
+
+    /// Visits this widget and every descendant in depth-first order.
+    ///
+    /// Returning [`ControlFlow::Break`] stops traversal immediately. The
+    /// visitor is read-only; callers that need to transform a tree should
+    /// construct a new widget tree through the normal authoring API.
+    pub fn visit(&self, visitor: &mut impl FnMut(&Widget) -> ControlFlow<()>) -> ControlFlow<()> {
+        visitor(self)?;
+        match self.kind.as_ref() {
+            WidgetKind::Identified { child, .. }
+            | WidgetKind::ActionScope(ActionScope { child, .. })
+            | WidgetKind::Align(Align { child, .. })
+            | WidgetKind::Clip(Clip { child, .. })
+            | WidgetKind::Transform(Transform { child, .. })
+            | WidgetKind::Pressable(Pressable { child, .. })
+            | WidgetKind::GestureDetector(GestureDetector { child, .. })
+            | WidgetKind::GridItem(GridItem { child, .. })
+            | WidgetKind::SafeArea(SafeArea { child, .. })
+            | WidgetKind::Composite(Composite { child, .. }) => child.visit(visitor),
+            WidgetKind::Row(Row { children, .. })
+            | WidgetKind::Column(Column { children, .. })
+            | WidgetKind::FocusScope(FocusScope { children, .. })
+            | WidgetKind::ZStack(ZStack { children, .. })
+            | WidgetKind::Grid(Grid { children, .. })
+            | WidgetKind::LazyColumn(LazyColumn { children, .. }) => {
+                for child in children {
+                    child.visit(visitor)?;
+                }
+                ControlFlow::Continue(())
+            }
+            WidgetKind::Button(Button { child, .. })
+            | WidgetKind::Scroll(Scroll { child, .. })
+            | WidgetKind::SemanticsRegion(SemanticsRegion { child, .. })
+            | WidgetKind::Container(Container { child, .. })
+            | WidgetKind::Positioned(Positioned { child, .. }) => {
+                if let Some(child) = child {
+                    child.visit(visitor)?;
+                }
+                ControlFlow::Continue(())
+            }
+            WidgetKind::Overlay(Overlay {
+                content, overlay, ..
+            }) => {
+                content.visit(visitor)?;
+                overlay.visit(visitor)
+            }
+            WidgetKind::ContextMenuRegion(ContextMenuRegion { child, menu, .. }) => {
+                child.visit(visitor)?;
+                for entry in &menu.items {
+                    if let ContextMenuEntry::Item(item) = entry {
+                        item.child.visit(visitor)?;
+                    }
+                }
+                ControlFlow::Continue(())
+            }
+            WidgetKind::Responsive(Responsive {
+                cases, fallback, ..
+            }) => {
+                for case in cases {
+                    case.child.visit(visitor)?;
+                }
+                fallback.visit(visitor)
+            }
+            #[cfg(feature = "interactive-canvas")]
+            WidgetKind::InteractiveViewer(InteractiveViewer { child, .. }) => child.visit(visitor),
+            WidgetKind::Custom(_)
+            | WidgetKind::Text(_)
+            | WidgetKind::RichText(_)
+            | WidgetKind::TextInput(_)
+            | WidgetKind::Image(_)
+            | WidgetKind::Video(_)
+            | WidgetKind::Checkbox(_)
+            | WidgetKind::Switch(_)
+            | WidgetKind::Radio(_)
+            | WidgetKind::Spacer(_)
+            | WidgetKind::Slider(_)
+            | WidgetKind::Icon(_) => ControlFlow::Continue(()),
+        }
+    }
+
     pub(crate) fn with_id(self, id: WidgetId) -> Self {
         let kind = match *self.kind {
             WidgetKind::Identified { child, .. } => WidgetKind::Identified { id, child },
@@ -782,5 +867,30 @@ pub type CustomWidget = InternalRenderNode;
 impl From<CustomWidget> for Widget {
     fn from(node: CustomWidget) -> Self {
         Widget::custom(node)
+    }
+}
+
+#[cfg(test)]
+mod visitor_tests {
+    use super::*;
+
+    #[test]
+    fn visitor_walks_nested_widgets_and_can_stop() {
+        let root: Widget = Column {
+            children: vec![Text::new("first").into(), Text::new("second").into()],
+            ..Default::default()
+        }
+        .into();
+        let mut visited = 0;
+        let result = root.visit(&mut |widget| {
+            visited += 1;
+            if matches!(widget.kind(), WidgetKind::Text(_)) {
+                ControlFlow::Break(())
+            } else {
+                ControlFlow::Continue(())
+            }
+        });
+        assert!(matches!(result, ControlFlow::Break(())));
+        assert_eq!(visited, 2);
     }
 }

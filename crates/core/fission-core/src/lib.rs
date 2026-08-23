@@ -223,8 +223,8 @@ pub mod public {
         FissionDataStreamErrorKind,
     };
     pub use crate::effect::{
-        ActionInput, Effect, EffectEnvelope, RuntimeEffect, ScrollAlignment, ScrollAxis,
-        ScrollBehavior, ScrollIntoViewRequest,
+        ActionInput, ActionInputCodecError, Effect, EffectEnvelope, RuntimeEffect, ScrollAlignment,
+        ScrollAxis, ScrollBehavior, ScrollIntoViewRequest,
     };
     pub use crate::env::{
         Clipboard, DragSessionPayload, DragSessionState, Env, ImeHandler, InteractionStateMap,
@@ -356,6 +356,7 @@ pub mod public {
         ResourceRegistry, RuntimeResourceDeclaration, RuntimeResourceKind, ServiceResource,
         TimerResource, VideoRegistration,
     };
+    pub use crate::scoped_action_handlers::ScopedActionResolution;
     pub use crate::time::{Clock, CurrentTime};
     pub use crate::ui::{
         provider, ActionScope, BadgeTone, Button, ButtonHierarchy, ButtonMotion, CardPattern,
@@ -363,7 +364,7 @@ pub mod public {
         IosAudioSessionCategoryOption, IosAudioSessionMode, IosVideoAudioOptions, Pressable,
         PressableRole, PressableStyle, Provider, Responsive, ResponsiveCase, ResponsiveQuery, Row,
         Text, Video, VideoAudioActivation, VideoAudioOptions, VideoAudioPolicy, VideoSource,
-        Widget, WidgetIdExt,
+        Widget, WidgetIdExt, WidgetKind,
     };
     pub use crate::view::{ComputedView, FissionViewField, Selector, ValueView, View};
     pub use crate::{
@@ -409,8 +410,8 @@ pub use data_stream::{
     FissionDataStreamErrorKind,
 };
 pub use effect::{
-    ActionInput, Effect, EffectEnvelope, RuntimeEffect, ScrollAlignment, ScrollAxis,
-    ScrollBehavior, ScrollIntoViewRequest,
+    ActionInput, ActionInputCodecError, Effect, EffectEnvelope, RuntimeEffect, ScrollAlignment,
+    ScrollAxis, ScrollBehavior, ScrollIntoViewRequest,
 };
 pub use env::{
     Clipboard, DragSessionPayload, DragSessionState, Env, ImeHandler, InteractionStateMap,
@@ -546,6 +547,7 @@ pub use registry::{
     ResourceRegistry, RuntimeResourceDeclaration, RuntimeResourceKind, ServiceResource,
     TimerResource, VideoRegistration,
 };
+pub use scoped_action_handlers::ScopedActionResolution;
 pub use time::{Clock, CurrentTime};
 pub use ui::{
     provider, ActionScope, BadgeTone, Button, ButtonHierarchy, ButtonMotion, CardPattern, Column,
@@ -553,7 +555,7 @@ pub use ui::{
     IosAudioSessionCategoryOption, IosAudioSessionMode, IosVideoAudioOptions, Pressable,
     PressableRole, PressableStyle, Provider, Responsive, ResponsiveCase, ResponsiveQuery, Row,
     Text, Video, VideoAudioActivation, VideoAudioOptions, VideoAudioPolicy, VideoSource, Widget,
-    WidgetIdExt,
+    WidgetIdExt, WidgetKind,
 };
 pub use view::{ComputedView, FissionViewField, Selector, ValueView, View};
 
