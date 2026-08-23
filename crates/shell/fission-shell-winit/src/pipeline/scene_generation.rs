@@ -978,11 +978,17 @@ pub(super) fn composite_transform_matrix(
     let rotation_matrix = rotation_z_matrix(rotation);
     let motion_translate = translation_matrix(translate_x, translate_y);
 
+    // Matrices use translation in indices 12/13 and are applied to points in
+    // row-vector order. Compose operations in that same order so scale and
+    // rotation preserve the widget's visual center.
     multiply_matrix(
-        motion_translate,
+        from_center,
         multiply_matrix(
-            to_center,
-            multiply_matrix(rotation_matrix, multiply_matrix(scale_matrix, from_center)),
+            scale_matrix,
+            multiply_matrix(
+                rotation_matrix,
+                multiply_matrix(to_center, motion_translate),
+            ),
         ),
     )
 }
