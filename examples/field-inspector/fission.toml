@@ -24,13 +24,13 @@ capabilities = [
 [app]
 name = "field-inspector"
 app_id = "com.fission.examples.fieldinspector"
-version = "0.11.1"
+version = "0.12.0"
 build = 1
 
 [package.android]
 package_name = "com.fission.examples.fieldinspector"
 version_code = 1
-version_name = "0.11.1"
+version_name = "0.12.0"
 min_sdk = 24
 target_sdk = 35
 keystore_alias = "upload"
@@ -41,13 +41,13 @@ key_password_env = "ANDROID_KEY_PASSWORD"
 
 [package.ios]
 bundle_id = "com.fission.examples.fieldinspector"
-marketing_version = "0.11.1"
+marketing_version = "0.12.0"
 build_number = "1"
 
 [package.windows]
 identity_name = "com.fission.examples.fieldinspector"
 publisher = "CN=Fission Developer"
-version = "0.11.1"
+version = "0.12.0"
 installer = "msix"
 certificate_thumbprint_env = "WINDOWS_CERTIFICATE_THUMBPRINT"
 certificate_base64_env = "WINDOWS_CERTIFICATE_BASE64"

@@ -77,7 +77,12 @@ Web input, and interactive browser islands use this same event shape.
 
 ## Pointer and keyboard details
 
-`PointerEvent` covers pointer down, up, move, and scroll. Pointer buttons are represented by `PointerButton`.
+`PointerEvent` covers pointer down, up, move, cancellation, scroll, and
+magnification. Down, move, up, and cancellation retain a `PointerId` and
+`PointerKind`, so multiple touch or stylus contacts remain distinct. Scroll
+events preserve `ScrollDeltaMode` and `PointerPhase`; magnification reports a
+multiplicative scale factor and lifecycle phase. Pointer buttons are represented
+by `PointerButton`.
 
 `KeyEvent` covers key down and key up. Key identity is represented by `KeyCode`, and modifier bits use constants such as `MOD_SHIFT`, `MOD_ALT`, `MOD_CTRL`, and `MOD_SUPER`.
 

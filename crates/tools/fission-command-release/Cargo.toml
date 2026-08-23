@@ -1,6 +1,6 @@
 [package]
 name = "fission-command-release"
-version = "0.11.1"
+version = "0.12.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/fission-ui/fission"
@@ -18,9 +18,9 @@ readme = "README.md"
 anyhow = "1.0"
 base64 = "0.22"
 clap = { version = "4.5", features = ["derive"] }
-fission-command-core = { path = "../fission-command-core", version = "0.11.1" }
-fission-command-package = { path = "../fission-command-package", version = "0.11.1" }
-fission-test-driver = { path = "../fission-test-driver", version = "0.11.1" }
+fission-command-core = { path = "../fission-command-core", version = "0.12.0" }
+fission-command-package = { path = "../fission-command-package", version = "0.12.0" }
+fission-test-driver = { path = "../fission-test-driver", version = "0.12.0" }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 jsonwebtoken = "9"
 md-5 = "0.10"

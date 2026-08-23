@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-08-23
+
+### Added
+
+- **InteractiveViewer** - Graphical applications can pan, pinch, magnify, wheel, and inertially move an arbitrary retained widget subtree through a backend-neutral camera with controlled or runtime-owned transforms, boundaries, clipping, axis policy, and typed interaction callbacks.
+- **InfiniteCanvas** - A declarative node-and-edge editor built on `InteractiveViewer` adds stable node and edge identities, grids, straight and cubic edges, selection, marquee, snapping, movement, resizing, precise edge hits, transformed accessibility bounds, and an example for desktop, mobile, and Web.
+- **Complete pointer contact data** - Pointer events now retain pointer identity and kind, cancellation, scroll phase and delta mode, and multiplicative magnification. The shared test driver can inject the same detailed input on native and Web targets.
+- **Widget traversal and scoped action resolution** - `Widget::kind()` and depth-first `Widget::visit()` expose read-only authoring-tree inspection. Scoped handlers can explicitly handle an action or forward a replacement envelope while preserving target and runtime input.
+- **Selective browser defaults** - Web applications continue to own browser input by default and can opt specific categories into native browser handling with `BrowserDefaults`.
+
+### Changed
+
+- **Breaking pointer event shape** - `PointerEvent::Down`, `Move`, and `Up` include `pointer_id` and `kind`; `Scroll` includes `delta_mode` and `phase`; and the enum adds `Cancel` and `Magnify`. Downstream constructors and exhaustive matches must adopt the new fields and variants.
+- **Breaking scoped-handler result** - `ScopedActionHandler` callbacks return `ScopedActionResolution::Handled` or `ScopedActionResolution::Forward(...)` instead of `Result<()>`.
+- **Graphical capability gating** - `InteractiveViewer` and `InfiniteCanvas` are exposed by `desktop`, `android`, `ios`, `mobile`, and `web`. Static site, SSR, and Terminal-only builds do not expose them.
+- **Web editing ownership** - Fission implements platform-correct selection, copy, cut, paste, context-menu, and keyboard editing behavior while browser defaults remain deny-by-default unless explicitly enabled.
+
+### Fixed
+
+- **WebGPU startup and large-frame rendering** - Browser rendering reports diagnostics to the console, validates WebGPU before presentation, uses opaque surface presentation correctly, sizes Vello buffers from actual frame work, and avoids blank output at larger window sizes.
+- **Web pointer semantics** - Secondary clicks remain secondary clicks, all touch contacts retain their identities, cancellations clean up active interactions, and mouse/touch hover and drag state no longer become stuck.
+- **Centered press feedback** - Composite scale and rotation effects preserve the visual center instead of shifting controls toward the top-left.
+- **Deterministic scoped forwarding** - Forwarded actions bypass the scoped handler that forwarded them, and ambiguous multiple forwards are rejected instead of recursing or silently selecting one.
+- **Intrinsic flyout sizing** - Dropdown and flyout content keeps its intrinsic height instead of stretching to the full Web viewport.
+
+### Migration notes
+
+- Update Fission dependencies and `cargo-fission` to `0.12.0`.
+- Update direct `PointerEvent` constructors and exhaustive matches for `pointer_id`, `PointerKind`, `PointerEvent::Cancel`, scroll `PointerPhase`/`ScrollDeltaMode`, and `PointerEvent::Magnify`.
+- Update scoped action handlers to return `ScopedActionResolution::Handled`, or `Forward(envelope)` when the action should continue through normal dispatch.
+- Graphical applications receive the `interactive-canvas` capability through their normal target feature. Mixed graphical and document-target packages may resolve the feature through Cargo feature unification, while Static site, SSR, or Terminal-only packages cannot import the widgets.
+- Web applications that intentionally want a browser-owned behavior can pass a composed `BrowserDefaults` policy to `WebApp::with_browser_defaults(...)`. The default remains `BrowserDefaults::NONE`.
+
 ## [0.11.1] - 2026-08-17
 
 ### Added

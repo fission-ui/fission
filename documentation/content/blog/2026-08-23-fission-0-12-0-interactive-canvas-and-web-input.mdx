@@ -1,0 +1,144 @@
+---
+title: Fission 0.12.0: Interactive canvas and complete Web input
+description: Pan, zoom, and author infinite retained canvases while Fission brings multi-pointer input and reliable WebGPU presentation under one cross-platform contract.
+authors:
+  - fission
+categories:
+  - Releases
+tags:
+  - release
+  - authoring
+  - platform
+  - web
+  - accessibility
+show_adjacent_posts: true
+---
+
+# Fission 0.12.0: Interactive canvas and complete Web input
+
+Fission 0.12.0 adds a retained, backend-neutral camera and a declarative
+infinite canvas without creating a second rendering or state system. It also
+completes the input work those widgets require: multiple pointer identities,
+pinch and magnification, cancellation, detailed scrolling, browser editing
+shortcuts, context menus, and reliable WebGPU presentation at real application
+sizes.
+
+This is a minor release because it adds major public capabilities and changes
+the public pointer and scoped-action contracts.
+
+## One camera for ordinary retained widgets
+
+`InteractiveViewer` pans and uniformly scales one normal Fission widget
+subtree. The camera may be runtime-owned or controlled by application state,
+and its behavior is expressed with backend-neutral policies for boundaries,
+clipping, axes, minimum and maximum scale, wheel behavior, and inertia.
+
+```rust
+let viewer: Widget = InteractiveViewer {
+    id: Some(WidgetId::explicit("floor-plan")),
+    child: Image::asset("floor-plan.png").into(),
+    min_scale: 0.25,
+    max_scale: 8.0,
+    zoom_policy: ViewportZoomPolicy::WheelWithModifier,
+    ..Default::default()
+}
+.into();
+```
+
+Mouse, touch, stylus, modifier-wheel, macOS magnification, and browser pinch
+feed the same core controller. A draggable child wins an ordinary one-pointer
+drag, while a second contact promotes the nearest viewer to a captured
+two-pointer pan and zoom without a camera jump when one contact is released.
+
+Callbacks preserve their bound action payload. Reducers read the live camera,
+focal points, pan delta, scale factor, input family, modifiers, and lifecycle
+from `ctx.input.viewport_interaction()`.
+
+## InfiniteCanvas stays declarative
+
+`InfiniteCanvas` builds on `InteractiveViewer` instead of introducing an
+imperative scene authority. Applications continue to own committed nodes,
+edges, selection, and optional controlled camera state.
+
+The initial widget includes:
+
+- stable node and edge identities with negative and positive world coordinates;
+- straight and cubic edges, retained labels, grids, and stable z-order;
+- single, toggle, and marquee selection;
+- node movement, eight constant-screen-size resize handles, and symmetric grid snapping;
+- precise transformed hit testing and transformed accessibility bounds; and
+- visible-world batching for grid and edge paths.
+
+The new `interactive-canvas` example demonstrates both widgets with responsive
+desktop and compact layouts. The public widgets are available through the
+normal `desktop`, `android`, `ios`, `mobile`, and `web` features. Static site,
+SSR, and Terminal-only builds intentionally do not expose them.
+
+## Complete pointer facts across shells
+
+Fission no longer collapses every touch contact into one synthetic mouse
+pointer. `PointerEvent` now retains `PointerId` and `PointerKind`, explicit
+cancellation, line-versus-pixel scroll mode, scroll lifecycle, and
+multiplicative magnification. Native and Web test control use the same detailed
+events, which makes multi-contact behavior deterministic to test.
+
+This is a source change for code that directly constructs or exhaustively
+matches `PointerEvent`.
+
+## Web behaves like a Fission application
+
+Web applications now receive platform-correct secondary clicks and Fission-owned
+keyboard editing, selection, copy, cut, paste, and context menus. Browser
+defaults remain suppressed by default. An application can selectively delegate
+keyboard, pointer, touch, wheel, context-menu, or clipboard behavior with a
+composed `BrowserDefaults` value:
+
+```rust
+WebApp::<AppState, _>::new(App)
+    .with_browser_defaults(
+        BrowserDefaults::CONTEXT_MENU | BrowserDefaults::WHEEL,
+    );
+```
+
+The release also fixes the blank or transparent WebGPU output seen at larger
+window sizes. Fission validates WebGPU work before presentation, configures the
+browser canvas surface correctly, sizes the forked Vello buffers from the real
+frame workload, and mirrors framework diagnostics into the browser console.
+
+## Authoring-tree and scoped-action contracts
+
+`Widget::kind()` and `Widget::visit()` provide read-only, depth-first access to
+the authoring tree for integrations that need to discover widget structure.
+Scoped handlers now return an explicit `ScopedActionResolution`: handle the
+action locally, or forward an envelope once through normal dispatch. Fission
+rejects ambiguous multiple forwards and prevents a forwarded action from
+recursively re-entering the handler that forwarded it.
+
+## Migration
+
+Update the framework and CLI:
+
+```toml
+fission = { version = "0.12.0", default-features = false, features = ["desktop"] }
+```
+
+```sh
+cargo install cargo-fission --version 0.12.0 --locked
+```
+
+Then make these source updates where applicable:
+
+1. Add `pointer_id` and `kind` to direct `Down`, `Move`, and `Up` constructors.
+2. Handle `PointerEvent::Cancel` and `PointerEvent::Magnify`, and add scroll
+   `delta_mode` and `phase`.
+3. Return `ScopedActionResolution::Handled` from existing scoped handlers, or
+   `Forward(envelope)` when dispatch should continue.
+4. Use `ctx.input.viewport_interaction()` and
+   `ctx.input.canvas_interaction()` for runtime event facts while keeping stable
+   application context in the bound action.
+
+Browser autocorrect, autofill, and soft-keyboard replacement/deletion still
+need full hidden-textarea value and selection synchronization. Hardware keyboard
+shortcuts, clipboard operations, context menus, and composition commits are
+implemented; the remaining work is tracked in
+[issue #168](https://github.com/fission-ui/fission/issues/168).
