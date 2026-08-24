@@ -2,7 +2,7 @@
 
 [![Crates.io](https://img.shields.io/crates/v/fission.svg)](https://crates.io/crates/fission)
 [![Docs](https://img.shields.io/badge/docs-fission.rs-0f766e.svg)](https://fission.rs)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/fission-ui/fission/blob/main/LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://github.com/fission-ui/fission/blob/main/LICENSE)
 
 Fission is a production-focused Rust application framework for building GPU-accelerated apps across macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR targets.
 
@@ -15,7 +15,7 @@ This crate is the public facade. Application code should normally depend on `fis
 
 ```toml
 [dependencies]
-fission = { version = "0.12.0", features = ["desktop"] }
+fission = { version = "0.13.0", features = ["desktop"] }
 ```
 
 For the full developer workflow, install the Fission command:
@@ -134,4 +134,4 @@ Start at [fission.rs](https://fission.rs):
 
 ## License
 
-Fission is available under the MIT license.
+Fission is available under the Apache 2.0 license.

@@ -8,7 +8,7 @@ Application developers normally enable it through the facade crate:
 
 ```toml
 [dependencies]
-fission = { version = "0.12.0", features = ["terminal-shell"] }
+fission = { version = "0.13.0", features = ["terminal-shell"] }
 ```
 
 ## What it contains
@@ -28,4 +28,4 @@ See [Building terminal user interfaces](https://fission.rs/docs/guides/terminal-
 
 ## License
 
-MIT
+Apache-2.0

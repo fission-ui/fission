@@ -231,11 +231,17 @@ The annotated field is not a normal stored struct field after macro expansion. I
 
 Local state persists across rebuilds while the same widget identity remains active. If the widget is removed from the tree, the runtime prunes the retained value after the build. If the widget later appears again as a new identity, it starts from the default.
 
+Fission assigns that identity automatically from the application root and the
+widget's structural path. The root defaults to `WidgetId::app_root()`. Retained
+runtime shells also provide `with_root_id(...)` when an embedder mounts multiple
+independent applications and needs a separate namespace for each one. An
+explicit ID set directly on the root widget remains authoritative.
+
 Use local state for small UI-local memory. Do not use it for product data that should survive navigation, sync, persistence, or sharing across distant screens. That belongs in `GlobalState`.
 
 ## Use `WidgetId` for dynamic or reordered local state
 
-For static sibling widgets, Fission can distinguish local state by structural position. Dynamic lists need a stable identity because their order can change.
+For static sibling widgets, Fission distinguishes local state by structural position. Unidentified dynamic-list items deliberately use the same positional rule. Add explicit identity when state must follow a logical item as its position changes.
 
 Consider this list of cards. If the user reorders it, the second card should keep its own expanded state rather than inheriting whatever used to be in the second slot.
 
@@ -266,7 +272,11 @@ impl From<CardList> for Widget {
 
 The `.id(...)` method comes from `WidgetIdExt`, which is in the prelude. Use a stable id from your data, such as a database id, SKU, route id, or durable slug. Do not use the list index as the id for reorderable or filterable data. An index is only stable while the order never changes.
 
-You do not need to assign ids to every widget. Use explicit `WidgetId` values when identity matters across insertion, removal, filtering, or reordering.
+You do not need to assign IDs to every widget. Fission automatically gives the
+item's descendants stable IDs scoped beneath the explicit item ID. Use an
+explicit `WidgetId` when identity must follow data across insertion, removal,
+filtering, or reordering; leave an item unidentified when positional identity is
+the intended behavior.
 
 ## Providers pass typed context down the build stack
 

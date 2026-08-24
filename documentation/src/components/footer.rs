@@ -91,7 +91,7 @@ impl From<FooterIdentity> for Widget {
         Container::new(Column {
             children: vec![
                 BrandLogo::new(tokens.spacing.l).centered().into(),
-                Text::new("One Rust application model for native, mobile, web, terminal, static, and server-rendered products. MIT licensed.")
+                Text::new("One Rust application model for native, mobile, web, terminal, static, and server-rendered products. Apache 2.0 licensed.")
                     .size(tokens.typography.body_medium_size)
                     .line_height(tokens.typography.body_medium_size * tokens.typography.line_height_normal)
                     .color(tokens.colors.text_secondary)
@@ -126,7 +126,7 @@ impl From<FooterIdentity> for Widget {
                     ..Default::default()
                 }
                 .into(),
-                Text::new("Fission 0.12.0")
+                Text::new("Fission 0.13.0")
                     .size(tokens.typography.font_size_sm)
                     .family(tokens.typography.font_family_mono.clone())
                     .color(tokens.colors.text_muted)

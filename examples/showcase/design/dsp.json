@@ -5,7 +5,7 @@
     "name": "fission-example-showcase-design-system",
     "version": "0.1.0",
     "description": "Editorial, low-box visual system for the Fission Example Showcase.",
-    "license": "MIT",
+    "license": "Apache-2.0",
     "framework": {
       "name": "fission",
       "repository": "https://github.com/fission-ui/fission",

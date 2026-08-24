@@ -1,8 +1,8 @@
 [package]
 name = "fission-command-site"
-version = "0.12.0"
+version = "0.13.0"
 edition = "2021"
-license = "MIT"
+license = "Apache-2.0"
 repository = "https://github.com/fission-ui/fission"
 description = "Static site command implementation for the fission command"
 categories = ["command-line-utilities", "web-programming"]
@@ -16,6 +16,6 @@ documentation = "https://fission.rs"
 readme = "README.md"
 [dependencies]
 anyhow = "1.0"
-fission-shell-site = { path = "../../shell/fission-shell-site", version = "0.12.0" }
+fission-shell-site = { path = "../../shell/fission-shell-site", version = "0.13.0" }
 serde_json = "1"
 toml = "0.8"

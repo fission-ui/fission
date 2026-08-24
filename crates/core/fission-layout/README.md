@@ -76,4 +76,4 @@ text nodes are treated as zero-sized.
 
 ## License
 
-MIT
+Apache-2.0

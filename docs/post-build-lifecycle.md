@@ -214,7 +214,7 @@ publisher = "Example Software Ltd"
 homepage = "https://example.com/todo"
 support_url = "https://example.com/support"
 privacy_url = "https://example.com/privacy"
-license = "MIT"
+license = "Apache-2.0"
 
 [package]
 category = "Productivity"

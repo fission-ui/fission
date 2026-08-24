@@ -27,4 +27,4 @@ Start with the Fission text and input guides at [fission.rs](https://fission.rs)
 
 ## License
 
-MIT
+Apache-2.0

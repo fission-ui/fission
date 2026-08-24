@@ -8,9 +8,9 @@ Most application developers should use the public facade instead of depending on
 
 ```toml
 [dependencies]
-fission = { version = "0.12.0", features = ["android"] }
+fission = { version = "0.13.0", features = ["android"] }
 # or
-fission = { version = "0.12.0", features = ["ios"] }
+fission = { version = "0.13.0", features = ["ios"] }
 ```
 
 ## What it provides
@@ -48,4 +48,4 @@ See [fission.rs](https://fission.rs) for mobile target setup, platform capabilit
 
 ## License
 
-MIT
+Apache-2.0

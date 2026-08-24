@@ -775,7 +775,7 @@ publisher = "Example Software Ltd"
 homepage = "https://example.com/release-demo"
 support_url = "https://example.com/support"
 privacy_url = "https://example.com/privacy"
-license = "MIT"
+license = "Apache-2.0"
 
 [release]
 active_release = "1.0.0+1"

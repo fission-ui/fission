@@ -1,9 +1,9 @@
 [package]
 name = "fission-text-engine"
-version = "0.12.0"
+version = "0.13.0"
 edition = "2021"
 
-license = "MIT"
+license = "Apache-2.0"
 repository = "https://github.com/fission-ui/fission"
 homepage = "https://fission.rs"
 documentation = "https://fission.rs"

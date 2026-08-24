@@ -20,4 +20,4 @@ See [Release and distribute](https://fission.rs/docs/release-and-distribute/over
 
 ## License
 
-MIT
+Apache-2.0

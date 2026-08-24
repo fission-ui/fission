@@ -21,4 +21,4 @@ See [Build and package](https://fission.rs/docs/build-and-package/overview/) and
 
 ## License
 
-MIT
+Apache-2.0

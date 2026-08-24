@@ -1,8 +1,8 @@
 [package]
 name = "fission-command-core"
-version = "0.12.0"
+version = "0.13.0"
 edition = "2021"
-license = "MIT"
+license = "Apache-2.0"
 repository = "https://github.com/fission-ui/fission"
 description = "Shared project, manifest, target, and diagnostic model for the fission command"
 categories = ["command-line-utilities", "development-tools"]

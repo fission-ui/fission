@@ -116,4 +116,4 @@ None at this time -- all functionality is included by default.
 
 ## License
 
-MIT
+Apache-2.0

@@ -1,9 +1,9 @@
 [package]
 name = "fission-3d"
-version = "0.12.0"
+version = "0.13.0"
 edition = "2021"
 
-license = "MIT"
+license = "Apache-2.0"
 repository = "https://github.com/fission-ui/fission"
 homepage = "https://fission.rs"
 documentation = "https://fission.rs"
@@ -15,8 +15,8 @@ keywords = ["fission", "3d", "gpu-accelerated", "rendering", "cross-platform"]
 platforms = ["android", "ios", "linux", "macos", "windows", "web"]
 readme = "README.md"
 [dependencies]
-fission-core = { path = "../fission-core", version = "0.12.0" }
-fission-ir = { path = "../fission-ir", version = "0.12.0" }
+fission-core = { path = "../fission-core", version = "0.13.0" }
+fission-ir = { path = "../fission-ir", version = "0.13.0" }
 serde = { version = "1.0", features = ["derive"] }
 wgpu = "26.0"
 bytemuck = { version = "1.18", features = ["derive"] }

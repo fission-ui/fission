@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-08-24
+
+### Added
+
+- **Automatic stable widget identity** - Every authored widget now receives a deterministic identity derived from the application root, structural child path, child slot, and widget kind. Applications no longer need to assign IDs throughout an ordinary static interface.
+- **Configurable application roots** - Desktop, Web, mobile, Winit, and Terminal shells expose `with_root_id(...)` for multiple independent mounts or applications that require an explicit identity namespace.
+
+### Changed
+
+- **Collection identity contract** - Unidentified collection items retain identity and local state by position. An explicitly identified item and its automatically identified descendants follow that logical item through insertion, removal, filtering, and reordering. Mixed collections preserve both rules.
+- **Sole Apache 2.0 license** - Fission is now licensed exclusively under Apache License 2.0. This replaces the previous MIT license; it is not a dual-license declaration. Third-party dependencies and bundled font assets retain their respective upstream licenses.
+
+### Fixed
+
+- **Local-state identity gaps** - `#[local_state]` now shares the application-root identity namespace, remains isolated across roots and mixed keyed/unkeyed collections, and is pruned when its widget disappears.
+- **Stable wrapper internals** - Action scopes, custom wrappers, shell overlays, inline widgets, input prefix/suffix widgets, responsive fallbacks, and other internally composed nodes derive stable identities without renumbering unrelated authored widgets.
+
+### Migration notes
+
+- Update Fission dependencies and `cargo-fission` to `0.13.0`.
+- Remove most manually assigned IDs that exist only to make ordinary static widgets stable. Keep explicit IDs on logical items in reorderable or filterable collections and on widgets addressed directly by application code.
+- Consumers redistributing Fission must comply with Apache License 2.0 and include the license as required by its redistribution terms.
+
 ## [0.12.0] - 2026-08-23
 
 ### Added

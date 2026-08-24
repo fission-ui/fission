@@ -26,4 +26,4 @@ See [Design systems](https://fission.rs/docs/guides/design-system/) for the user
 
 ## License
 
-MIT
+Apache-2.0

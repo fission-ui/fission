@@ -54,4 +54,4 @@ Used in production by `fission-shell-desktop`.
 
 ## License
 
-MIT -- see the [Fission repository](https://github.com/fission-ui/fission) for full documentation at https://fission.rs.
+Apache-2.0 -- see the [Fission repository](https://github.com/fission-ui/fission) for full documentation at https://fission.rs.
