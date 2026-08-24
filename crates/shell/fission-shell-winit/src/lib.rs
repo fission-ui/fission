@@ -115,8 +115,6 @@ use renderer_diagnostics::renderer_request_from_value;
 use renderer_diagnostics::{emit_renderer_report, RendererReport, RendererRequest};
 mod software_fonts;
 mod software_renderer;
-#[cfg(feature = "store")]
-mod storage;
 #[cfg(target_arch = "wasm32")]
 mod web_console;
 mod web_input;
@@ -5162,7 +5160,10 @@ where
     where
         P: fission_store::StoreProvider + Send + Sync,
     {
-        storage::register_store_provider(&mut self.async_registry, Arc::new(provider));
+        fission_shell::store_host::register_store_provider(
+            &mut self.async_registry,
+            Arc::new(provider),
+        );
         self
     }
 
@@ -5172,7 +5173,10 @@ where
     where
         P: fission_store::StoreProvider + Send + Sync,
     {
-        storage::register_store_provider(&mut self.async_registry, Arc::new(provider));
+        fission_shell::store_host::register_store_provider(
+            &mut self.async_registry,
+            Arc::new(provider),
+        );
         self
     }
 
@@ -5182,7 +5186,10 @@ where
     where
         P: fission_store::SqlStoreProvider + Send + Sync,
     {
-        storage::register_sql_store_provider(&mut self.async_registry, Arc::new(provider));
+        fission_shell::store_host::register_sql_store_provider(
+            &mut self.async_registry,
+            Arc::new(provider),
+        );
         self
     }
 
@@ -5192,7 +5199,10 @@ where
     where
         P: fission_store::SqlStoreProvider + Send + Sync,
     {
-        storage::register_sql_store_provider(&mut self.async_registry, Arc::new(provider));
+        fission_shell::store_host::register_sql_store_provider(
+            &mut self.async_registry,
+            Arc::new(provider),
+        );
         self
     }
 
@@ -5216,9 +5226,12 @@ where
         web_console::install();
         diag::init_from_env();
         #[cfg(all(feature = "store-sqlite-native", not(target_arch = "wasm32")))]
-        storage::register_default_native_store(&mut self.async_registry, &self.title)?;
+        fission_shell::store_host::register_default_native_store(
+            &mut self.async_registry,
+            &self.title,
+        )?;
         #[cfg(all(feature = "store-sqlite-web", target_arch = "wasm32"))]
-        storage::register_default_web_store(&mut self.async_registry);
+        fission_shell::store_host::register_default_web_store(&mut self.async_registry);
         #[cfg(target_arch = "wasm32")]
         set_web_global_json("__FISSION_RENDERED_FRAME_COUNT", &0_u64);
         diag::emit(

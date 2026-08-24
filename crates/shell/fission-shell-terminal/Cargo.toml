@@ -16,12 +16,13 @@ documentation = "https://fission.rs"
 readme = "README.md"
 [features]
 default = []
-store = ["fission-core/store", "dep:fission-store"]
+store = ["fission-core/store", "dep:fission-shell", "fission-shell/store", "dep:fission-store"]
 store-sql = ["store", "fission-core/store-sql"]
 store-sqlite-native = [
     "store-sql",
     "dep:fission-store-sqlite",
     "fission-store-sqlite/native",
+    "fission-shell/store-sqlite-native",
 ]
 
 [dependencies]
@@ -34,6 +35,7 @@ unicode-width = "0.2"
 fission-core = { path = "../../core/fission-core", version = "0.13.0" }
 fission-ir = { path = "../../core/fission-ir", version = "0.13.0" }
 fission-layout = { path = "../../core/fission-layout", version = "0.13.0" }
+fission-shell = { path = "../fission-shell", optional = true, version = "0.13.0" }
 fission-store = { path = "../../core/fission-store", optional = true, version = "0.13.0" }
 fission-store-sqlite = { path = "../../core/fission-store-sqlite", optional = true, version = "0.13.0", default-features = false }
 fission-theme = { path = "../../core/fission-theme", version = "0.13.0" }

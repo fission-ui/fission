@@ -1,4 +1,4 @@
-use fission_shell::async_host::AsyncRegistry;
+use crate::async_host::AsyncRegistry;
 use fission_store::{SqlStoreProvider, StoreProvider};
 use std::sync::Arc;
 
@@ -9,7 +9,7 @@ trait ShellSqlStoreProvider: SqlStoreProvider + Send + Sync {}
 impl<T: SqlStoreProvider + Send + Sync> ShellSqlStoreProvider for T {}
 
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn register_store_provider<P>(registry: &mut AsyncRegistry, provider: Arc<P>)
+pub fn register_store_provider<P>(registry: &mut AsyncRegistry, provider: Arc<P>)
 where
     P: StoreProvider + Send + Sync,
 {
@@ -17,7 +17,7 @@ where
 }
 
 #[cfg(target_arch = "wasm32")]
-pub(crate) fn register_store_provider<P>(registry: &mut AsyncRegistry, provider: Arc<P>)
+pub fn register_store_provider<P>(registry: &mut AsyncRegistry, provider: Arc<P>)
 where
     P: StoreProvider + Send + Sync,
 {
@@ -54,7 +54,7 @@ where
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn register_sql_store_provider<P>(registry: &mut AsyncRegistry, provider: Arc<P>)
+pub fn register_sql_store_provider<P>(registry: &mut AsyncRegistry, provider: Arc<P>)
 where
     P: SqlStoreProvider + Send + Sync,
 {
@@ -63,7 +63,7 @@ where
 }
 
 #[cfg(target_arch = "wasm32")]
-pub(crate) fn register_sql_store_provider<P>(registry: &mut AsyncRegistry, provider: Arc<P>)
+pub fn register_sql_store_provider<P>(registry: &mut AsyncRegistry, provider: Arc<P>)
 where
     P: SqlStoreProvider + Send + Sync,
 {
@@ -89,7 +89,7 @@ where
 }
 
 #[cfg(all(feature = "store-sqlite-native", not(target_arch = "wasm32")))]
-pub(crate) fn register_default_native_store(
+pub fn register_default_native_store(
     registry: &mut AsyncRegistry,
     application_name: &str,
 ) -> anyhow::Result<()> {
@@ -105,7 +105,7 @@ pub(crate) fn register_default_native_store(
 }
 
 #[cfg(all(feature = "store-sqlite-web", target_arch = "wasm32"))]
-pub(crate) fn register_default_web_store(registry: &mut AsyncRegistry) {
+pub fn register_default_web_store(registry: &mut AsyncRegistry) {
     if registry.has_operation_capability(fission_core::SQL_QUERY) {
         return;
     }

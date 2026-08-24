@@ -5,6 +5,8 @@ use raw_window_handle::WindowHandle;
 use serde::{Deserialize, Serialize};
 
 pub mod async_host;
+#[cfg(feature = "store")]
+pub mod store_host;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Platform {
