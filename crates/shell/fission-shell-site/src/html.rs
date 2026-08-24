@@ -660,7 +660,10 @@ fn validate_static_ir(ir: &CoreIR, allow_server_actions: bool) -> Result<()> {
     for node in ir.nodes.values() {
         match &node.op {
             Op::Semantics(semantics) => {
-                if !semantics.actions.entries.is_empty() && !allow_server_actions {
+                if semantics.hyperlink.is_none()
+                    && !semantics.actions.entries.is_empty()
+                    && !allow_server_actions
+                {
                     bail!(
                         "static site renderer cannot lower interactive actions on node {}; use a web target or add explicit static enhancement support",
                         node.id
@@ -1927,6 +1930,24 @@ impl HtmlRenderer<'_> {
         let Op::Semantics(semantics) = &node.op else {
             unreachable!();
         };
+        if let Some(hyperlink) = semantics.hyperlink.as_ref() {
+            let mut attrs = self.hyperlink_attrs(hyperlink);
+            if let Some(popover) = semantics.popover_target.as_ref() {
+                attrs.push_str(&format!(
+                    " popovertarget=\"{}\" popovertargetaction=\"{}\"",
+                    escape_attr(&popover.id),
+                    popover.action.as_html_action(),
+                ));
+            }
+            if let Some(label) = semantics.label.as_deref() {
+                attrs.push_str(&format!(" aria-label=\"{}\"", escape_attr(label)));
+            }
+            let children = self.render_children(&node.children, &HashSet::new())?;
+            return Ok(format!(
+                "<a class=\"fission-site-node fission-site-link\"{attrs} data-fission-node=\"{}\">{children}</a>",
+                node.id
+            ));
+        }
         if let Some(identifier) = semantics.identifier.as_deref() {
             if let Some(target) = identifier.strip_prefix("site-route:") {
                 return self.render_semantic_link(
@@ -2591,6 +2612,28 @@ impl HtmlRenderer<'_> {
         ));
         if site_link_is_current_page(target, &self.options.current_route_path) {
             attrs.push_str(" aria-current=\"page\"");
+        }
+        attrs
+    }
+
+    fn hyperlink_attrs(&self, hyperlink: &fission_ir::Hyperlink) -> String {
+        let mut attrs = format!(
+            " href=\"{}\"",
+            escape_attr(&self.resolve_link_href(&hyperlink.href))
+        );
+        if !matches!(hyperlink.target, fission_ir::LinkTarget::Current) {
+            attrs.push_str(&format!(
+                " target=\"{}\"",
+                escape_attr(hyperlink.target.as_html_target())
+            ));
+        }
+        if let Some(rel) = hyperlink.rel.as_deref() {
+            attrs.push_str(&format!(" rel=\"{}\"", escape_attr(rel)));
+        } else if matches!(hyperlink.target, fission_ir::LinkTarget::NewWindow) {
+            attrs.push_str(" rel=\"noopener noreferrer\"");
+        }
+        if let Some(filename) = hyperlink.download.as_deref() {
+            attrs.push_str(&format!(" download=\"{}\"", escape_attr(filename)));
         }
         attrs
     }
@@ -4698,6 +4741,36 @@ mod tests {
             "https://example.test/support",
             "/support"
         ));
+    }
+
+    #[test]
+    fn generic_semantics_hyperlinks_render_complete_anchor_metadata() {
+        let rendered = render_test_widget(
+            SemanticsRegion::new(Text::new("Open details"))
+                .label("Open details")
+                .hyperlink(
+                    fission_ir::Hyperlink::new("/details/42")
+                        .target(fission_ir::LinkTarget::NewWindow)
+                        .rel("external")
+                        .download("details.html"),
+                )
+                .popover_target("details-popover", fission_ir::PopoverAction::Show),
+        );
+
+        assert!(rendered.html.contains("<a "));
+        assert!(rendered.html.contains("href=\"details/42\""));
+        assert!(rendered.html.contains("target=\"_blank\""));
+        assert!(rendered.html.contains("rel=\"external\""));
+        assert!(rendered.html.contains("download=\"details.html\""));
+        assert!(rendered.html.contains("popovertarget=\"details-popover\""));
+        assert!(rendered.html.contains("popovertargetaction=\"show\""));
+    }
+
+    #[test]
+    fn navigational_link_is_static_html_not_an_interactive_action() {
+        let rendered = render_test_component(|| fission_widgets::Link::to("Next", "/next").into());
+        assert!(rendered.html.contains("<a "));
+        assert!(rendered.html.contains("href=\"next\""));
     }
 
     #[test]

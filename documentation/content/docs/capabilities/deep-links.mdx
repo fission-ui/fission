@@ -5,7 +5,13 @@ description: Route incoming URLs and notification responses into typed app actio
 
 # Deep links
 
-Deep links are inbound lifecycle events. The host receives a URL from the operating system, browser, launcher, notification, or store association, checks that it matches your declared routes, and dispatches a `DeepLinkReceived` action into the app.
+Deep links are inbound lifecycle events from an operating system, launcher, notification, or registered external URL. Ordinary Web URLs and browser history use the route contract instead: the shell initializes `Env.current_route` and dispatches `ShellRouteChanged` for pathname, hash, back, and forward changes.
+
+Keep one route field in app state and let both actions update it. `Router` is Fission's default path matcher, but it is optional; a custom or third-party router can consume the same `RouteLocation` and navigation effects.
+
+For Web, `WebRouteStrategy::Auto` accepts both `/projects/42` and `#/projects/42` and preserves the representation used to launch the app. Choose `Path` when the production host rewrites extensionless routes to `index.html`; choose `Hash` when it cannot. `fission run web` includes the safe SPA fallback and still returns 404 for missing assets. If the app is mounted below the origin root, configure the deployment prefix with `WebNavigationConfig::base_path(...)`.
+
+Use `Link::to("Project", "/projects/42")` for ordinary navigation. Custom widgets can attach `Hyperlink` to `SemanticsRegion` or `Pressable`; Web projects that metadata into a genuine DOM `href`, while Static site and SSR render a normal `<a>`. `Hyperlink` also carries browsing-context targets, `rel`, and download metadata, and semantic regions can declare standards-based popover targets.
 
 By the end of this guide, you will know how to build a route handler that opens a document when the app starts from `fission://document/42`. The same pattern applies to larger apps: declare the capability when native configuration is needed, store the result in typed app state, request the host operation from a reducer, and test both success and failure with a memory host.
 

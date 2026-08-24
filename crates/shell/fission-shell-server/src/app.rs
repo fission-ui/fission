@@ -7,8 +7,9 @@ use anyhow::Result;
 use fission_core::internal::BuildCtx;
 use fission_core::registry::{VideoRegistration, WebRegistration};
 use fission_core::{
-    ActionInput, Effect, Env, GlobalState, MotionDeclaration, RuntimeResourceDeclaration,
-    RuntimeResourceKind, RuntimeState, View, Widget, WidgetId,
+    Action, ActionInput, Effect, Env, GlobalState, MotionDeclaration, NavigationCommand,
+    NavigationRequested, RuntimeEffect, RuntimeResourceDeclaration, RuntimeResourceKind,
+    RuntimeState, View, Widget, WidgetId,
 };
 use fission_i18n::{I18nRegistry, Locale, TranslationBundle};
 use fission_layout::LayoutSize;
@@ -46,6 +47,7 @@ pub(crate) struct ServerRenderedNode {
     pub video_registrations: Vec<VideoRegistration>,
     pub web_registrations: Vec<WebRegistration>,
     pub portals: Vec<(Option<WidgetId>, Widget)>,
+    pub navigation: Option<NavigationCommand>,
 }
 
 #[derive(Clone)]
@@ -701,6 +703,7 @@ where
     let mut final_video_registrations = Vec::new();
     let mut final_web_registrations = Vec::new();
     let mut final_portals = Vec::new();
+    let mut navigation = None;
 
     for pass in 0..=ctx.render_pass_limit {
         let view = View::new(&state, &runtime, env, None);
@@ -708,12 +711,26 @@ where
         let node = fission_core::build::enter(&mut build_ctx, &view, || (*widget).clone().into());
 
         if let Some(action) = pending_action.take() {
+            if action.action.id == NavigationRequested::static_id() {
+                let request: NavigationRequested = serde_json::from_slice(&action.action.payload)?;
+                navigation = Some(request.command);
+                final_node = Some(node);
+                break;
+            }
             let effects = build_ctx.registry.dispatch(
                 &mut state,
                 &action.action,
                 WidgetId::from_u128(action.target_node),
             )?;
+            navigation = effects.iter().find_map(|effect| match &effect.effect {
+                Effect::Runtime(RuntimeEffect::Navigate(command)) => Some(command.clone()),
+                _ => None,
+            });
             drain_effect_jobs(&effects, &mut build_ctx, &mut state, ctx.jobs)?;
+            if navigation.is_some() {
+                final_node = Some(node);
+                break;
+            }
             continue;
         }
 
@@ -754,6 +771,7 @@ where
         video_registrations: final_video_registrations,
         web_registrations: final_web_registrations,
         portals: final_portals,
+        navigation,
     })
 }
 

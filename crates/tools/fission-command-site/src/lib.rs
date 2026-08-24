@@ -85,6 +85,28 @@ pub fn serve(project_dir: &Path, release: bool, host: String, port: u16, open: b
 }
 
 pub fn serve_static(root: PathBuf, host: String, port: u16, open: bool) -> Result<()> {
+    serve_files(root, host, port, open, false)
+}
+
+/// Serves a Web application with an index fallback for extensionless SPA routes.
+/// Missing assets continue to return 404 instead of accidentally serving HTML.
+pub fn serve_web_app(root: PathBuf, host: String, port: u16, open: bool) -> Result<()> {
+    if !root.join("index.html").is_file() {
+        bail!(
+            "web application root {} does not contain index.html; build the Web target first",
+            root.display()
+        );
+    }
+    serve_files(root, host, port, open, true)
+}
+
+fn serve_files(
+    root: PathBuf,
+    host: String,
+    port: u16,
+    open: bool,
+    spa_fallback: bool,
+) -> Result<()> {
     let listener = TcpListener::bind((host.as_str(), port))
         .with_context(|| format!("failed to bind {}:{}", host, port))?;
     let url = if root.join("index.html").exists() {
@@ -100,7 +122,7 @@ pub fn serve_static(root: PathBuf, host: String, port: u16, open: bool) -> Resul
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                if let Err(error) = handle_http_request(stream, &root) {
+                if let Err(error) = handle_http_request(stream, &root, spa_fallback) {
                     eprintln!("request failed: {error}");
                 }
             }
@@ -193,7 +215,7 @@ fn run_status(command: &mut Command, label: &str) -> Result<()> {
     Ok(())
 }
 
-fn handle_http_request(mut stream: TcpStream, root: &Path) -> Result<()> {
+fn handle_http_request(mut stream: TcpStream, root: &Path, spa_fallback: bool) -> Result<()> {
     let mut reader = io::BufReader::new(stream.try_clone()?);
     let mut request_line = String::new();
     reader.read_line(&mut request_line)?;
@@ -211,7 +233,7 @@ fn handle_http_request(mut stream: TcpStream, root: &Path) -> Result<()> {
         stream.write_all(&http_response(204, "text/plain", b""))?;
         return Ok(());
     }
-    let response = static_response(root, path)?;
+    let response = static_response(root, path, spa_fallback)?;
     stream.write_all(&response)?;
     Ok(())
 }
@@ -279,7 +301,7 @@ fn read_http_body(reader: &mut io::BufReader<TcpStream>) -> Result<String> {
     Ok(String::from_utf8_lossy(&body).into_owned())
 }
 
-fn static_response(root: &Path, request_path: &str) -> Result<Vec<u8>> {
+fn static_response(root: &Path, request_path: &str, spa_fallback: bool) -> Result<Vec<u8>> {
     let mut relative = request_path.trim_start_matches('/').to_string();
     if relative.is_empty() {
         relative = if root.join("index.html").exists() {
@@ -295,6 +317,20 @@ fn static_response(root: &Path, request_path: &str) -> Result<Vec<u8>> {
         relative.push_str("/index.html");
     }
     let path = sanitize_static_path(root, &relative)?;
+    if (!path.exists() || !path.is_file())
+        && spa_fallback
+        && !request_path
+            .rsplit('/')
+            .next()
+            .is_some_and(|segment| segment.contains('.'))
+    {
+        let index = sanitize_static_path(root, "index.html")?;
+        if index.is_file() {
+            let body = fs::read(index)?;
+            println!("GET {} 200 (SPA fallback)", request_path);
+            return Ok(http_response(200, "text/html; charset=utf-8", &body));
+        }
+    }
     if !path.exists() || !path.is_file() {
         println!("GET {} 404", request_path);
         return Ok(http_response(404, "text/plain", b"not found"));
@@ -349,7 +385,11 @@ fn content_type(path: &Path) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::format_renderer_diagnostic;
+    use super::{format_renderer_diagnostic, static_response};
+    use std::{
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     #[test]
     fn formats_renderer_diagnostic_as_cli_line() {
@@ -379,6 +419,28 @@ mod tests {
         }"#;
         assert!(format_renderer_diagnostic(body)
             .contains("fallback_reason=webgpu_vello_init_failed:no adapter"));
+    }
+
+    #[test]
+    fn web_app_falls_back_to_index_for_extensionless_routes_only() {
+        let root = std::env::temp_dir().join(format!(
+            "fission-spa-response-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).expect("create web root");
+        fs::write(root.join("index.html"), "spa index").expect("write index");
+
+        let route = static_response(&root, "/projects/42", true).expect("route response");
+        assert!(String::from_utf8_lossy(&route).contains("200 OK"));
+        assert!(String::from_utf8_lossy(&route).contains("spa index"));
+
+        let asset = static_response(&root, "/missing.js", true).expect("asset response");
+        assert!(String::from_utf8_lossy(&asset).contains("404 Not Found"));
+        fs::remove_dir_all(root).expect("remove web root");
     }
 }
 

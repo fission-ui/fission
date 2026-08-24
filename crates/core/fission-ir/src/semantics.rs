@@ -48,6 +48,118 @@ pub enum Role {
     Generic,
 }
 
+/// Where a hyperlink should open its destination.
+///
+/// Shells map the standard variants to the host's native navigation model. HTML
+/// renderers use the corresponding `_self`, `_blank`, `_parent`, and `_top`
+/// targets, while [`Named`](Self::Named) preserves an application-provided
+/// browsing-context name.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum LinkTarget {
+    /// Reuse the active browsing context or native application window.
+    #[default]
+    Current,
+    /// Open a new browser tab/window or the closest native equivalent.
+    NewWindow,
+    /// Navigate the parent browsing context.
+    Parent,
+    /// Navigate the top-level browsing context.
+    Top,
+    /// Navigate a named browsing context.
+    Named(String),
+}
+
+impl LinkTarget {
+    /// Returns the HTML `target` value represented by this target.
+    pub fn as_html_target(&self) -> &str {
+        match self {
+            Self::Current => "_self",
+            Self::NewWindow => "_blank",
+            Self::Parent => "_parent",
+            Self::Top => "_top",
+            Self::Named(name) => name,
+        }
+    }
+}
+
+/// Declarative hyperlink metadata understood by every shell.
+///
+/// This lives on semantic nodes rather than on one concrete `Link` widget so
+/// application and third-party widgets can expose genuine navigation without
+/// inheriting Fission's visual link treatment.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Hyperlink {
+    /// Destination URL or logical application route.
+    pub href: String,
+    /// Browsing context in which the destination opens.
+    #[serde(default)]
+    pub target: LinkTarget,
+    /// Optional HTML relationship tokens.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rel: Option<String>,
+    /// Optional download filename; presence requests download behavior.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub download: Option<String>,
+}
+
+impl Hyperlink {
+    pub fn new(href: impl Into<String>) -> Self {
+        Self {
+            href: href.into(),
+            target: LinkTarget::Current,
+            rel: None,
+            download: None,
+        }
+    }
+
+    pub fn target(mut self, target: LinkTarget) -> Self {
+        self.target = target;
+        self
+    }
+
+    pub fn rel(mut self, rel: impl Into<String>) -> Self {
+        self.rel = Some(rel.into());
+        self
+    }
+
+    pub fn download(mut self, filename: impl Into<String>) -> Self {
+        self.download = Some(filename.into());
+        self
+    }
+}
+
+/// Action requested from an HTML popover invocation target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum PopoverAction {
+    /// Toggle the target popover's visibility.
+    #[default]
+    Toggle,
+    /// Show the target popover.
+    Show,
+    /// Hide the target popover.
+    Hide,
+}
+
+impl PopoverAction {
+    pub fn as_html_action(self) -> &'static str {
+        match self {
+            Self::Toggle => "toggle",
+            Self::Show => "show",
+            Self::Hide => "hide",
+        }
+    }
+}
+
+/// Declarative relationship between an invoker and an HTML popover.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct PopoverTarget {
+    /// DOM id of the popover controlled by this invoker.
+    pub id: String,
+    /// Visibility operation requested on activation.
+    #[serde(default)]
+    pub action: PopoverAction,
+}
+
 /// How a focusable node responds to pointer focus.
 ///
 /// `FocusPolicy` only changes pointer-driven focus assignment. Keyboard focus,
@@ -443,6 +555,12 @@ pub struct Semantics {
     pub identifier: Option<String>,
     /// The current value as a string (e.g., the text in an input field).
     pub value: Option<String>,
+    /// Optional hyperlink destination for this semantic region.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hyperlink: Option<Hyperlink>,
+    /// Optional HTML popover invocation metadata.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub popover_target: Option<PopoverTarget>,
     /// The set of actions this node responds to.
     pub actions: ActionSet,
     /// Structured InfiniteCanvas target metadata for contextual gesture input.
@@ -547,6 +665,8 @@ impl std::hash::Hash for Semantics {
         self.label.hash(state);
         self.identifier.hash(state);
         self.value.hash(state);
+        self.hyperlink.hash(state);
+        self.popover_target.hash(state);
         self.actions.hash(state);
         self.canvas_target.hash(state);
         self.action_scope_id.hash(state);
@@ -602,6 +722,8 @@ impl Default for Semantics {
             label: None,
             identifier: None,
             value: None,
+            hyperlink: None,
+            popover_target: None,
             actions: ActionSet::default(),
             canvas_target: None,
             action_scope_id: None,

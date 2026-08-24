@@ -18,7 +18,7 @@ pub use op::{
 };
 pub use semantics::{
     ActionEntry, ActionSet, ActionTrigger, CanvasSelectionPolicy, CanvasTarget, CanvasTargetKind,
-    FocusPolicy, Role, Semantics,
+    FocusPolicy, Hyperlink, LinkTarget, PopoverAction, PopoverTarget, Role, Semantics,
 };
 pub use widget_id::WidgetId;
 

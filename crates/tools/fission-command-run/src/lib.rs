@@ -355,8 +355,8 @@ pub fn attach_logs(options: LogOptions) -> Result<()> {
 }
 
 pub fn serve_web(options: ServeWebOptions) -> Result<()> {
-    fission_command_site::serve_static(
-        options.project_dir,
+    fission_command_site::serve_web_app(
+        options.project_dir.join("platforms/web"),
         options.host,
         options.port,
         options.open,
@@ -939,14 +939,14 @@ fn run_web(options: &RunOptions, _device: &Device) -> Result<()> {
         println!(
             "Started web server pid {} at {}. Logs: {}",
             child.id(),
-            format!("http://{}:{port}/platforms/web/", options.host),
+            format!("http://{}:{port}/", options.host),
             log_path.display()
         );
         return Ok(());
     }
 
-    fission_command_site::serve_static(
-        options.project_dir.clone(),
+    fission_command_site::serve_web_app(
+        options.project_dir.join("platforms/web"),
         options.host.clone(),
         port,
         open,

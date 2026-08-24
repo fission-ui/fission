@@ -94,7 +94,7 @@ wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
 web-time = "1.1"
 tracing-wasm = "0.2.1"
-web-sys = { version = "0.3", features = ["CanvasRenderingContext2d", "console", "CssStyleDeclaration", "Document", "Element", "Headers", "HtmlCanvasElement", "HtmlElement", "HtmlMediaElement", "HtmlVideoElement", "ImageData", "Location", "Node", "Request", "RequestInit", "RequestMode", "Response", "Window"] }
+web-sys = { version = "0.3", features = ["CanvasRenderingContext2d", "console", "CssStyleDeclaration", "Document", "DomRect", "Element", "Event", "EventTarget", "Headers", "History", "HtmlAnchorElement", "HtmlCanvasElement", "HtmlElement", "HtmlMediaElement", "HtmlVideoElement", "ImageData", "Location", "MouseEvent", "Node", "Request", "RequestInit", "RequestMode", "Response", "Window"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc = "0.2"

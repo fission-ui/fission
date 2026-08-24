@@ -631,6 +631,8 @@ fn default_button_semantics() -> Semantics {
         label: None,
         identifier: None,
         value: None,
+        hyperlink: None,
+        popover_target: None,
         actions: ActionSet::default(),
         canvas_target: None,
         action_scope_id: None,
