@@ -7,6 +7,14 @@ description: Persist typed values, run SQLite queries, compose transactions acro
 
 Fission gives applications one storage model across desktop, mobile, Web, Terminal, and SSR. The default provider is SQLite. On native targets the database is an ordinary application-data file; on Web the official SQLite WebAssembly build runs in a worker and persists through the Origin Private File System (OPFS). SSR uses a server-side SQLite database. A static site has no runtime store, so a site-only build does not expose these APIs.
 
+Storage is opt-in, so applications that do not use it do not compile SQLite or ship its Web worker and Wasm binary. In a CLI-managed project, enable it with:
+
+```console
+fission add-capability storage --project-dir .
+```
+
+For a manually managed Cargo dependency, enable `store-sqlite-native` for native targets and `store-sqlite-web` for Web alongside the target feature.
+
 Storage is requested as an effect. Reducers remain synchronous and deterministic: they describe the operation, then handle its success or failure through another action.
 
 ## Typed values in Fission's table
@@ -134,7 +142,7 @@ ctx.effects.sql().migrate(migrations);
 
 ## Providers and compile-time target support
 
-The normal target feature selects the default provider. `desktop`, `android`, `ios`, `mobile`, `terminal-shell`, and `server` select native SQLite. `web` selects SQLite WASM with OPFS. `site` deliberately selects neither, so code importing `fission::store` or `fission::sql` fails to compile in a static-site-only application.
+The storage capability selects the provider appropriate to each configured target. Native targets use `store-sqlite-native`; Web uses `store-sqlite-web`. The CLI manages both features for multi-target projects. `site` deliberately selects neither, so a static-site-only project cannot enable storage through the capability.
 
 Applications can replace the default while keeping the same API:
 

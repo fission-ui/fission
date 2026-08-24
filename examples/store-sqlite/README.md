@@ -1,6 +1,7 @@
 # SQLite store
 
-This example uses Fission's default desktop SQLite provider. It applies an
+This example explicitly enables Fission's desktop SQLite provider. CLI-managed
+applications use `fission add-capability storage` instead. It applies an
 ordered migration, performs a project write and an audit write in one
 `SqlTransaction`, extends that transaction from a separate module, and queries
 the resulting rows through reducer effects.

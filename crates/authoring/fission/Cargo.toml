@@ -17,27 +17,27 @@ readme = "README.md"
 [features]
 default = []
 charts = ["dep:fission-charts"]
-desktop = ["dep:fission-shell-desktop", "interactive-canvas", "store-sqlite-native"]
+desktop = ["dep:fission-shell-desktop", "interactive-canvas"]
 desktop-tray = ["desktop", "fission-shell-desktop?/tray"]
 icons-reflection = ["fission-icons/reflection"]
 interactive-canvas = [
     "fission-core/interactive-canvas",
     "fission-widgets/interactive-canvas",
 ]
-ios = ["dep:fission-shell-mobile", "interactive-canvas", "store-sqlite-native"]
-android = ["dep:fission-shell-mobile", "interactive-canvas", "store-sqlite-native"]
-mobile = ["dep:fission-shell-mobile", "interactive-canvas", "store-sqlite-native"]
+ios = ["dep:fission-shell-mobile", "interactive-canvas"]
+android = ["dep:fission-shell-mobile", "interactive-canvas"]
+mobile = ["dep:fission-shell-mobile", "interactive-canvas"]
 platform-shells = [
     "desktop",
     "mobile",
     "web",
 ]
 site = ["dep:fission-shell-site"]
-server = ["dep:fission-shell-server", "store-sqlite-native"]
+server = ["dep:fission-shell-server"]
 server-actix = ["server", "fission-shell-server?/actix-adapter"]
 server-axum = ["server", "fission-shell-server?/axum-adapter"]
 server-redis = ["server", "fission-shell-server?/redis"]
-terminal-shell = ["dep:fission-shell-terminal", "store-sqlite-native"]
+terminal-shell = ["dep:fission-shell-terminal"]
 terminal-widget = ["fission-widgets/terminal"]
 test-driver = ["dep:fission-test-driver"]
 three-d = [
@@ -51,7 +51,7 @@ video = [
     "fission-shell-mobile?/video",
     "fission-shell-web?/video",
 ]
-web = ["dep:fission-shell-web", "interactive-canvas", "store-sqlite-web"]
+web = ["dep:fission-shell-web", "interactive-canvas"]
 store = ["fission-core/store", "dep:fission-store"]
 store-sql = ["store", "fission-core/store-sql"]
 store-sqlite-native = [
