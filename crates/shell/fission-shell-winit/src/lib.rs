@@ -7752,9 +7752,9 @@ where
                     match event {
                         WindowEvent::Resized(size) => {
                             if size.width > 0 && size.height > 0 {
-                                #[cfg(target_os = "ios")]
+                                #[cfg(any(target_os = "ios", target_arch = "wasm32"))]
                                 let next_viewport = WindowViewportState::from_window(window);
-                                #[cfg(not(target_os = "ios"))]
+                                #[cfg(not(any(target_os = "ios", target_arch = "wasm32")))]
                                 let next_viewport = pending_resize
                                     .unwrap_or_else(|| WindowViewportState::from_window(window))
                                     .with_physical_size(size);
@@ -7785,11 +7785,11 @@ where
                             }
                         }
                         WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                            #[cfg(target_os = "ios")]
+                            #[cfg(any(target_os = "ios", target_arch = "wasm32"))]
                             let _ = scale_factor;
-                            #[cfg(target_os = "ios")]
+                            #[cfg(any(target_os = "ios", target_arch = "wasm32"))]
                             let next_viewport = WindowViewportState::from_window(window);
-                            #[cfg(not(target_os = "ios"))]
+                            #[cfg(not(any(target_os = "ios", target_arch = "wasm32")))]
                             let next_viewport = pending_resize
                                 .unwrap_or_else(|| WindowViewportState::from_window(window))
                                 .with_scale_factor(scale_factor);
@@ -10213,7 +10213,8 @@ fn web_browser_viewport_state() -> Option<WindowViewportState> {
     if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
         return None;
     }
-    let scale_factor = normalize_scale_factor(window.device_pixel_ratio());
+    let scale_factor =
+        web_effective_render_scale(LayoutSize::new(width, height), window.device_pixel_ratio());
     Some(WindowViewportState {
         physical_size: logical_viewport_to_physical_size(
             LayoutSize::new(width, height),
@@ -10221,6 +10222,20 @@ fn web_browser_viewport_state() -> Option<WindowViewportState> {
         ),
         scale_factor,
     })
+}
+
+#[cfg(any(test, target_arch = "wasm32"))]
+fn web_effective_render_scale(size: LayoutSize, device_pixel_ratio: f64) -> f64 {
+    // Preserve CSS-pixel layout while bounding the WebGPU backing store. Large
+    // high-DPI displays can otherwise request textures and Vello buffers far
+    // beyond practical browser GPU budgets (for example 6880x2880 for a
+    // 3440x1440 viewport at DPR 2), leaving the canvas blank after allocation.
+    const MAX_WEB_RENDER_PIXELS: f64 = 8_388_608.0;
+
+    let device_pixel_ratio = normalize_scale_factor(device_pixel_ratio);
+    let logical_pixels = (size.width.max(1.0) as f64) * (size.height.max(1.0) as f64);
+    let budgeted_scale = (MAX_WEB_RENDER_PIXELS / logical_pixels).sqrt();
+    device_pixel_ratio.min(budgeted_scale.max(1.0))
 }
 
 fn physical_size_to_layout_size(size: PhysicalSize<u32>, scale_factor: f64) -> LayoutSize {
@@ -10304,9 +10319,9 @@ mod tests {
         resolve_build_viewport, resolve_selector_record, should_auto_select_native_software,
         should_present_startup_clear_frame, surface_acquire_recovery,
         sync_tracked_target_texture_size_to_surface, texture_plans_fit_device_limits,
-        visual_rect_for_node, window_insets_from_safe_area_frames, windows_shell_execute_succeeded,
-        windows_wide, BrowserDefaults, LiveResizeController, SurfaceAcquireRecovery,
-        WindowViewportState,
+        visual_rect_for_node, web_effective_render_scale, window_insets_from_safe_area_frames,
+        windows_shell_execute_succeeded, windows_wide, BrowserDefaults, LiveResizeController,
+        SurfaceAcquireRecovery, WindowViewportState,
     };
     use crate::pipeline::CompositorTexturePlan;
     use crate::renderer_diagnostics::RendererRequest;
@@ -11347,6 +11362,24 @@ mod tests {
         let physical =
             logical_viewport_to_physical_size(fission_layout::LayoutSize::new(430.2, 900.1), 1.5);
         assert_eq!(physical, PhysicalSize::new(646, 1351));
+    }
+
+    #[test]
+    fn web_render_scale_preserves_normal_retina_viewports() {
+        let scale = web_effective_render_scale(fission_layout::LayoutSize::new(1440.0, 900.0), 2.0);
+        assert_eq!(scale, 2.0);
+    }
+
+    #[test]
+    fn web_render_scale_bounds_ultrawide_retina_backing_store() {
+        let logical = fission_layout::LayoutSize::new(3440.0, 1440.0);
+        let scale = web_effective_render_scale(logical, 2.0);
+        let physical = logical_viewport_to_physical_size(logical, scale);
+
+        assert!(scale > 1.0 && scale < 2.0);
+        assert!((physical.width as u64) * (physical.height as u64) <= 8_400_000);
+        assert!((physical.width as f64 / scale - 3440.0).abs() < 1.0);
+        assert!((physical.height as f64 / scale - 1440.0).abs() < 1.0);
     }
 
     #[test]
