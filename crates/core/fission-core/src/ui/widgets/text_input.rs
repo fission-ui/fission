@@ -1845,6 +1845,8 @@ impl InternalLower for TextInput {
             label: resolved_label.clone().or(resolved_placeholder.clone()),
             identifier: self.semantics_identifier.clone(),
             value: Some(semantic_value),
+            hyperlink: None,
+            popover_target: None,
             actions: Default::default(),
             canvas_target: None,
             action_scope_id: None,

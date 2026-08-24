@@ -51,6 +51,8 @@ impl InternalLowerer for HeroLowerer {
             label: None,
             identifier: None,
             value: None,
+            hyperlink: None,
+            popover_target: None,
             actions: Default::default(),
             canvas_target: None,
             action_scope_id: None,

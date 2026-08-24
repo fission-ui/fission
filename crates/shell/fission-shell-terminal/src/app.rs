@@ -20,8 +20,9 @@ use fission_core::internal::BuildCtx;
 use fission_core::internal::InternalLoweringCx;
 use fission_core::ui::{Container, Overlay, Widget, ZStack};
 use fission_core::{
-    Env, GlobalState, InputEvent, KeyCode, KeyEvent, LayoutEngine, LayoutPoint, LayoutSize,
-    LayoutSnapshot, PointerButton, PointerEvent, Runtime, RuntimeState, View, WidgetId,
+    ActionRegistry, Effect, Env, GlobalState, InputEvent, KeyCode, KeyEvent, LayoutEngine,
+    LayoutPoint, LayoutSize, LayoutSnapshot, NavigationCommand, PointerButton, PointerEvent,
+    RouteLocation, Runtime, RuntimeEffect, RuntimeState, ShellRouteChanged, View, WidgetId,
     WidgetIdExt, WindowTitle,
 };
 use fission_ir::CoreIR;
@@ -79,6 +80,9 @@ where
     measurer: Arc<dyn TextMeasurer>,
     last_ir: Option<CoreIR>,
     last_snapshot: Option<LayoutSnapshot>,
+    route_initialized: bool,
+    navigation_entries: Vec<RouteLocation>,
+    navigation_index: usize,
     _state: std::marker::PhantomData<S>,
 }
 
@@ -128,6 +132,9 @@ where
             measurer,
             last_ir: None,
             last_snapshot: None,
+            route_initialized: false,
+            navigation_entries: vec![RouteLocation::default()],
+            navigation_index: 0,
             _state: std::marker::PhantomData,
         }
     }
@@ -225,7 +232,30 @@ where
         self
     }
 
+    /// Registers the same host-route handler available on graphical shells.
+    pub fn with_route_handler(
+        mut self,
+        handler: fission_core::registry::Handler<S, ShellRouteChanged>,
+    ) -> Self {
+        let mut registry = ActionRegistry::<S>::new();
+        registry.register::<ShellRouteChanged, _>(handler);
+        self.runtime.absorb_persistent_registry(registry);
+        self
+    }
+
     pub fn render_frame(&mut self, width: u16, height: u16) -> Result<TerminalFrame> {
+        if !self.route_initialized {
+            self.route_initialized = true;
+            self.navigation_entries[0] = self.env.current_route.clone();
+            self.runtime.dispatch(
+                ShellRouteChanged {
+                    location: self.env.current_route.clone(),
+                }
+                .into(),
+                WidgetId::from_u128(0),
+            )?;
+        }
+        self.process_navigation()?;
         let width = width.max(1);
         let height = height.max(1);
         let viewport = LayoutSize::new(f32::from(width), f32::from(height));
@@ -286,8 +316,71 @@ where
             return Ok(());
         };
         self.runtime.handle_input(event, ir, snapshot)?;
+        self.process_navigation()?;
         #[cfg(feature = "store")]
         self.launch_store_effects();
+        Ok(())
+    }
+
+    fn process_navigation(&mut self) -> Result<()> {
+        let pending = std::mem::take(&mut self.runtime.pending_effects);
+        for envelope in pending {
+            match &envelope.effect {
+                Effect::Runtime(RuntimeEffect::Navigate(command)) => {
+                    self.runtime
+                        .queue_runtime_effect(RuntimeEffect::Navigate(command.clone()));
+                }
+                _ => self.runtime.pending_effects.push(envelope),
+            }
+        }
+        for command in self.runtime.take_pending_navigation() {
+            let location = match command {
+                NavigationCommand::Push(path) => {
+                    self.navigation_entries.truncate(self.navigation_index + 1);
+                    self.navigation_entries
+                        .push(RouteLocation::from_route(path));
+                    self.navigation_index += 1;
+                    Some(self.navigation_entries[self.navigation_index].clone())
+                }
+                NavigationCommand::Replace(path) => {
+                    self.navigation_entries[self.navigation_index] =
+                        RouteLocation::from_route(path);
+                    Some(self.navigation_entries[self.navigation_index].clone())
+                }
+                NavigationCommand::Open(link)
+                    if link.href.starts_with('/') || link.href.starts_with("#/") =>
+                {
+                    self.navigation_entries.truncate(self.navigation_index + 1);
+                    self.navigation_entries
+                        .push(RouteLocation::from_route(&link.href));
+                    self.navigation_index += 1;
+                    Some(self.navigation_entries[self.navigation_index].clone())
+                }
+                NavigationCommand::Back => {
+                    self.navigation_index = self.navigation_index.saturating_sub(1);
+                    Some(self.navigation_entries[self.navigation_index].clone())
+                }
+                NavigationCommand::Forward => {
+                    self.navigation_index = (self.navigation_index + 1)
+                        .min(self.navigation_entries.len().saturating_sub(1));
+                    Some(self.navigation_entries[self.navigation_index].clone())
+                }
+                NavigationCommand::Go(delta) => {
+                    self.navigation_index = (self.navigation_index as i64 + i64::from(delta))
+                        .clamp(0, self.navigation_entries.len().saturating_sub(1) as i64)
+                        as usize;
+                    Some(self.navigation_entries[self.navigation_index].clone())
+                }
+                NavigationCommand::Reload | NavigationCommand::Open(_) => None,
+            };
+            if let Some(location) = location {
+                self.env.current_route = location.clone();
+                self.runtime.dispatch(
+                    ShellRouteChanged { location }.into(),
+                    WidgetId::from_u128(0),
+                )?;
+            }
+        }
         Ok(())
     }
 
@@ -816,5 +909,52 @@ impl Drop for TerminalGuard {
             LeaveAlternateScreen
         );
         let _ = terminal::disable_raw_mode();
+    }
+}
+
+#[cfg(test)]
+mod navigation_tests {
+    use super::*;
+    use fission_core::{NavigationRequested, ShellRouteChanged};
+
+    #[derive(Debug, Default)]
+    struct RouteState {
+        path: String,
+        changes: usize,
+    }
+
+    impl GlobalState for RouteState {}
+
+    fn route_changed(
+        state: &mut RouteState,
+        action: ShellRouteChanged,
+        _ctx: &mut fission_core::ReducerContext<'_, '_, '_, RouteState>,
+    ) {
+        state.path = action.location.pathname;
+        state.changes += 1;
+    }
+
+    #[test]
+    fn terminal_dispatches_initial_and_programmatic_route_changes() {
+        let mut app = TerminalApp::<RouteState, _>::new(fission_core::ui::Text::new("route"))
+            .with_env(|env| env.current_route = RouteLocation::new("/initial"))
+            .with_route_handler(route_changed);
+
+        app.render_frame(40, 10).expect("initial frame");
+        assert_eq!(
+            app.runtime.get_global_state::<RouteState>().unwrap().path,
+            "/initial"
+        );
+
+        app.runtime
+            .dispatch(
+                NavigationRequested::new(NavigationCommand::Push("/next".into())).into(),
+                WidgetId::from_u128(0),
+            )
+            .expect("navigation action");
+        app.process_navigation().expect("process navigation");
+        let state = app.runtime.get_global_state::<RouteState>().unwrap();
+        assert_eq!(state.path, "/next");
+        assert_eq!(state.changes, 2);
     }
 }

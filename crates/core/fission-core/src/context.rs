@@ -516,6 +516,55 @@ impl<'a, S: GlobalState> Effects<'a, S> {
         self.add(Effect::Runtime(RuntimeEffect::ScrollIntoView(request)))
     }
 
+    /// Adds a logical route to the active shell history.
+    pub fn navigate(&mut self, path: impl Into<String>) -> u64 {
+        self.add(Effect::Runtime(RuntimeEffect::Navigate(
+            crate::NavigationCommand::Push(path.into()),
+        )))
+    }
+
+    /// Replaces the current logical route without adding a history entry.
+    pub fn replace_route(&mut self, path: impl Into<String>) -> u64 {
+        self.add(Effect::Runtime(RuntimeEffect::Navigate(
+            crate::NavigationCommand::Replace(path.into()),
+        )))
+    }
+
+    /// Opens a complete hyperlink, preserving its target and download metadata.
+    pub fn open_link(&mut self, hyperlink: crate::Hyperlink) -> u64 {
+        self.add(Effect::Runtime(RuntimeEffect::Navigate(
+            crate::NavigationCommand::Open(hyperlink),
+        )))
+    }
+
+    /// Moves one entry backward in the active shell history.
+    pub fn navigation_back(&mut self) -> u64 {
+        self.add(Effect::Runtime(RuntimeEffect::Navigate(
+            crate::NavigationCommand::Back,
+        )))
+    }
+
+    /// Moves one entry forward in the active shell history.
+    pub fn navigation_forward(&mut self) -> u64 {
+        self.add(Effect::Runtime(RuntimeEffect::Navigate(
+            crate::NavigationCommand::Forward,
+        )))
+    }
+
+    /// Moves by a signed number of entries in the active shell history.
+    pub fn navigation_go(&mut self, delta: i32) -> u64 {
+        self.add(Effect::Runtime(RuntimeEffect::Navigate(
+            crate::NavigationCommand::Go(delta),
+        )))
+    }
+
+    /// Reloads the active browser document or rebuilds the current native route.
+    pub fn reload_route(&mut self) -> u64 {
+        self.add(Effect::Runtime(RuntimeEffect::Navigate(
+            crate::NavigationCommand::Reload,
+        )))
+    }
+
     /// Alias for [`Effects::scroll_into_view`] when the caller cares about
     /// visibility rather than a specific scroll operation.
     pub fn ensure_visible(&mut self, request: ScrollIntoViewRequest) -> u64 {

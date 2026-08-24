@@ -2,7 +2,9 @@ use crate::internal::InternalLower;
 use crate::lowering::InternalIrBuilder;
 use crate::ui::Widget;
 use crate::ActionEnvelope;
-use fission_ir::{ActionEntry, ActionSet, Op, Role, Semantics, WidgetId};
+use fission_ir::{
+    ActionEntry, ActionSet, Hyperlink, Op, PopoverAction, PopoverTarget, Role, Semantics, WidgetId,
+};
 use serde::{Deserialize, Serialize};
 
 /// Wraps a subtree in an explicit semantics node.
@@ -20,6 +22,10 @@ pub struct SemanticsRegion {
     pub label: Option<String>,
     /// Optional semantic value exposed to shells and renderers.
     pub value: Option<String>,
+    /// Optional navigation destination exposed to shells and HTML renderers.
+    pub hyperlink: Option<Hyperlink>,
+    /// Optional popover controlled by this region in HTML-capable shells.
+    pub popover_target: Option<PopoverTarget>,
     /// Semantic role. Defaults to a generic region.
     pub role: Role,
     /// Actions attached to the semantic region.
@@ -74,6 +80,32 @@ impl SemanticsRegion {
         self
     }
 
+    /// Makes this region a genuine hyperlink without imposing a visual style.
+    ///
+    /// This is the generic primitive custom widgets should use when they need
+    /// to lower to an HTML `href` on Web, Static site, and SSR targets.
+    pub fn href(mut self, href: impl Into<String>) -> Self {
+        self.role = Role::Link;
+        self.hyperlink = Some(Hyperlink::new(href));
+        self
+    }
+
+    /// Applies complete hyperlink metadata in one order-independent operation.
+    pub fn hyperlink(mut self, hyperlink: Hyperlink) -> Self {
+        self.role = Role::Link;
+        self.hyperlink = Some(hyperlink);
+        self
+    }
+
+    /// Associates this invoker with a standards-based HTML popover target.
+    pub fn popover_target(mut self, id: impl Into<String>, action: PopoverAction) -> Self {
+        self.popover_target = Some(PopoverTarget {
+            id: id.into(),
+            action,
+        });
+        self
+    }
+
     /// Sets the semantic role of the region.
     ///
     /// Choose the role that matches the user-visible behavior of the wrapped
@@ -106,6 +138,8 @@ impl Default for SemanticsRegion {
             identifier: None,
             label: None,
             value: None,
+            hyperlink: None,
+            popover_target: None,
             role: Role::Generic,
             actions: ActionSet::default(),
             child: None,
@@ -122,7 +156,10 @@ impl InternalLower for SemanticsRegion {
             identifier: self.identifier.clone(),
             label: self.label.clone(),
             value: self.value.clone(),
+            hyperlink: self.hyperlink.clone(),
+            popover_target: self.popover_target.clone(),
             actions: self.actions.clone(),
+            focusable: self.hyperlink.is_some() || !self.actions.entries.is_empty(),
             ..Default::default()
         };
         let child_id = self.child.as_ref().map(|child| child.lower(cx));

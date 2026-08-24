@@ -1,4 +1,4 @@
-use crate::action::{ActionEnvelope, ActionId, GlobalState};
+use crate::action::{Action, ActionEnvelope, ActionId, GlobalState};
 use crate::async_runtime::ServiceStopPayload;
 use crate::effect::{
     ActionInput, Effect, EffectEnvelope, RuntimeEffect, ScrollAlignment, ScrollAxis,
@@ -15,7 +15,7 @@ use crate::{
     Clipboard, Clock, CurrentTime, ImeHandler, InputEvent, KeyCode, KeyEvent, PointerButton,
     PointerEvent, ResourceExecutionContext,
 };
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use fission_diagnostics::prelude as diag;
 use fission_ir::{CoreIR, FlexDirection, FocusPolicy, LayoutOp, Op, WidgetId};
 use fission_layout::{LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot, TextMeasurer};
@@ -133,6 +133,8 @@ pub struct Runtime {
     pub pending_effects: Vec<EffectEnvelope>,
     /// Post-layout scroll requests that need computed geometry before applying.
     pending_scroll_into_view: Vec<PendingScrollIntoView>,
+    /// Shell navigation commands waiting for the host adapter.
+    pending_navigation: Vec<crate::NavigationCommand>,
     /// Active focus barriers and the targets restored as each barrier closes.
     focus_barriers: Vec<FocusBarrierFrame>,
     /// Monotonically increasing counter for deterministic request id generation.
@@ -157,6 +159,7 @@ impl Default for Runtime {
             editing_convention: crate::input::TextEditingConvention::default(),
             pending_effects: Vec::new(),
             pending_scroll_into_view: Vec::new(),
+            pending_navigation: Vec::new(),
             focus_barriers: Vec::new(),
             next_req_id: 0,
             active_resources: HashMap::new(),
@@ -529,6 +532,13 @@ impl Runtime {
             },
         );
 
+        if action.id == crate::NavigationRequested::static_id() {
+            let request: crate::NavigationRequested = serde_json::from_slice(&action.payload)
+                .context("failed to decode built-in navigation request")?;
+            self.pending_navigation.push(request.command);
+            return Ok(());
+        }
+
         // Delegate video actions to media module
         if crate::media::handle_video_action(&mut self.runtime_state.video, &action)? {
             return Ok(());
@@ -768,8 +778,18 @@ impl Runtime {
                 self.queue_scroll_into_view(request);
                 true
             }
+            RuntimeEffect::Navigate(command) => {
+                self.pending_navigation.push(command);
+                true
+            }
             RuntimeEffect::Cancel { .. } | RuntimeEffect::ReleaseResource { .. } => false,
         }
+    }
+
+    /// Takes navigation commands queued since the previous shell turn.
+    #[doc(hidden)]
+    pub fn take_pending_navigation(&mut self) -> Vec<crate::NavigationCommand> {
+        std::mem::take(&mut self.pending_navigation)
     }
 
     /// Queues a post-layout request to reveal a widget in a scroll container.
@@ -1596,26 +1616,51 @@ impl Runtime {
                         while let Some(node_id) = current_id {
                             if let Some(node) = ir.nodes.get(&node_id) {
                                 if let Op::Semantics(semantics) = &node.op {
-                                    if let Some(action_entry) =
-                                        semantics.actions.entries.iter().find(|entry| {
+                                    let action_entry = semantics
+                                        .actions
+                                        .entries
+                                        .iter()
+                                        .find(|entry| {
                                             entry.trigger
                                                 == fission_ir::semantics::ActionTrigger::Default
                                         })
-                                    {
-                                        if let Some(payload) = &action_entry.payload_data {
-                                            let envelope = ActionEnvelope {
-                                                id: ActionId::from_u128(action_entry.action_id),
-                                                payload: payload.clone(),
-                                            };
-                                            let input = crate::input::scoped_action_input(
-                                                ir,
-                                                node_id,
-                                                ActionInput::None,
-                                            );
-                                            return self.dispatch_node_with_input(
+                                        .and_then(|entry| {
+                                            entry.payload_data.as_ref().map(|payload| {
+                                                ActionEnvelope {
+                                                    id: ActionId::from_u128(entry.action_id),
+                                                    payload: payload.clone(),
+                                                }
+                                            })
+                                        });
+                                    let hyperlink = semantics.hyperlink.clone();
+                                    if action_entry.is_some() || hyperlink.is_some() {
+                                        let input = crate::input::scoped_action_input(
+                                            ir,
+                                            node_id,
+                                            ActionInput::None,
+                                        );
+                                        let navigation_already_bound =
+                                            action_entry.as_ref().is_some_and(|entry| {
+                                                entry.id == crate::NavigationRequested::static_id()
+                                            });
+                                        if let Some(envelope) = action_entry {
+                                            self.dispatch_node_with_input(
                                                 envelope, node_id, &input,
-                                            );
+                                            )?;
                                         }
+                                        if let Some(hyperlink) =
+                                            hyperlink.filter(|_| !navigation_already_bound)
+                                        {
+                                            self.dispatch_node_with_input(
+                                                crate::NavigationRequested::new(
+                                                    crate::NavigationCommand::Open(hyperlink),
+                                                )
+                                                .into(),
+                                                node_id,
+                                                &input,
+                                            )?;
+                                        }
+                                        return Ok(());
                                     }
                                 }
                                 current_id = node.parent;

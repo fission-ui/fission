@@ -95,6 +95,40 @@ impl RouteLocation {
             search: None,
         }
     }
+
+    /// Parses a logical route into pathname, query, and fragment fields.
+    ///
+    /// Both `/projects/42` and `#/projects/42` produce the same pathname. This
+    /// parser is intentionally origin-free; browser shells populate the host,
+    /// origin, protocol, and full href from `window.location`.
+    pub fn from_route(route: impl AsRef<str>) -> Self {
+        let route = route.as_ref().trim();
+        let logical = route.strip_prefix("#/").map_or(route, |path| {
+            if path.is_empty() {
+                "/"
+            } else {
+                // Preserve the leading slash removed as part of `#/`.
+                route.strip_prefix('#').unwrap_or(route)
+            }
+        });
+        let (path_and_query, fragment) = logical.split_once('#').unwrap_or((logical, ""));
+        let (path, query) = path_and_query
+            .split_once('?')
+            .unwrap_or((path_and_query, ""));
+        let pathname = if path.is_empty() {
+            "/".to_string()
+        } else if path.starts_with('/') {
+            path.to_string()
+        } else {
+            format!("/{path}")
+        };
+        Self {
+            pathname,
+            hash: (!fragment.is_empty()).then(|| format!("#{fragment}")),
+            search: (!query.is_empty()).then(|| format!("?{query}")),
+            ..Self::default()
+        }
+    }
 }
 
 // Static environment data (Theme, I18n)
@@ -863,5 +897,18 @@ mod tests {
     #[test]
     fn environment_exposes_a_safe_light_system_theme_default() {
         assert_eq!(Env::default().system_theme_mode, DesignMode::Light);
+    }
+
+    #[test]
+    fn logical_routes_parse_path_hash_and_query_consistently() {
+        let path = RouteLocation::from_route("/projects/42?tab=activity#comments");
+        assert_eq!(path.pathname, "/projects/42");
+        assert_eq!(path.search.as_deref(), Some("?tab=activity"));
+        assert_eq!(path.hash.as_deref(), Some("#comments"));
+
+        let hash = RouteLocation::from_route("#/projects/42?tab=activity");
+        assert_eq!(hash.pathname, "/projects/42");
+        assert_eq!(hash.search.as_deref(), Some("?tab=activity"));
+        assert_eq!(hash.hash, None);
     }
 }

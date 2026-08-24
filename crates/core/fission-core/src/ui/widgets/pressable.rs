@@ -10,7 +10,8 @@ use crate::ActionEnvelope;
 use fission_ir::{
     op::{BoxShadow, BoxStyle, Color, Fill, LayoutOp, Length, Op, PaintOp, Stroke},
     semantics::ActionTrigger,
-    ActionEntry, CompositeScalar, CompositeStyle, FocusPolicy, Role, Semantics, WidgetId,
+    ActionEntry, CompositeScalar, CompositeStyle, FocusPolicy, Hyperlink, PopoverAction,
+    PopoverTarget, Role, Semantics, WidgetId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -114,6 +115,10 @@ pub struct Pressable {
     pub label: Option<String>,
     /// Stable semantic identifier used by tests and accessibility tooling.
     pub semantics_identifier: Option<String>,
+    /// Optional genuine navigation destination.
+    pub hyperlink: Option<Hyperlink>,
+    /// Optional standards-based HTML popover invocation.
+    pub popover_target: Option<PopoverTarget>,
     /// Accessibility role exposed by the semantic node.
     pub role: PressableRole,
     /// How pointer activation should affect keyboard focus.
@@ -240,6 +245,27 @@ impl Pressable {
     /// Sets button, link, or menu-item semantics.
     pub fn role(mut self, role: PressableRole) -> Self {
         self.role = role;
+        self
+    }
+
+    /// Makes this pressable a genuine hyperlink.
+    pub fn href(mut self, href: impl Into<String>) -> Self {
+        self.role = PressableRole::Link;
+        self.hyperlink = Some(Hyperlink::new(href));
+        self
+    }
+
+    pub fn hyperlink(mut self, hyperlink: Hyperlink) -> Self {
+        self.role = PressableRole::Link;
+        self.hyperlink = Some(hyperlink);
+        self
+    }
+
+    pub fn popover_target(mut self, id: impl Into<String>, action: PopoverAction) -> Self {
+        self.popover_target = Some(PopoverTarget {
+            id: id.into(),
+            action,
+        });
         self
     }
 
@@ -737,6 +763,8 @@ impl Default for Pressable {
             on_press: None,
             label: None,
             semantics_identifier: None,
+            hyperlink: None,
+            popover_target: None,
             role: PressableRole::Button,
             focus_policy: FocusPolicy::FocusOnPointer,
             disabled: false,
@@ -832,6 +860,8 @@ impl InternalLower for Pressable {
             role: self.role.semantics_role(),
             label: self.label.clone(),
             identifier: self.semantics_identifier.clone(),
+            hyperlink: self.hyperlink.clone(),
+            popover_target: self.popover_target.clone(),
             focusable: !self.disabled,
             focus_policy: self.focus_policy,
             disabled: self.disabled,

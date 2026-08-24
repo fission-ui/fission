@@ -13,7 +13,8 @@ use anyhow::{anyhow, Context, Result};
 use fission_core::internal::InternalLoweringCx;
 use fission_core::ui::{Column, Overlay, ZStack};
 use fission_core::{
-    ActionEnvelope, ActionId, Env, RuntimeResourceDeclaration, RuntimeState, Widget,
+    ActionEnvelope, ActionId, Env, LinkTarget, NavigationCommand, RuntimeResourceDeclaration,
+    RuntimeState, Widget,
 };
 use fission_ir::{semantics::ActionTrigger, CoreIR, Op};
 use fission_layout::LayoutSize;
@@ -133,6 +134,7 @@ pub struct RenderedServerRoute {
     pub resources: Vec<RuntimeResourceDeclaration>,
     pub server_action_count: usize,
     pub status: u16,
+    pub navigation: Option<NavigationCommand>,
 }
 
 pub struct ServerRenderer {
@@ -533,6 +535,7 @@ impl ServerRenderer {
                 .extend(footer.video_registrations);
             rendered.web_registrations.extend(footer.web_registrations);
             rendered.portals.extend(footer.portals);
+            rendered.navigation = rendered.navigation.or(footer.navigation);
         }
         let ServerRenderedNode {
             mut node,
@@ -541,6 +544,7 @@ impl ServerRenderer {
             video_registrations,
             web_registrations,
             portals,
+            navigation,
         } = rendered;
         node = compose_server_portals(node, portals);
         let runtime = RuntimeState::default();
@@ -638,6 +642,7 @@ impl ServerRenderer {
             resources,
             server_action_count,
             status: response_status.load(Ordering::Relaxed),
+            navigation,
         })
     }
 
@@ -859,8 +864,14 @@ impl ServerRenderer {
         let session = self.session_for_request(&request)?;
         let wants_redirect = action_request_should_redirect(&request);
         let rendered = self.render_uncached(route, Some(&action), &request, &session)?;
+        let navigation_location = rendered
+            .navigation
+            .as_ref()
+            .and_then(server_navigation_location);
         let mut response = if wants_redirect {
-            ServerResponse::see_other(route_path)
+            ServerResponse::see_other(navigation_location.unwrap_or(route_path))
+        } else if let Some(location) = navigation_location {
+            ServerResponse::see_other(location)
         } else {
             ServerResponse {
                 status: 200,
@@ -1066,6 +1077,20 @@ impl ServerRenderer {
             key.push_str(&vary);
         }
         CacheKey::new(key)
+    }
+}
+
+fn server_navigation_location(command: &NavigationCommand) -> Option<String> {
+    match command {
+        NavigationCommand::Push(path) | NavigationCommand::Replace(path) => Some(path.clone()),
+        NavigationCommand::Open(link) if matches!(link.target, LinkTarget::Current) => {
+            Some(link.href.clone())
+        }
+        NavigationCommand::Back
+        | NavigationCommand::Forward
+        | NavigationCommand::Go(_)
+        | NavigationCommand::Reload
+        | NavigationCommand::Open(_) => None,
     }
 }
 
@@ -1485,6 +1510,11 @@ fn collect_server_action_tokens(
         let Op::Semantics(semantics) = &node.op else {
             continue;
         };
+        // Genuine hyperlinks are handled by the browser and render as `<a>`;
+        // they are not one-shot server action forms.
+        if semantics.hyperlink.is_some() {
+            continue;
+        }
         for entry in &semantics.actions.entries {
             if entry.trigger != ActionTrigger::Default {
                 continue;
@@ -1613,6 +1643,53 @@ mod tests {
     #[derive(Debug, Default)]
     struct TestState;
     impl GlobalState for TestState {}
+
+    #[test]
+    fn server_navigation_maps_only_location_bearing_commands_to_redirects() {
+        assert_eq!(
+            server_navigation_location(&NavigationCommand::Push("/next".into())),
+            Some("/next".into())
+        );
+        assert_eq!(
+            server_navigation_location(&NavigationCommand::Open(fission_core::Hyperlink::new(
+                "/replace"
+            ))),
+            Some("/replace".into())
+        );
+        assert_eq!(server_navigation_location(&NavigationCommand::Back), None);
+        assert_eq!(
+            server_navigation_location(&NavigationCommand::Open(
+                fission_core::Hyperlink::new("/new").target(fission_core::LinkTarget::NewWindow)
+            )),
+            None
+        );
+    }
+
+    #[test]
+    fn hyperlinks_are_not_misclassified_as_server_actions() {
+        let id = WidgetId::explicit("route-link");
+        let request: ActionEnvelope =
+            fission_core::NavigationRequested::new(NavigationCommand::Push("/next".into())).into();
+        let mut semantics = fission_ir::Semantics {
+            hyperlink: Some(fission_core::Hyperlink::new("/next")),
+            ..Default::default()
+        };
+        semantics.actions.entries.push(fission_ir::ActionEntry {
+            trigger: ActionTrigger::Default,
+            action_id: request.id.as_u128(),
+            payload_data: Some(request.payload),
+        });
+        let mut ir = CoreIR::new();
+        ir.add_node(id, Op::Semantics(semantics), Vec::new());
+        ir.set_root(id);
+
+        let signer = ServerActionSigner::development();
+        assert!(
+            collect_server_action_tokens(&ir, "/", &signer, Duration::from_secs(60))
+                .unwrap()
+                .is_empty()
+        );
+    }
 
     #[derive(Debug, Default)]
     struct PathState {

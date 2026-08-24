@@ -14,6 +14,7 @@ use crate::async_runtime::{
 use crate::capability::CapabilityInvocationPayload;
 use crate::capability::{CapabilityType, OperationCapability};
 use crate::env::RouteLocation;
+use crate::navigation::NavigationCommand;
 use fission_ir::WidgetId;
 use serde::{Deserialize, Serialize};
 
@@ -116,6 +117,8 @@ pub enum RuntimeEffect {
     ReleaseResource { resource_id: u64 },
     /// Reveal a widget inside a scroll container after the next layout pass.
     ScrollIntoView(ScrollIntoViewRequest),
+    /// Ask the active shell to update its navigation model.
+    Navigate(NavigationCommand),
 }
 
 /// A side-effect emitted by a reducer.

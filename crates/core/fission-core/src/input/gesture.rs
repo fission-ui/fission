@@ -4,7 +4,7 @@ use crate::scrollbar::{
     scrollbar_drag_offset, scrollbar_drag_offset_with_grab, scrollbar_geometry_for_node,
     scrollbar_hit_test, scrollbar_point_for_node, ScrollbarDragState, ScrollbarHitKind,
 };
-use crate::{ActionEnvelope, ActionId, ActionInput, DragSessionPayload, DragSessionState};
+use crate::{Action, ActionEnvelope, ActionId, ActionInput, DragSessionPayload, DragSessionState};
 use fission_ir::op::RichTextAnnotation;
 use fission_ir::{semantics::ActionTrigger, Op, WidgetId};
 use fission_layout::{LayoutPoint, LayoutSnapshot};
@@ -865,6 +865,7 @@ impl GestureController {
         while let Some(node_id) = current_id {
             if let Some(node) = ctx.ir.nodes.get(&node_id) {
                 if let Op::Semantics(sem) = &node.op {
+                    let mut handled = false;
                     for entry in &sem.actions.entries {
                         if entry.trigger == trigger {
                             let envelope = ActionEnvelope {
@@ -899,8 +900,42 @@ impl GestureController {
                             let input = crate::input::scoped_action_input(ctx.ir, node_id, input);
 
                             ctx.dispatched_actions.push((node_id, envelope, input));
-                            return true;
+                            handled = true;
+                            break;
                         }
+                    }
+                    if trigger == ActionTrigger::Default {
+                        if let Some(hyperlink) = &sem.hyperlink {
+                            let navigation_already_bound =
+                                sem.actions.entries.iter().any(|entry| {
+                                    entry.trigger == ActionTrigger::Default
+                                        && ActionId::from_u128(entry.action_id)
+                                            == crate::NavigationRequested::static_id()
+                                });
+                            if !navigation_already_bound {
+                                ctx.dispatched_actions.push((
+                                    node_id,
+                                    crate::NavigationRequested::new(
+                                        crate::NavigationCommand::Open(hyperlink.clone()),
+                                    )
+                                    .into(),
+                                    crate::input::scoped_action_input(
+                                        ctx.ir,
+                                        node_id,
+                                        ActionInput::Pointer {
+                                            x: point.x,
+                                            y: point.y,
+                                            delta_x: 0.0,
+                                            delta_y: 0.0,
+                                        },
+                                    ),
+                                ));
+                            }
+                            handled = true;
+                        }
+                    }
+                    if handled {
+                        return true;
                     }
                 }
                 current_id = node.parent;
