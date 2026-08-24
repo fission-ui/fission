@@ -22,4 +22,4 @@ See the CLI reference at [fission.rs](https://fission.rs/docs/reference/cli/over
 
 ## License
 
-MIT
+Apache-2.0

@@ -2,7 +2,7 @@
 name = "fission-test-driver"
 version = "0.12.0"
 edition = "2021"
-license = "MIT"
+license = "Apache-2.0"
 repository = "https://github.com/fission-ui/fission"
 description = "Live app testing client and protocol helpers for Fission shells"
 categories = ["development-tools::testing", "gui"]

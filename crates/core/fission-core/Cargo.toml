@@ -2,7 +2,7 @@
 name = "fission-core"
 version = "0.12.0"
 edition = "2021"
-license = "MIT"
+license = "Apache-2.0"
 repository = "https://github.com/fission-ui/fission"
 description = "Core runtime, state, actions, effects, resources, input, and UI model for Fission"
 categories = ["gui", "rendering"]

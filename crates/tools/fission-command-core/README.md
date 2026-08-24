@@ -27,4 +27,4 @@ See [fission.rs](https://fission.rs/docs/reference/cli/overview/) for the public
 
 ## License
 
-MIT
+Apache-2.0

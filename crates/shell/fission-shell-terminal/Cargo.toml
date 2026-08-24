@@ -2,7 +2,7 @@
 name = "fission-shell-terminal"
 version = "0.12.0"
 edition = "2021"
-license = "MIT"
+license = "Apache-2.0"
 repository = "https://github.com/fission-ui/fission"
 description = "Terminal shell backend for rendering Fission applications in terminal cells"
 categories = ["command-line-interface", "gui", "rendering"]

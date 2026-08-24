@@ -28,4 +28,4 @@ See [Building terminal user interfaces](https://fission.rs/docs/guides/terminal-
 
 ## License
 
-MIT
+Apache-2.0

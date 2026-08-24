@@ -16,4 +16,4 @@ See [Static sites](https://fission.rs/docs/guides/static-sites/) and the CLI ref
 
 ## License
 
-MIT
+Apache-2.0

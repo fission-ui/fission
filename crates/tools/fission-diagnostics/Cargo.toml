@@ -2,7 +2,7 @@
 name = "fission-diagnostics"
 version = "0.12.0"
 edition = "2021"
-license = "MIT"
+license = "Apache-2.0"
 repository = "https://github.com/fission-ui/fission"
 description = "Structured diagnostics and reporting primitives for Fission tools and runtime checks"
 categories = ["development-tools", "development-tools::debugging"]

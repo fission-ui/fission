@@ -91,7 +91,7 @@ impl From<FooterIdentity> for Widget {
         Container::new(Column {
             children: vec![
                 BrandLogo::new(tokens.spacing.l).centered().into(),
-                Text::new("One Rust application model for native, mobile, web, terminal, static, and server-rendered products. MIT licensed.")
+                Text::new("One Rust application model for native, mobile, web, terminal, static, and server-rendered products. Apache 2.0 licensed.")
                     .size(tokens.typography.body_medium_size)
                     .line_height(tokens.typography.body_medium_size * tokens.typography.line_height_normal)
                     .color(tokens.colors.text_secondary)

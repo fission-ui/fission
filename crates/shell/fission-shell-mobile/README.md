@@ -48,4 +48,4 @@ See [fission.rs](https://fission.rs) for mobile target setup, platform capabilit
 
 ## License
 
-MIT
+Apache-2.0

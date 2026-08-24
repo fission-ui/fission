@@ -2,7 +2,7 @@
 
 [![Crates.io](https://img.shields.io/crates/v/fission.svg)](https://crates.io/crates/fission)
 [![Docs](https://img.shields.io/badge/docs-fission.rs-0f766e.svg)](https://fission.rs)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![CI](https://github.com/fission-ui/fission/actions/workflows/platform-checks.yml/badge.svg)](https://github.com/fission-ui/fission/actions/workflows/platform-checks.yml)
 
 Fission is a production-focused Rust application framework for building GPU-accelerated apps across macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR targets.
@@ -283,10 +283,10 @@ Start at [fission.rs](https://fission.rs):
 
 ## Contributing
 
-Fission is MIT licensed and open to practical contributions: bug fixes, tests, documentation, examples, platform hardening, and focused feature work.
+Fission is Apache 2.0 licensed and open to practical contributions: bug fixes, tests, documentation, examples, platform hardening, and focused feature work.
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening larger changes, and keep examples aligned with the style we want application developers to copy.
 
 ## License
 
-Fission is available under the [MIT license](LICENSE).
+Fission is available under the [Apache 2.0 license](LICENSE).

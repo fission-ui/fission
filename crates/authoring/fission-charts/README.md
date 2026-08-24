@@ -42,4 +42,4 @@ The chart guide, gallery, and chart reference live at [fission.rs](https://fissi
 
 ## License
 
-MIT
+Apache-2.0

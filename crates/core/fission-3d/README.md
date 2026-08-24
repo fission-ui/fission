@@ -27,4 +27,4 @@ See [fission.rs](https://fission.rs) for guides and examples covering embeds, me
 
 ## License
 
-MIT
+Apache-2.0
