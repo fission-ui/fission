@@ -129,7 +129,7 @@ impl StoreProvider for SqliteStore {
                         Ok((
                             row.get::<_, String>(0)?,
                             row.get::<_, Vec<u8>>(1)?,
-                            row.get::<_, u64>(2)?,
+                            row.get::<_, i64>(2)?,
                         ))
                     },
                 )
@@ -137,6 +137,12 @@ impl StoreProvider for SqliteStore {
             let mut entries = Vec::new();
             for row in rows {
                 let (key, value, revision) = row.map_err(map_store_error)?;
+                let revision = u64::try_from(revision).map_err(|_| {
+                    StoreError::new(
+                        StoreErrorKind::Backend,
+                        "SQLite returned a negative fission store revision",
+                    )
+                })?;
                 entries.push(StoreEntry {
                     address: StoreAddress {
                         scope: request.scope.clone(),
@@ -201,8 +207,14 @@ impl SqlStoreProvider for SqliteStore {
         Box::pin(async move {
             let mut connection = this.connection()?;
             let previous_version = connection
-                .query_row("PRAGMA user_version", [], |row| row.get::<_, u64>(0))
+                .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
                 .map_err(map_sql_error)?;
+            let previous_version = u64::try_from(previous_version).map_err(|_| {
+                SqlError::new(
+                    SqlErrorKind::Migration,
+                    "SQLite returned a negative user_version",
+                )
+            })?;
             let transaction = connection.transaction().map_err(map_sql_error)?;
             let mut current_version = previous_version;
             let mut applied = 0;
@@ -219,8 +231,17 @@ impl SqlStoreProvider for SqliteStore {
                         ),
                     )
                 })?;
+                let version = i64::try_from(migration.version).map_err(|_| {
+                    SqlError::new(
+                        SqlErrorKind::Migration,
+                        format!(
+                            "migration version {} exceeds SQLite's range",
+                            migration.version
+                        ),
+                    )
+                })?;
                 transaction
-                    .pragma_update(None, "user_version", migration.version)
+                    .pragma_update(None, "user_version", version)
                     .map_err(map_sql_error)?;
                 current_version = migration.version;
                 applied += 1;
