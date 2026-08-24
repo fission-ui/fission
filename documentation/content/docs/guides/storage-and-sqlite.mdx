@@ -156,7 +156,7 @@ Provider selection is build configuration. If an application constructs provider
 | Android, iOS | SQLite application-data file | Yes | Uses the same native provider contract. |
 | Web | Official SQLite WASM in a worker, persisted with OPFS | Yes | Requires a browser with OPFS and WebAssembly support. Storage is scoped to the origin. |
 | Terminal | SQLite application-data file | Yes | Completion actions are delivered through the terminal event loop. |
-| SSR | Server-side SQLite application-data file | Yes | This is server state, not browser `localStorage` or cookies. Supply a request-aware provider when storage must follow server request identity. |
+| SSR | Server-side SQLite application-data file | Yes | This is server state, not browser `localStorage` or cookies. Derive a session or user `StoreScope` from request state when records need per-request ownership. |
 | Static site | Unsupported | No | Rendering happens at build time and produces files with no runtime storage authority. |
 
 The `fission` table belongs to the high-level Store API. Application SQL should use application-owned table names. Fission may evolve its reserved schema independently of application migrations.
