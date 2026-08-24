@@ -114,6 +114,30 @@ pub fn default_native_store(
         .map_err(|error| anyhow::anyhow!("failed to open SQLite store {}: {error}", path.display()))
 }
 
+#[cfg(all(feature = "store-sqlite-native", not(target_arch = "wasm32")))]
+pub fn register_native_store_at_path(
+    registry: &mut AsyncRegistry,
+    path: impl AsRef<std::path::Path>,
+) -> anyhow::Result<()> {
+    if registry.has_operation_capability(fission_core::SQL_QUERY) {
+        return Ok(());
+    }
+    let path = path.as_ref();
+    if let Some(directory) = path.parent() {
+        std::fs::create_dir_all(directory).map_err(|error| {
+            anyhow::anyhow!(
+                "failed to create Fission store directory {}: {error}",
+                directory.display()
+            )
+        })?;
+    }
+    let provider = fission_store_sqlite::SqliteStore::open(path).map_err(|error| {
+        anyhow::anyhow!("failed to open SQLite store {}: {error}", path.display())
+    })?;
+    register_sql_store_provider(registry, Arc::new(provider));
+    Ok(())
+}
+
 #[cfg(all(feature = "store-sqlite-web", target_arch = "wasm32"))]
 pub fn register_default_web_store(registry: &mut AsyncRegistry) {
     if registry.has_operation_capability(fission_core::SQL_QUERY) {

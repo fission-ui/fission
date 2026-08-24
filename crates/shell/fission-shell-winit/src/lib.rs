@@ -5225,11 +5225,33 @@ where
         #[cfg(target_arch = "wasm32")]
         web_console::install();
         diag::init_from_env();
-        #[cfg(all(feature = "store-sqlite-native", not(target_arch = "wasm32")))]
+        #[cfg(all(
+            feature = "store-sqlite-native",
+            not(target_arch = "wasm32"),
+            not(target_os = "android")
+        ))]
         fission_shell::store_host::register_default_native_store(
             &mut self.async_registry,
             &self.title,
         )?;
+        #[cfg(all(feature = "store-sqlite-native", target_os = "android"))]
+        {
+            if !self
+                .async_registry
+                .has_operation_capability(fission_core::SQL_QUERY)
+            {
+                let data_directory = android_app
+                    .as_ref()
+                    .and_then(AndroidApp::internal_data_path)
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("Android did not expose its internal data path")
+                    })?;
+                fission_shell::store_host::register_native_store_at_path(
+                    &mut self.async_registry,
+                    data_directory.join("fission/store.sqlite3"),
+                )?;
+            }
+        }
         #[cfg(all(feature = "store-sqlite-web", target_arch = "wasm32"))]
         fission_shell::store_host::register_default_web_store(&mut self.async_registry);
         #[cfg(target_arch = "wasm32")]
