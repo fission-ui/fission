@@ -1,0 +1,6 @@
+Fission includes @sqlite.org/sqlite-wasm 3.53.0-build1.
+
+The JavaScript wrapper is Copyright 2022-2026 Google LLC and distributed
+under the Apache License, Version 2.0. SQLite itself is in the public domain.
+
+Sources: https://github.com/sqlite/sqlite-wasm and https://sqlite.org/wasm/

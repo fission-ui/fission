@@ -3297,6 +3297,25 @@ fn scaffold_web_bundle(
         &bootstrap,
         write_policy,
     )?;
+    for (name, contents) in [
+        ("sqlite3.mjs", fission_store_sqlite::SQLITE_WEB_MODULE),
+        ("sqlite3.wasm", fission_store_sqlite::SQLITE_WEB_WASM),
+        (
+            "fission-sqlite.mjs",
+            fission_store_sqlite::SQLITE_WEB_BRIDGE,
+        ),
+        (
+            "fission-sqlite-worker.mjs",
+            fission_store_sqlite::SQLITE_WEB_WORKER,
+        ),
+        ("NOTICE.txt", fission_store_sqlite::SQLITE_WEB_NOTICE),
+    ] {
+        write_binary_file_with_policy(
+            &root.join("platforms/web/sqlite").join(name),
+            contents,
+            write_policy,
+        )?;
+    }
     write_file_with_policy(
         &root.join("platforms/web/build-wasm.sh"),
         &build_script,
@@ -5415,7 +5434,7 @@ fn render_web_index(project: &FissionProject) -> String {
 fn render_web_bootstrap(project: &FissionProject) -> String {
     let module_name = project.app.name.replace('-', "_");
     format!(
-        "import init from \"./pkg/{}.js\";\n\nawait init();\n",
+        "import init from \"./pkg/{}.js\";\nimport {{ installFissionSqlite }} from \"./sqlite/fission-sqlite.mjs\";\n\ninstallFissionSqlite();\nawait init();\n",
         module_name
     )
 }

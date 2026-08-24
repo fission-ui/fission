@@ -21,3 +21,14 @@ CREATE TABLE IF NOT EXISTS fission (
     PRIMARY KEY (scope, owner, namespace, key)
 ) WITHOUT ROWID;
 "#;
+
+/// Official SQLite WASM module bundled by Fission's Web scaffolder.
+pub const SQLITE_WEB_MODULE: &[u8] = include_bytes!("../assets/web/sqlite3.mjs");
+/// Official SQLite WASM binary bundled by Fission's Web scaffolder.
+pub const SQLITE_WEB_WASM: &[u8] = include_bytes!("../assets/web/sqlite3.wasm");
+/// Fission's main-thread request bridge for the SQLite worker.
+pub const SQLITE_WEB_BRIDGE: &[u8] = include_bytes!("../assets/web/fission-sqlite.mjs");
+/// Fission's SQLite worker implementation.
+pub const SQLITE_WEB_WORKER: &[u8] = include_bytes!("../assets/web/fission-sqlite-worker.mjs");
+/// Attribution for the vendored official SQLite WebAssembly distribution.
+pub const SQLITE_WEB_NOTICE: &[u8] = include_bytes!("../assets/web/NOTICE.txt");

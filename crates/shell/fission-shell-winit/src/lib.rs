@@ -5170,7 +5170,7 @@ where
     #[cfg(all(feature = "store", target_arch = "wasm32"))]
     pub fn with_store_provider<P>(mut self, provider: P) -> Self
     where
-        P: fission_store::StoreProvider,
+        P: fission_store::StoreProvider + Send + Sync,
     {
         storage::register_store_provider(&mut self.async_registry, Arc::new(provider));
         self
@@ -5190,7 +5190,7 @@ where
     #[cfg(all(feature = "store-sql", target_arch = "wasm32"))]
     pub fn with_sql_store_provider<P>(mut self, provider: P) -> Self
     where
-        P: fission_store::SqlStoreProvider,
+        P: fission_store::SqlStoreProvider + Send + Sync,
     {
         storage::register_sql_store_provider(&mut self.async_registry, Arc::new(provider));
         self
@@ -5217,6 +5217,8 @@ where
         diag::init_from_env();
         #[cfg(all(feature = "store-sqlite-native", not(target_arch = "wasm32")))]
         storage::register_default_native_store(&mut self.async_registry, &self.title)?;
+        #[cfg(all(feature = "store-sqlite-web", target_arch = "wasm32"))]
+        storage::register_default_web_store(&mut self.async_registry);
         #[cfg(target_arch = "wasm32")]
         set_web_global_json("__FISSION_RENDERED_FRAME_COUNT", &0_u64);
         diag::emit(

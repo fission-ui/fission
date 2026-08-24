@@ -2,25 +2,11 @@ use fission_shell::async_host::AsyncRegistry;
 use fission_store::{SqlStoreProvider, StoreProvider};
 use std::sync::Arc;
 
-#[cfg(not(target_arch = "wasm32"))]
 trait ShellStoreProvider: StoreProvider + Send + Sync {}
-#[cfg(not(target_arch = "wasm32"))]
 impl<T: StoreProvider + Send + Sync> ShellStoreProvider for T {}
 
-#[cfg(target_arch = "wasm32")]
-trait ShellStoreProvider: StoreProvider {}
-#[cfg(target_arch = "wasm32")]
-impl<T: StoreProvider> ShellStoreProvider for T {}
-
-#[cfg(not(target_arch = "wasm32"))]
 trait ShellSqlStoreProvider: SqlStoreProvider + Send + Sync {}
-#[cfg(not(target_arch = "wasm32"))]
 impl<T: SqlStoreProvider + Send + Sync> ShellSqlStoreProvider for T {}
-
-#[cfg(target_arch = "wasm32")]
-trait ShellSqlStoreProvider: SqlStoreProvider {}
-#[cfg(target_arch = "wasm32")]
-impl<T: SqlStoreProvider> ShellSqlStoreProvider for T {}
 
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn register_store_provider<P>(registry: &mut AsyncRegistry, provider: Arc<P>)
@@ -33,7 +19,7 @@ where
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn register_store_provider<P>(registry: &mut AsyncRegistry, provider: Arc<P>)
 where
-    P: StoreProvider,
+    P: StoreProvider + Send + Sync,
 {
     register_store_operations(registry, provider);
 }
@@ -79,7 +65,7 @@ where
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn register_sql_store_provider<P>(registry: &mut AsyncRegistry, provider: Arc<P>)
 where
-    P: SqlStoreProvider,
+    P: SqlStoreProvider + Send + Sync,
 {
     register_store_provider(registry, provider.clone());
     register_sql_operations(registry, provider);
@@ -116,6 +102,17 @@ pub(crate) fn register_default_native_store(
     })?;
     register_sql_store_provider(registry, Arc::new(provider));
     Ok(())
+}
+
+#[cfg(all(feature = "store-sqlite-web", target_arch = "wasm32"))]
+pub(crate) fn register_default_web_store(registry: &mut AsyncRegistry) {
+    if registry.has_operation_capability(fission_core::SQL_QUERY) {
+        return;
+    }
+    register_sql_store_provider(
+        registry,
+        Arc::new(fission_store_sqlite::WebSqliteStore::new()),
+    );
 }
 
 #[cfg(all(feature = "store-sqlite-native", not(target_arch = "wasm32")))]
