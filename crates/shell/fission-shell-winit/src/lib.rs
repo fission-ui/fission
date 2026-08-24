@@ -28,7 +28,10 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 #[cfg(target_arch = "wasm32")]
-use std::{cell::RefCell, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
 #[cfg(feature = "tray")]
 use winit::event::StartCause;
 #[cfg(target_os = "android")]
@@ -97,7 +100,7 @@ use vello::util::{RenderContext, RenderSurface};
 use vello::wgpu;
 use vello::{AaSupport, Renderer as VelloSceneRenderer, RendererOptions, Scene};
 #[cfg(target_arch = "wasm32")]
-use wasm_bindgen::{Clamped, JsCast, JsValue};
+use wasm_bindgen::{closure::Closure, Clamped, JsCast, JsValue};
 #[cfg(target_arch = "wasm32")]
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, ImageData};
 #[cfg(target_arch = "wasm32")]
@@ -118,9 +121,13 @@ mod software_renderer;
 #[cfg(target_arch = "wasm32")]
 mod web_console;
 mod web_input;
+#[cfg(target_arch = "wasm32")]
+mod web_links;
 use software_renderer::SoftwareRenderer;
 mod native_surface;
 use native_surface::NativeSurfaceRegistry;
+mod navigation;
+pub use navigation::{WebNavigationConfig, WebRouteStrategy};
 mod video_backend;
 use video_backend::create_video_backend;
 mod web_backend;
@@ -3936,25 +3943,43 @@ fn dispatch_semantics_action(
     trigger: ActionTrigger,
     input: ActionInput,
 ) -> bool {
-    let Some(entry) = semantics
+    let entry = semantics
         .actions
         .entries
         .iter()
-        .find(|entry| entry.trigger == trigger)
-    else {
-        return false;
-    };
+        .find(|entry| entry.trigger == trigger);
     let input = scoped_action_input_for_node(ir, target, input);
-    runtime
-        .dispatch_with_input(
-            ActionEnvelope {
-                id: ActionId::from_u128(entry.action_id),
-                payload: entry.payload_data.clone().unwrap_or_default(),
-            },
-            target,
-            &input,
-        )
-        .is_ok()
+    let mut handled = false;
+    if let Some(entry) = entry {
+        handled = runtime
+            .dispatch_with_input(
+                ActionEnvelope {
+                    id: ActionId::from_u128(entry.action_id),
+                    payload: entry.payload_data.clone().unwrap_or_default(),
+                },
+                target,
+                &input,
+            )
+            .is_ok();
+    }
+    let navigation_already_bound = entry.is_some_and(|entry| {
+        ActionId::from_u128(entry.action_id) == fission_core::NavigationRequested::static_id()
+    });
+    if trigger == ActionTrigger::Default && !navigation_already_bound {
+        if let Some(hyperlink) = semantics.hyperlink.clone() {
+            handled |= runtime
+                .dispatch_with_input(
+                    fission_core::NavigationRequested::new(fission_core::NavigationCommand::Open(
+                        hyperlink,
+                    ))
+                    .into(),
+                    target,
+                    &input,
+                )
+                .is_ok();
+        }
+    }
+    handled
 }
 
 fn scoped_action_input_for_node(ir: &CoreIR, target: WidgetId, input: ActionInput) -> ActionInput {
@@ -4625,6 +4650,7 @@ where
     initial_maximized: bool,
     web_mount_selector: Option<String>,
     browser_defaults: BrowserDefaults,
+    web_navigation: WebNavigationConfig,
     test_control_port: Option<u16>,
     /// Channel pair for receiving completed background effect results.
     effect_result_tx: mpsc::Sender<AsyncMessage>,
@@ -4700,6 +4726,7 @@ where
             initial_maximized: false,
             web_mount_selector: None,
             browser_defaults: BrowserDefaults::NONE,
+            web_navigation: WebNavigationConfig::default(),
             test_control_port: None,
             effect_result_tx,
             effect_result_rx,
@@ -5041,6 +5068,12 @@ where
         self
     }
 
+    /// Configures browser path/hash parsing and the deployment base path.
+    pub fn with_web_navigation(mut self, config: WebNavigationConfig) -> Self {
+        self.web_navigation = config;
+        self
+    }
+
     #[cfg(feature = "tray")]
     pub fn with_tray(mut self, config: tray::TrayConfig<S>) -> Self {
         self.tray_config = Some(config);
@@ -5221,7 +5254,51 @@ where
         let event_loop = event_loop_builder
             .build()
             .map_err(|e| anyhow::anyhow!("Event loop error: {}", e))?;
+        #[cfg(target_arch = "wasm32")]
+        let web_navigation_config = self.web_navigation.clone();
         let event_proxy = event_loop.create_proxy();
+        #[cfg(target_arch = "wasm32")]
+        let browser_route_queue = Rc::new(RefCell::new(VecDeque::new()));
+        #[cfg(target_arch = "wasm32")]
+        let web_link_activation_queue = Rc::new(RefCell::new(VecDeque::new()));
+        #[cfg(target_arch = "wasm32")]
+        let (initial_browser_route, initial_browser_strategy) =
+            navigation::current_browser_location(&web_navigation_config)
+                .map_err(anyhow::Error::msg)?;
+        #[cfg(target_arch = "wasm32")]
+        let active_web_route_strategy = Rc::new(Cell::new(initial_browser_strategy));
+        #[cfg(target_arch = "wasm32")]
+        let web_navigation_listeners = {
+            let mut listeners = Vec::<Closure<dyn FnMut(web_sys::Event)>>::new();
+            if let Some(browser_window) = web_sys::window() {
+                for event_name in ["popstate", "hashchange"] {
+                    let queue = browser_route_queue.clone();
+                    let strategy = active_web_route_strategy.clone();
+                    let proxy = event_proxy.clone();
+                    let config = web_navigation_config.clone();
+                    let listener = Closure::wrap(Box::new(move |_event: web_sys::Event| {
+                        match navigation::current_browser_location(&config) {
+                            Ok((location, resolved)) => {
+                                strategy.set(resolved);
+                                queue.borrow_mut().push_back(location);
+                                let _ = proxy.send_event(TestEvent::Wake);
+                            }
+                            Err(error) => eprintln!(
+                                "fission-shell-winit: browser route change failed: {error}"
+                            ),
+                        }
+                    }) as Box<dyn FnMut(_)>);
+                    browser_window
+                        .add_event_listener_with_callback(
+                            event_name,
+                            listener.as_ref().unchecked_ref(),
+                        )
+                        .map_err(|error| anyhow::anyhow!(js_error_to_string(error)))?;
+                    listeners.push(listener);
+                }
+            }
+            listeners
+        };
         #[cfg(target_os = "macos")]
         let notification_response_queue = Arc::new(Mutex::new(VecDeque::new()));
         #[cfg(target_os = "macos")]
@@ -5262,6 +5339,12 @@ where
         )?;
         #[cfg(not(target_os = "android"))]
         ime_handler.set_window(Some(platform_window.clone()));
+        #[cfg(target_arch = "wasm32")]
+        let mut web_link_overlay = platform_window
+            .canvas()
+            .map(web_links::WebLinkOverlay::new)
+            .transpose()
+            .map_err(anyhow::Error::msg)?;
         #[cfg(target_os = "android")]
         let mut platform_window: Option<Arc<Window>> = None;
 
@@ -5294,11 +5377,31 @@ where
         #[cfg(not(target_os = "android"))]
         platform_window.request_redraw();
 
+        let mut runtime = self.runtime;
+        let mut env = self.env;
+        #[cfg(target_arch = "wasm32")]
+        {
+            env.current_route = initial_browser_route.clone();
+            runtime.dispatch(
+                fission_core::ShellRouteChanged {
+                    location: initial_browser_route,
+                }
+                .into(),
+                WidgetId::from_u128(0),
+            )?;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        runtime.dispatch(
+            fission_core::ShellRouteChanged {
+                location: env.current_route.clone(),
+            }
+            .into(),
+            WidgetId::from_u128(0),
+        )?;
         let mut startup_deep_links = self.startup_deep_links.clone();
         startup_deep_links.extend(collect_startup_deep_links(&self.deep_link_config));
         let startup_notification_responses = self.startup_notification_responses.clone();
 
-        let mut runtime = self.runtime;
         for link in startup_deep_links {
             runtime.dispatch(DeepLinkReceived { link }.into(), WidgetId::from_u128(0))?;
         }
@@ -5311,7 +5414,6 @@ where
         let mut layout_engine = self.layout_engine;
         let root_widget = self.root_widget;
         let root_widget_id = self.root_widget_id;
-        let mut env = self.env;
         env.window.title = fission_core::WindowTitle::plain(window_title.clone());
         let mut applied_window_title = window_title.clone();
         let mut pipeline = self.pipeline;
@@ -5452,8 +5554,12 @@ where
         };
         let mut vello_image_cache_generation = fission_render_vello::image_cache_generation();
         let mut software_image_cache_generation = software_renderer::image_cache_generation();
+        #[cfg(not(target_arch = "wasm32"))]
+        let mut navigation_history = navigation::NavigationHistory::new(env.current_route.clone());
 
         let event_handler = move |event: Event<TestEvent>, elwt: &EventLoopWindowTarget| {
+            #[cfg(target_arch = "wasm32")]
+            let _keep_navigation_listeners_alive = &web_navigation_listeners;
             elwt.set_control_flow(ControlFlow::Wait);
             let debug_android_events = cfg!(target_os = "android")
                 && std::env::var_os("FISSION_DEBUG_ANDROID_EVENTS").is_some();
@@ -6652,6 +6758,54 @@ where
                         window.request_redraw();
                     }
                     TestEvent::Wake => {
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            let activations = web_link_activation_queue
+                                .borrow_mut()
+                                .drain(..)
+                                .collect::<Vec<_>>();
+                            for target in activations {
+                                let semantics = pipeline.prev_ir.as_ref().and_then(|ir| {
+                                    ir.nodes.get(&target).and_then(|node| match &node.op {
+                                        Op::Semantics(semantics) => Some(semantics.clone()),
+                                        _ => None,
+                                    })
+                                });
+                                if let (Some(ir), Some(semantics)) =
+                                    (pipeline.prev_ir.as_ref(), semantics)
+                                {
+                                    if dispatch_semantics_action(
+                                        ir,
+                                        &mut runtime,
+                                        target,
+                                        &semantics,
+                                        ActionTrigger::Default,
+                                        ActionInput::None,
+                                    ) {
+                                        invalidations.mark_build();
+                                    }
+                                }
+                            }
+                            let mut newest_route = None;
+                            while let Some(location) = browser_route_queue.borrow_mut().pop_front()
+                            {
+                                newest_route = Some(location);
+                            }
+                            if let Some(location) = newest_route {
+                                if env.current_route != location {
+                                    env.current_route = location.clone();
+                                    if let Err(error) = runtime.dispatch(
+                                        fission_core::ShellRouteChanged { location }.into(),
+                                        WidgetId::from_u128(0),
+                                    ) {
+                                        eprintln!(
+                                            "fission-shell-winit: browser route dispatch failed: {error}"
+                                        );
+                                    }
+                                    invalidations.mark_build();
+                                }
+                            }
+                        }
                         #[cfg(target_os = "macos")]
                         let handled_notification_response = {
                             let responses = notification_response_queue
@@ -6921,6 +7075,74 @@ where
                     }
                     #[cfg(target_os = "android")]
                     drain_pending_test_events();
+                    for command in runtime.take_pending_navigation() {
+                        #[cfg(target_arch = "wasm32")]
+                        match navigation::apply_browser_navigation(
+                            &command,
+                            &web_navigation_config,
+                            active_web_route_strategy.get(),
+                        ) {
+                            Ok(true) => {
+                                match navigation::current_browser_location(&web_navigation_config) {
+                                    Ok((location, resolved)) => {
+                                        active_web_route_strategy.set(resolved);
+                                        if env.current_route != location {
+                                            env.current_route = location.clone();
+                                            if let Err(error) = runtime.dispatch(
+                                                fission_core::ShellRouteChanged { location }.into(),
+                                                WidgetId::from_u128(0),
+                                            ) {
+                                                eprintln!(
+                                                "fission-shell-winit: navigation dispatch failed: {error}"
+                                            );
+                                            }
+                                            invalidations.mark_build();
+                                        }
+                                    }
+                                    Err(error) => eprintln!(
+                                    "fission-shell-winit: cannot read browser location: {error}"
+                                ),
+                                }
+                            }
+                            Ok(false) => {}
+                            Err(error) => {
+                                eprintln!("fission-shell-winit: browser navigation failed: {error}")
+                            }
+                        }
+                        #[cfg(not(target_arch = "wasm32"))]
+                        {
+                            if let fission_core::NavigationCommand::Open(link) = &command {
+                                if !navigation::is_internal_route(&link.href)
+                                    || !matches!(link.target, fission_core::LinkTarget::Current)
+                                {
+                                    if let Err(error) = open_host_url(&link.href, false) {
+                                        eprintln!(
+                                            "fission-shell-winit: opening navigation target failed: {error}"
+                                        );
+                                    }
+                                    continue;
+                                }
+                            }
+                            if matches!(command, fission_core::NavigationCommand::Reload) {
+                                invalidations.mark_build();
+                                continue;
+                            }
+                            if let Some(location) = navigation_history.apply(&command) {
+                                if env.current_route != location {
+                                    env.current_route = location.clone();
+                                    if let Err(error) = runtime.dispatch(
+                                        fission_core::ShellRouteChanged { location }.into(),
+                                        WidgetId::from_u128(0),
+                                    ) {
+                                        eprintln!(
+                                            "fission-shell-winit: navigation dispatch failed: {error}"
+                                        );
+                                    }
+                                    invalidations.mark_build();
+                                }
+                            }
+                        }
+                    }
                     #[cfg(feature = "tray")]
                     if let (Some(rx), Some(active)) = (tray_event_rx.as_ref(), active_tray.as_ref())
                     {
@@ -8523,6 +8745,28 @@ where
                                             );
                                         }
 
+                                        if let (Some(overlay), Some(ir), Some(layout)) = (
+                                            web_link_overlay.as_mut(),
+                                            pipeline.prev_ir.as_ref(),
+                                            pipeline.last_snapshot.as_ref(),
+                                        ) {
+                                            let records = collect_semantic_records(
+                                                ir,
+                                                layout,
+                                                &runtime.runtime_state.scroll,
+                                            );
+                                            if let Err(error) = overlay.sync(
+                                                &records,
+                                                target_viewport,
+                                                &web_link_activation_queue,
+                                                &event_proxy,
+                                            ) {
+                                                eprintln!(
+                                                    "fission-shell-winit: link DOM projection failed: {error}"
+                                                );
+                                            }
+                                        }
+
                                         diag::end_frame(diag::FrameStats::default());
                                     }
                                     #[cfg(not(target_arch = "wasm32"))]
@@ -9371,6 +9615,29 @@ where
                             pending_web_input_at.get_or_insert_with(Instant::now);
                             if event.state.is_pressed() {
                                 use winit::keyboard::{Key, NamedKey};
+                                let history_command = match &event.logical_key {
+                                    Key::Named(NamedKey::BrowserBack) => {
+                                        Some(fission_core::NavigationCommand::Back)
+                                    }
+                                    Key::Named(NamedKey::BrowserForward) => {
+                                        Some(fission_core::NavigationCommand::Forward)
+                                    }
+                                    _ => None,
+                                };
+                                if let Some(command) = history_command {
+                                    if let Err(error) = runtime.dispatch(
+                                        fission_core::NavigationRequested::new(command).into(),
+                                        WidgetId::from_u128(0),
+                                    ) {
+                                        eprintln!(
+                                            "fission-shell-winit: history key dispatch failed: {error}"
+                                        );
+                                    }
+                                    invalidations.mark_build();
+                                    window.request_redraw();
+                                    redraw_pending = true;
+                                    return;
+                                }
                                 let key_code = match &event.logical_key {
                                     Key::Named(NamedKey::Space) => Some(KeyCode::Space),
                                     Key::Named(NamedKey::Enter) => Some(KeyCode::Enter),

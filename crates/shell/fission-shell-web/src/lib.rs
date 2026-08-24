@@ -12,7 +12,8 @@ pub use fission_shell_winit::{
     PasskeyHost, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedBluetoothHost,
     UnsupportedCameraHost, UnsupportedGeolocationHost, UnsupportedHapticHost,
     UnsupportedMicrophoneHost, UnsupportedNfcHost, UnsupportedNotificationHost,
-    UnsupportedPasskeyHost, UnsupportedVolumeHost, UnsupportedWifiHost, VolumeHost, WifiHost,
+    UnsupportedPasskeyHost, UnsupportedVolumeHost, UnsupportedWifiHost, VolumeHost,
+    WebNavigationConfig, WebRouteStrategy, WifiHost,
 };
 
 pub struct WebApp<S: GlobalState, W>
@@ -80,6 +81,12 @@ where
 
     pub fn with_startup_action<A: Action>(mut self, action: A) -> Self {
         self.inner = self.inner.with_startup_action(action);
+        self
+    }
+
+    /// Configures pathname/hash routing and the Web deployment base path.
+    pub fn with_navigation(mut self, config: WebNavigationConfig) -> Self {
+        self.inner = self.inner.with_web_navigation(config);
         self
     }
 
