@@ -1,0 +1,41 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Fission SQLite Web smoke test</title>
+<body data-status="running">
+  <script type="module">
+    import { installFissionSqlite } from "/assets/web/fission-sqlite.mjs";
+
+    installFissionSqlite();
+    try {
+      await globalThis.__fissionSqliteRequest({
+        operation: "sql_execute",
+        request: {
+          sql: "CREATE TABLE IF NOT EXISTS browser_smoke(id INTEGER PRIMARY KEY, value TEXT)",
+          parameters: "None",
+        },
+      });
+      await globalThis.__fissionSqliteRequest({
+        operation: "sql_execute",
+        request: {
+          sql: "INSERT INTO browser_smoke(value) VALUES (?1)",
+          parameters: { Positional: [{ Text: "OPFS works" }] },
+        },
+      });
+      const rows = await globalThis.__fissionSqliteRequest({
+        operation: "sql_query",
+        request: {
+          statement: {
+            sql: "SELECT value FROM browser_smoke ORDER BY id DESC LIMIT 1",
+            parameters: "None",
+          },
+        },
+      });
+      const value = rows.rows[0].values[0].Text;
+      document.body.dataset.status = value === "OPFS works" ? "passed" : "failed";
+      document.body.textContent = value;
+    } catch (error) {
+      document.body.dataset.status = "failed";
+      document.body.textContent = error instanceof Error ? error.stack : String(error);
+    }
+  </script>
+</body>

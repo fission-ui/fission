@@ -30,14 +30,15 @@ function sqlValue(value) {
   throw new Error("invalid SQL value");
 }
 
-function wireValue(value) {
-  if (value == null) return "Null";
-  if (value instanceof Uint8Array) return { Blob: Array.from(value) };
-  if (typeof value === "bigint") return { Integer: value };
-  if (typeof value === "number") {
-    return Number.isInteger(value) ? { Integer: value } : { Real: value };
+function wireValue(value, sqliteType) {
+  switch (sqliteType) {
+    case sqlite3.capi.SQLITE_NULL: return "Null";
+    case sqlite3.capi.SQLITE_INTEGER: return { Integer: value };
+    case sqlite3.capi.SQLITE_FLOAT: return { Real: value };
+    case sqlite3.capi.SQLITE_BLOB: return { Blob: Array.from(value) };
+    case sqlite3.capi.SQLITE_TEXT: return { Text: value };
+    default: throw new Error(`unsupported SQLite value type: ${sqliteType}`);
   }
-  return { Text: String(value) };
 }
 
 function bindings(parameters) {
@@ -59,23 +60,24 @@ function execute(statement) {
 }
 
 function query(statement) {
-  const resultRows = [];
-  const columnNames = [];
-  db.exec({
-    sql: statement.sql,
-    bind: bindings(statement.parameters),
-    rowMode: "array",
-    resultRows,
-    columnNames,
-  });
-  const columns = columnNames.map((name) => ({ name, declared_type: null }));
-  return {
-    columns,
-    rows: resultRows.map((values) => ({
-      columns,
-      values: values.map(wireValue),
-    })),
-  };
+  const prepared = db.prepare(statement.sql);
+  try {
+    const bound = bindings(statement.parameters);
+    if (bound !== undefined) prepared.bind(bound);
+    const columns = prepared
+      .getColumnNames()
+      .map((name) => ({ name, declared_type: null }));
+    const rows = [];
+    while (prepared.step()) {
+      const values = prepared.get([]).map((value, index) =>
+        wireValue(value, sqlite3.capi.sqlite3_column_type(prepared.pointer, index))
+      );
+      rows.push({ columns, values });
+    }
+    return { columns, rows };
+  } finally {
+    prepared.finalize();
+  }
 }
 
 function scopeParts(scope) {
