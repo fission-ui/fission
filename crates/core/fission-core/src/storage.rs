@@ -2,9 +2,9 @@
 
 use crate::{CapabilityType, OperationCapability};
 use fission_store::{
-    SqlError, SqlExecuteResult, SqlQuery, SqlRows, SqlStatement, SqlTransaction,
-    SqlTransactionResult, StoreBatch, StoreBatchResult, StoreContains, StoreEntry, StoreError,
-    StoreGet, StoreListPrefix, StoreRemove, StoreSet, StoreValue,
+    SqlError, SqlExecuteResult, SqlMigrationResult, SqlMigrations, SqlQuery, SqlRows, SqlStatement,
+    SqlTransaction, SqlTransactionResult, StoreBatch, StoreBatchResult, StoreContains, StoreEntry,
+    StoreError, StoreGet, StoreListPrefix, StoreRemove, StoreSet, StoreValue,
 };
 
 pub struct StoreGetCapability;
@@ -88,6 +88,15 @@ impl OperationCapability for SqlTransactionCapability {
 }
 
 #[cfg(feature = "store-sql")]
+pub struct SqlMigrateCapability;
+#[cfg(feature = "store-sql")]
+impl OperationCapability for SqlMigrateCapability {
+    type Request = SqlMigrations;
+    type Ok = SqlMigrationResult;
+    type Err = SqlError;
+}
+
+#[cfg(feature = "store-sql")]
 pub const SQL_EXECUTE: CapabilityType<SqlExecuteCapability> =
     CapabilityType::new("fission.store.sql.execute");
 #[cfg(feature = "store-sql")]
@@ -96,3 +105,6 @@ pub const SQL_QUERY: CapabilityType<SqlQueryCapability> =
 #[cfg(feature = "store-sql")]
 pub const SQL_TRANSACTION: CapabilityType<SqlTransactionCapability> =
     CapabilityType::new("fission.store.sql.transaction");
+#[cfg(feature = "store-sql")]
+pub const SQL_MIGRATE: CapabilityType<SqlMigrateCapability> =
+    CapabilityType::new("fission.store.sql.migrate");

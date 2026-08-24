@@ -285,6 +285,13 @@ pub struct SqlMigrations {
     migrations: BTreeMap<u64, SqlMigration>,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SqlMigrationResult {
+    pub previous_version: u64,
+    pub current_version: u64,
+    pub applied: u64,
+}
+
 impl SqlMigrations {
     pub fn new() -> Self {
         Self::default()

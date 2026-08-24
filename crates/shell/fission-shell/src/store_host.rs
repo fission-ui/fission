@@ -83,8 +83,12 @@ where
     registry.register_operation_capability(fission_core::SQL_QUERY, move |request, _| {
         operation.query(request)
     });
+    let operation = provider.clone();
     registry.register_operation_capability(fission_core::SQL_TRANSACTION, move |request, _| {
-        provider.transaction(request)
+        operation.transaction(request)
+    });
+    registry.register_operation_capability(fission_core::SQL_MIGRATE, move |request, _| {
+        provider.migrate(request)
     });
 }
 

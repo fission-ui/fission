@@ -1,10 +1,10 @@
 //! Browser SQLite provider backed by the official SQLite WASM OPFS VFS.
 
 use fission_store::{
-    SqlError, SqlErrorKind, SqlExecuteResult, SqlQuery, SqlRows, SqlStatement, SqlStoreProvider,
-    SqlTransaction, SqlTransactionResult, StoreBatch, StoreBatchResult, StoreContains, StoreEntry,
-    StoreError, StoreErrorKind, StoreFuture, StoreGet, StoreListPrefix, StoreProvider, StoreRemove,
-    StoreSet, StoreValue,
+    SqlError, SqlErrorKind, SqlExecuteResult, SqlMigrationResult, SqlMigrations, SqlQuery, SqlRows,
+    SqlStatement, SqlStoreProvider, SqlTransaction, SqlTransactionResult, StoreBatch,
+    StoreBatchResult, StoreContains, StoreEntry, StoreError, StoreErrorKind, StoreFuture, StoreGet,
+    StoreListPrefix, StoreProvider, StoreRemove, StoreSet, StoreValue,
 };
 use serde::{de::DeserializeOwned, Serialize};
 use wasm_bindgen::prelude::*;
@@ -136,5 +136,12 @@ impl SqlStoreProvider for WebSqliteStore {
                 .await
                 .map_err(sql_error)
         })
+    }
+
+    fn migrate(
+        &self,
+        migrations: SqlMigrations,
+    ) -> StoreFuture<Result<SqlMigrationResult, SqlError>> {
+        Box::pin(async move { request("sql_migrate", migrations).await.map_err(sql_error) })
     }
 }

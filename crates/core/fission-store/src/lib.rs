@@ -10,9 +10,9 @@ mod store;
 
 pub use provider::{SqlStoreProvider, StoreFuture, StoreProvider};
 pub use sql::{
-    FromSqlValue, SqlColumn, SqlError, SqlErrorKind, SqlExecuteResult, SqlMigration, SqlMigrations,
-    SqlParameters, SqlQuery, SqlRow, SqlRows, SqlStatement, SqlStepResult, SqlTransaction,
-    SqlTransactionResult, SqlTransactionStep, SqlValue,
+    FromSqlValue, SqlColumn, SqlError, SqlErrorKind, SqlExecuteResult, SqlMigration,
+    SqlMigrationResult, SqlMigrations, SqlParameters, SqlQuery, SqlRow, SqlRows, SqlStatement,
+    SqlStepResult, SqlTransaction, SqlTransactionResult, SqlTransactionStep, SqlValue,
 };
 pub use store::{
     StoreAddress, StoreBatch, StoreBatchOperation, StoreBatchResult, StoreContains, StoreEntry,

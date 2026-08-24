@@ -1,7 +1,7 @@
 use crate::{
-    SqlError, SqlExecuteResult, SqlQuery, SqlRows, SqlStatement, SqlTransaction,
-    SqlTransactionResult, StoreBatch, StoreBatchResult, StoreContains, StoreEntry, StoreError,
-    StoreGet, StoreListPrefix, StoreRemove, StoreSet, StoreValue,
+    SqlError, SqlExecuteResult, SqlMigrationResult, SqlMigrations, SqlQuery, SqlRows, SqlStatement,
+    SqlTransaction, SqlTransactionResult, StoreBatch, StoreBatchResult, StoreContains, StoreEntry,
+    StoreError, StoreGet, StoreListPrefix, StoreRemove, StoreSet, StoreValue,
 };
 use std::future::Future;
 use std::pin::Pin;
@@ -46,4 +46,9 @@ pub trait SqlStoreProvider: StoreProvider {
         &self,
         transaction: SqlTransaction,
     ) -> StoreFuture<Result<SqlTransactionResult, SqlError>>;
+
+    fn migrate(
+        &self,
+        migrations: SqlMigrations,
+    ) -> StoreFuture<Result<SqlMigrationResult, SqlError>>;
 }

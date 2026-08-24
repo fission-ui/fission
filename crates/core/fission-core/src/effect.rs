@@ -540,10 +540,16 @@ impl ActionInput {
     }
 
     #[cfg(feature = "store-sql")]
+    pub fn sql_migration_result(&self) -> Option<fission_store::SqlMigrationResult> {
+        self.capability_ok(crate::storage::SQL_MIGRATE)
+    }
+
+    #[cfg(feature = "store-sql")]
     pub fn sql_error(&self) -> Option<fission_store::SqlError> {
         self.capability_error(crate::storage::SQL_EXECUTE)
             .or_else(|| self.capability_error(crate::storage::SQL_QUERY))
             .or_else(|| self.capability_error(crate::storage::SQL_TRANSACTION))
+            .or_else(|| self.capability_error(crate::storage::SQL_MIGRATE))
     }
 
     pub fn service_event<S: ServiceSpec>(&self, service: ServiceType<S>) -> Option<S::Event> {

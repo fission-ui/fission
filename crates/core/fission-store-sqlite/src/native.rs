@@ -1,9 +1,9 @@
 use fission_store::{
-    SqlColumn, SqlError, SqlErrorKind, SqlExecuteResult, SqlParameters, SqlQuery, SqlRow, SqlRows,
-    SqlStatement, SqlStepResult, SqlStoreProvider, SqlTransaction, SqlTransactionResult,
-    SqlTransactionStep, SqlValue, StoreAddress, StoreBatch, StoreBatchOperation, StoreBatchResult,
-    StoreContains, StoreEntry, StoreError, StoreErrorKind, StoreFuture, StoreGet, StoreListPrefix,
-    StoreProvider, StoreRemove, StoreSet, StoreValue,
+    SqlColumn, SqlError, SqlErrorKind, SqlExecuteResult, SqlMigrationResult, SqlMigrations,
+    SqlParameters, SqlQuery, SqlRow, SqlRows, SqlStatement, SqlStepResult, SqlStoreProvider,
+    SqlTransaction, SqlTransactionResult, SqlTransactionStep, SqlValue, StoreAddress, StoreBatch,
+    StoreBatchOperation, StoreBatchResult, StoreContains, StoreEntry, StoreError, StoreErrorKind,
+    StoreFuture, StoreGet, StoreListPrefix, StoreProvider, StoreRemove, StoreSet, StoreValue,
 };
 use rusqlite::types::{Value, ValueRef};
 use rusqlite::{Connection, ErrorCode, Statement};
@@ -190,6 +190,47 @@ impl SqlStoreProvider for SqliteStore {
             }
             transaction.commit().map_err(map_sql_error)?;
             Ok(SqlTransactionResult { steps: results })
+        })
+    }
+
+    fn migrate(
+        &self,
+        migrations: SqlMigrations,
+    ) -> StoreFuture<Result<SqlMigrationResult, SqlError>> {
+        let this = self.clone();
+        Box::pin(async move {
+            let mut connection = this.connection()?;
+            let previous_version = connection
+                .query_row("PRAGMA user_version", [], |row| row.get::<_, u64>(0))
+                .map_err(map_sql_error)?;
+            let transaction = connection.transaction().map_err(map_sql_error)?;
+            let mut current_version = previous_version;
+            let mut applied = 0;
+            for migration in migrations
+                .iter()
+                .filter(|migration| migration.version > previous_version)
+            {
+                transaction.execute_batch(&migration.sql).map_err(|error| {
+                    SqlError::new(
+                        SqlErrorKind::Migration,
+                        format!(
+                            "migration {} ({}) failed: {error}",
+                            migration.version, migration.name
+                        ),
+                    )
+                })?;
+                transaction
+                    .pragma_update(None, "user_version", migration.version)
+                    .map_err(map_sql_error)?;
+                current_version = migration.version;
+                applied += 1;
+            }
+            transaction.commit().map_err(map_sql_error)?;
+            Ok(SqlMigrationResult {
+                previous_version,
+                current_version,
+                applied,
+            })
         })
     }
 }
@@ -433,10 +474,16 @@ mod tests {
     #[test]
     fn arbitrary_sql_and_incrementally_built_transactions_execute() {
         let store = SqliteStore::open_in_memory().unwrap();
-        run(store.execute(SqlStatement::new(
-            "CREATE TABLE projects(id INTEGER PRIMARY KEY, name TEXT NOT NULL)",
-        )))
-        .unwrap();
+        let mut migrations = SqlMigrations::new();
+        migrations
+            .add(fission_store::SqlMigration::new(
+                1,
+                "create projects",
+                "CREATE TABLE projects(id INTEGER PRIMARY KEY, name TEXT NOT NULL)",
+            ))
+            .unwrap();
+        assert_eq!(run(store.migrate(migrations.clone())).unwrap().applied, 1);
+        assert_eq!(run(store.migrate(migrations)).unwrap().applied, 0);
 
         let mut transaction = SqlTransaction::new();
         transaction

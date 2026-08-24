@@ -167,6 +167,28 @@ function sqlTransaction(request) {
   return { steps };
 }
 
+function sqlMigrate(request) {
+  const previousVersion = Number(db.selectValue("PRAGMA user_version"));
+  let currentVersion = previousVersion;
+  let applied = 0;
+  const migrations = Object.values(request.migrations)
+    .filter((migration) => migration.version > previousVersion)
+    .sort((left, right) => left.version - right.version);
+  db.transaction(() => {
+    for (const migration of migrations) {
+      db.exec(migration.sql);
+      db.exec(`PRAGMA user_version = ${Number(migration.version)}`);
+      currentVersion = migration.version;
+      applied += 1;
+    }
+  });
+  return {
+    previous_version: previousVersion,
+    current_version: currentVersion,
+    applied,
+  };
+}
+
 function dispatch(operation, request) {
   switch (operation) {
     case "store_get": return storeGet(request);
@@ -178,6 +200,7 @@ function dispatch(operation, request) {
     case "sql_execute": return execute(request);
     case "sql_query": return query(request.statement);
     case "sql_transaction": return sqlTransaction(request);
+    case "sql_migrate": return sqlMigrate(request);
     default: throw new Error(`unsupported SQLite operation: ${operation}`);
   }
 }

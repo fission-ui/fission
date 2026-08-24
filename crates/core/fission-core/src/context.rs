@@ -1296,6 +1296,11 @@ impl<'a, 'b, S: GlobalState> SqlEffects<'a, 'b, S> {
     ) -> EffectBuilder<'a, 'b, S> {
         self.effects.capability(SQL_TRANSACTION, transaction)
     }
+
+    pub fn migrate(self, migrations: fission_store::SqlMigrations) -> EffectBuilder<'a, 'b, S> {
+        self.effects
+            .capability(crate::storage::SQL_MIGRATE, migrations)
+    }
 }
 
 pub struct EffectBuilder<'a, 'b, S: GlobalState> {

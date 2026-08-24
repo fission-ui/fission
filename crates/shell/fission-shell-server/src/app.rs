@@ -993,6 +993,19 @@ fn execute_store_capability(
             };
             encode(result)
         }
+        #[cfg(feature = "store-sql")]
+        name if name == fission_core::SQL_MIGRATE.name => {
+            let result = match ctx.sql_store {
+                Some(store) => {
+                    futures_lite::future::block_on(store.migrate(decode(&operation.request)?))
+                }
+                None => Err(fission_store::SqlError::new(
+                    fission_store::SqlErrorKind::Unavailable,
+                    "the configured server store does not implement SQL",
+                )),
+            };
+            encode(result)
+        }
         _ => return Ok(None),
     };
     Ok(Some(result))
