@@ -8,19 +8,19 @@ targets = [
 [app]
 name = "example-showcase"
 app_id = "rs.fission.examples.showcase"
-version = "0.12.0"
+version = "0.13.0"
 build = 1
 
 [package.macos]
 bundle_id = "rs.fission.examples.showcase"
-marketing_version = "0.12.0"
+marketing_version = "0.13.0"
 build_number = "1"
 minimum_os = "13.0"
 
 [package.windows]
 identity_name = "rs.fission.examples.showcase"
 publisher = "CN=Fission Developer"
-version = "0.12.0"
+version = "0.13.0"
 installer = "msix"
 certificate_thumbprint_env = "WINDOWS_CERTIFICATE_THUMBPRINT"
 certificate_base64_env = "WINDOWS_CERTIFICATE_BASE64"
