@@ -161,6 +161,27 @@ pub mod diagnostics {
     pub use fission_diagnostics::*;
 }
 
+/// Persistent key/value storage contracts.
+#[cfg(feature = "store")]
+pub mod store {
+    pub use fission_store::*;
+}
+
+/// SQLite-compatible query and transaction contracts.
+#[cfg(feature = "store-sql")]
+pub mod sql {
+    pub use fission_store::{
+        FromSqlValue, SqlColumn, SqlError, SqlErrorKind, SqlExecuteResult, SqlMigration,
+        SqlMigrations, SqlParameters, SqlQuery, SqlRow, SqlRows, SqlStatement, SqlStepResult,
+        SqlTransaction, SqlTransactionResult, SqlTransactionStep, SqlValue,
+    };
+}
+
+#[cfg(any(feature = "store-sqlite-native", feature = "store-sqlite-web"))]
+pub mod sqlite {
+    pub use fission_store_sqlite::*;
+}
+
 pub use fission_core::Bytes;
 /// Serialization traits and derives used by Fission action macros.
 pub use serde;

@@ -518,6 +518,7 @@ impl ActionInput {
     pub fn store_error(&self) -> Option<fission_store::StoreError> {
         self.capability_error(crate::storage::STORE_GET)
             .or_else(|| self.capability_error(crate::storage::STORE_SET))
+            .or_else(|| self.capability_error(crate::storage::STORE_CONTAINS))
             .or_else(|| self.capability_error(crate::storage::STORE_REMOVE))
             .or_else(|| self.capability_error(crate::storage::STORE_BATCH))
             .or_else(|| self.capability_error(crate::storage::STORE_LIST_PREFIX))
@@ -526,6 +527,11 @@ impl ActionInput {
     #[cfg(feature = "store-sql")]
     pub fn sql_rows(&self) -> Option<fission_store::SqlRows> {
         self.capability_ok(crate::storage::SQL_QUERY)
+    }
+
+    #[cfg(feature = "store-sql")]
+    pub fn sql_execute_result(&self) -> Option<fission_store::SqlExecuteResult> {
+        self.capability_ok(crate::storage::SQL_EXECUTE)
     }
 
     #[cfg(feature = "store-sql")]

@@ -1,7 +1,7 @@
 use crate::{
     SqlError, SqlExecuteResult, SqlQuery, SqlRows, SqlStatement, SqlTransaction,
-    SqlTransactionResult, StoreBatch, StoreBatchResult, StoreEntry, StoreError, StoreGet,
-    StoreListPrefix, StoreRemove, StoreSet, StoreValue,
+    SqlTransactionResult, StoreBatch, StoreBatchResult, StoreContains, StoreEntry, StoreError,
+    StoreGet, StoreListPrefix, StoreRemove, StoreSet, StoreValue,
 };
 use std::future::Future;
 use std::pin::Pin;
@@ -23,6 +23,7 @@ pub type StoreFuture<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
 /// require SQL accept [`SqlStoreProvider`] instead.
 pub trait StoreProvider: 'static {
     fn get(&self, request: StoreGet) -> StoreFuture<Result<Option<StoreValue>, StoreError>>;
+    fn contains(&self, request: StoreContains) -> StoreFuture<Result<bool, StoreError>>;
     fn set(&self, request: StoreSet) -> StoreFuture<Result<(), StoreError>>;
     fn remove(&self, request: StoreRemove) -> StoreFuture<Result<bool, StoreError>>;
     fn batch(&self, request: StoreBatch) -> StoreFuture<Result<StoreBatchResult, StoreError>>;

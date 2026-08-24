@@ -164,6 +164,13 @@ impl AsyncRegistry {
         Self::default()
     }
 
+    pub fn has_operation_capability<C: OperationCapability>(
+        &self,
+        capability: CapabilityType<C>,
+    ) -> bool {
+        self.operations.contains_key(capability.name)
+    }
+
     pub fn register_operation_capability<C, F, Fut>(
         &mut self,
         capability: CapabilityType<C>,

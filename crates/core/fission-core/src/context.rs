@@ -77,7 +77,9 @@ use crate::registry::{ActionRegistry, IntoHandler};
 #[cfg(feature = "store-sql")]
 use crate::storage::{SQL_EXECUTE, SQL_QUERY, SQL_TRANSACTION};
 #[cfg(feature = "store")]
-use crate::storage::{STORE_BATCH, STORE_GET, STORE_LIST_PREFIX, STORE_REMOVE, STORE_SET};
+use crate::storage::{
+    STORE_BATCH, STORE_CONTAINS, STORE_GET, STORE_LIST_PREFIX, STORE_REMOVE, STORE_SET,
+};
 use crate::EffectCallbackRegistry;
 use std::{
     marker::PhantomData,
@@ -1243,6 +1245,15 @@ impl<'a, 'b, S: GlobalState> StoreEffects<'a, 'b, S> {
 
     pub fn set_raw(self, request: fission_store::StoreSet) -> EffectBuilder<'a, 'b, S> {
         self.effects.capability(STORE_SET, request)
+    }
+
+    pub fn contains<T>(self, key: fission_store::StoreKey<T>) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(
+            STORE_CONTAINS,
+            fission_store::StoreContains {
+                address: key.into_address(),
+            },
+        )
     }
 
     pub fn remove<T>(self, key: fission_store::StoreKey<T>) -> EffectBuilder<'a, 'b, S> {

@@ -140,6 +140,11 @@ pub struct StoreGet {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoreContains {
+    pub address: StoreAddress,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StoreSet {
     pub address: StoreAddress,
     pub value: StoreValue,

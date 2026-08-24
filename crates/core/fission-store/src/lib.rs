@@ -15,7 +15,7 @@ pub use sql::{
     SqlTransactionResult, SqlTransactionStep, SqlValue,
 };
 pub use store::{
-    StoreAddress, StoreBatch, StoreBatchOperation, StoreBatchResult, StoreEntry, StoreError,
-    StoreErrorKind, StoreGet, StoreKey, StoreListPrefix, StoreRemove, StoreScope, StoreSet,
-    StoreValue,
+    StoreAddress, StoreBatch, StoreBatchOperation, StoreBatchResult, StoreContains, StoreEntry,
+    StoreError, StoreErrorKind, StoreGet, StoreKey, StoreListPrefix, StoreRemove, StoreScope,
+    StoreSet, StoreValue,
 };

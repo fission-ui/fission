@@ -18,6 +18,9 @@ readme = "README.md"
 default = []
 three-d = ["fission-shell-winit/three-d"]
 video = ["fission-shell-winit/video"]
+store = ["fission-core/store", "fission-shell-winit/store"]
+store-sql = ["store", "fission-core/store-sql", "fission-shell-winit/store-sql"]
+store-sqlite-web = ["store-sql", "fission-shell-winit/store-sqlite-web"]
 
 [dependencies]
 anyhow = "1.0"

@@ -19,6 +19,18 @@ default = []
 tray = ["dep:tray-icon", "dep:gtk"]
 three-d = ["dep:fission-3d"]
 video = ["dep:gstreamer", "dep:gstreamer-video"]
+store = ["fission-core/store", "dep:fission-store"]
+store-sql = ["store", "fission-core/store-sql"]
+store-sqlite-native = [
+    "store-sql",
+    "dep:fission-store-sqlite",
+    "fission-store-sqlite/native",
+]
+store-sqlite-web = [
+    "store-sql",
+    "dep:fission-store-sqlite",
+    "fission-store-sqlite/web",
+]
 
 [dependencies]
 fission-shell = { path = "../fission-shell", version = "0.13.0" }
@@ -30,6 +42,8 @@ fission-ir = { path = "../../core/fission-ir", version = "0.13.0" }
 fission-semantics = { path = "../../core/fission-semantics", version = "0.13.0" }
 fission-theme = { path = "../../core/fission-theme", version = "0.13.0" }
 fission-3d = { path = "../../core/fission-3d", optional = true, version = "0.13.0" }
+fission-store = { path = "../../core/fission-store", optional = true, version = "0.13.0" }
+fission-store-sqlite = { path = "../../core/fission-store-sqlite", optional = true, version = "0.13.0", default-features = false }
 winit = { package = "fission-winit", version = "0.30.13-fission.2" }
 fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.13.0" }
 fission-test-driver = { path = "../../tools/fission-test-driver", version = "0.13.0" }

@@ -2,8 +2,8 @@ use fission_store::{
     SqlColumn, SqlError, SqlErrorKind, SqlExecuteResult, SqlParameters, SqlQuery, SqlRow, SqlRows,
     SqlStatement, SqlStepResult, SqlStoreProvider, SqlTransaction, SqlTransactionResult,
     SqlTransactionStep, SqlValue, StoreAddress, StoreBatch, StoreBatchOperation, StoreBatchResult,
-    StoreEntry, StoreError, StoreErrorKind, StoreFuture, StoreGet, StoreListPrefix, StoreProvider,
-    StoreRemove, StoreSet, StoreValue,
+    StoreContains, StoreEntry, StoreError, StoreErrorKind, StoreFuture, StoreGet, StoreListPrefix,
+    StoreProvider, StoreRemove, StoreSet, StoreValue,
 };
 use rusqlite::types::{Value, ValueRef};
 use rusqlite::{Connection, ErrorCode, Statement};
@@ -48,6 +48,21 @@ impl StoreProvider for SqliteStore {
         Box::pin(async move {
             let connection = this.connection().map_err(sql_to_store_error)?;
             get_value(&connection, &request.address)
+        })
+    }
+
+    fn contains(&self, request: StoreContains) -> StoreFuture<Result<bool, StoreError>> {
+        let this = self.clone();
+        Box::pin(async move {
+            let connection = this.connection().map_err(sql_to_store_error)?;
+            let (scope, owner) = request.address.scope.parts();
+            connection
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM fission WHERE scope = ?1 AND owner = ?2 AND namespace = ?3 AND key = ?4)",
+                    rusqlite::params![scope, owner, request.address.namespace, request.address.key],
+                    |row| row.get::<_, bool>(0),
+                )
+                .map_err(map_store_error)
         })
     }
 
@@ -387,6 +402,15 @@ mod tests {
                 value: b"light".to_vec().into(),
             });
         assert_eq!(run(store.batch(batch)).unwrap().sets, 2);
+
+        assert!(run(store.contains(StoreContains {
+            address: application.clone(),
+        }))
+        .unwrap());
+        assert!(!run(store.contains(StoreContains {
+            address: StoreAddress::new("settings", "missing"),
+        }))
+        .unwrap());
 
         assert_eq!(
             run(store.get(StoreGet {

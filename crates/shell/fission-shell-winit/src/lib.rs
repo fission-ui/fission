@@ -115,6 +115,8 @@ use renderer_diagnostics::renderer_request_from_value;
 use renderer_diagnostics::{emit_renderer_report, RendererReport, RendererRequest};
 mod software_fonts;
 mod software_renderer;
+#[cfg(feature = "store")]
+mod storage;
 #[cfg(target_arch = "wasm32")]
 mod web_console;
 mod web_input;
@@ -5154,6 +5156,46 @@ where
         self.runtime.absorb_persistent_registry(registry);
     }
 
+    /// Replaces the default key/value store with an application provider.
+    #[cfg(all(feature = "store", not(target_arch = "wasm32")))]
+    pub fn with_store_provider<P>(mut self, provider: P) -> Self
+    where
+        P: fission_store::StoreProvider + Send + Sync,
+    {
+        storage::register_store_provider(&mut self.async_registry, Arc::new(provider));
+        self
+    }
+
+    /// Replaces the default key/value store with an application provider.
+    #[cfg(all(feature = "store", target_arch = "wasm32"))]
+    pub fn with_store_provider<P>(mut self, provider: P) -> Self
+    where
+        P: fission_store::StoreProvider,
+    {
+        storage::register_store_provider(&mut self.async_registry, Arc::new(provider));
+        self
+    }
+
+    /// Replaces the default SQLite provider with a provider that proves SQL support.
+    #[cfg(all(feature = "store-sql", not(target_arch = "wasm32")))]
+    pub fn with_sql_store_provider<P>(mut self, provider: P) -> Self
+    where
+        P: fission_store::SqlStoreProvider + Send + Sync,
+    {
+        storage::register_sql_store_provider(&mut self.async_registry, Arc::new(provider));
+        self
+    }
+
+    /// Replaces the default SQLite provider with a provider that proves SQL support.
+    #[cfg(all(feature = "store-sql", target_arch = "wasm32"))]
+    pub fn with_sql_store_provider<P>(mut self, provider: P) -> Self
+    where
+        P: fission_store::SqlStoreProvider,
+    {
+        storage::register_sql_store_provider(&mut self.async_registry, Arc::new(provider));
+        self
+    }
+
     pub fn run(self) -> Result<()> {
         self.run_inner(
             #[cfg(target_os = "android")]
@@ -5173,6 +5215,8 @@ where
         #[cfg(target_arch = "wasm32")]
         web_console::install();
         diag::init_from_env();
+        #[cfg(all(feature = "store-sqlite-native", not(target_arch = "wasm32")))]
+        storage::register_default_native_store(&mut self.async_registry, &self.title)?;
         #[cfg(target_arch = "wasm32")]
         set_web_global_json("__FISSION_RENDERED_FRAME_COUNT", &0_u64);
         diag::emit(

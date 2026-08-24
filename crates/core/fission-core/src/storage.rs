@@ -3,8 +3,8 @@
 use crate::{CapabilityType, OperationCapability};
 use fission_store::{
     SqlError, SqlExecuteResult, SqlQuery, SqlRows, SqlStatement, SqlTransaction,
-    SqlTransactionResult, StoreBatch, StoreBatchResult, StoreEntry, StoreError, StoreGet,
-    StoreListPrefix, StoreRemove, StoreSet, StoreValue,
+    SqlTransactionResult, StoreBatch, StoreBatchResult, StoreContains, StoreEntry, StoreError,
+    StoreGet, StoreListPrefix, StoreRemove, StoreSet, StoreValue,
 };
 
 pub struct StoreGetCapability;
@@ -18,6 +18,13 @@ pub struct StoreSetCapability;
 impl OperationCapability for StoreSetCapability {
     type Request = StoreSet;
     type Ok = ();
+    type Err = StoreError;
+}
+
+pub struct StoreContainsCapability;
+impl OperationCapability for StoreContainsCapability {
+    type Request = StoreContains;
+    type Ok = bool;
     type Err = StoreError;
 }
 
@@ -44,6 +51,8 @@ impl OperationCapability for StoreListPrefixCapability {
 
 pub const STORE_GET: CapabilityType<StoreGetCapability> = CapabilityType::new("fission.store.get");
 pub const STORE_SET: CapabilityType<StoreSetCapability> = CapabilityType::new("fission.store.set");
+pub const STORE_CONTAINS: CapabilityType<StoreContainsCapability> =
+    CapabilityType::new("fission.store.contains");
 pub const STORE_REMOVE: CapabilityType<StoreRemoveCapability> =
     CapabilityType::new("fission.store.remove");
 pub const STORE_BATCH: CapabilityType<StoreBatchCapability> =

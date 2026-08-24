@@ -19,6 +19,9 @@ default = []
 tray = ["fission-shell-winit/tray"]
 three-d = ["fission-shell-winit/three-d"]
 video = ["fission-shell-winit/video"]
+store = ["fission-core/store", "fission-shell-winit/store"]
+store-sql = ["store", "fission-core/store-sql", "fission-shell-winit/store-sql"]
+store-sqlite-native = ["store-sql", "fission-shell-winit/store-sqlite-native"]
 
 [dependencies]
 fission-shell = { path = "../fission-shell", version = "0.13.0" }
