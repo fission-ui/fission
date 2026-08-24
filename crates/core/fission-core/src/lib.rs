@@ -58,6 +58,7 @@ pub mod input;
 pub(crate) mod lowering;
 pub mod media;
 pub mod motion;
+pub mod navigation;
 pub mod platform;
 pub mod platform_barcode;
 pub mod platform_biometric;
@@ -401,7 +402,10 @@ pub mod public {
         BoxAlignment, BoxGridPlacement, BoxPosition, BoxStyle, GridPlacement, GridTrack, Length,
         Overflow,
     };
-    pub use fission_ir::{EmbedKind, FocusPolicy, Op, Role, Semantics, WidgetId};
+    pub use fission_ir::{
+        EmbedKind, FocusPolicy, Hyperlink, LinkTarget, Op, PopoverAction, PopoverTarget, Role,
+        Semantics, WidgetId,
+    };
     pub use fission_layout::{
         BoxConstraints, FlexDirection, LayoutEngine, LayoutInspection, LayoutNodeGeometry,
         LayoutOp, LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot, LayoutUnit, TextMeasurer,
@@ -444,6 +448,7 @@ pub use env::{
     RouteLocation, RuntimeState, ScrollStateMap, WindowEnv, WindowTitle,
 };
 pub use motion::*;
+pub use navigation::{NavigationCommand, NavigationRequested};
 pub use runtime::Runtime;
 pub use state::{LocalStateKey, LocalStateStore, StateField};
 
@@ -457,7 +462,10 @@ pub use fission_ir::op::{
     BoxAlignment, BoxGridPlacement, BoxPosition, BoxStyle, GridPlacement, GridTrack, Length,
     Overflow,
 };
-pub use fission_ir::{EmbedKind, FocusPolicy, Op, Role, Semantics, WidgetId};
+pub use fission_ir::{
+    EmbedKind, FocusPolicy, Hyperlink, LinkTarget, Op, PopoverAction, PopoverTarget, Role,
+    Semantics, WidgetId,
+};
 pub use fission_layout::{
     BoxConstraints, FlexDirection, LayoutEngine, LayoutInspection, LayoutNodeGeometry, LayoutOp,
     LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot, LayoutUnit, TextMeasurer,

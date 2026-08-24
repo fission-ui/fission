@@ -241,6 +241,8 @@ impl InternalLower for Radio {
             } else {
                 "false".into()
             }),
+            hyperlink: None,
+            popover_target: None,
             actions: Default::default(),
             canvas_target: None,
             action_scope_id: None,
