@@ -1066,6 +1066,15 @@ mkdir -p "$(dirname "$artifact")"
         assert!(dir.join("platforms/web/README.md").exists());
         assert!(dir.join("platforms/web/index.html").exists());
         assert!(dir.join("platforms/web/bootstrap.mjs").exists());
+        assert!(dir.join("platforms/web/sqlite/sqlite3.wasm").exists());
+        assert!(dir.join("platforms/web/sqlite/sqlite3.mjs").exists());
+        assert!(dir
+            .join("platforms/web/sqlite/fission-sqlite-worker.mjs")
+            .exists());
+        let bootstrap = std::fs::read_to_string(dir.join("platforms/web/bootstrap.mjs")).unwrap();
+        assert!(
+            bootstrap.find("installFissionSqlite").unwrap() < bootstrap.find("await init").unwrap()
+        );
         assert!(dir.join("platforms/web/build-wasm.sh").exists());
         assert!(dir.join("platforms/web/run-browser.sh").exists());
         assert!(dir.join("platforms/web/test-browser.sh").exists());

@@ -12,11 +12,7 @@ struct AppState {
 impl GlobalState for AppState {}
 
 #[fission_reducer(PrepareDatabase)]
-fn prepare_database(
-    _state: &mut AppState,
-    _action: PrepareDatabase,
-    ctx: &mut ReducerContext<AppState>,
-) {
+fn prepare_database(_state: &mut AppState, ctx: &mut ReducerContext<AppState>) {
     let mut migrations = SqlMigrations::new();
     migrations
         .add(SqlMigration::new(
@@ -34,7 +30,7 @@ fn prepare_database(
 }
 
 #[fission_reducer(AddProject)]
-fn add_project(_state: &mut AppState, _action: AddProject, ctx: &mut ReducerContext<AppState>) {
+fn add_project(_state: &mut AppState, ctx: &mut ReducerContext<AppState>) {
     let mut transaction = transaction::new_project("A Fission project");
     transaction::append_audit(&mut transaction, "Project created");
     ctx.effects
@@ -45,7 +41,7 @@ fn add_project(_state: &mut AppState, _action: AddProject, ctx: &mut ReducerCont
 }
 
 #[fission_reducer(LoadProjects)]
-fn load_projects(_state: &mut AppState, _action: LoadProjects, ctx: &mut ReducerContext<AppState>) {
+fn load_projects(_state: &mut AppState, ctx: &mut ReducerContext<AppState>) {
     ctx.effects
         .sql()
         .query(SqlStatement::new(
@@ -56,11 +52,7 @@ fn load_projects(_state: &mut AppState, _action: LoadProjects, ctx: &mut Reducer
 }
 
 #[fission_reducer(ProjectsLoaded)]
-fn projects_loaded(
-    state: &mut AppState,
-    _action: ProjectsLoaded,
-    ctx: &mut ReducerContext<AppState>,
-) {
+fn projects_loaded(state: &mut AppState, ctx: &mut ReducerContext<AppState>) {
     let Some(rows) = ctx.input.sql_rows() else {
         return;
     };
@@ -73,11 +65,7 @@ fn projects_loaded(
 }
 
 #[fission_reducer(DatabaseFailed)]
-fn database_failed(
-    state: &mut AppState,
-    _action: DatabaseFailed,
-    ctx: &mut ReducerContext<AppState>,
-) {
+fn database_failed(state: &mut AppState, ctx: &mut ReducerContext<AppState>) {
     state.message = ctx
         .input
         .sql_error()
