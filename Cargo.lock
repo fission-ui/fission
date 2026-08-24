@@ -3221,6 +3221,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "fission-store"
+version = "0.13.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "fission-store-sqlite"
+version = "0.13.0"
+dependencies = [
+ "fission-store",
+ "futures-lite",
+ "js-sys",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
 name = "fission-test"
 version = "0.13.0"
 dependencies = [

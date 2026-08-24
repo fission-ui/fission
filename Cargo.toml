@@ -7,6 +7,8 @@ members = [
     "crates/core/fission-3d",
     "crates/core/fission-text-engine",
     "crates/core/fission-theme",
+    "crates/core/fission-store",
+    "crates/core/fission-store-sqlite",
     "crates/authoring/fission-macros",
     "crates/authoring/fission-widgets",
     "crates/authoring/fission-icons",
