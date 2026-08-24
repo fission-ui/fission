@@ -52,6 +52,23 @@ video = [
     "fission-shell-web?/video",
 ]
 web = ["dep:fission-shell-web", "interactive-canvas"]
+store = ["fission-core/store", "dep:fission-store"]
+store-sql = ["store", "fission-core/store-sql"]
+store-sqlite-native = [
+    "store-sql",
+    "dep:fission-store-sqlite",
+    "fission-store-sqlite/native",
+    "fission-shell-desktop?/store-sqlite-native",
+    "fission-shell-mobile?/store-sqlite-native",
+    "fission-shell-server?/store-sqlite-native",
+    "fission-shell-terminal?/store-sqlite-native",
+]
+store-sqlite-web = [
+    "store-sql",
+    "dep:fission-store-sqlite",
+    "fission-store-sqlite/web",
+    "fission-shell-web?/store-sqlite-web",
+]
 
 [dependencies]
 fission-core = { path = "../../core/fission-core", version = "0.13.0" }
@@ -65,6 +82,8 @@ fission-widgets = { path = "../fission-widgets", version = "0.13.0" }
 fission-macros = { path = "../fission-macros", version = "0.13.0" }
 fission-icons = { path = "../fission-icons", version = "0.13.0" }
 fission-charts = { path = "../fission-charts", version = "0.13.0", optional = true }
+fission-store = { path = "../../core/fission-store", version = "0.13.0", optional = true }
+fission-store-sqlite = { path = "../../core/fission-store-sqlite", version = "0.13.0", optional = true, default-features = false }
 fission-render = { path = "../../rendering/fission-render", version = "0.13.0" }
 fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.13.0", default-features = false }
 fission-shell-site = { path = "../../shell/fission-shell-site", version = "0.13.0", optional = true }

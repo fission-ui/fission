@@ -1066,6 +1066,9 @@ mkdir -p "$(dirname "$artifact")"
         assert!(dir.join("platforms/web/README.md").exists());
         assert!(dir.join("platforms/web/index.html").exists());
         assert!(dir.join("platforms/web/bootstrap.mjs").exists());
+        assert!(!dir.join("platforms/web/sqlite").exists());
+        let bootstrap = std::fs::read_to_string(dir.join("platforms/web/bootstrap.mjs")).unwrap();
+        assert!(!bootstrap.contains("installFissionSqlite"));
         assert!(dir.join("platforms/web/build-wasm.sh").exists());
         assert!(dir.join("platforms/web/run-browser.sh").exists());
         assert!(dir.join("platforms/web/test-browser.sh").exists());
@@ -1215,6 +1218,50 @@ mkdir -p "$(dirname "$artifact")"
         assert!(std::fs::read_to_string(dir.join("platforms/web/README.md"))
             .unwrap()
             .contains("fission run --target web"));
+    }
+
+    #[test]
+    fn storage_capability_adds_only_opted_in_features_and_web_assets() {
+        let dir = unique_dir("storage-capability");
+        run(["fission", "init", dir.to_str().unwrap()]).unwrap();
+        run([
+            "fission",
+            "add-target",
+            "web",
+            "--project-dir",
+            dir.to_str().unwrap(),
+        ])
+        .unwrap();
+
+        let manifest = std::fs::read_to_string(dir.join("Cargo.toml")).unwrap();
+        assert!(!manifest.contains("store-sqlite"));
+        assert!(!dir.join("platforms/web/sqlite").exists());
+
+        run([
+            "fission",
+            "add-capability",
+            "storage",
+            "--project-dir",
+            dir.to_str().unwrap(),
+        ])
+        .unwrap();
+
+        let project = read_project_config(&dir).unwrap();
+        assert!(project
+            .capabilities
+            .contains(&fission_command_core::PlatformCapability::Storage));
+        let manifest = std::fs::read_to_string(dir.join("Cargo.toml")).unwrap();
+        assert!(manifest.contains("store-sqlite-native"));
+        assert!(manifest.contains("store-sqlite-web"));
+        assert!(dir.join("platforms/web/sqlite/sqlite3.wasm").exists());
+        assert!(dir.join("platforms/web/sqlite/sqlite3.mjs").exists());
+        assert!(dir
+            .join("platforms/web/sqlite/fission-sqlite-worker.mjs")
+            .exists());
+        let bootstrap = std::fs::read_to_string(dir.join("platforms/web/bootstrap.mjs")).unwrap();
+        assert!(
+            bootstrap.find("installFissionSqlite").unwrap() < bootstrap.find("await init").unwrap()
+        );
     }
 
     #[test]

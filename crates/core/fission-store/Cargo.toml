@@ -1,0 +1,16 @@
+[package]
+name = "fission-store"
+version = "0.13.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/fission-ui/fission"
+description = "Portable storage and SQLite query contracts for Fission applications"
+categories = ["database", "wasm", "web-programming"]
+keywords = ["fission", "sqlite", "storage", "database", "cross-platform"]
+
+[package.metadata.fission]
+platforms = ["android", "ios", "linux", "macos", "windows", "web", "terminal", "ssr"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

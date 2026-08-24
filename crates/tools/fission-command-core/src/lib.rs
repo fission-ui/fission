@@ -77,6 +77,7 @@ pub enum PlatformCapability {
     Nfc,
     Notifications,
     Passkeys,
+    Storage,
     VolumeControl,
     Wifi,
 }
@@ -94,6 +95,7 @@ impl PlatformCapability {
             Self::Nfc => "nfc",
             Self::Notifications => "notifications",
             Self::Passkeys => "passkeys",
+            Self::Storage => "storage",
             Self::VolumeControl => "volume-control",
             Self::Wifi => "wifi",
         }
@@ -126,6 +128,33 @@ impl Target {
             Self::Terminal => "platforms/terminal/README.md",
             Self::Web => "platforms/web/README.md",
             Self::Windows => "platforms/windows/README.md",
+        }
+    }
+
+    fn supports_storage(self) -> bool {
+        match self {
+            Self::Site => false,
+            Self::Android
+            | Self::Ios
+            | Self::Linux
+            | Self::Macos
+            | Self::Server
+            | Self::Terminal
+            | Self::Web
+            | Self::Windows => true,
+        }
+    }
+
+    fn uses_native_storage(self) -> bool {
+        match self {
+            Self::Site | Self::Web => false,
+            Self::Android
+            | Self::Ios
+            | Self::Linux
+            | Self::Macos
+            | Self::Server
+            | Self::Terminal
+            | Self::Windows => true,
         }
     }
 }
@@ -553,11 +582,25 @@ pub fn add_capabilities(project_dir: &Path, capabilities: &[PlatformCapability])
         bail!("no capabilities provided");
     }
     let mut project = read_project_config(project_dir)?;
+    if capabilities.contains(&PlatformCapability::Storage)
+        && !project
+            .targets
+            .iter()
+            .any(|target| target.supports_storage())
+    {
+        bail!("storage is unavailable for a static-site-only project");
+    }
     for capability in capabilities {
         project.capabilities.insert(*capability);
     }
     write_project_config(project_dir, &project)?;
     sync_platform_config(project_dir, &project)?;
+    if capabilities.contains(&PlatformCapability::Storage) {
+        update_cargo_fission_features(project_dir, &project)?;
+        if project.targets.contains(&Target::Web) {
+            enable_web_sqlite_scaffold(project_dir)?;
+        }
+    }
     Ok(())
 }
 
@@ -2102,7 +2145,7 @@ fn sync_cargo_fission_dependency(
     let mut doc = text
         .parse::<DocumentMut>()
         .with_context(|| format!("failed to parse {}", path.display()))?;
-    let features = fission_features_for_targets(&project.targets);
+    let features = fission_features_for_project(project);
     let mut changed = false;
 
     if !doc.get("dependencies").is_some_and(Item::is_table_like) {
@@ -3297,6 +3340,9 @@ fn scaffold_web_bundle(
         &bootstrap,
         write_policy,
     )?;
+    if project.capabilities.contains(&PlatformCapability::Storage) {
+        write_web_sqlite_assets(root, write_policy)?;
+    }
     write_file_with_policy(
         &root.join("platforms/web/build-wasm.sh"),
         &build_script,
@@ -3331,6 +3377,60 @@ fn scaffold_web_bundle(
     }
 
     Ok(())
+}
+
+fn write_web_sqlite_assets(root: &Path, write_policy: WritePolicy) -> Result<()> {
+    for (name, contents) in [
+        ("sqlite3.mjs", fission_store_sqlite::SQLITE_WEB_MODULE),
+        ("sqlite3.wasm", fission_store_sqlite::SQLITE_WEB_WASM),
+        (
+            "fission-sqlite.mjs",
+            fission_store_sqlite::SQLITE_WEB_BRIDGE,
+        ),
+        (
+            "fission-sqlite-worker.mjs",
+            fission_store_sqlite::SQLITE_WEB_WORKER,
+        ),
+        ("NOTICE.txt", fission_store_sqlite::SQLITE_WEB_NOTICE),
+    ] {
+        write_binary_file_with_policy(
+            &root.join("platforms/web/sqlite").join(name),
+            contents,
+            write_policy,
+        )?;
+    }
+    Ok(())
+}
+
+fn enable_web_sqlite_scaffold(root: &Path) -> Result<()> {
+    write_web_sqlite_assets(root, WritePolicy::PreserveExisting)?;
+    let path = root.join("platforms/web/bootstrap.mjs");
+    let bootstrap =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    if bootstrap.contains("installFissionSqlite") {
+        return Ok(());
+    }
+    let import_end = bootstrap.find('\n').ok_or_else(|| {
+        anyhow::anyhow!(
+            "cannot enable Web SQLite because {} has no import section",
+            path.display()
+        )
+    })?;
+    let init = "await init();";
+    bootstrap.find(init).ok_or_else(|| {
+        anyhow::anyhow!(
+            "cannot enable Web SQLite because {} has no `{init}` call",
+            path.display()
+        )
+    })?;
+    let mut updated = bootstrap;
+    let sqlite_import = "import { installFissionSqlite } from \"./sqlite/fission-sqlite.mjs\";\n";
+    updated.insert_str(import_end + 1, sqlite_import);
+    let init_start = updated
+        .find(init)
+        .expect("the validated init call remains after inserting an import");
+    updated.insert_str(init_start, "installFissionSqlite();\n");
+    fs::write(&path, updated).with_context(|| format!("failed to write {}", path.display()))
 }
 
 fn write_generated_app_agents(project_root: &Path) -> Result<()> {
@@ -3421,7 +3521,7 @@ fn write_binary_file_with_policy(
 }
 
 fn render_cargo_toml(project: &FissionProject, local_path: Option<&Path>) -> String {
-    let feature_list = render_fission_feature_list(&project.targets);
+    let feature_list = render_fission_feature_list(project);
     let deps = if let Some(root) = local_path {
         let fission_path = root.join("crates/authoring/fission");
         format!(
@@ -3443,12 +3543,29 @@ fn render_cargo_toml(project: &FissionProject, local_path: Option<&Path>) -> Str
     )
 }
 
-fn render_fission_feature_list(targets: &BTreeSet<Target>) -> String {
-    fission_features_for_targets(targets)
+fn render_fission_feature_list(project: &FissionProject) -> String {
+    fission_features_for_project(project)
         .into_iter()
         .map(|feature| format!("\"{feature}\""))
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+fn fission_features_for_project(project: &FissionProject) -> Vec<&'static str> {
+    let mut features = fission_features_for_targets(&project.targets);
+    if project.capabilities.contains(&PlatformCapability::Storage) {
+        if project
+            .targets
+            .iter()
+            .any(|target| target.uses_native_storage())
+        {
+            features.push("store-sqlite-native");
+        }
+        if project.targets.contains(&Target::Web) {
+            features.push("store-sqlite-web");
+        }
+    }
+    features
 }
 
 fn fission_features_for_targets(targets: &BTreeSet<Target>) -> Vec<&'static str> {
@@ -3486,7 +3603,7 @@ fn render_project_readme(project: &FissionProject) -> String {
         targets.push_str(&format!("- `{}`\n", target.as_str()));
     }
     format!(
-        "# {}\n\nGenerated by `fission init`.\n\n## Targets\n\n{}\n## Commands\n\n- `fission doctor --project-dir .` -- check local SDKs, browsers, emulators, and Rust targets\n- `fission devices --project-dir .` -- list runnable desktop, browser, simulator, emulator, and device targets\n- `fission run --project-dir .` -- launch the desktop app and attach to output\n- `fission run --target web --project-dir .` -- launch the web app and attach to the local server\n- `fission run --target ios --project-dir .` -- build, install, launch, and attach to simulator logs\n- `fission run --target android --project-dir .` -- build, install, launch, and attach to Android logs\n- `fission run --target <target> --device <id> --detach --project-dir .` -- launch without attaching\n- `fission logs --target <target> --device <id> --project-dir . --follow` -- attach later where supported\n- `fission build --target <target> --project-dir . --release` -- build a target without launching it\n- `fission test --target <target> --project-dir .` -- run the generated platform smoke test\n- `fission add-target web ios android --project-dir .` -- scaffold more targets\n- `fission add-capability nfc notifications biometric passkeys bluetooth barcode-scanner camera geolocation haptics microphone volume-control wifi --project-dir .` -- declare host capabilities and update platform config where possible\n- `cat platforms/<target>/README.md` -- inspect target-specific prerequisites and environment variables\n\n## Assets\n\n- `assets/app-icon.png` is the default app icon seed copied from Fission's `docs/fission_logo.png`\n\n## Status\n\nDesktop, web, iOS simulator, and Android emulator workflows are runnable through `fission run`. The platform scripts remain checked in so CI and advanced users can call the lower-level build, run, and smoke-test steps directly when needed.\n",
+        "# {}\n\nGenerated by `fission init`.\n\n## Targets\n\n{}\n## Commands\n\n- `fission doctor --project-dir .` -- check local SDKs, browsers, emulators, and Rust targets\n- `fission devices --project-dir .` -- list runnable desktop, browser, simulator, emulator, and device targets\n- `fission run --project-dir .` -- launch the desktop app and attach to output\n- `fission run --target web --project-dir .` -- launch the web app and attach to the local server\n- `fission run --target ios --project-dir .` -- build, install, launch, and attach to simulator logs\n- `fission run --target android --project-dir .` -- build, install, launch, and attach to Android logs\n- `fission run --target <target> --device <id> --detach --project-dir .` -- launch without attaching\n- `fission logs --target <target> --device <id> --project-dir . --follow` -- attach later where supported\n- `fission build --target <target> --project-dir . --release` -- build a target without launching it\n- `fission test --target <target> --project-dir .` -- run the generated platform smoke test\n- `fission add-target web ios android --project-dir .` -- scaffold more targets\n- `fission add-capability storage --project-dir .` -- enable SQLite storage and add only the target-specific dependencies and Web assets it needs\n- `fission add-capability nfc notifications biometric passkeys bluetooth barcode-scanner camera geolocation haptics microphone volume-control wifi --project-dir .` -- declare host capabilities and update platform config where possible\n- `cat platforms/<target>/README.md` -- inspect target-specific prerequisites and environment variables\n\n## Assets\n\n- `assets/app-icon.png` is the default app icon seed copied from Fission's `docs/fission_logo.png`\n\n## Status\n\nDesktop, web, iOS simulator, and Android emulator workflows are runnable through `fission run`. The platform scripts remain checked in so CI and advanced users can call the lower-level build, run, and smoke-test steps directly when needed.\n",
         project.app.name, targets
     )
 }
@@ -5414,10 +5531,13 @@ fn render_web_index(project: &FissionProject) -> String {
 
 fn render_web_bootstrap(project: &FissionProject) -> String {
     let module_name = project.app.name.replace('-', "_");
-    format!(
-        "import init from \"./pkg/{}.js\";\n\nawait init();\n",
-        module_name
-    )
+    if project.capabilities.contains(&PlatformCapability::Storage) {
+        format!(
+            "import init from \"./pkg/{module_name}.js\";\nimport {{ installFissionSqlite }} from \"./sqlite/fission-sqlite.mjs\";\n\ninstallFissionSqlite();\nawait init();\n"
+        )
+    } else {
+        format!("import init from \"./pkg/{module_name}.js\";\n\nawait init();\n")
+    }
 }
 
 fn render_web_build_script() -> String {

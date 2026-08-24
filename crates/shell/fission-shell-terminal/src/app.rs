@@ -29,6 +29,8 @@ use fission_ir::CoreIR;
 use fission_layout::TextMeasurer;
 use std::io::{stdout, Stdout, Write};
 use std::path::PathBuf;
+#[cfg(feature = "store")]
+use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -63,6 +65,13 @@ where
     runtime: Runtime,
     layout_engine: LayoutEngine,
     env: Env,
+    application_name: String,
+    #[cfg(feature = "store")]
+    async_registry: fission_shell::async_host::AsyncRegistry,
+    #[cfg(feature = "store")]
+    effect_tx: mpsc::Sender<fission_shell::async_host::AsyncMessage>,
+    #[cfg(feature = "store")]
+    effect_rx: mpsc::Receiver<fission_shell::async_host::AsyncMessage>,
     sync_env: Option<Box<dyn Fn(&S, &mut Env)>>,
     state_update: Option<Box<dyn FnMut(&mut S, &mut RuntimeState, &Env) -> bool>>,
     exit_request: Option<Box<dyn FnMut(&mut S, &mut RuntimeState, &Env) -> bool>>,
@@ -100,12 +109,21 @@ where
             .expect("failed to register terminal global state");
         let mut env = Env::new(measurer.clone());
         env.viewport_size = LayoutSize::new(100.0, 32.0);
+        #[cfg(feature = "store")]
+        let (effect_tx, effect_rx) = mpsc::channel();
         Self {
             root,
             root_id: WidgetId::app_root(),
             runtime,
             layout_engine: LayoutEngine::new().with_measurer(measurer.clone()),
             env,
+            application_name: "Fission".to_string(),
+            #[cfg(feature = "store")]
+            async_registry: fission_shell::async_host::AsyncRegistry::new(),
+            #[cfg(feature = "store")]
+            effect_tx,
+            #[cfg(feature = "store")]
+            effect_rx,
             sync_env: None,
             state_update: None,
             exit_request: None,
@@ -139,7 +157,33 @@ where
     }
 
     pub fn with_title(mut self, title: impl Into<String>) -> Self {
-        self.env.window.title = WindowTitle::plain(title);
+        let title = title.into();
+        self.env.window.title = WindowTitle::plain(title.clone());
+        self.application_name = title;
+        self
+    }
+
+    #[cfg(feature = "store")]
+    pub fn with_store_provider<P>(mut self, provider: P) -> Self
+    where
+        P: fission_store::StoreProvider + Send + Sync,
+    {
+        fission_shell::store_host::register_store_provider(
+            &mut self.async_registry,
+            Arc::new(provider),
+        );
+        self
+    }
+
+    #[cfg(feature = "store-sql")]
+    pub fn with_sql_store_provider<P>(mut self, provider: P) -> Self
+    where
+        P: fission_store::SqlStoreProvider + Send + Sync,
+    {
+        fission_shell::store_host::register_sql_store_provider(
+            &mut self.async_registry,
+            Arc::new(provider),
+        );
         self
     }
 
@@ -273,7 +317,10 @@ where
             return Ok(());
         };
         self.runtime.handle_input(event, ir, snapshot)?;
-        self.process_navigation()
+        self.process_navigation()?;
+        #[cfg(feature = "store")]
+        self.launch_store_effects();
+        Ok(())
     }
 
     fn process_navigation(&mut self) -> Result<()> {
@@ -361,6 +408,11 @@ where
     }
 
     pub fn run_with_options(mut self, options: TerminalRunOptions) -> Result<()> {
+        #[cfg(feature = "store-sqlite-native")]
+        fission_shell::store_host::register_default_native_store(
+            &mut self.async_registry,
+            &self.application_name,
+        )?;
         let (width, height) = terminal_size_or_options(&options)?;
         let mut frame = self.render_frame(width, height)?;
         if let Some(path) = &options.screenshot {
@@ -472,16 +524,125 @@ where
     }
 
     fn update_state(&mut self) -> Result<bool> {
+        #[cfg(feature = "store")]
+        let mut changed = self.drain_store_results()?;
+        #[cfg(not(feature = "store"))]
+        let mut changed = false;
         let Some(update) = &mut self.state_update else {
-            return Ok(false);
+            return Ok(changed);
         };
         let mut app_states = std::mem::take(&mut self.runtime.app_states);
         let state = app_states
             .get_mut(&std::any::TypeId::of::<S>())
             .and_then(|state| state.downcast_mut::<S>())
             .context("terminal app state is missing")?;
-        let changed = update(state, &mut self.runtime.runtime_state, &self.env);
+        changed |= update(state, &mut self.runtime.runtime_state, &self.env);
         self.runtime.app_states = app_states;
+        Ok(changed)
+    }
+
+    #[cfg(feature = "store")]
+    fn launch_store_effects(&mut self) {
+        use fission_core::{CapabilityInvocationPayload, Effect};
+        use fission_shell::async_host::{AsyncMessage, WakeFn};
+
+        let wake: WakeFn = Arc::new(|| {});
+        let mut retained = Vec::new();
+        for effect in std::mem::take(&mut self.runtime.pending_effects) {
+            let Effect::Capability(CapabilityInvocationPayload::Operation(operation)) =
+                &effect.effect
+            else {
+                retained.push(effect);
+                continue;
+            };
+            if !self.async_registry.spawn_capability(
+                &operation.capability_name,
+                effect.req_id,
+                operation.request.clone(),
+                effect.on_ok.clone(),
+                effect.on_err.clone(),
+                effect.resource.clone(),
+                &self.effect_tx,
+                wake.clone(),
+            ) {
+                let _ = self.effect_tx.send(AsyncMessage::CapabilityErr {
+                    capability_name: operation.capability_name.clone(),
+                    req_id: effect.req_id,
+                    payload: None,
+                    on_err: effect.on_err,
+                    message: Some("no store capability provider registered".to_string()),
+                    resource: effect.resource,
+                });
+            }
+        }
+        self.runtime.pending_effects = retained;
+    }
+
+    #[cfg(feature = "store")]
+    fn drain_store_results(&mut self) -> Result<bool> {
+        use fission_shell::async_host::AsyncMessage;
+
+        self.launch_store_effects();
+        let mut changed = false;
+        while let Ok(message) = self.effect_rx.try_recv() {
+            match message {
+                AsyncMessage::CapabilityOk {
+                    capability_name,
+                    req_id,
+                    payload,
+                    on_ok,
+                    resource,
+                } => {
+                    if resource
+                        .as_ref()
+                        .is_some_and(|resource| !self.runtime.is_resource_current(resource))
+                    {
+                        continue;
+                    }
+                    if let Some(action) = on_ok {
+                        self.runtime.dispatch_with_input(
+                            action,
+                            WidgetId::from_u128(0),
+                            &fission_core::ActionInput::CapabilityOk {
+                                capability: capability_name,
+                                req_id,
+                                payload,
+                            },
+                        )?;
+                        changed = true;
+                    }
+                }
+                AsyncMessage::CapabilityErr {
+                    capability_name,
+                    req_id,
+                    payload,
+                    on_err,
+                    message,
+                    resource,
+                } => {
+                    if resource
+                        .as_ref()
+                        .is_some_and(|resource| !self.runtime.is_resource_current(resource))
+                    {
+                        continue;
+                    }
+                    if let Some(action) = on_err {
+                        self.runtime.dispatch_with_input(
+                            action,
+                            WidgetId::from_u128(0),
+                            &fission_core::ActionInput::CapabilityErr {
+                                capability: capability_name,
+                                req_id,
+                                payload,
+                                message,
+                            },
+                        )?;
+                        changed = true;
+                    }
+                }
+                _ => {}
+            }
+        }
         Ok(changed)
     }
 

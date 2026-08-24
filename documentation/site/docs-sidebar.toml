@@ -91,6 +91,11 @@ href = "/docs/guides/resources-and-async/"
 level = 2
 
 [[items]]
+title = "Storage and SQLite"
+href = "/docs/guides/storage-and-sqlite/"
+level = 2
+
+[[items]]
 title = "File uploads"
 href = "/docs/guides/file-uploads/"
 level = 2

@@ -32,6 +32,17 @@ use fission::{InfiniteCanvas, InteractiveViewer};
 "#
 )]
 #![cfg_attr(
+    not(feature = "store"),
+    doc = r#"
+Store APIs are intentionally absent from unsupported targets such as a static
+site-only build:
+
+```compile_fail
+use fission::store::StoreKey;
+```
+"#
+)]
+#![cfg_attr(
     not(feature = "interactive-canvas"),
     doc = r#"
 Interactive canvas widgets are intentionally absent without a graphical
@@ -159,6 +170,27 @@ pub mod render {
 /// Diagnostics system — structured logging, performance tracing.
 pub mod diagnostics {
     pub use fission_diagnostics::*;
+}
+
+/// Persistent key/value storage contracts.
+#[cfg(feature = "store")]
+pub mod store {
+    pub use fission_store::*;
+}
+
+/// SQLite-compatible query and transaction contracts.
+#[cfg(feature = "store-sql")]
+pub mod sql {
+    pub use fission_store::{
+        FromSqlValue, SqlColumn, SqlError, SqlErrorKind, SqlExecuteResult, SqlMigration,
+        SqlMigrationResult, SqlMigrations, SqlParameters, SqlQuery, SqlRow, SqlRows, SqlStatement,
+        SqlStepResult, SqlTransaction, SqlTransactionResult, SqlTransactionStep, SqlValue,
+    };
+}
+
+#[cfg(any(feature = "store-sqlite-native", feature = "store-sqlite-web"))]
+pub mod sqlite {
+    pub use fission_store_sqlite::*;
 }
 
 pub use fission_core::Bytes;

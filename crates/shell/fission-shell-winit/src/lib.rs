@@ -5187,6 +5187,58 @@ where
         self.runtime.absorb_persistent_registry(registry);
     }
 
+    /// Replaces the default key/value store with an application provider.
+    #[cfg(all(feature = "store", not(target_arch = "wasm32")))]
+    pub fn with_store_provider<P>(mut self, provider: P) -> Self
+    where
+        P: fission_store::StoreProvider + Send + Sync,
+    {
+        fission_shell::store_host::register_store_provider(
+            &mut self.async_registry,
+            Arc::new(provider),
+        );
+        self
+    }
+
+    /// Replaces the default key/value store with an application provider.
+    #[cfg(all(feature = "store", target_arch = "wasm32"))]
+    pub fn with_store_provider<P>(mut self, provider: P) -> Self
+    where
+        P: fission_store::StoreProvider + Send + Sync,
+    {
+        fission_shell::store_host::register_store_provider(
+            &mut self.async_registry,
+            Arc::new(provider),
+        );
+        self
+    }
+
+    /// Replaces the default SQLite provider with a provider that proves SQL support.
+    #[cfg(all(feature = "store-sql", not(target_arch = "wasm32")))]
+    pub fn with_sql_store_provider<P>(mut self, provider: P) -> Self
+    where
+        P: fission_store::SqlStoreProvider + Send + Sync,
+    {
+        fission_shell::store_host::register_sql_store_provider(
+            &mut self.async_registry,
+            Arc::new(provider),
+        );
+        self
+    }
+
+    /// Replaces the default SQLite provider with a provider that proves SQL support.
+    #[cfg(all(feature = "store-sql", target_arch = "wasm32"))]
+    pub fn with_sql_store_provider<P>(mut self, provider: P) -> Self
+    where
+        P: fission_store::SqlStoreProvider + Send + Sync,
+    {
+        fission_shell::store_host::register_sql_store_provider(
+            &mut self.async_registry,
+            Arc::new(provider),
+        );
+        self
+    }
+
     pub fn run(self) -> Result<()> {
         self.run_inner(
             #[cfg(target_os = "android")]
@@ -5206,6 +5258,35 @@ where
         #[cfg(target_arch = "wasm32")]
         web_console::install();
         diag::init_from_env();
+        #[cfg(all(
+            feature = "store-sqlite-native",
+            not(target_arch = "wasm32"),
+            not(target_os = "android")
+        ))]
+        fission_shell::store_host::register_default_native_store(
+            &mut self.async_registry,
+            &self.title,
+        )?;
+        #[cfg(all(feature = "store-sqlite-native", target_os = "android"))]
+        {
+            if !self
+                .async_registry
+                .has_operation_capability(fission_core::SQL_QUERY)
+            {
+                let data_directory = android_app
+                    .as_ref()
+                    .and_then(AndroidApp::internal_data_path)
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("Android did not expose its internal data path")
+                    })?;
+                fission_shell::store_host::register_native_store_at_path(
+                    &mut self.async_registry,
+                    data_directory.join("fission/store.sqlite3"),
+                )?;
+            }
+        }
+        #[cfg(all(feature = "store-sqlite-web", target_arch = "wasm32"))]
+        fission_shell::store_host::register_default_web_store(&mut self.async_registry);
         #[cfg(target_arch = "wasm32")]
         set_web_global_json("__FISSION_RENDERED_FRAME_COUNT", &0_u64);
         diag::emit(

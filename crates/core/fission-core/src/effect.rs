@@ -500,6 +500,81 @@ impl ActionInput {
         }
     }
 
+    /// Decodes a typed value returned by [`Effects::store`](crate::Effects::store).
+    #[cfg(feature = "store")]
+    pub fn store_value<T: serde::de::DeserializeOwned>(
+        &self,
+    ) -> Option<Result<T, fission_store::StoreError>> {
+        self.capability_ok(crate::storage::STORE_GET).map(|value| {
+            value
+                .ok_or_else(|| {
+                    fission_store::StoreError::new(
+                        fission_store::StoreErrorKind::InvalidRequest,
+                        "store key was not found",
+                    )
+                })
+                .and_then(|value| value.decode())
+        })
+    }
+
+    #[cfg(feature = "store")]
+    pub fn store_error(&self) -> Option<fission_store::StoreError> {
+        self.capability_error(crate::storage::STORE_GET)
+            .or_else(|| self.capability_error(crate::storage::STORE_SET))
+            .or_else(|| self.capability_error(crate::storage::STORE_CONTAINS))
+            .or_else(|| self.capability_error(crate::storage::STORE_REMOVE))
+            .or_else(|| self.capability_error(crate::storage::STORE_BATCH))
+            .or_else(|| self.capability_error(crate::storage::STORE_LIST_PREFIX))
+    }
+
+    #[cfg(feature = "store")]
+    pub fn store_contains(&self) -> Option<bool> {
+        self.capability_ok(crate::storage::STORE_CONTAINS)
+    }
+
+    #[cfg(feature = "store")]
+    pub fn store_removed(&self) -> Option<bool> {
+        self.capability_ok(crate::storage::STORE_REMOVE)
+    }
+
+    #[cfg(feature = "store")]
+    pub fn store_batch_result(&self) -> Option<fission_store::StoreBatchResult> {
+        self.capability_ok(crate::storage::STORE_BATCH)
+    }
+
+    #[cfg(feature = "store")]
+    pub fn store_entries(&self) -> Option<Vec<fission_store::StoreEntry>> {
+        self.capability_ok(crate::storage::STORE_LIST_PREFIX)
+    }
+
+    #[cfg(feature = "store-sql")]
+    pub fn sql_rows(&self) -> Option<fission_store::SqlRows> {
+        self.capability_ok(crate::storage::SQL_QUERY)
+    }
+
+    #[cfg(feature = "store-sql")]
+    pub fn sql_execute_result(&self) -> Option<fission_store::SqlExecuteResult> {
+        self.capability_ok(crate::storage::SQL_EXECUTE)
+    }
+
+    #[cfg(feature = "store-sql")]
+    pub fn sql_transaction_result(&self) -> Option<fission_store::SqlTransactionResult> {
+        self.capability_ok(crate::storage::SQL_TRANSACTION)
+    }
+
+    #[cfg(feature = "store-sql")]
+    pub fn sql_migration_result(&self) -> Option<fission_store::SqlMigrationResult> {
+        self.capability_ok(crate::storage::SQL_MIGRATE)
+    }
+
+    #[cfg(feature = "store-sql")]
+    pub fn sql_error(&self) -> Option<fission_store::SqlError> {
+        self.capability_error(crate::storage::SQL_EXECUTE)
+            .or_else(|| self.capability_error(crate::storage::SQL_QUERY))
+            .or_else(|| self.capability_error(crate::storage::SQL_TRANSACTION))
+            .or_else(|| self.capability_error(crate::storage::SQL_MIGRATE))
+    }
+
     pub fn service_event<S: ServiceSpec>(&self, service: ServiceType<S>) -> Option<S::Event> {
         match self.unscoped() {
             ActionInput::ServiceEvent {

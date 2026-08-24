@@ -20,6 +20,14 @@ actix-adapter = ["dep:actix-web"]
 axum-adapter = ["dep:axum"]
 hyper-adapter = []
 redis = ["dep:redis"]
+store = ["fission-core/store", "dep:fission-shell", "fission-shell/store", "dep:fission-store", "dep:futures-lite"]
+store-sql = ["store", "fission-core/store-sql"]
+store-sqlite-native = [
+    "store-sql",
+    "dep:fission-store-sqlite",
+    "fission-store-sqlite/native",
+    "fission-shell/store-sqlite-native",
+]
 
 [dependencies]
 actix-web = { version = "4.12", optional = true, default-features = false }
@@ -32,9 +40,13 @@ fission-core = { path = "../../core/fission-core", version = "0.13.0" }
 fission-i18n = { path = "../../core/fission-i18n", version = "0.13.0" }
 fission-ir = { path = "../../core/fission-ir", version = "0.13.0" }
 fission-layout = { path = "../../core/fission-layout", version = "0.13.0" }
+fission-shell = { path = "../fission-shell", optional = true, version = "0.13.0" }
+fission-store = { path = "../../core/fission-store", optional = true, version = "0.13.0" }
+fission-store-sqlite = { path = "../../core/fission-store-sqlite", optional = true, version = "0.13.0", default-features = false }
 fission-shell-site = { path = "../fission-shell-site", version = "0.13.0" }
 fission-theme = { path = "../../core/fission-theme", version = "0.13.0" }
 getrandom = { version = "0.2", features = ["std"] }
+futures-lite = { version = "2", optional = true }
 hyper = { version = "0.14", features = ["server", "http1", "tcp"] }
 moka = { version = "0.12", features = ["sync"] }
 redis = { version = "0.32", optional = true }
