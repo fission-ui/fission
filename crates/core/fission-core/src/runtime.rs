@@ -1082,18 +1082,13 @@ impl Runtime {
         );
     }
 
-    /// Runs runtime work that depends on a freshly computed layout snapshot.
+    /// Reconciles runtime-owned widget state against the current lowered tree.
     ///
-    /// Returns `true` when the hook changed runtime state and the shell should
-    /// schedule another frame.
-    pub fn post_layout_hook(&mut self, ir: &CoreIR, layout: &LayoutSnapshot) -> bool {
-        let mut needs_follow_up_frame = self.apply_pending_scroll_into_view(ir, layout);
+    /// Shells must call this after replacing the IR and before computing layout
+    /// so an unmounted widget's state cannot affect the replacement tree's
+    /// first frame.
+    pub fn reconcile_ir(&mut self, ir: &CoreIR) {
         self.runtime_state.viewport.reconcile(ir);
-        let current_time = self.clock().current_time();
-        needs_follow_up_frame |=
-            self.runtime_state
-                .viewport
-                .advance_inertia(ir, layout, current_time);
         let active_scroll_nodes: HashSet<WidgetId> = ir
             .nodes
             .iter()
@@ -1113,6 +1108,23 @@ impl Runtime {
         {
             self.runtime_state.gesture.scrollbar_drag = None;
         }
+    }
+
+    /// Runs runtime work that depends on a freshly computed layout snapshot.
+    ///
+    /// Returns `true` when the hook changed runtime state and the shell should
+    /// schedule another frame.
+    pub fn post_layout_hook(&mut self, ir: &CoreIR, layout: &LayoutSnapshot) -> bool {
+        // Preserve correct behavior for direct Runtime embedders that have not
+        // yet adopted the pre-layout reconciliation hook. Production shells
+        // call `reconcile_ir` before layout, making this pass idempotent.
+        self.reconcile_ir(ir);
+        let mut needs_follow_up_frame = self.apply_pending_scroll_into_view(ir, layout);
+        let current_time = self.clock().current_time();
+        needs_follow_up_frame |=
+            self.runtime_state
+                .viewport
+                .advance_inertia(ir, layout, current_time);
 
         let mut current_heroes = HashMap::new();
 

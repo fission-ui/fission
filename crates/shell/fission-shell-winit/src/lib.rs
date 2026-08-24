@@ -8323,6 +8323,10 @@ where
                                 last_built_viewport = Some(build_viewport);
                             }
 
+                            if let Some(ir) = pipeline.prev_ir.as_ref() {
+                                runtime.reconcile_ir(ir);
+                            }
+
                             let _layout_updates = match pipeline.ensure_layout(
                                 LayoutRect::new(
                                     0.0,
