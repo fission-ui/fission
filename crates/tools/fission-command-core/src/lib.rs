@@ -5404,7 +5404,7 @@ fn render_web_index(project: &FissionProject) -> String {
   </head>
   <body>
     <main id="fission-web-mount" aria-label="{title}"></main>
-    <script type="module" src="./bootstrap.mjs"></script>
+    <script type="module" src="/bootstrap.mjs"></script>
   </body>
 </html>
 "#,
@@ -5473,7 +5473,7 @@ PY
     printf 'Port %s:%s is already in use; using %s:%s.\n' "$HOST" "$REQUESTED_PORT" "$HOST" "$PORT"
   fi
 fi
-URL="http://${{HOST}}:${{PORT}}/platforms/web/"
+URL="http://${{HOST}}:${{PORT}}/"
 
 "$SCRIPT_DIR/build-wasm.sh"
 
@@ -5491,8 +5491,7 @@ if [[ "${{FISSION_WEB_OPEN:-0}}" == "1" ]]; then
   fi
 fi
 
-cd "$PROJECT_DIR"
-python3 -m http.server "$PORT" --bind "$HOST"
+cargo fission serve-web --project-dir "$PROJECT_DIR" --host "$HOST" --port "$PORT"
 "#
     )
 }
@@ -5554,7 +5553,7 @@ PY
     printf 'CDP port 127.0.0.1:%s is already in use; using 127.0.0.1:%s.\n' "$REQUESTED_CDP_PORT" "$CDP_PORT"
   fi
 fi
-URL="http://${HOST}:${PORT}/platforms/web/"
+URL="http://${HOST}:${PORT}/"
 PROFILE_DIR="$SCRIPT_DIR/build/chrome-profile"
 
 require_node_websocket() {
@@ -5596,7 +5595,7 @@ require_node_websocket
 "$SCRIPT_DIR/build-wasm.sh"
 
 mkdir -p "$SCRIPT_DIR/build"
-cd "$PROJECT_DIR"
+cd "$SCRIPT_DIR"
 python3 -m http.server "$PORT" --bind "$HOST" >"$SCRIPT_DIR/build/web-server.log" 2>&1 &
 SERVER_PID=$!
 

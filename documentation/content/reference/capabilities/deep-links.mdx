@@ -5,7 +5,7 @@ description: Reference for the deep links capability API, provider contract, ope
 
 # Deep links
 
-Deep links are inbound lifecycle events. The host receives a URL from the operating system, browser, launcher, notification, or store association, checks that it matches your declared routes, and dispatches a `DeepLinkReceived` action into the app.
+Fission separates ordinary route navigation from external deep-link activation. Web pathname/hash changes enter the route contract as `ShellRouteChanged`; installed applications receive operating-system launches, notification URLs, and custom schemes as `DeepLinkReceived`. Both can update the same app route state without making `Router` mandatory.
 
 This reference is for the exact API shape. If you are wiring the feature into an app for the first time, start with the [Deep links guide](/docs/capabilities/deep-links/), then return here when you need operation names, request types, provider contracts, or platform configuration details.
 
@@ -30,10 +30,13 @@ This reference is for the exact API shape. If you are wiring the feature into an
 | `DeepLinkConfig::path_prefix` | Limit accepted URLs to the route prefix the app understands. | `path prefix` | `DeepLinkConfig` |
 | `on_deep_link` | Register the reducer that handles accepted incoming links. | `DeepLinkReceived` | `state update` |
 | `with_startup_deep_link` | Inject a launch link from host startup or tests. | `DeepLink` | `startup action` |
+| `with_route_handler` | Observe the initial logical route and later history changes. | `ShellRouteChanged` | `state update` |
+| `ctx.effects.navigate` / `replace_route` | Push or replace a logical route. | `path` | shell navigation |
+| `Link::to` | Render and activate a genuine route hyperlink. | label and href | navigation |
 
 ## Provider contract
 
-Deep links use `DeepLinkConfig`, `DeepLinkReceived`, and the shell startup path rather than a provider trait. Use `.with_startup_deep_link(...)` in tests or custom launchers to simulate a cold-start route.
+Deep links use `DeepLinkConfig`, `DeepLinkReceived`, and the shell startup path rather than a provider trait. Use `.with_startup_deep_link(...)` in tests or custom launchers to simulate a cold-start native route. Do not use it to mirror browser history: Web automatically provides the initial pathname/hash and subsequent back/forward changes through `ShellRouteChanged`.
 
 Providers should return typed errors for unsupported operations, denied permissions, unavailable hardware, cancellation, timeouts, and platform policy restrictions. Silent success is not acceptable because reducers need a truthful result to update state and explain what happened.
 

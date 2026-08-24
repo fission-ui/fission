@@ -7,42 +7,32 @@ slug: /widgets/router
 
 `Router` is Fission's basic path-matching widget.
 
-A beginner-friendly way to think about it is this: your app state stores a path string such as `/inbox` or `/projects/42`, and `Router` decides which screen widget to return for that string. It does not read the browser location on its own. It does not push history entries for you. It does not own a hidden navigation stack. It simply turns explicit route state into explicit user interface.
+A beginner-friendly way to think about it is this: the active shell exposes a logical path such as `/inbox` or `/projects/42`, your route reducer stores that path, and `Router` decides which screen widget to return. `Router` is the default matcher, not a required navigation authority: applications and third-party libraries may consume `ShellRouteChanged` and render routes themselves.
 
-That design is important for cross-platform work. The same `current_path` state can drive a browser location, a desktop sidebar selection, or a mobile back-stack model that you choose to represent as paths. The shell differences stay outside the routing widget. The `Router` just matches the current string and builds the corresponding screen.
+That design is important for cross-platform work. `Link`, `NavigationCommand`, `RouteLocation`, and `ShellRouteChanged` are shell-neutral. The Web shell maps them to pathname or hash URLs and browser history; graphical and Terminal shells maintain their own logical history. The `Router` only matches the resulting string and builds the corresponding screen.
 
 ## Example
 
 ```rust
 use fission::prelude::*;
 
-let selected_project_id = view.state().selected_project_id.clone();
-let router = Router {
-    current_path: view.state().current_path.clone(),
-    routes: vec![
-        Route {
-            path: "/projects".into(),
-            page: ProjectList.into(),
-        },
-        Route {
-            path: "/projects/:id".into(),
-            page: ProjectDetail { id: selected_project_id }.into(),
-        },
-    ],
-    not_found: Some(Text::new("Page not found").into()),
-}
-.into();
+let router: Widget = Router::<AppState>::new()
+    .with_path(view.state().current_path.clone())
+    .route("/projects", || ProjectList)
+    .route("/settings", || SettingsScreen)
+    .not_found(|| Text::new("Page not found"))
+    .into();
 ```
 
-In a real app, some other widget dispatches a navigation action, a reducer updates `state.current_path`, and the next build chooses a different route.
+Register the route reducer with `.with_route_handler(...)`, then issue navigation from reducers with `ctx.effects.navigate("/projects/42")`, `replace_route`, `navigation_back`, `navigation_forward`, or `navigation_go`. A navigational `Link::to(...)` enters the same contract.
 
 ## Field table
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
 | `current_path` | `String` | The path string to match this frame. | Usually lives in `GlobalState` so reducers can update it explicitly. |
-| `routes` | `Vec<Route>` | Ordered list of route patterns and screen widgets. | The router returns the first matching route. Order matters. |
-| `not_found` | `Option<Widget>` | Fallback widget when no route matches. | If omitted, the router renders a plain `404: {current_path}` text node. |
+| `routes` | `Vec<Route<S>>` | Ordered list of route patterns and page builders. | The router returns the first matching route. Order matters. |
+| `not_found` | `Option<PageBuilder<S>>` | Fallback builder when no route matches. | If omitted, the router renders a plain `404: {current_path}` text node. |
 
 ## Matching behavior
 
@@ -57,9 +47,9 @@ This small contract makes routing easy to test. If a path renders the wrong scre
 
 ## State ownership across platforms
 
-On web, you will usually want some outer integration that keeps `current_path` in sync with the browser location and history. On desktop, the same state may come from a sidebar click, command palette action, or menu item. On mobile, it may mirror a back-navigation model that you still choose to express as paths.
+The active shell initializes `Env.current_route` and dispatches `ShellRouteChanged` before the first frame. Web additionally listens to `popstate` and `hashchange`. In `WebRouteStrategy::Auto`, an initial `#/path` keeps hash routing and an initial `/path` keeps pathname routing; applications can explicitly choose `Path` or `Hash` through `WebApp::with_navigation(...)`.
 
-The key point is that `Router` does not hide those differences. It lets you keep one app model and connect each shell-specific navigation source to that model in the place where it belongs.
+The key point is that this contract does not require `Router`. A custom router can register the same route handler, read `RouteLocation`, issue the same navigation effects, and use `SemanticsRegion::hyperlink(...)` or `Pressable::hyperlink(...)` to produce genuine browser links.
 
 ## Specific advice
 
