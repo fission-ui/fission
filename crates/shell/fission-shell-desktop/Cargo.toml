@@ -19,7 +19,7 @@ default = []
 tray = ["fission-shell-winit/tray"]
 three-d = ["fission-shell-winit/three-d"]
 video = ["fission-shell-winit/video"]
-store = ["fission-core/store", "fission-shell-winit/store"]
+store = ["fission-core/store", "fission-shell-winit/store", "dep:fission-store"]
 store-sql = ["store", "fission-core/store-sql", "fission-shell-winit/store-sql"]
 store-sqlite-native = ["store-sql", "fission-shell-winit/store-sqlite-native"]
 
@@ -27,6 +27,7 @@ store-sqlite-native = ["store-sql", "fission-shell-winit/store-sqlite-native"]
 fission-shell = { path = "../fission-shell", version = "0.13.0" }
 fission-shell-winit = { path = "../fission-shell-winit", default-features = false, version = "0.13.0" }
 fission-core = { path = "../../core/fission-core", version = "0.13.0" }
+fission-store = { path = "../../core/fission-store", optional = true, version = "0.13.0" }
 fission-theme = { path = "../../core/fission-theme", version = "0.13.0" }
 winit = { package = "fission-winit", version = "0.30.13-fission.2" }
 anyhow = "1.0"

@@ -1,0 +1,162 @@
+---
+title: Storage and SQLite
+description: Persist typed values, run SQLite queries, compose transactions across modules, and replace Fission's default store provider.
+---
+
+# Storage and SQLite
+
+Fission gives applications one storage model across desktop, mobile, Web, Terminal, and SSR. The default provider is SQLite. On native targets the database is an ordinary application-data file; on Web the official SQLite WebAssembly build runs in a worker and persists through the Origin Private File System (OPFS). SSR uses a server-side SQLite database. A static site has no runtime store, so a site-only build does not expose these APIs.
+
+Storage is requested as an effect. Reducers remain synchronous and deterministic: they describe the operation, then handle its success or failure through another action.
+
+## Typed values in Fission's table
+
+The high-level API uses a framework-owned table named `fission`. Keys are namespaced and typed at the Rust boundary. Values are serialized by Fission, so providers receive an opaque `StoreValue` rather than depending on an application's Rust type.
+
+```rust
+const SETTINGS: &str = "settings";
+
+#[fission_reducer(SaveTheme)]
+fn save_theme(
+    _state: &mut AppState,
+    action: SaveTheme,
+    ctx: &mut ReducerContext<AppState>,
+) {
+    let key = StoreKey::<String>::new(SETTINGS, "theme");
+    ctx.effects
+        .store()
+        .set(key, &action.theme)
+        .expect("String is serializable")
+        .on_ok(ActionEnvelope::from(ThemeSaved))
+        .on_err(ActionEnvelope::from(StorageFailed));
+}
+```
+
+Use `get`, `set`, `contains`, `remove`, `list_prefix`, or `batch`. A batch applies all of its sets and removals atomically.
+
+```rust
+let mut batch = StoreBatch::new();
+batch
+    .set(StoreSet::typed(StoreKey::new("draft", "title"), &title)?)
+    .set(StoreSet::typed(StoreKey::new("draft", "body"), &body)?)
+    .remove(StoreRemove {
+        address: StoreAddress::new("draft", "legacy-format"),
+    });
+
+ctx.effects.store().batch(batch).on_ok(ActionEnvelope::from(DraftSaved));
+```
+
+`StoreScope::Application` is the default. Session, user, and named scopes let one namespace safely hold values owned by a different session or signed-in user without inventing key prefixes.
+
+In the callback reducer, `ctx.input.store_value::<T>()` decodes a successful `get`. `ctx.input.store_error()` returns a typed provider error. The other operations can read their typed capability result directly when needed.
+
+## Use SQLite without hiding SQLite
+
+The portable value API is convenient, but it is not a replacement for relational storage. `ctx.effects.sql()` exposes parameterized execution, queries, transactions, and migrations.
+
+```rust
+let statement = SqlStatement::new(
+    "INSERT INTO projects(name, archived) VALUES (:name, :archived)",
+)
+.bind_named(":name", project.name.clone())
+.bind_named(":archived", i64::from(project.archived));
+
+ctx.effects
+    .sql()
+    .execute(statement)
+    .on_ok(ActionEnvelope::from(ProjectInserted))
+    .on_err(ActionEnvelope::from(DatabaseFailed));
+```
+
+Queries return `SqlRows`. Read a column by name or index with a target type implementing `FromSqlValue`.
+
+```rust
+if let Some(rows) = ctx.input.sql_rows() {
+    for row in rows {
+        let id: i64 = row.get("id")?;
+        let name: String = row.get("name")?;
+        // Update application state with id and name.
+    }
+}
+```
+
+Always bind application data. Do not construct SQL by interpolating values into the SQL string.
+
+## Build one transaction across modules
+
+`SqlTransaction` owns its statements and is deliberately passable. Its mutation methods take `&mut self`, so the code that starts a transaction does not need to know every query that other application modules will contribute.
+
+```rust
+fn add_audit_write(transaction: &mut SqlTransaction, message: String) {
+    transaction.execute(
+        SqlStatement::new("INSERT INTO audit(message) VALUES (?1)").bind(message),
+    );
+}
+
+let mut transaction = SqlTransaction::new();
+transaction.execute(
+    SqlStatement::new("UPDATE projects SET name = ?1 WHERE id = ?2")
+        .bind(new_name)
+        .bind(project_id),
+);
+add_audit_write(&mut transaction, "Project renamed".to_string());
+transaction.query(
+    SqlStatement::new("SELECT id, name FROM projects WHERE id = ?1").bind(project_id),
+);
+
+ctx.effects
+    .sql()
+    .transaction(transaction)
+    .on_ok(ActionEnvelope::from(ProjectCommitted));
+```
+
+The provider executes every step in one SQLite transaction and returns one ordered result per step. Any failing step rolls the whole transaction back.
+
+## Migrations
+
+Migrations are ordered by their integer version. Fission applies migrations newer than SQLite's current `user_version`, updates that version inside the same transaction, and rolls back the migration set if any script fails.
+
+```rust
+let mut migrations = SqlMigrations::new();
+migrations.add(SqlMigration::new(
+    1,
+    "create projects",
+    "CREATE TABLE projects(id INTEGER PRIMARY KEY, name TEXT NOT NULL)",
+))?;
+migrations.add(SqlMigration::new(
+    2,
+    "add project status",
+    "ALTER TABLE projects ADD COLUMN status TEXT NOT NULL DEFAULT 'active'",
+))?;
+
+ctx.effects.sql().migrate(migrations);
+```
+
+## Providers and compile-time target support
+
+The normal target feature selects the default provider. `desktop`, `android`, `ios`, `mobile`, `terminal-shell`, and `server` select native SQLite. `web` selects SQLite WASM with OPFS. `site` deliberately selects neither, so code importing `fission::store` or `fission::sql` fails to compile in a static-site-only application.
+
+Applications can replace the default while keeping the same API:
+
+```rust
+DesktopApp::<AppState, _>::new(App)
+    .with_sql_store_provider(MyCompanyStore::new())
+    .run()
+```
+
+A key/value-only implementation uses `with_store_provider` and implements `StoreProvider`. A provider passed to `with_sql_store_provider` must implement `SqlStoreProvider`; code cannot accidentally configure a provider without SQL for an application that asks for it.
+
+Provider selection is build configuration. If an application constructs providers dynamically, Fission cannot prove the chosen runtime value in advance, but the shell fails at startup or returns a typed `Unavailable` error rather than silently discarding an operation.
+
+## Target behavior
+
+| Target | Default persistence | SQL | Notes |
+|---|---|---:|---|
+| macOS, Windows, Linux | SQLite application-data file | Yes | Override the file with `FISSION_STORE_PATH`. |
+| Android, iOS | SQLite application-data file | Yes | Uses the same native provider contract. |
+| Web | Official SQLite WASM in a worker, persisted with OPFS | Yes | Requires a browser with OPFS and WebAssembly support. Storage is scoped to the origin. |
+| Terminal | SQLite application-data file | Yes | Completion actions are delivered through the terminal event loop. |
+| SSR | Server-side SQLite application-data file | Yes | This is server state, not browser `localStorage` or cookies. Supply a request-aware provider when storage must follow server request identity. |
+| Static site | Unsupported | No | Rendering happens at build time and produces files with no runtime storage authority. |
+
+The `fission` table belongs to the high-level Store API. Application SQL should use application-owned table names. Fission may evolve its reserved schema independently of application migrations.

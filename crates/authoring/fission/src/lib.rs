@@ -32,6 +32,17 @@ use fission::{InfiniteCanvas, InteractiveViewer};
 "#
 )]
 #![cfg_attr(
+    not(feature = "store"),
+    doc = r#"
+Store APIs are intentionally absent from unsupported targets such as a static
+site-only build:
+
+```compile_fail
+use fission::store::StoreKey;
+```
+"#
+)]
+#![cfg_attr(
     not(feature = "interactive-canvas"),
     doc = r#"
 Interactive canvas widgets are intentionally absent without a graphical
@@ -172,8 +183,8 @@ pub mod store {
 pub mod sql {
     pub use fission_store::{
         FromSqlValue, SqlColumn, SqlError, SqlErrorKind, SqlExecuteResult, SqlMigration,
-        SqlMigrations, SqlParameters, SqlQuery, SqlRow, SqlRows, SqlStatement, SqlStepResult,
-        SqlTransaction, SqlTransactionResult, SqlTransactionStep, SqlValue,
+        SqlMigrationResult, SqlMigrations, SqlParameters, SqlQuery, SqlRow, SqlRows, SqlStatement,
+        SqlStepResult, SqlTransaction, SqlTransactionResult, SqlTransactionStep, SqlValue,
     };
 }
 

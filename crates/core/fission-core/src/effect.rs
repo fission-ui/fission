@@ -524,6 +524,26 @@ impl ActionInput {
             .or_else(|| self.capability_error(crate::storage::STORE_LIST_PREFIX))
     }
 
+    #[cfg(feature = "store")]
+    pub fn store_contains(&self) -> Option<bool> {
+        self.capability_ok(crate::storage::STORE_CONTAINS)
+    }
+
+    #[cfg(feature = "store")]
+    pub fn store_removed(&self) -> Option<bool> {
+        self.capability_ok(crate::storage::STORE_REMOVE)
+    }
+
+    #[cfg(feature = "store")]
+    pub fn store_batch_result(&self) -> Option<fission_store::StoreBatchResult> {
+        self.capability_ok(crate::storage::STORE_BATCH)
+    }
+
+    #[cfg(feature = "store")]
+    pub fn store_entries(&self) -> Option<Vec<fission_store::StoreEntry>> {
+        self.capability_ok(crate::storage::STORE_LIST_PREFIX)
+    }
+
     #[cfg(feature = "store-sql")]
     pub fn sql_rows(&self) -> Option<fission_store::SqlRows> {
         self.capability_ok(crate::storage::SQL_QUERY)

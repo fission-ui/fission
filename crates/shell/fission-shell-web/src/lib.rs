@@ -129,6 +129,24 @@ where
         self
     }
 
+    #[cfg(feature = "store")]
+    pub fn with_store_provider<P>(mut self, provider: P) -> Self
+    where
+        P: fission_store::StoreProvider + Send + Sync,
+    {
+        self.inner = self.inner.with_store_provider(provider);
+        self
+    }
+
+    #[cfg(feature = "store-sql")]
+    pub fn with_sql_store_provider<P>(mut self, provider: P) -> Self
+    where
+        P: fission_store::SqlStoreProvider + Send + Sync,
+    {
+        self.inner = self.inner.with_sql_store_provider(provider);
+        self
+    }
+
     pub fn with_notification_host<H>(mut self, host: H) -> Self
     where
         H: NotificationHost,
