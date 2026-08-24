@@ -96,12 +96,18 @@ pub fn register_default_native_store(
     if registry.has_operation_capability(fission_core::SQL_QUERY) {
         return Ok(());
     }
-    let path = default_store_path(application_name)?;
-    let provider = fission_store_sqlite::SqliteStore::open(&path).map_err(|error| {
-        anyhow::anyhow!("failed to open SQLite store {}: {error}", path.display())
-    })?;
+    let provider = default_native_store(application_name)?;
     register_sql_store_provider(registry, Arc::new(provider));
     Ok(())
+}
+
+#[cfg(all(feature = "store-sqlite-native", not(target_arch = "wasm32")))]
+pub fn default_native_store(
+    application_name: &str,
+) -> anyhow::Result<fission_store_sqlite::SqliteStore> {
+    let path = default_store_path(application_name)?;
+    fission_store_sqlite::SqliteStore::open(&path)
+        .map_err(|error| anyhow::anyhow!("failed to open SQLite store {}: {error}", path.display()))
 }
 
 #[cfg(all(feature = "store-sqlite-web", target_arch = "wasm32"))]

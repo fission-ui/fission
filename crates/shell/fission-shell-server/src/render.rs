@@ -464,6 +464,10 @@ impl ServerRenderer {
         request: &ServerRequest,
         session: &ServerSession,
     ) -> Result<RenderedServerRoute> {
+        #[cfg(feature = "store")]
+        if let Some(error) = &self.app.store_initialization_error {
+            anyhow::bail!("server SQLite store initialization failed: {error}");
+        }
         let env = self.env_for_route(route, action, request, session)?;
         self.render_uncached_with_env(route, action, request, session, env)
     }
@@ -491,6 +495,10 @@ impl ServerRenderer {
             render_pass_limit: self.render_pass_limit,
             default_locale: &self.default_locale,
             route_params: route_match.params,
+            #[cfg(feature = "store")]
+            store: self.app.store.as_deref(),
+            #[cfg(feature = "store-sql")]
+            sql_store: self.app.sql_store.as_deref(),
             env: &env,
             response_status: &response_status,
         };
@@ -1923,6 +1931,94 @@ mod tests {
 
         assert_eq!(response.status, 200);
         assert!(response.body_string().contains("Job complete"));
+    }
+
+    #[test]
+    #[cfg(feature = "store-sqlite-native")]
+    fn server_actions_drain_store_effects_before_rendering_response() {
+        #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+        struct SaveValue;
+        impl Action for SaveValue {
+            fn static_id() -> ActionId {
+                ActionId::from_name("server-renderer.save-value")
+            }
+        }
+
+        #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+        struct ValueSaved;
+        impl Action for ValueSaved {
+            fn static_id() -> ActionId {
+                ActionId::from_name("server-renderer.value-saved")
+            }
+        }
+
+        fn save(
+            _state: &mut ActionJobState,
+            _action: SaveValue,
+            ctx: &mut ReducerContext<ActionJobState>,
+        ) {
+            ctx.effects
+                .store()
+                .set(fission_store::StoreKey::new("test", "value"), &"saved")
+                .unwrap()
+                .on_ok(fission_core::ActionEnvelope::from(ValueSaved));
+        }
+
+        fn saved(
+            state: &mut ActionJobState,
+            _action: ValueSaved,
+            _ctx: &mut ReducerContext<ActionJobState>,
+        ) {
+            state.message = Some("Stored".to_string());
+        }
+
+        #[derive(Clone)]
+        struct StorePage;
+        impl From<StorePage> for Widget {
+            fn from(_: StorePage) -> Self {
+                let (ctx, view) = fission_core::build::current::<ActionJobState>();
+                ctx.register::<ValueSaved, _>(saved as Handler<ActionJobState, ValueSaved>);
+                let on_press = ctx.bind(SaveValue, save as Handler<ActionJobState, SaveValue>);
+                Button {
+                    id: Some(WidgetId::explicit("store-button")),
+                    child: Some(
+                        Text::new(
+                            view.state()
+                                .message
+                                .clone()
+                                .unwrap_or_else(|| "Pending store".to_string()),
+                        )
+                        .into(),
+                    ),
+                    on_press: Some(on_press),
+                    ..Default::default()
+                }
+                .into()
+            }
+        }
+
+        let renderer = ServerRenderer::new(
+            FissionServerApp::new("Test")
+                .with_sql_store_provider(
+                    fission_store_sqlite::SqliteStore::open_in_memory().unwrap(),
+                )
+                .server_route_widget::<ActionJobState, _>("/", "Home", None, StorePage),
+        );
+        let token = renderer.sign_action(
+            "/",
+            WidgetId::explicit("store-button").as_u128(),
+            SaveValue,
+            Duration::from_secs(60),
+        );
+        let response = renderer
+            .handle(ServerRequest::post(
+                "/__fission/action",
+                serde_json::to_vec(&token).unwrap(),
+            ))
+            .unwrap();
+
+        assert_eq!(response.status, 200);
+        assert!(response.body_string().contains("Stored"));
     }
 
     #[test]

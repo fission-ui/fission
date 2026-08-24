@@ -76,6 +76,10 @@ pub struct ServerRenderContext<'a> {
     pub render_pass_limit: usize,
     pub default_locale: &'a str,
     pub route_params: ServerRouteParams,
+    #[cfg(feature = "store")]
+    pub(crate) store: Option<&'a (dyn fission_store::StoreProvider + Send + Sync)>,
+    #[cfg(feature = "store-sql")]
+    pub(crate) sql_store: Option<&'a (dyn fission_store::SqlStoreProvider + Send + Sync)>,
     pub(crate) env: &'a Env,
     pub(crate) response_status: &'a AtomicU16,
 }
@@ -183,12 +187,34 @@ pub struct FissionServerApp {
     pub(crate) http_handlers: Vec<ServerHttpHandlerEntry>,
     pub(crate) cache_invalidation_endpoints: Vec<CacheInvalidationEndpoint>,
     pub(crate) static_mounts: Vec<StaticMount>,
+    #[cfg(feature = "store")]
+    pub(crate) store: Option<Arc<dyn fission_store::StoreProvider + Send + Sync>>,
+    #[cfg(feature = "store-sql")]
+    pub(crate) sql_store: Option<Arc<dyn fission_store::SqlStoreProvider + Send + Sync>>,
+    #[cfg(feature = "store")]
+    pub(crate) store_initialization_error: Option<String>,
 }
 
 impl FissionServerApp {
     pub fn new(project_name: impl Into<String>) -> Self {
+        let project_name = project_name.into();
+        #[cfg(feature = "store-sqlite-native")]
+        let (store, sql_store, store_initialization_error) =
+            match fission_shell::store_host::default_native_store(&project_name) {
+                Ok(provider) => {
+                    let provider = Arc::new(provider);
+                    (
+                        Some(
+                            provider.clone() as Arc<dyn fission_store::StoreProvider + Send + Sync>
+                        ),
+                        Some(provider as Arc<dyn fission_store::SqlStoreProvider + Send + Sync>),
+                        None,
+                    )
+                }
+                Err(error) => (None, None, Some(error.to_string())),
+            };
         Self {
-            project_name: project_name.into(),
+            project_name,
             project_dir: std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
             document: DocumentShellConfig::new(),
             request_env_sync: None,
@@ -201,7 +227,41 @@ impl FissionServerApp {
             http_handlers: Vec::new(),
             cache_invalidation_endpoints: Vec::new(),
             static_mounts: Vec::new(),
+            #[cfg(all(feature = "store", not(feature = "store-sqlite-native")))]
+            store: None,
+            #[cfg(all(feature = "store-sql", not(feature = "store-sqlite-native")))]
+            sql_store: None,
+            #[cfg(all(feature = "store", not(feature = "store-sqlite-native")))]
+            store_initialization_error: None,
+            #[cfg(feature = "store-sqlite-native")]
+            store,
+            #[cfg(feature = "store-sqlite-native")]
+            sql_store,
+            #[cfg(feature = "store-sqlite-native")]
+            store_initialization_error,
         }
+    }
+
+    #[cfg(feature = "store")]
+    pub fn with_store_provider<P>(mut self, provider: P) -> Self
+    where
+        P: fission_store::StoreProvider + Send + Sync,
+    {
+        self.store = Some(Arc::new(provider));
+        self.store_initialization_error = None;
+        self
+    }
+
+    #[cfg(feature = "store-sql")]
+    pub fn with_sql_store_provider<P>(mut self, provider: P) -> Self
+    where
+        P: fission_store::SqlStoreProvider + Send + Sync,
+    {
+        let provider = Arc::new(provider);
+        self.store = Some(provider.clone());
+        self.sql_store = Some(provider);
+        self.store_initialization_error = None;
+        self
     }
 
     pub fn project_dir(mut self, project_dir: impl Into<std::path::PathBuf>) -> Self {
@@ -713,7 +773,7 @@ where
                 &action.action,
                 WidgetId::from_u128(action.target_node),
             )?;
-            drain_effect_jobs(&effects, &mut build_ctx, &mut state, ctx.jobs)?;
+            drain_action_effects(&effects, &mut build_ctx, &mut state, ctx)?;
             continue;
         }
 
@@ -757,25 +817,42 @@ where
     })
 }
 
-fn drain_effect_jobs<S: GlobalState>(
+fn drain_action_effects<S: GlobalState>(
     effects: &[fission_core::EffectEnvelope],
     build_ctx: &mut BuildCtx<S>,
     state: &mut S,
-    jobs: &ServerJobRegistry,
+    ctx: &ServerRenderContext<'_>,
 ) -> Result<bool> {
     let mut dispatched = false;
     for effect in effects {
+        if let Effect::Capability(fission_core::CapabilityInvocationPayload::Operation(operation)) =
+            &effect.effect
+        {
+            #[cfg(feature = "store")]
+            {
+                if let Some(result) = execute_store_capability(ctx, operation)? {
+                    dispatched |=
+                        dispatch_capability_result(effect, operation, result, build_ctx, state)?;
+                    continue;
+                }
+            }
+            #[cfg(not(feature = "store"))]
+            anyhow::bail!(
+                "server capability `{}` is unavailable in this build",
+                operation.capability_name
+            );
+        }
         let Effect::Job(payload) = &effect.effect else {
             continue;
         };
-        jobs.require_job(&payload.job_name)?;
-        let result = jobs.run(
+        ctx.jobs.require_job(&payload.job_name)?;
+        let result = ctx.jobs.run(
             &payload.job_name,
             payload.payload.clone(),
             crate::ServerJobCtx::new_runtime(
                 effect.req_id,
                 format!("action-effect:{}", payload.job_name),
-                jobs.data_streams(),
+                ctx.jobs.data_streams(),
             ),
         );
         match result {
@@ -813,6 +890,156 @@ fn drain_effect_jobs<S: GlobalState>(
         }
     }
     Ok(dispatched)
+}
+
+#[cfg(feature = "store")]
+type ServerCapabilityResult = std::result::Result<Vec<u8>, (Option<Vec<u8>>, Option<String>)>;
+
+#[cfg(feature = "store")]
+fn execute_store_capability(
+    ctx: &ServerRenderContext<'_>,
+    operation: &fission_core::capability::OperationCapabilityInvocation,
+) -> Result<Option<ServerCapabilityResult>> {
+    fn decode<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T> {
+        serde_json::from_slice(bytes).map_err(Into::into)
+    }
+    fn encode<T: serde::Serialize, E: serde::Serialize>(
+        result: std::result::Result<T, E>,
+    ) -> ServerCapabilityResult {
+        match result {
+            Ok(value) => {
+                serde_json::to_vec(&value).map_err(|error| (None, Some(error.to_string())))
+            }
+            Err(error) => serde_json::to_vec(&error)
+                .map_err(|serialization| (None, Some(serialization.to_string())))
+                .and_then(|payload| Err((Some(payload), None))),
+        }
+    }
+    fn unavailable() -> fission_store::StoreError {
+        fission_store::StoreError::new(
+            fission_store::StoreErrorKind::Unavailable,
+            "no server store provider is configured",
+        )
+    }
+
+    let store = ctx.store;
+    let result = match operation.capability_name.as_str() {
+        name if name == fission_core::STORE_GET.name => encode(match store {
+            Some(store) => futures_lite::future::block_on(store.get(decode(&operation.request)?)),
+            None => Err(unavailable()),
+        }),
+        name if name == fission_core::STORE_CONTAINS.name => encode(match store {
+            Some(store) => {
+                futures_lite::future::block_on(store.contains(decode(&operation.request)?))
+            }
+            None => Err(unavailable()),
+        }),
+        name if name == fission_core::STORE_SET.name => encode(match store {
+            Some(store) => futures_lite::future::block_on(store.set(decode(&operation.request)?)),
+            None => Err(unavailable()),
+        }),
+        name if name == fission_core::STORE_REMOVE.name => encode(match store {
+            Some(store) => {
+                futures_lite::future::block_on(store.remove(decode(&operation.request)?))
+            }
+            None => Err(unavailable()),
+        }),
+        name if name == fission_core::STORE_BATCH.name => encode(match store {
+            Some(store) => futures_lite::future::block_on(store.batch(decode(&operation.request)?)),
+            None => Err(unavailable()),
+        }),
+        name if name == fission_core::STORE_LIST_PREFIX.name => encode(match store {
+            Some(store) => {
+                futures_lite::future::block_on(store.list_prefix(decode(&operation.request)?))
+            }
+            None => Err(unavailable()),
+        }),
+        #[cfg(feature = "store-sql")]
+        name if name == fission_core::SQL_EXECUTE.name => {
+            let result = match ctx.sql_store {
+                Some(store) => {
+                    futures_lite::future::block_on(store.execute(decode(&operation.request)?))
+                }
+                None => Err(fission_store::SqlError::new(
+                    fission_store::SqlErrorKind::Unavailable,
+                    "the configured server store does not implement SQL",
+                )),
+            };
+            encode(result)
+        }
+        #[cfg(feature = "store-sql")]
+        name if name == fission_core::SQL_QUERY.name => {
+            let result = match ctx.sql_store {
+                Some(store) => {
+                    futures_lite::future::block_on(store.query(decode(&operation.request)?))
+                }
+                None => Err(fission_store::SqlError::new(
+                    fission_store::SqlErrorKind::Unavailable,
+                    "the configured server store does not implement SQL",
+                )),
+            };
+            encode(result)
+        }
+        #[cfg(feature = "store-sql")]
+        name if name == fission_core::SQL_TRANSACTION.name => {
+            let result = match ctx.sql_store {
+                Some(store) => {
+                    futures_lite::future::block_on(store.transaction(decode(&operation.request)?))
+                }
+                None => Err(fission_store::SqlError::new(
+                    fission_store::SqlErrorKind::Unavailable,
+                    "the configured server store does not implement SQL",
+                )),
+            };
+            encode(result)
+        }
+        _ => return Ok(None),
+    };
+    Ok(Some(result))
+}
+
+#[cfg(feature = "store")]
+fn dispatch_capability_result<S: GlobalState>(
+    effect: &fission_core::EffectEnvelope,
+    operation: &fission_core::capability::OperationCapabilityInvocation,
+    result: ServerCapabilityResult,
+    build_ctx: &mut BuildCtx<S>,
+    state: &mut S,
+) -> Result<bool> {
+    match result {
+        Ok(payload) => {
+            let Some(action) = &effect.on_ok else {
+                return Ok(false);
+            };
+            build_ctx.registry.dispatch_with_input(
+                state,
+                action,
+                WidgetId::from_u128(0),
+                &ActionInput::CapabilityOk {
+                    capability: operation.capability_name.clone(),
+                    req_id: effect.req_id,
+                    payload,
+                },
+            )?;
+        }
+        Err((payload, message)) => {
+            let Some(action) = &effect.on_err else {
+                return Ok(false);
+            };
+            build_ctx.registry.dispatch_with_input(
+                state,
+                action,
+                WidgetId::from_u128(0),
+                &ActionInput::CapabilityErr {
+                    capability: operation.capability_name.clone(),
+                    req_id: effect.req_id,
+                    payload,
+                    message,
+                },
+            )?;
+        }
+    }
+    Ok(true)
 }
 
 fn drain_server_jobs<S: GlobalState>(
