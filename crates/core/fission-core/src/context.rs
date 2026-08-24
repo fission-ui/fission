@@ -74,6 +74,10 @@ use crate::platform_wifi::{
     SCAN_WIFI_NETWORKS,
 };
 use crate::registry::{ActionRegistry, IntoHandler};
+#[cfg(feature = "store-sql")]
+use crate::storage::{SQL_EXECUTE, SQL_QUERY, SQL_TRANSACTION};
+#[cfg(feature = "store")]
+use crate::storage::{STORE_BATCH, STORE_GET, STORE_LIST_PREFIX, STORE_REMOVE, STORE_SET};
 use crate::EffectCallbackRegistry;
 use std::{
     marker::PhantomData,
@@ -325,6 +329,18 @@ impl<'a, S: GlobalState> Effects<'a, S> {
     /// user gestures, so reducers should handle errors as normal outcomes.
     pub fn clipboard(&mut self) -> ClipboardEffects<'_, 'a, S> {
         ClipboardEffects { effects: self }
+    }
+
+    /// Accesses the typed persistent store configured by the active shell.
+    #[cfg(feature = "store")]
+    pub fn store(&mut self) -> StoreEffects<'_, 'a, S> {
+        StoreEffects { effects: self }
+    }
+
+    /// Executes SQLite-compatible SQL through the configured store provider.
+    #[cfg(feature = "store-sql")]
+    pub fn sql(&mut self) -> SqlEffects<'_, 'a, S> {
+        SqlEffects { effects: self }
     }
 
     /// Starts a typed geolocation capability request.
@@ -1199,6 +1215,78 @@ impl<'a, 'b, S: GlobalState> VolumeEffects<'a, 'b, S> {
 ///     .on_err(err_envelope)
 ///     .dispatch(); // optional -- dropping also finalises
 /// ```
+/// Reducer-facing operations for Fission's framework-owned store table.
+#[cfg(feature = "store")]
+pub struct StoreEffects<'a, 'b, S: GlobalState> {
+    effects: &'a mut Effects<'b, S>,
+}
+
+#[cfg(feature = "store")]
+impl<'a, 'b, S: GlobalState> StoreEffects<'a, 'b, S> {
+    pub fn get<T>(self, key: fission_store::StoreKey<T>) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(
+            STORE_GET,
+            fission_store::StoreGet {
+                address: key.into_address(),
+            },
+        )
+    }
+
+    pub fn set<T: serde::Serialize>(
+        self,
+        key: fission_store::StoreKey<T>,
+        value: &T,
+    ) -> Result<EffectBuilder<'a, 'b, S>, fission_store::StoreError> {
+        let request = fission_store::StoreSet::typed(key, value)?;
+        Ok(self.effects.capability(STORE_SET, request))
+    }
+
+    pub fn set_raw(self, request: fission_store::StoreSet) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(STORE_SET, request)
+    }
+
+    pub fn remove<T>(self, key: fission_store::StoreKey<T>) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(
+            STORE_REMOVE,
+            fission_store::StoreRemove {
+                address: key.into_address(),
+            },
+        )
+    }
+
+    pub fn batch(self, batch: fission_store::StoreBatch) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(STORE_BATCH, batch)
+    }
+
+    pub fn list_prefix(self, request: fission_store::StoreListPrefix) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(STORE_LIST_PREFIX, request)
+    }
+}
+
+/// Reducer-facing SQLite operations.
+#[cfg(feature = "store-sql")]
+pub struct SqlEffects<'a, 'b, S: GlobalState> {
+    effects: &'a mut Effects<'b, S>,
+}
+
+#[cfg(feature = "store-sql")]
+impl<'a, 'b, S: GlobalState> SqlEffects<'a, 'b, S> {
+    pub fn execute(self, statement: fission_store::SqlStatement) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(SQL_EXECUTE, statement)
+    }
+
+    pub fn query(self, statement: impl Into<fission_store::SqlQuery>) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(SQL_QUERY, statement.into())
+    }
+
+    pub fn transaction(
+        self,
+        transaction: fission_store::SqlTransaction,
+    ) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(SQL_TRANSACTION, transaction)
+    }
+}
+
 pub struct EffectBuilder<'a, 'b, S: GlobalState> {
     effects: &'a mut Effects<'b, S>,
     index: usize,

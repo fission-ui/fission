@@ -2881,6 +2881,7 @@ dependencies = [
  "fission-layout",
  "fission-macros",
  "fission-semantics",
+ "fission-store",
  "fission-text-engine",
  "fission-theme",
  "futures-core",

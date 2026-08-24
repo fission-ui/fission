@@ -76,6 +76,8 @@ pub mod runtime;
 pub mod scoped_action_handlers;
 pub mod scrollbar;
 pub mod state;
+#[cfg(feature = "store")]
+pub mod storage;
 pub mod time;
 pub mod ui;
 
@@ -238,6 +240,10 @@ pub mod public {
         OpenUrlRequest, OperationCapability, PickOpenFilesCapability, PickOpenFilesError,
         PickOpenFilesRequest, PickOpenFilesResult, PickedFile, OPEN_URL, PICK_OPEN_FILES,
     };
+    #[cfg(feature = "store-sql")]
+    pub use crate::context::SqlEffects;
+    #[cfg(feature = "store")]
+    pub use crate::context::StoreEffects;
     pub use crate::context::{
         BarcodeScannerEffects, BiometricEffects, BluetoothEffects, CameraEffects, ClipboardEffects,
         Effects, GeolocationEffects, HapticEffects, MicrophoneEffects, NfcEffects,
@@ -258,7 +264,11 @@ pub mod public {
     };
     pub use crate::runtime::Runtime;
     pub use crate::state::{LocalStateKey, LocalStateStore, StateField};
+    #[cfg(feature = "store")]
+    pub use crate::storage::*;
     pub use bytes::Bytes;
+    #[cfg(feature = "store")]
+    pub use fission_store::*;
 
     pub use crate::build::{BuildCtxHandle, ViewHandle};
     pub use crate::event::{
@@ -425,6 +435,10 @@ pub use capability::{
     OperationCapability, PickOpenFilesCapability, PickOpenFilesError, PickOpenFilesRequest,
     PickOpenFilesResult, PickedFile, OPEN_URL, PICK_OPEN_FILES,
 };
+#[cfg(feature = "store-sql")]
+pub use context::SqlEffects;
+#[cfg(feature = "store")]
+pub use context::StoreEffects;
 pub use context::{
     BarcodeScannerEffects, BiometricEffects, BluetoothEffects, CameraEffects, ClipboardEffects,
     Effects, GeolocationEffects, HapticEffects, MicrophoneEffects, NfcEffects, NotificationEffects,
@@ -443,9 +457,13 @@ pub use env::{
     Clipboard, DragSessionPayload, DragSessionState, Env, ImeHandler, InteractionStateMap,
     RouteLocation, RuntimeState, ScrollStateMap, WindowEnv, WindowTitle,
 };
+#[cfg(feature = "store")]
+pub use fission_store::*;
 pub use motion::*;
 pub use runtime::Runtime;
 pub use state::{LocalStateKey, LocalStateStore, StateField};
+#[cfg(feature = "store")]
+pub use storage::*;
 
 pub use build::{BuildCtxHandle, ViewHandle};
 pub use event::{
