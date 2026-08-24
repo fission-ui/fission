@@ -65,6 +65,8 @@ pub enum WidgetKind {
 }
 
 impl Widget {
+    const CHILD_ROLE: u32 = 0xF155_2000;
+
     /// Returns the concrete kind represented by this type-erased widget.
     pub fn kind(&self) -> &WidgetKind {
         self.kind.as_ref()
@@ -132,12 +134,25 @@ impl Widget {
                 }
                 fallback.visit(visitor)
             }
+            WidgetKind::RichText(RichText { inline_widgets, .. }) => {
+                for inline in inline_widgets {
+                    inline.widget.visit(visitor)?;
+                }
+                ControlFlow::Continue(())
+            }
+            WidgetKind::TextInput(TextInput { prefix, suffix, .. }) => {
+                if let Some(prefix) = prefix {
+                    prefix.visit(visitor)?;
+                }
+                if let Some(suffix) = suffix {
+                    suffix.visit(visitor)?;
+                }
+                ControlFlow::Continue(())
+            }
             #[cfg(feature = "interactive-canvas")]
             WidgetKind::InteractiveViewer(InteractiveViewer { child, .. }) => child.visit(visitor),
             WidgetKind::Custom(_)
             | WidgetKind::Text(_)
-            | WidgetKind::RichText(_)
-            | WidgetKind::TextInput(_)
             | WidgetKind::Image(_)
             | WidgetKind::Video(_)
             | WidgetKind::Checkbox(_)
@@ -378,6 +393,273 @@ impl Widget {
         }
     }
 
+    fn kind_discriminator(&self) -> u32 {
+        // These values are part of structural identity. Never renumber an
+        // existing kind; append a new value even when variants move.
+        match &*self.kind {
+            WidgetKind::Identified { .. } => 1,
+            WidgetKind::ActionScope(_) => 2,
+            WidgetKind::Row(_) => 3,
+            WidgetKind::Column(_) => 4,
+            WidgetKind::Align(_) => 5,
+            WidgetKind::FocusScope(_) => 6,
+            WidgetKind::Clip(_) => 7,
+            WidgetKind::Text(_) => 8,
+            WidgetKind::RichText(_) => 9,
+            WidgetKind::Transform(_) => 10,
+            #[cfg(feature = "interactive-canvas")]
+            WidgetKind::InteractiveViewer(_) => 11,
+            WidgetKind::Button(_) => 12,
+            WidgetKind::Pressable(_) => 13,
+            WidgetKind::TextInput(_) => 14,
+            WidgetKind::Scroll(_) => 15,
+            WidgetKind::SemanticsRegion(_) => 16,
+            WidgetKind::Image(_) => 17,
+            WidgetKind::Video(_) => 18,
+            WidgetKind::ZStack(_) => 19,
+            WidgetKind::Overlay(_) => 20,
+            WidgetKind::Container(_) => 21,
+            WidgetKind::ContextMenuRegion(_) => 22,
+            WidgetKind::GestureDetector(_) => 23,
+            WidgetKind::Grid(_) => 24,
+            WidgetKind::GridItem(_) => 25,
+            WidgetKind::Responsive(_) => 26,
+            WidgetKind::Checkbox(_) => 27,
+            WidgetKind::Switch(_) => 28,
+            WidgetKind::Radio(_) => 29,
+            WidgetKind::SafeArea(_) => 30,
+            WidgetKind::Positioned(_) => 31,
+            WidgetKind::Spacer(_) => 32,
+            WidgetKind::Slider(_) => 33,
+            WidgetKind::LazyColumn(_) => 34,
+            WidgetKind::Icon(_) => 35,
+            WidgetKind::Composite(_) => 36,
+            WidgetKind::Custom(_) => 37,
+        }
+    }
+
+    pub(crate) fn declared_id(&self) -> Option<WidgetId> {
+        match &*self.kind {
+            WidgetKind::Identified { id, .. } => Some(*id),
+            WidgetKind::ActionScope(_) => None,
+            WidgetKind::Custom(widget) => widget
+                .lowerer
+                .as_ref()
+                .and_then(|lowerer| lowerer.widget_id()),
+            WidgetKind::Row(widget) => widget.id,
+            WidgetKind::Column(widget) => widget.id,
+            WidgetKind::Align(widget) => widget.id,
+            WidgetKind::FocusScope(widget) => widget.id,
+            WidgetKind::Clip(widget) => widget.id,
+            WidgetKind::Text(widget) => widget.id,
+            WidgetKind::RichText(widget) => widget.id,
+            WidgetKind::Transform(widget) => widget.id,
+            #[cfg(feature = "interactive-canvas")]
+            WidgetKind::InteractiveViewer(widget) => widget.id,
+            WidgetKind::Button(widget) => widget.id,
+            WidgetKind::Pressable(widget) => widget.id,
+            WidgetKind::TextInput(widget) => widget.id,
+            WidgetKind::Scroll(widget) => widget.id,
+            WidgetKind::SemanticsRegion(widget) => widget.id,
+            WidgetKind::Image(widget) => widget.id,
+            WidgetKind::Video(widget) => widget.id,
+            WidgetKind::ZStack(widget) => widget.id,
+            WidgetKind::Overlay(widget) => widget.id,
+            WidgetKind::Container(widget) => widget.id,
+            WidgetKind::ContextMenuRegion(widget) => widget.id,
+            WidgetKind::GestureDetector(widget) => widget.id,
+            WidgetKind::Grid(widget) => widget.id,
+            WidgetKind::GridItem(widget) => widget.id,
+            WidgetKind::Responsive(widget) => widget.id,
+            WidgetKind::Checkbox(widget) => widget.id,
+            WidgetKind::Switch(widget) => widget.id,
+            WidgetKind::Radio(widget) => widget.id,
+            WidgetKind::SafeArea(widget) => widget.id,
+            WidgetKind::Positioned(widget) => widget.id,
+            WidgetKind::Spacer(widget) => widget.id,
+            WidgetKind::Slider(widget) => widget.id,
+            WidgetKind::LazyColumn(widget) => widget.id,
+            WidgetKind::Icon(widget) => widget.id,
+            WidgetKind::Composite(widget) => widget.id,
+        }
+    }
+
+    pub(crate) fn resolve_identities(self, root: WidgetId) -> Self {
+        self.resolve_identity(root)
+    }
+
+    fn resolve_identity(self, automatic_id: WidgetId) -> Self {
+        let resolved = if self.declared_id().is_some() {
+            self
+        } else {
+            self.with_id(automatic_id)
+        };
+        let parent = resolved.declared_id().unwrap_or(automatic_id);
+        resolved.resolve_descendants(parent)
+    }
+
+    fn resolve_descendants(self, parent: WidgetId) -> Self {
+        let child = |widget: Widget, slot: u32| {
+            let id = WidgetId::derived(
+                parent.as_u128(),
+                &[Self::CHILD_ROLE, slot, widget.kind_discriminator()],
+            );
+            widget.resolve_identity(id)
+        };
+        let children = |widgets: Vec<Widget>, first_slot: u32| {
+            widgets
+                .into_iter()
+                .enumerate()
+                .map(|(index, widget)| child(widget, first_slot + index as u32))
+                .collect()
+        };
+
+        let kind = match *self.kind {
+            WidgetKind::Identified {
+                id,
+                child: identified_child,
+            } => WidgetKind::Identified {
+                id,
+                // The structural wrapper is the logical identity for widget
+                // kinds that cannot store an id directly (ActionScope and
+                // Custom). Re-resolving that child would create wrappers
+                // recursively; only its descendants need identities here.
+                child: identified_child.resolve_descendants(id),
+            },
+            WidgetKind::ActionScope(mut widget) => {
+                widget.child = child(widget.child, 0);
+                WidgetKind::ActionScope(widget)
+            }
+            WidgetKind::Row(mut widget) => {
+                widget.children = children(widget.children, 0);
+                WidgetKind::Row(widget)
+            }
+            WidgetKind::Column(mut widget) => {
+                widget.children = children(widget.children, 0);
+                WidgetKind::Column(widget)
+            }
+            WidgetKind::Align(mut widget) => {
+                widget.child = child(widget.child, 0);
+                WidgetKind::Align(widget)
+            }
+            WidgetKind::FocusScope(mut widget) => {
+                widget.children = children(widget.children, 0);
+                WidgetKind::FocusScope(widget)
+            }
+            WidgetKind::Clip(mut widget) => {
+                widget.child = child(widget.child, 0);
+                WidgetKind::Clip(widget)
+            }
+            WidgetKind::Text(widget) => WidgetKind::Text(widget),
+            WidgetKind::RichText(mut widget) => {
+                for (index, inline) in widget.inline_widgets.iter_mut().enumerate() {
+                    inline.widget = child(inline.widget.clone(), index as u32);
+                }
+                WidgetKind::RichText(widget)
+            }
+            WidgetKind::Transform(mut widget) => {
+                widget.child = child(widget.child, 0);
+                WidgetKind::Transform(widget)
+            }
+            #[cfg(feature = "interactive-canvas")]
+            WidgetKind::InteractiveViewer(mut widget) => {
+                widget.child = child(widget.child, 0);
+                WidgetKind::InteractiveViewer(widget)
+            }
+            WidgetKind::Button(mut widget) => {
+                widget.child = widget.child.map(|value| child(value, 0));
+                WidgetKind::Button(widget)
+            }
+            WidgetKind::Pressable(mut widget) => {
+                widget.child = child(widget.child, 0);
+                WidgetKind::Pressable(widget)
+            }
+            WidgetKind::TextInput(mut widget) => {
+                widget.prefix = widget.prefix.map(|value| child(value, 0));
+                widget.suffix = widget.suffix.map(|value| child(value, 1));
+                WidgetKind::TextInput(widget)
+            }
+            WidgetKind::Scroll(mut widget) => {
+                widget.child = widget.child.map(|value| child(value, 0));
+                WidgetKind::Scroll(widget)
+            }
+            WidgetKind::SemanticsRegion(mut widget) => {
+                widget.child = widget.child.map(|value| child(value, 0));
+                WidgetKind::SemanticsRegion(widget)
+            }
+            WidgetKind::Image(widget) => WidgetKind::Image(widget),
+            WidgetKind::Video(widget) => WidgetKind::Video(widget),
+            WidgetKind::ZStack(mut widget) => {
+                widget.children = children(widget.children, 0);
+                WidgetKind::ZStack(widget)
+            }
+            WidgetKind::Overlay(mut widget) => {
+                widget.content = child(widget.content, 0);
+                widget.overlay = child(widget.overlay, 1);
+                WidgetKind::Overlay(widget)
+            }
+            WidgetKind::Container(mut widget) => {
+                widget.child = widget.child.map(|value| child(value, 0));
+                WidgetKind::Container(widget)
+            }
+            WidgetKind::ContextMenuRegion(mut widget) => {
+                widget.child = child(widget.child, 0);
+                for (index, entry) in widget.menu.items.iter_mut().enumerate() {
+                    if let ContextMenuEntry::Item(item) = entry {
+                        item.child = child(item.child.clone(), 1 + index as u32);
+                    }
+                }
+                WidgetKind::ContextMenuRegion(widget)
+            }
+            WidgetKind::GestureDetector(mut widget) => {
+                widget.child = child(widget.child, 0);
+                WidgetKind::GestureDetector(widget)
+            }
+            WidgetKind::Grid(mut widget) => {
+                widget.children = children(widget.children, 0);
+                WidgetKind::Grid(widget)
+            }
+            WidgetKind::GridItem(mut widget) => {
+                widget.child = child(widget.child, 0);
+                WidgetKind::GridItem(widget)
+            }
+            WidgetKind::Responsive(mut widget) => {
+                for (index, case) in widget.cases.iter_mut().enumerate() {
+                    case.child = child(case.child.clone(), index as u32);
+                }
+                widget.fallback = child(widget.fallback, u32::MAX);
+                WidgetKind::Responsive(widget)
+            }
+            WidgetKind::Checkbox(widget) => WidgetKind::Checkbox(widget),
+            WidgetKind::Switch(widget) => WidgetKind::Switch(widget),
+            WidgetKind::Radio(widget) => WidgetKind::Radio(widget),
+            WidgetKind::SafeArea(mut widget) => {
+                widget.child = child(widget.child, 0);
+                WidgetKind::SafeArea(widget)
+            }
+            WidgetKind::Positioned(mut widget) => {
+                widget.child = widget.child.map(|value| child(value, 0));
+                WidgetKind::Positioned(widget)
+            }
+            WidgetKind::Spacer(widget) => WidgetKind::Spacer(widget),
+            WidgetKind::Slider(widget) => WidgetKind::Slider(widget),
+            WidgetKind::LazyColumn(mut widget) => {
+                widget.children = children(widget.children, 0);
+                WidgetKind::LazyColumn(widget)
+            }
+            WidgetKind::Icon(widget) => WidgetKind::Icon(widget),
+            WidgetKind::Composite(mut widget) => {
+                widget.child = child(widget.child, 0);
+                WidgetKind::Composite(widget)
+            }
+            WidgetKind::Custom(widget) => WidgetKind::Custom(widget),
+        };
+
+        Self {
+            kind: Box::new(kind),
+        }
+    }
+
     pub(crate) fn as_row(&self) -> Option<&Row> {
         match &*self.kind {
             WidgetKind::Identified { child, .. } => child.as_row(),
@@ -468,6 +750,12 @@ impl Widget {
     }
 }
 
+/// Overrides Fission's automatic structural identity for a widget.
+///
+/// Explicit IDs are normally only needed for logical items in dynamic
+/// collections or for code that must address a particular widget. An explicit
+/// ID also scopes all automatically identified descendants, so a stateful
+/// subtree follows its logical item when reordered.
 pub trait WidgetIdExt: Into<Widget> + Sized {
     fn id<I>(self, id: I) -> Widget
     where
@@ -487,7 +775,9 @@ impl Widget {
     pub(crate) fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
         match &*self.kind {
             WidgetKind::Identified { id, child } => {
+                cx.push_scope(*id);
                 let child_id = child.lower(cx);
+                cx.pop_scope();
                 let mut builder = crate::lowering::InternalIrBuilder::new(
                     (*id).into(),
                     Op::Structural(StructuralOp::Group {
@@ -538,8 +828,10 @@ impl Widget {
                     .lowerer
                     .as_ref()
                     .expect("CustomWidget lowerer must be set");
-                let child_id = lowerer.lower_dyn(cx);
                 let wrapper = lowerer.widget_id().unwrap_or_else(|| cx.next_node_id());
+                cx.push_scope(wrapper);
+                let child_id = lowerer.lower_dyn(cx);
+                cx.pop_scope();
                 let mut builder = crate::lowering::InternalIrBuilder::new(
                     wrapper,
                     Op::Structural(StructuralOp::Group {
