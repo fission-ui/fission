@@ -73,6 +73,7 @@ action or carry stable application context such as a field or row identity.
 | `can_request_focus` | `bool` | Whether pointer, traversal, accessibility, autofocus, or controller requests may focus the field. | Defaults to `true`. |
 | `select_all_on_focus` | `bool` | Select the complete value whenever focus enters the field. | Defaults to `false`. |
 | `show_cursor` | `bool` | Whether Fission paints the caret while focused. | Defaults to `true`; selection and editing still work when hidden. |
+| `text_align_vertical` | `TextAlignVertical` | Vertical placement of editable content. | Defaults to `Auto`, which centres a single line and top-aligns multiline content. |
 | `min_lines` | `Option<usize>` | Minimum visible line count for multiline fields. | Defaults to `None`. |
 | `max_lines` | `Option<usize>` | Maximum visible line count for multiline fields. | Defaults to `None`. |
 | `obscure_text` | `bool` | Whether the field masks characters. | Defaults to `false`. Useful for passwords. |
@@ -108,10 +109,11 @@ action or carry stable application context such as a field or row identity.
 | `locale` | `Option<String>` | Locale override for shaping and accessibility. | Defaults to `None`. |
 | `scroll_padding` | `Option<[f32; 4]>` | Extra space kept around the caret during auto-scroll. | Defaults to `None`. |
 | `wrap_mode` | `TextWrapMode` | Soft wrapping, hard wrapping, or no wrapping for multiline content. | Static site and SSR lower the equivalent textarea `wrap` behavior. |
-| `scroll_policy` | `TextScrollPolicy` | Automatic, always-visible, or disabled editable scrolling. | Defaults to `Auto`. |
+| `scroll_policy` | `TextScrollPolicy` | Automatic or disabled editable scrolling. | Defaults to `Auto`; `Never` also suppresses scrollbar chrome. |
+| `show_scrollbar` | `bool` | Whether overflowing multiline content displays scrollbar chrome. | Defaults to `true`; set to `false` without disabling programmatic or user scrolling. |
 | `scroll_physics` | `TextScrollPhysics` | Platform, clamped, or non-scrollable user interaction. | Programmatic caret/range visibility remains explicit through a controller. |
 | `context_menu` | `TextContextMenuConfig` | Configures built-in editing actions shown from the text selection context menu. | Defaults to Copy, Cut, Paste, and Select All. Menu labels use localizable child widgets with English fallbacks. |
-| `selection_controls` | `TextSelectionControls` | Configures caret and selection-handle overlays. | Set `enabled` to `false` for mouse-first editors that should not show touch-style handles. Defaults to enabled. |
+| `selection_controls` | `TextSelectionControls` | Configures caret and selection-handle overlays. | Selection handles are enabled; the collapsed caret handle is hidden by default and can be enabled with `show_collapsed_handle`. |
 
 ## Programmatic editing, scrolling, and forms
 

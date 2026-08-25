@@ -3,26 +3,41 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum TextAlignVertical {
-    Top,
+    /// Centres single-line fields and top-aligns multiline fields.
     #[default]
+    Auto,
+    /// Aligns editable content to the top edge.
+    Top,
+    /// Aligns editable content to the vertical centre.
     Center,
+    /// Aligns editable content to the bottom edge.
     Bottom,
 }
 
 impl TextAlignVertical {
-    pub(crate) fn justify_content(self) -> fission_ir::op::JustifyContent {
+    pub(crate) fn resolve(self, multiline: bool) -> Self {
         match self {
-            Self::Top => fission_ir::op::JustifyContent::Start,
-            Self::Center => fission_ir::op::JustifyContent::Center,
-            Self::Bottom => fission_ir::op::JustifyContent::End,
+            Self::Auto if multiline => Self::Top,
+            Self::Auto => Self::Center,
+            explicit => explicit,
         }
     }
 
-    pub(crate) fn align_items(self) -> fission_ir::op::AlignItems {
-        match self {
+    pub(crate) fn justify_content(self, multiline: bool) -> fission_ir::op::JustifyContent {
+        match self.resolve(multiline) {
+            Self::Top => fission_ir::op::JustifyContent::Start,
+            Self::Center => fission_ir::op::JustifyContent::Center,
+            Self::Bottom => fission_ir::op::JustifyContent::End,
+            Self::Auto => unreachable!("automatic text alignment must resolve before lowering"),
+        }
+    }
+
+    pub(crate) fn align_items(self, multiline: bool) -> fission_ir::op::AlignItems {
+        match self.resolve(multiline) {
             Self::Top => fission_ir::op::AlignItems::Start,
             Self::Center => fission_ir::op::AlignItems::Center,
             Self::Bottom => fission_ir::op::AlignItems::End,
+            Self::Auto => unreachable!("automatic text alignment must resolve before lowering"),
         }
     }
 }
@@ -157,6 +172,7 @@ pub(crate) fn text_input_scroll_physics_for_node(
 pub struct TextSelectionControls {
     #[serde(default = "default_selection_controls_enabled")]
     pub enabled: bool,
+    #[serde(default)]
     pub show_collapsed_handle: bool,
     pub handle_radius: f32,
     pub handle_fill: IrColor,
@@ -172,7 +188,7 @@ impl Default for TextSelectionControls {
     fn default() -> Self {
         Self {
             enabled: true,
-            show_collapsed_handle: true,
+            show_collapsed_handle: false,
             handle_radius: 7.0,
             handle_fill: IrColor {
                 r: 0,

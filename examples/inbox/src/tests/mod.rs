@@ -1376,6 +1376,46 @@ fn default_viewport_email_list_scroll_has_positive_height() -> Result<()> {
 }
 
 #[test]
+fn email_detail_scrollbar_is_bounded_proportional_and_interactive() -> Result<()> {
+    let mut h = pump_state_with_viewport(state_detail(), 1200.0, 800.0)?;
+    let ir = h.last_ir.as_ref().expect("inbox IR");
+    let layout = h.last_snapshot.as_ref().expect("inbox layout");
+    let mut current = find_text_node_id(&h, "Details");
+    let scroll = loop {
+        let id = current.expect("email details should have a scroll ancestor");
+        let node = ir.nodes.get(&id).expect("email detail ancestor");
+        if matches!(node.op, Op::Layout(LayoutOp::Scroll { .. })) {
+            break id;
+        }
+        current = node.parent;
+    };
+    let geometry = layout
+        .get_node_geometry(scroll)
+        .expect("email detail scroll geometry");
+    let viewport_height = geometry.rect.height();
+    let content_height = geometry.content_size.height;
+    let rail_height = (viewport_height - 4.0).max(0.0);
+    let proportional_thumb_height = ((viewport_height / content_height) * rail_height)
+        .clamp(24.0_f32.min(rail_height), rail_height);
+    assert!(viewport_height <= 800.0);
+    assert!(content_height > viewport_height);
+    assert!(proportional_thumb_height < rail_height);
+
+    let rail_point = fission::core::LayoutPoint::new(
+        geometry.rect.right() - 5.0,
+        geometry.rect.y() + 2.0 + rail_height * 0.8,
+    );
+    let previous_offset = h.runtime.runtime_state.scroll.get_offset(scroll);
+    click(&mut h, rail_point.x, rail_point.y)?;
+    let jumped_offset = h.runtime.runtime_state.scroll.get_offset(scroll);
+    assert!(
+        jumped_offset > previous_offset,
+        "clicking below the thumb should jump the email detail scroll position"
+    );
+    Ok(())
+}
+
+#[test]
 fn spinner_motion_present_in_default_inbox() -> Result<()> {
     let h = pump_state(state_default())?;
     let base = motion_slot_id(WidgetId::explicit("sync_spinner"), 0x1D1_CA70);
