@@ -3763,6 +3763,7 @@ android {{
 }}
 
 dependencies {{
+    implementation(platform("org.jetbrains.kotlin:kotlin-bom:1.8.22"))
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.games:games-activity:4.4.0")
 }}
@@ -6306,6 +6307,7 @@ publisher = "CN=Example & Co"
 
         let gradle =
             fs::read_to_string(dir.join("platforms/android/app/build.gradle.kts")).unwrap();
+        assert!(gradle.contains("org.jetbrains.kotlin:kotlin-bom:1.8.22"));
         assert!(gradle.contains("androidx.appcompat:appcompat:1.7.0"));
         assert!(gradle.contains("androidx.games:games-activity:4.4.0"));
 
