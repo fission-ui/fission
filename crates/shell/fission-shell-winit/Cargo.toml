@@ -79,14 +79,17 @@ accesskit = "0.24.1"
 accesskit_winit = { package = "fission-accesskit-winit", version = "0.33.1-fission.1" }
 
 [target.'cfg(target_os = "android")'.dependencies]
+accesskit = "0.24.1"
+accesskit_winit = { package = "fission-accesskit-winit", version = "0.33.1-fission.1", default-features = false, features = ["accesskit_android", "rwh_06"] }
 jni = "0.21"
 ndk-context = "0.1"
-winit = { package = "fission-winit", version = "0.30.13-fission.2", features = ["android-native-activity"] }
+winit = { package = "fission-winit", version = "0.30.13-fission.2", features = ["android-game-activity"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.58", features = [
     "Data_Xml_Dom",
     "UI_Notifications",
+    "UI_ViewManagement",
     "Win32_Foundation",
     "Win32_Media_MediaFoundation",
     "Win32_Storage_Packaging_Appx",

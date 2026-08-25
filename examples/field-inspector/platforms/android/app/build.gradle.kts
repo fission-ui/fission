@@ -56,4 +56,8 @@ android {
     }
 }
 
+dependencies {
+    implementation("androidx.games:games-activity:4.4.0")
+}
+
 apply(from = "../native-modules.gradle")

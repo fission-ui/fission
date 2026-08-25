@@ -118,7 +118,7 @@ fission add-target web ios android --project-dir my-app
 
 This command does not duplicate your shared widgets or reducers. Instead, it updates [`fission.toml`](/reference/config/fission-toml/) and writes the generated files needed for the requested hosts under `platforms/`.
 
-If you are new to the term, a _target_ in this context means a host environment that packages and launches your shared app. A _generated host_ is the platform-specific wrapper the command-line interface writes so that environment can start the shared runtime. For web, that means a browser-oriented host page and helper script. For Android, that means the generated NativeActivity packaging files and emulator script. For iOS, that means the simulator bundle template and launch script. For desktop, the initial scaffold already gives you the direct desktop entrypoint.
+If you are new to the term, a _target_ in this context means a host environment that packages and launches your shared app. A _generated host_ is the platform-specific wrapper the command-line interface writes so that environment can start the shared runtime. For web, that means a browser-oriented host page and helper script. For Android, that means the generated AndroidX GameActivity packaging files and emulator script. For iOS, that means the simulator bundle template and launch script. For desktop, the initial scaffold already gives you the direct desktop entrypoint.
 
 ### Important `add-target` flag
 

@@ -14,7 +14,7 @@
         android:icon="@drawable/app_icon"
         android:label="WebSmoke">
         <activity
-            android:name="android.app.NativeActivity"
+            android:name="rs.fission.runtime.FissionActivity"
             android:configChanges="orientation|keyboardHidden|screenSize|screenLayout|smallestScreenSize|uiMode|density"
             android:exported="true"
             android:launchMode="singleTask"

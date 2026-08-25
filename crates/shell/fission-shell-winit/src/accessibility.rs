@@ -1,20 +1,26 @@
-#[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+#[cfg(not(target_arch = "wasm32"))]
 mod imp {
     use std::collections::{HashMap, HashSet, VecDeque};
     use std::sync::{Arc, Mutex};
 
     use accesskit::{
         Action, ActionData, ActionHandler, ActionRequest, ActivationHandler, DeactivationHandler,
-        Node, NodeId, Rect, Role as AccessRole, TextPosition, TextSelection, Toggled, Tree, TreeId,
+        Invalid as AccessInvalid, Live, Node, NodeId, Rect, Role as AccessRole,
+        TextDirection as AccessTextDirection, TextPosition, TextSelection, Toggled, Tree, TreeId,
         TreeUpdate,
     };
     use accesskit_winit::Adapter;
+    #[cfg(test)]
     use fission_core::event::ImeEvent;
-    use fission_core::input::prepare_scoped_text_input_change;
-    use fission_core::{ActionEnvelope, ActionId, ActionInput, InputEvent, Runtime};
+    #[cfg(test)]
+    use fission_core::InputEvent;
+    use fission_core::{
+        ActionEnvelope, ActionId, ActionInput, Runtime, SelectionRegionController, TextAffinity,
+        TextPosition as EditingTextPosition,
+    };
     use fission_ir::semantics::{ActionTrigger, Role, TextInputType};
     use fission_ir::{CoreIR, LayoutOp, Op, PaintOp, Semantics, WidgetId};
-    use fission_layout::{LayoutPoint, LayoutRect, LayoutSnapshot};
+    use fission_layout::{LayoutPoint, LayoutRect, LayoutSnapshot, ResolvedParagraphLayout};
     use fission_test_driver::TestEvent;
     use winit::event::WindowEvent;
     use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
@@ -248,22 +254,35 @@ mod imp {
                     return false;
                 };
                 set_focus(runtime, ir, Some(target));
+                let value = runtime
+                    .runtime_state
+                    .text_edit
+                    .get(target)
+                    .map(|state| state.editing_value())
+                    .unwrap_or_else(|| {
+                        fission_core::TextEditingValue::from_text(
+                            semantics.value.clone().unwrap_or_default(),
+                        )
+                    });
                 runtime
-                    .handle_input(
-                        InputEvent::Ime(ImeEvent::Commit {
-                            text: text.to_string(),
-                        }),
+                    .apply_text_edit_command_to(
                         ir,
                         layout,
+                        target,
+                        fission_core::TextEditCommand::Replace {
+                            range: value.selection_range(),
+                            text: text.to_string(),
+                            source: fission_core::TextEditSource::Accessibility,
+                        },
                     )
-                    .is_ok()
+                    .unwrap_or(false)
             }
             Action::SetValue => match &request.data {
                 Some(ActionData::Value(value)) => {
-                    set_text_input_value(runtime, ir, target, semantics, value)
+                    set_text_input_value(runtime, ir, layout, target, semantics, value)
                 }
                 Some(ActionData::NumericValue(value)) if semantics.role == Role::TextInput => {
-                    set_text_input_value(runtime, ir, target, semantics, &value.to_string())
+                    set_text_input_value(runtime, ir, layout, target, semantics, &value.to_string())
                 }
                 Some(ActionData::NumericValue(value)) => set_numeric_value(
                     runtime,
@@ -281,7 +300,7 @@ mod imp {
                 let Some(ActionData::SetTextSelection(selection)) = &request.data else {
                     return false;
                 };
-                set_text_selection(runtime, ir, target, semantics, selection)
+                set_text_selection(runtime, ir, layout, target, semantics, selection)
             }
             Action::ScrollDown | Action::ScrollUp | Action::ScrollLeft | Action::ScrollRight => {
                 handle_scroll_action(runtime, ir, layout, target, request.action, &request.data)
@@ -411,10 +430,20 @@ mod imp {
 
             match &core_node.op {
                 Op::Semantics(semantics) if include_semantics(semantics) => {
+                    let coordinated_selection = semantics
+                        .selection_region
+                        .as_ref()
+                        .is_some_and(|region| !region.excluded);
                     let child_ids = core_node
                         .children
                         .iter()
-                        .flat_map(|child| self.collect_subtree(*child, true))
+                        .flat_map(|child| {
+                            if coordinated_selection {
+                                self.collect_selection_region_subtree(*child)
+                            } else {
+                                self.collect_subtree(*child, true)
+                            }
+                        })
                         .collect::<Vec<_>>();
                     let access_id = self.node_id_for(node_id);
                     let mut node = self.access_node_for_semantics(access_id, node_id, semantics);
@@ -426,6 +455,7 @@ mod imp {
                     let access_id = self.node_id_for(node_id);
                     let mut node = Node::new(AccessRole::Label);
                     node.set_value(text.clone());
+                    self.apply_resolved_text_geometry(&mut node, node_id, text);
                     if let Some(rect) = self.visual_rect(node_id) {
                         node.set_bounds(accesskit_rect(rect, self.scale_factor));
                     }
@@ -442,7 +472,8 @@ mod imp {
                     }
                     let access_id = self.node_id_for(node_id);
                     let mut node = Node::new(AccessRole::Label);
-                    node.set_value(text);
+                    node.set_value(text.clone());
+                    self.apply_resolved_text_geometry(&mut node, node_id, &text);
                     if let Some(rect) = self.visual_rect(node_id) {
                         node.set_bounds(accesskit_rect(rect, self.scale_factor));
                     }
@@ -456,6 +487,38 @@ mod imp {
                     .children
                     .iter()
                     .flat_map(|child| self.collect_subtree(*child, inside_semantics))
+                    .collect(),
+            }
+        }
+
+        /// Collects meaningful non-text descendants while the containing
+        /// selection region represents all participating text as one node.
+        fn collect_selection_region_subtree(&mut self, node_id: WidgetId) -> Vec<NodeId> {
+            let Some(core_node) = self.ir.nodes.get(&node_id) else {
+                return Vec::new();
+            };
+            match &core_node.op {
+                Op::Semantics(semantics)
+                    if semantics
+                        .selection_region
+                        .as_ref()
+                        .is_some_and(|region| region.excluded) =>
+                {
+                    self.collect_subtree(node_id, true)
+                }
+                Op::Semantics(semantics) if semantics.selectable_text => core_node
+                    .children
+                    .iter()
+                    .flat_map(|child| self.collect_selection_region_subtree(*child))
+                    .collect(),
+                Op::Paint(PaintOp::DrawText { .. } | PaintOp::DrawRichText { .. }) => Vec::new(),
+                Op::Semantics(semantics) if include_semantics(semantics) => {
+                    self.collect_subtree(node_id, true)
+                }
+                _ => core_node
+                    .children
+                    .iter()
+                    .flat_map(|child| self.collect_selection_region_subtree(*child))
                     .collect(),
             }
         }
@@ -499,8 +562,40 @@ mod imp {
 
             match semantics.role {
                 Role::Text => {
-                    if let Some(text) = label.or(value.clone()) {
-                        node.set_value(text);
+                    let selection_region = semantics
+                        .selection_region
+                        .as_ref()
+                        .is_some_and(|region| !region.excluded);
+                    let text = if selection_region {
+                        value.clone().or(label)
+                    } else {
+                        label.or(value.clone())
+                    };
+                    if let Some(text) = text {
+                        node.set_value(text.clone());
+                        self.apply_resolved_text_geometry(&mut node, node_id, &text);
+                        if selection_region {
+                            node.set_character_lengths(
+                                text.chars()
+                                    .map(|ch| ch.len_utf8() as u8)
+                                    .collect::<Vec<_>>(),
+                            );
+                            if let Some((anchor, focus)) = semantics.text_selection {
+                                node.set_text_selection(TextSelection {
+                                    anchor: TextPosition {
+                                        node: access_id,
+                                        character_index: byte_to_char(&text, anchor),
+                                    },
+                                    focus: TextPosition {
+                                        node: access_id,
+                                        character_index: byte_to_char(&text, focus),
+                                    },
+                                });
+                            }
+                            if !semantics.disabled {
+                                node.add_action(Action::SetTextSelection);
+                            }
+                        }
                     }
                     node.set_read_only();
                 }
@@ -508,8 +603,28 @@ mod imp {
                     if let Some(label) = label {
                         node.set_label(label);
                     }
+                    if semantics.required {
+                        node.set_required();
+                    }
+                    if matches!(
+                        semantics.validation_state,
+                        fission_ir::semantics::TextFieldValidationState::Invalid
+                    ) {
+                        node.set_invalid(AccessInvalid::True);
+                    }
+                    if let Some(message) = semantics.validation_message.as_deref() {
+                        node.set_description(message);
+                        if matches!(
+                            semantics.validation_state,
+                            fission_ir::semantics::TextFieldValidationState::Invalid
+                        ) {
+                            node.set_live(Live::Polite);
+                            node.set_live_atomic();
+                        }
+                    }
                     if let Some(value) = value {
                         node.set_value(value.clone());
+                        self.apply_resolved_text_geometry(&mut node, node_id, &value);
                         node.set_character_lengths(
                             value
                                 .chars()
@@ -606,6 +721,29 @@ mod imp {
                 node.add_action(Action::Click);
             }
             node
+        }
+
+        fn apply_resolved_text_geometry(&self, node: &mut Node, node_id: WidgetId, text: &str) {
+            let Some((paragraph, direction)) =
+                resolved_paragraph_in_subtree(self.ir, self.layout, node_id, text.len())
+            else {
+                return;
+            };
+            let (positions, widths) = paragraph_character_geometry(paragraph, text, direction);
+            if positions.len() != text.chars().count() {
+                return;
+            }
+            node.set_character_lengths(
+                text.chars()
+                    .map(|ch| ch.len_utf8() as u8)
+                    .collect::<Vec<_>>(),
+            );
+            node.set_character_positions(positions);
+            node.set_character_widths(widths);
+            node.set_text_direction(match direction {
+                fission_ir::op::TextDirection::Rtl => AccessTextDirection::RightToLeft,
+                _ => AccessTextDirection::LeftToRight,
+            });
         }
 
         fn visual_rect(&self, node_id: WidgetId) -> Option<LayoutRect> {
@@ -758,6 +896,119 @@ mod imp {
         )
     }
 
+    fn resolved_paragraph_in_subtree<'a>(
+        ir: &'a CoreIR,
+        layout: &'a LayoutSnapshot,
+        node_id: WidgetId,
+        expected_text_len: usize,
+    ) -> Option<(&'a ResolvedParagraphLayout, fission_ir::op::TextDirection)> {
+        let node = ir.nodes.get(&node_id)?;
+        let paragraph_style = match &node.op {
+            Op::Paint(PaintOp::DrawText {
+                text,
+                paragraph_style,
+                ..
+            }) if text.len() == expected_text_len => paragraph_style.as_ref(),
+            Op::Paint(PaintOp::DrawRichText {
+                runs,
+                paragraph_style,
+                ..
+            }) if runs.iter().map(|run| run.text.len()).sum::<usize>() == expected_text_len => {
+                paragraph_style.as_ref()
+            }
+            _ => None,
+        };
+        if matches!(
+            &node.op,
+            Op::Paint(PaintOp::DrawText { .. } | PaintOp::DrawRichText { .. })
+        ) {
+            if let Some(paragraph) = layout.get_resolved_paragraph(node_id) {
+                let mut direction = paragraph_style
+                    .map(|style| style.text_direction)
+                    .unwrap_or_default();
+                if direction == fission_ir::op::TextDirection::Auto {
+                    direction = if paragraph
+                        .clusters
+                        .first()
+                        .is_some_and(|cluster| cluster.is_rtl)
+                    {
+                        fission_ir::op::TextDirection::Rtl
+                    } else {
+                        fission_ir::op::TextDirection::Ltr
+                    };
+                }
+                return Some((paragraph, direction));
+            }
+        }
+        node.children
+            .iter()
+            .find_map(|child| resolved_paragraph_in_subtree(ir, layout, *child, expected_text_len))
+    }
+
+    fn paragraph_character_geometry(
+        paragraph: &ResolvedParagraphLayout,
+        text: &str,
+        declared_direction: fission_ir::op::TextDirection,
+    ) -> (Vec<f32>, Vec<f32>) {
+        let base_rtl = match declared_direction {
+            fission_ir::op::TextDirection::Rtl => true,
+            fission_ir::op::TextDirection::Ltr => false,
+            fission_ir::op::TextDirection::Auto => paragraph
+                .clusters
+                .iter()
+                .find(|cluster| cluster.end_index > cluster.start_index)
+                .is_some_and(|cluster| cluster.is_rtl),
+        };
+        let mut positions = Vec::with_capacity(text.chars().count());
+        let mut widths = Vec::with_capacity(text.chars().count());
+        for (byte_index, _) in text.char_indices() {
+            let next = text[byte_index..]
+                .char_indices()
+                .nth(1)
+                .map(|(offset, _)| byte_index + offset)
+                .unwrap_or(text.len());
+            if let Some(cluster) = paragraph
+                .clusters
+                .iter()
+                .find(|cluster| cluster.start_index < next && cluster.end_index > byte_index)
+            {
+                let indices = text[cluster.start_index..cluster.end_index]
+                    .char_indices()
+                    .map(|(offset, _)| cluster.start_index + offset)
+                    .collect::<Vec<_>>();
+                let count = indices.len().max(1) as f32;
+                let ordinal = indices
+                    .iter()
+                    .position(|index| *index == byte_index)
+                    .unwrap_or(0) as f32;
+                let width = cluster.rect.width() / count;
+                let left = if cluster.is_rtl {
+                    cluster.rect.right() - (ordinal + 1.0) * width
+                } else {
+                    cluster.rect.x() + ordinal * width
+                };
+                positions.push(if base_rtl {
+                    paragraph.size.width - left - width
+                } else {
+                    left
+                });
+                widths.push(width);
+            } else {
+                let x = paragraph
+                    .caret(byte_index, false)
+                    .map(|caret| caret.position.x)
+                    .unwrap_or(0.0);
+                positions.push(if base_rtl {
+                    paragraph.size.width - x
+                } else {
+                    x
+                });
+                widths.push(0.0);
+            }
+        }
+        (positions, widths)
+    }
+
     fn semantics_for(ir: &CoreIR, id: WidgetId) -> Option<&Semantics> {
         ir.nodes.get(&id).and_then(|node| match &node.op {
             Op::Semantics(semantics) => Some(semantics),
@@ -771,6 +1022,9 @@ mod imp {
         semantics: &Semantics,
     ) -> Option<String> {
         if semantics.role == Role::TextInput {
+            if semantics.masked {
+                return None;
+            }
             semantics.value.clone().or_else(|| {
                 runtime
                     .runtime_state
@@ -821,49 +1075,9 @@ mod imp {
     }
 
     fn set_focus(runtime: &mut Runtime, ir: &CoreIR, focus: Option<WidgetId>) -> bool {
-        let old_focus = runtime.runtime_state.interaction.focused;
-        if old_focus == focus {
-            return false;
-        }
-        if let Some(old_id) = old_focus {
-            if let Some(state) = runtime.runtime_state.text_edit.states.get_mut(&old_id) {
-                state.pending_model_sync = false;
-                state.clear_preedit();
-            }
-            if let Some(old_semantics) = semantics_for(ir, old_id) {
-                let _ = dispatch_semantics_action(
-                    runtime,
-                    ir,
-                    old_id,
-                    old_semantics,
-                    ActionTrigger::Blur,
-                    ActionInput::None,
-                );
-            }
-        }
-        runtime.runtime_state.interaction.set_focused(focus);
-        if let Some(ime_handler) = &runtime.ime_handler {
-            let allow_ime = focus
-                .and_then(|id| semantics_for(ir, id))
-                .map(|semantics| {
-                    semantics.role == Role::TextInput && !semantics.disabled && !semantics.read_only
-                })
-                .unwrap_or(false);
-            ime_handler.set_ime_allowed(allow_ime);
-        }
-        if let Some(new_id) = focus {
-            if let Some(new_semantics) = semantics_for(ir, new_id) {
-                let _ = dispatch_semantics_action(
-                    runtime,
-                    ir,
-                    new_id,
-                    new_semantics,
-                    ActionTrigger::Focus,
-                    ActionInput::None,
-                );
-            }
-        }
-        true
+        runtime
+            .set_focused_widget(ir, focus, fission_core::TextEditSource::Accessibility)
+            .unwrap_or(false)
     }
 
     fn dispatch_semantics_action(
@@ -918,6 +1132,7 @@ mod imp {
     fn set_text_input_value(
         runtime: &mut Runtime,
         ir: &CoreIR,
+        layout: &LayoutSnapshot,
         target: WidgetId,
         semantics: &Semantics,
         value: &str,
@@ -925,157 +1140,91 @@ mod imp {
         if !editable_text_input(semantics) {
             return false;
         }
-        let previous_text_state = runtime.runtime_state.text_edit.get(target).cloned();
         set_focus(runtime, ir, Some(target));
-        runtime.runtime_state.text_edit.sync_from_runtime(
-            target,
-            semantics.value.as_deref().unwrap_or_default(),
-            None,
-            None,
-        );
-        {
-            let state = runtime.runtime_state.text_edit.get_mut_or_default(target);
-            let old_len = state.buffer.len_bytes();
-            state.buffer.replace(0..old_len, value);
-            state.caret = value.len();
-            state.anchor = value.len();
-            state.pending_model_sync = true;
-            state.clear_preedit();
-        }
-        if !dispatch_text_change(
-            runtime,
-            ir,
-            target,
-            semantics,
-            value.to_string(),
-            value.len(),
-            value.len(),
-        ) {
-            if let Some(previous) = previous_text_state {
-                runtime
-                    .runtime_state
-                    .text_edit
-                    .states
-                    .insert(target, previous);
-            } else {
-                runtime.runtime_state.text_edit.states.remove(&target);
-            }
-            return false;
-        }
-
-        let has_cursor_action = semantics
-            .actions
-            .entries
-            .iter()
-            .any(|entry| entry.trigger == ActionTrigger::CursorChange);
-        let cursor_changed =
-            dispatch_cursor_change(runtime, ir, target, semantics, value.len(), value.len());
-        !has_cursor_action || cursor_changed
+        runtime
+            .apply_text_edit_command_to(
+                ir,
+                layout,
+                target,
+                fission_core::TextEditCommand::SetValue {
+                    value: fission_core::TextEditingValue::from_text(value),
+                    source: fission_core::TextEditSource::Accessibility,
+                    phase: fission_core::TextValuePhase::Committed,
+                },
+            )
+            .unwrap_or(false)
     }
 
     fn set_text_selection(
         runtime: &mut Runtime,
         ir: &CoreIR,
+        layout: &LayoutSnapshot,
         target: WidgetId,
         semantics: &Semantics,
         selection: &TextSelection,
     ) -> bool {
+        if semantics
+            .selection_region
+            .as_ref()
+            .is_some_and(|region| !region.excluded)
+            && !semantics.disabled
+        {
+            let changed = SelectionRegionController::new(target)
+                .select_scalar_range(
+                    &mut runtime.runtime_state,
+                    ir,
+                    selection.anchor.character_index,
+                    selection.focus.character_index,
+                    TextAffinity::Downstream,
+                )
+                .is_ok();
+            if changed {
+                set_focus(runtime, ir, Some(target));
+            }
+            return changed;
+        }
         if semantics.role != Role::TextInput || semantics.disabled {
             return false;
         }
         set_focus(runtime, ir, Some(target));
-        runtime.runtime_state.text_edit.sync_from_runtime(
-            target,
-            semantics.value.as_deref().unwrap_or_default(),
-            None,
-            None,
-        );
         let value = runtime
             .runtime_state
             .text_edit
             .get(target)
             .map(|state| state.committed_text())
-            .unwrap_or_default();
+            .unwrap_or_else(|| semantics.value.clone().unwrap_or_default());
         let caret = char_to_byte(&value, selection.focus.character_index);
         let anchor = char_to_byte(&value, selection.anchor.character_index);
         runtime
-            .runtime_state
-            .text_edit
-            .set_caret(target, caret, Some(anchor));
-        dispatch_cursor_change(runtime, ir, target, semantics, caret, anchor)
+            .apply_text_edit_command_to(
+                ir,
+                layout,
+                target,
+                fission_core::TextEditCommand::SetSelection {
+                    selection: fission_core::TextSelection::new(
+                        &value,
+                        anchor,
+                        caret,
+                        fission_core::TextAffinity::Downstream,
+                    )
+                    .expect("accessibility offsets were converted from this value"),
+                    source: fission_core::TextEditSource::Accessibility,
+                },
+            )
+            .unwrap_or(false)
     }
 
     fn char_to_byte(value: &str, character_index: usize) -> usize {
-        value
-            .char_indices()
-            .map(|(index, _)| index)
-            .chain(std::iter::once(value.len()))
-            .nth(character_index)
-            .unwrap_or(value.len())
+        EditingTextPosition::from_scalar_offset(value, character_index)
+            .unwrap_or_else(|_| EditingTextPosition::at_end(value))
+            .utf8_offset()
     }
 
     fn byte_to_char(value: &str, byte_index: usize) -> usize {
-        let mut clamped = byte_index.min(value.len());
-        while clamped > 0 && !value.is_char_boundary(clamped) {
-            clamped -= 1;
-        }
-        value[..clamped].chars().count()
-    }
-
-    fn dispatch_text_change(
-        runtime: &mut Runtime,
-        ir: &CoreIR,
-        target: WidgetId,
-        semantics: &Semantics,
-        new_text: String,
-        new_caret: usize,
-        new_anchor: usize,
-    ) -> bool {
-        let Some((envelope, input)) = prepare_scoped_text_input_change(
-            ir, semantics, target, new_text, new_caret, new_anchor,
-        ) else {
-            crate::log_input_dispatch_failure(
-                "accessibility_text_input_missing_action",
-                Some(target),
-            );
-            return false;
-        };
-        runtime
-            .dispatch_with_input(envelope, target, &input)
-            .is_ok()
-    }
-
-    fn dispatch_cursor_change(
-        runtime: &mut Runtime,
-        ir: &CoreIR,
-        target: WidgetId,
-        semantics: &Semantics,
-        caret: usize,
-        anchor: usize,
-    ) -> bool {
-        let Some(entry) = semantics
-            .actions
-            .entries
-            .iter()
-            .find(|entry| entry.trigger == ActionTrigger::CursorChange)
-        else {
-            return false;
-        };
-        let cursor_changed = fission_core::action::CursorChanged { caret, anchor };
-        let Ok(payload) = serde_json::to_vec(&cursor_changed) else {
-            return false;
-        };
-        let input = scoped_semantics_input(ir, target, ActionInput::None);
-        runtime
-            .dispatch_with_input(
-                ActionEnvelope {
-                    id: ActionId::from_u128(entry.action_id),
-                    payload,
-                },
-                target,
-                &input,
-            )
-            .is_ok()
+        EditingTextPosition::from_utf8(value, byte_index)
+            .or_else(|_| Ok(EditingTextPosition::floor(value, byte_index)))
+            .and_then(|position| position.scalar_offset(value))
+            .unwrap_or_else(|_| value.chars().count())
     }
 
     fn adjust_numeric_value(
@@ -1211,690 +1360,11 @@ mod imp {
 
     #[cfg(test)]
     mod tests {
-        use super::*;
-        use fission_core::action::CursorChanged;
-        use fission_core::{
-            Action as FissionAction, ActionId as FissionActionId, ActionRegistry, GlobalState,
-            ReducerContext, UpdateTextInput,
-        };
-        use fission_ir::{ActionEntry, ActionSet, CoreIR, CoreNode, Op};
-        use fission_layout::{LayoutNodeGeometry, LayoutPoint, LayoutSize};
-        use serde::{Deserialize, Serialize};
-        use std::collections::BTreeMap;
-
-        #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-        struct UpdateField(String);
-
-        impl FissionAction for UpdateField {
-            fn static_id() -> FissionActionId {
-                FissionActionId::from_name("accessibility_tests::UpdateField")
-            }
-        }
-
-        #[derive(Debug, Clone, PartialEq, Eq)]
-        struct RecordedContextualEdit {
-            change: UpdateTextInput,
-            scoped_target: Option<WidgetId>,
-        }
-
-        #[derive(Debug, Default)]
-        struct TextDispatchState {
-            contextual: BTreeMap<(u128, String), RecordedContextualEdit>,
-            cursors: Vec<(CursorChanged, Option<u128>, Option<WidgetId>)>,
-        }
-
-        impl GlobalState for TextDispatchState {}
-
-        fn record_contextual_edit(
-            state: &mut TextDispatchState,
-            action: UpdateField,
-            ctx: &mut ReducerContext<TextDispatchState>,
-        ) {
-            let change = ctx
-                .input
-                .text_change()
-                .expect("contextual edit input")
-                .clone();
-            state.contextual.insert(
-                (ctx.input.action_scope_id().unwrap_or_default(), action.0),
-                RecordedContextualEdit {
-                    change,
-                    scoped_target: ctx.input.scoped_target(),
-                },
-            );
-        }
-
-        fn record_cursor(
-            state: &mut TextDispatchState,
-            action: CursorChanged,
-            ctx: &mut ReducerContext<TextDispatchState>,
-        ) {
-            state.cursors.push((
-                action,
-                ctx.input.action_scope_id(),
-                ctx.input.scoped_target(),
-            ));
-        }
-
-        fn text_dispatch_runtime() -> Runtime {
-            let mut runtime = Runtime::default();
-            runtime
-                .add_app_state(Box::new(TextDispatchState::default()))
-                .expect("register text dispatch test state");
-            let mut registry = ActionRegistry::<TextDispatchState>::new();
-            registry.register(
-                record_contextual_edit
-                    as fn(
-                        &mut TextDispatchState,
-                        UpdateField,
-                        &mut ReducerContext<TextDispatchState>,
-                    ),
-            );
-            registry.register(
-                record_cursor
-                    as fn(
-                        &mut TextDispatchState,
-                        CursorChanged,
-                        &mut ReducerContext<TextDispatchState>,
-                    ),
-            );
-            runtime.absorb_registry(registry);
-            runtime
-        }
-
-        fn contextual_text_semantics(field: &str) -> Semantics {
-            Semantics {
-                role: Role::TextInput,
-                focusable: true,
-                value: Some(String::new()),
-                actions: ActionSet {
-                    entries: vec![ActionEntry {
-                        trigger: ActionTrigger::TextChanged,
-                        action_id: UpdateField::static_id().as_u128(),
-                        payload_data: Some(UpdateField(field.to_string()).encode()),
-                    }],
-                },
-                ..Semantics::default()
-            }
-        }
-
-        fn dispatch_set_value_request(
-            runtime: &mut Runtime,
-            ir: &CoreIR,
-            target: WidgetId,
-            value: impl Into<Box<str>>,
-        ) -> bool {
-            dispatch_set_value_data(
-                runtime,
-                ir,
-                &LayoutSnapshot::new(LayoutSize::new(320.0, 80.0)),
-                target,
-                ActionData::Value(value.into()),
-            )
-        }
-
-        fn dispatch_set_value_data(
-            runtime: &mut Runtime,
-            ir: &CoreIR,
-            layout: &LayoutSnapshot,
-            target: WidgetId,
-            data: ActionData,
-        ) -> bool {
-            let access_node = NodeId((target.as_u128() as u64).max(2));
-            let node_map = HashMap::from([(access_node, target)]);
-            let request = ActionRequest {
-                action: Action::SetValue,
-                target_tree: TreeId::ROOT,
-                target_node: access_node,
-                data: Some(data),
-            };
-            dispatch_mapped_accessibility_action(request, runtime, ir, layout, &node_map)
-        }
-
-        fn add_scoped_text_input(
-            ir: &mut CoreIR,
-            target: WidgetId,
-            scope_node: WidgetId,
-            scope_id: u128,
-            semantics: Semantics,
-        ) {
-            add_node(ir, target, Op::Semantics(semantics), vec![]);
-            add_node(
-                ir,
-                scope_node,
-                Op::Semantics(Semantics {
-                    action_scope_id: Some(scope_id),
-                    ..Semantics::default()
-                }),
-                vec![target],
-            );
-        }
-
-        fn add_node(ir: &mut CoreIR, id: WidgetId, op: Op, children: Vec<WidgetId>) {
-            ir.nodes.insert(
-                id,
-                CoreNode {
-                    id,
-                    op,
-                    composite: Default::default(),
-                    children: children.clone(),
-                    parent: None,
-                    hash: 0,
-                },
-            );
-            for child in children {
-                ir.nodes.get_mut(&child).unwrap().parent = Some(id);
-            }
-        }
-
-        #[test]
-        fn derives_button_label_from_descendant_text() {
-            let root = WidgetId::from_u128(10);
-            let button = WidgetId::from_u128(11);
-            let text = WidgetId::from_u128(12);
-            let mut ir = CoreIR::new();
-            add_node(
-                &mut ir,
-                text,
-                Op::Paint(PaintOp::DrawText {
-                    text: "Save".into(),
-                    size: 14.0,
-                    color: fission_ir::op::Color::BLACK,
-                    underline: false,
-                    wrap: true,
-                    caret_index: None,
-                    caret_color: None,
-                    caret_width: None,
-                    caret_height: None,
-                    caret_radius: None,
-                    paragraph_style: None,
-                }),
-                vec![],
-            );
-            add_node(
-                &mut ir,
-                button,
-                Op::Semantics(Semantics {
-                    role: Role::Button,
-                    actions: ActionSet {
-                        entries: vec![ActionEntry {
-                            trigger: ActionTrigger::Default,
-                            action_id: 42,
-                            payload_data: Some(Vec::new()),
-                        }],
-                    },
-                    focusable: true,
-                    ..Semantics::default()
-                }),
-                vec![text],
-            );
-            add_node(
-                &mut ir,
-                root,
-                Op::Layout(fission_ir::LayoutOp::Box {
-                    width: None,
-                    height: None,
-                    min_width: None,
-                    max_width: None,
-                    min_height: None,
-                    max_height: None,
-                    padding: [0.0; 4],
-                    flex_grow: 0.0,
-                    flex_shrink: 1.0,
-                    aspect_ratio: None,
-                }),
-                vec![button],
-            );
-            ir.root = Some(root);
-
-            let mut layout = LayoutSnapshot::new(LayoutSize::new(100.0, 50.0));
-            layout.nodes.insert(
-                button,
-                LayoutNodeGeometry {
-                    rect: LayoutRect::new(10.0, 5.0, 80.0, 30.0),
-                    content_size: LayoutSize::new(80.0, 30.0),
-                },
-            );
-            layout.nodes.insert(
-                text,
-                LayoutNodeGeometry {
-                    rect: LayoutRect {
-                        origin: LayoutPoint::new(12.0, 8.0),
-                        size: LayoutSize::new(40.0, 20.0),
-                    },
-                    content_size: LayoutSize::new(40.0, 20.0),
-                },
-            );
-
-            let runtime = Runtime::default();
-            let update = build_tree_update(&ir, &layout, &runtime, 2.0).update;
-            let (_, node) = update
-                .nodes
-                .iter()
-                .find(|(_, node)| node.role() == AccessRole::Button)
-                .expect("button node");
-            assert_eq!(node.label(), Some("Save"));
-            assert!(node.supports_action(Action::Click));
-            assert_eq!(node.bounds(), Some(Rect::new(20.0, 10.0, 180.0, 70.0)));
-        }
-
-        #[test]
-        fn maps_radio_semantics_to_accesskit_radio_button() {
-            let semantics = Semantics {
-                role: Role::Radio,
-                checked: Some(true),
-                ..Semantics::default()
-            };
-
-            assert_eq!(access_role_for(&semantics), AccessRole::RadioButton);
-        }
-
-        #[test]
-        fn text_input_value_prefers_lowered_semantics_over_retained_runtime_buffer() {
-            let input = WidgetId::from_u128(20);
-            let mut runtime = Runtime::default();
-            runtime.runtime_state.text_edit.sync_from_runtime(
-                input,
-                "Stale retained buffer",
-                None,
-                None,
-            );
-
-            let semantics = Semantics {
-                role: Role::TextInput,
-                value: Some("Lowered model value".into()),
-                ..Semantics::default()
-            };
-            assert_eq!(
-                semantic_value(&runtime, input, &semantics).as_deref(),
-                Some("Lowered model value")
-            );
-
-            let fallback_semantics = Semantics {
-                role: Role::TextInput,
-                ..Semantics::default()
-            };
-            assert_eq!(
-                semantic_value(&runtime, input, &fallback_semantics).as_deref(),
-                Some("Stale retained buffer")
-            );
-        }
-
-        #[test]
-        fn accesskit_set_value_preserves_context_and_edit_geometry_across_fields() {
-            let first = WidgetId::explicit("first-field");
-            let second = WidgetId::explicit("second-field");
-            let first_scope_node = WidgetId::explicit("first-scope");
-            let second_scope_node = WidgetId::explicit("second-scope");
-            let first_scope = 0xabc;
-            let second_scope = 0xdef;
-            let first_semantics = contextual_text_semantics("smtp_host");
-            let second_semantics = contextual_text_semantics("smtp_port");
-            let mut ir = CoreIR::new();
-            add_scoped_text_input(
-                &mut ir,
-                first,
-                first_scope_node,
-                first_scope,
-                first_semantics.clone(),
-            );
-            add_scoped_text_input(
-                &mut ir,
-                second,
-                second_scope_node,
-                second_scope,
-                second_semantics.clone(),
-            );
-            let mut runtime = text_dispatch_runtime();
-
-            assert!(dispatch_set_value_request(
-                &mut runtime,
-                &ir,
-                first,
-                "greenmail",
-            ));
-            assert!(dispatch_set_value_request(
-                &mut runtime,
-                &ir,
-                second,
-                "3025",
-            ));
-
-            let state = runtime
-                .get_app_state::<TextDispatchState>()
-                .expect("text dispatch state");
-            let first_edit = state
-                .contextual
-                .get(&(first_scope, "smtp_host".into()))
-                .expect("first contextual edit");
-            assert_eq!(
-                first_edit.change,
-                UpdateTextInput {
-                    node_id: first,
-                    new_text: "greenmail".into(),
-                    new_caret: "greenmail".len(),
-                    new_anchor: "greenmail".len(),
-                }
-            );
-            assert_eq!(first_edit.scoped_target, Some(first));
-            let second_edit = state
-                .contextual
-                .get(&(second_scope, "smtp_port".into()))
-                .expect("second contextual edit");
-            assert_eq!(second_edit.change.node_id, second);
-            assert_eq!(second_edit.change.new_text, "3025");
-            assert_eq!(second_edit.change.new_caret, 4);
-            assert_eq!(second_edit.change.new_anchor, 4);
-            assert_eq!(second_edit.scoped_target, Some(second));
-        }
-
-        #[test]
-        fn native_ime_and_accesskit_set_value_share_the_text_edit_contract() {
-            let target = WidgetId::explicit("ime-accessibility-parity");
-            let scope_node = WidgetId::explicit("ime-accessibility-scope");
-            let scope_id = 0x717;
-            let semantics = contextual_text_semantics("display_name");
-            let mut ir = CoreIR::new();
-            add_scoped_text_input(&mut ir, target, scope_node, scope_id, semantics.clone());
-            ir.root = Some(scope_node);
-            let layout = LayoutSnapshot::new(LayoutSize::new(320.0, 80.0));
-
-            let mut native_runtime = text_dispatch_runtime();
-            native_runtime
-                .runtime_state
-                .interaction
-                .set_focused(Some(target));
-            native_runtime
-                .handle_input(
-                    InputEvent::Ime(ImeEvent::Commit {
-                        text: "café".into(),
-                    }),
-                    &ir,
-                    &layout,
-                )
-                .expect("native IME dispatch");
-            let native_edit = native_runtime
-                .get_app_state::<TextDispatchState>()
-                .and_then(|state| state.contextual.get(&(scope_id, "display_name".into())))
-                .cloned()
-                .expect("native contextual edit");
-
-            let mut accessibility_runtime = text_dispatch_runtime();
-            assert!(dispatch_set_value_request(
-                &mut accessibility_runtime,
-                &ir,
-                target,
-                "café",
-            ));
-            let accessibility_edit = accessibility_runtime
-                .get_app_state::<TextDispatchState>()
-                .and_then(|state| state.contextual.get(&(scope_id, "display_name".into())))
-                .cloned()
-                .expect("accessibility contextual edit");
-
-            assert_eq!(native_edit, accessibility_edit);
-            assert_eq!(native_edit.change.new_caret, "café".len());
-            assert_eq!(native_edit.change.new_anchor, "café".len());
-        }
-
-        #[test]
-        fn identically_named_contextual_fields_remain_isolated_by_scope() {
-            let first = WidgetId::explicit("account-one-host");
-            let second = WidgetId::explicit("account-two-host");
-            let first_scope = 0x111;
-            let second_scope = 0x222;
-            let semantics = contextual_text_semantics("host");
-            let mut ir = CoreIR::new();
-            add_scoped_text_input(
-                &mut ir,
-                first,
-                WidgetId::explicit("account-one"),
-                first_scope,
-                semantics.clone(),
-            );
-            add_scoped_text_input(
-                &mut ir,
-                second,
-                WidgetId::explicit("account-two"),
-                second_scope,
-                semantics.clone(),
-            );
-            let mut runtime = text_dispatch_runtime();
-
-            assert!(dispatch_set_value_request(
-                &mut runtime,
-                &ir,
-                first,
-                "mail-one",
-            ));
-            assert!(dispatch_set_value_request(
-                &mut runtime,
-                &ir,
-                second,
-                "mail-two",
-            ));
-
-            let state = runtime
-                .get_app_state::<TextDispatchState>()
-                .expect("text dispatch state");
-            assert_eq!(
-                state
-                    .contextual
-                    .get(&(first_scope, "host".into()))
-                    .map(|edit| edit.change.new_text.as_str()),
-                Some("mail-one")
-            );
-            assert_eq!(
-                state
-                    .contextual
-                    .get(&(second_scope, "host".into()))
-                    .map(|edit| edit.change.new_text.as_str()),
-                Some("mail-two")
-            );
-        }
-
-        #[test]
-        fn accesskit_numeric_text_input_preserves_context_and_transitional_text() {
-            let number = WidgetId::explicit("numeric-text-input");
-            let scope_node = WidgetId::explicit("numeric-text-scope");
-            let scope_id = 0x515;
-            let mut number_semantics = contextual_text_semantics("retry_count");
-            number_semantics.text_input_type = TextInputType::Number;
-            let mut ir = CoreIR::new();
-            add_scoped_text_input(
-                &mut ir,
-                number,
-                scope_node,
-                scope_id,
-                number_semantics.clone(),
-            );
-            let mut runtime = text_dispatch_runtime();
-
-            assert!(dispatch_set_value_request(&mut runtime, &ir, number, "-",));
-            assert_eq!(
-                runtime
-                    .get_app_state::<TextDispatchState>()
-                    .and_then(|state| { state.contextual.get(&(scope_id, "retry_count".into())) })
-                    .map(|edit| edit.change.new_text.as_str()),
-                Some("-")
-            );
-            assert!(dispatch_set_value_data(
-                &mut runtime,
-                &ir,
-                &LayoutSnapshot::new(LayoutSize::new(320.0, 80.0)),
-                number,
-                ActionData::NumericValue(12.5),
-            ));
-
-            let state = runtime
-                .get_app_state::<TextDispatchState>()
-                .expect("text dispatch state");
-            let edit = state
-                .contextual
-                .get(&(scope_id, "retry_count".into()))
-                .expect("numeric contextual edit");
-            assert_eq!(edit.change.new_text, "12.5");
-            assert_eq!(edit.change.node_id, number);
-            assert_eq!(edit.scoped_target, Some(number));
-        }
-
-        #[test]
-        fn accesskit_rejects_and_does_not_advertise_edits_for_disabled_or_read_only_inputs() {
-            let disabled = WidgetId::explicit("disabled-text-input");
-            let read_only = WidgetId::explicit("read-only-text-input");
-            let root = WidgetId::explicit("text-input-root");
-            let mut disabled_semantics = contextual_text_semantics("disabled");
-            disabled_semantics.disabled = true;
-            let mut read_only_semantics = contextual_text_semantics("read_only");
-            read_only_semantics.read_only = true;
-            let mut ir = CoreIR::new();
-            add_node(
-                &mut ir,
-                disabled,
-                Op::Semantics(disabled_semantics.clone()),
-                vec![],
-            );
-            add_node(
-                &mut ir,
-                read_only,
-                Op::Semantics(read_only_semantics.clone()),
-                vec![],
-            );
-            add_node(
-                &mut ir,
-                root,
-                Op::Semantics(Semantics::default()),
-                vec![disabled, read_only],
-            );
-            ir.root = Some(root);
-            let mut runtime = text_dispatch_runtime();
-
-            assert!(!dispatch_set_value_request(
-                &mut runtime,
-                &ir,
-                disabled,
-                "must-not-dispatch",
-            ));
-            assert!(!dispatch_set_value_request(
-                &mut runtime,
-                &ir,
-                read_only,
-                "must-not-dispatch",
-            ));
-            assert!(runtime
-                .get_app_state::<TextDispatchState>()
-                .expect("text dispatch state")
-                .contextual
-                .is_empty());
-            assert!(runtime.runtime_state.text_edit.get(disabled).is_none());
-            assert!(runtime.runtime_state.text_edit.get(read_only).is_none());
-
-            let layout = LayoutSnapshot::new(LayoutSize::new(320.0, 80.0));
-            let update = build_tree_update(&ir, &layout, &runtime, 1.0).update;
-            let text_inputs = update
-                .nodes
-                .iter()
-                .filter(|(_, node)| node.role() == AccessRole::TextInput)
-                .map(|(_, node)| node)
-                .collect::<Vec<_>>();
-            assert_eq!(text_inputs.len(), 2);
-            assert!(text_inputs.iter().all(|node| {
-                !node.supports_action(Action::SetValue)
-                    && !node.supports_action(Action::ReplaceSelectedText)
-            }));
-        }
-
-        #[test]
-        fn accessibility_selection_dispatches_unicode_byte_offsets_in_scope() {
-            let target = WidgetId::explicit("unicode-selection");
-            let scope_node = WidgetId::explicit("unicode-scope");
-            let scope_id = 0x404;
-            let semantics = Semantics {
-                role: Role::TextInput,
-                focusable: true,
-                value: Some("aé🦀z".into()),
-                actions: ActionSet {
-                    entries: vec![ActionEntry {
-                        trigger: ActionTrigger::CursorChange,
-                        action_id: CursorChanged::static_id().as_u128(),
-                        payload_data: None,
-                    }],
-                },
-                ..Semantics::default()
-            };
-            let mut ir = CoreIR::new();
-            add_scoped_text_input(&mut ir, target, scope_node, scope_id, semantics.clone());
-            let mut runtime = text_dispatch_runtime();
-            let access_node = NodeId(77);
-            let selection = TextSelection {
-                anchor: TextPosition {
-                    node: access_node,
-                    character_index: 1,
-                },
-                focus: TextPosition {
-                    node: access_node,
-                    character_index: 3,
-                },
-            };
-
-            assert!(set_text_selection(
-                &mut runtime,
-                &ir,
-                target,
-                &semantics,
-                &selection,
-            ));
-
-            let state = runtime
-                .get_app_state::<TextDispatchState>()
-                .expect("text dispatch state");
-            assert_eq!(
-                state.cursors,
-                [(
-                    CursorChanged {
-                        caret: 7,
-                        anchor: 1,
-                    },
-                    Some(scope_id),
-                    Some(target),
-                )]
-            );
-        }
-
-        #[test]
-        fn accesskit_set_value_reports_dispatch_failure_and_restores_editor_state() {
-            let target = WidgetId::explicit("bad-contextual-payload");
-            let semantics = Semantics {
-                role: Role::TextInput,
-                actions: ActionSet {
-                    entries: vec![ActionEntry {
-                        trigger: ActionTrigger::TextChanged,
-                        action_id: UpdateField::static_id().as_u128(),
-                        payload_data: Some(b"not-json".to_vec()),
-                    }],
-                },
-                ..Semantics::default()
-            };
-            let mut ir = CoreIR::new();
-            add_node(&mut ir, target, Op::Semantics(semantics.clone()), vec![]);
-            let mut runtime = text_dispatch_runtime();
-
-            assert!(!dispatch_set_value_request(
-                &mut runtime,
-                &ir,
-                target,
-                "value",
-            ));
-            let state = runtime
-                .get_app_state::<TextDispatchState>()
-                .expect("text dispatch state");
-            assert!(state.contextual.is_empty());
-            assert!(runtime.runtime_state.text_edit.get(target).is_none());
-        }
+        include!("accessibility_tests.rs");
     }
 }
 
-#[cfg(any(target_arch = "wasm32", target_os = "android"))]
+#[cfg(target_arch = "wasm32")]
 mod imp {
     use fission_core::Runtime;
     use fission_ir::CoreIR;

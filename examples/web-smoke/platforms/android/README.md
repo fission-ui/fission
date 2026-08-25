@@ -1,6 +1,6 @@
 # Android target
 
-Runnable emulator target. The CLI generates a NativeActivity manifest plus shell scripts that build, install, and launch the Fission app on an Android emulator.
+Runnable emulator target. The CLI generates an AndroidX GameActivity host plus shell scripts that build, install, and launch the Fission app on an Android emulator.
 
 - Install the Rust target: `rustup target add aarch64-linux-android`.
 - Run `fission doctor android --project-dir .` to check SDK, NDK, emulator, and Rust target setup.

@@ -91,5 +91,5 @@ APK=$("$SCRIPT_DIR/package-apk.sh")
 read -r -a ADB_INSTALL_FLAGS <<< "${ADB_INSTALL_FLAGS:---no-streaming -r}"
 "$ADB" install "${ADB_INSTALL_FLAGS[@]}" "$APK"
 "$ADB" forward "tcp:$HOST_PORT" "tcp:$DEVICE_PORT"
-"$ADB" shell am start -n com.fission.examples.fieldinspector/android.app.NativeActivity >/dev/null
+"$ADB" shell am start -n com.fission.examples.fieldinspector/rs.fission.runtime.FissionActivity >/dev/null
 printf 'APK=%s\n' "$APK"

@@ -3762,6 +3762,10 @@ android {{
     }}
 }}
 
+dependencies {{
+    implementation("androidx.games:games-activity:4.4.0")
+}}
+
 apply(from = "../native-modules.gradle")
 "#,
         app_id = project.app.app_id,
@@ -3913,7 +3917,7 @@ fn groovy_string_literal(value: &str) -> String {
 fn render_android_activity_java() -> &'static str {
     r#"package rs.fission.runtime;
 
-import android.app.NativeActivity;
+import androidx.games.activity.GameActivity;
 import android.media.MediaPlayer;
 import android.media.PlaybackParams;
 import android.os.Bundle;
@@ -3925,7 +3929,7 @@ import android.widget.VideoView;
 import java.util.HashMap;
 import java.util.Map;
 
-public final class FissionActivity extends NativeActivity {
+public final class FissionActivity extends GameActivity {
     private static volatile FissionActivity INSTANCE;
     private static final Map<Long, FissionVideoSlot> VIDEOS = new HashMap<>();
 
@@ -6273,6 +6277,41 @@ publisher = "CN=Example & Co"
         assert!(nsis.contains("APP_USER_MODEL_ID"));
         assert!(!nsis.contains("APP_USER_MODEL_ID ="));
         assert!(!nsis.contains("!define FISSION_APP_USER_MODEL_ID"));
+    }
+
+    #[test]
+    fn android_scaffold_uses_game_activity_text_host() {
+        let dir = unique_dir("android-game-activity-scaffold");
+        let project = FissionProject {
+            app: AppConfig {
+                name: "Text Session Demo".to_string(),
+                app_id: "com.example.text_session".to_string(),
+                splash: None,
+            },
+            targets: BTreeSet::from([Target::Android]),
+            capabilities: BTreeSet::new(),
+            native: NativeConfig::default(),
+        };
+
+        scaffold_android_bundle(&dir, &project, WritePolicy::Overwrite).unwrap();
+
+        let activity = fs::read_to_string(
+            dir.join("platforms/android/java/rs/fission/runtime/FissionActivity.java"),
+        )
+        .unwrap();
+        assert!(activity.contains("extends GameActivity"));
+        assert!(activity.contains("androidx.games.activity.GameActivity"));
+
+        let gradle =
+            fs::read_to_string(dir.join("platforms/android/app/build.gradle.kts")).unwrap();
+        assert!(gradle.contains("androidx.games:games-activity:4.4.0"));
+
+        let manifest =
+            fs::read_to_string(dir.join("platforms/android/AndroidManifest.xml")).unwrap();
+        assert!(manifest.contains("rs.fission.runtime.FissionActivity"));
+        assert!(manifest.contains("android:hasCode=\"true\""));
+
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

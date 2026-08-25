@@ -31,6 +31,6 @@ fission-theme = { path = "../../core/fission-theme", version = "0.13.0" }
 anyhow = "1.0"
 
 [target.'cfg(target_os = "android")'.dependencies]
-winit = { package = "fission-winit", version = "0.30.13-fission.2", features = ["android-native-activity"] }
+winit = { package = "fission-winit", version = "0.30.13-fission.2", features = ["android-game-activity"] }
 
 [dev-dependencies]

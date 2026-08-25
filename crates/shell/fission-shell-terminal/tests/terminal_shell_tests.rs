@@ -132,6 +132,7 @@ fn terminal_verifier_documents_supported_and_unsupported_ir_shapes() {
             size: 12.0,
             color: Color::BLACK,
             underline: false,
+            locale: None,
             wrap: true,
             caret_index: Some(4),
             caret_color: Some(Color::BLACK),

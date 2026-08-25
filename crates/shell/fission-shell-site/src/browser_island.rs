@@ -5,7 +5,9 @@ use fission_core::internal::InternalLoweringCx;
 use fission_core::registry::{VideoRegistration, WebRegistration};
 use fission_core::ui::{Overlay, ZStack};
 use fission_core::{
-    ActionEnvelope, ActionId, Env, GlobalState, Runtime, RuntimeState, View, Widget, WidgetId,
+    ActionEnvelope, ActionId, Env, GlobalState, Runtime, RuntimeState, TextAffinity,
+    TextEditCommand, TextEditSource, TextEditingValue, TextSelection, TextValuePhase, View, Widget,
+    WidgetId,
 };
 use fission_ir::{semantics::ActionTrigger, CoreIR, Op, Role, Semantics};
 use fission_theme::Theme;
@@ -138,6 +140,26 @@ where
             .to_string();
         let new_caret = bridge_text_offset(message, "caret", &new_text)?;
         let new_anchor = bridge_text_offset(message, "anchor", &new_text)?;
+        let input_type = message
+            .get("input_type")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let source = match input_type {
+            "insertReplacementText" => TextEditSource::Autocorrect,
+            "insertFromAutoFill" => TextEditSource::Autofill,
+            "insertFromPaste" | "deleteByCut" => TextEditSource::Clipboard,
+            "insertFromDictation" => TextEditSource::Dictation,
+            "insertFromHandwriting" => TextEditSource::Handwriting,
+            "insertFromComposition" => TextEditSource::Ime,
+            _ => TextEditSource::Keyboard,
+        };
+        let phase = if input_type == "insertFromComposition" {
+            TextValuePhase::CompositionCommitted
+        } else {
+            TextValuePhase::Committed
+        };
+        let selection =
+            TextSelection::new(&new_text, new_anchor, new_caret, TextAffinity::Downstream)?;
 
         let output = self.build_widget();
         let ir = lower_browser_island_widget(
@@ -155,12 +177,20 @@ where
             })
             .ok_or_else(|| anyhow!("browser island text target {target} is not a semantic node"))?;
         validate_browser_text_target(target, semantics)?;
-        let (envelope, input) = fission_core::input::prepare_scoped_text_input_change(
-            &ir, semantics, target, new_text, new_caret, new_anchor,
-        )
-        .ok_or_else(|| anyhow!("browser island text target {target} has no text-change action"))?;
         self.install_registry(output.registry);
-        let dispatch = self.runtime.dispatch_with_input(envelope, target, &input);
+        let dispatch = self
+            .runtime
+            .apply_text_edit_command_to(
+                &ir,
+                &fission_layout::LayoutSnapshot::default(),
+                target,
+                TextEditCommand::SetValue {
+                    value: TextEditingValue::new(new_text, selection, None)?,
+                    source,
+                    phase,
+                },
+            )
+            .map(|_| ());
         self.finish_browser_dispatch(dispatch)?;
         Ok(())
     }
@@ -515,6 +545,8 @@ mod tests {
         observed_node: Option<WidgetId>,
         observed_caret: usize,
         observed_anchor: usize,
+        observed_source: TextEditSource,
+        observed_phase: fission_core::TextEditPhase,
     }
     impl GlobalState for FieldState {}
 
@@ -540,6 +572,8 @@ mod tests {
         state.observed_node = Some(change.node_id);
         state.observed_caret = change.new_caret;
         state.observed_anchor = change.new_anchor;
+        state.observed_source = change.source;
+        state.observed_phase = change.phase;
     }
 
     #[derive(Clone)]
@@ -776,7 +810,8 @@ mod tests {
             },
             "value":"café",
             "caret":5,
-            "anchor":3
+            "anchor":3,
+            "input_type":"insertReplacementText"
         }"#;
         let update = run_browser_island(&id, event, || {
             BrowserIslandApp::new(&id, "field-mount", FieldState::default(), FieldIsland)
@@ -796,6 +831,41 @@ mod tests {
             assert_eq!(state.observed_node, Some(WidgetId::from_u128(901)));
             assert_eq!(state.observed_caret, 5);
             assert_eq!(state.observed_anchor, 3);
+            assert_eq!(state.observed_source, TextEditSource::Autocorrect);
+            assert_eq!(state.observed_phase, fission_core::TextEditPhase::Committed);
+        });
+
+        let composition_event = r#"{
+            "type":"event",
+            "sequence":3,
+            "binding":{
+                "event":"input",
+                "message":{
+                    "fission_browser_text_action":true,
+                    "target_node":"901"
+                }
+            },
+            "value":"café世",
+            "caret":8,
+            "anchor":8,
+            "input_type":"insertFromComposition"
+        }"#;
+        let update = run_browser_island(&id, composition_event, || {
+            BrowserIslandApp::new(&id, "field-mount", FieldState::default(), FieldIsland)
+        });
+        assert!(!update.contains("browser island `"));
+        BROWSER_ISLANDS.with(|instances| {
+            let instances = instances.borrow();
+            let island = instances
+                .get(&id)
+                .and_then(|entry| entry.downcast_ref::<BrowserIslandApp<FieldState, FieldIsland>>())
+                .unwrap();
+            let state = island.runtime.get_global_state::<FieldState>().unwrap();
+            assert_eq!(state.observed_source, TextEditSource::Ime);
+            assert_eq!(
+                state.observed_phase,
+                fission_core::TextEditPhase::CompositionCommitted
+            );
         });
     }
 

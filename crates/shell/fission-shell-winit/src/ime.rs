@@ -1,14 +1,57 @@
 use fission_core::env::ImeHandler;
-use fission_ir::semantics::{TextInputAction, TextInputType};
+use fission_ir::semantics::{
+    TextCapitalization, TextFieldValidationState, TextInputAction, TextInputType,
+};
 use fission_ir::Semantics;
 use fission_render::LayoutRect;
 use std::sync::{Arc, Mutex};
 use winit::window::{ImePurpose, Window};
 
+pub(crate) fn text_edit_command_from_ime_state(
+    state: &winit::event::ImeTextState,
+) -> Result<fission_core::TextEditCommand, &'static str> {
+    let base = fission_core::TextPosition::from_utf16(&state.text, state.selection_start)
+        .map_err(|_| "selection start is not a UTF-16 boundary")?;
+    let extent = fission_core::TextPosition::from_utf16(&state.text, state.selection_end)
+        .map_err(|_| "selection end is not a UTF-16 boundary")?;
+    let composing = state
+        .composing
+        .map(|(start, end)| {
+            let start = fission_core::TextPosition::from_utf16(&state.text, start)
+                .map_err(|_| "composing start is not a UTF-16 boundary")?;
+            let end = fission_core::TextPosition::from_utf16(&state.text, end)
+                .map_err(|_| "composing end is not a UTF-16 boundary")?;
+            Ok::<_, &'static str>(fission_core::TextRange::from_positions(start, end))
+        })
+        .transpose()?;
+
+    Ok(fission_core::TextEditCommand::SetValue {
+        value: fission_core::TextEditingValue {
+            text: state.text.clone(),
+            selection: fission_core::TextSelection {
+                base,
+                extent,
+                affinity: fission_core::TextAffinity::Downstream,
+            },
+            composing,
+        },
+        source: fission_core::TextEditSource::Ime,
+        phase: if state.composing.is_some() {
+            fission_core::TextValuePhase::CompositionUpdated
+        } else {
+            fission_core::TextValuePhase::Committed
+        },
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct TextInputConfig {
+    pub name: Option<String>,
+    pub autofill_group: Option<String>,
     pub text_input_type: TextInputType,
+    pub multiline: bool,
     pub text_input_action: TextInputAction,
+    pub text_capitalization: TextCapitalization,
     pub read_only: bool,
     pub disabled: bool,
     pub autocorrect: bool,
@@ -18,13 +61,21 @@ pub(crate) struct TextInputConfig {
     pub smart_quotes: bool,
     pub autofill_hints: Vec<String>,
     pub ime_purpose: ImePurpose,
+    pub accessibility_label: Option<String>,
+    pub required: bool,
+    pub validation_state: TextFieldValidationState,
+    pub validation_message: Option<String>,
 }
 
 impl TextInputConfig {
     pub(crate) fn from_semantics(semantics: &Semantics) -> Self {
         Self {
+            name: semantics.text_field_name.clone(),
+            autofill_group: semantics.autofill_group.clone(),
             text_input_type: semantics.text_input_type,
+            multiline: semantics.multiline,
             text_input_action: semantics.text_input_action,
+            text_capitalization: semantics.text_capitalization,
             read_only: semantics.read_only,
             disabled: semantics.disabled,
             autocorrect: semantics.autocorrect,
@@ -34,6 +85,10 @@ impl TextInputConfig {
             smart_quotes: semantics.smart_quotes,
             autofill_hints: semantics.autofill_hints.clone(),
             ime_purpose: ime_purpose_for_semantics(semantics),
+            accessibility_label: semantics.label.clone(),
+            required: semantics.required,
+            validation_state: semantics.validation_state,
+            validation_message: semantics.validation_message.clone(),
         }
     }
 
@@ -124,7 +179,38 @@ impl ImeHandler for DesktopImeHandler {
                 winit::dpi::PhysicalPosition::new(rect.x() as f64, rect.y() as f64),
                 winit::dpi::PhysicalSize::new(rect.width() as u32, rect.height() as u32),
             );
+            #[cfg(target_os = "android")]
+            crate::android_text_input::update_cursor_area(rect, window.scale_factor() as f32);
         }
+    }
+
+    fn set_editing_value(&self, value: &fission_core::TextEditingValue) {
+        #[cfg(any(target_arch = "wasm32", target_os = "android", target_os = "ios"))]
+        {
+            let Ok(base) = value.selection.base.utf16_offset(&value.text) else {
+                return;
+            };
+            let Ok(extent) = value.selection.extent.utf16_offset(&value.text) else {
+                return;
+            };
+            let composing = value.composing.and_then(|range| {
+                Some((
+                    range.start.utf16_offset(&value.text).ok()?,
+                    range.end.utf16_offset(&value.text).ok()?,
+                ))
+            });
+            let state = self.state.lock().expect("ime handler lock poisoned");
+            if let Some(window) = state.window.as_ref() {
+                window.set_ime_state(winit::event::ImeTextState {
+                    text: value.text.clone(),
+                    selection_start: base,
+                    selection_end: extent,
+                    composing,
+                });
+            }
+        }
+        #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+        let _ = value;
     }
 }
 
@@ -163,8 +249,241 @@ fn apply_text_input_config(
     #[cfg(target_os = "macos")] mac_view_id: &mut Option<usize>,
 ) {
     window.set_ime_purpose(config.map(|config| config.ime_purpose).unwrap_or_default());
+    #[cfg(target_arch = "wasm32")]
+    if let Some(config) = config {
+        window.set_web_ime_configuration(web_ime_configuration(config));
+        #[cfg(debug_assertions)]
+        diagnose_web_unsupported(config);
+    }
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    if let Some(config) = config {
+        window.set_ime_configuration(mobile_ime_configuration(config));
+        #[cfg(all(debug_assertions, target_os = "android"))]
+        diagnose_android_unsupported(config);
+        #[cfg(all(debug_assertions, target_os = "ios"))]
+        diagnose_ios_unsupported(config);
+    }
+    #[cfg(target_os = "android")]
+    crate::android_text_input::configure_autofill(
+        config
+            .map(|config| config.autofill_hints.as_slice())
+            .unwrap_or_default(),
+    );
     #[cfg(target_os = "macos")]
-    macos::apply_text_input_traits(window, config, mac_view_id);
+    {
+        macos::apply_text_input_traits(window, config, mac_view_id);
+        #[cfg(debug_assertions)]
+        if let Some(config) = config {
+            diagnose_macos_unsupported(config);
+        }
+    }
+    #[cfg(all(
+        debug_assertions,
+        not(target_arch = "wasm32"),
+        not(any(target_os = "macos", target_os = "android", target_os = "ios"))
+    ))]
+    if let Some(config) = config {
+        diagnose_unsupported_text_input_config(config);
+    }
+}
+
+#[cfg(all(
+    debug_assertions,
+    not(target_arch = "wasm32"),
+    not(any(target_os = "macos", target_os = "android", target_os = "ios"))
+))]
+fn diagnose_unsupported_text_input_config(config: &TextInputConfig) {
+    report_unsupported(
+        "keyboard_type",
+        config.text_input_type != TextInputType::Text,
+    );
+    report_unsupported(
+        "text_input_action",
+        config.text_input_action != TextInputAction::Done,
+    );
+    report_unsupported(
+        "text_capitalization",
+        config.text_capitalization != TextCapitalization::None,
+    );
+    report_unsupported("autocorrect=false", !config.autocorrect);
+    report_unsupported("enable_suggestions=false", !config.enable_suggestions);
+    report_unsupported("spell_check=false", !config.spell_check);
+    report_unsupported("smart_dashes=false", !config.smart_dashes);
+    report_unsupported("smart_quotes=false", !config.smart_quotes);
+    report_unsupported("autofill_hints", !config.autofill_hints.is_empty());
+}
+
+#[cfg(debug_assertions)]
+fn report_unsupported(name: &'static str, configured: bool) {
+    use std::collections::HashSet;
+    use std::sync::{Mutex, OnceLock};
+
+    static REPORTED: OnceLock<Mutex<HashSet<(&'static str, &'static str)>>> = OnceLock::new();
+    if configured
+        && REPORTED
+            .get_or_init(|| Mutex::new(HashSet::new()))
+            .lock()
+            .expect("text input diagnostic lock poisoned")
+            .insert((std::env::consts::OS, name))
+    {
+        eprintln!(
+            "Fission text input configuration `{name}` is not implemented by the {} shell adapter; the host default remains active",
+            std::env::consts::OS
+        );
+    }
+}
+
+#[cfg(all(debug_assertions, target_os = "macos"))]
+fn diagnose_macos_unsupported(config: &TextInputConfig) {
+    report_unsupported(
+        "keyboard_type",
+        config.text_input_type != TextInputType::Text,
+    );
+    report_unsupported(
+        "text_input_action",
+        config.text_input_action != TextInputAction::Done,
+    );
+    report_unsupported(
+        "text_capitalization",
+        config.text_capitalization != TextCapitalization::None,
+    );
+    report_unsupported("autofill_hints", !config.autofill_hints.is_empty());
+}
+
+#[cfg(all(debug_assertions, target_os = "android"))]
+fn diagnose_android_unsupported(config: &TextInputConfig) {
+    report_unsupported(
+        "spell_check=false with suggestions enabled",
+        !config.spell_check && config.enable_suggestions,
+    );
+    report_unsupported("smart_dashes=false", !config.smart_dashes);
+    report_unsupported("smart_quotes=false", !config.smart_quotes);
+}
+
+#[cfg(all(debug_assertions, target_os = "ios"))]
+fn diagnose_ios_unsupported(config: &TextInputConfig) {
+    report_unsupported(
+        "enable_suggestions=false with autocorrect enabled",
+        !config.enable_suggestions && config.autocorrect,
+    );
+}
+
+#[cfg(all(debug_assertions, target_arch = "wasm32"))]
+fn diagnose_web_unsupported(config: &TextInputConfig) {
+    report_unsupported(
+        "enable_suggestions=false with autocorrect enabled",
+        !config.enable_suggestions && config.autocorrect,
+    );
+    report_unsupported("smart_dashes=false", !config.smart_dashes);
+    report_unsupported("smart_quotes=false", !config.smart_quotes);
+}
+
+fn mobile_ime_configuration(config: &TextInputConfig) -> winit::window::ImeConfiguration {
+    use winit::window::{ImeAction, ImeCapitalization, ImeConfiguration, ImeInputType};
+
+    let input_type = if config.multiline || config.text_input_type == TextInputType::Multiline {
+        ImeInputType::Multiline
+    } else {
+        match config.text_input_type {
+            TextInputType::Text => ImeInputType::Text,
+            TextInputType::Multiline => ImeInputType::Multiline,
+            TextInputType::Number => ImeInputType::Number,
+            TextInputType::EmailAddress => ImeInputType::Email,
+            TextInputType::Url => ImeInputType::Url,
+            TextInputType::Phone => ImeInputType::Phone,
+            TextInputType::Name => ImeInputType::Name,
+        }
+    };
+    let action = match config.text_input_action {
+        TextInputAction::Done | TextInputAction::EmergencyCall => ImeAction::Done,
+        TextInputAction::Go | TextInputAction::Route | TextInputAction::Join => ImeAction::Go,
+        TextInputAction::Search => ImeAction::Search,
+        TextInputAction::Send => ImeAction::Send,
+        TextInputAction::Next => ImeAction::Next,
+        TextInputAction::Previous => ImeAction::Previous,
+        TextInputAction::Continue | TextInputAction::Newline => ImeAction::Newline,
+    };
+    let capitalization = match config.text_capitalization {
+        TextCapitalization::None => ImeCapitalization::None,
+        TextCapitalization::Characters => ImeCapitalization::Characters,
+        TextCapitalization::Words => ImeCapitalization::Words,
+        TextCapitalization::Sentences => ImeCapitalization::Sentences,
+    };
+    ImeConfiguration {
+        input_type,
+        action,
+        capitalization,
+        autocorrect: config.autocorrect,
+        suggestions: config.enable_suggestions,
+        spellcheck: config.spell_check,
+        smart_dashes: config.smart_dashes,
+        smart_quotes: config.smart_quotes,
+        secure: config.ime_purpose == ImePurpose::Password,
+        autofill_hints: config.autofill_hints.clone(),
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn web_ime_configuration(config: &TextInputConfig) -> winit::window::WebImeConfiguration {
+    let input_mode = match config.text_input_type {
+        TextInputType::Text | TextInputType::Multiline | TextInputType::Name => "text",
+        TextInputType::Number => "decimal",
+        TextInputType::EmailAddress => "email",
+        TextInputType::Url => "url",
+        TextInputType::Phone => "tel",
+    };
+    let enter_key_hint = match config.text_input_action {
+        TextInputAction::Done => "done",
+        TextInputAction::Go | TextInputAction::Route => "go",
+        TextInputAction::Search => "search",
+        TextInputAction::Send | TextInputAction::EmergencyCall => "send",
+        TextInputAction::Next => "next",
+        TextInputAction::Previous => "previous",
+        TextInputAction::Continue | TextInputAction::Join | TextInputAction::Newline => "enter",
+    };
+    let autocapitalize = match config.text_capitalization {
+        TextCapitalization::None => "none",
+        TextCapitalization::Characters => "characters",
+        TextCapitalization::Words => "words",
+        TextCapitalization::Sentences => "sentences",
+    };
+    let autocomplete = web_autocomplete(config);
+    winit::window::WebImeConfiguration {
+        name: config.name.clone().unwrap_or_default(),
+        input_mode: input_mode.into(),
+        enter_key_hint: enter_key_hint.into(),
+        autocomplete,
+        autocapitalize: autocapitalize.into(),
+        autocorrect: config.autocorrect,
+        spellcheck: config.spell_check,
+        secure: config.ime_purpose == ImePurpose::Password,
+        aria_label: config.accessibility_label.clone().unwrap_or_default(),
+        required: config.required,
+        invalid: config.validation_state == TextFieldValidationState::Invalid,
+        aria_description: config.validation_message.clone().unwrap_or_default(),
+    }
+}
+
+#[cfg(any(target_arch = "wasm32", test))]
+fn web_autocomplete(config: &TextInputConfig) -> String {
+    let mut autocomplete = Vec::new();
+    if let Some(group) = config.autofill_group.as_deref() {
+        let normalized = group
+            .chars()
+            .map(|ch| {
+                if ch.is_ascii_alphanumeric() || ch == '-' {
+                    ch
+                } else {
+                    '-'
+                }
+            })
+            .collect::<String>();
+        if !normalized.is_empty() {
+            autocomplete.push(format!("section-{normalized}"));
+        }
+    }
+    autocomplete.extend(config.autofill_hints.iter().cloned());
+    autocomplete.join(" ")
 }
 
 #[cfg(target_os = "macos")]
@@ -373,7 +692,11 @@ mod macos {
 
 #[cfg(test)]
 mod tests {
-    use super::{active_platform_config, effective_ime_allowed, TextInputConfig};
+    use super::{
+        active_platform_config, effective_ime_allowed, mobile_ime_configuration,
+        text_edit_command_from_ime_state, web_autocomplete, TextInputConfig,
+    };
+    use fission_core::{TextEditCommand, TextEditSource};
     use fission_ir::semantics::{TextInputAction, TextInputType};
     use fission_ir::Semantics;
     use winit::window::ImePurpose;
@@ -420,6 +743,20 @@ mod tests {
     }
 
     #[test]
+    fn browser_autofill_keeps_section_identity_and_field_hints() {
+        let semantics = Semantics {
+            text_field_name: Some("email".into()),
+            autofill_group: Some("billing address".into()),
+            autofill_hints: vec!["email".into()],
+            ..Semantics::default()
+        };
+        let config = TextInputConfig::from_semantics(&semantics);
+
+        assert_eq!(config.name.as_deref(), Some("email"));
+        assert_eq!(web_autocomplete(&config), "section-billing-address email");
+    }
+
+    #[test]
     fn platform_editing_is_disabled_for_non_editable_fields() {
         let read_only = TextInputConfig::from_semantics(&Semantics {
             read_only: true,
@@ -456,5 +793,91 @@ mod tests {
 
         assert!(!effective_ime_allowed(true, Some(&read_only)));
         assert!(effective_ime_allowed(true, Some(&editable)));
+    }
+
+    #[test]
+    fn complete_platform_state_converts_utf16_selection_and_composition() {
+        let command = text_edit_command_from_ime_state(&winit::event::ImeTextState {
+            text: "A🙂世".into(),
+            selection_start: 3,
+            selection_end: 4,
+            composing: Some((1, 4)),
+        })
+        .expect("valid platform text state");
+
+        let TextEditCommand::SetValue {
+            value,
+            source,
+            phase,
+        } = command
+        else {
+            panic!("platform state must become a complete SetValue command");
+        };
+        assert_eq!(source, TextEditSource::Ime);
+        assert_eq!(phase, fission_core::TextValuePhase::CompositionUpdated);
+        assert_eq!(value.selection.base.utf8_offset(), 5);
+        assert_eq!(value.selection.extent.utf8_offset(), 8);
+        let composing = value.composing.expect("composition");
+        assert_eq!(composing.start.utf8_offset(), 1);
+        assert_eq!(composing.end.utf8_offset(), 8);
+    }
+
+    #[test]
+    fn complete_platform_state_rejects_surrogate_splitting_offsets() {
+        let result = text_edit_command_from_ime_state(&winit::event::ImeTextState {
+            text: "A🙂B".into(),
+            selection_start: 2,
+            selection_end: 2,
+            composing: None,
+        });
+        assert_eq!(
+            result.unwrap_err(),
+            "selection start is not a UTF-16 boundary"
+        );
+    }
+
+    #[test]
+    fn mobile_configuration_maps_keyboard_actions_and_secure_autofill() {
+        use fission_ir::semantics::TextCapitalization;
+        use winit::window::{ImeAction, ImeCapitalization, ImeInputType};
+
+        for (action, expected) in [
+            (TextInputAction::Done, ImeAction::Done),
+            (TextInputAction::Go, ImeAction::Go),
+            (TextInputAction::Search, ImeAction::Search),
+            (TextInputAction::Send, ImeAction::Send),
+            (TextInputAction::Next, ImeAction::Next),
+            (TextInputAction::Previous, ImeAction::Previous),
+            (TextInputAction::Newline, ImeAction::Newline),
+        ] {
+            let config = TextInputConfig {
+                text_input_action: action,
+                ..TextInputConfig::default()
+            };
+            assert_eq!(mobile_ime_configuration(&config).action, expected);
+        }
+
+        let config = TextInputConfig {
+            text_input_type: TextInputType::EmailAddress,
+            text_capitalization: TextCapitalization::Words,
+            ime_purpose: ImePurpose::Password,
+            autofill_hints: vec!["username".into(), "current-password".into()],
+            autocorrect: false,
+            enable_suggestions: false,
+            spell_check: false,
+            smart_dashes: false,
+            smart_quotes: false,
+            ..TextInputConfig::default()
+        };
+        let mapped = mobile_ime_configuration(&config);
+        assert_eq!(mapped.input_type, ImeInputType::Email);
+        assert_eq!(mapped.capitalization, ImeCapitalization::Words);
+        assert!(mapped.secure);
+        assert_eq!(mapped.autofill_hints, config.autofill_hints);
+        assert!(!mapped.autocorrect);
+        assert!(!mapped.suggestions);
+        assert!(!mapped.spellcheck);
+        assert!(!mapped.smart_dashes);
+        assert!(!mapped.smart_quotes);
     }
 }

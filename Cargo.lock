@@ -28,13 +28,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "accesskit_android"
+version = "0.7.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e27dedd5e1932e1f52fedcde681bc2ae4213df53bad5b295103aa36b1d0ffb6"
+dependencies = [
+ "accesskit",
+ "accesskit_consumer 0.38.0",
+ "jni 0.21.1",
+ "log",
+]
+
+[[package]]
 name = "accesskit_atspi_common"
 version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7e98018dbef3583d751dbb96e07b8728fb99581360e1c3df408af16f4a80b821"
 dependencies = [
  "accesskit",
- "accesskit_consumer",
+ "accesskit_consumer 0.37.0",
  "atspi-common",
  "phf 0.13.1",
  "serde",
@@ -52,13 +64,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "accesskit_consumer"
+version = "0.38.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d10a236f96f87d70732e44520046785431ef01d5bcd6b041317bfadd2f88245"
+dependencies = [
+ "accesskit",
+ "hashbrown 0.16.1",
+]
+
+[[package]]
 name = "accesskit_ios"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "02ecb52198c7cf5f8d3e9ffc03d2ca0a5c7201926befd96721437829da4c5c6a"
 dependencies = [
  "accesskit",
- "accesskit_consumer",
+ "accesskit_consumer 0.37.0",
  "hashbrown 0.16.1",
  "objc2 0.5.2",
  "objc2-foundation 0.2.2",
@@ -72,7 +94,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "17cb8b66cef272d48161b02a6317cc2bdd5f98bb0a5e79c68f704a5862aa396b"
 dependencies = [
  "accesskit",
- "accesskit_consumer",
+ "accesskit_consumer 0.37.0",
  "hashbrown 0.16.1",
  "objc2 0.5.2",
  "objc2-app-kit 0.2.2",
@@ -104,7 +126,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "36e93ac7bf50b964f1cbb75f741629a4e950571baa1ef1274457ab5a80d9bcc2"
 dependencies = [
  "accesskit",
- "accesskit_consumer",
+ "accesskit_consumer 0.37.0",
  "hashbrown 0.16.1",
  "static_assertions",
  "windows 0.62.2",
@@ -334,6 +356,7 @@ dependencies = [
  "ndk-context",
  "ndk-sys",
  "num_enum",
+ "simd_cesu8",
  "thiserror 2.0.18",
 ]
 
@@ -2741,6 +2764,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3eedc8942090cd55b5fc4064a6eafb5035f62d1d5e6fff6a9ffcd4f27fb6cdd6"
 dependencies = [
  "accesskit",
+ "accesskit_android",
  "accesskit_ios",
  "accesskit_macos",
  "accesskit_unix",
@@ -2890,6 +2914,7 @@ dependencies = [
  "futures-core",
  "glam",
  "lazy_static",
+ "regex-lite",
  "serde",
  "serde_json",
  "unicode-segmentation",
@@ -3381,7 +3406,7 @@ dependencies = [
 [[package]]
 name = "fission-winit"
 version = "0.30.13-fission.2"
-source = "git+https://github.com/worka-ai/winit.git?rev=4ceafb8ea25505de329238e4edc4f0a7187b92c8#4ceafb8ea25505de329238e4edc4f0a7187b92c8"
+source = "git+https://github.com/worka-ai/winit.git?rev=86c4670cb364e109775079a9f63caef0fda919b5#86c4670cb364e109775079a9f63caef0fda919b5"
 dependencies = [
  "ahash",
  "android-activity",
@@ -5802,7 +5827,7 @@ version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "680998035259dcfcafe653688bf2aa6d3e2dc05e98be6ab46afb089dc84f1df8"
 dependencies = [
- "proc-macro-crate 3.5.0",
+ "proc-macro-crate 2.0.2",
  "proc-macro2",
  "quote",
  "syn 2.0.118",
@@ -9508,6 +9533,8 @@ dependencies = [
  "anyhow",
  "console_error_panic_hook",
  "fission",
+ "fission-test-driver",
+ "serde_json",
  "wasm-bindgen",
 ]
 
