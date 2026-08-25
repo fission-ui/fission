@@ -3763,6 +3763,7 @@ android {{
 }}
 
 dependencies {{
+    implementation("androidx.core:core:1.15.0")
     implementation("androidx.games:games-activity:4.4.0")
 }}
 
@@ -6305,6 +6306,7 @@ publisher = "CN=Example & Co"
 
         let gradle =
             fs::read_to_string(dir.join("platforms/android/app/build.gradle.kts")).unwrap();
+        assert!(gradle.contains("androidx.core:core:1.15.0"));
         assert!(gradle.contains("androidx.games:games-activity:4.4.0"));
 
         let manifest =
