@@ -128,7 +128,7 @@ fn content_view<'local>(
         .l()?;
     let child = env
         .call_method(
-            content,
+            &content,
             "getChildAt",
             "(I)Landroid/view/View;",
             &[JValue::Int(0)],
