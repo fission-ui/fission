@@ -107,6 +107,7 @@ mod tests {
                 line_height: None,
                 letter_spacing: 0.0,
                 background_color: None,
+                typography: Default::default(),
             },
         }
     }
@@ -809,6 +810,7 @@ fn generate_display_list_with_visited(
                     caret_height,
                     caret_radius,
                     paragraph_style,
+                    ..
                 }) => {
                     list.push(DisplayOp::DrawText {
                         text: text.clone(),
@@ -835,6 +837,7 @@ fn generate_display_list_with_visited(
                         caret_height: *caret_height,
                         caret_radius: *caret_radius,
                         paragraph_style: *paragraph_style,
+                        resolved_layout: snapshot.get_resolved_paragraph(node_id).cloned(),
                     });
                 }
                 fission_ir::Op::Paint(fission_ir::PaintOp::DrawRichText {
@@ -883,6 +886,7 @@ fn generate_display_list_with_visited(
                                             a: c.a,
                                         }
                                     }),
+                                    typography: r.style.typography.clone(),
                                 },
                             })
                             .collect(),
@@ -902,6 +906,7 @@ fn generate_display_list_with_visited(
                         caret_radius: *caret_radius,
                         paragraph_style: *paragraph_style,
                         annotations,
+                        resolved_layout: snapshot.get_resolved_paragraph(node_id).cloned(),
                     });
                 }
                 fission_ir::Op::Paint(fission_ir::PaintOp::DrawSvg {

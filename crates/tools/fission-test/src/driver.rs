@@ -2,6 +2,7 @@ use crate::TestHarness;
 use anyhow::{anyhow, Result};
 use fission_core::action::GlobalState;
 use fission_core::event::{ImeEvent, InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent};
+use fission_core::{TextEditCommand, TextEditSource, TextEditingValue, TextRange, TextSelection};
 use fission_ir::{LayoutOp, Op, WidgetId};
 use fission_layout::{LayoutPoint, LayoutRect, LayoutSize};
 use fission_render::DisplayOp;
@@ -276,6 +277,82 @@ impl<S: GlobalState> TestDriver<S> {
                 }))?;
             }
         }
+        if self.auto_pump {
+            self.harness.pump()?;
+        }
+        Ok(())
+    }
+
+    /// Sends one complete editing-state reconciliation through the same
+    /// transaction path used by browser autocorrect, autofill, and replacement.
+    pub fn set_text_editing_value(
+        &mut self,
+        value: TextEditingValue,
+        source: TextEditSource,
+    ) -> Result<()> {
+        self.set_text_editing_value_with_phase(
+            value,
+            source,
+            fission_core::TextValuePhase::Committed,
+        )
+    }
+
+    /// Reconciles a complete value with an explicit platform composition phase.
+    pub fn set_text_editing_value_with_phase(
+        &mut self,
+        value: TextEditingValue,
+        source: TextEditSource,
+        phase: fission_core::TextValuePhase,
+    ) -> Result<()> {
+        self.send_text_edit(TextEditCommand::SetValue {
+            value,
+            source,
+            phase,
+        })
+    }
+
+    /// Replaces a validated range through the platform-neutral edit pipeline.
+    pub fn replace_text_range(
+        &mut self,
+        range: TextRange,
+        text: impl Into<String>,
+        source: TextEditSource,
+    ) -> Result<()> {
+        self.send_text_edit(TextEditCommand::Replace {
+            range,
+            text: text.into(),
+            source,
+        })
+    }
+
+    pub fn set_text_selection(&mut self, selection: TextSelection) -> Result<()> {
+        self.send_text_edit(TextEditCommand::SetSelection {
+            selection,
+            source: TextEditSource::Programmatic,
+        })
+    }
+
+    pub fn start_or_update_composition(&mut self, range: TextRange) -> Result<()> {
+        self.send_text_edit(TextEditCommand::SetComposing { range })
+    }
+
+    pub fn cancel_composition(&mut self) -> Result<()> {
+        self.send_text_edit(TextEditCommand::CancelComposition)
+    }
+
+    pub fn commit_composition(
+        &mut self,
+        text: impl Into<String>,
+        source: TextEditSource,
+    ) -> Result<()> {
+        self.send_text_edit(TextEditCommand::CommitComposition {
+            text: text.into(),
+            source,
+        })
+    }
+
+    fn send_text_edit(&mut self, command: TextEditCommand) -> Result<()> {
+        self.harness.send_event(InputEvent::TextEdit(command))?;
         if self.auto_pump {
             self.harness.pump()?;
         }

@@ -70,7 +70,17 @@ jobs:
         run: cargo run -p cargo-fission --bin fission -- doctor web --project-dir examples/web-smoke
 
       - name: Build web-smoke wasm package
+        env:
+          FISSION_WEB_TEST_CONTROL: '1'
         run: ./examples/web-smoke/platforms/web/build-wasm.sh
+
+      - name: Run Web Canvas text-input conformance in Chromium
+        run: |
+          python3 -m http.server 8126 --bind 127.0.0.1 --directory examples/web-smoke/platforms/web &
+          server_pid=$!
+          trap 'kill "$server_pid"' EXIT
+          FISSION_WEB_SMOKE_URL='http://127.0.0.1:8126/?fission_renderer=canvas2d-software' \
+            cargo test --locked -p web-smoke --test text_input_browser -- --nocapture
 
   android:
     name: Android package smoke
