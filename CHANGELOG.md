@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-08-25
+
+### Added
+
+- **Coherent cross-shell navigation** - Applications can read one `RouteLocation` and push, replace, traverse, or reload history without adopting the built-in `Router`. Web applications support path and hash routes, deployment base paths, initial deep links, and browser back/forward navigation.
+- **Semantic links** - `Link`, `Pressable`, `SemanticsRegion`, and custom widgets can expose a complete `Hyperlink`. Web canvas output projects it to a real DOM anchor, while Static site and SSR emit ordinary `<a>` elements with targets, relationship metadata, downloads, and popover targets.
+- **Opt-in SQLite storage** - The portable Store API provides typed scoped values, prefix listing, and atomic batches. A separate SQL API exposes parameterized statements, typed rows, migrations, and passable multi-step transactions across native, Web/OPFS, Terminal, and SSR targets without adding SQLite to applications that do not enable storage.
+- **Complete text editing model** - `TextEditingValue`, validated positions and ranges, directional selections, composition, commands, formatters, editing and scrolling controllers, forms, validation, autofill metadata, and payload-preserving typed actions now share one cross-platform transaction pipeline.
+- **Coordinated text selection** - `SelectionRegion` selects across retained `Text` and `RichText` nodes with word and paragraph selection, keyboard extension, exclusions, copy, desktop context menus, and adaptive touch handles, magnifier, toolbar, and edge scrolling.
+- **Expanded typography** - Text styles now include fallback families, locale, word spacing, decoration variants, shadows and paints, OpenType features and variable axes, baseline and leading policy, line breaking, hyphenation, and nonlinear accessibility scaling.
+
+### Changed
+
+- **One retained paragraph authority** - Measurement retains final lines, glyph clusters, caret stops, selection rectangles, inline placements, constraints, and size. Painting, hit testing, editing geometry, scrolling, IME placement, and accessibility consume that shared result.
+- **Adaptive multiline input defaults** - Multiline input begins at the top, fills the available field height, shows scrollbar chrome by default, and hides the collapsed touch caret handle unless an application explicitly enables it.
+- **Platform-native text sessions** - Web synchronizes a hidden native control, Android uses GameActivity text input, iOS uses a native text view, and desktop IME and accessibility entry points all feed the same editing pipeline.
+
+### Fixed
+
+- **Scroll lifecycle isolation** - Runtime scroll offsets are reset before layout when a retained scroll identity is reused by content whose declared scroll state has changed, preventing one screen's offset from leaking into the next screen.
+- **Deep-link and history consistency** - Initial Web locations, hash changes, history traversal, external deep links, and custom route handlers now enter the same shell-neutral route contract.
+- **First-frame text layout** - Nested percentage and maximum-width constraints no longer require a viewport resize before text wraps and paints correctly.
+- **Composition and controlled-value fidelity** - Composition commit and cancellation, complete-value correction/autofill, selection, undo/redo, focus changes, secure entry, and multiline caret visibility retain the correct value and context.
+- **Multiline newline visibility** - Pressing Enter no longer scrolls a short multiline editor enough to hide its preceding line before the next character is typed.
+- **Scrollbar interaction** - Scrollbar thumbs use bounded proportional geometry, retain compact visuals with a wider interaction target, and support clicking above or below the thumb to jump and begin dragging.
+
+### Migration notes
+
+- Update Fission dependencies and `cargo-fission` to `0.14.0`.
+- Storage remains opt-in. CLI-managed applications can run `fission add-capability storage`; Cargo-managed applications enable `store-sqlite-native` or `store-sqlite-web` for the intended targets.
+- Existing `with_route_handler` integrations remain supported. Applications may use Fission's `Router`, a custom router, or a third-party router over the shared route and navigation contracts.
+- Existing string-controlled `TextInput::value` fields remain supported. Use `editing_value` when an application must control text, directional selection, and composition atomically.
+
 ## [0.13.0] - 2026-08-24
 
 ### Added
