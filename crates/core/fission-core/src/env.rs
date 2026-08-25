@@ -146,6 +146,9 @@ pub struct Env {
     pub current_route: RouteLocation,
     pub window_insets: WindowInsets,
     pub viewport_size: LayoutSize,
+    /// Host accessibility text scaling applied when a text widget does not
+    /// provide an explicit scaler.
+    pub text_scaler: crate::ui::TextScaler,
     pub measurer: Option<Arc<dyn fission_layout::TextMeasurer>>,
 }
 
@@ -160,6 +163,7 @@ impl Default for Env {
             current_route: RouteLocation::default(),
             window_insets: WindowInsets::default(),
             viewport_size: LayoutSize::default(),
+            text_scaler: crate::ui::TextScaler::default(),
             measurer: None,
         }
     }
@@ -175,6 +179,7 @@ impl std::fmt::Debug for Env {
             .field("current_route", &self.current_route)
             .field("window_insets", &self.window_insets)
             .field("viewport_size", &self.viewport_size)
+            .field("text_scaler", &self.text_scaler)
             .finish()
     }
 }
@@ -190,6 +195,7 @@ impl Env {
             current_route: RouteLocation::default(),
             window_insets: WindowInsets::default(),
             viewport_size: LayoutSize::default(),
+            text_scaler: crate::ui::TextScaler::default(),
             measurer: Some(measurer),
         }
     }
@@ -203,6 +209,9 @@ pub trait Clipboard: Send + Sync {
 pub trait ImeHandler: Send + Sync {
     fn set_ime_allowed(&self, allowed: bool);
     fn set_ime_cursor_area(&self, rect: fission_layout::LayoutRect);
+    /// Synchronizes the complete authoritative value for the focused editing
+    /// session. Platform adapters must not retain an independent text value.
+    fn set_editing_value(&self, _value: &crate::TextEditingValue) {}
 }
 
 // Runtime state managed by framework (Interaction)
@@ -323,6 +332,7 @@ impl ContextMenuState {
 #[derive(Clone, Debug, Default)]
 pub struct SelectableTextStateMap {
     pub states: HashMap<WidgetId, SelectableTextState>,
+    pub(crate) regions: HashMap<WidgetId, SelectionRegionState>,
 }
 
 impl SelectableTextStateMap {
@@ -339,6 +349,59 @@ impl SelectableTextStateMap {
             .get(&id)
             .and_then(SelectableTextState::selection_range)
     }
+
+    pub fn region_selection(&self, id: WidgetId) -> Option<crate::selection::TextRegionSelection> {
+        self.regions.get(&id).and_then(|state| state.selection)
+    }
+
+    pub(crate) fn region(&self, id: WidgetId) -> Option<&SelectionRegionState> {
+        self.regions.get(&id)
+    }
+
+    pub(crate) fn region_mut_or_default(&mut self, id: WidgetId) -> &mut SelectionRegionState {
+        self.regions.entry(id).or_default()
+    }
+
+    pub(crate) fn clear_region(
+        &mut self,
+        id: WidgetId,
+        document: &crate::selection::RegionDocument,
+    ) {
+        for member in &document.members {
+            self.states.remove(&member.node_id);
+        }
+        if let Some(state) = self.regions.get_mut(&id) {
+            *state = SelectionRegionState::default();
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum SelectionGranularity {
+    #[default]
+    Character,
+    Word,
+    Paragraph,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct SelectionRegionState {
+    pub selection: Option<crate::selection::TextRegionSelection>,
+    pub selecting: bool,
+    pub granularity: SelectionGranularity,
+    pub pointer_down_at: Option<crate::time::CurrentTime>,
+    pub pointer_down_point: Option<LayoutPoint>,
+    pub pointer_kind: crate::event::PointerKind,
+    pub last_click_at: Option<crate::time::CurrentTime>,
+    pub last_click_point: Option<LayoutPoint>,
+    pub click_count: u8,
+    pub drag_started: bool,
+    pub caret_handle: Option<LayoutPoint>,
+    pub selection_start_handle: Option<LayoutPoint>,
+    pub selection_end_handle: Option<LayoutPoint>,
+    pub active_handle: Option<TextSelectionHandleKind>,
+    pub magnifier_visible: bool,
+    pub magnifier_anchor: Option<LayoutPoint>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -371,6 +434,10 @@ pub struct TextEditState {
     pub anchor: usize, // selection anchor; if equal to caret then no selection
     pub history: TextEditHistory,
     pub preedit: Option<TextPreeditState>,
+    /// Composing range when a platform adapter synchronizes a complete value
+    /// whose composing text is already present in `buffer`.
+    pub platform_composing: Option<crate::TextRange>,
+    pub composition_base: Option<crate::TextEditingValue>,
     pub pending_model_sync: bool, // True when edits are newer than the currently lowered semantics value
     /// Last semantic model value observed for this input.
     ///
@@ -393,6 +460,8 @@ impl Default for TextEditState {
             anchor: 0,
             history: TextEditHistory::default(),
             preedit: None,
+            platform_composing: None,
+            composition_base: None,
             pending_model_sync: false,
             last_model_text: String::new(),
             last_dispatched_cursor: None,
@@ -509,14 +578,18 @@ impl TextEditStateMap {
         semantic_value: &str,
         restoration_id: Option<&str>,
         undo_capacity: Option<usize>,
+        masked: bool,
     ) {
-        let restoration_snapshot = restoration_id.and_then(|rid| {
-            if semantic_value.is_empty() {
-                self.restoration.get(rid).cloned()
-            } else {
-                None
-            }
-        });
+        let restoration_snapshot = (!masked)
+            .then_some(restoration_id)
+            .flatten()
+            .and_then(|rid| {
+                if semantic_value.is_empty() {
+                    self.restoration.get(rid).cloned()
+                } else {
+                    None
+                }
+            });
         let st = self.states.entry(id).or_default();
         st.sync_from_model(semantic_value);
         if semantic_value.is_empty() && st.buffer.len_bytes() == 0 {
@@ -527,14 +600,27 @@ impl TextEditStateMap {
         if let Some(capacity) = undo_capacity {
             st.set_history_capacity(capacity);
         }
-        if let Some(rid) = restoration_id {
+        if masked {
+            if let Some(rid) = restoration_id {
+                self.restoration.remove(rid);
+            }
+        } else if let Some(rid) = restoration_id {
             self.restoration.insert(rid.to_string(), st.snapshot());
         }
     }
-    pub fn persist_restoration(&mut self, id: WidgetId, restoration_id: Option<&str>) {
+    pub fn persist_restoration(
+        &mut self,
+        id: WidgetId,
+        restoration_id: Option<&str>,
+        masked: bool,
+    ) {
         let Some(rid) = restoration_id else {
             return;
         };
+        if masked {
+            self.restoration.remove(rid);
+            return;
+        }
         if let Some(st) = self.states.get(&id) {
             self.restoration.insert(rid.to_string(), st.snapshot());
         }
@@ -548,6 +634,68 @@ impl TextEditStateMap {
 }
 
 impl TextEditState {
+    /// Returns the complete authoritative value for this editing session.
+    pub fn editing_value(&self) -> crate::TextEditingValue {
+        let (text, legacy_preedit_range) = self.display_text();
+        let (anchor, caret) = self
+            .preedit
+            .as_ref()
+            .map_or((self.anchor, self.caret), |preedit| {
+                let start = preedit.range.0.min(self.buffer.len_bytes());
+                preedit.cursor.map_or(
+                    (start + preedit.text.len(), start + preedit.text.len()),
+                    |(anchor, caret)| (start + anchor, start + caret),
+                )
+            });
+        let selection =
+            crate::TextSelection::new(&text, anchor, caret, crate::TextAffinity::Downstream)
+                .unwrap_or_else(|_| {
+                    crate::TextSelection::collapsed(crate::TextPosition::at_end(&text))
+                });
+        let composing = self.platform_composing.or_else(|| {
+            legacy_preedit_range
+                .and_then(|(start, end)| crate::TextRange::new(&text, start, end).ok())
+        });
+        crate::TextEditingValue {
+            text,
+            selection,
+            composing,
+        }
+    }
+
+    /// Atomically commits a complete value while recording one undo entry.
+    pub fn apply_editing_value(&mut self, value: crate::TextEditingValue) -> String {
+        if value.composing.is_none() {
+            if let Some(base) = self.composition_base.take() {
+                self.buffer = TextBuffer::from_str(&base.text);
+                self.caret = base.selection.extent.utf8_offset();
+                self.anchor = base.selection.base.utf8_offset();
+                self.platform_composing = None;
+            }
+        }
+        let old_len = self.buffer.len_bytes();
+        let caret = value.selection.extent.utf8_offset();
+        let anchor = value.selection.base.utf8_offset();
+        let composing = value.composing;
+        let text = self.apply_edit(0..old_len, &value.text, caret, anchor);
+        self.platform_composing = composing;
+        text
+    }
+
+    /// Synchronizes an in-progress platform composition without creating an
+    /// undo entry; the eventual composition commit is the atomic history step.
+    pub fn sync_composing_value(&mut self, value: crate::TextEditingValue) {
+        if self.composition_base.is_none() {
+            self.composition_base = Some(self.editing_value());
+        }
+        self.buffer = TextBuffer::from_str(&value.text);
+        self.caret = value.selection.extent.utf8_offset();
+        self.anchor = value.selection.base.utf8_offset();
+        self.preedit = None;
+        self.platform_composing = value.composing;
+        self.pending_model_sync = true;
+    }
+
     pub fn snapshot(&self) -> TextRestorationSnapshot {
         TextRestorationSnapshot {
             value: self.buffer.to_string(),
@@ -561,6 +709,8 @@ impl TextEditState {
         self.caret = snapshot.caret.min(snapshot.value.len());
         self.anchor = snapshot.anchor.min(snapshot.value.len());
         self.preedit = None;
+        self.platform_composing = None;
+        self.composition_base = None;
         self.pending_model_sync = false;
         self.last_model_text = snapshot.value.clone();
         self.last_dispatched_cursor = None;
@@ -606,6 +756,8 @@ impl TextEditState {
                 self.anchor = self.anchor.min(semantic_value.len());
             }
             self.preedit = None;
+            self.platform_composing = None;
+            self.composition_base = None;
             self.history = TextEditHistory::default();
             self.pending_model_sync = false;
             self.last_model_text = semantic_value.to_string();
@@ -617,6 +769,8 @@ impl TextEditState {
             self.caret = self.caret.min(semantic_value.len());
             self.anchor = self.anchor.min(semantic_value.len());
             self.preedit = None;
+            self.platform_composing = None;
+            self.composition_base = None;
             self.history = TextEditHistory::default();
         }
         self.last_model_text = semantic_value.to_string();
@@ -631,10 +785,18 @@ impl TextEditState {
     }
 
     pub fn clear_preedit(&mut self) {
+        if let Some(base) = self.composition_base.take() {
+            self.buffer = TextBuffer::from_str(&base.text);
+            self.caret = base.selection.extent.utf8_offset();
+            self.anchor = base.selection.base.utf8_offset();
+        }
         self.preedit = None;
+        self.platform_composing = None;
     }
 
     pub fn set_preedit(&mut self, text: String, cursor: Option<(usize, usize)>) {
+        self.platform_composing = None;
+        self.composition_base = None;
         if text.is_empty() {
             self.preedit = None;
             return;
@@ -704,6 +866,8 @@ impl TextEditState {
         self.caret = next_caret;
         self.anchor = next_anchor;
         self.preedit = None;
+        self.platform_composing = None;
+        self.composition_base = None;
         self.pending_model_sync = true;
         self.buffer.to_string()
     }
@@ -713,6 +877,8 @@ impl TextEditState {
         self.caret = caret;
         self.anchor = anchor;
         self.preedit = None;
+        self.platform_composing = None;
+        self.composition_base = None;
         self.pending_model_sync = true;
         Some((self.buffer.to_string(), caret, anchor))
     }
@@ -722,6 +888,9 @@ impl TextEditState {
         self.caret = caret;
         self.anchor = anchor;
         self.preedit = None;
+        self.platform_composing = None;
+        self.composition_base = None;
+        self.platform_composing = None;
         self.pending_model_sync = true;
         Some((self.buffer.to_string(), caret, anchor))
     }
@@ -910,5 +1079,30 @@ mod tests {
         assert_eq!(hash.pathname, "/projects/42");
         assert_eq!(hash.search.as_deref(), Some("?tab=activity"));
         assert_eq!(hash.hash, None);
+    }
+
+    #[test]
+    fn complete_platform_composition_cancels_or_commits_as_one_undo_step() {
+        let mut state = TextEditState::default();
+        state.sync_from_model("ab");
+        let composing_text = "a界b";
+        let composing = crate::TextEditingValue::new(
+            composing_text,
+            crate::TextSelection::collapsed(
+                crate::TextPosition::from_utf8(composing_text, 4).unwrap(),
+            ),
+            Some(crate::TextRange::new(composing_text, 1, 4).unwrap()),
+        )
+        .unwrap();
+        state.sync_composing_value(composing.clone());
+        assert_eq!(state.committed_text(), composing_text);
+        state.clear_preedit();
+        assert_eq!(state.committed_text(), "ab");
+
+        state.sync_composing_value(composing);
+        let committed = crate::TextEditingValue::from_text(composing_text);
+        state.apply_editing_value(committed);
+        assert_eq!(state.committed_text(), composing_text);
+        assert_eq!(state.undo().unwrap().0, "ab");
     }
 }

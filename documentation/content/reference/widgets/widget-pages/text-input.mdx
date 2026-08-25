@@ -23,13 +23,13 @@ fn set_email(state: &mut SettingsState, ctx: &mut ReducerContext<SettingsState>)
 }
 
 let widget: Widget = TextInput {
-value: view.state().email.clone(),
-label: Some("Email address".into()),
-placeholder: Some("name@example.com".into()),
-on_input: Some(ctx.bind(SetEmail, reduce_with!(set_email))),
-on_submit: Some(save_email_action),
-width: Some(320.0),
-..Default::default()
+    value: view.state().email.clone(),
+    label: Some("Email address".into()),
+    placeholder: Some("name@example.com".into()),
+    on_input: Some(ctx.bind(SetEmail, reduce_with!(set_email))),
+    on_submit: Some(save_email_action),
+    width: Some(320.0),
+    ..Default::default()
 }
 .into();
 ```
@@ -45,6 +45,7 @@ action or carry stable application context such as a field or row identity.
 | --- | --- | --- | --- |
 | `id` | `Option<WidgetId>` | Stable identity for focus, selection, and runtime edit state. | Defaults to `None`. Give important fields stable ids. |
 | `value` | `String` | Current text value. | Controlled by app state. |
+| `editing_value` | `Option<TextEditingValue>` | Atomically controls text, directional selection, and composing range. | Use this instead of `value` when the application owns selection or composition. |
 | `label` | `Option<TextContent>` | Semantic and visual label text. | Defaults to `None`. Use this for accessibility instead of relying only on placeholders. |
 | `placeholder` | `Option<TextContent>` | Hint text shown when the field is empty. | Defaults to `None`. |
 | `helper_text` | `Option<TextContent>` | Supporting text below the field. | Defaults to `None`. |
@@ -54,6 +55,9 @@ action or carry stable application context such as a field or row identity.
 | `on_submit` | `Option<ActionEnvelope>` | Action fired when the user submits the field. | Uses the payload you provided on the envelope. |
 | `on_editing_complete` | `Option<ActionEnvelope>` | Action fired when editing is explicitly completed. | Defaults to `None`. |
 | `on_tap_outside` | `Option<ActionEnvelope>` | Action fired when the user taps or clicks away from the active field. | Defaults to `None`. |
+| `on_focus` | `Option<ActionEnvelope>` | Action fired after this field becomes the focused editing session. | Read the complete typed session event from `ctx.input.text_change()`. |
+| `on_blur` | `Option<ActionEnvelope>` | Action fired after this field loses focus. | The runtime clears composition before dispatch and preserves the bound payload. |
+| `on_validation` | `Option<ActionEnvelope>` | Action fired when validation runs. | Submit and editing-complete validate before their dedicated actions. |
 | `width` | `Option<f32>` | Fixed width. | Defaults to `None`. |
 | `height` | `Option<f32>` | Fixed height. | Defaults to `None`. |
 | `padding` | `Option<[f32; 4]>` | Inner padding `[left, right, top, bottom]`. | Defaults to themed field padding. |
@@ -66,13 +70,16 @@ action or carry stable application context such as a field or row identity.
 | `autofocus` | `bool` | Whether the field should request focus on mount. | Defaults to `false`. |
 | `enabled` | `bool` | Whether the field is interactive. | Defaults to `true`. Disabled fields do not receive focus. |
 | `read_only` | `bool` | Whether the field can be focused and selected but not edited. | Defaults to `false`. |
+| `can_request_focus` | `bool` | Whether pointer, traversal, accessibility, autofocus, or controller requests may focus the field. | Defaults to `true`. |
+| `select_all_on_focus` | `bool` | Select the complete value whenever focus enters the field. | Defaults to `false`. |
+| `show_cursor` | `bool` | Whether Fission paints the caret while focused. | Defaults to `true`; selection and editing still work when hidden. |
 | `min_lines` | `Option<usize>` | Minimum visible line count for multiline fields. | Defaults to `None`. |
 | `max_lines` | `Option<usize>` | Maximum visible line count for multiline fields. | Defaults to `None`. |
 | `obscure_text` | `bool` | Whether the field masks characters. | Defaults to `false`. Useful for passwords. |
 | `obscuring_character` | `char` | Character used when masking text. | Defaults to the implementation's bullet masking character. |
 | `prefix` | `Option<Widget>` | Leading decoration inside the field. | Defaults to `None`. |
 | `suffix` | `Option<Widget>` | Trailing decoration inside the field. | Defaults to `None`. |
-| `on_cursor_change` | `Option<ActionEnvelope>` | Action fired when caret or selection anchor changes. | The runtime sends a `CursorChanged` payload. |
+| `on_cursor_change` | `Option<ActionEnvelope>` | Action fired when caret or selection anchor changes. | Preserves the bound action payload; read `ctx.input.text_selection_change()`. |
 
 ## Advanced editor and input table
 
@@ -81,22 +88,80 @@ action or carry stable application context such as a field or row identity.
 | `keyboard_type` | `TextInputType` | Preferred keyboard or input mode. | Defaults to plain text. Useful for email, number, and phone fields. |
 | `text_input_action` | `TextInputAction` | Preferred return-key action. | Defaults to `Done`. |
 | `text_capitalization` | `TextCapitalization` | Automatic capitalization hint. | Defaults to `None`. |
-| `max_length` | `Option<usize>` | Maximum allowed text length. | Defaults to `None`. |
-| `input_formatters` | `Vec<InputFormatter>` | Structured formatters applied during editing. | Defaults to an empty list. |
+| `max_length` | `Option<usize>` | Maximum user-perceived grapheme count. | Defaults to `None`; emoji sequences and combining characters count as one grapheme. |
+| `max_length_enforcement` | `MaxLengthEnforcement` | Controls whether length is enforced immediately or after composition. | Defaults to `AfterComposition`, so an active IME candidate is not truncated before commit. |
+| `input_formatters` | `Vec<InputFormatter>` | Serializable formatters applied to a complete proposed edit. | Defaults to an empty list. Keyboard type never filters text implicitly. |
+| `custom_input_formatters` | `Vec<SharedTextInputFormatter>` | Application formatters receiving old and complete proposed editing values. | Runtime-only because trait objects are not serializable. |
+| `name` | `Option<String>` | Form field name. | Lowers to HTML `name` on Static site and SSR. |
+| `autofill_group` | `Option<String>` | Stable grouping for related autofill fields. | Used with `autofill_hints`. |
+| `required` | `bool` | Declares the field required. | Exposed to accessibility and native HTML forms. |
+| `min_length` | `Option<usize>` | Declares a minimum grapheme length. | Exposed to supported form targets. |
+| `validation_pattern` | `Option<String>` | Declares a target-supported validation pattern. | Static site and SSR lower it to `pattern`. |
+| `validation_state` | `TextFieldValidationState` | Application-authoritative validity. | Invalid state is exposed without changing the value. |
+| `validation_message` | `Option<String>` | Accessible validation description. | Associated with invalid HTML fields and AccessKit nodes. |
+| `validator` | `Option<SharedTextInputValidator>` | Application validator receiving the complete editing value. | Returns a typed `TextValidationResult`; it never mutates the value. |
+| `form_id` | `Option<String>` | Associates the field with a `TextFormController`. | Form validation reports only fields with the same id. |
 | `borderless` | `bool` | Remove the normal field chrome. | Defaults to `false`. Useful for embedded editors. |
 | `capture_tab` | `bool` | Insert tab characters instead of moving focus. | Defaults to `false`. |
 | `auto_indent` | `bool` | Copy leading whitespace on Enter. | Defaults to `false`. Useful for code-like editors. |
 | `styled_runs` | `Option<Vec<TextRun>>` | Pre-styled text runs for syntax-highlighted rendering. | When present, the concatenated runs must match `value` exactly. |
 | `locale` | `Option<String>` | Locale override for shaping and accessibility. | Defaults to `None`. |
 | `scroll_padding` | `Option<[f32; 4]>` | Extra space kept around the caret during auto-scroll. | Defaults to `None`. |
+| `wrap_mode` | `TextWrapMode` | Soft wrapping, hard wrapping, or no wrapping for multiline content. | Static site and SSR lower the equivalent textarea `wrap` behavior. |
+| `scroll_policy` | `TextScrollPolicy` | Automatic, always-visible, or disabled editable scrolling. | Defaults to `Auto`. |
+| `scroll_physics` | `TextScrollPhysics` | Platform, clamped, or non-scrollable user interaction. | Programmatic caret/range visibility remains explicit through a controller. |
 | `context_menu` | `TextContextMenuConfig` | Configures built-in editing actions shown from the text selection context menu. | Defaults to Copy, Cut, Paste, and Select All. Menu labels use localizable child widgets with English fallbacks. |
 | `selection_controls` | `TextSelectionControls` | Configures caret and selection-handle overlays. | Set `enabled` to `false` for mouse-first editors that should not show touch-style handles. Defaults to enabled. |
+
+## Programmatic editing, scrolling, and forms
+
+`TextEditingController` targets one stable `WidgetId`. Queue its
+`TextEditingCommand` through `ctx.effects.text_editing`; focus and unfocus then use
+the same runtime focus transition as pointer, keyboard traversal, autofocus,
+and accessibility. `SelectAll`, `SetSelection`, and `SetValue` atomically update
+the retained editing session.
+
+`TextScrollController` targets the same id and accepts `TextScrollCommand::Caret`
+or `TextScrollCommand::Range`. It resolves the field's retained paragraph and
+scrolls the requested geometry into view after layout. `TextFormController`
+groups fields by `form_id`; `ctx.effects.validate_text_form(&form)` runs each
+member's declared constraints and custom validator and dispatches its
+`on_validation` action. That action receives `phase == TextEditPhase::Validated`
+plus `validation_state` and `validation_message` through the usual typed text
+change input.
+
+```rust
+let field_id = WidgetId::explicit("account.email");
+let editing = TextEditingController::new(field_id);
+let scrolling = TextScrollController::new(field_id);
+
+ctx.effects.text_editing(editing, TextEditingCommand::Focus);
+ctx.effects.text_editing(editing, TextEditingCommand::SelectAll);
+ctx.effects.text_scroll(scrolling, TextScrollCommand::Caret);
+
+let form = TextFormController::new("account");
+ctx.effects.validate_text_form(&form);
+```
 
 ## How text, actions, and input method editor state work together
 
 `TextInput` is a controlled widget. The runtime handles low-level editing details such as caret movement, selection, clipboard operations, and input method editor composition, then dispatches higher-level events back into your reducer loop. Your reducer updates the text in `GlobalState`, and `component conversion` passes that value back in.
 
 This is why `component conversion` stays pure even for rich text entry. The widget describes the field, the runtime manages the live editing mechanics, and state remains explicit.
+
+All mutation sources use `TextEditCommand` and `TextEditingValue`. A browser
+autocorrect replacement, an accessibility `SetValue`, an IME commit, a paste,
+and a hardware keystroke therefore pass through the same formatter, mask,
+grapheme-length, undo, synchronization, and typed-action pipeline. Canonical
+`TextPosition` values are validated UTF-8 byte positions. Use its named UTF-16
+and Unicode-scalar conversion methods at platform boundaries; never reinterpret
+a DOM or accessibility offset as a byte offset.
+
+Complete platform values use `TextEditCommand::SetValue` with an explicit
+`TextValuePhase`. Use `Committed` for an ordinary complete-value
+reconciliation, `CompositionStarted` or `CompositionUpdated` while marked text
+is active, and `CompositionCommitted` for the final IME value. This keeps
+formatters and reducers independent from shell-specific event ordering.
 
 When the reducer also needs stable application context, put that context in the
 action and continue to read the edit separately:
@@ -118,6 +183,34 @@ fn update_field(
 The widget binds `UpdateField(field.clone())` to `on_input`. Static site and
 plain SSR output do not run reducers; use a browser island when the field must
 remain interactive in generated HTML.
+
+## Target behavior
+
+| Behavior | Desktop | Android / iOS | Web Canvas | Static site / SSR | Terminal |
+| --- | --- | --- | --- | --- | --- |
+| Controlled value and selection | Fission editing session | Fission editing session | Fission session mirrored into a hidden native text control | Native HTML control | Terminal editor state |
+| IME/composition | Host IME events | Software-keyboard IME events | Composition events plus complete `input` reconciliation | Browser-native when hydrated | Not advertised |
+| Autocorrect and autofill | Host support where available | Platform keyboard/service | Browser textarea adapter | Native HTML attributes | Not advertised |
+| Keyboard intent and return action | Host-supported configuration | Platform-supported configuration | `inputmode` and `enterkeyhint` | Native HTML attributes | Explicitly unsupported where unavailable |
+| Validation semantics | AccessKit required/invalid/description and live error announcements | AccessKit and semantic field contract | Focused native-control ARIA contract | `required`, length, `pattern`, and ARIA association | Textual application presentation |
+| Spell/suggestion flags | Platform hints where available | Platform hints | textarea attributes | HTML attributes | Not advertised |
+
+The platform owns input services, not the authoritative value. Unsupported
+platform hints are bounded diagnostics in development builds; they are never
+implemented by silently deleting or rewriting user input.
+
+On iOS, keyboard type, action, capitalization, autocorrection, spell checking,
+smart punctuation, secure entry, and the supported autofill vocabulary are
+connected to `UITextView`. Android maps keyboard type, action, capitalization,
+autocorrection, suggestions, secure entry, and autofill hints through the
+GameActivity input session; Android does not expose independent smart-dash and
+smart-quote switches, so explicit non-default requests are diagnosed. Web maps
+the corresponding HTML attributes and diagnoses browser options with no
+independent control. macOS maps autocorrection, spell checking, smart
+punctuation, completion, and secure purpose; Windows and Linux retain their
+native IME and candidate positioning but diagnose unsupported software-keyboard
+configuration. `FISSION_TEXT_SCALE_FACTOR` is an explicit host override for
+platforms without a standard accessibility text-scale source.
 
 ## Specific advice
 

@@ -30,7 +30,7 @@ Current native support is:
 | Windows | AccessKit through the Windows accessibility stack | Supported for the same Fission semantics exposed by the winit bridge. Validate with Narrator, NVDA, or JAWS for product releases. |
 | Linux | AccessKit through the AT-SPI accessibility stack | Supported where the desktop session and assistive technology expose the expected AT-SPI path. Validate with Orca on your target desktop. |
 | iOS | AccessKit through the iOS accessibility adapter | Supported by the shared native bridge where the iOS shell uses the winit path. Validate with VoiceOver on simulator and device. |
-| Android | No native TalkBack bridge yet | Fission still produces semantics for tests and runtime behavior, but the current winit AccessKit bridge is disabled on Android because the AccessKit Android adapter expects winit GameActivity while Fission's Android shell uses NativeActivity. |
+| Android | AccessKit through the Android accessibility stack | Supported through the generated AndroidX GameActivity host. Validate with TalkBack, Switch Access, and Voice Access on the Android versions you ship. |
 
 Static site and SSR targets are different: they render semantic HTML, native inputs, buttons, links, headings, labels, and ARIA/data attributes where the static/server renderer has enough information. Browser screen readers then see the browser accessibility tree rather than AccessKit. The canvas Web target does not currently expose a DOM accessibility tree for the canvas-rendered app.
 
@@ -53,7 +53,7 @@ The native bridge exports the semantic data that widgets lower into Core IR.
 | Scroll state | Scrollable nodes expose scroll actions and current scroll offsets. |
 | Actions | Click/default, focus, blur, replace selected text, set value, set selection, scroll, increment, and decrement map back into the Fission runtime. |
 
-This is not a promise that every possible platform accessibility feature is complete. It is the current public contract. Advanced features such as rich native announcements, custom rotor behavior, platform-specific landmarks beyond current roles, and complete Android TalkBack support need additional implementation.
+This is not a promise that every possible platform accessibility feature is complete. It is the current public contract. Advanced features such as custom rotor behavior and platform-specific landmarks beyond current roles need additional implementation.
 
 ## Design accessible widgets from the start
 

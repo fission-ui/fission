@@ -22,6 +22,7 @@ pub mod responsive;
 pub mod row;
 pub mod safe_area;
 pub mod scroll;
+pub mod selection_region;
 pub mod semantics_region;
 pub mod slider;
 pub mod spacer;
@@ -68,12 +69,18 @@ pub use responsive::{Responsive, ResponsiveCase};
 pub use row::Row;
 pub use safe_area::SafeArea;
 pub use scroll::Scroll;
+pub use selection_region::{SelectionPlatformStyle, SelectionRegion, SelectionRegionControls};
 pub use semantics_region::SemanticsRegion;
 pub use slider::Slider;
 pub use spacer::Spacer;
 pub use stack::ZStack;
 pub use switch::Switch;
-pub use text::{RichText, RichTextRun, Text, TextContent, TextFontStyle, TextRunStyle};
+pub use text::{
+    FontFeature, FontVariation, RichText, RichTextRun, Text, TextBaseline, TextContent,
+    TextDecoration, TextDecorationLines, TextDecorationStyle, TextFontStyle, TextHyphenation,
+    TextLeadingDistribution, TextLineBreakPolicy, TextRunStyle, TextScaler, TextShadow,
+    TextTypography,
+};
 pub use text_input::TextInput;
 pub use transform::Transform;
 pub use video::{

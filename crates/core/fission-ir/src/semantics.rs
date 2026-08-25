@@ -256,6 +256,8 @@ pub enum ActionTrigger {
     ViewportInteractionUpdate,
     /// An interactive viewport gesture ended; configured inertia may continue.
     ViewportInteractionEnd,
+    /// A text field's validation state was requested or changed.
+    Validation,
 }
 
 #[cfg(test)]
@@ -340,6 +342,18 @@ pub enum TextInputType {
     Name,
 }
 
+/// Editable multiline wrapping and submission behavior.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum TextWrapMode {
+    /// Wrap visually without inserting line breaks into submitted text.
+    #[default]
+    Soft,
+    /// Wrap visually and allow HTML textarea targets to submit hard line breaks.
+    Hard,
+    /// Do not wrap; overflow scrolls horizontally.
+    NoWrap,
+}
+
 /// Preferred action for the return/submit key on software keyboards.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum TextInputAction {
@@ -371,8 +385,11 @@ pub enum TextCapitalization {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum MaxLengthEnforcement {
     None,
-    #[default]
     Enforced,
+    /// Allow the active composing value to exceed the limit and enforce it
+    /// once the input method commits.
+    #[default]
+    AfterComposition,
 }
 
 /// Structured formatter primitives applied to inserted text.
@@ -384,6 +401,25 @@ pub enum InputFormatter {
     Uppercase,
     TrimWhitespace,
     SingleLine,
+}
+
+/// Marks a semantic subtree as one coordinated read-only text selection region.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct SelectionRegionSemantics {
+    /// Excluded regions prevent an ancestor region from selecting this subtree.
+    pub excluded: bool,
+    /// Text inserted between selectable descendants when copying or exposing
+    /// the region as one accessibility value.
+    pub separator: String,
+}
+
+/// Declarative validity of an editable field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum TextFieldValidationState {
+    #[default]
+    Unvalidated,
+    Valid,
+    Invalid,
 }
 
 /// A single action binding: a trigger, an action ID, and optional payload.
@@ -576,6 +612,9 @@ pub struct Semantics {
     pub focus_policy: FocusPolicy,
     /// Whether this text input supports multiple lines.
     pub multiline: bool,
+    /// Editable multiline wrapping and submission behavior.
+    #[serde(default)]
+    pub text_wrap_mode: TextWrapMode,
     /// Whether the value should be obscured (password fields).
     pub masked: bool,
     /// An optional input mask that restricts which characters are accepted.
@@ -592,6 +631,9 @@ pub struct Semantics {
     /// Whether this read-only text node supports pointer/keyboard selection.
     #[serde(default)]
     pub selectable_text: bool,
+    /// Coordinated selection metadata for this semantic subtree.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection_region: Option<SelectionRegionSemantics>,
     /// Whether this node can open a framework-managed context menu.
     #[serde(default)]
     pub context_menu: bool,
@@ -633,12 +675,36 @@ pub struct Semantics {
     pub text_input_action: TextInputAction,
     /// Automatic capitalization strategy for inserted text.
     pub text_capitalization: TextCapitalization,
-    /// Maximum number of Unicode scalar values allowed in the field.
+    /// Maximum number of user-perceived grapheme clusters allowed in the field.
     pub max_length: Option<usize>,
     /// Whether `max_length` should be enforced during editing.
     pub max_length_enforcement: MaxLengthEnforcement,
     /// Structured input formatters applied to inserted text.
     pub input_formatters: Vec<InputFormatter>,
+    /// Name submitted by semantic form targets.
+    #[serde(default)]
+    pub text_field_name: Option<String>,
+    /// Logical form membership for coordinated validation/submission.
+    #[serde(default)]
+    pub text_form_id: Option<String>,
+    /// Autofill session/group shared by related fields.
+    #[serde(default)]
+    pub autofill_group: Option<String>,
+    /// Whether a non-empty value is required.
+    #[serde(default)]
+    pub required: bool,
+    /// Minimum number of user-perceived graphemes.
+    #[serde(default)]
+    pub min_length: Option<usize>,
+    /// Pattern constraint for targets with pattern-validation support.
+    #[serde(default)]
+    pub validation_pattern: Option<String>,
+    /// Application-authoritative field validity.
+    #[serde(default)]
+    pub validation_state: TextFieldValidationState,
+    /// Accessible validation message, independent of visual decoration.
+    #[serde(default)]
+    pub validation_message: Option<String>,
     /// Hint to the platform IME whether autocorrect should be enabled.
     pub autocorrect: bool,
     /// Hint to the platform IME whether suggestions should be enabled.
@@ -673,12 +739,14 @@ impl std::hash::Hash for Semantics {
         self.focusable.hash(state);
         self.focus_policy.hash(state);
         self.multiline.hash(state);
+        self.text_wrap_mode.hash(state);
         self.masked.hash(state);
         self.input_mask.hash(state);
         self.ime_preedit_range.hash(state);
         self.ime_preedit_cursor_range.hash(state);
         self.text_selection.hash(state);
         self.selectable_text.hash(state);
+        self.selection_region.hash(state);
         self.context_menu.hash(state);
         self.checked.hash(state);
         self.disabled.hash(state);
@@ -701,6 +769,14 @@ impl std::hash::Hash for Semantics {
         self.max_length.hash(state);
         self.max_length_enforcement.hash(state);
         self.input_formatters.hash(state);
+        self.text_field_name.hash(state);
+        self.text_form_id.hash(state);
+        self.autofill_group.hash(state);
+        self.required.hash(state);
+        self.min_length.hash(state);
+        self.validation_pattern.hash(state);
+        self.validation_state.hash(state);
+        self.validation_message.hash(state);
         self.autocorrect.hash(state);
         self.enable_suggestions.hash(state);
         self.spell_check.hash(state);
@@ -730,12 +806,14 @@ impl Default for Semantics {
             focusable: false,
             focus_policy: FocusPolicy::FocusOnPointer,
             multiline: false,
+            text_wrap_mode: TextWrapMode::Soft,
             masked: false,
             input_mask: None,
             ime_preedit_range: None,
             ime_preedit_cursor_range: None,
             text_selection: None,
             selectable_text: false,
+            selection_region: None,
             context_menu: false,
             checked: None,
             disabled: false,
@@ -756,8 +834,16 @@ impl Default for Semantics {
             text_input_action: TextInputAction::Done,
             text_capitalization: TextCapitalization::None,
             max_length: None,
-            max_length_enforcement: MaxLengthEnforcement::Enforced,
+            max_length_enforcement: MaxLengthEnforcement::AfterComposition,
             input_formatters: Vec::new(),
+            text_field_name: None,
+            text_form_id: None,
+            autofill_group: None,
+            required: false,
+            min_length: None,
+            validation_pattern: None,
+            validation_state: TextFieldValidationState::Unvalidated,
+            validation_message: None,
             autocorrect: true,
             enable_suggestions: true,
             spell_check: true,

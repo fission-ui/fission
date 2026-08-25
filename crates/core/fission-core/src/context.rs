@@ -516,6 +516,49 @@ impl<'a, S: GlobalState> Effects<'a, S> {
         self.add(Effect::Runtime(RuntimeEffect::ScrollIntoView(request)))
     }
 
+    /// Updates a coordinated read-only text selection on the next lowered frame.
+    pub fn selection_region(
+        &mut self,
+        controller: crate::SelectionRegionController,
+        command: crate::SelectionRegionCommand,
+    ) -> u64 {
+        self.add(Effect::Runtime(RuntimeEffect::SelectionRegion {
+            region_id: controller.id(),
+            command,
+        }))
+    }
+
+    pub fn text_editing(
+        &mut self,
+        controller: crate::TextEditingController,
+        command: crate::TextEditingCommand,
+    ) -> u64 {
+        self.add(Effect::Runtime(RuntimeEffect::TextEditing {
+            input_id: controller.id(),
+            command,
+        }))
+    }
+
+    pub fn text_scroll(
+        &mut self,
+        controller: crate::TextScrollController,
+        command: crate::TextScrollCommand,
+    ) -> u64 {
+        self.add(Effect::Runtime(RuntimeEffect::TextScroll {
+            input_id: controller.id(),
+            command,
+        }))
+    }
+
+    /// Runs validation for every field belonging to `controller` after the
+    /// next tree conversion. Each field's payload-preserving `on_validation`
+    /// action receives the typed result through `ctx.input.text_change()`.
+    pub fn validate_text_form(&mut self, controller: &crate::TextFormController) -> u64 {
+        self.add(Effect::Runtime(RuntimeEffect::TextFormValidation {
+            form_id: controller.id().to_owned(),
+        }))
+    }
+
     /// Adds a logical route to the active shell history.
     pub fn navigate(&mut self, path: impl Into<String>) -> u64 {
         self.add(Effect::Runtime(RuntimeEffect::Navigate(

@@ -135,6 +135,11 @@ pub struct Runtime {
     pending_scroll_into_view: Vec<PendingScrollIntoView>,
     /// Shell navigation commands waiting for the host adapter.
     pending_navigation: Vec<crate::NavigationCommand>,
+    /// Selection commands waiting for a lowered tree to resolve their members.
+    pending_selection_regions: Vec<(WidgetId, crate::SelectionRegionCommand)>,
+    pending_text_editing: Vec<(WidgetId, crate::TextEditingCommand)>,
+    pending_text_scroll: Vec<(WidgetId, crate::TextScrollCommand)>,
+    pending_text_form_validation: Vec<String>,
     /// Active focus barriers and the targets restored as each barrier closes.
     focus_barriers: Vec<FocusBarrierFrame>,
     /// Monotonically increasing counter for deterministic request id generation.
@@ -160,6 +165,10 @@ impl Default for Runtime {
             pending_effects: Vec::new(),
             pending_scroll_into_view: Vec::new(),
             pending_navigation: Vec::new(),
+            pending_selection_regions: Vec::new(),
+            pending_text_editing: Vec::new(),
+            pending_text_scroll: Vec::new(),
+            pending_text_form_validation: Vec::new(),
             focus_barriers: Vec::new(),
             next_req_id: 0,
             active_resources: HashMap::new(),
@@ -292,24 +301,7 @@ impl Runtime {
             return Ok(false);
         }
 
-        self.clear_text_pending_on_blur(current, next);
-        self.dispatch_custom_blur_actions(ir, current)?;
-        self.runtime_state.interaction.set_focused(next);
-        if let Some(ime_handler) = &self.ime_handler {
-            let accepts_text = next.is_some_and(|id| {
-                matches!(
-                    ir.nodes.get(&id).map(|node| &node.op),
-                    Some(Op::Semantics(semantics))
-                        if semantics.role == fission_ir::semantics::Role::TextInput
-                ) || ir
-                    .custom_render_objects
-                    .get(&id)
-                    .and_then(downcast_render_object)
-                    .is_some_and(|render_object| render_object.accepts_text_input())
-            });
-            ime_handler.set_ime_allowed(accepts_text);
-        }
-        Ok(true)
+        self.set_focused_widget(ir, next, crate::TextEditSource::Programmatic)
     }
 
     pub fn caret_from_point_in_text(
@@ -782,6 +774,22 @@ impl Runtime {
                 self.pending_navigation.push(command);
                 true
             }
+            RuntimeEffect::SelectionRegion { region_id, command } => {
+                self.pending_selection_regions.push((region_id, command));
+                true
+            }
+            RuntimeEffect::TextEditing { input_id, command } => {
+                self.pending_text_editing.push((input_id, command));
+                true
+            }
+            RuntimeEffect::TextScroll { input_id, command } => {
+                self.pending_text_scroll.push((input_id, command));
+                true
+            }
+            RuntimeEffect::TextFormValidation { form_id } => {
+                self.pending_text_form_validation.push(form_id);
+                true
+            }
             RuntimeEffect::Cancel { .. } | RuntimeEffect::ReleaseResource { .. } => false,
         }
     }
@@ -800,7 +808,7 @@ impl Runtime {
         });
     }
 
-    fn drain_scroll_into_view_effects(&mut self) {
+    fn drain_post_layout_effects(&mut self) {
         let pending = std::mem::take(&mut self.pending_effects);
 
         for env in pending {
@@ -817,6 +825,18 @@ impl Runtime {
                 Effect::Runtime(RuntimeEffect::ScrollIntoView(request)) => {
                     self.queue_scroll_into_view(request);
                 }
+                Effect::Runtime(RuntimeEffect::SelectionRegion { region_id, command }) => {
+                    self.pending_selection_regions.push((region_id, command));
+                }
+                Effect::Runtime(RuntimeEffect::TextEditing { input_id, command }) => {
+                    self.pending_text_editing.push((input_id, command));
+                }
+                Effect::Runtime(RuntimeEffect::TextScroll { input_id, command }) => {
+                    self.pending_text_scroll.push((input_id, command));
+                }
+                Effect::Runtime(RuntimeEffect::TextFormValidation { form_id }) => {
+                    self.pending_text_form_validation.push(form_id);
+                }
                 retained => self.pending_effects.push(EffectEnvelope {
                     req_id,
                     effect: retained,
@@ -830,7 +850,7 @@ impl Runtime {
     }
 
     fn apply_pending_scroll_into_view(&mut self, ir: &CoreIR, layout: &LayoutSnapshot) -> bool {
-        self.drain_scroll_into_view_effects();
+        self.drain_post_layout_effects();
 
         let mut needs_follow_up_frame = false;
         let pending = std::mem::take(&mut self.pending_scroll_into_view);
@@ -1089,6 +1109,7 @@ impl Runtime {
     /// first frame.
     pub fn reconcile_ir(&mut self, ir: &CoreIR) {
         self.runtime_state.viewport.reconcile(ir);
+        crate::selection::reconcile_selection_state(&mut self.runtime_state.selectable_text, ir);
         let active_scroll_nodes: HashSet<WidgetId> = ir
             .nodes
             .iter()
@@ -1120,6 +1141,10 @@ impl Runtime {
         // call `reconcile_ir` before layout, making this pass idempotent.
         self.reconcile_ir(ir);
         let mut needs_follow_up_frame = self.apply_pending_scroll_into_view(ir, layout);
+        needs_follow_up_frame |= self.apply_pending_selection_regions(ir);
+        needs_follow_up_frame |= self.apply_pending_text_editing(ir, layout);
+        needs_follow_up_frame |= self.apply_pending_text_scroll(ir, layout);
+        needs_follow_up_frame |= self.apply_pending_text_form_validation(ir);
         let current_time = self.clock().current_time();
         needs_follow_up_frame |=
             self.runtime_state
@@ -1166,6 +1191,219 @@ impl Runtime {
         needs_follow_up_frame
     }
 
+    fn apply_pending_selection_regions(&mut self, ir: &CoreIR) -> bool {
+        let pending = std::mem::take(&mut self.pending_selection_regions);
+        let mut changed = false;
+        for (region_id, command) in pending {
+            changed |= crate::selection::apply_region_command(
+                &mut self.runtime_state.selectable_text,
+                ir,
+                region_id,
+                command,
+            )
+            .is_ok();
+        }
+        changed
+    }
+
+    fn apply_pending_text_form_validation(&mut self, ir: &CoreIR) -> bool {
+        let pending = std::mem::take(&mut self.pending_text_form_validation);
+        let mut dispatched = false;
+        for form_id in pending {
+            let fields = ir
+                .nodes
+                .iter()
+                .filter_map(|(id, node)| match &node.op {
+                    Op::Semantics(semantics)
+                        if semantics.role == fission_ir::Role::TextInput
+                            && semantics.text_form_id.as_deref() == Some(form_id.as_str()) =>
+                    {
+                        Some((*id, semantics.clone()))
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            for (id, semantics) in fields {
+                let Some(entry) = semantics
+                    .actions
+                    .entries
+                    .iter()
+                    .find(|entry| entry.trigger == fission_ir::ActionTrigger::Validation)
+                else {
+                    continue;
+                };
+                let value = self.text_input_value(ir, id);
+                let mut update = crate::UpdateTextInput::from_values(
+                    id,
+                    value.clone(),
+                    value,
+                    crate::TextEditSource::Programmatic,
+                    crate::TextEditPhase::Validated,
+                );
+                update.validation_state = Some(semantics.validation_state);
+                update.validation_message = semantics.validation_message.clone();
+                let input = crate::input::scoped_action_input(
+                    ir,
+                    id,
+                    crate::ActionInput::TextChanged(update),
+                );
+                let envelope = crate::ActionEnvelope {
+                    id: crate::ActionId::from_u128(entry.action_id),
+                    payload: entry.payload_data.clone().unwrap_or_else(|| {
+                        serde_json::to_vec(&()).expect("unit action payload must serialize")
+                    }),
+                };
+                if let Err(error) = self.dispatch_with_input(envelope, id, &input) {
+                    diag::emit(
+                        diag::DiagCategory::Input,
+                        diag::DiagLevel::Warn,
+                        diag::DiagEventKind::InputEvent {
+                            kind: format!("text_form_validation:{error}"),
+                            target: Some(id.as_u128()),
+                            position: None,
+                        },
+                    );
+                } else {
+                    dispatched = true;
+                }
+            }
+        }
+        dispatched
+    }
+
+    fn apply_pending_text_editing(&mut self, ir: &CoreIR, layout: &LayoutSnapshot) -> bool {
+        let pending = std::mem::take(&mut self.pending_text_editing);
+        let mut changed = false;
+        for (input_id, command) in pending {
+            let result = match command {
+                crate::TextEditingCommand::Focus => {
+                    self.set_focused_widget(ir, Some(input_id), crate::TextEditSource::Programmatic)
+                }
+                crate::TextEditingCommand::Unfocus => {
+                    if self.runtime_state.interaction.focused == Some(input_id) {
+                        self.set_focused_widget(ir, None, crate::TextEditSource::Programmatic)
+                    } else {
+                        Ok(false)
+                    }
+                }
+                crate::TextEditingCommand::SelectAll => {
+                    let value = self.text_input_value(ir, input_id);
+                    let end = crate::TextPosition::at_end(&value.text);
+                    self.apply_text_edit_command_to(
+                        ir,
+                        layout,
+                        input_id,
+                        crate::TextEditCommand::SetSelection {
+                            selection: crate::TextSelection {
+                                base: crate::TextPosition::START,
+                                extent: end,
+                                affinity: crate::TextAffinity::Downstream,
+                            },
+                            source: crate::TextEditSource::Programmatic,
+                        },
+                    )
+                }
+                crate::TextEditingCommand::SetSelection(selection) => self
+                    .apply_text_edit_command_to(
+                        ir,
+                        layout,
+                        input_id,
+                        crate::TextEditCommand::SetSelection {
+                            selection,
+                            source: crate::TextEditSource::Programmatic,
+                        },
+                    ),
+                crate::TextEditingCommand::SetValue(value) => self.apply_text_edit_command_to(
+                    ir,
+                    layout,
+                    input_id,
+                    crate::TextEditCommand::SetValue {
+                        value,
+                        source: crate::TextEditSource::Programmatic,
+                        phase: crate::TextValuePhase::Committed,
+                    },
+                ),
+            };
+            match result {
+                Ok(applied) => changed |= applied,
+                Err(error) => diag::emit(
+                    diag::DiagCategory::Input,
+                    diag::DiagLevel::Warn,
+                    diag::DiagEventKind::InputEvent {
+                        kind: format!("text_editing_controller:{error}"),
+                        target: Some(input_id.as_u128()),
+                        position: None,
+                    },
+                ),
+            }
+        }
+        changed
+    }
+
+    /// Applies a complete edit to a specific text input through the same
+    /// transaction, formatter, action, scrolling, and IME path as user input.
+    #[doc(hidden)]
+    pub fn apply_text_edit_command_to(
+        &mut self,
+        ir: &CoreIR,
+        layout: &LayoutSnapshot,
+        input_id: WidgetId,
+        command: crate::TextEditCommand,
+    ) -> Result<bool> {
+        use crate::input::text::TextInputController;
+        use crate::input::ControllerContext;
+
+        let previous_text_state = self.runtime_state.text_edit.get(input_id).cloned();
+        let current_time = self.clock().current_time();
+        let (handled, dispatched_actions) = {
+            let mut context = ControllerContext {
+                ir,
+                layout,
+                text_edit: &mut self.runtime_state.text_edit,
+                selectable_text: &mut self.runtime_state.selectable_text,
+                context_menu: &mut self.runtime_state.context_menu,
+                interaction: &mut self.runtime_state.interaction,
+                scroll: &mut self.runtime_state.scroll,
+                viewport: &self.runtime_state.viewport,
+                gesture: &mut self.runtime_state.gesture,
+                editing_convention: self.editing_convention,
+                current_time,
+                clipboard: self.clipboard_backend.as_ref(),
+                measurer: self.measurer.as_ref(),
+                dispatched_actions: Vec::new(),
+            };
+            let handled =
+                TextInputController.handle_text_edit_command_for(&mut context, input_id, command);
+            (handled, context.dispatched_actions)
+        };
+        if let Err(error) = self.dispatch_input_actions(dispatched_actions) {
+            if let Some(previous) = previous_text_state {
+                self.runtime_state
+                    .text_edit
+                    .states
+                    .insert(input_id, previous);
+            } else {
+                self.runtime_state.text_edit.states.remove(&input_id);
+            }
+            return Err(error);
+        }
+        if self.runtime_state.interaction.focused == Some(input_id) {
+            self.update_focused_ime_state(ir, layout);
+        }
+        Ok(handled)
+    }
+
+    fn apply_pending_text_scroll(&mut self, ir: &CoreIR, layout: &LayoutSnapshot) -> bool {
+        let pending = std::mem::take(&mut self.pending_text_scroll);
+        let mut changed = false;
+        for (input_id, command) in pending {
+            changed |= crate::TextScrollController::new(input_id)
+                .apply(&mut self.runtime_state, ir, layout, command)
+                .is_ok();
+        }
+        changed
+    }
+
     pub fn handle_input(
         &mut self,
         event: InputEvent,
@@ -1185,25 +1423,15 @@ impl Runtime {
         use crate::ui::custom_render::downcast_render_object;
 
         self.reconcile_focus(ir)?;
+        let input_time = self.clock().current_time();
 
         if self.runtime_state.interaction.focused.is_none() {
             if let Some(autofocus_id) = Self::find_autofocus_node(ir) {
-                self.runtime_state
-                    .interaction
-                    .set_focused(Some(autofocus_id));
-                if let Some(ime_handler) = &self.ime_handler {
-                    let accepts_text = ir
-                        .nodes
-                        .get(&autofocus_id)
-                        .and_then(|node| match &node.op {
-                            Op::Semantics(semantics) => {
-                                Some(semantics.role == fission_ir::semantics::Role::TextInput)
-                            }
-                            _ => None,
-                        })
-                        .unwrap_or(false);
-                    ime_handler.set_ime_allowed(accepts_text);
-                }
+                self.set_focused_widget(
+                    ir,
+                    Some(autofocus_id),
+                    crate::TextEditSource::Programmatic,
+                )?;
             }
         }
 
@@ -1220,6 +1448,7 @@ impl Runtime {
                     viewport: &self.runtime_state.viewport,
                     gesture: &mut self.runtime_state.gesture,
                     editing_convention: self.editing_convention,
+                    current_time: input_time,
                     clipboard: self.clipboard_backend.as_ref(),
                     measurer: self.measurer.as_ref(),
                     dispatched_actions: Vec::new(),
@@ -1328,12 +1557,11 @@ impl Runtime {
                                         ..
                                     })
                                 ) {
-                                    let old_focused_id = self.runtime_state.interaction.focused;
-                                    if Some(nid) != old_focused_id {
-                                        self.clear_text_pending_on_blur(old_focused_id, Some(nid));
-                                        self.dispatch_custom_blur_actions(ir, old_focused_id)?;
-                                    }
-                                    self.runtime_state.interaction.set_focused(Some(nid));
+                                    self.set_focused_widget(
+                                        ir,
+                                        Some(nid),
+                                        crate::TextEditSource::Pointer,
+                                    )?;
                                     if let Some(ime_handler) = &self.ime_handler {
                                         let accepts_text = render_obj.accepts_text_input();
                                         ime_handler.set_ime_allowed(accepts_text);
@@ -1366,7 +1594,10 @@ impl Runtime {
         // typing, etc. before the framework's default focus-navigation logic.
         if matches!(
             event,
-            InputEvent::Keyboard(_) | InputEvent::Ime(_) | InputEvent::Editing(_)
+            InputEvent::Keyboard(_)
+                | InputEvent::Ime(_)
+                | InputEvent::Editing(_)
+                | InputEvent::TextEdit(_)
         ) {
             if let Some(focused_id) = self.runtime_state.interaction.focused {
                 let mut walk_id = Some(focused_id);
@@ -1419,6 +1650,60 @@ impl Runtime {
             return Ok(());
         }
 
+        let mut pointer_select_all_target = None;
+
+        // Establish pointer focus before the standard controllers run. Text
+        // editing, selection, and gesture controllers can then observe one
+        // authoritative focus transition instead of each partially recreating
+        // focus/blur behavior.
+        if let InputEvent::Pointer(PointerEvent::Down {
+            point,
+            button: PointerButton::Primary,
+            ..
+        }) = &event
+        {
+            let mut candidate = hit_test_with_viewports(
+                ir,
+                layout,
+                &self.runtime_state.scroll,
+                &self.runtime_state.viewport,
+                *point,
+            );
+            let mut preserve_current = false;
+            let mut next = None;
+            while let Some(node_id) = candidate {
+                let Some(node) = ir.nodes.get(&node_id) else {
+                    break;
+                };
+                if let Op::Semantics(semantics) = &node.op {
+                    if semantics.focusable {
+                        if semantics.focus_policy == FocusPolicy::PreserveCurrentOnPointer {
+                            preserve_current = true;
+                        } else {
+                            next = Some(node_id);
+                        }
+                        break;
+                    }
+                }
+                candidate = node.parent;
+            }
+            if !preserve_current {
+                let changed = self.set_focused_widget(ir, next, crate::TextEditSource::Pointer)?;
+                if changed
+                    && next.is_some_and(|id| {
+                        ir.custom_render_objects
+                            .get(&id)
+                            .and_then(
+                                crate::ui::widgets::text_input::downcast_text_input_runtime_config,
+                            )
+                            .is_some_and(|config| config.select_all_on_focus)
+                    })
+                {
+                    pointer_select_all_target = next;
+                }
+            }
+        }
+
         let (handled, dispatched_actions) = {
             let mut ctx = ControllerContext {
                 ir,
@@ -1431,6 +1716,7 @@ impl Runtime {
                 viewport: &self.runtime_state.viewport,
                 gesture: &mut self.runtime_state.gesture,
                 editing_convention: self.editing_convention,
+                current_time: input_time,
                 clipboard: self.clipboard_backend.as_ref(),
                 measurer: self.measurer.as_ref(),
                 dispatched_actions: Vec::new(),
@@ -1447,8 +1733,13 @@ impl Runtime {
                 if gesture_controller.handle_event(&mut ctx, &event) {
                     true
                 } else {
-                    let mut text_controller = TextInputController;
-                    if text_controller.handle_event(&mut ctx, &event) {
+                    let text_handled = if pointer_select_all_target.is_some() {
+                        true
+                    } else {
+                        let mut text_controller = TextInputController;
+                        text_controller.handle_event(&mut ctx, &event)
+                    };
+                    if text_handled {
                         true
                     } else {
                         let mut slider_controller = SliderController;
@@ -1502,6 +1793,13 @@ impl Runtime {
                     while let Some(node_id) = current_id {
                         if let Some(node) = ir.nodes.get(&node_id) {
                             if let Op::Layout(LayoutOp::Scroll { direction, .. }) = &node.op {
+                                if crate::ui::widgets::text_input::text_input_scroll_physics_for_node(
+                                    ir, node_id,
+                                ) == Some(crate::ui::widgets::text_input::TextScrollPhysics::NeverScrollable)
+                                {
+                                    current_id = node.parent;
+                                    continue;
+                                }
                                 let current_offset = self.runtime_state.scroll.get_offset(node_id);
                                 let delta_val = match direction {
                                     FlexDirection::Row => delta.x,
@@ -1595,10 +1893,8 @@ impl Runtime {
                     let next =
                         find_next_focus_node(ir, self.runtime_state.interaction.focused, reverse);
                     if next != old_focus {
-                        self.clear_text_pending_on_blur(old_focus, next);
-                        self.dispatch_custom_blur_actions(ir, old_focus)?;
+                        self.set_focused_widget(ir, next, crate::TextEditSource::Keyboard)?;
                     }
-                    self.runtime_state.interaction.set_focused(next);
                 }
                 KeyCode::Up | KeyCode::Down | KeyCode::Left | KeyCode::Right => {
                     let reverse = matches!(key_code, KeyCode::Up | KeyCode::Left);
@@ -1617,9 +1913,7 @@ impl Runtime {
                         find_next_focus_node(ir, None, reverse)
                     };
                     if next != old_focus {
-                        self.clear_text_pending_on_blur(old_focus, next);
-                        self.dispatch_custom_blur_actions(ir, old_focus)?;
-                        self.runtime_state.interaction.set_focused(next);
+                        self.set_focused_widget(ir, next, crate::TextEditSource::Keyboard)?;
                     }
                 }
                 KeyCode::Enter | KeyCode::Space => {
@@ -1713,23 +2007,11 @@ impl Runtime {
                                     if s.focus_policy == FocusPolicy::PreserveCurrentOnPointer {
                                         break;
                                     }
-                                    let old_focused_id = self.runtime_state.interaction.focused;
-                                    if Some(node_id) != old_focused_id {
-                                        self.clear_text_pending_on_blur(
-                                            old_focused_id,
-                                            Some(node_id),
-                                        );
-                                        self.dispatch_custom_blur_actions(ir, old_focused_id)?;
-
-                                        if s.role == fission_ir::semantics::Role::TextInput {
-                                            if let Some(ime_handler) = &self.ime_handler {
-                                                ime_handler.set_ime_allowed(true);
-                                            }
-                                        } else if let Some(ime_handler) = &self.ime_handler {
-                                            ime_handler.set_ime_allowed(false);
-                                        }
-                                    }
-                                    self.runtime_state.interaction.set_focused(Some(node_id));
+                                    self.set_focused_widget(
+                                        ir,
+                                        Some(node_id),
+                                        crate::TextEditSource::Pointer,
+                                    )?;
                                     break;
                                 }
                             }
@@ -1739,21 +2021,7 @@ impl Runtime {
                         }
                     }
                     if focus_candidate.is_none() {
-                        let old_focused_id = self.runtime_state.interaction.focused;
-                        if let Some(old_focused_id) = self.runtime_state.interaction.focused {
-                            if let Some(old_node) = ir.nodes.get(&old_focused_id) {
-                                if let Op::Semantics(s) = &old_node.op {
-                                    if s.role == fission_ir::semantics::Role::TextInput {
-                                        if let Some(ime_handler) = &self.ime_handler {
-                                            ime_handler.set_ime_allowed(false);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        self.clear_text_pending_on_blur(old_focused_id, None);
-                        self.dispatch_custom_blur_actions(ir, old_focused_id)?;
-                        self.runtime_state.interaction.set_focused(None);
+                        self.set_focused_widget(ir, None, crate::TextEditSource::Pointer)?;
                     }
 
                     let mut current_pressed_id = Some(hit_node_id);
@@ -1781,21 +2049,7 @@ impl Runtime {
                         }
                     }
                 } else {
-                    let old_focused_id = self.runtime_state.interaction.focused;
-                    if let Some(old_focused_id) = self.runtime_state.interaction.focused {
-                        if let Some(old_node) = ir.nodes.get(&old_focused_id) {
-                            if let Op::Semantics(s) = &old_node.op {
-                                if s.role == fission_ir::semantics::Role::TextInput {
-                                    if let Some(ime_handler) = &self.ime_handler {
-                                        ime_handler.set_ime_allowed(false);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    self.clear_text_pending_on_blur(old_focused_id, None);
-                    self.dispatch_custom_blur_actions(ir, old_focused_id)?;
-                    self.runtime_state.interaction.set_focused(None);
+                    self.set_focused_widget(ir, None, crate::TextEditSource::Pointer)?;
                 }
             }
             InputEvent::Pointer(PointerEvent::Up {
@@ -1873,6 +2127,7 @@ impl Runtime {
         use crate::input::hover::HoverController;
         use crate::input::ControllerContext;
 
+        let input_time = self.clock().current_time();
         let dispatched_actions = {
             let layout = &LayoutSnapshot::new(LayoutSize::ZERO);
             let mut ctx = ControllerContext {
@@ -1886,6 +2141,7 @@ impl Runtime {
                 viewport: &self.runtime_state.viewport,
                 gesture: &mut self.runtime_state.gesture,
                 editing_convention: self.editing_convention,
+                current_time: input_time,
                 clipboard: self.clipboard_backend.as_ref(),
                 measurer: self.measurer.as_ref(),
                 dispatched_actions: Vec::new(),
@@ -1907,7 +2163,8 @@ impl Runtime {
         Ok(())
     }
 
-    fn update_focused_ime_state(&mut self, ir: &CoreIR, layout: &LayoutSnapshot) {
+    #[doc(hidden)]
+    pub fn update_focused_ime_state(&mut self, ir: &CoreIR, layout: &LayoutSnapshot) {
         let Some(ime_handler) = self.ime_handler.clone() else {
             return;
         };
@@ -1949,6 +2206,39 @@ impl Runtime {
         ime_handler.set_ime_allowed(accepts_text);
 
         if accepts_text {
+            let editing_value = self
+                .runtime_state
+                .text_edit
+                .get(focused_id)
+                .map(crate::env::TextEditState::editing_value)
+                .or_else(|| {
+                    let semantics = ir.nodes.get(&focused_id).and_then(|node| match &node.op {
+                        Op::Semantics(semantics) => Some(semantics),
+                        _ => None,
+                    })?;
+                    let text = semantics.value.clone().unwrap_or_default();
+                    let (anchor, caret) =
+                        semantics.text_selection.unwrap_or((text.len(), text.len()));
+                    let selection = crate::TextSelection::new(
+                        &text,
+                        anchor,
+                        caret,
+                        crate::TextAffinity::Downstream,
+                    )
+                    .unwrap_or_else(|_| {
+                        crate::TextSelection::collapsed(crate::TextPosition::at_end(&text))
+                    });
+                    Some(crate::TextEditingValue {
+                        text,
+                        selection,
+                        composing: None,
+                    })
+                });
+            if let Some(editing_value) = editing_value.as_ref() {
+                ime_handler.set_editing_value(editing_value);
+            }
+
+            let input_time = self.clock().current_time();
             let cursor_area = {
                 let mut ctx = crate::input::ControllerContext {
                     ir,
@@ -1961,6 +2251,7 @@ impl Runtime {
                     viewport: &self.runtime_state.viewport,
                     gesture: &mut self.runtime_state.gesture,
                     editing_convention: self.editing_convention,
+                    current_time: input_time,
                     clipboard: self.clipboard_backend.as_ref(),
                     measurer: self.measurer.as_ref(),
                     dispatched_actions: Vec::new(),
@@ -2011,6 +2302,131 @@ impl Runtime {
                 st.clear_preedit();
             }
         }
+    }
+
+    fn text_input_value(&self, ir: &CoreIR, id: WidgetId) -> crate::TextEditingValue {
+        self.runtime_state
+            .text_edit
+            .get(id)
+            .map(|state| state.editing_value())
+            .unwrap_or_else(|| {
+                let text = ir
+                    .nodes
+                    .get(&id)
+                    .and_then(|node| match &node.op {
+                        Op::Semantics(semantics) => semantics.value.clone(),
+                        _ => None,
+                    })
+                    .unwrap_or_default();
+                crate::TextEditingValue::from_text(text)
+            })
+    }
+
+    fn dispatch_text_session_action(
+        &mut self,
+        ir: &CoreIR,
+        id: WidgetId,
+        trigger: fission_ir::semantics::ActionTrigger,
+        source: crate::TextEditSource,
+        phase: crate::TextEditPhase,
+    ) -> Result<()> {
+        let Some(semantics) = ir.nodes.get(&id).and_then(|node| match &node.op {
+            Op::Semantics(semantics)
+                if semantics.role == fission_ir::semantics::Role::TextInput =>
+            {
+                Some(semantics)
+            }
+            _ => None,
+        }) else {
+            return Ok(());
+        };
+        let value = self.text_input_value(ir, id);
+        if let Some((envelope, input)) = crate::input::prepare_scoped_text_session_action(
+            ir, semantics, id, trigger, value, source, phase,
+        ) {
+            self.dispatch_node_with_input(envelope, id, &input)?;
+        }
+        Ok(())
+    }
+
+    /// Applies one focus transition and all of its text-session side effects.
+    ///
+    /// Shell accessibility adapters and runtime focus navigation use this
+    /// boundary so focus/blur actions, select-all-on-focus, and IME lifetime do
+    /// not diverge by input source.
+    #[doc(hidden)]
+    pub fn set_focused_widget(
+        &mut self,
+        ir: &CoreIR,
+        next: Option<WidgetId>,
+        source: crate::TextEditSource,
+    ) -> Result<bool> {
+        let current = self.runtime_state.interaction.focused;
+        if current == next {
+            return Ok(false);
+        }
+
+        self.clear_text_pending_on_blur(current, next);
+        self.dispatch_custom_blur_actions(ir, current)?;
+        if let Some(old_id) = current {
+            if source == crate::TextEditSource::Pointer {
+                self.dispatch_text_session_action(
+                    ir,
+                    old_id,
+                    fission_ir::semantics::ActionTrigger::TapOutside,
+                    source,
+                    crate::TextEditPhase::TapOutside,
+                )?;
+            }
+            self.dispatch_text_session_action(
+                ir,
+                old_id,
+                fission_ir::semantics::ActionTrigger::Blur,
+                source,
+                crate::TextEditPhase::Blurred,
+            )?;
+        }
+
+        self.runtime_state.interaction.set_focused(next);
+        if let Some(new_id) = next {
+            let select_all = ir
+                .custom_render_objects
+                .get(&new_id)
+                .and_then(crate::ui::widgets::text_input::downcast_text_input_runtime_config)
+                .is_some_and(|config| config.select_all_on_focus);
+            if select_all {
+                self.pending_text_editing
+                    .push((new_id, crate::TextEditingCommand::SelectAll));
+            }
+        }
+
+        if let Some(ime_handler) = &self.ime_handler {
+            let accepts_text = next.is_some_and(|id| {
+                matches!(
+                    ir.nodes.get(&id).map(|node| &node.op),
+                    Some(Op::Semantics(semantics))
+                        if semantics.role == fission_ir::semantics::Role::TextInput
+                            && !semantics.disabled
+                            && !semantics.read_only
+                ) || ir
+                    .custom_render_objects
+                    .get(&id)
+                    .and_then(downcast_render_object)
+                    .is_some_and(|render_object| render_object.accepts_text_input())
+            });
+            ime_handler.set_ime_allowed(accepts_text);
+        }
+
+        if let Some(new_id) = next {
+            self.dispatch_text_session_action(
+                ir,
+                new_id,
+                fission_ir::semantics::ActionTrigger::Focus,
+                source,
+                crate::TextEditPhase::Focused,
+            )?;
+        }
+        Ok(true)
     }
 
     fn dispatch_custom_blur_actions(

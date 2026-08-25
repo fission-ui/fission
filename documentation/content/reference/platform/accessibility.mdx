@@ -19,15 +19,15 @@ Fission's shared runtime lowers accessibility information into `Op::Semantics` n
 | Windows | winit native shell | Yes, through AccessKit and the Windows accessibility stack | Narrator, NVDA, JAWS, Inspect | Supported; validate on target Windows versions. |
 | Linux | winit native shell | Yes, through AccessKit and AT-SPI where available | Orca and AT-SPI tooling | Supported with desktop/session dependency; validate on the distribution and desktop environment you ship for. |
 | iOS | winit mobile/native shell | Yes, through AccessKit's iOS adapter | VoiceOver, Switch Control, Full Keyboard Access | Supported by the native bridge; validate on simulator and device. |
-| Android | winit mobile shell using NativeActivity | No native TalkBack bridge today | TalkBack, Switch Access, Voice Access | Semantics exist for runtime/tests, but native TalkBack control is not complete because the current AccessKit Android adapter expects winit GameActivity. |
-| Web canvas | winit/Web canvas shell | No DOM accessibility tree for the canvas-rendered app today | Browser screen readers only see surrounding host DOM | Not complete for screen-reader control of the canvas app. Prefer Static site or SSR for accessible document-like pages today. |
+| Android | winit mobile shell using AndroidX GameActivity | Yes, through AccessKit's Android adapter | TalkBack, Switch Access, Voice Access | Supported by the native bridge; validate on the Android versions and assistive technologies you ship for. |
+| Web canvas | winit/Web canvas shell | The focused editable field is exposed through Fission's synchronized native DOM input adapter; the complete painted widget tree is not mirrored into DOM | Browser screen readers can edit the focused field but cannot yet navigate the complete canvas interface | Text editing is supported; use Static site or SSR when a complete document accessibility tree is required. |
 | Static site | static HTML renderer | Yes, through semantic HTML and browser accessibility tree | Browser screen readers and browser accessibility inspectors | Supported for rendered HTML semantics, native form controls, links, headings, labels, and ARIA/data attributes produced by the static renderer. |
 | SSR | server HTML renderer | Yes, through semantic HTML and browser accessibility tree | Browser screen readers and browser accessibility inspectors | Supported for server-rendered HTML semantics and forms, with progressive enhancement preserving semantic targets. |
 | Terminal | terminal shell | No OS accessibility tree owned by Fission | Terminal emulator plus screen reader, for example VoiceOver terminal navigation or Orca terminal use | Partial; Fission semantics inform rendering and tests, but full selector command semantics are not exposed by the terminal backend yet. |
 
 ## Native bridge implementation
 
-The winit shell owns the native accessibility bridge. It uses AccessKit on non-Web, non-Android targets.
+The winit shell owns the native accessibility bridge. It uses AccessKit on macOS, Windows, Linux, iOS, and Android. Android projects use the generated AndroidX GameActivity host required by the AccessKit adapter.
 
 The bridge builds an AccessKit `TreeUpdate` from:
 

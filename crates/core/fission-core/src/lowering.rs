@@ -483,6 +483,7 @@ pub fn build_layout_tree(ir: &CoreIR, _env: &Env) -> Vec<LayoutInputNode> {
                 size,
                 color,
                 underline,
+                locale,
                 wrap: _,
                 caret_index: _,
                 caret_color: _,
@@ -505,12 +506,13 @@ pub fn build_layout_tree(ir: &CoreIR, _env: &Env) -> Vec<LayoutInputNode> {
                         color: *color,
                         underline: *underline,
                         font_family: None,
-                        locale: None,
+                        locale: locale.clone(),
                         font_weight: 400,
                         font_style: fission_ir::op::FontStyle::Normal,
                         line_height: None,
                         letter_spacing: 0.0,
                         background_color: None,
+                        typography: Default::default(),
                     },
                 }]);
                 children_to_visit.clear(); // Leaf node for layout

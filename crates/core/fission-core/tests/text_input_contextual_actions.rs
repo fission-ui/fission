@@ -44,6 +44,15 @@ struct Draft {
     last_node: Option<WidgetId>,
     last_selection: Option<(usize, usize)>,
     invocations: usize,
+    lifecycle: Vec<(
+        String,
+        fission_core::TextEditPhase,
+        fission_core::TextEditSource,
+    )>,
+    validation: Option<(
+        fission_ir::semantics::TextFieldValidationState,
+        Option<String>,
+    )>,
 }
 
 impl GlobalState for Draft {}
@@ -52,10 +61,18 @@ fn update_field(draft: &mut Draft, action: UpdateField, context: &mut ReducerCon
     let Some(change) = context.input.text_change() else {
         return;
     };
-    draft.values.insert(action.0, change.new_text.clone());
+    draft
+        .values
+        .insert(action.0.clone(), change.new_text.clone());
     draft.last_node = Some(change.node_id);
     draft.last_selection = Some((change.new_caret, change.new_anchor));
     draft.invocations += 1;
+    draft
+        .lifecycle
+        .push((action.0, change.phase, change.source));
+    if let Some(state) = change.validation_state {
+        draft.validation = Some((state, change.validation_message.clone()));
+    }
 }
 
 fn envelope<A: Action>(action: A) -> ActionEnvelope {
@@ -120,6 +137,148 @@ fn lowering_preserves_unit_and_field_action_payloads() {
             Some(action.payload.as_slice())
         );
     }
+}
+
+#[test]
+fn complete_controlled_value_lowers_text_selection_and_composition_atomically() {
+    let text = "a😀bc";
+    let editing_value = fission_core::TextEditingValue::new(
+        text,
+        fission_core::TextSelection::new(
+            text,
+            "a😀".len(),
+            1,
+            fission_core::TextAffinity::Upstream,
+        )
+        .unwrap(),
+        Some(fission_core::TextRange::new(text, 1, "a😀".len()).unwrap()),
+    )
+    .unwrap();
+    let ir = internal::lower_widget_to_ir(&Widget::from(
+        TextInput::default()
+            .semantics_identifier("controlled")
+            .editing_value(editing_value),
+    ));
+    let (_, semantics) = text_semantics(&ir, "controlled");
+    assert_eq!(semantics.value.as_deref(), Some(text));
+    assert_eq!(semantics.text_selection, Some(("a😀".len(), 1)));
+    assert_eq!(semantics.ime_preedit_range, Some((1, "a😀".len())));
+}
+
+#[test]
+fn field_contract_lowers_validation_and_autofill_group() {
+    let ir = internal::lower_widget_to_ir(&Widget::from(
+        TextInput::default()
+            .semantics_identifier("account-email")
+            .name("email")
+            .autofill_group("account")
+            .required(true)
+            .min_length(3)
+            .validation_pattern(".+@.+")
+            .validation_state(fission_ir::semantics::TextFieldValidationState::Invalid)
+            .validation_message("Enter a valid email address"),
+    ));
+    let (_, semantics) = text_semantics(&ir, "account-email");
+    assert_eq!(semantics.text_field_name.as_deref(), Some("email"));
+    assert_eq!(semantics.autofill_group.as_deref(), Some("account"));
+    assert!(semantics.required);
+    assert_eq!(semantics.min_length, Some(3));
+    assert_eq!(semantics.validation_pattern.as_deref(), Some(".+@.+"));
+    assert_eq!(
+        semantics.validation_state,
+        fission_ir::semantics::TextFieldValidationState::Invalid
+    );
+    assert_eq!(
+        semantics.validation_message.as_deref(),
+        Some("Enter a valid email address")
+    );
+}
+
+#[test]
+fn validation_pattern_uses_the_same_field_contract_on_canvas_targets() {
+    let invalid = internal::lower_widget_to_ir(&Widget::from(
+        TextInput::default()
+            .value("not-an-email")
+            .semantics_identifier("pattern.invalid")
+            .validation_pattern(".+@.+"),
+    ));
+    assert_eq!(
+        text_semantics(&invalid, "pattern.invalid")
+            .1
+            .validation_state,
+        fission_ir::semantics::TextFieldValidationState::Invalid
+    );
+
+    let valid = internal::lower_widget_to_ir(&Widget::from(
+        TextInput::default()
+            .value("person@example.com")
+            .semantics_identifier("pattern.valid")
+            .validation_pattern(".+@.+"),
+    ));
+    assert_ne!(
+        text_semantics(&valid, "pattern.valid").1.validation_state,
+        fission_ir::semantics::TextFieldValidationState::Invalid
+    );
+}
+
+struct ValidatedForm;
+
+impl From<ValidatedForm> for Widget {
+    fn from(_: ValidatedForm) -> Widget {
+        let (context, _) = build::current::<Draft>();
+        TextInput {
+            id: Some(WidgetId::explicit("account.email")),
+            semantics_identifier: Some("account.email".into()),
+            name: Some("email".into()),
+            form_id: Some("account".into()),
+            required: true,
+            validation_message: Some("Email is required".into()),
+            on_validation: Some(context.bind(
+                UpdateField("email".into()),
+                fission_core::reduce!(update_field),
+            )),
+            ..Default::default()
+        }
+        .into()
+    }
+}
+
+#[test]
+fn form_validation_dispatches_typed_results_with_static_context() {
+    let mut runtime = Runtime::default().with_global_state(Draft::default());
+    let env = Env::default();
+    let (widget, context) = {
+        let state = runtime.get_global_state::<Draft>().unwrap();
+        let view = View::new(state, &runtime.runtime_state, &env, None);
+        let mut context = BuildCtx::<Draft>::new();
+        let widget = build::enter(&mut context, &view, || ValidatedForm.into());
+        (widget, context)
+    };
+    let ir = internal::lower_widget_to_ir(&widget);
+    runtime.absorb_registry(context.registry);
+    assert!(
+        runtime.queue_runtime_effect(fission_core::RuntimeEffect::TextFormValidation {
+            form_id: "account".into(),
+        })
+    );
+    assert!(runtime.post_layout_hook(&ir, &LayoutSnapshot::default()));
+
+    let state = runtime.get_global_state::<Draft>().unwrap();
+    assert_eq!(
+        state.validation,
+        Some((
+            fission_ir::semantics::TextFieldValidationState::Invalid,
+            Some("Email is required".into()),
+        ))
+    );
+    assert_eq!(
+        state.lifecycle.last(),
+        Some(&(
+            "email".into(),
+            fission_core::TextEditPhase::Validated,
+            fission_core::TextEditSource::Programmatic,
+        ))
+    );
 }
 
 #[test]
@@ -196,7 +355,7 @@ fn dispatch_native_edit(
 
     let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 40.0));
     let mut text_edit = TextEditStateMap::default();
-    text_edit.sync_from_runtime(node_id, initial_text, None, None);
+    text_edit.sync_from_runtime(node_id, initial_text, None, None, false);
     text_edit.set_caret(node_id, caret, Some(caret));
     let mut selectable_text = SelectableTextStateMap::default();
     let mut context_menu = ContextMenuState::default();
@@ -216,6 +375,7 @@ fn dispatch_native_edit(
         viewport: &viewport,
         gesture: &mut gesture,
         editing_convention: TextEditingConvention::Standard,
+        current_time: 0,
         clipboard: None,
         measurer: None,
         dispatched_actions: Vec::new(),
@@ -257,6 +417,31 @@ fn ime_commit_uses_the_same_text_input_contract() {
     let change = input.text_change().unwrap();
     assert_eq!(change.new_text, "a界b");
     assert_eq!((change.new_caret, change.new_anchor), (4, 4));
+}
+
+#[test]
+fn complete_value_reconciliation_uses_the_same_payload_preserving_contract() {
+    let text = "corrected";
+    let value = fission_core::TextEditingValue::new(
+        text,
+        fission_core::TextSelection::collapsed(fission_core::TextPosition::at_end(text)),
+        None,
+    )
+    .unwrap();
+    let (_, action, input) = dispatch_native_edit(
+        InputEvent::TextEdit(fission_core::TextEditCommand::SetValue {
+            value,
+            source: fission_core::TextEditSource::Autocorrect,
+            phase: fission_core::TextValuePhase::Committed,
+        }),
+        "corected",
+        "corected".len(),
+    );
+    assert_eq!(action, bound_field_action("smtp_host"));
+    let change = input.text_change().unwrap();
+    assert_eq!(change.old_value.text, "corected");
+    assert_eq!(change.new_value.text, "corrected");
+    assert_eq!(change.source, fission_core::TextEditSource::Autocorrect);
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -377,6 +562,139 @@ fn repeated_global_bindings_invoke_once_per_field_edit() {
         assert_eq!(state.invocations, index + 1);
         assert_eq!(state.values.get(field).unwrap(), value);
     }
+}
+
+struct FocusFields;
+
+impl From<FocusFields> for Widget {
+    fn from(_: FocusFields) -> Widget {
+        let (context, _) = build::current::<Draft>();
+        Column {
+            children: ["focus.first", "focus.second"]
+                .into_iter()
+                .map(|field| {
+                    let action = || {
+                        context.bind(
+                            UpdateField(field.into()),
+                            fission_core::reduce!(update_field),
+                        )
+                    };
+                    TextInput {
+                        id: Some(WidgetId::explicit(field)),
+                        semantics_identifier: Some(field.into()),
+                        value: field.into(),
+                        select_all_on_focus: field == "focus.first",
+                        on_focus: Some(action()),
+                        on_blur: Some(action()),
+                        on_tap_outside: Some(action()),
+                        ..Default::default()
+                    }
+                    .into()
+                })
+                .collect(),
+            ..Default::default()
+        }
+        .into()
+    }
+}
+
+#[test]
+fn focus_transitions_preserve_context_and_report_typed_session_input() {
+    let mut runtime = Runtime::default().with_global_state(Draft::default());
+    let env = Env::default();
+    let (widget, context) = {
+        let state = runtime.get_global_state::<Draft>().unwrap();
+        let view = View::new(state, &runtime.runtime_state, &env, None);
+        let mut context = BuildCtx::<Draft>::new();
+        let widget = build::enter(&mut context, &view, || FocusFields.into());
+        (widget, context)
+    };
+    let ir = internal::lower_widget_to_ir(&widget);
+    runtime.absorb_registry(context.registry);
+    let first = text_semantics(&ir, "focus.first").0;
+    let second = text_semantics(&ir, "focus.second").0;
+
+    assert!(runtime
+        .set_focused_widget(&ir, Some(first), fission_core::TextEditSource::Programmatic)
+        .unwrap());
+    assert!(runtime.post_layout_hook(&ir, &LayoutSnapshot::default()));
+    let selected = runtime.runtime_state.text_edit.get(first).unwrap();
+    assert_eq!((selected.anchor, selected.caret), (0, "focus.first".len()));
+
+    assert!(runtime
+        .set_focused_widget(&ir, Some(second), fission_core::TextEditSource::Keyboard)
+        .unwrap());
+    let state = runtime.get_global_state::<Draft>().unwrap();
+    assert_eq!(
+        state.lifecycle,
+        vec![
+            (
+                "focus.first".into(),
+                fission_core::TextEditPhase::Focused,
+                fission_core::TextEditSource::Programmatic,
+            ),
+            (
+                "focus.first".into(),
+                fission_core::TextEditPhase::Blurred,
+                fission_core::TextEditSource::Keyboard,
+            ),
+            (
+                "focus.second".into(),
+                fission_core::TextEditPhase::Focused,
+                fission_core::TextEditSource::Keyboard,
+            ),
+        ]
+    );
+}
+
+#[test]
+fn pointer_focus_transition_dispatches_tap_outside_blur_and_focus_once() {
+    let mut runtime = Runtime::default().with_global_state(Draft::default());
+    let env = Env::default();
+    let (widget, context) = {
+        let state = runtime.get_global_state::<Draft>().unwrap();
+        let view = View::new(state, &runtime.runtime_state, &env, None);
+        let mut context = BuildCtx::<Draft>::new();
+        let widget = build::enter(&mut context, &view, || FocusFields.into());
+        (widget, context)
+    };
+    let ir = internal::lower_widget_to_ir(&widget);
+    runtime.absorb_registry(context.registry);
+    let first = text_semantics(&ir, "focus.first").0;
+    let second = text_semantics(&ir, "focus.second").0;
+
+    runtime
+        .set_focused_widget(&ir, Some(first), fission_core::TextEditSource::Programmatic)
+        .unwrap();
+    runtime
+        .get_global_state_mut::<Draft>()
+        .unwrap()
+        .lifecycle
+        .clear();
+    runtime
+        .set_focused_widget(&ir, Some(second), fission_core::TextEditSource::Pointer)
+        .unwrap();
+
+    assert_eq!(
+        runtime.get_global_state::<Draft>().unwrap().lifecycle,
+        vec![
+            (
+                "focus.first".into(),
+                fission_core::TextEditPhase::TapOutside,
+                fission_core::TextEditSource::Pointer,
+            ),
+            (
+                "focus.first".into(),
+                fission_core::TextEditPhase::Blurred,
+                fission_core::TextEditSource::Pointer,
+            ),
+            (
+                "focus.second".into(),
+                fission_core::TextEditPhase::Focused,
+                fission_core::TextEditSource::Pointer,
+            ),
+        ]
+    );
 }
 
 struct LocalEditor {
@@ -590,6 +908,7 @@ fn deserialization_failure_is_sanitized_and_does_not_remove_the_reducer() {
         new_text: "new value".into(),
         new_caret: 9,
         new_anchor: 9,
+        ..Default::default()
     });
 
     let error = runtime

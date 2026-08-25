@@ -1,9 +1,13 @@
 use crate::internal::InternalLower;
 use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
-use crate::ui::widgets::context_menu::{
-    anchor_to_local, text_context_menu_overlay_widget, TextContextMenuAction, TextContextMenuConfig,
-};
+use crate::ui::widgets::context_menu::TextContextMenuConfig;
+use crate::ui::widgets::selection_region::wrap_implicit_selection_affordances;
 use crate::ActionEnvelope;
+pub use fission_ir::op::{
+    FontFeature, FontVariation, TextBaseline, TextDecoration, TextDecorationLines,
+    TextDecorationStyle, TextHyphenation, TextLeadingDistribution, TextLineBreakPolicy, TextShadow,
+    TextTypography,
+};
 use fission_ir::{
     op::{
         decode_inline_widget_marker, encode_inline_widget_marker, Color as IrColor,
@@ -61,17 +65,82 @@ impl From<TextFontStyle> for IrFontStyle {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct TextScaler(f32);
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum TextScaler {
+    /// Compatibility form and the correct choice for fixed application scaling.
+    Linear(f32),
+    /// Piecewise-linear accessibility scaling. Points are `(font_size, scale)`
+    /// and are interpolated in ascending font-size order.
+    Piecewise { points: Vec<(f32, f32)> },
+}
 
 impl TextScaler {
     pub fn linear(scale_factor: f32) -> Self {
-        Self(scale_factor)
+        Self::Linear(scale_factor)
     }
 
-    pub fn scale_factor(self) -> f32 {
-        self.0
+    pub fn piecewise(points: impl IntoIterator<Item = (f32, f32)>) -> Self {
+        let mut points = points.into_iter().collect::<Vec<_>>();
+        points.retain(|(size, scale)| size.is_finite() && scale.is_finite());
+        points.sort_by(|left, right| left.0.total_cmp(&right.0));
+        Self::Piecewise { points }
+    }
+
+    /// Builds the nonlinear accessibility curve used for a host text-scale
+    /// preference. Small body text receives the full requested scale while
+    /// large display text grows more gradually to preserve useful viewport
+    /// space. Values at or below the default scale remain linear.
+    pub fn accessibility(scale_factor: f32) -> Self {
+        let factor = if scale_factor.is_finite() {
+            scale_factor.max(0.0)
+        } else {
+            1.0
+        };
+        if factor <= 1.0 {
+            return Self::Linear(factor);
+        }
+        let excess = factor - 1.0;
+        Self::piecewise([
+            (12.0, factor),
+            (16.0, factor),
+            (20.0, 1.0 + excess * 0.9),
+            (28.0, 1.0 + excess * 0.75),
+            (40.0, 1.0 + excess * 0.6),
+            (64.0, 1.0 + excess * 0.5),
+        ])
+    }
+
+    pub fn scale(&self, font_size: f32) -> f32 {
+        let factor = match self {
+            Self::Linear(factor) => *factor,
+            Self::Piecewise { points } => match points.as_slice() {
+                [] => 1.0,
+                [(_, factor)] => *factor,
+                points => {
+                    let upper = points.partition_point(|(size, _)| *size < font_size);
+                    if upper == 0 {
+                        points[0].1
+                    } else if upper == points.len() {
+                        points[points.len() - 1].1
+                    } else {
+                        let (low_size, low_factor) = points[upper - 1];
+                        let (high_size, high_factor) = points[upper];
+                        let progress = if high_size > low_size {
+                            (font_size - low_size) / (high_size - low_size)
+                        } else {
+                            0.0
+                        };
+                        low_factor + (high_factor - low_factor) * progress
+                    }
+                }
+            },
+        };
+        font_size * factor.max(0.0)
+    }
+
+    pub fn scale_factor(&self) -> f32 {
+        self.scale(14.0) / 14.0
     }
 }
 
@@ -105,7 +174,9 @@ pub struct TextRunStyle {
     pub line_height: Option<f32>,
     pub letter_spacing: Option<f32>,
     pub text_scale: Option<f32>,
+    pub text_scaler: Option<TextScaler>,
     pub background_color: Option<IrColor>,
+    pub typography: TextTypography,
 }
 
 impl TextRunStyle {
@@ -114,16 +185,31 @@ impl TextRunStyle {
         theme: &fission_theme::Theme,
         fallback_size: Option<f32>,
         fallback_color: Option<IrColor>,
+        environment_scaler: &TextScaler,
     ) -> fission_ir::op::TextStyle {
-        let scale = self.text_scale.unwrap_or(1.0).max(0.0);
         let base_font_size = self
             .font_size
             .or(fallback_size)
             .unwrap_or(theme.tokens.typography.body_medium_size);
         let base_line_height = self.line_height.or(Some(base_font_size * 1.2));
         let base_letter_spacing = self.letter_spacing.unwrap_or(0.0);
+        let scaled_font_size = self.text_scaler.as_ref().map_or_else(
+            || {
+                if self.text_scale.is_some() {
+                    base_font_size * self.text_scale.unwrap_or(1.0).max(0.0)
+                } else {
+                    environment_scaler.scale(base_font_size)
+                }
+            },
+            |scaler| scaler.scale(base_font_size),
+        );
+        let scale = if base_font_size > 0.0 {
+            scaled_font_size / base_font_size
+        } else {
+            1.0
+        };
         fission_ir::op::TextStyle {
-            font_size: base_font_size * scale,
+            font_size: scaled_font_size,
             color: self
                 .color
                 .or(fallback_color)
@@ -136,6 +222,7 @@ impl TextRunStyle {
             line_height: base_line_height.map(|value| value * scale),
             letter_spacing: base_letter_spacing * scale,
             background_color: self.background_color,
+            typography: self.typography.clone(),
         }
     }
 }
@@ -216,7 +303,32 @@ impl RichTextRun {
     }
 
     pub fn text_scaler(mut self, text_scaler: impl Into<TextScaler>) -> Self {
-        self.style.text_scale = Some(text_scaler.into().scale_factor());
+        self.style.text_scaler = Some(text_scaler.into());
+        self
+    }
+
+    pub fn typography(mut self, typography: TextTypography) -> Self {
+        self.style.typography = typography;
+        self
+    }
+
+    pub fn font_fallback(mut self, families: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.style.typography.font_fallback = families.into_iter().map(Into::into).collect();
+        self
+    }
+
+    pub fn word_spacing(mut self, spacing: f32) -> Self {
+        self.style.typography.word_spacing = spacing;
+        self
+    }
+
+    pub fn decoration(mut self, decoration: TextDecoration) -> Self {
+        self.style.typography.decoration = decoration;
+        self
+    }
+
+    pub fn shadows(mut self, shadows: Vec<TextShadow>) -> Self {
+        self.style.typography.shadows = shadows;
         self
     }
 
@@ -249,10 +361,13 @@ impl RichTextRun {
         theme: &fission_theme::Theme,
         fallback_size: Option<f32>,
         fallback_color: Option<IrColor>,
+        environment_scaler: &TextScaler,
     ) -> IrTextRun {
         IrTextRun {
             text: self.text.clone(),
-            style: self.style.resolve(theme, fallback_size, fallback_color),
+            style: self
+                .style
+                .resolve(theme, fallback_size, fallback_color, environment_scaler),
         }
     }
 }
@@ -269,7 +384,9 @@ pub struct RichTextSpanStyle {
     pub line_height: Option<f32>,
     pub letter_spacing: Option<f32>,
     pub text_scale: Option<f32>,
+    pub text_scaler: Option<TextScaler>,
     pub background_color: Option<IrColor>,
+    pub typography: Option<TextTypography>,
 }
 
 impl RichTextSpanStyle {
@@ -288,7 +405,15 @@ impl RichTextSpanStyle {
             line_height: self.line_height.or(inherited.line_height),
             letter_spacing: self.letter_spacing.or(inherited.letter_spacing),
             text_scale: self.text_scale.or(inherited.text_scale),
+            text_scaler: self
+                .text_scaler
+                .clone()
+                .or_else(|| inherited.text_scaler.clone()),
             background_color: self.background_color.or(inherited.background_color),
+            typography: self
+                .typography
+                .clone()
+                .unwrap_or_else(|| inherited.typography.clone()),
         }
     }
 }
@@ -413,7 +538,12 @@ impl RichTextSpan {
     }
 
     pub fn text_scaler(mut self, text_scaler: impl Into<TextScaler>) -> Self {
-        self.style.text_scale = Some(text_scaler.into().scale_factor());
+        self.style.text_scaler = Some(text_scaler.into());
+        self
+    }
+
+    pub fn typography(mut self, typography: TextTypography) -> Self {
+        self.style.typography = Some(typography);
         self
     }
 
@@ -513,7 +643,9 @@ impl RichTextSpan {
                             line_height: style.line_height,
                             letter_spacing: style.letter_spacing,
                             text_scale: style.text_scale,
+                            text_scaler: style.text_scaler.clone(),
                             background_color: None,
+                            typography: style.typography.clone(),
                         },
                         semantics_label: None,
                         semantics_identifier: None,
@@ -603,7 +735,9 @@ impl From<RichTextRun> for RichTextSpan {
                 line_height: value.style.line_height,
                 letter_spacing: value.style.letter_spacing,
                 text_scale: value.style.text_scale,
+                text_scaler: value.style.text_scaler,
                 background_color: value.style.background_color,
+                typography: Some(value.style.typography),
             },
             children: Vec::new(),
             semantics_label: value.semantics_label,
@@ -654,6 +788,8 @@ pub struct Text {
     pub letter_spacing: Option<f32>,
     pub locale: Option<String>,
     pub text_scale: Option<f32>,
+    pub text_scaler: Option<TextScaler>,
+    pub typography: TextTypography,
     pub wrap: bool,
     pub text_align: IrTextAlign,
     pub text_direction: IrTextDirection,
@@ -777,7 +913,12 @@ impl Text {
     }
 
     pub fn text_scaler(mut self, text_scaler: impl Into<TextScaler>) -> Self {
-        self.text_scale = Some(text_scaler.into().scale_factor());
+        self.text_scaler = Some(text_scaler.into());
+        self
+    }
+
+    pub fn typography(mut self, typography: TextTypography) -> Self {
+        self.typography = typography;
         self
     }
 
@@ -913,12 +1054,26 @@ impl Text {
     }
 
     fn resolved_style(&self, cx: &InternalLoweringCx<'_>) -> fission_ir::op::TextStyle {
-        let scale = self.text_scale.unwrap_or(1.0).max(0.0);
         let base_font_size = self
             .font_size
             .unwrap_or(cx.env.theme.tokens.typography.body_medium_size);
+        let scaled_font_size = self.text_scaler.as_ref().map_or_else(
+            || {
+                if self.text_scale.is_some() {
+                    base_font_size * self.text_scale.unwrap_or(1.0).max(0.0)
+                } else {
+                    cx.env.text_scaler.scale(base_font_size)
+                }
+            },
+            |scaler| scaler.scale(base_font_size),
+        );
+        let scale = if base_font_size > 0.0 {
+            scaled_font_size / base_font_size
+        } else {
+            1.0
+        };
         fission_ir::op::TextStyle {
-            font_size: base_font_size * scale,
+            font_size: scaled_font_size,
             color: self
                 .color
                 .unwrap_or(cx.env.theme.tokens.colors.text_primary),
@@ -930,6 +1085,7 @@ impl Text {
             line_height: Some(self.line_height.unwrap_or(base_font_size * 1.2) * scale),
             letter_spacing: self.letter_spacing.unwrap_or(0.0) * scale,
             background_color: None,
+            typography: self.typography.clone(),
         }
     }
 
@@ -941,6 +1097,8 @@ impl Text {
             || self.line_height.is_some()
             || self.letter_spacing.unwrap_or(0.0) != 0.0
             || self.text_scale.unwrap_or(1.0) != 1.0
+            || self.text_scaler.is_some()
+            || self.typography != TextTypography::default()
             || self.selection_range.is_some()
     }
 }
@@ -1057,7 +1215,9 @@ impl RichText {
                             line_height: None,
                             letter_spacing: None,
                             text_scale: None,
+                            text_scaler: None,
                             background_color: None,
+                            typography: Default::default(),
                         },
                         semantics_label: None,
                         semantics_identifier: None,
@@ -1246,7 +1406,7 @@ impl RichText {
     fn lower_runs(&self, cx: &InternalLoweringCx<'_>) -> Vec<IrTextRun> {
         self.runs
             .iter()
-            .map(|run| run.lower_with_theme(&cx.env.theme, None, None))
+            .map(|run| run.lower_with_theme(&cx.env.theme, None, None, &cx.env.text_scaler))
             .collect()
     }
 }
@@ -1537,28 +1697,9 @@ fn wrap_selectable_context_menu(
     visual_id: WidgetId,
     config: &TextContextMenuConfig,
     selection: Option<(usize, usize)>,
-    text_len: usize,
+    text: &str,
 ) -> WidgetId {
-    if !config.enabled || cx.runtime_state.context_menu.owner != Some(owner) {
-        return visual_id;
-    }
-
-    let anchor = cx
-        .runtime_state
-        .context_menu
-        .anchor
-        .map(|screen_anchor| anchor_to_local(cx, owner, screen_anchor))
-        .unwrap_or_else(|| fission_layout::LayoutPoint::new(0.0, 0.0));
-    let menu = text_context_menu_overlay_widget(config, owner, anchor, |action| match action {
-        TextContextMenuAction::Copy => selection.is_some(),
-        TextContextMenuAction::Cut | TextContextMenuAction::Paste => false,
-        TextContextMenuAction::SelectAll => text_len > 0,
-    });
-    let menu_id = menu.lower(cx);
-    let mut stack = InternalIrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::ZStack));
-    stack.add_child(visual_id);
-    stack.add_child(menu_id);
-    stack.build(cx)
+    wrap_implicit_selection_affordances(cx, owner, visual_id, config, selection, text)
 }
 
 impl InternalLower for Text {
@@ -1628,6 +1769,7 @@ impl InternalLower for Text {
                     size: style.font_size,
                     color: style.color,
                     underline: style.underline,
+                    locale: style.locale.clone(),
                     wrap: self.wrap,
                     caret_index: None,
                     caret_color: None,
@@ -1662,7 +1804,7 @@ impl InternalLower for Text {
                 layout_node_id,
                 &self.context_menu,
                 selection_range,
-                resolved_text.len(),
+                &resolved_text,
             );
             let semantics = selectable_text_semantics(
                 self.semantics.clone(),
@@ -1767,7 +1909,7 @@ impl InternalLower for RichText {
                 layout_node_id,
                 &self.context_menu,
                 selection_range,
-                plain_text.len(),
+                &plain_text,
             );
             let semantics = selectable_text_semantics(
                 self.semantics.clone(),

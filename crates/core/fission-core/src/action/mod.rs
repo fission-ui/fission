@@ -173,6 +173,78 @@ pub struct UpdateTextInput {
     /// Byte offset of the selection anchor (equals `new_caret` when no
     /// selection is active).
     pub new_anchor: usize,
+    /// Complete value before the transaction. Older shell boundaries may not
+    /// know it and use an empty value until they adopt the complete-value API.
+    #[serde(default)]
+    pub old_value: crate::text_editing::TextEditingValue,
+    /// Complete value after the transaction.
+    #[serde(default)]
+    pub new_value: crate::text_editing::TextEditingValue,
+    /// Origin of this edit.
+    #[serde(default)]
+    pub source: crate::text_editing::TextEditSource,
+    /// Lifecycle phase represented by this action.
+    #[serde(default)]
+    pub phase: crate::text_editing::TextEditPhase,
+    /// Configured software-keyboard action for submit/completion events.
+    #[serde(default)]
+    pub editing_action: Option<fission_ir::semantics::TextInputAction>,
+    /// Validation state when `phase` is [`TextEditPhase::Validated`](crate::TextEditPhase::Validated).
+    #[serde(default)]
+    pub validation_state: Option<fission_ir::semantics::TextFieldValidationState>,
+    /// Accessible validation detail associated with `validation_state`.
+    #[serde(default)]
+    pub validation_message: Option<String>,
+}
+
+impl Default for UpdateTextInput {
+    fn default() -> Self {
+        Self {
+            node_id: WidgetId::from_u128(0),
+            new_text: String::new(),
+            new_caret: 0,
+            new_anchor: 0,
+            old_value: crate::TextEditingValue::default(),
+            new_value: crate::TextEditingValue::default(),
+            source: crate::TextEditSource::Programmatic,
+            phase: crate::TextEditPhase::Committed,
+            editing_action: None,
+            validation_state: None,
+            validation_message: None,
+        }
+    }
+}
+
+impl UpdateTextInput {
+    pub fn from_values(
+        node_id: WidgetId,
+        old_value: crate::TextEditingValue,
+        new_value: crate::TextEditingValue,
+        source: crate::TextEditSource,
+        phase: crate::TextEditPhase,
+    ) -> Self {
+        Self {
+            node_id,
+            new_text: new_value.text.clone(),
+            new_caret: new_value.selection.extent.utf8_offset(),
+            new_anchor: new_value.selection.base.utf8_offset(),
+            old_value,
+            new_value,
+            source,
+            phase,
+            editing_action: None,
+            validation_state: None,
+            validation_message: None,
+        }
+    }
+}
+
+/// Typed runtime input for a selection-only change.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdateTextSelection {
+    pub node_id: WidgetId,
+    pub value: crate::text_editing::TextEditingValue,
+    pub source: crate::text_editing::TextEditSource,
 }
 
 /// Payload dispatched when the caret/anchor position changes in a TextInput.

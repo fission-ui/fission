@@ -119,6 +119,23 @@ pub enum RuntimeEffect {
     ScrollIntoView(ScrollIntoViewRequest),
     /// Ask the active shell to update its navigation model.
     Navigate(NavigationCommand),
+    /// Update a coordinated read-only text selection after the tree is lowered.
+    SelectionRegion {
+        region_id: WidgetId,
+        command: crate::SelectionRegionCommand,
+    },
+    /// Update a retained editable session after the next lowered tree is available.
+    TextEditing {
+        input_id: WidgetId,
+        command: crate::TextEditingCommand,
+    },
+    /// Reveal an editable caret or range after paragraph layout resolves.
+    TextScroll {
+        input_id: WidgetId,
+        command: crate::TextScrollCommand,
+    },
+    /// Validate every editable field belonging to a logical form.
+    TextFormValidation { form_id: String },
 }
 
 /// A side-effect emitted by a reducer.
@@ -279,6 +296,8 @@ pub enum ActionInput {
     /// The action envelope retains the application-defined payload, while this
     /// input carries the edited value and selection independently.
     TextChanged(UpdateTextInput),
+    /// Runtime details accompanying a selection/caret-only action.
+    TextSelectionChanged(crate::action::UpdateTextSelection),
     /// Runtime details accompanying an interactive viewport action.
     ViewportInteraction(crate::input::viewport::ViewportInteraction),
     /// Runtime details accompanying an InfiniteCanvas action.
@@ -381,6 +400,13 @@ impl ActionInput {
     pub fn text_change(&self) -> Option<&UpdateTextInput> {
         match self.unscoped() {
             ActionInput::TextChanged(change) => Some(change),
+            _ => None,
+        }
+    }
+
+    pub fn text_selection_change(&self) -> Option<&crate::action::UpdateTextSelection> {
+        match self.unscoped() {
+            ActionInput::TextSelectionChanged(change) => Some(change),
             _ => None,
         }
     }
@@ -710,6 +736,7 @@ mod action_input_codec_tests {
                 new_text: "hello".into(),
                 new_caret: 4,
                 new_anchor: 1,
+                ..Default::default()
             }),
         );
         let bytes = input.encode_opaque().expect("input should encode");

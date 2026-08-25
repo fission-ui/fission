@@ -6,7 +6,8 @@ use super::widgets::{
     ActionScope, Align, Button, Checkbox, Clip, Column, Composite, Container, ContextMenuEntry,
     ContextMenuRegion, FocusScope, GestureDetector, Grid, GridItem, Icon, Image, LazyColumn,
     Overlay, Positioned, Pressable, Radio, Responsive, RichText, Row, SafeArea, Scroll,
-    SemanticsRegion, Slider, Spacer, Switch, Text, TextInput, Transform, Video, ZStack,
+    SelectionRegion, SemanticsRegion, Slider, Spacer, Switch, Text, TextInput, Transform, Video,
+    ZStack,
 };
 use crate::lowering::InternalLoweringCx;
 use fission_ir::{Op, StructuralOp, WidgetId};
@@ -30,6 +31,7 @@ pub enum WidgetKind {
     Column(Column),
     Align(Align),
     FocusScope(FocusScope),
+    SelectionRegion(SelectionRegion),
     Clip(Clip),
     Text(Text),
     RichText(RichText),
@@ -82,6 +84,7 @@ impl Widget {
         match self.kind.as_ref() {
             WidgetKind::Identified { child, .. }
             | WidgetKind::ActionScope(ActionScope { child, .. })
+            | WidgetKind::SelectionRegion(SelectionRegion { child, .. })
             | WidgetKind::Align(Align { child, .. })
             | WidgetKind::Clip(Clip { child, .. })
             | WidgetKind::Transform(Transform { child, .. })
@@ -194,6 +197,10 @@ impl Widget {
             WidgetKind::FocusScope(mut w) => {
                 w.id = Some(id);
                 WidgetKind::FocusScope(w)
+            }
+            WidgetKind::SelectionRegion(mut w) => {
+                w.id = Some(id);
+                WidgetKind::SelectionRegion(w)
             }
             WidgetKind::Clip(mut w) => {
                 w.id = Some(id);
@@ -358,6 +365,7 @@ impl Widget {
             WidgetKind::Column(_) => "Column",
             WidgetKind::Align(_) => "Align",
             WidgetKind::FocusScope(_) => "FocusScope",
+            WidgetKind::SelectionRegion(_) => "SelectionRegion",
             WidgetKind::Clip(_) => "Clip",
             WidgetKind::Text(_) => "Text",
             WidgetKind::RichText(_) => "RichText",
@@ -435,6 +443,7 @@ impl Widget {
             WidgetKind::Icon(_) => 35,
             WidgetKind::Composite(_) => 36,
             WidgetKind::Custom(_) => 37,
+            WidgetKind::SelectionRegion(_) => 38,
         }
     }
 
@@ -450,6 +459,7 @@ impl Widget {
             WidgetKind::Column(widget) => widget.id,
             WidgetKind::Align(widget) => widget.id,
             WidgetKind::FocusScope(widget) => widget.id,
+            WidgetKind::SelectionRegion(widget) => widget.id,
             WidgetKind::Clip(widget) => widget.id,
             WidgetKind::Text(widget) => widget.id,
             WidgetKind::RichText(widget) => widget.id,
@@ -545,6 +555,10 @@ impl Widget {
             WidgetKind::FocusScope(mut widget) => {
                 widget.children = children(widget.children, 0);
                 WidgetKind::FocusScope(widget)
+            }
+            WidgetKind::SelectionRegion(mut widget) => {
+                widget.child = child(widget.child, 0);
+                WidgetKind::SelectionRegion(widget)
             }
             WidgetKind::Clip(mut widget) => {
                 widget.child = child(widget.child, 0);
@@ -792,6 +806,7 @@ impl Widget {
             WidgetKind::Column(w) => w.lower(cx),
             WidgetKind::Align(w) => w.lower(cx),
             WidgetKind::FocusScope(w) => w.lower(cx),
+            WidgetKind::SelectionRegion(w) => w.lower(cx),
             WidgetKind::Clip(w) => w.lower(cx),
             WidgetKind::Text(w) => w.lower(cx),
             WidgetKind::RichText(w) => w.lower(cx),
@@ -890,6 +905,13 @@ impl From<FocusScope> for Widget {
     fn from(w: FocusScope) -> Self {
         Self {
             kind: Box::new(WidgetKind::FocusScope(w)),
+        }
+    }
+}
+impl From<SelectionRegion> for Widget {
+    fn from(w: SelectionRegion) -> Self {
+        Self {
+            kind: Box::new(WidgetKind::SelectionRegion(w)),
         }
     }
 }
