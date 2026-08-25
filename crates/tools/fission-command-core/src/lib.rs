@@ -5220,10 +5220,11 @@ fi
 ANDROID_NDK=$(find_android_ndk)
 ANDROID_TOOLCHAIN="${{ANDROID_TOOLCHAIN:-$(detect_android_toolchain)}}"
 CC_aarch64_linux_android="${{CC_aarch64_linux_android:-$ANDROID_TOOLCHAIN/aarch64-linux-android${{ANDROID_MIN_API_LEVEL}}-clang}}"
+CXX_aarch64_linux_android="${{CXX_aarch64_linux_android:-$ANDROID_TOOLCHAIN/aarch64-linux-android${{ANDROID_MIN_API_LEVEL}}-clang++}}"
 AR_aarch64_linux_android="${{AR_aarch64_linux_android:-$ANDROID_TOOLCHAIN/llvm-ar}}"
 CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="${{CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER:-$CC_aarch64_linux_android}}"
 CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="${{CARGO_TARGET_AARCH64_LINUX_ANDROID_AR:-$AR_aarch64_linux_android}}"
-export ANDROID_HOME ANDROID_NDK ANDROID_MIN_API_LEVEL ANDROID_TARGET_API_LEVEL ANDROID_TOOLCHAIN CC_aarch64_linux_android AR_aarch64_linux_android
+export ANDROID_HOME ANDROID_NDK ANDROID_MIN_API_LEVEL ANDROID_TARGET_API_LEVEL ANDROID_TOOLCHAIN CC_aarch64_linux_android CXX_aarch64_linux_android AR_aarch64_linux_android
 export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER CARGO_TARGET_AARCH64_LINUX_ANDROID_AR
 
 if [[ -n "${{FISSION_GRADLE:-}}" ]]; then
@@ -6310,6 +6311,12 @@ publisher = "CN=Example & Co"
             fs::read_to_string(dir.join("platforms/android/AndroidManifest.xml")).unwrap();
         assert!(manifest.contains("rs.fission.runtime.FissionActivity"));
         assert!(manifest.contains("android:hasCode=\"true\""));
+
+        for script in ["package-apk.sh", "package-aab.sh"] {
+            let package = fs::read_to_string(dir.join("platforms/android").join(script)).unwrap();
+            assert!(package.contains("CXX_aarch64_linux_android"));
+            assert!(package.contains("aarch64-linux-android${ANDROID_MIN_API_LEVEL}-clang++"));
+        }
 
         fs::remove_dir_all(dir).unwrap();
     }

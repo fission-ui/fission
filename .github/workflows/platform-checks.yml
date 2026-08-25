@@ -134,6 +134,7 @@ jobs:
           export ANDROID_NDK="$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION"
           export ANDROID_TOOLCHAIN="$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
           export CC_aarch64_linux_android="$ANDROID_TOOLCHAIN/aarch64-linux-android${ANDROID_MIN_API_LEVEL}-clang"
+          export CXX_aarch64_linux_android="$ANDROID_TOOLCHAIN/aarch64-linux-android${ANDROID_MIN_API_LEVEL}-clang++"
           export AR_aarch64_linux_android="$ANDROID_TOOLCHAIN/llvm-ar"
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$CC_aarch64_linux_android"
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="$AR_aarch64_linux_android"
