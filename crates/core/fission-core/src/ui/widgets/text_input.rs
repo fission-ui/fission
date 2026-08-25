@@ -1329,7 +1329,11 @@ impl InternalLower for TextInput {
             Op::Layout(LayoutOp::Flex {
                 direction: FlexDirection::Row,
                 wrap: FlexWrap::NoWrap,
-                flex_grow: if self.expands { 1.0 } else { 0.0 },
+                flex_grow: if self.multiline || self.expands {
+                    1.0
+                } else {
+                    0.0
+                },
                 flex_shrink: 1.0,
                 padding: [0.0; 4],
                 gap: if self.prefix.is_some() || self.suffix.is_some() {
@@ -1337,7 +1341,11 @@ impl InternalLower for TextInput {
                 } else {
                     None
                 },
-                align_items: self.text_align_vertical.align_items(self.multiline),
+                align_items: if self.multiline {
+                    fission_ir::op::AlignItems::Stretch
+                } else {
+                    self.text_align_vertical.align_items(false)
+                },
                 justify_content: fission_ir::op::JustifyContent::Start,
             }),
         );

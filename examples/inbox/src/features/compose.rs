@@ -390,6 +390,69 @@ mod tests {
     use fission::core::Action;
     use fission_test::TestHarness;
 
+    fn display_contains(h: &TestHarness<InboxState>, needle: &str) -> bool {
+        h.get_last_display_list().is_some_and(|list| {
+            list.ops.iter().any(|op| match op {
+                fission::render::DisplayOp::DrawText { text, .. } => text.contains(needle),
+                fission::render::DisplayOp::DrawRichText { runs, .. } => runs
+                    .iter()
+                    .map(|run| run.text.as_str())
+                    .collect::<String>()
+                    .contains(needle),
+                _ => false,
+            })
+        })
+    }
+
+    #[test]
+    fn compose_multiline_trailing_newline_keeps_previous_line_visible() -> Result<()> {
+        let mut h = TestHarness::new(InboxState::default()).with_root_widget(ComposeModal);
+        h.pump()?;
+        let body_node_id: fission_ir::WidgetId = WidgetId::explicit("compose_body_input").into();
+        h.runtime
+            .runtime_state
+            .interaction
+            .set_focused(Some(body_node_id));
+
+        for ch in "first".chars() {
+            h.send_event(InputEvent::Keyboard(KeyEvent::Down {
+                key_code: KeyCode::Char(ch),
+                modifiers: 0,
+            }))?;
+            h.pump()?;
+        }
+        assert!(display_contains(&h, "first"));
+
+        h.send_event(InputEvent::Keyboard(KeyEvent::Down {
+            key_code: KeyCode::Enter,
+            modifiers: 0,
+        }))?;
+        h.pump()?;
+
+        assert_eq!(
+            h.runtime
+                .get_app_state::<InboxState>()
+                .expect("inbox state")
+                .compose_body,
+            "first\n"
+        );
+        assert!(
+            display_contains(&h, "first"),
+            "the committed first line must remain in the display list when the value ends in a newline"
+        );
+        assert!(
+            h.runtime
+                .runtime_state
+                .scroll
+                .offsets
+                .values()
+                .all(|offset| offset.abs() <= f32::EPSILON),
+            "a trailing newline that still fits the field must not scroll the first line out of view: {:?}",
+            h.runtime.runtime_state.scroll.offsets
+        );
+        Ok(())
+    }
+
     #[test]
     fn compose_subject_and_body_accept_typing() -> Result<()> {
         let mut h = TestHarness::new(InboxState::default()).with_root_widget(ComposeModal);

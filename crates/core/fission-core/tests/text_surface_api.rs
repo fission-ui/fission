@@ -105,6 +105,15 @@ fn text_input_defaults_adapt_single_and_multiline_chrome() {
             ..
         }
     )));
+    assert!(layout_ops(&multiline).any(|op| matches!(
+        op,
+        LayoutOp::Flex {
+            direction: FlexDirection::Row,
+            flex_grow,
+            align_items: fission_ir::op::AlignItems::Stretch,
+            ..
+        } if *flex_grow == 1.0
+    )));
     assert!(!layout_ops(&multiline).any(|op| matches!(
         op,
         LayoutOp::Box { flex_grow, .. } if *flex_grow > 0.0
