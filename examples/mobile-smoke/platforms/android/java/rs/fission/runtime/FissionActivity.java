@@ -1,6 +1,6 @@
 package rs.fission.runtime;
 
-import androidx.games.activity.GameActivity;
+import com.google.androidgamesdk.GameActivity;
 import android.media.MediaPlayer;
 import android.media.PlaybackParams;
 import android.os.Bundle;

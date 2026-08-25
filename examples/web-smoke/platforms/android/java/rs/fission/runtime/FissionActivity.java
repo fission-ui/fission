@@ -1,4 +1,4 @@
 package rs.fission.runtime;
 
-public final class FissionActivity extends androidx.games.activity.GameActivity {
+public final class FissionActivity extends com.google.androidgamesdk.GameActivity {
 }

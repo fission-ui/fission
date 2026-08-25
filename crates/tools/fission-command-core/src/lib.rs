@@ -3917,7 +3917,7 @@ fn groovy_string_literal(value: &str) -> String {
 fn render_android_activity_java() -> &'static str {
     r#"package rs.fission.runtime;
 
-import androidx.games.activity.GameActivity;
+import com.google.androidgamesdk.GameActivity;
 import android.media.MediaPlayer;
 import android.media.PlaybackParams;
 import android.os.Bundle;
@@ -6301,7 +6301,7 @@ publisher = "CN=Example & Co"
         )
         .unwrap();
         assert!(activity.contains("extends GameActivity"));
-        assert!(activity.contains("androidx.games.activity.GameActivity"));
+        assert!(activity.contains("com.google.androidgamesdk.GameActivity"));
 
         let gradle =
             fs::read_to_string(dir.join("platforms/android/app/build.gradle.kts")).unwrap();
