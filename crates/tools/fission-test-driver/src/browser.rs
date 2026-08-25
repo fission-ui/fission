@@ -155,6 +155,16 @@ impl BrowserController {
         client.send("Runtime.enable", json!({}))?;
         client.send("Log.enable", json!({}))?;
         client.send("Page.enable", json!({}))?;
+        // Headless Chromium has no desktop clipboard broker. Grant clipboard
+        // access to this disposable browser profile so trusted keyboard copy,
+        // cut, and paste events exercise the same DOM path as an interactive
+        // browser session.
+        client.send(
+            "Browser.grantPermissions",
+            json!({
+                "permissions": ["clipboardReadWrite", "clipboardSanitizedWrite"]
+            }),
+        )?;
         client.send(
             "Emulation.setDeviceMetricsOverride",
             json!({
@@ -213,6 +223,18 @@ impl BrowserController {
 
     pub(crate) fn report(&self) -> BrowserSmokeReport {
         self.report.clone()
+    }
+
+    pub(crate) fn evaluate_json(&mut self, expression: &str) -> Result<Value> {
+        let result = self.client.send(
+            "Runtime.evaluate",
+            json!({ "expression": expression, "returnByValue": true }),
+        )?;
+        runtime_exception(&result)?;
+        result
+            .pointer("/result/value")
+            .cloned()
+            .context("browser evaluation returned no JSON value")
     }
 
     pub(crate) fn send_test_command(&mut self, command: TestCommand) -> Result<TestResponse> {
@@ -334,13 +356,19 @@ impl BrowserController {
         let cdp_modifiers = cdp_modifiers(modifiers);
         let (dom_key, code) = dom_key_and_code(key);
         for event_type in ["keyDown", "keyUp"] {
+            let commands = if event_type == "keyDown" {
+                cdp_editing_commands(key, modifiers)
+            } else {
+                Vec::new()
+            };
             self.client.send(
                 "Input.dispatchKeyEvent",
                 json!({
                     "type": event_type,
                     "key": dom_key,
                     "code": code,
-                    "modifiers": cdp_modifiers
+                    "modifiers": cdp_modifiers,
+                    "commands": commands,
                 }),
             )?;
         }
@@ -611,6 +639,22 @@ fn cdp_modifiers(fission: u8) -> u8 {
         cdp |= 4;
     }
     cdp
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn cdp_editing_commands(key: &str, modifiers: u8) -> Vec<&'static str> {
+    let primary = modifiers & (4 | 8) != 0;
+    let has_alt = modifiers & 2 != 0;
+    if !primary || has_alt {
+        return Vec::new();
+    }
+    match key.to_ascii_lowercase().as_str() {
+        "a" => vec!["selectAll"],
+        "c" => vec!["copy"],
+        "v" => vec!["paste"],
+        "x" => vec!["cut"],
+        _ => Vec::new(),
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -943,11 +987,12 @@ impl CdpClient {
                         .pointer("/params/entry/text")
                         .and_then(Value::as_str)
                         .unwrap_or("unknown browser log error");
-                    if !text.contains("/__fission/renderer") {
-                        let url = message
-                            .pointer("/params/entry/url")
-                            .and_then(Value::as_str)
-                            .unwrap_or("unknown URL");
+                    let url = message
+                        .pointer("/params/entry/url")
+                        .and_then(Value::as_str)
+                        .unwrap_or("unknown URL");
+                    if !text.contains("/__fission/renderer") && !url.contains("/__fission/renderer")
+                    {
                         self.errors
                             .push(format!("browser log error at {url}: {text}"));
                     }
@@ -1075,6 +1120,16 @@ mod tests {
         assert_eq!(cdp_modifiers(4), 2); // Control
         assert_eq!(cdp_modifiers(8), 4); // Meta
         assert_eq!(cdp_modifiers(1 | 4 | 8), 8 | 2 | 4);
+    }
+
+    #[test]
+    fn browser_primary_shortcuts_request_native_editing_commands() {
+        assert_eq!(cdp_editing_commands("a", 4), vec!["selectAll"]);
+        assert_eq!(cdp_editing_commands("C", 8), vec!["copy"]);
+        assert_eq!(cdp_editing_commands("v", 4), vec!["paste"]);
+        assert_eq!(cdp_editing_commands("x", 4), vec!["cut"]);
+        assert!(cdp_editing_commands("v", 4 | 2).is_empty());
+        assert!(cdp_editing_commands("v", 0).is_empty());
     }
 
     #[test]

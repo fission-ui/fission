@@ -76,9 +76,12 @@ pub mod registry;
 pub mod runtime;
 pub mod scoped_action_handlers;
 pub mod scrollbar;
+pub mod selection;
 pub mod state;
 #[cfg(feature = "store")]
 pub mod storage;
+pub mod text_control;
+pub mod text_editing;
 pub mod time;
 pub mod ui;
 
@@ -231,6 +234,7 @@ pub mod public {
 
     pub use crate::action::{
         Action, ActionEnvelope, ActionId, ActionScopeId, GlobalState, UpdateTextInput,
+        UpdateTextSelection,
     };
     pub use crate::async_runtime::{
         BoxFuture, JobCtx, JobRef, JobSpec, ResourceExecutionContext, ServiceBindings, ServiceCtx,
@@ -264,9 +268,18 @@ pub mod public {
         RuntimeState, ScrollStateMap, WindowEnv, WindowTitle,
     };
     pub use crate::runtime::Runtime;
+    pub use crate::selection::{
+        SelectionRegionCommand, SelectionRegionController, SelectionRegionError,
+        TextRegionPosition, TextRegionSelection,
+    };
     pub use crate::state::{LocalStateKey, LocalStateStore, StateField};
     #[cfg(feature = "store")]
     pub use crate::storage::*;
+    pub use crate::text_editing::{
+        CompleteTextInputFormatter, SharedTextInputFormatter, TextAffinity, TextEditBoundary,
+        TextEditCommand, TextEditDirection, TextEditPhase, TextEditPipeline, TextEditResult,
+        TextEditSource, TextEditingValue, TextPosition, TextRange, TextSelection, TextValuePhase,
+    };
     pub use bytes::Bytes;
     #[cfg(feature = "store")]
     pub use fission_store::*;
@@ -413,8 +426,9 @@ pub mod public {
         Overflow,
     };
     pub use fission_ir::{
-        EmbedKind, FocusPolicy, Hyperlink, LinkTarget, Op, PopoverAction, PopoverTarget, Role,
-        Semantics, WidgetId,
+        EmbedKind, FocusPolicy, Hyperlink, InputFormatter, LinkTarget, MaxLengthEnforcement, Op,
+        PopoverAction, PopoverTarget, Role, Semantics, TextCapitalization,
+        TextFieldValidationState, TextInputAction, TextInputType, TextWrapMode, WidgetId,
     };
     pub use fission_layout::{
         BoxConstraints, FlexDirection, LayoutEngine, LayoutInspection, LayoutNodeGeometry,
@@ -427,7 +441,7 @@ mod tests;
 
 pub use action::{
     Action, ActionEnvelope, ActionId, ActionScopeId, GlobalState, ShellRouteChanged,
-    UpdateTextInput,
+    UpdateTextInput, UpdateTextSelection,
 };
 pub use async_runtime::{
     BoxFuture, JobCtx, JobRef, JobSpec, ResourceExecutionContext, ServiceBindings, ServiceCtx,
@@ -466,9 +480,22 @@ pub use fission_store::*;
 pub use motion::*;
 pub use navigation::{NavigationCommand, NavigationRequested};
 pub use runtime::Runtime;
+pub use selection::{
+    SelectionRegionCommand, SelectionRegionController, SelectionRegionError, TextRegionPosition,
+    TextRegionSelection,
+};
 pub use state::{LocalStateKey, LocalStateStore, StateField};
 #[cfg(feature = "store")]
 pub use storage::*;
+pub use text_control::{
+    TextControlError, TextEditingCommand, TextEditingController, TextFormController,
+    TextFormValidation, TextScrollCommand, TextScrollController,
+};
+pub use text_editing::{
+    CompleteTextInputFormatter, SharedTextInputFormatter, TextAffinity, TextEditBoundary,
+    TextEditCommand, TextEditDirection, TextEditPhase, TextEditPipeline, TextEditResult,
+    TextEditSource, TextEditingValue, TextPosition, TextRange, TextSelection, TextValuePhase,
+};
 
 pub use build::{BuildCtxHandle, ViewHandle};
 pub use event::{
@@ -481,8 +508,9 @@ pub use fission_ir::op::{
     Overflow,
 };
 pub use fission_ir::{
-    EmbedKind, FocusPolicy, Hyperlink, LinkTarget, Op, PopoverAction, PopoverTarget, Role,
-    Semantics, WidgetId,
+    EmbedKind, FocusPolicy, Hyperlink, InputFormatter, LinkTarget, MaxLengthEnforcement, Op,
+    PopoverAction, PopoverTarget, Role, Semantics, TextCapitalization, TextFieldValidationState,
+    TextInputAction, TextInputType, TextWrapMode, WidgetId,
 };
 pub use fission_layout::{
     BoxConstraints, FlexDirection, LayoutEngine, LayoutInspection, LayoutNodeGeometry, LayoutOp,

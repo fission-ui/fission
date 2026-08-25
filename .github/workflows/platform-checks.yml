@@ -70,7 +70,17 @@ jobs:
         run: cargo run -p cargo-fission --bin fission -- doctor web --project-dir examples/web-smoke
 
       - name: Build web-smoke wasm package
+        env:
+          FISSION_WEB_TEST_CONTROL: '1'
         run: ./examples/web-smoke/platforms/web/build-wasm.sh
+
+      - name: Run Web Canvas text-input conformance in Chromium
+        run: |
+          python3 -m http.server 8126 --bind 127.0.0.1 --directory examples/web-smoke/platforms/web &
+          server_pid=$!
+          trap 'kill "$server_pid"' EXIT
+          FISSION_WEB_SMOKE_URL='http://127.0.0.1:8126/?fission_renderer=canvas2d-software' \
+            cargo test --locked -p web-smoke --test text_input_browser -- --nocapture
 
   android:
     name: Android package smoke
@@ -124,6 +134,7 @@ jobs:
           export ANDROID_NDK="$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION"
           export ANDROID_TOOLCHAIN="$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
           export CC_aarch64_linux_android="$ANDROID_TOOLCHAIN/aarch64-linux-android${ANDROID_MIN_API_LEVEL}-clang"
+          export CXX_aarch64_linux_android="$ANDROID_TOOLCHAIN/aarch64-linux-android${ANDROID_MIN_API_LEVEL}-clang++"
           export AR_aarch64_linux_android="$ANDROID_TOOLCHAIN/llvm-ar"
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$CC_aarch64_linux_android"
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="$AR_aarch64_linux_android"

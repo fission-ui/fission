@@ -1822,6 +1822,7 @@ impl HtmlRenderer<'_> {
                 size,
                 color,
                 underline,
+                locale,
                 wrap,
                 paragraph_style,
                 ..
@@ -1833,8 +1834,10 @@ impl HtmlRenderer<'_> {
                 }
                 push_paragraph_style(&mut style, paragraph_style.as_ref());
                 let class_name = self.class_name("fission-site-text", style);
+                let language = language_attribute(locale.as_deref());
+                let direction = direction_attribute(paragraph_style.as_ref());
                 Ok(format!(
-                    "<span class=\"{}\" data-fission-node=\"{}\">{}</span>",
+                    "<span class=\"{}\"{language}{direction} data-fission-node=\"{}\">{}</span>",
                     escape_attr(&class_name),
                     node.id,
                     escape_text(text)
@@ -1864,8 +1867,9 @@ impl HtmlRenderer<'_> {
                     .unwrap_or_default();
                 let content = self.render_rich_text_runs(node, runs, &annotations)?;
                 let class_name = self.class_name("fission-site-rich-text", style);
+                let direction = direction_attribute(paragraph_style.as_ref());
                 Ok(format!(
-                    "<span class=\"{}\" data-fission-node=\"{}\">{content}</span>",
+                    "<span class=\"{}\"{direction} data-fission-node=\"{}\">{content}</span>",
                     escape_attr(&class_name),
                     node.id
                 ))
@@ -2163,11 +2167,22 @@ impl HtmlRenderer<'_> {
         }
         let children = self.render_children(&node.children, &HashSet::new())?;
         let label_text = semantics.label.as_deref().unwrap_or_default();
+        let validation = semantics
+            .validation_message
+            .as_deref()
+            .map(|message| {
+                format!(
+                    "<span class=\"fission-site-control-validation\" id=\"{}\">{}</span>",
+                    text_validation_message_id(node.id),
+                    escape_text(message)
+                )
+            })
+            .unwrap_or_default();
         match semantics.role {
             Role::TextInput | Role::Input if semantics.multiline => {
                 let value = semantics.value.as_deref().unwrap_or_default();
                 Ok(format!(
-                    "<label class=\"fission-site-node fission-site-control\" data-fission-node=\"{}\"><span class=\"fission-site-control-label\">{}</span><textarea class=\"fission-site-input\"{attrs}>{}</textarea>{children}</label>",
+                    "<label class=\"fission-site-node fission-site-control\" data-fission-node=\"{}\"><span class=\"fission-site-control-label\">{}</span><textarea class=\"fission-site-input\"{attrs}>{}</textarea>{validation}{children}</label>",
                     node.id,
                     escape_text(label_text),
                     escape_text(value)
@@ -2180,7 +2195,7 @@ impl HtmlRenderer<'_> {
                     escape_attr(semantics.value.as_deref().unwrap_or_default())
                 ));
                 Ok(format!(
-                    "<label class=\"fission-site-node fission-site-control\" data-fission-node=\"{}\"><span class=\"fission-site-control-label\">{}</span><input class=\"fission-site-input\"{attrs}>{children}</label>",
+                    "<label class=\"fission-site-node fission-site-control\" data-fission-node=\"{}\"><span class=\"fission-site-control-label\">{}</span><input class=\"fission-site-input\"{attrs}>{validation}{children}</label>",
                     node.id,
                     escape_text(label_text)
                 ))
@@ -2236,10 +2251,16 @@ impl HtmlRenderer<'_> {
         }
         if let Some(identifier) = &semantics.identifier {
             attrs.push_str(&format!(
-                " data-fission-semantics=\"{}\" name=\"{}\"",
-                escape_attr(identifier),
+                " data-fission-semantics=\"{}\"",
                 escape_attr(identifier)
             ));
+        }
+        if let Some(name) = semantics
+            .text_field_name
+            .as_deref()
+            .or(semantics.identifier.as_deref())
+        {
+            attrs.push_str(&format!(" name=\"{}\"", escape_attr(name)));
         }
         if semantics.disabled {
             attrs.push_str(" disabled");
@@ -2252,6 +2273,63 @@ impl HtmlRenderer<'_> {
         }
         if let Some(max_length) = semantics.max_length {
             attrs.push_str(&format!(" maxlength=\"{max_length}\""));
+        }
+        if matches!(semantics.role, Role::TextInput | Role::Input) {
+            if semantics.required {
+                attrs.push_str(" required aria-required=\"true\"");
+            }
+            if let Some(min_length) = semantics.min_length {
+                attrs.push_str(&format!(" minlength=\"{min_length}\""));
+            }
+            if let Some(pattern) = semantics.validation_pattern.as_deref() {
+                attrs.push_str(&format!(" pattern=\"{}\"", escape_attr(pattern)));
+            }
+            match semantics.validation_state {
+                fission_ir::semantics::TextFieldValidationState::Unvalidated => {}
+                fission_ir::semantics::TextFieldValidationState::Valid => {
+                    attrs.push_str(" aria-invalid=\"false\"");
+                }
+                fission_ir::semantics::TextFieldValidationState::Invalid => {
+                    attrs.push_str(" aria-invalid=\"true\"");
+                }
+            }
+            if semantics.validation_message.is_some() {
+                attrs.push_str(&format!(
+                    " aria-errormessage=\"{}\"",
+                    text_validation_message_id(node.id)
+                ));
+            }
+            attrs.push_str(&format!(
+                " inputmode=\"{}\" enterkeyhint=\"{}\" autocapitalize=\"{}\" autocorrect=\"{}\" spellcheck=\"{}\"",
+                html_text_input_mode(semantics),
+                html_enter_key_hint(semantics.text_input_action),
+                html_autocapitalize(semantics.text_capitalization),
+                if semantics.autocorrect { "on" } else { "off" },
+                if semantics.spell_check { "true" } else { "false" },
+            ));
+            if semantics.autofill_group.is_some() || !semantics.autofill_hints.is_empty() {
+                attrs.push_str(&format!(
+                    " autocomplete=\"{}\"",
+                    escape_attr(&html_autocomplete(semantics))
+                ));
+            }
+            if let Some(group) = semantics.autofill_group.as_deref() {
+                attrs.push_str(&format!(
+                    " data-fission-autofill-group=\"{}\"",
+                    escape_attr(group)
+                ));
+            }
+            if let Some(form_id) = semantics.text_form_id.as_deref() {
+                attrs.push_str(&format!(" form=\"{}\"", escape_attr(form_id)));
+            }
+            if semantics.multiline {
+                let wrap = match semantics.text_wrap_mode {
+                    fission_ir::semantics::TextWrapMode::Soft => "soft",
+                    fission_ir::semantics::TextWrapMode::Hard => "hard",
+                    fission_ir::semantics::TextWrapMode::NoWrap => "off",
+                };
+                attrs.push_str(&format!(" wrap=\"{wrap}\""));
+            }
         }
         attrs
     }
@@ -2772,17 +2850,66 @@ impl HtmlRenderer<'_> {
     }
 
     fn render_text_run(&mut self, run: &TextRun) -> String {
+        let typography = &run.style.typography;
         let mut style = vec![
             format!("font-size:{}px", px(run.style.font_size)),
             format!("color:{}", self.color_css(run.style.color)),
             format!("font-weight:{}", run.style.font_weight),
             format!("letter-spacing:{}px", px(run.style.letter_spacing)),
+            format!("word-spacing:{}px", px(typography.word_spacing)),
         ];
-        if run.style.underline {
-            style.push("text-decoration:underline".to_string());
+        let decorations = &typography.decoration.lines;
+        let mut decoration_lines = Vec::new();
+        if run.style.underline || decorations.underline {
+            decoration_lines.push("underline");
+        }
+        if decorations.overline {
+            decoration_lines.push("overline");
+        }
+        if decorations.line_through {
+            decoration_lines.push("line-through");
+        }
+        if !decoration_lines.is_empty() {
+            style.push(format!(
+                "text-decoration-line:{}",
+                decoration_lines.join(" ")
+            ));
+            style.push(format!(
+                "text-decoration-style:{}",
+                match typography.decoration.style {
+                    fission_ir::op::TextDecorationStyle::Solid => "solid",
+                    fission_ir::op::TextDecorationStyle::Double => "double",
+                    fission_ir::op::TextDecorationStyle::Dotted => "dotted",
+                    fission_ir::op::TextDecorationStyle::Dashed => "dashed",
+                    fission_ir::op::TextDecorationStyle::Wavy => "wavy",
+                }
+            ));
+            if let Some(color) = typography.decoration.color {
+                style.push(format!("text-decoration-color:{}", self.color_css(color)));
+            }
+            if let Some(thickness) = typography.decoration.thickness {
+                style.push(format!("text-decoration-thickness:{}px", px(thickness)));
+            }
         }
         if let Some(family) = &run.style.font_family {
-            style.push(format!("font-family:{}", self.font_family_css(family)));
+            let mut families = vec![self.font_family_css(family)];
+            families.extend(
+                typography
+                    .font_fallback
+                    .iter()
+                    .map(|family| self.font_family_css(family)),
+            );
+            style.push(format!("font-family:{}", families.join(",")));
+        } else if !typography.font_fallback.is_empty() {
+            style.push(format!(
+                "font-family:{}",
+                typography
+                    .font_fallback
+                    .iter()
+                    .map(|family| self.font_family_css(family))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ));
         }
         if let Some(line_height) = run.style.line_height {
             style.push(format!("line-height:{}px", px(line_height)));
@@ -2795,9 +2922,85 @@ impl HtmlRenderer<'_> {
             style.push("border-radius:0.35em".to_string());
             style.push("padding:0.1em 0.3em".to_string());
         }
+        if let Some(background) = &typography.background {
+            style.push(format!("background:{}", self.fill_css(background)));
+        }
+        if let Some(foreground) = &typography.foreground {
+            style.push(format!("background:{}", self.fill_css(foreground)));
+            style.push("background-clip:text".to_string());
+            style.push("-webkit-background-clip:text".to_string());
+            style.push("color:transparent".to_string());
+        }
+        if !typography.shadows.is_empty() {
+            style.push(format!(
+                "text-shadow:{}",
+                typography
+                    .shadows
+                    .iter()
+                    .map(|shadow| format!(
+                        "{}px {}px {}px {}",
+                        px(shadow.offset.0),
+                        px(shadow.offset.1),
+                        px(shadow.blur_radius),
+                        self.color_css(shadow.color)
+                    ))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ));
+        }
+        if !typography.font_features.is_empty() {
+            style.push(format!(
+                "font-feature-settings:{}",
+                typography
+                    .font_features
+                    .iter()
+                    .map(|feature| format!("'{}' {}", escape_attr(&feature.tag), feature.value))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ));
+        }
+        if !typography.font_variations.is_empty() {
+            style.push(format!(
+                "font-variation-settings:{}",
+                typography
+                    .font_variations
+                    .iter()
+                    .map(|variation| format!(
+                        "'{}' {}",
+                        escape_attr(&variation.axis),
+                        px(variation.value)
+                    ))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ));
+        }
+        if typography.baseline == fission_ir::op::TextBaseline::Ideographic {
+            style.push("dominant-baseline:ideographic".to_string());
+        }
+        if typography.leading_distribution == fission_ir::op::TextLeadingDistribution::Even {
+            style.push("text-box-trim:trim-both".to_string());
+        }
+        style.push(format!(
+            "line-break:{}",
+            match typography.line_break {
+                fission_ir::op::TextLineBreakPolicy::Auto => "auto",
+                fission_ir::op::TextLineBreakPolicy::Normal => "normal",
+                fission_ir::op::TextLineBreakPolicy::Strict => "strict",
+                fission_ir::op::TextLineBreakPolicy::Loose => "loose",
+                fission_ir::op::TextLineBreakPolicy::Anywhere => "anywhere",
+            }
+        ));
+        style.push(format!(
+            "hyphens:{}",
+            match typography.hyphenation {
+                fission_ir::op::TextHyphenation::None => "none",
+                fission_ir::op::TextHyphenation::Auto => "auto",
+            }
+        ));
         let class_name = self.class_name("fission-site-text-run", style);
+        let language = language_attribute(run.style.locale.as_deref());
         format!(
-            "<span class=\"{}\">{}</span>",
+            "<span class=\"{}\"{language}>{}</span>",
             escape_attr(&class_name),
             escape_text(&run.text)
         )
@@ -2995,6 +3198,27 @@ impl HtmlRenderer<'_> {
             .map(|name| format!("var(--fs-font-{name})"))
             .unwrap_or_else(|| family.to_string())
     }
+}
+
+fn html_autocomplete(semantics: &Semantics) -> String {
+    let mut tokens = Vec::new();
+    if let Some(group) = semantics.autofill_group.as_deref() {
+        let normalized = group
+            .chars()
+            .map(|ch| {
+                if ch.is_ascii_alphanumeric() || ch == '-' {
+                    ch
+                } else {
+                    '-'
+                }
+            })
+            .collect::<String>();
+        if !normalized.is_empty() {
+            tokens.push(format!("section-{normalized}"));
+        }
+    }
+    tokens.extend(semantics.autofill_hints.iter().cloned());
+    tokens.join(" ")
 }
 
 fn markdown_heading_tag(identifier: &str) -> Option<&'static str> {
@@ -3270,6 +3494,22 @@ fn push_paragraph_style(
             TextOverflow::Fade => style.push("overflow:hidden".to_string()),
             TextOverflow::Visible => {}
         }
+    }
+}
+
+fn language_attribute(locale: Option<&str>) -> String {
+    locale
+        .filter(|locale| !locale.trim().is_empty())
+        .map(|locale| format!(" lang=\"{}\"", escape_attr(locale)))
+        .unwrap_or_default()
+}
+
+fn direction_attribute(paragraph: Option<&fission_ir::op::TextParagraphStyle>) -> &'static str {
+    match paragraph.map(|style| style.text_direction) {
+        Some(fission_ir::op::TextDirection::Ltr) => " dir=\"ltr\"",
+        Some(fission_ir::op::TextDirection::Rtl) => " dir=\"rtl\"",
+        Some(fission_ir::op::TextDirection::Auto) => " dir=\"auto\"",
+        None => "",
     }
 }
 
@@ -3824,6 +4064,47 @@ fn html_text_input_type(semantics: &Semantics) -> &'static str {
     }
 }
 
+fn html_text_input_mode(semantics: &Semantics) -> &'static str {
+    use fission_ir::semantics::TextInputType;
+
+    match semantics.text_input_type {
+        TextInputType::Number => "decimal",
+        TextInputType::EmailAddress => "email",
+        TextInputType::Url => "url",
+        TextInputType::Phone => "tel",
+        TextInputType::Text | TextInputType::Multiline | TextInputType::Name => "text",
+    }
+}
+
+fn html_enter_key_hint(action: fission_ir::semantics::TextInputAction) -> &'static str {
+    use fission_ir::semantics::TextInputAction;
+
+    match action {
+        TextInputAction::Done => "done",
+        TextInputAction::Go | TextInputAction::Route => "go",
+        TextInputAction::Search => "search",
+        TextInputAction::Send | TextInputAction::EmergencyCall => "send",
+        TextInputAction::Next => "next",
+        TextInputAction::Previous => "previous",
+        TextInputAction::Continue | TextInputAction::Join | TextInputAction::Newline => "enter",
+    }
+}
+
+fn html_autocapitalize(capitalization: fission_ir::semantics::TextCapitalization) -> &'static str {
+    use fission_ir::semantics::TextCapitalization;
+
+    match capitalization {
+        TextCapitalization::None => "none",
+        TextCapitalization::Characters => "characters",
+        TextCapitalization::Words => "words",
+        TextCapitalization::Sentences => "sentences",
+    }
+}
+
+fn text_validation_message_id(node_id: WidgetId) -> String {
+    format!("fission-text-validation-{}", node_id.as_u128())
+}
+
 fn image_fit_css(fit: ImageFit) -> &'static str {
     match fit {
         ImageFit::Contain => "contain",
@@ -4257,13 +4538,17 @@ mod tests {
                 size: 16.0,
                 color: Color::BLACK,
                 underline: false,
+                locale: Some("en-GB".into()),
                 wrap: true,
                 caret_index: None,
                 caret_color: None,
                 caret_width: None,
                 caret_height: None,
                 caret_radius: None,
-                paragraph_style: None,
+                paragraph_style: Some(fission_ir::op::TextParagraphStyle {
+                    text_direction: fission_ir::op::TextDirection::Ltr,
+                    ..Default::default()
+                }),
             }),
             Vec::new(),
         );
@@ -4275,6 +4560,8 @@ mod tests {
         ir.set_root(root);
 
         let rendered = render_ir_to_html(&ir, &HtmlRenderOptions::default()).unwrap();
+        assert!(rendered.html.contains("lang=\"en-GB\""));
+        assert!(rendered.html.contains("dir=\"ltr\""));
         assert!(rendered.html.contains("Hello &lt;site&gt;"));
         assert!(!rendered.html.contains("style=\""));
         assert!(rendered.css.contains(".fs_"));
@@ -4422,6 +4709,64 @@ mod tests {
         assert!(rendered.html.contains("loop"));
         assert!(rendered.html.contains("<input"));
         assert!(rendered.html.contains("value=\"fission\""));
+    }
+
+    #[test]
+    fn text_controls_lower_complete_browser_input_contract() {
+        use fission_ir::semantics::{
+            TextCapitalization, TextFieldValidationState, TextInputAction, TextInputType,
+        };
+
+        let input = WidgetId::explicit("email-field");
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            input,
+            Op::Semantics(Semantics {
+                role: Role::TextInput,
+                label: Some("Email".into()),
+                identifier: Some("email-semantics".into()),
+                text_field_name: Some("email".into()),
+                autofill_group: Some("account".into()),
+                text_input_type: TextInputType::EmailAddress,
+                text_input_action: TextInputAction::Next,
+                text_capitalization: TextCapitalization::None,
+                required: true,
+                min_length: Some(3),
+                max_length: Some(320),
+                validation_pattern: Some("[^@]+@[^@]+".into()),
+                validation_state: TextFieldValidationState::Invalid,
+                validation_message: Some("Enter a valid email".into()),
+                autocorrect: false,
+                spell_check: false,
+                autofill_hints: vec!["email".into()],
+                ..Default::default()
+            }),
+            Vec::new(),
+        );
+        ir.set_root(input);
+
+        let rendered = render_ir_to_html(&ir, &HtmlRenderOptions::default()).unwrap();
+
+        for attribute in [
+            "name=\"email\"",
+            "type=\"email\"",
+            "inputmode=\"email\"",
+            "enterkeyhint=\"next\"",
+            "autocomplete=\"section-account email\"",
+            "autocapitalize=\"none\"",
+            "autocorrect=\"off\"",
+            "spellcheck=\"false\"",
+            "required",
+            "minlength=\"3\"",
+            "maxlength=\"320\"",
+            "pattern=\"[^@]+@[^@]+\"",
+            "aria-invalid=\"true\"",
+            "aria-errormessage=\"fission-text-validation-",
+            "data-fission-autofill-group=\"account\"",
+        ] {
+            assert!(rendered.html.contains(attribute), "missing {attribute}");
+        }
+        assert!(rendered.html.contains("Enter a valid email"));
     }
 
     #[test]
@@ -4678,12 +5023,13 @@ mod tests {
                         color: Color::WHITE,
                         underline: false,
                         font_family: None,
-                        locale: None,
+                        locale: Some("ar&amp;\"test".into()),
                         font_weight: 700,
                         font_style: FontStyle::Normal,
                         line_height: Some(28.0),
                         letter_spacing: 0.0,
                         background_color: None,
+                        typography: Default::default(),
                     },
                 }],
                 wrap: true,
@@ -4694,6 +5040,7 @@ mod tests {
                 caret_radius: None,
                 paragraph_style: Some(fission_ir::op::TextParagraphStyle {
                     text_align: TextAlign::Center,
+                    text_direction: fission_ir::op::TextDirection::Rtl,
                     ..Default::default()
                 }),
             }),
@@ -4711,6 +5058,8 @@ mod tests {
         assert!(rendered.css.contains("display:block"));
         assert!(rendered.css.contains("width:100%"));
         assert!(rendered.css.contains("text-align:center"));
+        assert!(rendered.html.contains("dir=\"rtl\""));
+        assert!(rendered.html.contains("lang=\"ar&amp;amp;&quot;test\""));
         assert!(!rendered
             .css
             .contains("display:inline;white-space:pre-wrap;text-align:center"));
@@ -5531,6 +5880,7 @@ mod tests {
                 size: 16.0,
                 color: Color::BLACK,
                 underline: false,
+                locale: None,
                 wrap: true,
                 caret_index: None,
                 caret_color: None,
@@ -5603,6 +5953,7 @@ mod tests {
                 size: 24.0,
                 color: Color::BLACK,
                 underline: false,
+                locale: None,
                 wrap: true,
                 caret_index: None,
                 caret_color: None,

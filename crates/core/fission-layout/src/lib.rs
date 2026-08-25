@@ -36,7 +36,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+
+mod paragraph;
+pub use paragraph::{
+    LineMetric, ParagraphCaretStop, ParagraphCluster, ParagraphGlyph, ParagraphSelectionBox,
+    ResolvedParagraphLayout, RichTextInlineBox, RichTextLayoutInfo,
+};
 
 mod grid_tracks;
 
@@ -876,6 +882,7 @@ mod tests {
                 line_height: None,
                 letter_spacing: 0.0,
                 background_color: None,
+                typography: Default::default(),
             },
         }
     }
@@ -992,6 +999,7 @@ mod tests {
                 line_height: None,
                 letter_spacing: 0.0,
                 background_color: None,
+                typography: Default::default(),
             },
         }];
 
@@ -1792,6 +1800,11 @@ pub struct LayoutSnapshot {
     /// debugging. Skipped during serialization.
     #[serde(skip)]
     pub constraints: HashMap<WidgetId, BoxConstraints>,
+    /// Immutable paragraph decisions retained by widget identity. Downstream
+    /// paint, input, IME, and accessibility consumers must use this geometry
+    /// rather than independently reshaping with reconstructed constraints.
+    #[serde(default)]
+    pub paragraphs: HashMap<WidgetId, ResolvedParagraphLayout>,
     /// The viewport size used for this layout pass.
     pub viewport_size: LayoutSize,
 }
@@ -1802,6 +1815,7 @@ impl LayoutSnapshot {
         Self {
             nodes: HashMap::new(),
             constraints: HashMap::new(),
+            paragraphs: HashMap::new(),
             viewport_size,
         }
     }
@@ -1821,6 +1835,10 @@ impl LayoutSnapshot {
     /// if not found. Useful for debugging layout issues.
     pub fn get_node_constraints(&self, node_id: WidgetId) -> Option<BoxConstraints> {
         self.constraints.get(&node_id).copied()
+    }
+
+    pub fn get_resolved_paragraph(&self, node_id: WidgetId) -> Option<&ResolvedParagraphLayout> {
+        self.paragraphs.get(&node_id)
     }
 }
 
@@ -1899,40 +1917,6 @@ fn has_explicit_cross_axis_size(node: &LayoutInputNode, is_row: bool) -> bool {
 
 fn has_explicit_main_axis_size(node: &LayoutInputNode, is_row: bool) -> bool {
     has_explicit_axis_size(node, is_row)
-}
-
-/// Per-line metrics returned by text measurement.
-///
-/// When the layout engine or hit-testing code needs to know about individual lines
-/// of text (e.g., for cursor positioning in a multi-line text field), it calls
-/// [`TextMeasurer::get_line_metrics`] and receives a `Vec<LineMetric>`.
-pub struct LineMetric {
-    /// Byte index where this line starts in the source string.
-    pub start_index: usize,
-    /// Byte index where this line ends in the source string (exclusive).
-    pub end_index: usize,
-    /// Distance from the top of the line to its alphabetic baseline, in logical pixels.
-    pub baseline: f32,
-    /// Total height of the line (ascent + descent + leading), in logical pixels.
-    pub height: f32,
-    /// Measured width of the line's content, in logical pixels.
-    pub width: f32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct RichTextInlineBox {
-    pub id: u64,
-    pub x: f32,
-    pub y: f32,
-    pub width: f32,
-    pub height: f32,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct RichTextLayoutInfo {
-    pub width: f32,
-    pub height: f32,
-    pub inline_boxes: Vec<RichTextInlineBox>,
 }
 
 /// A platform-provided text measurement backend.
@@ -2035,6 +2019,27 @@ pub trait TextMeasurer: Send + Sync {
         }
     }
 
+    /// Resolves one immutable paragraph summary at the exact wrapping width.
+    /// Backends should override this to return metrics from the same cached
+    /// shaping result used by paint and hit testing.
+    fn resolve_rich_text(
+        &self,
+        runs: &[TextRun],
+        available_width: Option<f32>,
+    ) -> ResolvedParagraphLayout {
+        let info = self.layout_rich_text(runs, available_width);
+        ResolvedParagraphLayout {
+            constraint_width: available_width,
+            size: LayoutSize::new(info.width, info.height),
+            lines: Vec::new(),
+            inline_boxes: info.inline_boxes,
+            clusters: Vec::new(),
+            glyphs: Vec::new(),
+            caret_stops: Vec::new(),
+            selection_boxes: Vec::new(),
+        }
+    }
+
     /// Hit-test rich text (styled runs) at the given (x, y) position.
     /// Returns the byte offset into the concatenated text of all runs.
     /// Default falls back to plain hit_test using the first run's font size.
@@ -2100,6 +2105,7 @@ pub struct LayoutEngine {
     next_graph_version: u64,
     incremental_reuse: Option<IncrementalLayoutReuseState>,
     active_viewport: LayoutSize,
+    resolved_paragraphs: Mutex<HashMap<WidgetId, ResolvedParagraphLayout>>,
 }
 
 impl LayoutEngine {
@@ -2116,6 +2122,7 @@ impl LayoutEngine {
             next_graph_version: 1,
             incremental_reuse: None,
             active_viewport: LayoutSize::ZERO,
+            resolved_paragraphs: Mutex::new(HashMap::new()),
         }
     }
 
@@ -2306,6 +2313,7 @@ impl LayoutEngine {
         scroll_source: &impl ScrollDataSource,
     ) -> Result<LayoutSnapshot> {
         self.active_viewport = viewport_size;
+        self.resolved_paragraphs.lock().unwrap().clear();
         self.ensure_graph_state(input_nodes);
         self.validate_graph_state(root_node_id)?;
 
@@ -2467,6 +2475,7 @@ impl LayoutEngine {
             }
         }
 
+        snapshot.paragraphs = self.resolved_paragraphs.lock().unwrap().clone();
         self.graph_state.mark_layout_complete();
         self.incremental_reuse = None;
 
@@ -2789,6 +2798,12 @@ impl LayoutEngine {
             geometry.rect.origin.y += dy;
             out.insert(current_id, geometry);
             constraints_out.insert(current_id, previous_constraints);
+            if let Some(paragraph) = reuse.previous_snapshot.paragraphs.get(&current_id) {
+                self.resolved_paragraphs
+                    .lock()
+                    .unwrap()
+                    .insert(current_id, paragraph.clone());
+            }
 
             let children = self.graph_state.children_of(current_id);
             for child_id in children.iter().rev() {
@@ -2816,7 +2831,7 @@ impl LayoutEngine {
         };
         if let (Some(runs), Some(measurer)) = (&node.rich_text, &self.measurer) {
             return Ok(match intrinsic {
-                IntrinsicAxis::Max => measurer.layout_rich_text(runs, None).width,
+                IntrinsicAxis::Max => measurer.resolve_rich_text(runs, None).size.width,
                 IntrinsicAxis::Min => runs
                     .iter()
                     .flat_map(|run| {
@@ -2978,7 +2993,7 @@ impl LayoutEngine {
                             })
                         })
                         .fold(0.0, f32::max);
-                    max_content = measurer.layout_rich_text(runs, None).width;
+                    max_content = measurer.resolve_rich_text(runs, None).size.width;
                 }
                 for child_id in &flow_children {
                     min_content = min_content.max(self.measure_grid_intrinsic_width(
@@ -4997,10 +5012,16 @@ impl LayoutEngine {
                         .is_width_bounded()
                         .then_some(text_inner_constraints.max_w),
                 };
-                let rich_layout = measurer.layout_rich_text(runs, avail_w);
+                let rich_layout = measurer.resolve_rich_text(runs, avail_w);
+                if record {
+                    self.resolved_paragraphs
+                        .lock()
+                        .unwrap()
+                        .insert(node_id, rich_layout.clone());
+                }
                 let text_content = LayoutSize::new(
-                    rich_layout.width + text_padding[0] + text_padding[1],
-                    rich_layout.height + text_padding[2] + text_padding[3],
+                    rich_layout.size.width + text_padding[0] + text_padding[1],
+                    rich_layout.size.height + text_padding[2] + text_padding[3],
                 );
                 if let LayoutOp::StyledBox { style, .. } = &node.op {
                     let available = if constraints.max_h.is_finite() {

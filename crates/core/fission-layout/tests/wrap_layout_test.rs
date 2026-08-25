@@ -67,6 +67,7 @@ fn text_node(id: u128, parent: u128, text: &str) -> LayoutInputNode {
             line_height: None,
             letter_spacing: 0.0,
             background_color: None,
+            typography: Default::default(),
         },
     }]);
     node

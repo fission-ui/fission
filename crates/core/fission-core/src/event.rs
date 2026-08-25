@@ -223,6 +223,15 @@ pub enum KeyEvent {
         /// Modifier bitmask (Shift=1, Alt=2, Ctrl=4, Super=8).
         modifiers: u8,
     },
+    /// A key press carrying the complete text produced by the platform.
+    ///
+    /// `key_code` remains the logical shortcut/navigation identity. `text` is
+    /// inserted as one edit and may contain several scalars or graphemes.
+    DownWithText {
+        key_code: KeyCode,
+        modifiers: u8,
+        text: String,
+    },
     /// A key was released.
     Up { key_code: KeyCode, modifiers: u8 },
 }
@@ -315,6 +324,8 @@ pub enum InputEvent {
     Ime(ImeEvent),
     /// A platform-native semantic text-editing command.
     Editing(EditingCommand),
+    /// A complete platform-neutral value, selection, composition, or range edit.
+    TextEdit(crate::TextEditCommand),
     /// A platform requested Fission's contextual action at this position.
     ContextMenuRequested {
         point: LayoutPoint,

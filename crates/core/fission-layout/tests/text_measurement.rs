@@ -97,6 +97,7 @@ fn make_text_node(
                 line_height: None,
                 letter_spacing: 0.0,
                 background_color: None,
+                typography: Default::default(),
             },
         }]),
     }

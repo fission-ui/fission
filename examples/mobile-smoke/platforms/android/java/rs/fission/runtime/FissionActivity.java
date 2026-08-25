@@ -1,6 +1,6 @@
 package rs.fission.runtime;
 
-import android.app.NativeActivity;
+import com.google.androidgamesdk.GameActivity;
 import android.media.MediaPlayer;
 import android.media.PlaybackParams;
 import android.os.Bundle;
@@ -12,7 +12,7 @@ import android.widget.VideoView;
 import java.util.HashMap;
 import java.util.Map;
 
-public final class FissionActivity extends NativeActivity {
+public final class FissionActivity extends GameActivity {
     private static volatile FissionActivity INSTANCE;
     private static final Map<Long, FissionVideoSlot> VIDEOS = new HashMap<>();
 

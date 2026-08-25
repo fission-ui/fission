@@ -39,6 +39,7 @@ downcast-rs = "1.2"
 lazy_static = "1.4"
 blake3 = "1.5"
 unicode-segmentation = "1.10"
+regex-lite = "0.1.9"
 glam = "0.29"
 fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.13.0", default-features = false }
 

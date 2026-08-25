@@ -6,6 +6,11 @@ const CONTENT_MAX_WIDTH: f32 = 420.0;
 #[derive(Default, Debug, Clone, PartialEq)]
 pub struct CounterState {
     pub count: i32,
+    pub primary_text: String,
+    pub secondary_text: String,
+    pub password: String,
+    pub primary_edits: usize,
+    pub secondary_edits: usize,
 }
 
 impl GlobalState for CounterState {}
@@ -13,6 +18,29 @@ impl GlobalState for CounterState {}
 #[fission_reducer(Increment)]
 fn on_increment(state: &mut CounterState) {
     state.count += 1;
+}
+
+#[fission_reducer(EditPrimary)]
+fn edit_primary(state: &mut CounterState, ctx: &mut ReducerContext<CounterState>) {
+    if let Some(change) = ctx.input.text_change() {
+        state.primary_text = change.new_text.clone();
+        state.primary_edits += 1;
+    }
+}
+
+#[fission_reducer(EditSecondary)]
+fn edit_secondary(state: &mut CounterState, ctx: &mut ReducerContext<CounterState>) {
+    if let Some(change) = ctx.input.text_change() {
+        state.secondary_text = change.new_text.clone();
+        state.secondary_edits += 1;
+    }
+}
+
+#[fission_reducer(EditPassword)]
+fn edit_password(state: &mut CounterState, ctx: &mut ReducerContext<CounterState>) {
+    if let Some(change) = ctx.input.text_change() {
+        state.password = change.new_text.clone();
+    }
 }
 
 #[derive(Clone)]
@@ -23,6 +51,9 @@ impl From<CounterApp> for Widget {
         let (ctx, view) = fission::build::current::<CounterState>();
         let tokens = &view.env().theme.tokens;
         let increment = with_reducer!(ctx, Increment, on_increment);
+        let edit_primary = with_reducer!(ctx, EditPrimary, edit_primary);
+        let edit_secondary = with_reducer!(ctx, EditSecondary, edit_secondary);
+        let edit_password = with_reducer!(ctx, EditPassword, edit_password);
 
         let content = Container::new(Column {
             gap: Some(tokens.spacing.m),
@@ -45,6 +76,54 @@ impl From<CounterApp> for Widget {
                     ..Default::default()
                 }
                 .semantics_identifier("web-smoke.increment")
+                .into(),
+                TextInput {
+                    id: Some(WidgetId::explicit("web-smoke.text.primary")),
+                    semantics_identifier: Some("web-smoke.text.primary".into()),
+                    name: Some("primary".into()),
+                    label: Some("Primary field".into()),
+                    value: view.state().primary_text.clone(),
+                    on_input: Some(edit_primary),
+                    required: true,
+                    autocorrect: true,
+                    enable_suggestions: true,
+                    spell_check: true,
+                    ..Default::default()
+                }
+                .into(),
+                Text::new(format!(
+                    "Primary value: {} (edits: {})",
+                    view.state().primary_text,
+                    view.state().primary_edits
+                ))
+                .into(),
+                TextInput {
+                    id: Some(WidgetId::explicit("web-smoke.text.secondary")),
+                    semantics_identifier: Some("web-smoke.text.secondary".into()),
+                    name: Some("secondary".into()),
+                    label: Some("Secondary field".into()),
+                    value: view.state().secondary_text.clone(),
+                    on_input: Some(edit_secondary),
+                    ..Default::default()
+                }
+                .into(),
+                Text::new(format!(
+                    "Secondary value: {} (edits: {})",
+                    view.state().secondary_text,
+                    view.state().secondary_edits
+                ))
+                .into(),
+                TextInput {
+                    id: Some(WidgetId::explicit("web-smoke.text.password")),
+                    semantics_identifier: Some("web-smoke.text.password".into()),
+                    name: Some("password".into()),
+                    label: Some("Password field".into()),
+                    value: view.state().password.clone(),
+                    on_input: Some(edit_password),
+                    obscure_text: true,
+                    autofill_hints: vec!["current-password".into()],
+                    ..Default::default()
+                }
                 .into(),
             ],
             ..Default::default()

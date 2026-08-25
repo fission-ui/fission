@@ -12,7 +12,7 @@ use fission_core::ui::widgets::text_input::{
     DragStartBehavior, TextInputRuntimeConfig, TextUndoController,
 };
 use fission_core::ui::TextContextMenuAction;
-use fission_core::Runtime;
+use fission_core::{Runtime, TextEditingValue};
 use fission_ir::op::{Color, TextRun, TextStyle};
 use fission_ir::{
     semantics::{
@@ -60,6 +60,7 @@ fn word_navigation_modifier() -> u8 {
 struct RecordingImeHandler {
     allowed: Mutex<Vec<bool>>,
     cursor_areas: Mutex<Vec<LayoutRect>>,
+    editing_values: Mutex<Vec<TextEditingValue>>,
 }
 
 impl ImeHandler for RecordingImeHandler {
@@ -69,6 +70,10 @@ impl ImeHandler for RecordingImeHandler {
 
     fn set_ime_cursor_area(&self, rect: LayoutRect) {
         self.cursor_areas.lock().unwrap().push(rect);
+    }
+
+    fn set_editing_value(&self, value: &TextEditingValue) {
+        self.editing_values.lock().unwrap().push(value.clone());
     }
 }
 
@@ -403,6 +408,7 @@ fn setup_ctx_with_convention<'a>(
         viewport,
         gesture,
         editing_convention,
+        current_time: 0,
         clipboard: Some(clipboard),
         measurer,
         dispatched_actions: Vec::new(),
@@ -422,6 +428,8 @@ fn create_text_node(id: WidgetId, val: &str, multiline: bool) -> CoreIR {
                 value: Some(val.to_string()),
                 label: None,
                 identifier: None,
+                hyperlink: None,
+                popover_target: None,
                 actions: ActionSet {
                     entries: vec![ActionEntry {
                         trigger: ActionTrigger::TextChanged,
@@ -433,12 +441,14 @@ fn create_text_node(id: WidgetId, val: &str, multiline: bool) -> CoreIR {
                 focusable: true,
                 focus_policy: fission_ir::FocusPolicy::FocusOnPointer,
                 multiline,
+                text_wrap_mode: fission_ir::semantics::TextWrapMode::Soft,
                 masked: false,
                 input_mask: None,
                 ime_preedit_range: None,
                 ime_preedit_cursor_range: None,
                 text_selection: None,
                 selectable_text: false,
+                selection_region: None,
                 context_menu: false,
                 checked: None,
                 disabled: false,
@@ -462,6 +472,14 @@ fn create_text_node(id: WidgetId, val: &str, multiline: bool) -> CoreIR {
                 max_length: None,
                 max_length_enforcement: fission_ir::semantics::MaxLengthEnforcement::Enforced,
                 input_formatters: Vec::new(),
+                text_field_name: None,
+                text_form_id: None,
+                autofill_group: None,
+                required: false,
+                min_length: None,
+                validation_pattern: None,
+                validation_state: Default::default(),
+                validation_message: None,
                 autocorrect: true,
                 enable_suggestions: true,
                 spell_check: true,
@@ -614,7 +632,7 @@ fn test_ime_preedit_tracks_cursor_without_dispatching_change() {
 fn pending_text_edit_accepts_transformed_model_value_on_sync() {
     let node_id = WidgetId::derived(40, &[3]);
     let mut text_edit = TextEditStateMap::default();
-    text_edit.sync_from_runtime(node_id, "First item\n", None, None);
+    text_edit.sync_from_runtime(node_id, "First item\n", None, None, false);
     text_edit.get_mut_or_default(node_id).apply_edit(
         "First item".len().."First item".len(),
         "Second item",
@@ -622,7 +640,7 @@ fn pending_text_edit_accepts_transformed_model_value_on_sync() {
         "First itemSecond item".len(),
     );
 
-    text_edit.sync_from_runtime(node_id, "First item\nSecond item", None, None);
+    text_edit.sync_from_runtime(node_id, "First item\nSecond item", None, None, false);
 
     let state = text_edit.get(node_id).expect("text input state");
     assert_eq!(state.committed_text(), "First item\nSecond item");
@@ -674,6 +692,31 @@ fn runtime_updates_ime_cursor_area_from_text_caret() {
         .expect("IME preedit should be handled");
 
     assert_eq!(ime_handler.allowed.lock().unwrap().last(), Some(&true));
+    let editing_value = ime_handler
+        .editing_values
+        .lock()
+        .unwrap()
+        .last()
+        .cloned()
+        .expect("complete editing value should be synchronized");
+    assert_eq!(editing_value.text, "hello!");
+    assert_eq!(editing_value.selection.extent.utf8_offset(), "hello!".len());
+    assert_eq!(
+        editing_value
+            .composing
+            .expect("preedit range")
+            .start
+            .utf8_offset(),
+        5
+    );
+    assert_eq!(
+        editing_value
+            .composing
+            .expect("preedit range")
+            .end
+            .utf8_offset(),
+        6
+    );
     let cursor_area = *ime_handler
         .cursor_areas
         .lock()
@@ -836,6 +879,8 @@ fn create_rich_text_input_tree(
                 value: Some(val.to_string()),
                 label: None,
                 identifier: None,
+                hyperlink: None,
+                popover_target: None,
                 actions: ActionSet {
                     entries: vec![ActionEntry {
                         trigger: ActionTrigger::TextChanged,
@@ -847,12 +892,14 @@ fn create_rich_text_input_tree(
                 focusable: true,
                 focus_policy: fission_ir::FocusPolicy::FocusOnPointer,
                 multiline,
+                text_wrap_mode: fission_ir::semantics::TextWrapMode::Soft,
                 masked: false,
                 input_mask: None,
                 ime_preedit_range: None,
                 ime_preedit_cursor_range: None,
                 text_selection: None,
                 selectable_text: false,
+                selection_region: None,
                 context_menu: false,
                 checked: None,
                 disabled: false,
@@ -876,6 +923,14 @@ fn create_rich_text_input_tree(
                 max_length: None,
                 max_length_enforcement: fission_ir::semantics::MaxLengthEnforcement::Enforced,
                 input_formatters: Vec::new(),
+                text_field_name: None,
+                text_form_id: None,
+                autofill_group: None,
+                required: false,
+                min_length: None,
+                validation_pattern: None,
+                validation_state: Default::default(),
+                validation_message: None,
                 autocorrect: true,
                 enable_suggestions: true,
                 spell_check: true,
@@ -939,6 +994,7 @@ fn create_rich_text_input_tree(
                         line_height: None,
                         letter_spacing: 0.0,
                         background_color: None,
+                        typography: Default::default(),
                     },
                 }],
                 wrap: true,
@@ -2254,7 +2310,7 @@ fn test_max_length_enforced_on_typing() {
 }
 
 #[test]
-fn test_text_capitalization_words_applies_to_inserted_text() {
+fn test_text_capitalization_is_platform_intent_not_a_formatter() {
     let node_id = WidgetId::derived(27, &[0]);
     let mut ir = create_text_node(node_id, "hello ", false);
     set_capitalization(&mut ir, node_id, TextCapitalization::Words);
@@ -2287,7 +2343,102 @@ fn test_text_capitalization_words_applies_to_inserted_text() {
     assert!(controller.handle_event(&mut ctx, &event));
     assert_eq!(
         ctx.dispatched_actions[0].2.text_change().unwrap().new_text,
-        "hello W"
+        "hello w"
+    );
+}
+
+#[test]
+fn produced_text_is_distinct_from_logical_key_and_inserted_once() {
+    let node_id = WidgetId::derived(271, &[0]);
+    let ir = create_text_node(node_id, "", false);
+    let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
+    let mut text_edit = TextEditStateMap::default();
+    let mut interaction = InteractionStateMap::default();
+    let mut scroll = ScrollStateMap::default();
+    let mut gesture = fission_core::env::GestureState::default();
+    let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
+    let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
+    interaction.set_focused(Some(node_id));
+    text_edit.set_caret(node_id, 0, None);
+    let mut controller = TextInputController;
+    let mut ctx = setup_ctx(
+        &ir,
+        &layout,
+        &mut text_edit,
+        &mut interaction,
+        &mut scroll,
+        &mut gesture,
+        &clipboard,
+        Some(&measurer),
+    );
+
+    assert!(controller.handle_event(
+        &mut ctx,
+        &InputEvent::Keyboard(KeyEvent::DownWithText {
+            key_code: KeyCode::Space,
+            modifiers: 0,
+            text: "t".into(),
+        }),
+    ));
+    assert!(controller.handle_event(
+        &mut ctx,
+        &InputEvent::Keyboard(KeyEvent::DownWithText {
+            key_code: KeyCode::Char('x'),
+            modifiers: 0,
+            text: "é🙂".into(),
+        }),
+    ));
+    assert_eq!(ctx.text_edit.get(node_id).unwrap().committed_text(), "té🙂");
+
+    assert!(controller.handle_event(
+        &mut ctx,
+        &InputEvent::Keyboard(KeyEvent::DownWithText {
+            key_code: KeyCode::Char('a'),
+            modifiers: MOD_CTRL,
+            text: "a".into(),
+        }),
+    ));
+    assert_eq!(ctx.text_edit.get(node_id).unwrap().committed_text(), "té🙂");
+    assert_eq!(
+        ctx.text_edit.get(node_id).unwrap().selection_range(),
+        (0, "té🙂".len())
+    );
+}
+
+#[test]
+fn test_max_length_counts_grapheme_clusters() {
+    let node_id = WidgetId::derived(270, &[0]);
+    let mut ir = create_text_node(node_id, "e\u{301}", false);
+    set_max_length(&mut ir, node_id, 2);
+    let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
+    let mut text_edit = TextEditStateMap::default();
+    let mut interaction = InteractionStateMap::default();
+    let mut scroll = ScrollStateMap::default();
+    let mut gesture = fission_core::env::GestureState::default();
+    let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
+    let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
+    interaction.set_focused(Some(node_id));
+    text_edit.set_caret(node_id, "e\u{301}".len(), None);
+    let mut controller = TextInputController;
+    let mut ctx = setup_ctx(
+        &ir,
+        &layout,
+        &mut text_edit,
+        &mut interaction,
+        &mut scroll,
+        &mut gesture,
+        &clipboard,
+        Some(&measurer),
+    );
+    assert!(controller.handle_event(
+        &mut ctx,
+        &InputEvent::Ime(ImeEvent::Commit {
+            text: "👨‍👩‍👧‍👦x".into()
+        })
+    ));
+    assert_eq!(
+        ctx.text_edit.get(node_id).unwrap().committed_text(),
+        "e\u{301}👨‍👩‍👧‍👦"
     );
 }
 
@@ -2331,7 +2482,7 @@ fn test_digits_only_formatter_filters_paste() {
 }
 
 #[test]
-fn test_number_keyboard_hint_filters_ime_commit_but_dispatches_text() {
+fn test_number_keyboard_hint_does_not_implicitly_validate_text() {
     let node_id = WidgetId::derived(29, &[0]);
     let mut ir = create_text_node(node_id, "", false);
     set_input_type(&mut ir, node_id, TextInputType::Number);
@@ -2363,7 +2514,7 @@ fn test_number_keyboard_hint_filters_ime_commit_but_dispatches_text() {
     assert!(controller.handle_event(&mut ctx, &event));
     assert_eq!(
         ctx.dispatched_actions[0].2.text_change().unwrap().new_text,
-        "12.3"
+        "12ab.3"
     );
 }
 
@@ -2485,6 +2636,12 @@ fn test_drag_start_behavior_down_skips_pointer_slop() {
             undo_controller: None,
             restoration_id: None,
             spell_check_configuration: None,
+            custom_input_formatters: Vec::new(),
+            select_all_on_focus: false,
+            scroll_policy: Default::default(),
+            scroll_physics: Default::default(),
+            form_id: None,
+            validator: None,
         },
     );
 
@@ -2620,17 +2777,46 @@ fn test_restoration_id_restores_local_edit_state() {
     let second_id = WidgetId::derived(212, &[1]);
     let mut text_edit = TextEditStateMap::default();
 
-    text_edit.sync_from_runtime(first_id, "", Some("search-box"), Some(8));
+    text_edit.sync_from_runtime(first_id, "", Some("search-box"), Some(8), false);
     let first_state = text_edit.get_mut_or_default(first_id);
     let restored = first_state.apply_edit(0..0, "restored", 8, 8);
     assert_eq!(restored, "restored");
-    text_edit.persist_restoration(first_id, Some("search-box"));
+    text_edit.persist_restoration(first_id, Some("search-box"), false);
 
-    text_edit.sync_from_runtime(second_id, "", Some("search-box"), Some(8));
+    text_edit.sync_from_runtime(second_id, "", Some("search-box"), Some(8), false);
     let second_state = text_edit.get(second_id).expect("restored state");
     assert_eq!(second_state.committed_text(), "restored");
     assert_eq!(second_state.caret, 8);
     assert_eq!(second_state.anchor, 8);
+}
+
+#[test]
+fn masked_text_never_enters_or_restores_from_restoration_state() {
+    let input_id = WidgetId::derived(212, &[2]);
+    let replacement_id = WidgetId::derived(212, &[3]);
+    let mut text_edit = TextEditStateMap::default();
+
+    // Simulate a restoration identifier that was previously used by a plain
+    // field. Switching it to a masked field must purge the old artifact.
+    text_edit.sync_from_runtime(input_id, "", Some("credential"), None, false);
+    text_edit
+        .get_mut_or_default(input_id)
+        .apply_edit(0..0, "not-for-restoration", 19, 19);
+    text_edit.persist_restoration(input_id, Some("credential"), false);
+    assert!(text_edit.restoration.contains_key("credential"));
+
+    text_edit.sync_from_runtime(replacement_id, "secret", Some("credential"), None, true);
+    text_edit.persist_restoration(replacement_id, Some("credential"), true);
+
+    assert!(!text_edit.restoration.contains_key("credential"));
+    assert!(
+        text_edit
+            .get(replacement_id)
+            .expect("masked state")
+            .committed_text()
+            == "secret",
+        "masked runtime state did not retain its live value"
+    );
 }
 
 #[test]
@@ -2647,6 +2833,12 @@ fn test_undo_controller_capacity_limits_history_depth() {
             undo_controller: Some(TextUndoController { capacity: 1 }),
             restoration_id: None,
             spell_check_configuration: None,
+            custom_input_formatters: Vec::new(),
+            select_all_on_focus: false,
+            scroll_policy: Default::default(),
+            scroll_physics: Default::default(),
+            form_id: None,
+            validator: None,
         },
     );
 
@@ -3261,7 +3453,6 @@ fn test_multiline_enter_key() {
 }
 
 #[test]
-#[ignore]
 fn test_multiline_vertical_navigation_up_down() {
     let node_id = WidgetId::derived(1, &[0]);
     let initial_text = "First Line\nSecond Line\nThird Line";
@@ -3329,7 +3520,7 @@ fn test_multiline_vertical_navigation_up_down() {
         assert!(controller.handle_event(&mut ctx, &event));
         // Expect caret to move to same horizontal position on Line Two
         let st = ctx.text_edit.get(node_id).unwrap();
-        assert_eq!(st.caret, "First Line\nSecond Line".len());
-        assert_eq!(st.anchor, "First Line\nSecond Line".len());
+        assert_eq!(st.caret, "First Line\nSecond Lin".len());
+        assert_eq!(st.anchor, "First Line\nSecond Lin".len());
     }
 }

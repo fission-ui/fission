@@ -12,7 +12,8 @@ use fission_core::ui::{
 use fission_core::{ActionEnvelope, ActionId};
 use fission_ir::op::{
     decode_inline_widget_marker, Color, Fill, LayoutOp, MouseCursor, Op, PaintOp,
-    RichTextAnnotation, TextAlign, TextDirection, TextHeightBehavior, TextOverflow, TextWidthBasis,
+    RichTextAnnotation, TextAlign, TextDecoration, TextDecorationLines, TextDirection,
+    TextHeightBehavior, TextOverflow, TextShadow, TextTypography, TextWidthBasis,
 };
 use fission_ir::semantics::{ActionTrigger, FocusPolicy};
 use fission_ir::{CoreIR, FlexDirection};
@@ -1094,7 +1095,7 @@ fn focused_text_input_renders_new_controlled_value_after_runtime_buffer_was_empt
     runtime.interaction.set_focused(Some(input_id));
     runtime
         .text_edit
-        .sync_from_runtime(input_id, "", None, None);
+        .sync_from_runtime(input_id, "", None, None, false);
 
     let ir = lower_node_with_runtime(
         TextInput {
@@ -1137,9 +1138,13 @@ fn focused_text_input_clamps_stale_selection_to_new_controlled_value() {
     let input_id = fission_ir::WidgetId::derived(87, &[2]);
     let mut runtime = RuntimeState::default();
     runtime.interaction.set_focused(Some(input_id));
-    runtime
-        .text_edit
-        .sync_from_runtime(input_id, "A much longer retained value", None, None);
+    runtime.text_edit.sync_from_runtime(
+        input_id,
+        "A much longer retained value",
+        None,
+        None,
+        false,
+    );
     let stale_state = runtime.text_edit.get_mut_or_default(input_id);
     stale_state.caret = usize::MAX;
     stale_state.anchor = 1;
@@ -1188,7 +1193,7 @@ fn focused_text_input_keeps_pending_local_value_until_model_catches_up() {
     runtime.interaction.set_focused(Some(input_id));
     runtime
         .text_edit
-        .sync_from_runtime(input_id, "Old", None, None);
+        .sync_from_runtime(input_id, "Old", None, None, false);
     runtime
         .text_edit
         .get_mut_or_default(input_id)
@@ -1236,7 +1241,7 @@ fn focused_text_input_accepts_transformed_model_value_after_pending_local_edit()
     runtime.interaction.set_focused(Some(input_id));
     runtime
         .text_edit
-        .sync_from_runtime(input_id, "First item\n", None, None);
+        .sync_from_runtime(input_id, "First item\n", None, None, false);
     runtime.text_edit.get_mut_or_default(input_id).apply_edit(
         "First item".len().."First item".len(),
         "Second item",
@@ -1291,7 +1296,7 @@ fn focused_text_input_ignores_stale_styled_runs_for_pending_local_value() {
     runtime.interaction.set_focused(Some(input_id));
     runtime
         .text_edit
-        .sync_from_runtime(input_id, "Old", None, None);
+        .sync_from_runtime(input_id, "Old", None, None, false);
     runtime
         .text_edit
         .get_mut_or_default(input_id)
@@ -1315,6 +1320,7 @@ fn focused_text_input_ignores_stale_styled_runs_for_pending_local_value() {
             line_height: None,
             letter_spacing: 0.0,
             background_color: None,
+            typography: Default::default(),
         },
     }];
 
@@ -1363,7 +1369,7 @@ fn focused_text_input_lowers_toolbar_handles_and_magnifier_overlays() {
     runtime.interaction.set_focused(Some(input_id));
     runtime
         .text_edit
-        .sync_from_runtime(input_id, "abcdefghij", None, None);
+        .sync_from_runtime(input_id, "abcdefghij", None, None, false);
     let state = runtime.text_edit.get_mut_or_default(input_id);
     state.caret = 8;
     state.anchor = 2;
@@ -1455,7 +1461,7 @@ fn disabled_text_selection_controls_omit_all_handle_overlays() {
     selected_runtime.interaction.set_focused(Some(input_id));
     selected_runtime
         .text_edit
-        .sync_from_runtime(input_id, "abcdefghij", None, None);
+        .sync_from_runtime(input_id, "abcdefghij", None, None, false);
     let selected_state = selected_runtime.text_edit.get_mut_or_default(input_id);
     selected_state.caret = 8;
     selected_state.anchor = 2;
@@ -1537,7 +1543,7 @@ fn disabled_text_selection_controls_omit_all_handle_overlays() {
     collapsed_runtime.interaction.set_focused(Some(input_id));
     collapsed_runtime
         .text_edit
-        .sync_from_runtime(input_id, "abcdefghij", None, None);
+        .sync_from_runtime(input_id, "abcdefghij", None, None, false);
     let collapsed_state = collapsed_runtime.text_edit.get_mut_or_default(input_id);
     collapsed_state.caret = 4;
     collapsed_state.anchor = 4;
@@ -1589,4 +1595,63 @@ fn text_selection_controls_deserialize_omitted_enabled_as_true() {
         serde_json::from_value(serialized).expect("deserialize legacy selection controls");
 
     assert!(controls.enabled);
+}
+
+#[test]
+fn nonlinear_text_scaler_interpolates_and_clamps_platform_scale_points() {
+    let scaler = TextScaler::piecewise([(12.0, 1.5), (20.0, 1.25), (40.0, 1.1)]);
+
+    for (size, expected) in [(8.0, 12.0), (12.0, 18.0), (16.0, 22.0), (48.0, 52.8)] {
+        assert!((scaler.scale(size) - expected).abs() < 0.001);
+    }
+}
+
+#[test]
+fn accessibility_text_scaler_preserves_requested_body_scale_and_dampens_display_text() {
+    let scaler = TextScaler::accessibility(2.0);
+
+    assert!((scaler.scale(16.0) - 32.0).abs() < 0.001);
+    assert!(scaler.scale(40.0) < 80.0);
+    assert!(scaler.scale(40.0) > 40.0);
+    assert_eq!(TextScaler::accessibility(0.9).scale(20.0), 18.0);
+}
+
+#[test]
+fn extended_typography_uses_the_existing_rich_text_ir_path() {
+    let typography = TextTypography {
+        font_fallback: vec!["Noto Sans Arabic".into(), "sans-serif".into()],
+        word_spacing: 3.0,
+        decoration: TextDecoration {
+            lines: TextDecorationLines {
+                underline: true,
+                overline: true,
+                line_through: true,
+            },
+            color: Some(Color::RED),
+            thickness: Some(2.0),
+            ..Default::default()
+        },
+        shadows: vec![TextShadow {
+            color: Color::BLACK,
+            offset: (1.0, 2.0),
+            blur_radius: 3.0,
+        }],
+        ..Default::default()
+    };
+    let ir = lower_node(
+        Text::new("Latin العربية 👩🏽‍💻")
+            .size(14.0)
+            .text_scaler(TextScaler::piecewise([(14.0, 1.2), (28.0, 1.1)]))
+            .typography(typography.clone())
+            .into(),
+    );
+
+    let style = paint_ops(&ir)
+        .find_map(|op| match op {
+            PaintOp::DrawRichText { runs, .. } => runs.first().map(|run| &run.style),
+            _ => None,
+        })
+        .expect("extended style must lower through DrawRichText");
+    assert_eq!(style.typography, typography);
+    assert!((style.font_size - 16.8).abs() < 0.001);
 }

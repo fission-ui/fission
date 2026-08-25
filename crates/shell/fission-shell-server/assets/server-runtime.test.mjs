@@ -116,12 +116,20 @@ test('text input sends value and UTF-8 selection without action metadata', () =>
   control.selectionDirection = 'backward';
   const { posted } = boundBridge(new MockRoot([control]), control);
 
+  control.emit('beforeinput', {
+    inputType: 'insertReplacementText',
+    data: 'é',
+    cancelable: false,
+  });
   control.emit('input');
 
   const payload = postedPayload(posted);
   assert.equal(payload.value, 'café');
   assert.equal(payload.caret, 3);
   assert.equal(payload.anchor, 5);
+  assert.equal(payload.input_type, 'insertReplacementText');
+  assert.equal(payload.input_data, 'é');
+  assert.equal(payload.input_cancelable, false);
   assert.deepEqual(payload.binding.message, {
     fission_browser_text_action: true,
     target_node: '901',
@@ -191,6 +199,7 @@ test('renderer replacement restores focused text selection by retained node', ()
 test('UTF-16 DOM offsets convert to UTF-8 byte offsets', () => {
   assert.equal(hooks.utf8Offset('a😀b', 0), 0);
   assert.equal(hooks.utf8Offset('a😀b', 1), 1);
+  assert.equal(hooks.utf8Offset('a😀b', 2), 1);
   assert.equal(hooks.utf8Offset('a😀b', 3), 5);
   assert.equal(hooks.utf8Offset('a😀b', 4), 6);
 });

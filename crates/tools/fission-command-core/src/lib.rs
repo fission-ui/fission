@@ -3762,6 +3762,12 @@ android {{
     }}
 }}
 
+dependencies {{
+    implementation(platform("org.jetbrains.kotlin:kotlin-bom:1.8.22"))
+    implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.games:games-activity:4.4.0")
+}}
+
 apply(from = "../native-modules.gradle")
 "#,
         app_id = project.app.app_id,
@@ -3913,7 +3919,7 @@ fn groovy_string_literal(value: &str) -> String {
 fn render_android_activity_java() -> &'static str {
     r#"package rs.fission.runtime;
 
-import android.app.NativeActivity;
+import com.google.androidgamesdk.GameActivity;
 import android.media.MediaPlayer;
 import android.media.PlaybackParams;
 import android.os.Bundle;
@@ -3925,7 +3931,7 @@ import android.widget.VideoView;
 import java.util.HashMap;
 import java.util.Map;
 
-public final class FissionActivity extends NativeActivity {
+public final class FissionActivity extends GameActivity {
     private static volatile FissionActivity INSTANCE;
     private static final Map<Long, FissionVideoSlot> VIDEOS = new HashMap<>();
 
@@ -5216,10 +5222,11 @@ fi
 ANDROID_NDK=$(find_android_ndk)
 ANDROID_TOOLCHAIN="${{ANDROID_TOOLCHAIN:-$(detect_android_toolchain)}}"
 CC_aarch64_linux_android="${{CC_aarch64_linux_android:-$ANDROID_TOOLCHAIN/aarch64-linux-android${{ANDROID_MIN_API_LEVEL}}-clang}}"
+CXX_aarch64_linux_android="${{CXX_aarch64_linux_android:-$ANDROID_TOOLCHAIN/aarch64-linux-android${{ANDROID_MIN_API_LEVEL}}-clang++}}"
 AR_aarch64_linux_android="${{AR_aarch64_linux_android:-$ANDROID_TOOLCHAIN/llvm-ar}}"
 CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="${{CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER:-$CC_aarch64_linux_android}}"
 CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="${{CARGO_TARGET_AARCH64_LINUX_ANDROID_AR:-$AR_aarch64_linux_android}}"
-export ANDROID_HOME ANDROID_NDK ANDROID_MIN_API_LEVEL ANDROID_TARGET_API_LEVEL ANDROID_TOOLCHAIN CC_aarch64_linux_android AR_aarch64_linux_android
+export ANDROID_HOME ANDROID_NDK ANDROID_MIN_API_LEVEL ANDROID_TARGET_API_LEVEL ANDROID_TOOLCHAIN CC_aarch64_linux_android CXX_aarch64_linux_android AR_aarch64_linux_android
 export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER CARGO_TARGET_AARCH64_LINUX_ANDROID_AR
 
 if [[ -n "${{FISSION_GRADLE:-}}" ]]; then
@@ -6273,6 +6280,49 @@ publisher = "CN=Example & Co"
         assert!(nsis.contains("APP_USER_MODEL_ID"));
         assert!(!nsis.contains("APP_USER_MODEL_ID ="));
         assert!(!nsis.contains("!define FISSION_APP_USER_MODEL_ID"));
+    }
+
+    #[test]
+    fn android_scaffold_uses_game_activity_text_host() {
+        let dir = unique_dir("android-game-activity-scaffold");
+        let project = FissionProject {
+            app: AppConfig {
+                name: "Text Session Demo".to_string(),
+                app_id: "com.example.text_session".to_string(),
+                splash: None,
+            },
+            targets: BTreeSet::from([Target::Android]),
+            capabilities: BTreeSet::new(),
+            native: NativeConfig::default(),
+        };
+
+        scaffold_android_bundle(&dir, &project, WritePolicy::Overwrite).unwrap();
+
+        let activity = fs::read_to_string(
+            dir.join("platforms/android/java/rs/fission/runtime/FissionActivity.java"),
+        )
+        .unwrap();
+        assert!(activity.contains("extends GameActivity"));
+        assert!(activity.contains("com.google.androidgamesdk.GameActivity"));
+
+        let gradle =
+            fs::read_to_string(dir.join("platforms/android/app/build.gradle.kts")).unwrap();
+        assert!(gradle.contains("org.jetbrains.kotlin:kotlin-bom:1.8.22"));
+        assert!(gradle.contains("androidx.appcompat:appcompat:1.7.0"));
+        assert!(gradle.contains("androidx.games:games-activity:4.4.0"));
+
+        let manifest =
+            fs::read_to_string(dir.join("platforms/android/AndroidManifest.xml")).unwrap();
+        assert!(manifest.contains("rs.fission.runtime.FissionActivity"));
+        assert!(manifest.contains("android:hasCode=\"true\""));
+
+        for script in ["package-apk.sh", "package-aab.sh"] {
+            let package = fs::read_to_string(dir.join("platforms/android").join(script)).unwrap();
+            assert!(package.contains("CXX_aarch64_linux_android"));
+            assert!(package.contains("aarch64-linux-android${ANDROID_MIN_API_LEVEL}-clang++"));
+        }
+
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

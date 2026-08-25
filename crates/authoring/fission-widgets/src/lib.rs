@@ -38,8 +38,9 @@ pub use fission_core::ui::{
     Button, ButtonContentAlign, ButtonMotion, ButtonVariant, Checkbox, Column, Container,
     CustomWidget, FocusScope, Grid, GridItem, Image, IosAudioSessionCategory,
     IosAudioSessionCategoryOption, IosAudioSessionMode, IosVideoAudioOptions, LazyColumn, Overlay,
-    Positioned, Radio, Row, SafeArea, Scroll, Slider, Spacer, Switch, Text, TextContent, TextInput,
-    Video, VideoAudioActivation, VideoAudioOptions, VideoAudioPolicy, Widget, ZStack,
+    Positioned, Radio, Row, SafeArea, Scroll, SelectionPlatformStyle, SelectionRegion,
+    SelectionRegionControls, Slider, Spacer, Switch, Text, TextContent, TextInput, Video,
+    VideoAudioActivation, VideoAudioOptions, VideoAudioPolicy, Widget, ZStack,
 };
 pub use fission_core::{BuildCtxHandle, Selector, ViewHandle};
 

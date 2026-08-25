@@ -95,6 +95,7 @@ fn test_rich_text_display_ops_preserve_caret_metadata() {
                 line_height: Some(20.0),
                 letter_spacing: 0.25,
                 background_color: None,
+                typography: Default::default(),
             },
         }],
         position: LayoutPoint::new(8.0, 12.0),
@@ -142,6 +143,7 @@ fn test_rich_text_display_ops_preserve_caret_metadata() {
                 },
             ],
         }],
+        resolved_layout: None,
     };
 
     let mut list = DisplayList::new(bounds);

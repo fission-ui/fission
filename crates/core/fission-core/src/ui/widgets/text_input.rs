@@ -14,162 +14,27 @@ use fission_ir::{
     },
     semantics::{
         InputFormatter, MaxLengthEnforcement, MouseCursor as SemanticsMouseCursor,
-        TextCapitalization, TextInputAction, TextInputType,
+        TextCapitalization, TextFieldValidationState, TextInputAction, TextInputType,
     },
-    AnyRenderObject, FlexDirection, FlexWrap, Role, Semantics, WidgetId,
+    FlexDirection, FlexWrap, Role, Semantics, WidgetId,
 };
 use fission_theme::{ComponentSize, ComponentState};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use unicode_segmentation::UnicodeSegmentation;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub enum TextAlignVertical {
-    Top,
-    #[default]
-    Center,
-    Bottom,
-}
+mod config;
+mod decoration;
+pub use config::*;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub enum DragStartBehavior {
-    #[default]
-    Start,
-    Down,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TextUndoController {
-    pub capacity: usize,
-}
-
-impl Default for TextUndoController {
-    fn default() -> Self {
-        Self { capacity: 100 }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SpellCheckConfiguration {
-    pub enabled: bool,
-    pub underline_color: Option<IrColor>,
-    pub show_suggestions: bool,
-}
-
-impl Default for SpellCheckConfiguration {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            underline_color: Some(IrColor {
-                r: 255,
-                g: 59,
-                b: 48,
-                a: 255,
-            }),
-            show_suggestions: true,
-        }
-    }
-}
-
-#[doc(hidden)]
-#[derive(Debug, Clone, PartialEq)]
-pub struct TextInputRuntimeConfig {
-    pub drag_start_behavior: DragStartBehavior,
-    pub undo_controller: Option<TextUndoController>,
-    pub restoration_id: Option<String>,
-    pub spell_check_configuration: Option<SpellCheckConfiguration>,
-}
-
-#[doc(hidden)]
-pub fn downcast_text_input_runtime_config(
-    any: &AnyRenderObject,
-) -> Option<&TextInputRuntimeConfig> {
-    any.downcast_ref::<TextInputRuntimeConfig>()
-}
-
-impl TextAlignVertical {
-    fn justify_content(self) -> fission_ir::op::JustifyContent {
-        match self {
-            Self::Top => fission_ir::op::JustifyContent::Start,
-            Self::Center => fission_ir::op::JustifyContent::Center,
-            Self::Bottom => fission_ir::op::JustifyContent::End,
-        }
-    }
-
-    fn align_items(self) -> fission_ir::op::AlignItems {
-        match self {
-            Self::Top => fission_ir::op::AlignItems::Start,
-            Self::Center => fission_ir::op::AlignItems::Center,
-            Self::Bottom => fission_ir::op::AlignItems::End,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TextSelectionControls {
-    /// Whether touch-style caret and selection-handle overlays are shown.
-    #[serde(default = "default_selection_controls_enabled")]
-    pub enabled: bool,
-    pub show_collapsed_handle: bool,
-    pub handle_radius: f32,
-    pub handle_fill: IrColor,
-    pub handle_stroke: Option<IrColor>,
-    pub handle_stroke_width: f32,
-}
-
-fn default_selection_controls_enabled() -> bool {
-    true
-}
-
-impl Default for TextSelectionControls {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            show_collapsed_handle: true,
-            handle_radius: 7.0,
-            handle_fill: IrColor {
-                r: 0,
-                g: 122,
-                b: 255,
-                a: 255,
-            },
-            handle_stroke: Some(IrColor {
-                r: 255,
-                g: 255,
-                b: 255,
-                a: 255,
-            }),
-            handle_stroke_width: 1.0,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TextMagnifierConfiguration {
-    pub enabled: bool,
-    pub diameter: f32,
-    pub scale: f32,
-    pub border_radius: f32,
-    pub border_color: Option<IrColor>,
-    pub border_width: f32,
-}
-
-impl Default for TextMagnifierConfiguration {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            diameter: 84.0,
-            scale: 1.4,
-            border_radius: 18.0,
-            border_color: Some(IrColor {
-                r: 210,
-                g: 214,
-                b: 224,
-                a: 255,
-            }),
-            border_width: 1.0,
-        }
-    }
+#[cfg(debug_assertions)]
+fn report_invalid_validation_pattern() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        eprintln!(
+            "Fission TextInput ignored an invalid validation_pattern; use a valid regular expression or a custom validator"
+        );
+    });
 }
 
 pub(crate) fn text_input_selection_handle_id(
@@ -242,6 +107,11 @@ pub struct TextInput {
     pub semantics_identifier: Option<String>,
     /// The current text value (controlled by the application).
     pub value: String,
+    /// Optional complete controlled editing value.
+    ///
+    /// When supplied, text, directional selection, and composing range are
+    /// reconciled atomically. `value` remains as the compatibility shorthand.
+    pub editing_value: Option<crate::TextEditingValue>,
     /// Optional label shown above the field.
     pub label: Option<TextContent>,
     /// Placeholder text shown when `value` is empty.
@@ -264,6 +134,12 @@ pub struct TextInput {
     pub on_editing_complete: Option<ActionEnvelope>,
     /// Action dispatched when the user taps/clicks outside the active field.
     pub on_tap_outside: Option<ActionEnvelope>,
+    /// Action dispatched when the field receives focus.
+    pub on_focus: Option<ActionEnvelope>,
+    /// Action dispatched when the field loses focus.
+    pub on_blur: Option<ActionEnvelope>,
+    /// Action dispatched when validation is requested.
+    pub on_validation: Option<ActionEnvelope>,
     /// Fixed width in layout points.
     pub width: Option<f32>,
     /// Fixed height in layout points.
@@ -277,6 +153,12 @@ pub struct TextInput {
     pub multiline: bool,
     /// When `true`, the input requests focus automatically when mounted.
     pub autofocus: bool,
+    /// Whether focus may be requested by input, traversal, accessibility, or a controller.
+    pub can_request_focus: bool,
+    /// Select the complete value when focus enters the field.
+    pub select_all_on_focus: bool,
+    /// Whether the framework-painted caret is visible while focused.
+    pub show_cursor: bool,
     /// When `false`, the field is non-interactive and does not receive focus.
     pub enabled: bool,
     /// When `true`, the field can be focused and selected but not edited.
@@ -387,12 +269,38 @@ pub struct TextInput {
     pub text_input_action: TextInputAction,
     /// Automatic capitalization strategy for inserted text.
     pub text_capitalization: TextCapitalization,
-    /// Maximum number of Unicode scalar values allowed in the field.
+    /// Maximum number of user-perceived grapheme clusters allowed in the field.
     pub max_length: Option<usize>,
     /// Whether `max_length` is enforced during editing.
     pub max_length_enforcement: MaxLengthEnforcement,
     /// Structured input formatters applied to inserted text.
     pub input_formatters: Vec<InputFormatter>,
+    /// Application-defined complete-value formatters.
+    ///
+    /// These remain in core's runtime object rather than serializable IR. Use
+    /// built-in [`InputFormatter`] values when a formatter must cross a process
+    /// or static serialization boundary.
+    #[serde(skip, default)]
+    pub custom_input_formatters: Vec<crate::SharedTextInputFormatter>,
+    /// Semantic form field name.
+    pub name: Option<String>,
+    /// Logical form membership used by [`TextFormController`](crate::TextFormController).
+    pub form_id: Option<String>,
+    /// Autofill session/group shared by related fields.
+    pub autofill_group: Option<String>,
+    /// Whether the field requires a non-empty value.
+    pub required: bool,
+    /// Minimum number of user-perceived graphemes.
+    pub min_length: Option<usize>,
+    /// Declarative validation pattern for supported targets.
+    pub validation_pattern: Option<String>,
+    /// Application-authoritative validity state.
+    pub validation_state: TextFieldValidationState,
+    /// Accessible validation message. This does not replace `error_text`.
+    pub validation_message: Option<String>,
+    /// Application validation evaluated against the complete editing value.
+    #[serde(skip, default)]
+    pub validator: Option<SharedTextInputValidator>,
     /// Hint whether platform autocorrect should be enabled.
     pub autocorrect: bool,
     /// Hint whether platform suggestions should be enabled.
@@ -407,6 +315,12 @@ pub struct TextInput {
     pub autofill_hints: Vec<String>,
     /// Extra padding to keep around the caret when auto-scrolling `[left, right, top, bottom]`.
     pub scroll_padding: Option<[f32; 4]>,
+    /// Editable paragraph wrapping behavior.
+    pub wrap_mode: TextWrapMode,
+    /// Automatic scrolling and scrollbar visibility policy.
+    pub scroll_policy: TextScrollPolicy,
+    /// User-driven scrolling policy.
+    pub scroll_physics: TextScrollPhysics,
     /// Whether selection drags become active on pointer-down or only after slop is crossed.
     pub drag_start_behavior: DragStartBehavior,
     /// Built-in context menu configuration for pointer and touch editing affordances.
@@ -432,6 +346,13 @@ impl TextInput {
 
     pub fn value(mut self, v: impl Into<String>) -> Self {
         self.value = v.into();
+        self.editing_value = None;
+        self
+    }
+
+    pub fn editing_value(mut self, value: crate::TextEditingValue) -> Self {
+        self.value = value.text.clone();
+        self.editing_value = Some(value);
         self
     }
 
@@ -582,6 +503,40 @@ impl TextInput {
 
     pub fn input_formatters(mut self, input_formatters: Vec<InputFormatter>) -> Self {
         self.input_formatters = input_formatters;
+        self
+    }
+
+    pub fn custom_input_formatter(mut self, formatter: crate::SharedTextInputFormatter) -> Self {
+        self.custom_input_formatters.push(formatter);
+        self
+    }
+
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+    pub fn autofill_group(mut self, group: impl Into<String>) -> Self {
+        self.autofill_group = Some(group.into());
+        self
+    }
+    pub fn required(mut self, required: bool) -> Self {
+        self.required = required;
+        self
+    }
+    pub fn min_length(mut self, min_length: usize) -> Self {
+        self.min_length = Some(min_length);
+        self
+    }
+    pub fn validation_pattern(mut self, pattern: impl Into<String>) -> Self {
+        self.validation_pattern = Some(pattern.into());
+        self
+    }
+    pub fn validation_state(mut self, state: TextFieldValidationState) -> Self {
+        self.validation_state = state;
+        self
+    }
+    pub fn validation_message(mut self, message: impl Into<String>) -> Self {
+        self.validation_message = Some(message.into());
         self
     }
 
@@ -750,6 +705,7 @@ impl Default for TextInput {
             id: None,
             semantics_identifier: None,
             value: String::new(),
+            editing_value: None,
             label: None,
             placeholder: None,
             helper_text: None,
@@ -759,12 +715,18 @@ impl Default for TextInput {
             on_submit: None,
             on_editing_complete: None,
             on_tap_outside: None,
+            on_focus: None,
+            on_blur: None,
+            on_validation: None,
             width: None,
             height: None,
             size: ComponentSize::Md,
             padding: None,
             multiline: false,
             autofocus: false,
+            can_request_focus: true,
+            select_all_on_focus: false,
+            show_cursor: true,
             enabled: true,
             read_only: false,
             min_lines: None,
@@ -817,8 +779,18 @@ impl Default for TextInput {
             text_input_action: TextInputAction::Done,
             text_capitalization: TextCapitalization::None,
             max_length: None,
-            max_length_enforcement: MaxLengthEnforcement::Enforced,
+            max_length_enforcement: MaxLengthEnforcement::AfterComposition,
             input_formatters: Vec::new(),
+            custom_input_formatters: Vec::new(),
+            name: None,
+            form_id: None,
+            autofill_group: None,
+            required: false,
+            min_length: None,
+            validation_pattern: None,
+            validation_state: TextFieldValidationState::Unvalidated,
+            validation_message: None,
+            validator: None,
             autocorrect: true,
             enable_suggestions: true,
             spell_check: true,
@@ -826,6 +798,9 @@ impl Default for TextInput {
             smart_quotes: true,
             autofill_hints: Vec::new(),
             scroll_padding: None,
+            wrap_mode: TextWrapMode::Soft,
+            scroll_policy: TextScrollPolicy::Auto,
+            scroll_physics: TextScrollPhysics::Platform,
             drag_start_behavior: DragStartBehavior::Start,
             context_menu: TextContextMenuConfig::editing(),
             selection_controls: TextSelectionControls::default(),
@@ -834,241 +809,6 @@ impl Default for TextInput {
             spell_check_configuration: None,
             restoration_id: None,
         }
-    }
-}
-
-impl TextInput {
-    fn resolve_text_content(content: &TextContent, cx: &InternalLoweringCx<'_>) -> String {
-        match content {
-            TextContent::Literal(s) => s.clone(),
-            TextContent::Key(key) => cx
-                .env
-                .i18n
-                .get(&cx.env.locale, key)
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| format!("MISSING:{}", key)),
-            TextContent::KeyWithFallback { key, fallback } => cx
-                .env
-                .i18n
-                .get(&cx.env.locale, key)
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| fallback.clone()),
-        }
-    }
-
-    fn mask_text(text: &str, obscuring_character: char) -> String {
-        let mut masked = String::new();
-        for _ in text.graphemes(true) {
-            masked.push(obscuring_character);
-        }
-        masked
-    }
-
-    fn masked_byte_offset(source: &str, masked: &str, source_byte_offset: usize) -> usize {
-        let clamped = source_byte_offset.min(source.len());
-        let grapheme_count = source[..clamped].graphemes(true).count();
-        masked
-            .grapheme_indices(true)
-            .nth(grapheme_count)
-            .map(|(idx, _)| idx)
-            .unwrap_or(masked.len())
-    }
-
-    fn supporting_counter_text(
-        &self,
-        cx: &InternalLoweringCx<'_>,
-        current_text: &str,
-    ) -> Option<String> {
-        self.counter_text
-            .as_ref()
-            .map(|content| Self::resolve_text_content(content, cx))
-            .or_else(|| {
-                self.max_length
-                    .map(|max_length| format!("{}/{}", current_text.chars().count(), max_length))
-            })
-    }
-
-    fn build_selection_handle_overlay(
-        &self,
-        cx: &mut InternalLoweringCx,
-        input_id: WidgetId,
-        kind: TextSelectionHandleKind,
-        point: fission_layout::LayoutPoint,
-    ) -> WidgetId {
-        let controls = &self.selection_controls;
-        let diameter = controls.handle_radius * 2.0;
-        let handle_node = Button {
-            id: Some(text_input_selection_handle_id(input_id, kind).into()),
-            semantics: Some(Semantics {
-                role: Role::Generic,
-                draggable: true,
-                ..Semantics::default()
-            }),
-            child: Some(
-                Container::new(Spacer {
-                    width: Some(diameter),
-                    height: Some(diameter),
-                    ..Default::default()
-                })
-                .bg_fill(Fill::Solid(controls.handle_fill))
-                .border(
-                    controls.handle_stroke.unwrap_or(IrColor {
-                        r: 0,
-                        g: 0,
-                        b: 0,
-                        a: 0,
-                    }),
-                    controls.handle_stroke_width,
-                )
-                .border_radius(controls.handle_radius)
-                .into(),
-            ),
-            width: Some(diameter),
-            height: Some(diameter),
-            padding: Some([0.0; 4]),
-            content_align: ButtonContentAlign::Center,
-            variant: ButtonVariant::Ghost,
-            ..Default::default()
-        }
-        .into();
-
-        Positioned {
-            left: Some((point.x - controls.handle_radius).max(0.0)),
-            top: Some((point.y - controls.handle_radius).max(0.0)),
-            width: Some(diameter),
-            height: Some(diameter),
-            child: Some(handle_node),
-            ..Default::default()
-        }
-        .lower(cx)
-    }
-
-    fn build_toolbar_overlay(
-        &self,
-        cx: &mut InternalLoweringCx,
-        input_id: WidgetId,
-        anchor: fission_layout::LayoutPoint,
-    ) -> WidgetId {
-        let tokens = &cx.env.theme.tokens;
-        let mut row = Row::default().gap(self.context_menu.menu.gap);
-        for action in &self.context_menu.actions {
-            row.children.push(
-                Button {
-                    id: Some(text_input_toolbar_button_id(input_id, *action).into()),
-                    semantics: Some(Semantics {
-                        role: Role::Button,
-                        label: Some(action.fallback_label().into()),
-                        focusable: true,
-                        focus_policy: fission_ir::FocusPolicy::PreserveCurrentOnPointer,
-                        ..Semantics::default()
-                    }),
-                    focus_policy: fission_ir::FocusPolicy::PreserveCurrentOnPointer,
-                    child: Some(
-                        Text::new(TextContent::KeyWithFallback {
-                            key: action.label_key().to_string(),
-                            fallback: action.fallback_label().to_string(),
-                        })
-                        .size(tokens.typography.label_large_size)
-                        .color(tokens.colors.text_primary)
-                        .into(),
-                    ),
-                    padding: Some([10.0, 10.0, 6.0, 6.0]),
-                    content_align: ButtonContentAlign::Center,
-                    variant: ButtonVariant::Ghost,
-                    ..Default::default()
-                }
-                .into(),
-            );
-        }
-
-        let toolbar: Widget = Container::new(row)
-            .bg_fill(Fill::Solid(tokens.colors.surface))
-            .border(tokens.colors.border, 1.0)
-            .border_radius(self.context_menu.menu.border_radius)
-            .padding(self.context_menu.menu.padding)
-            .into();
-
-        Positioned {
-            left: Some(anchor.x.max(0.0)),
-            top: Some((anchor.y - 44.0).max(0.0)),
-            child: Some(toolbar),
-            ..Default::default()
-        }
-        .lower(cx)
-    }
-
-    fn magnifier_snippet(display_text: &str, caret: usize) -> String {
-        let mut graphemes = Vec::new();
-        for (idx, grapheme) in display_text.grapheme_indices(true) {
-            graphemes.push((idx, grapheme));
-        }
-        if graphemes.is_empty() {
-            return String::new();
-        }
-
-        let caret_grapheme = graphemes
-            .iter()
-            .position(|(idx, _)| *idx >= caret.min(display_text.len()))
-            .unwrap_or(graphemes.len().saturating_sub(1));
-        let start = caret_grapheme.saturating_sub(4);
-        let end = (caret_grapheme + 5).min(graphemes.len());
-        graphemes[start..end]
-            .iter()
-            .map(|(_, grapheme)| *grapheme)
-            .collect::<String>()
-    }
-
-    fn build_magnifier_overlay(
-        &self,
-        cx: &mut InternalLoweringCx,
-        anchor: fission_layout::LayoutPoint,
-        display_text: &str,
-        caret: usize,
-        base_text_style: &fission_ir::op::TextStyle,
-    ) -> WidgetId {
-        let cfg = &self.magnifier_configuration;
-        let tokens = &cx.env.theme.tokens;
-        let preview = Self::magnifier_snippet(display_text, caret);
-        let preview_text = Text::new(preview)
-            .size(base_text_style.font_size * cfg.scale)
-            .color(base_text_style.color)
-            .family(
-                base_text_style
-                    .font_family
-                    .clone()
-                    .unwrap_or_else(|| "system-ui".to_string()),
-            )
-            .weight(base_text_style.font_weight)
-            .italic(base_text_style.font_style == fission_ir::op::FontStyle::Italic)
-            .line_height(
-                base_text_style
-                    .line_height
-                    .unwrap_or(base_text_style.font_size * 1.25)
-                    * cfg.scale,
-            )
-            .letter_spacing(base_text_style.letter_spacing * cfg.scale);
-
-        let magnifier: Widget = Container::new(preview_text)
-            .width(cfg.diameter)
-            .height(cfg.diameter)
-            .bg_fill(Fill::Solid(tokens.colors.surface))
-            .border(
-                cfg.border_color.unwrap_or(tokens.colors.border),
-                cfg.border_width,
-            )
-            .border_radius(cfg.border_radius)
-            .padding_all(8.0)
-            .into();
-
-        Positioned {
-            left: Some((anchor.x - cfg.diameter * 0.5).max(0.0)),
-            top: Some((anchor.y - cfg.diameter - 18.0).max(0.0)),
-            width: Some(cfg.diameter),
-            height: Some(cfg.diameter),
-            child: Some(magnifier),
-            ..Default::default()
-        }
-        .lower(cx)
     }
 }
 
@@ -1173,6 +913,7 @@ impl InternalLower for TextInput {
             line_height,
             letter_spacing,
             background_color: None,
+            typography: Default::default(),
         };
 
         let resolved_label = self
@@ -1214,45 +955,65 @@ impl InternalLower for TextInput {
         };
 
         // 2. Text Preparation
+        let model_text = self
+            .editing_value
+            .as_ref()
+            .map(|value| value.text.as_str())
+            .unwrap_or(self.value.as_str());
+        let controlled_selection = self.editing_value.as_ref().map(|value| {
+            (
+                value.selection.extent.utf8_offset(),
+                value.selection.base.utf8_offset(),
+            )
+        });
         let session = cx.runtime_state.text_edit.get(input_id);
         let pending_model_transform = session.is_some_and(|state| {
             state.pending_model_sync
                 && state.preedit.is_none()
-                && state.committed_text() != self.value
-                && state.last_model_text != self.value
+                && state.committed_text() != model_text
+                && state.last_model_text != model_text
         });
         let retained_session = if is_focused {
             session.filter(|state| {
                 (state.pending_model_sync
-                    && (state.committed_text() == self.value
-                        || state.last_model_text == self.value))
+                    && (state.committed_text() == model_text
+                        || state.last_model_text == model_text))
                     || state.preedit.is_some()
-                    || (self.restoration_id.is_some() && self.value.is_empty())
-                    || state.committed_text() == self.value
+                    || (self.restoration_id.is_some() && model_text.is_empty())
+                    || state.committed_text() == model_text
             })
         } else {
             None
         };
         let session_display = retained_session.map(|state| state.display_text());
-        let model_selection = session
+        let model_selection = retained_session
             .map(|state| {
                 if pending_model_transform && state.caret == state.anchor {
-                    (self.value.len(), self.value.len())
+                    (model_text.len(), model_text.len())
                 } else {
                     (
-                        clamp_text_offset(&self.value, state.caret),
-                        clamp_text_offset(&self.value, state.anchor),
+                        clamp_text_offset(model_text, state.caret),
+                        clamp_text_offset(model_text, state.anchor),
                     )
                 }
             })
-            .unwrap_or((self.value.len(), self.value.len()));
+            .or(controlled_selection)
+            .or_else(|| {
+                session.map(|state| {
+                    (
+                        clamp_text_offset(model_text, state.caret),
+                        clamp_text_offset(model_text, state.anchor),
+                    )
+                })
+            })
+            .unwrap_or((model_text.len(), model_text.len()));
         let semantic_value = retained_session
             .map(|state| state.committed_text())
-            .unwrap_or_else(|| self.value.clone());
+            .unwrap_or_else(|| model_text.to_string());
 
         let (display_text, preedit_range, preedit_cursor_range, caret, anchor) =
             if self.obscure_text {
-                let mut combined = self.value.clone();
+                let mut combined = model_text.to_string();
                 if let Some((display, _)) = &session_display {
                     combined = display.clone();
                 }
@@ -1271,11 +1032,21 @@ impl InternalLower for TextInput {
                             .unwrap_or(model_selection);
                         let cursor_range =
                             retained_session.and_then(|state| state.display_preedit_cursor_range());
+                        let preedit_range = preedit_range.or_else(|| {
+                            retained_session.and_then(|state| {
+                                state.platform_composing.map(|range| {
+                                    (range.start.utf8_offset(), range.end.utf8_offset())
+                                })
+                            })
+                        });
                         (combined, preedit_range, cursor_range, caret, anchor)
                     }
                     None => (
-                        self.value.clone(),
-                        None,
+                        model_text.to_string(),
+                        self.editing_value
+                            .as_ref()
+                            .and_then(|value| value.composing)
+                            .map(|range| (range.start.utf8_offset(), range.end.utf8_offset())),
                         None,
                         model_selection.0,
                         model_selection.1,
@@ -1436,7 +1207,7 @@ impl InternalLower for TextInput {
             }];
         }
 
-        let caret_idx = if is_focused {
+        let caret_idx = if is_focused && self.show_cursor {
             let show = cx
                 .runtime_state
                 .caret_visible
@@ -1488,7 +1259,7 @@ impl InternalLower for TextInput {
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawRichText {
                 runs,
-                wrap: self.multiline,
+                wrap: self.multiline && self.wrap_mode != TextWrapMode::NoWrap,
                 caret_index: caret_idx,
                 caret_color: Some(cursor_color),
                 caret_width: Some(cursor_width),
@@ -1521,12 +1292,12 @@ impl InternalLower for TextInput {
         let mut scroll = InternalIrBuilder::new(
             cx.next_node_id(),
             Op::Layout(LayoutOp::Scroll {
-                direction: if self.multiline {
+                direction: if self.multiline && self.wrap_mode != TextWrapMode::NoWrap {
                     FlexDirection::Column
                 } else {
                     FlexDirection::Row
                 },
-                show_scrollbar: false,
+                show_scrollbar: self.scroll_policy == TextScrollPolicy::Always,
                 width: None, // Let it fill parent padding box
                 height: None,
                 min_width: None,
@@ -1721,7 +1492,7 @@ impl InternalLower for TextInput {
                     .as_ref()
                     .map(|text| Self::resolve_text_content(text, cx))
             });
-        let counter_text = self.supporting_counter_text(cx, &self.value);
+        let counter_text = self.supporting_counter_text(cx, model_text);
 
         let field_body_id =
             if resolved_label.is_some() || supporting_text.is_some() || counter_text.is_some() {
@@ -1839,6 +1610,45 @@ impl InternalLower for TextInput {
             .map_or(self.enable_suggestions, |cfg| {
                 self.enable_suggestions && cfg.show_suggestions
             });
+        let live_value = self
+            .editing_value
+            .clone()
+            .unwrap_or_else(|| crate::TextEditingValue::from_text(semantic_value.clone()));
+        let grapheme_len = live_value.text.graphemes(true).count();
+        let pattern_invalid = self.validation_pattern.as_deref().is_some_and(|pattern| {
+            let anchored = format!("^(?:{pattern})$");
+            match regex_lite::Regex::new(&anchored) {
+                Ok(regex) => !regex.is_match(&live_value.text),
+                Err(_) => {
+                    #[cfg(debug_assertions)]
+                    report_invalid_validation_pattern();
+                    false
+                }
+            }
+        });
+        let constraint_invalid = (self.required && live_value.text.is_empty())
+            || self
+                .min_length
+                .is_some_and(|minimum| grapheme_len < minimum)
+            || self
+                .max_length
+                .is_some_and(|maximum| grapheme_len > maximum)
+            || pattern_invalid;
+        let custom_validation = self
+            .validator
+            .as_ref()
+            .map(|validator| validator.validate(&live_value));
+        let effective_validation_state = custom_validation
+            .as_ref()
+            .map(|result| result.state)
+            .unwrap_or(if constraint_invalid {
+                TextFieldValidationState::Invalid
+            } else {
+                self.validation_state
+            });
+        let effective_validation_message = custom_validation
+            .and_then(|result| result.message)
+            .or_else(|| self.validation_message.clone());
 
         let mut semantics = Semantics {
             role: Role::TextInput,
@@ -1850,15 +1660,17 @@ impl InternalLower for TextInput {
             actions: Default::default(),
             canvas_target: None,
             action_scope_id: None,
-            focusable: self.enabled,
+            focusable: self.enabled && self.can_request_focus,
             focus_policy: fission_ir::FocusPolicy::FocusOnPointer,
             multiline: self.multiline,
+            text_wrap_mode: self.wrap_mode,
             masked: self.obscure_text,
             input_mask: self.mask.clone(),
             ime_preedit_range: preedit_range,
             ime_preedit_cursor_range: preedit_cursor_range,
             text_selection: Some((anchor, caret)),
             selectable_text: false,
+            selection_region: None,
             context_menu: false,
             checked: None,
             disabled: !self.enabled,
@@ -1885,6 +1697,14 @@ impl InternalLower for TextInput {
             max_length: self.max_length,
             max_length_enforcement: self.max_length_enforcement,
             input_formatters: self.input_formatters.clone(),
+            text_field_name: self.name.clone(),
+            text_form_id: self.form_id.clone(),
+            autofill_group: self.autofill_group.clone(),
+            required: self.required,
+            min_length: self.min_length,
+            validation_pattern: self.validation_pattern.clone(),
+            validation_state: effective_validation_state,
+            validation_message: effective_validation_message,
             autocorrect: self.autocorrect,
             enable_suggestions: suggestions_enabled,
             spell_check: spell_check_enabled,
@@ -1906,7 +1726,7 @@ impl InternalLower for TextInput {
             semantics.actions.entries.push(fission_ir::ActionEntry {
                 trigger: fission_ir::semantics::ActionTrigger::CursorChange,
                 action_id: env.id.as_u128(),
-                payload_data: None,
+                payload_data: Some(env.payload.clone()),
             });
         }
         if let Some(env) = &self.on_submit {
@@ -1930,6 +1750,27 @@ impl InternalLower for TextInput {
                 payload_data: Some(env.payload.clone()),
             });
         }
+        if let Some(env) = &self.on_focus {
+            semantics.actions.entries.push(fission_ir::ActionEntry {
+                trigger: fission_ir::semantics::ActionTrigger::Focus,
+                action_id: env.id.as_u128(),
+                payload_data: Some(env.payload.clone()),
+            });
+        }
+        if let Some(env) = &self.on_blur {
+            semantics.actions.entries.push(fission_ir::ActionEntry {
+                trigger: fission_ir::semantics::ActionTrigger::Blur,
+                action_id: env.id.as_u128(),
+                payload_data: Some(env.payload.clone()),
+            });
+        }
+        if let Some(env) = &self.on_validation {
+            semantics.actions.entries.push(fission_ir::ActionEntry {
+                trigger: fission_ir::semantics::ActionTrigger::Validation,
+                action_id: env.id.as_u128(),
+                payload_data: Some(env.payload.clone()),
+            });
+        }
         if let Some(mouse_cursor) = self.mouse_cursor {
             semantics
                 .actions
@@ -1946,6 +1787,12 @@ impl InternalLower for TextInput {
                 undo_controller: self.undo_controller.clone(),
                 restoration_id: self.restoration_id.clone(),
                 spell_check_configuration: self.spell_check_configuration.clone(),
+                custom_input_formatters: self.custom_input_formatters.clone(),
+                select_all_on_focus: self.select_all_on_focus,
+                scroll_policy: self.scroll_policy,
+                scroll_physics: self.scroll_physics,
+                form_id: self.form_id.clone(),
+                validator: self.validator.clone(),
             }),
         );
         semantics_id

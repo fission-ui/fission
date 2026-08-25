@@ -1,5 +1,6 @@
 pub mod op;
 pub mod semantics;
+mod text_style;
 pub mod viewport;
 pub mod widget_id;
 
@@ -18,7 +19,9 @@ pub use op::{
 };
 pub use semantics::{
     ActionEntry, ActionSet, ActionTrigger, CanvasSelectionPolicy, CanvasTarget, CanvasTargetKind,
-    FocusPolicy, Hyperlink, LinkTarget, PopoverAction, PopoverTarget, Role, Semantics,
+    FocusPolicy, Hyperlink, InputFormatter, LinkTarget, MaxLengthEnforcement, PopoverAction,
+    PopoverTarget, Role, SelectionRegionSemantics, Semantics, TextCapitalization,
+    TextFieldValidationState, TextInputAction, TextInputType, TextWrapMode,
 };
 pub use widget_id::WidgetId;
 

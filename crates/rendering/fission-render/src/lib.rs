@@ -2,7 +2,9 @@ use fission_ir::op::{
     EmbedKind, ImageAlignment, ImageRequest, RichTextAnnotation, TextParagraphStyle,
 };
 use fission_ir::WidgetId;
-pub use fission_layout::{LayoutPoint, LayoutRect, LayoutSize, LayoutUnit};
+pub use fission_layout::{
+    LayoutPoint, LayoutRect, LayoutSize, LayoutUnit, ResolvedParagraphLayout,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -90,6 +92,9 @@ pub struct TextStyle {
     pub letter_spacing: LayoutUnit,
     /// Optional background highlight color for this run.
     pub background_color: Option<Color>,
+    /// Extended typography carried by the same backend-neutral text path.
+    #[serde(default)]
+    pub typography: fission_ir::op::TextTypography,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -149,6 +154,8 @@ pub enum DisplayOp {
         caret_height: Option<LayoutUnit>,
         caret_radius: Option<LayoutUnit>,
         paragraph_style: Option<TextParagraphStyle>,
+        #[serde(default)]
+        resolved_layout: Option<ResolvedParagraphLayout>,
     },
     DrawRichText {
         runs: Vec<TextRun>,
@@ -164,6 +171,10 @@ pub enum DisplayOp {
         paragraph_style: Option<TextParagraphStyle>,
         #[serde(default)]
         annotations: Vec<RichTextAnnotation>,
+        /// The paragraph resolved during layout. This is the authoritative
+        /// wrapping and text-geometry decision for downstream rendering.
+        #[serde(default)]
+        resolved_layout: Option<ResolvedParagraphLayout>,
     },
     DrawImage {
         rect: LayoutRect,

@@ -111,6 +111,7 @@ use compositor::TextureLayerCompositor;
 mod accessibility;
 use accessibility::AccessibilityBridge;
 mod pipeline;
+mod platform_text_scale;
 pub use pipeline::{InvalidationSet, Pipeline};
 mod renderer_diagnostics;
 #[cfg(target_arch = "wasm32")]
@@ -178,6 +179,8 @@ mod volume;
 pub use volume::{MemoryVolumeHost, UnsupportedVolumeHost, VolumeHost};
 #[cfg(target_os = "android")]
 mod android_capabilities;
+#[cfg(target_os = "android")]
+mod android_text_input;
 #[cfg(target_os = "ios")]
 mod ios_capabilities;
 #[cfg(target_os = "macos")]
@@ -1586,6 +1589,29 @@ fn web_bool_global(name: &str) -> bool {
             })
         })
         .unwrap_or(false)
+}
+
+#[cfg(any(target_arch = "wasm32", test))]
+fn classify_web_text_value(
+    input_type: &str,
+) -> (fission_core::TextEditSource, fission_core::TextValuePhase) {
+    use fission_core::{TextEditSource, TextValuePhase};
+
+    let source = match input_type {
+        "insertReplacementText" => TextEditSource::Autocorrect,
+        "insertFromPaste" | "deleteByCut" => TextEditSource::Clipboard,
+        "insertFromAutoFill" => TextEditSource::Autofill,
+        "insertFromDictation" => TextEditSource::Dictation,
+        "insertFromHandwriting" => TextEditSource::Handwriting,
+        "insertFromComposition" => TextEditSource::Ime,
+        _ => TextEditSource::Keyboard,
+    };
+    let phase = if input_type == "insertFromComposition" {
+        TextValuePhase::CompositionCommitted
+    } else {
+        TextValuePhase::Committed
+    };
+    (source, phase)
 }
 
 #[cfg(target_os = "android")]
@@ -3368,9 +3394,28 @@ fn parse_key_code(key: &str) -> KeyCode {
 /// TestEvent::KeyDown / TestEvent::TextInput.
 ///
 /// Returns `true` if the app key handler consumed the event.
+fn fission_key_down_event(code: KeyCode, modifiers: u8, produced_text: Option<&str>) -> InputEvent {
+    produced_text.filter(|text| !text.is_empty()).map_or_else(
+        || {
+            InputEvent::Keyboard(FissionKeyEvent::Down {
+                key_code: code.clone(),
+                modifiers,
+            })
+        },
+        |text| {
+            InputEvent::Keyboard(FissionKeyEvent::DownWithText {
+                key_code: code.clone(),
+                modifiers,
+                text: text.to_owned(),
+            })
+        },
+    )
+}
+
 fn handle_key_down<S: GlobalState>(
     code: KeyCode,
     modifiers: u8,
+    produced_text: Option<&str>,
     runtime: &mut Runtime,
     pipeline: &Pipeline,
     effect_result_tx: &mpsc::Sender<EffectResult>,
@@ -3448,10 +3493,7 @@ fn handle_key_down<S: GlobalState>(
             target,
             presented_frames,
         );
-        let input_event = InputEvent::Keyboard(FissionKeyEvent::Down {
-            key_code: code,
-            modifiers,
-        });
+        let input_event = fission_key_down_event(code, modifiers, produced_text);
         let _ = runtime.handle_input(input_event, ir, layout);
         invalidations.mark_build();
         mark_text_trace_handled(pending_text_traces, trace_seq);
@@ -4000,63 +4042,9 @@ fn scoped_action_input_for_node(ir: &CoreIR, target: WidgetId, input: ActionInpu
 
 fn log_input_dispatch_failure(origin: &str, target: Option<WidgetId>) {
     match target {
-        Some(target) => {
-            eprintln!("Fission input dispatch failed ({origin}, target {target})");
-        }
+        Some(target) => eprintln!("Fission input dispatch failed ({origin}, target {target})"),
         None => eprintln!("Fission input dispatch failed ({origin})"),
     }
-}
-
-fn dispatch_text_change(
-    ir: &CoreIR,
-    runtime: &mut Runtime,
-    target: WidgetId,
-    semantics: &Semantics,
-    new_text: String,
-) -> bool {
-    let selection = new_text.len();
-    let Some((envelope, input)) = fission_core::input::prepare_scoped_text_input_change(
-        ir, semantics, target, new_text, selection, selection,
-    ) else {
-        log_input_dispatch_failure("live_test_fill_text_missing_action", Some(target));
-        return false;
-    };
-    runtime
-        .dispatch_with_input(envelope, target, &input)
-        .is_ok()
-}
-
-fn dispatch_cursor_change(
-    ir: &CoreIR,
-    runtime: &mut Runtime,
-    target: WidgetId,
-    semantics: &Semantics,
-    caret: usize,
-    anchor: usize,
-) -> bool {
-    let Some(entry) = semantics
-        .actions
-        .entries
-        .iter()
-        .find(|entry| entry.trigger == ActionTrigger::CursorChange)
-    else {
-        return false;
-    };
-    let cursor_changed = fission_core::action::CursorChanged { caret, anchor };
-    let Ok(payload) = serde_json::to_vec(&cursor_changed) else {
-        return false;
-    };
-    let input = scoped_action_input_for_node(ir, target, ActionInput::None);
-    runtime
-        .dispatch_with_input(
-            ActionEnvelope {
-                id: ActionId::from_u128(entry.action_id),
-                payload,
-            },
-            target,
-            &input,
-        )
-        .is_ok()
 }
 
 fn set_focus_for_test(
@@ -4068,100 +4056,43 @@ fn set_focus_for_test(
     if !semantics.focusable || semantics.disabled {
         return false;
     }
-    let previous = runtime.runtime_state.interaction.focused;
-    if previous == Some(target) {
-        return true;
-    }
-    if let Some(previous_id) = previous {
-        if let Some(previous_semantics) = ir.nodes.get(&previous_id).and_then(|node| {
-            if let fission_ir::Op::Semantics(semantics) = &node.op {
-                Some(semantics.clone())
-            } else {
-                None
-            }
-        }) {
-            let _ = dispatch_semantics_action(
-                ir,
-                runtime,
-                previous_id,
-                &previous_semantics,
-                ActionTrigger::Blur,
-                ActionInput::None,
-            );
-        }
-    }
-    runtime.runtime_state.interaction.set_focused(Some(target));
-    let _ = dispatch_semantics_action(
-        ir,
-        runtime,
-        target,
-        semantics,
-        ActionTrigger::Focus,
-        ActionInput::None,
-    );
-    true
+    runtime
+        .set_focused_widget(ir, Some(target), fission_core::TextEditSource::Programmatic)
+        .unwrap_or(false)
 }
 
 fn set_text_value_for_test(
     runtime: &mut Runtime,
     ir: &CoreIR,
+    layout: &fission_layout::LayoutSnapshot,
     record: &SemanticRecord,
     value: &str,
 ) -> bool {
     if record.semantics.role != Role::TextInput
         || record.semantics.disabled
         || record.semantics.read_only
+        || !record
+            .semantics
+            .actions
+            .entries
+            .iter()
+            .any(|entry| entry.trigger == ActionTrigger::TextChanged)
     {
         return false;
     }
-    let previous_text_state = runtime.runtime_state.text_edit.get(record.id).cloned();
     set_focus_for_test(runtime, ir, record.id, &record.semantics);
-    runtime.runtime_state.text_edit.sync_from_runtime(
-        record.id,
-        record.semantics.value.as_deref().unwrap_or_default(),
-        None,
-        None,
-    );
-    {
-        let state = runtime
-            .runtime_state
-            .text_edit
-            .get_mut_or_default(record.id);
-        let old_len = state.buffer.len_bytes();
-        state.buffer.replace(0..old_len, value);
-        state.caret = value.len();
-        state.anchor = value.len();
-        state.pending_model_sync = true;
-        state.clear_preedit();
-    }
-    if !dispatch_text_change(ir, runtime, record.id, &record.semantics, value.to_string()) {
-        if let Some(previous) = previous_text_state {
-            runtime
-                .runtime_state
-                .text_edit
-                .states
-                .insert(record.id, previous);
-        } else {
-            runtime.runtime_state.text_edit.states.remove(&record.id);
-        }
-        return false;
-    }
-
-    let has_cursor_action = record
-        .semantics
-        .actions
-        .entries
-        .iter()
-        .any(|entry| entry.trigger == ActionTrigger::CursorChange);
-    let cursor_changed = dispatch_cursor_change(
-        ir,
-        runtime,
-        record.id,
-        &record.semantics,
-        value.len(),
-        value.len(),
-    );
-    !has_cursor_action || cursor_changed
+    runtime
+        .apply_text_edit_command_to(
+            ir,
+            layout,
+            record.id,
+            fission_core::TextEditCommand::SetValue {
+                value: fission_core::TextEditingValue::from_text(value),
+                source: fission_core::TextEditSource::Programmatic,
+                phase: fission_core::TextValuePhase::Committed,
+            },
+        )
+        .unwrap_or(false)
 }
 
 fn resolve_selector_response(
@@ -4339,6 +4270,9 @@ fn handle_focus_selector(
         );
     }
     set_focus_for_test(runtime, ir, record.id, &record.semantics);
+    if let Some(layout) = pipeline.last_snapshot.as_ref() {
+        runtime.update_focused_ime_state(ir, layout);
+    }
     fission_test_driver::TestResponse::Ok {}
 }
 
@@ -4384,7 +4318,15 @@ fn handle_fill_text_selector(
             vec![(record, Some("not a text input".into()))],
         );
     }
-    if set_text_value_for_test(runtime, ir, &record, text) {
+    let Some(layout) = pipeline.last_snapshot.as_ref() else {
+        return selector_failure(
+            query.clone(),
+            fission_test_driver::SelectorFailureKind::StaleFrame,
+            "no layout snapshot available",
+            vec![(record, None)],
+        );
+    };
+    if set_text_value_for_test(runtime, ir, layout, &record, text) {
         fission_test_driver::TestResponse::Ok {}
     } else {
         selector_failure(
@@ -5301,6 +5243,7 @@ where
         let mut event_loop_builder = EventLoop::<TestEvent>::with_user_event();
         #[cfg(target_os = "android")]
         if let Some(app) = android_app.as_ref() {
+            android_text_input::install(app);
             android_capabilities::register_android_operation_capabilities(
                 &mut self.async_registry,
                 app,
@@ -5911,6 +5854,7 @@ where
                         handle_key_down::<S>(
                             code,
                             modifiers,
+                            None,
                             &mut runtime,
                             &pipeline,
                             &effect_result_tx,
@@ -6009,6 +5953,7 @@ where
                                     handle_key_down::<S>(
                                         key,
                                         0,
+                                        None,
                                         &mut runtime,
                                         &pipeline,
                                         &effect_result_tx,
@@ -8237,6 +8182,7 @@ where
                                 Some(WindowTheme::Dark) => fission_theme::DesignMode::Dark,
                                 Some(WindowTheme::Light) | None => fission_theme::DesignMode::Light,
                             };
+                            env.text_scaler = platform_text_scale::current(elwt);
 
                             if let Some(sync) = &self.sync_env {
                                 let state = runtime.get_global_state::<S>().unwrap();
@@ -9763,6 +9709,7 @@ where
                                     handle_key_down::<S>(
                                         code,
                                         current_mods,
+                                        event.text.as_deref(),
                                         &mut runtime,
                                         &pipeline,
                                         &effect_result_tx,
@@ -9792,7 +9739,13 @@ where
                         WindowEvent::WebInput(web_input) => {
                             use fission_core::env::Clipboard as _;
                             use fission_core::event::EditingCommand;
-                            use winit::event::{WebClipboardAction, WebInputEvent};
+                            use fission_core::{
+                                TextAffinity, TextEditCommand, TextEditSource, TextEditingValue,
+                                TextPosition, TextSelection,
+                            };
+                            use winit::event::{
+                                WebClipboardAction, WebInputEvent, WebSelectionDirection,
+                            };
 
                             pending_web_input_at.get_or_insert_with(Instant::now);
                             let input_event = match &web_input {
@@ -9833,6 +9786,68 @@ where
                                         self.clipboard.set_text("");
                                     }
                                     Some(InputEvent::Editing(command))
+                                }
+                                WebInputEvent::TextInput(event) => {
+                                    // Composition is represented by winit's portable IME
+                                    // pre-edit events. Reconcile the complete DOM value once
+                                    // the browser reports a non-composing input transaction.
+                                    let composition_active = runtime
+                                        .runtime_state
+                                        .interaction
+                                        .focused
+                                        .and_then(|id| runtime.runtime_state.text_edit.get(id))
+                                        .is_some_and(|state| {
+                                            state.preedit.is_some()
+                                                || state.platform_composing.is_some()
+                                        });
+                                    if composition_active
+                                        || event.is_composing
+                                        || event.input_type == "insertCompositionText"
+                                    {
+                                        None
+                                    } else {
+                                        let start = TextPosition::from_utf16(
+                                            &event.value,
+                                            event.selection_start as usize,
+                                        );
+                                        let end = TextPosition::from_utf16(
+                                            &event.value,
+                                            event.selection_end as usize,
+                                        );
+                                        match (start, end) {
+                                            (Ok(start), Ok(end)) => {
+                                                let (base, extent) = match event.selection_direction
+                                                {
+                                                    WebSelectionDirection::Backward => (end, start),
+                                                    WebSelectionDirection::Forward
+                                                    | WebSelectionDirection::None => (start, end),
+                                                };
+                                                let (source, phase) =
+                                                    classify_web_text_value(&event.input_type);
+                                                Some(InputEvent::TextEdit(
+                                                    TextEditCommand::SetValue {
+                                                        value: TextEditingValue {
+                                                            text: event.value.clone(),
+                                                            selection: TextSelection {
+                                                                base,
+                                                                extent,
+                                                                affinity: TextAffinity::Downstream,
+                                                            },
+                                                            composing: None,
+                                                        },
+                                                        source,
+                                                        phase,
+                                                    },
+                                                ))
+                                            }
+                                            _ => {
+                                                eprintln!(
+                                                    "Fission ignored browser text state with invalid UTF-16 selection offsets"
+                                                );
+                                                None
+                                            }
+                                        }
+                                    }
                                 }
                             };
 
@@ -9901,6 +9916,26 @@ where
                                         )),
                                         Some(format!("ime_preedit:{}", text.chars().count())),
                                     ),
+                                    Ime::State(state) => {
+                                        let command = match ime::text_edit_command_from_ime_state(
+                                            &state,
+                                        ) {
+                                            Ok(command) => command,
+                                            Err(reason) => {
+                                                eprintln!(
+                                                    "Fission ignored invalid platform text state: {reason}"
+                                                );
+                                                return;
+                                            }
+                                        };
+                                        (
+                                            Some(InputEvent::TextEdit(command)),
+                                            Some(format!(
+                                                "ime_state:{}",
+                                                state.text.chars().count()
+                                            )),
+                                        )
+                                    }
                                     Ime::Disabled => (
                                         Some(InputEvent::Ime(
                                             fission_core::event::ImeEvent::Cancel,
@@ -10391,11 +10426,11 @@ mod tests {
     use super::wgpu::PresentMode;
     use super::{
         animation_redraw_interval, build_window_attributes, clamp_copy_extent_to_texture,
-        collect_semantic_records, collect_startup_deep_links_from, cursor_icon_for,
-        downscale_rgba_box, handle_fill_text_selector, layout_size_to_image_dimensions,
-        logical_viewport_to_physical_size, logical_viewport_to_render_target_size,
-        magnification_scale_factor, map_test_pointer_id, map_test_pointer_kind,
-        map_test_pointer_phase, map_test_scroll_delta_mode, map_touch_phase,
+        classify_web_text_value, collect_semantic_records, collect_startup_deep_links_from,
+        cursor_icon_for, downscale_rgba_box, fission_key_down_event, handle_fill_text_selector,
+        layout_size_to_image_dimensions, logical_viewport_to_physical_size,
+        logical_viewport_to_render_target_size, magnification_scale_factor, map_test_pointer_id,
+        map_test_pointer_kind, map_test_pointer_phase, map_test_scroll_delta_mode, map_touch_phase,
         native_window_size_for_logical_viewport, normalize_scale_factor,
         normalize_winit_scroll_delta, physical_position_to_layout_point,
         physical_size_to_layout_size, preferred_native_present_mode, preferred_surface_alpha_mode,
@@ -10411,16 +10446,45 @@ mod tests {
     use crate::pipeline::CompositorTexturePlan;
     use crate::renderer_diagnostics::RendererRequest;
     use crate::InvalidationSet;
+    use fission_core::event::{InputEvent, KeyCode, KeyEvent};
     use fission_core::{
         Action as FissionAction, ActionId as FissionActionId, ActionRegistry, DeepLinkConfig,
         GlobalState, MotionPropertyId, PointerId, PointerKind, PointerPhase, ReducerContext,
-        Runtime, ScrollDeltaMode, UpdateTextInput, WidgetId,
+        Runtime, ScrollDeltaMode, TextEditSource, TextValuePhase, UpdateTextInput, WidgetId,
     };
     use fission_core::{ActiveMotion, MotionEasing, MotionStateMap, MotionValue, ScrollStateMap};
     use fission_ir::semantics::{ActionTrigger, MouseCursor};
     use fission_ir::{CoreIR, FlexDirection, LayoutOp, Op, Role, Semantics};
     use fission_layout::{LayoutNodeGeometry, LayoutRect, LayoutSize, LayoutSnapshot};
     use fission_test_driver::{TestPointerKind, TestPointerPhase, TestScrollDeltaMode};
+
+    #[test]
+    fn key_down_preserves_produced_text_independently_of_logical_key() {
+        let event = fission_key_down_event(KeyCode::Space, 0, Some("t"));
+
+        assert_eq!(
+            event,
+            InputEvent::Keyboard(KeyEvent::DownWithText {
+                key_code: KeyCode::Space,
+                modifiers: 0,
+                text: "t".to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn key_down_preserves_multi_scalar_produced_text_once() {
+        let event = fission_key_down_event(KeyCode::Char('e'), 0, Some("e\u{301}"));
+
+        assert_eq!(
+            event,
+            InputEvent::Keyboard(KeyEvent::DownWithText {
+                key_code: KeyCode::Char('e'),
+                modifiers: 0,
+                text: "e\u{301}".to_owned(),
+            })
+        );
+    }
     use serde::{Deserialize, Serialize};
     use std::cell::RefCell;
     use std::collections::HashMap;
@@ -10952,7 +11016,7 @@ mod tests {
         runtime
             .runtime_state
             .text_edit
-            .sync_from_runtime(target, "before", None, None);
+            .sync_from_runtime(target, "before", None, None, false);
         runtime
             .runtime_state
             .text_edit
@@ -11447,6 +11511,22 @@ mod tests {
         let physical =
             logical_viewport_to_physical_size(fission_layout::LayoutSize::new(430.2, 900.1), 1.5);
         assert_eq!(physical, PhysicalSize::new(646, 1351));
+    }
+
+    #[test]
+    fn web_complete_text_values_preserve_platform_source_and_phase() {
+        assert_eq!(
+            classify_web_text_value("insertFromComposition"),
+            (TextEditSource::Ime, TextValuePhase::CompositionCommitted)
+        );
+        assert_eq!(
+            classify_web_text_value("insertReplacementText"),
+            (TextEditSource::Autocorrect, TextValuePhase::Committed)
+        );
+        assert_eq!(
+            classify_web_text_value("insertFromAutoFill"),
+            (TextEditSource::Autofill, TextValuePhase::Committed)
+        );
     }
 
     #[test]

@@ -4,11 +4,17 @@ use fission_ir::op::{
     TextRun,
 };
 use fission_ir::ActionEntry;
-use fission_layout::{LineMetric, RichTextInlineBox, RichTextLayoutInfo, TextMeasurer};
+use fission_layout::{
+    LayoutPoint, LayoutRect, LineMetric, ParagraphCaretStop, ParagraphCluster, ParagraphGlyph,
+    ParagraphSelectionBox, ResolvedParagraphLayout, RichTextInlineBox, RichTextLayoutInfo,
+    TextMeasurer,
+};
 use fission_render::TextStyle as RenderTextStyle;
-use parley::layout::{Layout, PositionedLayoutItem};
+use parley::layout::{Affinity, Cursor, Layout, PositionedLayoutItem};
 use parley::style::{
-    FontStack, FontStyle as ParleyFontStyle, FontWeight, LineHeight, StyleProperty,
+    FontFeature as ParleyFontFeature, FontSettings, FontStack, FontStyle as ParleyFontStyle,
+    FontVariation as ParleyFontVariation, FontWeight, LineHeight, OverflowWrap, StyleProperty,
+    WordBreakStrength,
 };
 use parley::InlineBox;
 use parley::{FontContext, LayoutContext};
@@ -55,6 +61,7 @@ struct RichStyleKey {
     line_height_bits: Option<u32>,
     letter_spacing_bits: u32,
     background_color: Option<[u8; 4]>,
+    typography: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -89,6 +96,7 @@ pub(crate) fn text_style_requires_rich_layout(style: &RenderTextStyle) -> bool {
         || style.line_height.is_some()
         || style.letter_spacing != 0.0
         || style.background_color.is_some()
+        || style.typography != fission_ir::op::TextTypography::default()
 }
 
 fn parley_font_style(style: IrFontStyle) -> ParleyFontStyle {
@@ -96,6 +104,27 @@ fn parley_font_style(style: IrFontStyle) -> ParleyFontStyle {
         IrFontStyle::Normal => ParleyFontStyle::Normal,
         IrFontStyle::Italic => ParleyFontStyle::Italic,
     }
+}
+
+pub(crate) fn typography_baseline_shift(
+    typography: &fission_ir::op::TextTypography,
+    ascent: f32,
+    descent: f32,
+    line_height: f32,
+) -> f32 {
+    let baseline = match typography.baseline {
+        fission_ir::op::TextBaseline::Alphabetic => 0.0,
+        fission_ir::op::TextBaseline::Ideographic => descent.max(0.0),
+    };
+    let leading = match typography.leading_distribution {
+        fission_ir::op::TextLeadingDistribution::Even => 0.0,
+        fission_ir::op::TextLeadingDistribution::Proportional => {
+            let glyph_height = (ascent + descent).max(1.0);
+            let extra = (line_height - glyph_height).max(0.0);
+            extra * (descent / glyph_height - 0.5)
+        }
+    };
+    baseline + leading
 }
 
 pub struct VelloTextMeasurer {
@@ -241,6 +270,7 @@ impl VelloTextMeasurer {
                         b: c.b,
                         a: c.a,
                     }),
+                    typography: run.style.typography.clone(),
                 },
             })
             .collect::<Vec<_>>();
@@ -480,6 +510,7 @@ impl VelloTextMeasurer {
                 line_height_bits: s.line_height.map(f32::to_bits),
                 letter_spacing_bits: s.letter_spacing.to_bits(),
                 background_color: s.background_color.map(|c| [c.r, c.g, c.b, c.a]),
+                typography: format!("{:?}", s.typography),
             })
             .collect();
         let inline_box_keys = inline_boxes
@@ -537,8 +568,24 @@ impl VelloTextMeasurer {
             builder.push(StyleProperty::Brush(brush), range.clone());
             builder.push(StyleProperty::FontSize(style.font_size), range.clone());
             if let Some(font_family) = &style.font_family {
+                let stack = if style.typography.font_fallback.is_empty() {
+                    font_family.clone()
+                } else {
+                    format!(
+                        "{}, {}",
+                        font_family,
+                        style.typography.font_fallback.join(", ")
+                    )
+                };
                 builder.push(
-                    StyleProperty::FontStack(FontStack::Source(Cow::Owned(font_family.clone()))),
+                    StyleProperty::FontStack(FontStack::Source(Cow::Owned(stack))),
+                    range.clone(),
+                );
+            } else if !style.typography.font_fallback.is_empty() {
+                builder.push(
+                    StyleProperty::FontStack(FontStack::Source(Cow::Owned(
+                        style.typography.font_fallback.join(", "),
+                    ))),
                     range.clone(),
                 );
             }
@@ -565,8 +612,103 @@ impl VelloTextMeasurer {
                     range.clone(),
                 );
             }
-            if style.underline {
+            if style.typography.word_spacing != 0.0 {
+                builder.push(
+                    StyleProperty::WordSpacing(style.typography.word_spacing),
+                    range.clone(),
+                );
+            }
+            let (word_break, overflow_wrap) = match style.typography.line_break {
+                fission_ir::op::TextLineBreakPolicy::Auto
+                | fission_ir::op::TextLineBreakPolicy::Normal => {
+                    (WordBreakStrength::Normal, OverflowWrap::Normal)
+                }
+                fission_ir::op::TextLineBreakPolicy::Strict => {
+                    (WordBreakStrength::KeepAll, OverflowWrap::Normal)
+                }
+                fission_ir::op::TextLineBreakPolicy::Loose => {
+                    (WordBreakStrength::Normal, OverflowWrap::Anywhere)
+                }
+                fission_ir::op::TextLineBreakPolicy::Anywhere => {
+                    (WordBreakStrength::BreakAll, OverflowWrap::Anywhere)
+                }
+            };
+            builder.push(StyleProperty::WordBreak(word_break), range.clone());
+            builder.push(
+                StyleProperty::OverflowWrap(
+                    if matches!(
+                        style.typography.hyphenation,
+                        fission_ir::op::TextHyphenation::Auto
+                    ) && overflow_wrap == OverflowWrap::Normal
+                    {
+                        OverflowWrap::BreakWord
+                    } else {
+                        overflow_wrap
+                    },
+                ),
+                range.clone(),
+            );
+            if style.underline || style.typography.decoration.lines.underline {
                 builder.push(StyleProperty::Underline(true), range.clone());
+            }
+            if style.typography.decoration.lines.line_through {
+                builder.push(StyleProperty::Strikethrough(true), range.clone());
+            }
+            if let Some(thickness) = style.typography.decoration.thickness {
+                if style.underline || style.typography.decoration.lines.underline {
+                    builder.push(StyleProperty::UnderlineSize(Some(thickness)), range.clone());
+                }
+                if style.typography.decoration.lines.line_through {
+                    builder.push(
+                        StyleProperty::StrikethroughSize(Some(thickness)),
+                        range.clone(),
+                    );
+                }
+            }
+            if let Some(color) = style.typography.decoration.color {
+                let brush = ParleyBrush([color.r, color.g, color.b, color.a]);
+                if style.underline || style.typography.decoration.lines.underline {
+                    builder.push(
+                        StyleProperty::UnderlineBrush(Some(brush.clone())),
+                        range.clone(),
+                    );
+                }
+                if style.typography.decoration.lines.line_through {
+                    builder.push(
+                        StyleProperty::StrikethroughBrush(Some(brush)),
+                        range.clone(),
+                    );
+                }
+            }
+            if !style.typography.font_features.is_empty() {
+                let source = style
+                    .typography
+                    .font_features
+                    .iter()
+                    .map(|feature| format!("'{}' {}", feature.tag, feature.value))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                builder.push(
+                    StyleProperty::FontFeatures(FontSettings::<ParleyFontFeature>::Source(
+                        Cow::Owned(source),
+                    )),
+                    range.clone(),
+                );
+            }
+            if !style.typography.font_variations.is_empty() {
+                let source = style
+                    .typography
+                    .font_variations
+                    .iter()
+                    .map(|variation| format!("'{}' {}", variation.axis, variation.value))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                builder.push(
+                    StyleProperty::FontVariations(FontSettings::<ParleyFontVariation>::Source(
+                        Cow::Owned(source),
+                    )),
+                    range.clone(),
+                );
             }
         }
 
@@ -750,6 +892,162 @@ impl TextMeasurer for VelloTextMeasurer {
         }
     }
 
+    fn resolve_rich_text(
+        &self,
+        runs: &[TextRun],
+        available_width: Option<f32>,
+    ) -> ResolvedParagraphLayout {
+        if runs.is_empty() {
+            return ResolvedParagraphLayout::empty(available_width);
+        }
+
+        let rich = Self::rich_layout_input_from_ir_runs(runs);
+        let layout = self.layout_rich(
+            &rich.text,
+            rich.base_size,
+            rich.base_color,
+            &rich.styles,
+            &rich.inline_boxes,
+            available_width,
+        );
+        let mut inline_boxes = Vec::new();
+        let mut lines = Vec::new();
+        let mut clusters = Vec::new();
+        let mut glyphs = Vec::new();
+        let mut selection_boxes = Vec::new();
+        let mut caret_indices = vec![0, rich.text.len()];
+        for (line_index, line) in layout.lines().enumerate() {
+            let metrics = line.metrics();
+            let range = line.text_range();
+            lines.push(LineMetric {
+                start_index: range.start,
+                end_index: range.end,
+                baseline: metrics.baseline,
+                height: metrics
+                    .line_height
+                    .max(metrics.ascent + metrics.descent)
+                    .max(1.0),
+                width: (metrics.advance - metrics.trailing_whitespace).max(0.0),
+            });
+            let top = metrics.baseline - metrics.ascent;
+            let cluster_height = (metrics.ascent + metrics.descent).max(1.0);
+            for run in line.runs() {
+                let run_range = run.text_range();
+                let typography = rich
+                    .styles
+                    .iter()
+                    .find(|(range, _)| range.start < run_range.end && range.end > run_range.start)
+                    .map(|(_, style)| style.typography.clone())
+                    .unwrap_or_default();
+                let baseline_shift = typography_baseline_shift(
+                    &typography,
+                    metrics.ascent,
+                    metrics.descent,
+                    metrics.line_height,
+                );
+                for cluster in run.visual_clusters() {
+                    let range = cluster.text_range();
+                    let cluster_index = clusters.len();
+                    let cluster_x = cluster.visual_offset().unwrap_or(metrics.offset);
+                    let cluster_rect = LayoutRect::new(
+                        cluster_x,
+                        top + baseline_shift,
+                        cluster.advance().max(0.0),
+                        cluster_height,
+                    );
+                    caret_indices.push(range.start);
+                    caret_indices.push(range.end);
+                    clusters.push(ParagraphCluster {
+                        start_index: range.start,
+                        end_index: range.end,
+                        line_index,
+                        rect: cluster_rect,
+                        is_rtl: cluster.is_rtl(),
+                    });
+                    selection_boxes.push(ParagraphSelectionBox {
+                        start_index: range.start,
+                        end_index: range.end,
+                        line_index,
+                        rect: cluster_rect,
+                    });
+                    let mut glyph_x = cluster_x;
+                    for glyph in cluster.glyphs() {
+                        glyphs.push(ParagraphGlyph {
+                            id: glyph.id as u32,
+                            style_index: glyph.style_index(),
+                            cluster_index,
+                            position: LayoutPoint::new(
+                                glyph_x + glyph.x,
+                                metrics.baseline + baseline_shift - glyph.y,
+                            ),
+                            advance: glyph.advance,
+                        });
+                        glyph_x += glyph.advance;
+                    }
+                }
+            }
+            for item in line.items() {
+                if let PositionedLayoutItem::InlineBox(inline_box) = item {
+                    inline_boxes.push(RichTextInlineBox {
+                        id: inline_box.id,
+                        x: inline_box.x,
+                        y: inline_box.y,
+                        width: inline_box.width,
+                        height: inline_box.height,
+                    });
+                }
+            }
+        }
+        caret_indices.sort_unstable();
+        caret_indices.dedup();
+        let mut caret_stops = Vec::with_capacity(caret_indices.len() * 2);
+        for index in caret_indices {
+            for (upstream, affinity) in [(false, Affinity::Downstream), (true, Affinity::Upstream)]
+            {
+                let rect = Cursor::from_byte_index(&layout, index, affinity).geometry(&layout, 0.0);
+                let baseline_shift = rich
+                    .styles
+                    .iter()
+                    .find(|(range, _)| range.start <= index && index <= range.end)
+                    .and_then(|(_, style)| {
+                        layout
+                            .lines()
+                            .find(|line| {
+                                let range = line.text_range();
+                                range.start <= index && index <= range.end
+                            })
+                            .map(|line| {
+                                let metrics = line.metrics();
+                                typography_baseline_shift(
+                                    &style.typography,
+                                    metrics.ascent,
+                                    metrics.descent,
+                                    metrics.line_height,
+                                )
+                            })
+                    })
+                    .unwrap_or(0.0);
+                caret_stops.push(ParagraphCaretStop {
+                    index,
+                    upstream,
+                    position: LayoutPoint::new(rect.x0 as f32, rect.y0 as f32 + baseline_shift),
+                    height: (rect.y1 - rect.y0) as f32,
+                });
+            }
+        }
+        let (width, height) = Self::layout_measured_size(&layout);
+        ResolvedParagraphLayout {
+            constraint_width: available_width,
+            size: fission_layout::LayoutSize::new(width, height),
+            lines,
+            inline_boxes,
+            clusters,
+            glyphs,
+            caret_stops,
+            selection_boxes,
+        }
+    }
+
     fn hit_test_rich(
         &self,
         runs: &[TextRun],
@@ -793,6 +1091,7 @@ impl TextMeasurer for VelloTextMeasurer {
                         b: c.b,
                         a: c.a,
                     }),
+                    typography: first.style.typography.clone(),
                 })
             {
                 let mut full_text = String::new();
@@ -951,7 +1250,7 @@ impl TextMeasurer for VelloTextMeasurer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fission_ir::op::{Color, FontStyle, TextStyle};
+    use fission_ir::op::{encode_inline_widget_marker, Color, FontStyle, TextStyle};
     use fission_layout::TextMeasurer;
 
     fn measurer() -> VelloTextMeasurer {
@@ -972,6 +1271,7 @@ mod tests {
                 line_height: Some(line_height),
                 letter_spacing: 0.0,
                 background_color: None,
+                typography: Default::default(),
             },
         }
     }
@@ -999,5 +1299,117 @@ mod tests {
 
         assert!((bounded - intrinsic).abs() < 0.5);
         assert!(bounded < 80.0);
+    }
+
+    #[test]
+    fn resolved_paragraph_owns_wrapping_lines_for_unicode_and_bidi_text() {
+        let measurer = measurer();
+        let text = "English العربية cafe\u{301} 👩🏽‍💻 עברית";
+        let runs = vec![text_run(text, 18.0, 24.0)];
+
+        let resolved = measurer.resolve_rich_text(&runs, Some(120.0));
+
+        assert_eq!(resolved.constraint_width, Some(120.0));
+        assert!(resolved.lines.len() > 1);
+        assert!(resolved.size.width <= 120.5);
+        assert!(!resolved.clusters.is_empty());
+        assert!(!resolved.glyphs.is_empty());
+        assert!(resolved
+            .glyphs
+            .iter()
+            .all(|glyph| glyph.cluster_index < resolved.clusters.len()));
+        assert_eq!(resolved.selection_boxes.len(), resolved.clusters.len());
+        assert!(resolved.clusters.iter().any(|cluster| cluster.is_rtl));
+        assert!(resolved
+            .clusters
+            .iter()
+            .all(|cluster| text.is_char_boundary(cluster.start_index)
+                && text.is_char_boundary(cluster.end_index)));
+        assert!(resolved.caret(0, false).is_some());
+        assert!(resolved.caret(text.len(), true).is_some());
+        let arabic = text.find("العربية").unwrap();
+        let arabic_end = arabic + "العربية".len();
+        assert!(!resolved.selection_rects(arabic, arabic_end).is_empty());
+        let first_cluster = resolved.clusters[0];
+        let hit = resolved.hit_test(LayoutPoint::new(
+            first_cluster.rect.x() + first_cluster.rect.width() * 0.25,
+            first_cluster.rect.y() + first_cluster.rect.height() * 0.5,
+        ));
+        assert!(text.is_char_boundary(hit));
+        for line in &resolved.lines {
+            assert!(text.is_char_boundary(line.start_index));
+            assert!(text.is_char_boundary(line.end_index));
+            assert!(line.start_index <= line.end_index);
+            assert!(line.height > 0.0);
+        }
+    }
+
+    #[test]
+    fn resolved_paragraph_contains_inline_placement_from_the_shaped_layout() {
+        let mut marker = text_run("", 16.0, 20.0);
+        marker.style.font_family = Some(encode_inline_widget_marker(42, 36.0, 18.0));
+        let runs = vec![
+            text_run("before ", 16.0, 20.0),
+            marker,
+            text_run(" after", 16.0, 20.0),
+        ];
+
+        let resolved = measurer().resolve_rich_text(&runs, Some(180.0));
+
+        assert_eq!(resolved.inline_boxes.len(), 1);
+        assert_eq!(resolved.inline_boxes[0].id, 42);
+        assert_eq!(resolved.inline_boxes[0].width, 36.0);
+        assert!(resolved.size.height >= 18.0);
+    }
+
+    #[test]
+    fn word_spacing_participates_in_measurement_and_cache_identity() {
+        let measurer = measurer();
+        let base = vec![text_run("one two three", 18.0, 24.0)];
+        let mut spaced = base.clone();
+        spaced[0].style.typography.word_spacing = 8.0;
+
+        let base_width = measurer.resolve_rich_text(&base, None).size.width;
+        let spaced_width = measurer.resolve_rich_text(&spaced, None).size.width;
+
+        assert!(spaced_width > base_width + 10.0);
+    }
+
+    #[test]
+    fn declared_line_break_and_hyphenation_policies_change_native_wrapping() {
+        let measurer = measurer();
+        let normal = text_run("pneumonoultramicroscopicsilicovolcanoconiosis", 16.0, 20.0);
+        let mut anywhere = normal.clone();
+        anywhere.style.typography.line_break = fission_ir::op::TextLineBreakPolicy::Anywhere;
+        anywhere.style.typography.hyphenation = fission_ir::op::TextHyphenation::Auto;
+
+        let normal = measurer.resolve_rich_text(&[normal], Some(72.0));
+        let anywhere = measurer.resolve_rich_text(&[anywhere], Some(72.0));
+
+        assert_eq!(normal.lines.len(), 1);
+        assert!(anywhere.lines.len() > 1);
+        assert!(anywhere.lines.iter().all(|line| line.width <= 72.5));
+    }
+
+    #[test]
+    fn ideographic_baseline_and_leading_distribution_affect_resolved_geometry() {
+        let measurer = measurer();
+        let alphabetic = text_run("漢字 baseline", 18.0, 34.0);
+        let mut ideographic = alphabetic.clone();
+        ideographic.style.typography.baseline = fission_ir::op::TextBaseline::Ideographic;
+        ideographic.style.typography.leading_distribution =
+            fission_ir::op::TextLeadingDistribution::Even;
+
+        let alphabetic = measurer.resolve_rich_text(&[alphabetic], Some(180.0));
+        let ideographic = measurer.resolve_rich_text(&[ideographic], Some(180.0));
+
+        assert_ne!(
+            alphabetic.glyphs[0].position.y,
+            ideographic.glyphs[0].position.y
+        );
+        assert_ne!(
+            alphabetic.caret(0, false).unwrap().position.y,
+            ideographic.caret(0, false).unwrap().position.y
+        );
     }
 }

@@ -78,6 +78,7 @@ fn align_centers_an_intrinsic_layout_wrapper_and_its_text() {
             line_height: None,
             letter_spacing: 0.0,
             background_color: None,
+            typography: Default::default(),
         },
     }]);
 
@@ -222,6 +223,7 @@ fn intrinsic_box_does_not_expand_an_align_child_to_a_loose_cross_axis_maximum() 
             line_height: None,
             letter_spacing: 0.0,
             background_color: None,
+            typography: Default::default(),
         },
     }]);
 

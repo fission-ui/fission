@@ -2,9 +2,9 @@ use crate::env::{Env, RuntimeState};
 use crate::internal::InternalLower;
 use crate::lowering::{build_layout_tree, InternalLoweringCx};
 use crate::ui::widgets::text::TextContent;
-use crate::ui::widgets::{Container, Text};
+use crate::ui::widgets::{Column, Container, Text};
 use fission_ir::WidgetId;
-use fission_ir::{LayoutOp, Op};
+use fission_ir::{op::Length, LayoutOp, Op};
 use fission_layout::{LayoutEngine, LayoutSize};
 
 struct SimpleMeasurer;
@@ -61,6 +61,7 @@ fn test_text_wrapping_in_constrained_flex() {
             size: 16.0,
             color: fission_ir::op::Color::BLACK,
             underline: false,
+            locale: None,
             wrap: true,
             caret_index: None,
             caret_color: None,
@@ -175,5 +176,69 @@ fn text_parent_max_width_drives_wrapping() {
     assert!(
         text_geom.rect.height() > 20.0,
         "text should wrap when parent max_width is set"
+    );
+}
+
+#[test]
+fn first_frame_descendant_max_width_is_the_paragraph_wrap_authority() {
+    let env = Env::default();
+    let runtime_state = RuntimeState::default();
+    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
+
+    let heading = "A deliberately long heading that wraps at the capped width";
+    let sibling = "This sibling starts after the complete heading.";
+    let root = Column {
+        children: vec![
+            Container::new(Text::new(heading).size(36.0).max_lines(3))
+                .width_length(Length::percent(100.0))
+                .max_width_length(Length::points(260.0))
+                .into(),
+            Text::new(sibling).into(),
+        ],
+        gap: Some(12.0),
+        ..Default::default()
+    };
+
+    let root_id = root.lower(&mut cx);
+    cx.ir.root = Some(root_id);
+    let input_nodes = build_layout_tree(&cx.ir, &env);
+    let mut engine = LayoutEngine::new().with_measurer(std::sync::Arc::new(SimpleMeasurer));
+    engine.rebuild(&input_nodes).unwrap();
+    let snapshot = engine
+        .compute_layout(
+            &input_nodes,
+            root_id,
+            LayoutSize::new(1000.0, 800.0),
+            &|_| 0.0,
+        )
+        .unwrap();
+
+    let find_text = |value: &str| {
+        cx.ir
+            .nodes
+            .iter()
+            .find_map(|(id, node)| match &node.op {
+                Op::Paint(fission_ir::PaintOp::DrawText { text, .. }) if text == value => Some(*id),
+                Op::Paint(fission_ir::PaintOp::DrawRichText { runs, .. })
+                    if runs.iter().map(|run| run.text.as_str()).collect::<String>() == value =>
+                {
+                    Some(*id)
+                }
+                _ => None,
+            })
+            .expect("text paint node")
+    };
+    let heading_geometry = snapshot
+        .get_node_geometry(find_text(heading))
+        .expect("heading geometry");
+    let sibling_geometry = snapshot
+        .get_node_geometry(find_text(sibling))
+        .expect("sibling geometry");
+
+    assert!(heading_geometry.rect.width() <= 260.0);
+    assert_eq!(heading_geometry.content_size.height, 60.0);
+    assert!(
+        sibling_geometry.rect.y() >= heading_geometry.rect.bottom() + 12.0,
+        "the first frame must reserve every wrapped heading line"
     );
 }

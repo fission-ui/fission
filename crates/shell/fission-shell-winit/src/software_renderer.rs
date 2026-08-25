@@ -759,6 +759,7 @@ mod image_tests {
             caret_height: None,
             caret_radius: None,
             paragraph_style: None,
+            resolved_layout: None,
         });
 
         let pixels = SoftwareRenderer::render_with_text_measurer(
@@ -815,6 +816,7 @@ mod image_tests {
                     line_height: None,
                     letter_spacing: 0.0,
                     background_color: None,
+                    typography: Default::default(),
                 },
             }],
             position: bounds.origin,
@@ -828,6 +830,7 @@ mod image_tests {
             caret_radius: None,
             paragraph_style: None,
             annotations: Vec::new(),
+            resolved_layout: None,
         });
 
         let pixels = SoftwareRenderer::render_with_text_measurer(
@@ -1570,18 +1573,46 @@ impl SoftwareRenderer {
                     bounds,
                     underline,
                     wrap,
+                    resolved_layout,
                     ..
                 } => {
-                    self.draw_text(text, *position, *size, *color, *bounds, *wrap, *underline)?;
+                    let mut layout_bounds = *bounds;
+                    if *wrap {
+                        if let Some(width) = resolved_layout
+                            .as_ref()
+                            .and_then(|layout| layout.constraint_width)
+                        {
+                            layout_bounds.size.width = width.max(0.0);
+                        }
+                    }
+                    self.draw_text(
+                        text,
+                        *position,
+                        *size,
+                        *color,
+                        layout_bounds,
+                        *wrap,
+                        *underline,
+                    )?;
                 }
                 DisplayOp::DrawRichText {
                     runs,
                     position,
                     bounds,
                     wrap,
+                    resolved_layout,
                     ..
                 } => {
-                    self.draw_rich_text(runs, *position, *bounds, *wrap)?;
+                    let mut layout_bounds = *bounds;
+                    if *wrap {
+                        if let Some(width) = resolved_layout
+                            .as_ref()
+                            .and_then(|layout| layout.constraint_width)
+                        {
+                            layout_bounds.size.width = width.max(0.0);
+                        }
+                    }
+                    self.draw_rich_text(runs, *position, layout_bounds, *wrap)?;
                 }
                 DisplayOp::DrawImage {
                     rect,

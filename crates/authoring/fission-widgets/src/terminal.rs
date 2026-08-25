@@ -461,6 +461,7 @@ impl TerminalRenderNode {
                     line_height: None,
                     letter_spacing: 0.0,
                     background_color: None,
+                    typography: Default::default(),
                 },
             });
         }
@@ -1378,6 +1379,7 @@ fn flush_run(
             line_height: None,
             letter_spacing: 0.0,
             background_color: style.bg,
+            typography: Default::default(),
         },
     });
 }

@@ -1715,7 +1715,13 @@ fn generate_render_layer_recursive(
             Some(cached_ops.clone())
         } else {
             *miss_count += 1;
-            let ops = build_local_paint_list(ir, node_id, node, rect);
+            let ops = build_local_paint_list(
+                ir,
+                node_id,
+                node,
+                rect,
+                snapshot.get_resolved_paragraph(node_id),
+            );
             if let Some(ops) = ops.clone() {
                 paint_cache.insert(node_id, (local_hash, ops));
             } else {
@@ -1725,7 +1731,13 @@ fn generate_render_layer_recursive(
         }
     } else {
         *miss_count += 1;
-        let ops = build_local_paint_list(ir, node_id, node, rect);
+        let ops = build_local_paint_list(
+            ir,
+            node_id,
+            node,
+            rect,
+            snapshot.get_resolved_paragraph(node_id),
+        );
         if let Some(ops) = ops.clone() {
             paint_cache.insert(node_id, (local_hash, ops));
         }
@@ -2278,6 +2290,7 @@ fn build_local_paint_list(
     node_id: WidgetId,
     node: &fission_ir::CoreNode,
     rect: LayoutRect,
+    resolved_paragraph: Option<&fission_layout::ResolvedParagraphLayout>,
 ) -> Option<DisplayList> {
     let mut list = DisplayList::new(rect);
     match &node.op {
@@ -2338,6 +2351,7 @@ fn build_local_paint_list(
             caret_height,
             caret_radius,
             paragraph_style,
+            ..
         }) => {
             list.push(DisplayOp::DrawText {
                 text: text.clone(),
@@ -2364,6 +2378,7 @@ fn build_local_paint_list(
                 caret_height: *caret_height,
                 caret_radius: *caret_radius,
                 paragraph_style: *paragraph_style,
+                resolved_layout: resolved_paragraph.cloned(),
             });
         }
         Op::Paint(fission_ir::PaintOp::DrawRichText {
@@ -2409,6 +2424,7 @@ fn build_local_paint_list(
                             b: c.b,
                             a: c.a,
                         }),
+                        typography: r.style.typography.clone(),
                     },
                 })
                 .collect();
@@ -2431,6 +2447,7 @@ fn build_local_paint_list(
                 caret_radius: *caret_radius,
                 paragraph_style: *paragraph_style,
                 annotations,
+                resolved_layout: resolved_paragraph.cloned(),
             });
         }
         Op::Paint(fission_ir::PaintOp::DrawImage {
@@ -2935,6 +2952,7 @@ mod tests {
                         line_height: None,
                         letter_spacing: 0.0,
                         background_color: None,
+                        typography: Default::default(),
                     },
                 }],
                 wrap: true,
@@ -2964,9 +2982,14 @@ mod tests {
         );
 
         let node = ir.nodes.get(&node_id).expect("paint node");
-        let list =
-            build_local_paint_list(&ir, node_id, node, LayoutRect::new(0.0, 0.0, 160.0, 40.0))
-                .expect("display list");
+        let list = build_local_paint_list(
+            &ir,
+            node_id,
+            node,
+            LayoutRect::new(0.0, 0.0, 160.0, 40.0),
+            None,
+        )
+        .expect("display list");
         match list.ops.first() {
             Some(DisplayOp::DrawRichText { annotations, .. }) => {
                 assert_eq!(annotations.len(), 1);
@@ -3007,7 +3030,7 @@ mod tests {
 
         let node = ir.nodes.get(&node_id).expect("image node");
         let rect = LayoutRect::new(24.0, 32.0, 220.0, 160.0);
-        let list = build_local_paint_list(&ir, node_id, node, rect).expect("display list");
+        let list = build_local_paint_list(&ir, node_id, node, rect, None).expect("display list");
 
         match list.ops.first() {
             Some(DisplayOp::DrawImage {
@@ -3139,7 +3162,7 @@ mod tests {
 
         let node = ir.nodes.get(&node_id).expect("embed node");
         let rect = LayoutRect::new(12.0, 24.0, 320.0, 180.0);
-        let list = build_local_paint_list(&ir, node_id, node, rect).expect("display list");
+        let list = build_local_paint_list(&ir, node_id, node, rect, None).expect("display list");
 
         match list.ops.first() {
             Some(DisplayOp::DrawSurface {

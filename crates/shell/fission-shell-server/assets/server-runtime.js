@@ -258,6 +258,11 @@
 
   function utf8Offset(value,utf16Offset){
     var bounded=Math.max(0,Math.min(value.length,typeof utf16Offset==='number'?utf16Offset:value.length));
+    if(bounded>0&&bounded<value.length){
+      var previous=value.charCodeAt(bounded-1);
+      var next=value.charCodeAt(bounded);
+      if(previous>=0xD800&&previous<=0xDBFF&&next>=0xDC00&&next<=0xDFFF)bounded-=1;
+    }
     return textEncoder.encode(value.slice(0,bounded)).length;
   }
 
@@ -310,7 +315,15 @@
       el.__fissionBrowserTextActionBound=true;
       var composing=false;
       var compositionCommitValue=null;
+      var pendingBeforeInput=null;
       el.addEventListener('compositionstart',function(){composing=true;compositionCommitValue=null;});
+      el.addEventListener('beforeinput',function(domEvent){
+        pendingBeforeInput={
+          inputType:String(domEvent.inputType||''),
+          data:domEvent.data==null?null:String(domEvent.data),
+          cancelable:Boolean(domEvent.cancelable)
+        };
+      });
       var dispatchTextInput=function(domEvent){
         if(composing||domEvent.isComposing)return;
         var value=String(el.value==null?'':el.value);
@@ -334,8 +347,12 @@
           value:value,
           caret:selection.caret,
           anchor:selection.anchor,
+          input_type:String(domEvent.inputType||(pendingBeforeInput&&pendingBeforeInput.inputType)||''),
+          input_data:domEvent.data==null?(pendingBeforeInput&&pendingBeforeInput.data):String(domEvent.data),
+          input_cancelable:pendingBeforeInput&&pendingBeforeInput.cancelable===true,
           sequence:++bridge.sequence
         };
+        pendingBeforeInput=null;
         try{dispatchBridgeEvent(bridge,payload);}catch(error){setTextBySemantics(bridge.statusSemantics,bridge.kind+' failed: '+error.message);}
       };
       el.addEventListener('compositionend',function(domEvent){

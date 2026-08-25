@@ -758,6 +758,23 @@ impl LiveTestClient {
         }
     }
 
+    /// Evaluates a JSON-returning browser expression in a launched Web test.
+    ///
+    /// This is intended for host-boundary conformance that cannot be expressed
+    /// as a Fission semantic command, such as checking the hidden native text
+    /// control, browser history, or platform DOM attributes.
+    pub fn browser_evaluate_json(&self, expression: &str) -> Result<serde_json::Value> {
+        match &self.transport {
+            LiveTestTransport::Browser(controller) => controller
+                .lock()
+                .map_err(|_| anyhow!("browser test controller lock is poisoned"))?
+                .evaluate_json(expression),
+            LiveTestTransport::Http { .. } => Err(anyhow!(
+                "browser evaluation requires LiveTestClient::launch_browser"
+            )),
+        }
+    }
+
     pub fn wait_for_ready(&self, timeout_ms: u64) -> Result<()> {
         let LiveTestTransport::Http { base_url } = &self.transport else {
             return Ok(());
