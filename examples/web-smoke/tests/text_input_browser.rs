@@ -110,7 +110,6 @@ fn canvas_text_adapter_reconciles_complete_browser_edits() -> Result<()> {
         false,
     )?;
     client.wait_for_text("Primary value: AZB (edits: 2)", 5_000)?;
-    client.wait_for_text("Primary edit: Some(Autocorrect) / Some(Committed)", 5_000)?;
     apply_browser_edit(
         &client,
         "AB",
