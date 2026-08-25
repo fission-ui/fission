@@ -217,7 +217,7 @@ Outside the Fission source workspace, prefer the published crate pinned to the s
 
 ```toml
 [build-dependencies]
-fission-design-system-codegen = { version = "0.13.0" }
+fission-design-system-codegen = { version = "0.14.0" }
 ```
 
 Generate a typed design system from the copied DSP file in `build.rs`:

@@ -377,7 +377,7 @@ dependencies = [
 
 [[package]]
 name = "animation-gallery"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "fission",
@@ -1599,7 +1599,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-fission"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1679,7 +1679,7 @@ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
 name = "chart-gallery"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "fission",
@@ -1981,7 +1981,7 @@ dependencies = [
 
 [[package]]
 name = "counter"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "fission",
@@ -2413,7 +2413,7 @@ dependencies = [
 
 [[package]]
 name = "embed-3d"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "fission",
@@ -2423,7 +2423,7 @@ dependencies = [
 
 [[package]]
 name = "embed-video"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "fission",
@@ -2433,7 +2433,7 @@ dependencies = [
 
 [[package]]
 name = "embed-webview"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "fission",
@@ -2557,7 +2557,7 @@ dependencies = [
 
 [[package]]
 name = "example-showcase"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "animation-gallery",
  "anyhow",
@@ -2661,7 +2661,7 @@ dependencies = [
 
 [[package]]
 name = "field-inspector"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "console_error_panic_hook",
@@ -2718,7 +2718,7 @@ checksum = "9844ddc3a6e533d62bba727eb6c28b5d360921d5175e9ff0f1e621a5c590a4d5"
 
 [[package]]
 name = "fission"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "fission-3d",
  "fission-charts",
@@ -2747,7 +2747,7 @@ dependencies = [
 
 [[package]]
 name = "fission-3d"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "bincode",
  "bytemuck",
@@ -2775,7 +2775,7 @@ dependencies = [
 
 [[package]]
 name = "fission-charts"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "chrono",
  "fission-core",
@@ -2788,7 +2788,7 @@ dependencies = [
 
 [[package]]
 name = "fission-command-core"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -2803,7 +2803,7 @@ dependencies = [
 
 [[package]]
 name = "fission-command-package"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "aws-config",
@@ -2828,7 +2828,7 @@ dependencies = [
 
 [[package]]
 name = "fission-command-release"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -2849,7 +2849,7 @@ dependencies = [
 
 [[package]]
 name = "fission-command-run"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "fission-command-core",
@@ -2863,7 +2863,7 @@ dependencies = [
 
 [[package]]
 name = "fission-command-server"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "toml 0.8.2",
@@ -2871,7 +2871,7 @@ dependencies = [
 
 [[package]]
 name = "fission-command-site"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "fission-shell-site",
@@ -2881,7 +2881,7 @@ dependencies = [
 
 [[package]]
 name = "fission-command-ui"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "fission",
@@ -2896,7 +2896,7 @@ dependencies = [
 
 [[package]]
 name = "fission-core"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -2922,7 +2922,7 @@ dependencies = [
 
 [[package]]
 name = "fission-design-system-codegen"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -2930,7 +2930,7 @@ dependencies = [
 
 [[package]]
 name = "fission-diagnostics"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "bitflags 2.13.0",
  "once_cell",
@@ -2943,7 +2943,7 @@ dependencies = [
 
 [[package]]
 name = "fission-documentation"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "ammonia",
  "anyhow",
@@ -2962,7 +2962,7 @@ dependencies = [
 
 [[package]]
 name = "fission-editor"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "fission",
@@ -2979,14 +2979,14 @@ dependencies = [
 
 [[package]]
 name = "fission-i18n"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "fission-icons"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "heck 0.4.1",
  "serde_json",
@@ -2995,7 +2995,7 @@ dependencies = [
 
 [[package]]
 name = "fission-ir"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "blake3",
  "serde",
@@ -3005,7 +3005,7 @@ dependencies = [
 
 [[package]]
 name = "fission-layout"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "fission-diagnostics",
@@ -3015,7 +3015,7 @@ dependencies = [
 
 [[package]]
 name = "fission-macros"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "proc-macro-crate 3.5.0",
  "proc-macro2",
@@ -3025,7 +3025,7 @@ dependencies = [
 
 [[package]]
 name = "fission-render"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "fission-ir",
@@ -3037,7 +3037,7 @@ dependencies = [
 
 [[package]]
 name = "fission-render-vello"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "fission-diagnostics",
@@ -3060,7 +3060,7 @@ dependencies = [
 
 [[package]]
 name = "fission-semantics"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "fission-ir",
  "serde",
@@ -3069,7 +3069,7 @@ dependencies = [
 
 [[package]]
 name = "fission-shell"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "fission-core",
@@ -3086,7 +3086,7 @@ dependencies = [
 
 [[package]]
 name = "fission-shell-desktop"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "fission-core",
@@ -3107,7 +3107,7 @@ dependencies = [
 
 [[package]]
 name = "fission-shell-mobile"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "fission-core",
@@ -3120,7 +3120,7 @@ dependencies = [
 
 [[package]]
 name = "fission-shell-server"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "actix-web",
  "anyhow",
@@ -3151,7 +3151,7 @@ dependencies = [
 
 [[package]]
 name = "fission-shell-site"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -3169,7 +3169,7 @@ dependencies = [
 
 [[package]]
 name = "fission-shell-terminal"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "ab_glyph",
  "anyhow",
@@ -3190,7 +3190,7 @@ dependencies = [
 
 [[package]]
 name = "fission-shell-web"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "fission-core",
@@ -3202,7 +3202,7 @@ dependencies = [
 
 [[package]]
 name = "fission-shell-winit"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "accesskit",
  "anyhow",
@@ -3265,7 +3265,7 @@ dependencies = [
 
 [[package]]
 name = "fission-store"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -3273,7 +3273,7 @@ dependencies = [
 
 [[package]]
 name = "fission-store-sqlite"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "fission-store",
  "futures-lite",
@@ -3289,7 +3289,7 @@ dependencies = [
 
 [[package]]
 name = "fission-test"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "fission-core",
@@ -3313,7 +3313,7 @@ dependencies = [
 
 [[package]]
 name = "fission-test-driver"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -3327,14 +3327,14 @@ dependencies = [
 
 [[package]]
 name = "fission-text-engine"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "ropey",
 ]
 
 [[package]]
 name = "fission-theme"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "fission-design-system-codegen",
  "fission-ir",
@@ -3382,7 +3382,7 @@ dependencies = [
 
 [[package]]
 name = "fission-widgets"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "arboard",
@@ -4628,7 +4628,7 @@ dependencies = [
 
 [[package]]
 name = "icons_gallery"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "fission",
@@ -4825,7 +4825,7 @@ checksum = "35a84fd5aa25fae5c0f4a33d9cac2ca017fc622cbd089be2229993514990f870"
 
 [[package]]
 name = "inbox"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4851,7 +4851,7 @@ dependencies = [
 
 [[package]]
 name = "interactive-canvas-example"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "console_error_panic_hook",
@@ -5524,7 +5524,7 @@ dependencies = [
 
 [[package]]
 name = "mobile-smoke"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "fission",
@@ -5549,7 +5549,7 @@ dependencies = [
 
 [[package]]
 name = "motion-memory-repro"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "fission",
@@ -6604,7 +6604,7 @@ dependencies = [
 
 [[package]]
 name = "pokemon-card-store"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "fission",
@@ -6777,7 +6777,7 @@ dependencies = [
 
 [[package]]
 name = "product-browser"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "fission",
@@ -8137,7 +8137,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "store-sqlite"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "fission",
@@ -8575,7 +8575,7 @@ dependencies = [
 
 [[package]]
 name = "terminal"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "arboard",
@@ -8607,7 +8607,7 @@ dependencies = [
 
 [[package]]
 name = "text-lab"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "fission",
@@ -8776,7 +8776,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "todo-design-system"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "fission",
@@ -9528,7 +9528,7 @@ dependencies = [
 
 [[package]]
 name = "web-smoke"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "console_error_panic_hook",
@@ -9802,7 +9802,7 @@ dependencies = [
 
 [[package]]
 name = "widget-gallery"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "fission",
