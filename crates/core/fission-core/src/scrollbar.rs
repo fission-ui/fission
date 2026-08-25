@@ -5,6 +5,11 @@ use fission_layout::{LayoutPoint, LayoutRect, LayoutSnapshot};
 pub const SCROLLBAR_INSET: f32 = 2.0;
 pub const SCROLLBAR_THICKNESS: f32 = 6.0;
 pub const SCROLLBAR_MIN_THUMB: f32 = 24.0;
+/// Additional inward cross-axis reach for pointer interaction.
+///
+/// Scrollbar chrome stays visually compact while remaining practical to grab
+/// on high-density displays.
+pub const SCROLLBAR_HIT_SLOP: f32 = 4.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScrollbarAxis {
@@ -219,7 +224,9 @@ fn scrollbar_hit_test_recursive(
     }
 
     if let Some(geometry) = scrollbar_geometry_for_node(ir, layout, scroll_map, node_id) {
-        if geometry.thumb_rect.contains(point) {
+        let thumb_hit_rect = interaction_rect(geometry.axis, geometry.thumb_rect);
+        let rail_hit_rect = interaction_rect(geometry.axis, geometry.rail_rect);
+        if thumb_hit_rect.contains(point) {
             return Some(ScrollbarHit {
                 geometry,
                 kind: ScrollbarHitKind::Thumb,
@@ -228,7 +235,7 @@ fn scrollbar_hit_test_recursive(
                 layout_point: point,
             });
         }
-        if geometry.rail_rect.contains(point) {
+        if rail_hit_rect.contains(point) {
             return Some(ScrollbarHit {
                 geometry,
                 kind: ScrollbarHitKind::Rail,
@@ -258,6 +265,23 @@ fn scrollbar_hit_test_recursive(
     None
 }
 
+fn interaction_rect(axis: ScrollbarAxis, rect: LayoutRect) -> LayoutRect {
+    match axis {
+        ScrollbarAxis::Vertical => LayoutRect::new(
+            rect.origin.x - SCROLLBAR_HIT_SLOP,
+            rect.origin.y,
+            rect.size.width + SCROLLBAR_HIT_SLOP,
+            rect.size.height,
+        ),
+        ScrollbarAxis::Horizontal => LayoutRect::new(
+            rect.origin.x,
+            rect.origin.y - SCROLLBAR_HIT_SLOP,
+            rect.size.width,
+            rect.size.height + SCROLLBAR_HIT_SLOP,
+        ),
+    }
+}
+
 fn axis_start(axis: ScrollbarAxis, rect: LayoutRect) -> f32 {
     match axis {
         ScrollbarAxis::Horizontal => rect.origin.x,
@@ -282,8 +306,8 @@ fn point_axis(axis: ScrollbarAxis, point: LayoutPoint) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::{
-        scrollbar_drag_offset_with_grab, scrollbar_geometry_for_node, scrollbar_hit_test,
-        scrollbar_point_for_node, ScrollbarAxis, ScrollbarHitKind,
+        scrollbar_drag_offset, scrollbar_drag_offset_with_grab, scrollbar_geometry_for_node,
+        scrollbar_hit_test, scrollbar_point_for_node, ScrollbarAxis, ScrollbarHitKind,
     };
     use crate::env::ScrollStateMap;
     use fission_ir::{CompositeStyle, CoreIR, CoreNode, FlexDirection, LayoutOp, Op, WidgetId};
@@ -308,6 +332,7 @@ mod tests {
         assert_eq!(geometry.axis, ScrollbarAxis::Vertical);
         assert_eq!(geometry.rail_rect.origin.x, 102.0);
         assert_eq!(geometry.rail_rect.origin.y, 22.0);
+        assert!((geometry.thumb_extent() - (196.0 / 3.0)).abs() <= 0.01);
         assert!(geometry.thumb_rect.origin.y > geometry.rail_rect.origin.y);
         assert!(geometry.thumb_rect.bottom() <= geometry.rail_rect.bottom());
     }
@@ -351,6 +376,49 @@ mod tests {
         let offset = scrollbar_drag_offset_with_grab(geometry, LayoutPoint::new(97.0, 198.0), 0.0);
 
         assert!((offset - geometry.max_offset).abs() <= 0.01);
+    }
+
+    #[test]
+    fn scrollbar_rail_click_centres_thumb_at_requested_position() {
+        let (ir, mut layout, scroll) = scroll_tree();
+        layout.nodes.insert(
+            scroll,
+            LayoutNodeGeometry {
+                rect: LayoutRect::new(0.0, 0.0, 100.0, 200.0),
+                content_size: LayoutSize::new(100.0, 600.0),
+            },
+        );
+        let geometry =
+            scrollbar_geometry_for_node(&ir, &layout, &ScrollStateMap::default(), scroll).unwrap();
+
+        let offset = scrollbar_drag_offset(geometry, LayoutPoint::new(97.0, 100.0));
+
+        assert!((offset - geometry.max_offset * 0.5).abs() <= 0.01);
+    }
+
+    #[test]
+    fn scrollbar_hit_target_extends_inward_beyond_painted_chrome() {
+        let (ir, mut layout, scroll) = scroll_tree();
+        layout.nodes.insert(
+            scroll,
+            LayoutNodeGeometry {
+                rect: LayoutRect::new(0.0, 0.0, 100.0, 200.0),
+                content_size: LayoutSize::new(100.0, 600.0),
+            },
+        );
+        let scroll_map = ScrollStateMap::default();
+        let geometry =
+            scrollbar_geometry_for_node(&ir, &layout, &scroll_map, scroll).expect("scrollbar");
+        let point = LayoutPoint::new(
+            geometry.rail_rect.x() - super::SCROLLBAR_HIT_SLOP * 0.5,
+            geometry.thumb_rect.bottom() + 4.0,
+        );
+        assert!(!geometry.rail_rect.contains(point));
+
+        let hit = scrollbar_hit_test(&ir, &layout, &scroll_map, point)
+            .expect("inward scrollbar interaction target");
+
+        assert_eq!(hit.kind, ScrollbarHitKind::Rail);
     }
 
     #[test]

@@ -96,6 +96,57 @@ fn dragging_scrollbar_thumb_updates_scroll_offset_directly() {
 }
 
 #[test]
+fn clicking_scrollbar_rail_jumps_and_starts_dragging() {
+    let (ir, layout, scroll) = scroll_tree(FlexDirection::Column);
+    let mut runtime = Runtime::default();
+    let geometry = scrollbar_geometry_for_node(&ir, &layout, &runtime.runtime_state.scroll, scroll)
+        .expect("scrollbar");
+    let point = LayoutPoint::new(
+        geometry.rail_rect.origin.x + geometry.rail_rect.size.width / 2.0,
+        geometry.rail_rect.origin.y + geometry.rail_rect.size.height * 0.75,
+    );
+
+    runtime
+        .handle_input(
+            InputEvent::Pointer(PointerEvent::Down {
+                pointer_id: Default::default(),
+                kind: Default::default(),
+                point,
+                button: PointerButton::Primary,
+                modifiers: 0,
+            }),
+            &ir,
+            &layout,
+        )
+        .expect("scroll rail pointer down");
+
+    assert!(runtime.runtime_state.scroll.get_offset(scroll) > geometry.max_offset * 0.5);
+    assert_eq!(
+        runtime
+            .runtime_state
+            .gesture
+            .scrollbar_drag
+            .map(|drag| drag.node_id),
+        Some(scroll)
+    );
+
+    runtime
+        .handle_input(
+            InputEvent::Pointer(PointerEvent::Up {
+                pointer_id: Default::default(),
+                kind: Default::default(),
+                point,
+                button: PointerButton::Primary,
+                modifiers: 0,
+            }),
+            &ir,
+            &layout,
+        )
+        .expect("scroll rail pointer up");
+    assert!(runtime.runtime_state.gesture.scrollbar_drag.is_none());
+}
+
+#[test]
 fn dragging_nested_scrollbar_uses_visual_pointer_coordinates() {
     let parent = WidgetId::derived(82, &[0]);
     let child = WidgetId::derived(82, &[1]);
