@@ -64,6 +64,7 @@ fn test_semantics_serialization() {
         capture_tab: false,
         auto_indent: false,
         scroll_padding: None,
+        ..Default::default()
     };
 
     // Just verify it compiles and runs; exact serde format isn't critical yet, but capability is.
