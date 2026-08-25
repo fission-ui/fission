@@ -319,6 +319,8 @@ pub struct TextInput {
     pub wrap_mode: TextWrapMode,
     /// Automatic scrolling and scrollbar visibility policy.
     pub scroll_policy: TextScrollPolicy,
+    /// Whether overflowing multiline content displays a scrollbar.
+    pub show_scrollbar: bool,
     /// User-driven scrolling policy.
     pub scroll_physics: TextScrollPhysics,
     /// Whether selection drags become active on pointer-down or only after slop is crossed.
@@ -585,6 +587,12 @@ impl TextInput {
         self
     }
 
+    /// Controls whether overflowing multiline content displays a scrollbar.
+    pub fn show_scrollbar(mut self, show_scrollbar: bool) -> Self {
+        self.show_scrollbar = show_scrollbar;
+        self
+    }
+
     pub fn magnifier_configuration(
         mut self,
         magnifier_configuration: TextMagnifierConfiguration,
@@ -756,7 +764,7 @@ impl Default for TextInput {
             selection_color: None,
             selection_text_color: None,
             text_align: fission_ir::op::TextAlign::Start,
-            text_align_vertical: TextAlignVertical::Center,
+            text_align_vertical: TextAlignVertical::Auto,
             expands: false,
             cursor_color: None,
             cursor_width: None,
@@ -800,6 +808,7 @@ impl Default for TextInput {
             scroll_padding: None,
             wrap_mode: TextWrapMode::Soft,
             scroll_policy: TextScrollPolicy::Auto,
+            show_scrollbar: true,
             scroll_physics: TextScrollPhysics::Platform,
             drag_start_behavior: DragStartBehavior::Start,
             context_menu: TextContextMenuConfig::editing(),
@@ -1297,7 +1306,9 @@ impl InternalLower for TextInput {
                 } else {
                     FlexDirection::Row
                 },
-                show_scrollbar: self.scroll_policy == TextScrollPolicy::Always,
+                show_scrollbar: self.multiline
+                    && self.show_scrollbar
+                    && self.scroll_policy != TextScrollPolicy::Never,
                 width: None, // Let it fill parent padding box
                 height: None,
                 min_width: None,
@@ -1326,7 +1337,7 @@ impl InternalLower for TextInput {
                 } else {
                     None
                 },
-                align_items: self.text_align_vertical.align_items(),
+                align_items: self.text_align_vertical.align_items(self.multiline),
                 justify_content: fission_ir::op::JustifyContent::Start,
             }),
         );
@@ -1349,7 +1360,7 @@ impl InternalLower for TextInput {
                 padding: [0.0; 4],
                 gap: None,
                 align_items: fission_ir::op::AlignItems::Stretch,
-                justify_content: self.text_align_vertical.justify_content(),
+                justify_content: self.text_align_vertical.justify_content(self.multiline),
             }),
         );
         content_alignment.add_child(content_row_id);
@@ -1395,11 +1406,7 @@ impl InternalLower for TextInput {
                 min_height,
                 max_height,
                 padding: content_padding,
-                flex_grow: if self.width.is_none() || self.expands {
-                    1.0
-                } else {
-                    0.0
-                },
+                flex_grow: if self.expands { 1.0 } else { 0.0 },
                 flex_shrink: 1.0,
                 aspect_ratio: None,
             }),

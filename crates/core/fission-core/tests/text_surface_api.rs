@@ -74,6 +74,75 @@ fn layout_ops(ir: &CoreIR) -> impl Iterator<Item = &LayoutOp> {
     })
 }
 
+#[test]
+fn text_input_defaults_adapt_single_and_multiline_chrome() {
+    let defaults = TextInput::default();
+    assert_eq!(defaults.text_align_vertical, TextAlignVertical::Auto);
+    assert!(defaults.show_scrollbar);
+    assert!(!defaults.selection_controls.show_collapsed_handle);
+
+    let multiline = lower_node(
+        TextInput {
+            multiline: true,
+            height: Some(160.0),
+            ..Default::default()
+        }
+        .into(),
+    );
+    assert!(layout_ops(&multiline).any(|op| matches!(
+        op,
+        LayoutOp::Scroll {
+            direction: FlexDirection::Column,
+            show_scrollbar: true,
+            ..
+        }
+    )));
+    assert!(layout_ops(&multiline).any(|op| matches!(
+        op,
+        LayoutOp::Flex {
+            direction: FlexDirection::Column,
+            justify_content: fission_ir::op::JustifyContent::Start,
+            ..
+        }
+    )));
+    assert!(!layout_ops(&multiline).any(|op| matches!(
+        op,
+        LayoutOp::Box { flex_grow, .. } if *flex_grow > 0.0
+    )));
+
+    let without_scrollbar = lower_node(
+        TextInput {
+            multiline: true,
+            show_scrollbar: false,
+            ..Default::default()
+        }
+        .into(),
+    );
+    assert!(layout_ops(&without_scrollbar).any(|op| matches!(
+        op,
+        LayoutOp::Scroll {
+            show_scrollbar: false,
+            ..
+        }
+    )));
+
+    let never_scroll = lower_node(
+        TextInput {
+            multiline: true,
+            scroll_policy: fission_core::ui::widgets::text_input::TextScrollPolicy::Never,
+            ..Default::default()
+        }
+        .into(),
+    );
+    assert!(layout_ops(&never_scroll).any(|op| matches!(
+        op,
+        LayoutOp::Scroll {
+            show_scrollbar: false,
+            ..
+        }
+    )));
+}
+
 fn rich_text_annotations(ir: &CoreIR) -> Option<(fission_ir::WidgetId, &Vec<RichTextAnnotation>)> {
     ir.nodes.iter().find_map(|(id, node)| match &node.op {
         Op::Paint(PaintOp::DrawRichText { .. }) => {
