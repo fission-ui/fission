@@ -1,4 +1,5 @@
 pub mod text;
+mod text_effects;
 pub use parley;
 pub use text::VelloTextMeasurer;
 
@@ -11,7 +12,7 @@ use fission_render::{
     surface_placeholder_color, Color as RenderColor, DisplayList, DisplayOp, LayerClip,
     RenderLayer, RenderNode, RenderScene, Renderer, TextStyle as RenderTextStyle,
 };
-use vello::kurbo::{Affine, BezPath, Point, Rect, RoundedRect, Shape, Vec2};
+use vello::kurbo::{Affine, BezPath, Circle, Point, Rect, RoundedRect, Shape, Vec2};
 // Minimal imports from peniko
 use vello::peniko::{
     Blob, Brush, Color, Fill, ImageAlphaType, ImageBrush, ImageData, ImageFormat, ImageSampler, Mix,
@@ -71,6 +72,48 @@ fn map_fill_to_brush(f: &fission_render::Fill, bounds: Rect) -> Brush {
                 .with_stops(vello_stops.as_slice()),
             )
         }
+    }
+}
+
+fn map_text_fill_to_brush(f: &fission_ir::op::Fill, bounds: Rect) -> Brush {
+    match f {
+        fission_ir::op::Fill::Solid(c) => Brush::Solid(Color::from_rgba8(c.r, c.g, c.b, c.a)),
+        fission_ir::op::Fill::LinearGradient { start, end, stops } => Brush::Gradient(
+            vello::peniko::Gradient::new_linear(
+                normalized_point(bounds, *start),
+                normalized_point(bounds, *end),
+            )
+            .with_stops(
+                stops
+                    .iter()
+                    .map(|(offset, color)| vello::peniko::ColorStop {
+                        offset: *offset,
+                        color: Color::from_rgba8(color.r, color.g, color.b, color.a).into(),
+                    })
+                    .collect::<Vec<_>>()
+                    .as_slice(),
+            ),
+        ),
+        fission_ir::op::Fill::RadialGradient {
+            center,
+            radius,
+            stops,
+        } => Brush::Gradient(
+            vello::peniko::Gradient::new_radial(
+                normalized_point(bounds, *center),
+                radius * bounds.width().max(bounds.height()) as f32,
+            )
+            .with_stops(
+                stops
+                    .iter()
+                    .map(|(offset, color)| vello::peniko::ColorStop {
+                        offset: *offset,
+                        color: Color::from_rgba8(color.r, color.g, color.b, color.a).into(),
+                    })
+                    .collect::<Vec<_>>()
+                    .as_slice(),
+            ),
+        ),
     }
 }
 
@@ -1409,6 +1452,7 @@ mod tests {
             line_height: None,
             letter_spacing: 0.0,
             background_color: None,
+            typography: Default::default(),
         }
     }
 
@@ -1643,6 +1687,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
         drop(renderer);
 
@@ -1672,6 +1717,7 @@ mod tests {
             false,
             LayoutPoint::new(0.0, 0.0),
             LayoutRect::new(0.0, 0.0, 120.0, 32.0),
+            None,
             None,
             None,
             None,
@@ -1716,6 +1762,7 @@ mod tests {
             caret_height: None,
             caret_radius: None,
             paragraph_style: None,
+            resolved_layout: None,
         });
         let retained = RenderScene::from_display_list(list);
         let raw_profile = workload_profile_for_scene(&retained, 120, 32, 1.0);
@@ -1743,6 +1790,57 @@ mod tests {
     }
 
     #[test]
+    fn rich_text_effects_are_encoded_through_the_normal_vello_path() {
+        let text = "effects";
+        let mut style = test_style();
+        style.typography.shadows.push(fission_ir::op::TextShadow {
+            color: fission_ir::op::Color {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 160,
+            },
+            offset: (2.0, 3.0),
+            blur_radius: 6.0,
+        });
+        style.typography.decoration.lines.underline = true;
+        style.typography.decoration.style = fission_ir::op::TextDecorationStyle::Wavy;
+        let styles = vec![(0..text.len(), style.clone())];
+        let mut scene = Scene::new();
+        let mut cache = RetainedSceneCache::default();
+        let mut renderer = test_renderer(&mut scene, &mut cache);
+
+        renderer.render_text(
+            text,
+            style.font_size,
+            style.color,
+            false,
+            false,
+            LayoutPoint::new(0.0, 0.0),
+            LayoutRect::new(0.0, 0.0, 180.0, 48.0),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &[],
+            &styles,
+        );
+        drop(renderer);
+
+        assert!(
+            scene.encoding().resources.glyphs.len() > text.chars().count(),
+            "blurred shadow samples must encode additional glyph draws"
+        );
+        assert!(
+            scene.encoding().n_paths > 0,
+            "wavy decoration must contribute path geometry"
+        );
+    }
+
+    #[test]
     fn rich_multiline_text_encodes_only_lines_inside_the_visible_bounds() {
         let text = "version = 4\n".repeat(10_000);
         let style = test_style();
@@ -1764,6 +1862,7 @@ mod tests {
             false,
             LayoutPoint::new(0.0, 0.0),
             LayoutRect::new(0.0, 0.0, 400.0, 200_000.0),
+            None,
             Some(0),
             Some(style.color),
             Some(2.0),
@@ -2269,6 +2368,7 @@ impl<'a> VelloRenderer<'a> {
             line_height: None,
             letter_spacing: 0.0,
             background_color: None,
+            typography: Default::default(),
         }
     }
 
@@ -2409,6 +2509,51 @@ impl<'a> VelloRenderer<'a> {
         crate::text::resolve_rich_text_annotation_at_index(text, annotations, raw_idx)
     }
 
+    fn draw_text_decoration(
+        &mut self,
+        style: fission_ir::op::TextDecorationStyle,
+        x0: f64,
+        x1: f64,
+        y: f64,
+        thickness: f64,
+        color: Color,
+    ) {
+        for primitive in text_effects::decoration_primitives(style, x0, x1, y, thickness) {
+            match primitive {
+                text_effects::DecorationPrimitive::Rect { x0, y0, x1, y1 } => self.scene.fill(
+                    Fill::NonZero,
+                    self.current_transform,
+                    color,
+                    None,
+                    &Rect::new(x0, y0, x1, y1),
+                ),
+                text_effects::DecorationPrimitive::Circle { x, y, radius } => self.scene.fill(
+                    Fill::NonZero,
+                    self.current_transform,
+                    color,
+                    None,
+                    &Circle::new((x, y), radius),
+                ),
+                text_effects::DecorationPrimitive::Wave { points, width } => {
+                    let mut path = BezPath::new();
+                    if let Some((first, rest)) = points.split_first() {
+                        path.move_to(*first);
+                        for point in rest {
+                            path.line_to(*point);
+                        }
+                        self.scene.stroke(
+                            &vello::kurbo::Stroke::new(width),
+                            self.current_transform,
+                            color,
+                            None,
+                            &path,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     fn draw_paragraph_line(
         &mut self,
         line: &parley::layout::Line<'_, ParleyBrush>,
@@ -2444,9 +2589,34 @@ impl<'a> VelloRenderer<'a> {
                     brush_data.0[2],
                     brush_data.0[3],
                 );
+                let rich_style = styles.iter().find_map(|(range, style)| {
+                    let run_range = run.text_range();
+                    (range.start < run_range.end && range.end > run_range.start).then_some(style)
+                });
+                let paint_bounds = Rect::new(
+                    position.x as f64 + run_left as f64,
+                    position.y as f64 + top_y as f64,
+                    position.x as f64 + run_right as f64,
+                    position.y as f64 + (top_y + line_height) as f64,
+                );
+                let foreground = rich_style
+                    .and_then(|style| style.typography.foreground.as_ref())
+                    .map(|fill| map_text_fill_to_brush(fill, paint_bounds));
+
+                let metrics = run.metrics();
+                let baseline_shift = rich_style
+                    .map(|style| {
+                        text::typography_baseline_shift(
+                            &style.typography,
+                            metrics.ascent,
+                            metrics.descent,
+                            metrics.line_height,
+                        )
+                    })
+                    .unwrap_or(0.0);
 
                 let mut x = glyph_run.offset();
-                let y = glyph_run.baseline();
+                let y = glyph_run.baseline() + baseline_shift;
                 let glyphs = glyph_run
                     .glyphs()
                     .filter_map(|g| {
@@ -2472,6 +2642,27 @@ impl<'a> VelloRenderer<'a> {
                     continue;
                 }
 
+                if let Some(rich_style) = rich_style {
+                    for shadow in &rich_style.typography.shadows {
+                        for (dx, dy, color) in text_effects::shadow_samples(*shadow) {
+                            self.scene
+                                .draw_glyphs(font)
+                                .font_size(font_size)
+                                .transform(
+                                    self.current_transform
+                                        * Affine::translate((
+                                            position.x as f64 + dx,
+                                            position.y as f64 + dy,
+                                        )),
+                                )
+                                .brush(Color::from_rgba8(color.r, color.g, color.b, color.a))
+                                .draw(Fill::NonZero, glyphs.iter().cloned());
+                        }
+                    }
+                }
+
+                let fallback_brush = Brush::Solid(color);
+                let brush = foreground.as_ref().unwrap_or(&fallback_brush);
                 self.scene
                     .draw_glyphs(font)
                     .font_size(font_size)
@@ -2479,11 +2670,10 @@ impl<'a> VelloRenderer<'a> {
                         self.current_transform
                             * Affine::translate((position.x as f64, position.y as f64)),
                     )
-                    .brush(color)
+                    .brush(brush)
                     .draw(Fill::NonZero, glyphs.into_iter());
 
                 if let Some(decoration) = &style.underline {
-                    let metrics = run.metrics();
                     let offset = decoration.offset.unwrap_or(metrics.underline_offset);
                     let size = decoration.size.unwrap_or(metrics.underline_size).max(1.0);
                     let deco_brush = decoration.brush.clone();
@@ -2501,17 +2691,75 @@ impl<'a> VelloRenderer<'a> {
                     if x1 <= x0 {
                         continue;
                     }
-                    let x0 = position.x as f64 + x0 as f64;
-                    let x1 = position.x as f64 + x1 as f64;
-                    let y0 = position.y as f64 + (glyph_run.baseline() + offset) as f64;
-                    let rect = Rect::new(x0, y0, x1, y0 + size as f64);
-                    self.scene.fill(
-                        Fill::NonZero,
-                        self.current_transform,
+                    self.draw_text_decoration(
+                        rich_style
+                            .map(|style| style.typography.decoration.style)
+                            .unwrap_or_default(),
+                        position.x as f64 + x0 as f64,
+                        position.x as f64 + x1 as f64,
+                        position.y as f64 + (glyph_run.baseline() + baseline_shift + offset) as f64,
+                        size as f64,
                         deco_color,
-                        None,
-                        &rect,
                     );
+                }
+                if let Some(decoration) = &style.strikethrough {
+                    let offset = decoration.offset.unwrap_or(metrics.strikethrough_offset);
+                    let size = decoration
+                        .size
+                        .unwrap_or(metrics.strikethrough_size)
+                        .max(1.0);
+                    let deco_brush = decoration.brush.clone();
+                    let x0 = clip.map(|clip| run_left.max(clip.left)).unwrap_or(run_left);
+                    let x1 = clip
+                        .map(|clip| run_right.min(clip.right))
+                        .unwrap_or(run_right);
+                    if x1 > x0 {
+                        self.draw_text_decoration(
+                            rich_style
+                                .map(|style| style.typography.decoration.style)
+                                .unwrap_or_default(),
+                            position.x as f64 + x0 as f64,
+                            position.x as f64 + x1 as f64,
+                            position.y as f64
+                                + (glyph_run.baseline() + baseline_shift + offset) as f64,
+                            size as f64,
+                            Color::from_rgba8(
+                                deco_brush.0[0],
+                                deco_brush.0[1],
+                                deco_brush.0[2],
+                                deco_brush.0[3],
+                            ),
+                        );
+                    }
+                }
+                if let Some(rich_style) =
+                    rich_style.filter(|style| style.typography.decoration.lines.overline)
+                {
+                    let x0 = clip.map(|clip| run_left.max(clip.left)).unwrap_or(run_left);
+                    let x1 = clip
+                        .map(|clip| run_right.min(clip.right))
+                        .unwrap_or(run_right);
+                    if x1 > x0 {
+                        let thickness = rich_style
+                            .typography
+                            .decoration
+                            .thickness
+                            .unwrap_or(1.0)
+                            .max(1.0);
+                        let color = rich_style
+                            .typography
+                            .decoration
+                            .color
+                            .unwrap_or(fission_ir::op::Color::BLACK);
+                        self.draw_text_decoration(
+                            rich_style.typography.decoration.style,
+                            position.x as f64 + x0 as f64,
+                            position.x as f64 + x1 as f64,
+                            position.y as f64 + top_y as f64 + baseline_shift as f64,
+                            thickness as f64,
+                            Color::from_rgba8(color.r, color.g, color.b, color.a),
+                        );
+                    }
                 }
             }
         }
@@ -2526,19 +2774,18 @@ impl<'a> VelloRenderer<'a> {
         styles: &[(std::ops::Range<usize>, RenderTextStyle)],
         clip: Option<TextClip>,
     ) {
-        if !styles
-            .iter()
-            .any(|(_, style)| style.background_color.is_some())
-        {
+        if !styles.iter().any(|(_, style)| {
+            style.background_color.is_some() || style.typography.background.is_some()
+        }) {
             return;
         }
 
         for run in line.runs() {
             let run_text_range = run.text_range();
             for (range, style) in styles.iter() {
-                let Some(bg) = &style.background_color else {
+                if style.background_color.is_none() && style.typography.background.is_none() {
                     continue;
-                };
+                }
                 let overlap_start = range.start.max(run_text_range.start);
                 let overlap_end = range.end.min(run_text_range.end);
                 if overlap_start >= overlap_end {
@@ -2557,16 +2804,24 @@ impl<'a> VelloRenderer<'a> {
                     continue;
                 }
 
-                let bg_color = Color::from_rgba8(bg.r, bg.g, bg.b, bg.a);
                 let y0 = position.y as f64 + top_y as f64;
                 for segment in segments {
                     let x0 = position.x as f64 + segment.left as f64;
                     let x1 = position.x as f64 + segment.right as f64;
                     let bg_rect = Rect::new(x0, y0, x1, y0 + line_height as f64);
+                    let brush = style
+                        .typography
+                        .background
+                        .as_ref()
+                        .map(|fill| map_text_fill_to_brush(fill, bg_rect))
+                        .unwrap_or_else(|| {
+                            let bg = style.background_color.expect("background checked above");
+                            Brush::Solid(Color::from_rgba8(bg.r, bg.g, bg.b, bg.a))
+                        });
                     self.scene.fill(
                         Fill::NonZero,
                         self.current_transform,
-                        bg_color,
+                        &brush,
                         None,
                         &bg_rect,
                     );
@@ -2671,6 +2926,7 @@ impl<'a> VelloRenderer<'a> {
         caret_width: Option<f32>,
         caret_height: Option<f32>,
         caret_radius: Option<f32>,
+        resolved_layout: Option<&fission_render::ResolvedParagraphLayout>,
     ) {
         let prepared = prepare_paragraph_layout(
             text,
@@ -2816,6 +3072,7 @@ impl<'a> VelloRenderer<'a> {
                         None,
                         None,
                         None,
+                        None,
                         &[],
                         &ellipsis_styles,
                     );
@@ -2834,6 +3091,7 @@ impl<'a> VelloRenderer<'a> {
                         None,
                         None,
                         None,
+                        None,
                         &[],
                         &[],
                     );
@@ -2842,6 +3100,17 @@ impl<'a> VelloRenderer<'a> {
         }
 
         if let Some(idx) = prepared.caret_index {
+            if self.draw_resolved_caret(
+                resolved_layout,
+                idx,
+                position,
+                caret_color.unwrap_or(prepared.base_style.color),
+                caret_width.unwrap_or(2.0),
+                caret_height,
+                caret_radius,
+            ) {
+                return;
+            }
             self.draw_caret(
                 &layout,
                 idx,
@@ -2866,6 +3135,7 @@ impl<'a> VelloRenderer<'a> {
         wrap: bool,
         position: fission_render::LayoutPoint,
         bounds: fission_render::LayoutRect,
+        resolved_layout: Option<&fission_render::ResolvedParagraphLayout>,
         caret_index: Option<usize>,
         caret_color: Option<RenderColor>,
         caret_width: Option<f32>,
@@ -2875,6 +3145,12 @@ impl<'a> VelloRenderer<'a> {
         inline_boxes: &[crate::text::RichInlineBox],
         styles: &[(std::ops::Range<usize>, RenderTextStyle)],
     ) {
+        let mut layout_bounds = bounds;
+        if wrap {
+            if let Some(width) = resolved_layout.and_then(|layout| layout.constraint_width) {
+                layout_bounds.size.width = width.max(0.0);
+            }
+        }
         let paragraph = paragraph_style
             .or_else(|| {
                 if caret_index.is_none() {
@@ -2899,7 +3175,7 @@ impl<'a> VelloRenderer<'a> {
                 &base_style,
                 wrap,
                 position,
-                bounds,
+                layout_bounds,
                 paragraph,
                 inline_boxes,
                 paragraph_styles,
@@ -2908,6 +3184,7 @@ impl<'a> VelloRenderer<'a> {
                 caret_width,
                 caret_height,
                 caret_radius,
+                resolved_layout,
             );
             return;
         }
@@ -2919,8 +3196,8 @@ impl<'a> VelloRenderer<'a> {
             let layout = self.measurer.get_layout(
                 text,
                 base_size,
-                if wrap && bounds.width() > 0.0 {
-                    Some(bounds.width() as f32)
+                if wrap && layout_bounds.width() > 0.0 {
+                    Some(layout_bounds.width() as f32)
                 } else {
                     None
                 },
@@ -3027,6 +3304,17 @@ impl<'a> VelloRenderer<'a> {
                 }
             }
             if let Some(idx) = caret_index {
+                if self.draw_resolved_caret(
+                    resolved_layout,
+                    idx,
+                    position,
+                    caret_color.unwrap_or(base_color),
+                    caret_width.unwrap_or(2.0),
+                    caret_height,
+                    caret_radius,
+                ) {
+                    return;
+                }
                 self.draw_caret(
                     &layout,
                     idx,
@@ -3050,8 +3338,8 @@ impl<'a> VelloRenderer<'a> {
             base_color,
             styles,
             inline_boxes,
-            if wrap && bounds.width() > 0.0 {
-                Some(bounds.width() as f32)
+            if wrap && layout_bounds.width() > 0.0 {
+                Some(layout_bounds.width() as f32)
             } else {
                 None
             },
@@ -3070,111 +3358,21 @@ impl<'a> VelloRenderer<'a> {
                     continue;
                 }
             }
-            self.draw_paragraph_line_backgrounds(
-                &line,
-                position,
-                line_top,
-                line_height,
-                styles,
-                text_clip,
-            );
-            for item in line.items() {
-                if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
-                    let run_left = glyph_run.offset();
-                    let run_right = glyph_run.offset() + glyph_run.advance();
-                    if let Some(clip) = text_clip {
-                        if !clip.intersects_x(run_left, run_right) {
-                            continue;
-                        }
-                    }
-                    let style = glyph_run.style();
-                    let run = glyph_run.run();
-                    let font = run.font();
-                    let font_size = run.font_size();
-                    let brush_data = style.brush.clone();
-                    let color = Color::from_rgba8(
-                        brush_data.0[0],
-                        brush_data.0[1],
-                        brush_data.0[2],
-                        brush_data.0[3],
-                    );
-
-                    let mut x = glyph_run.offset();
-                    let y = glyph_run.baseline();
-
-                    let glyphs = glyph_run
-                        .glyphs()
-                        .filter_map(|g| {
-                            let gx = x + g.x;
-                            let gy = y - g.y;
-                            x += g.advance;
-                            let glyph_right = gx + g.advance.max(1.0);
-                            if text_clip
-                                .map(|clip| clip.intersects_x(gx, glyph_right))
-                                .unwrap_or(true)
-                            {
-                                Some(Glyph {
-                                    id: g.id as u32,
-                                    x: gx,
-                                    y: gy,
-                                })
-                            } else {
-                                None
-                            }
-                        })
-                        .collect::<Vec<_>>();
-                    if glyphs.is_empty() {
-                        continue;
-                    }
-
-                    self.scene
-                        .draw_glyphs(font)
-                        .font_size(font_size)
-                        .transform(
-                            self.current_transform
-                                * Affine::translate((position.x as f64, position.y as f64)),
-                        )
-                        .brush(color)
-                        .draw(Fill::NonZero, glyphs.into_iter());
-
-                    if let Some(decoration) = &style.underline {
-                        let metrics = run.metrics();
-                        let offset = decoration.offset.unwrap_or(metrics.underline_offset);
-                        let size = decoration.size.unwrap_or(metrics.underline_size).max(1.0);
-                        let deco_brush = decoration.brush.clone();
-                        let deco_color = Color::from_rgba8(
-                            deco_brush.0[0],
-                            deco_brush.0[1],
-                            deco_brush.0[2],
-                            deco_brush.0[3],
-                        );
-
-                        let x0 = text_clip
-                            .map(|clip| run_left.max(clip.left))
-                            .unwrap_or(run_left);
-                        let x1 = text_clip
-                            .map(|clip| run_right.min(clip.right))
-                            .unwrap_or(run_right);
-                        if x1 <= x0 {
-                            continue;
-                        }
-                        let x0 = position.x as f64 + x0 as f64;
-                        let x1 = position.x as f64 + x1 as f64;
-                        let y0 = position.y as f64 + (glyph_run.baseline() + offset) as f64;
-                        let rect = Rect::new(x0, y0, x1, y0 + size as f64);
-                        self.scene.fill(
-                            Fill::NonZero,
-                            self.current_transform,
-                            deco_color,
-                            None,
-                            &rect,
-                        );
-                    }
-                }
-            }
+            self.draw_paragraph_line(&line, position, line_top, line_height, styles, text_clip);
         }
 
         if let Some(idx) = caret_index {
+            if self.draw_resolved_caret(
+                resolved_layout,
+                idx,
+                position,
+                caret_color.unwrap_or(base_color),
+                caret_width.unwrap_or(2.0),
+                caret_height,
+                caret_radius,
+            ) {
+                return;
+            }
             self.draw_caret(
                 &layout,
                 idx,
@@ -3204,6 +3402,43 @@ impl<'a> VelloRenderer<'a> {
         } else {
             text.len()
         }
+    }
+
+    fn draw_resolved_caret(
+        &mut self,
+        resolved: Option<&fission_render::ResolvedParagraphLayout>,
+        index: usize,
+        position: fission_render::LayoutPoint,
+        color: RenderColor,
+        width: f32,
+        requested_height: Option<f32>,
+        radius: Option<f32>,
+    ) -> bool {
+        let Some(stop) = resolved.and_then(|layout| layout.caret(index, false)) else {
+            return false;
+        };
+        let height = requested_height
+            .unwrap_or(stop.height)
+            .clamp(1.0, stop.height.max(1.0));
+        let top = position.y + stop.position.y + (stop.height - height) * 0.5;
+        let left = position.x + stop.position.x;
+        let shape = RoundedRect::from_rect(
+            Rect::new(
+                left as f64,
+                top as f64,
+                (left + width.max(1.0)) as f64,
+                (top + height) as f64,
+            ),
+            radius.unwrap_or(0.0).max(0.0) as f64,
+        );
+        self.scene.fill(
+            Fill::NonZero,
+            self.current_transform,
+            Color::from_rgba8(color.r, color.g, color.b, color.a),
+            None,
+            &shape,
+        );
+        true
     }
 
     fn draw_caret(
@@ -3542,6 +3777,7 @@ impl<'a> VelloRenderer<'a> {
                     caret_height,
                     caret_radius,
                     paragraph_style,
+                    resolved_layout,
                     ..
                 } => {
                     if !self.local_rect_visible(Self::layout_rect_to_rect(*bounds)) {
@@ -3555,6 +3791,7 @@ impl<'a> VelloRenderer<'a> {
                         *wrap,
                         *position,
                         *bounds,
+                        resolved_layout.as_ref(),
                         *caret_index,
                         *caret_color,
                         *caret_width,
@@ -3576,6 +3813,7 @@ impl<'a> VelloRenderer<'a> {
                     caret_height,
                     caret_radius,
                     paragraph_style,
+                    resolved_layout,
                     ..
                 } => {
                     if !self.local_rect_visible(Self::layout_rect_to_rect(*bounds)) {
@@ -3596,6 +3834,7 @@ impl<'a> VelloRenderer<'a> {
                                 *wrap,
                                 *position,
                                 *bounds,
+                                resolved_layout.as_ref(),
                                 *caret_index,
                                 *caret_color,
                                 *caret_width,
@@ -3617,6 +3856,7 @@ impl<'a> VelloRenderer<'a> {
                         *wrap,
                         *position,
                         *bounds,
+                        resolved_layout.as_ref(),
                         *caret_index,
                         *caret_color,
                         *caret_width,

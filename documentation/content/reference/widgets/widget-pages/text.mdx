@@ -43,6 +43,10 @@ let title = Text::new(TextContent::Key("settings.profile_title".into()))
 | `letter_spacing` | `Option<f32>` | Extra letter spacing. | Defaults to `None`. |
 | `locale` | `Option<String>` | Locale override used during shaping. | Defaults to `None`. |
 | `text_scale` | `Option<f32>` | Text scale multiplier. | Defaults to `None`, which behaves like `1.0`. |
+| `text_scaler` | `Option<TextScaler>` | Explicit linear or nonlinear font-size scaling. | When absent, the widget uses `Env.text_scaler`, allowing the shell or app to supply accessibility scaling once for the whole tree. |
+| `typography` | `TextTypography` | Fallback families, word spacing, decoration, shadows, paints, OpenType features, variable axes, baseline, and leading policy. | Uses the same paragraph path as ordinary text rather than a separate advanced renderer. |
+| `typography.line_break` | `TextLineBreakPolicy` | Line-breaking strictness. | Passed through the shared paragraph contract; native behavior is limited by the shaping engine. |
+| `typography.hyphenation` | `TextHyphenation` | Whether language-aware hyphenation is requested. | Static/SSR lowers the applicable CSS; native behavior is limited by the shaping engine. |
 
 ## Layout and interaction table
 
@@ -71,6 +75,23 @@ let title = Text::new(TextContent::Key("settings.profile_title".into()))
 `TextContent::Literal` renders exactly the string you provide. `TextContent::Key` looks up the current locale in `Env.i18n`. In the checked-in implementation, a missing translation key renders visibly as `MISSING:key`, which is useful during development because it fails loudly instead of silently disappearing.
 
 `Text` can also carry semantics and actions through helper methods like `.semantics_label(...)` and `.on_tap(...)`. Set `.selectable(true)` for read-only paragraphs that users should be able to select and copy; Fission then exposes text selection in semantics and provides the standard Copy / Select All context menu. That is useful for interactive labels or annotated text, but if different parts of one sentence need different actions, `RichText` is the better model.
+
+Wrap several selectable paragraphs in `SelectionRegion` when selection must
+cross widget boundaries. Its `SelectionRegionController` can inspect, set,
+clear, or select all of the coordinated content. Double click selects a word,
+triple click selects a paragraph, touch long press selects a word, and dragging
+continues through participating descendants in retained document order.
+
+Fission retains one `ResolvedParagraphLayout` for the final constraint of each
+text node. Measurement, painting, cluster hit testing, caret stops, selection
+rectangles, inline placement, and input-method geometry consume that decision,
+so a viewport resize is not required to correct first-frame wrapping.
+
+The Vello backend currently approximates blurred text shadows and non-solid
+decoration patterns with its supported text primitives; Static site and SSR use
+the browser's CSS implementation. Ideographic baseline and leading policies are
+retained in the shared contract even where the active font/shaper cannot make a
+distinct adjustment.
 
 ## Specific advice
 

@@ -1616,52 +1616,11 @@ impl ImageRequest {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TextStyle {
-    pub font_size: LayoutUnit,
-    pub color: Color,
-    pub underline: bool,
-    #[serde(default)]
-    pub font_family: Option<String>,
-    #[serde(default)]
-    pub locale: Option<String>,
-    #[serde(default = "text_weight_default")]
-    pub font_weight: u16,
-    #[serde(default)]
-    pub font_style: FontStyle,
-    #[serde(default)]
-    pub line_height: Option<LayoutUnit>,
-    #[serde(default)]
-    pub letter_spacing: LayoutUnit,
-    /// Optional background highlight color for this run (find matches, error squiggles, etc.).
-    pub background_color: Option<Color>,
-}
-
-impl std::hash::Hash for TextStyle {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.font_size.to_bits().hash(state);
-        self.color.hash(state);
-        self.underline.hash(state);
-        self.font_family.hash(state);
-        self.locale.hash(state);
-        self.font_weight.hash(state);
-        self.font_style.hash(state);
-        self.line_height.map(f32::to_bits).hash(state);
-        self.letter_spacing.to_bits().hash(state);
-        self.background_color.hash(state);
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
-pub enum FontStyle {
-    #[default]
-    Normal,
-    Italic,
-}
-
-const fn text_weight_default() -> u16 {
-    400
-}
+pub use crate::text_style::{
+    FontFeature, FontStyle, FontVariation, TextBaseline, TextDecoration, TextDecorationLines,
+    TextDecorationStyle, TextHyphenation, TextLeadingDistribution, TextLineBreakPolicy, TextShadow,
+    TextStyle, TextTypography,
+};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Hash)]
 pub struct TextRun {
@@ -1749,6 +1708,9 @@ pub enum PaintOp {
         size: LayoutUnit,
         color: Color,
         underline: bool,
+        /// BCP 47 language tag used for shaping and semantic HTML lowering.
+        #[serde(default)]
+        locale: Option<String>,
         #[serde(default = "text_wrap_default")]
         wrap: bool,
         caret_index: Option<usize>,
@@ -1824,6 +1786,7 @@ impl std::hash::Hash for PaintOp {
                 size,
                 color,
                 underline,
+                locale,
                 wrap,
                 caret_index,
                 caret_color,
@@ -1837,6 +1800,7 @@ impl std::hash::Hash for PaintOp {
                 size.to_bits().hash(state);
                 color.hash(state);
                 underline.hash(state);
+                locale.hash(state);
                 wrap.hash(state);
                 caret_index.hash(state);
                 caret_color.hash(state);

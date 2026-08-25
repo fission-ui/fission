@@ -4612,6 +4612,7 @@ fn add_text(
             size,
             color,
             underline: false,
+            locale: None,
             wrap: false,
             caret_index: None,
             caret_color: None,

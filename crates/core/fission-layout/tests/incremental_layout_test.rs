@@ -102,6 +102,7 @@ fn text_node(id: WidgetId, parent_id: WidgetId, text: &str) -> LayoutInputNode {
                 line_height: None,
                 letter_spacing: 0.0,
                 background_color: None,
+                typography: Default::default(),
             },
         }]),
     }
