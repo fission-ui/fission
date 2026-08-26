@@ -3345,9 +3345,9 @@ dependencies = [
 
 [[package]]
 name = "fission-vello"
-version = "0.6.0-fission.2"
+version = "0.6.0-fission.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae8840ee7e1d9bb6db8d1441d151b368ed1fe7438e9ad4c612991cc2b3cad8f6"
+checksum = "373c8d6ec789c062ce0d8dd3776ee2f8a4959f9ff5c133d88e645efb3557d3d2"
 dependencies = [
  "bytemuck",
  "fission-vello-encoding",
@@ -3364,9 +3364,9 @@ dependencies = [
 
 [[package]]
 name = "fission-vello-encoding"
-version = "0.6.0-fission.2"
+version = "0.6.0-fission.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d034be7f5cacfd10a882743d629fb8ae5b58c62e0f285fa3eedb1e9081e4151"
+checksum = "99e8ef39b1c2aa335cd6c047c01cecf6263c2b3ce4233d4891ec9c19145d3063"
 dependencies = [
  "bytemuck",
  "guillotiere",
@@ -3377,9 +3377,9 @@ dependencies = [
 
 [[package]]
 name = "fission-vello-shaders"
-version = "0.6.0-fission.2"
+version = "0.6.0-fission.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "364cc381f5ff3e1b195ecd43cf1f5700e015a809bed16746e00dd15b1cbf0cf8"
+checksum = "f82a394588d3cf6217cefee3a690ae980f040d3df0c4f9190e5ec0019a0e80e7"
 dependencies = [
  "bytemuck",
  "fission-vello-encoding",
