@@ -78,12 +78,15 @@ impl From<DocumentationPage<'_>> for Widget {
     fn from(page: DocumentationPage<'_>) -> Widget {
         let (_, view) = fission_core::build::current::<SitePageState>();
         let tokens = &view.env().theme.tokens;
+        // The site builder appends the footer after this widget. Keep the page
+        // content-sized so the footer remains in normal document flow; a fixed
+        // render-time minimum becomes stale as soon as the browser viewport or
+        // content height differs from the static renderer's default viewport.
         Container::new(Column {
             children: vec![page.header(tokens), page.document_grid(view)],
             flex_grow: 1.0,
             ..Default::default()
         })
-        .min_height(tokens.spacing.xxxxl * 9.0)
         .bg_fill(Fill::Solid(tokens.colors.background))
         .into()
     }
@@ -233,7 +236,6 @@ impl DocumentationPage<'_> {
             .bg_fill(Fill::Solid(tokens.colors.surface))
             .border(tokens.colors.border, 1.0)
             .width(tokens.spacing.xxxxl * 3.0)
-            .min_height(tokens.spacing.xxxxl * 9.0)
             .flex_shrink(0.0)
             .into()],
             semantics: Some(site_semantics("site-doc-sidebar")),

@@ -65,7 +65,6 @@ impl From<CrateDirectoryPage> for Widget {
             semantics: Some(site_semantics("crate-directory-page")),
             ..Default::default()
         })
-        .min_height_length(Length::vh(100.0))
         .bg_fill(page_fill(tokens))
         .into()
     }
@@ -738,7 +737,6 @@ impl From<CrateDetailPage> for Widget {
             semantics: Some(site_semantics("crate-detail-page")),
             ..Default::default()
         })
-        .min_height_length(Length::vh(100.0))
         .bg_fill(page_fill(tokens))
         .into()
     }

@@ -502,7 +502,12 @@ pub fn build_from_cli(site: FissionSite) -> Result<()> {
         }
         "serve" => {
             let report = build_site(&options, &site)?;
-            print_report("Built", &report);
+            println!(
+                "Built {} static route(s) into {}",
+                report.routes.len(),
+                report.output_dir.display()
+            );
+            eprintln!("Static site build complete; starting local server...");
             serve_static(options.output_dir, args.host, args.port, !args.no_open)?;
         }
         other => bail!("unknown site command `{other}`; expected build, check, routes, or serve"),

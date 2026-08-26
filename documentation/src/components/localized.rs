@@ -16,7 +16,6 @@ impl From<LocalizedLandingPage> for Widget {
             gap: Some(0.0),
             ..Default::default()
         })
-        .min_height_length(Length::vh(100.0))
         .bg_fill(page_fill(tokens))
         .into()
     }
