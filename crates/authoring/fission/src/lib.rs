@@ -7,7 +7,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! fission = { version = "0.14.0", default-features = false, features = ["desktop"] }
+//! fission = { version = "0.14.1", default-features = false, features = ["desktop"] }
 //! ```
 //!
 //! Then use via:

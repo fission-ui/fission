@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.1] - 2026-08-26
+
+### Fixed
+
+- **Installable crates.io dependency graph** - Published Fission crates now require `fission-winit 0.30.13-fission.3` and `fission-vello 0.6.0-fission.3`, which contain the IME, WebGPU diagnostics, workload sizing, and buffer-sizing APIs used by Fission. `cargo install cargo-fission --version 0.14.1 --locked` no longer resolves older fork packages that cannot compile the released shell.
+- **Registry-equivalent release CI** - The workspace no longer replaces Winit, Android Activity, or Vello with Git or vendored path sources. Web, Android, iOS, and CLI checks therefore compile the same external crates that downstream users receive.
+
+### Changed
+
+- **Published dependency boundary** - CI rejects workspace `[patch]`/`[replace]` sections and external Git or `third_party` path dependencies in publishable Fission manifests, preventing local dependency overrides from masking an unusable release.
+
+### Migration notes
+
+- Update Fission dependencies and `cargo-fission` to `0.14.1`. No application source changes are required from 0.14.0.
+- Fission 0.14.0 should not be used: crates.io consumers can resolve fork versions that lack APIs required by its published shell crates.
+
 ## [0.14.0] - 2026-08-25
 
 ### Added

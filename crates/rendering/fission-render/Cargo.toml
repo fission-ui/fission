@@ -1,6 +1,6 @@
 [package]
 name = "fission-render"
-version = "0.14.0"
+version = "0.14.1"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/fission-ui/fission"
@@ -15,8 +15,8 @@ homepage = "https://fission.rs"
 documentation = "https://fission.rs"
 readme = "README.md"
 [dependencies]
-fission-layout = { path = "../../core/fission-layout", version = "0.14.0" }
-fission-ir = { path = "../../core/fission-ir", version = "0.14.0" }
+fission-layout = { path = "../../core/fission-layout", version = "0.14.1" }
+fission-ir = { path = "../../core/fission-ir", version = "0.14.1" }
 serde = { version = "1.0", features = ["derive"] }
 anyhow = "1.0"
 

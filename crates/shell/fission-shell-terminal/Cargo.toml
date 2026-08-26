@@ -1,6 +1,6 @@
 [package]
 name = "fission-shell-terminal"
-version = "0.14.0"
+version = "0.14.1"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/fission-ui/fission"
@@ -32,12 +32,12 @@ crossterm = "0.28"
 image = { version = "0.25", default-features = false, features = ["png"] }
 unicode-segmentation = "1.12"
 unicode-width = "0.2"
-fission-core = { path = "../../core/fission-core", version = "0.14.0" }
-fission-ir = { path = "../../core/fission-ir", version = "0.14.0" }
-fission-layout = { path = "../../core/fission-layout", version = "0.14.0" }
-fission-shell = { path = "../fission-shell", optional = true, version = "0.14.0" }
-fission-store = { path = "../../core/fission-store", optional = true, version = "0.14.0" }
-fission-store-sqlite = { path = "../../core/fission-store-sqlite", optional = true, version = "0.14.0", default-features = false }
-fission-theme = { path = "../../core/fission-theme", version = "0.14.0" }
-fission-test-driver = { path = "../../tools/fission-test-driver", version = "0.14.0" }
+fission-core = { path = "../../core/fission-core", version = "0.14.1" }
+fission-ir = { path = "../../core/fission-ir", version = "0.14.1" }
+fission-layout = { path = "../../core/fission-layout", version = "0.14.1" }
+fission-shell = { path = "../fission-shell", optional = true, version = "0.14.1" }
+fission-store = { path = "../../core/fission-store", optional = true, version = "0.14.1" }
+fission-store-sqlite = { path = "../../core/fission-store-sqlite", optional = true, version = "0.14.1", default-features = false }
+fission-theme = { path = "../../core/fission-theme", version = "0.14.1" }
+fission-test-driver = { path = "../../tools/fission-test-driver", version = "0.14.1" }
 base64 = "0.22"
