@@ -1,6 +1,6 @@
 [package]
 name = "fission-shell-web"
-version = "0.14.0"
+version = "0.14.1"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/fission-ui/fission"
@@ -24,10 +24,10 @@ store-sqlite-web = ["store-sql", "fission-shell-winit/store-sqlite-web"]
 
 [dependencies]
 anyhow = "1.0"
-fission-core = { path = "../../core/fission-core", version = "0.14.0" }
-fission-store = { path = "../../core/fission-store", optional = true, version = "0.14.0" }
-fission-theme = { path = "../../core/fission-theme", version = "0.14.0" }
-fission-shell = { path = "../fission-shell", version = "0.14.0" }
-fission-shell-winit = { path = "../fission-shell-winit", version = "0.14.0", default-features = false }
+fission-core = { path = "../../core/fission-core", version = "0.14.1" }
+fission-store = { path = "../../core/fission-store", optional = true, version = "0.14.1" }
+fission-theme = { path = "../../core/fission-theme", version = "0.14.1" }
+fission-shell = { path = "../fission-shell", version = "0.14.1" }
+fission-shell-winit = { path = "../fission-shell-winit", version = "0.14.1", default-features = false }
 
 [dev-dependencies]
