@@ -33,6 +33,9 @@ jobs:
       - name: Check CLI dependency boundaries
         run: ./scripts/check_command_dependency_boundaries.sh
 
+      - name: Check published dependency boundaries
+        run: ./scripts/check_published_dependency_boundaries.sh
+
       - name: Test generated platform scripts
         run: cargo test -p cargo-fission
 

@@ -19,7 +19,7 @@ fission-render = { path = "../fission-render", version = "0.14.0" }
 fission-layout = { path = "../../core/fission-layout", version = "0.14.0" }
 fission-ir = { path = "../../core/fission-ir", version = "0.14.0" }
 anyhow = "1.0"
-vello = { package = "fission-vello", path = "../../../third_party/vello/vello", version = "0.6.0-fission.2", features = ["wgpu"] }
+vello = { package = "fission-vello", version = "0.6.0-fission.3", features = ["wgpu"] }
 parley = "0.7.0"
 fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.14.0" }
 image = "0.24"

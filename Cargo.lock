@@ -345,6 +345,8 @@ dependencies = [
 [[package]]
 name = "android-activity"
 version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f2a1bb052857d5dd49572219344a7332b31b76405648eabac5bc68978251bcd"
 dependencies = [
  "android-properties",
  "bitflags 2.13.0",
@@ -3343,7 +3345,9 @@ dependencies = [
 
 [[package]]
 name = "fission-vello"
-version = "0.6.0-fission.2"
+version = "0.6.0-fission.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "373c8d6ec789c062ce0d8dd3776ee2f8a4959f9ff5c133d88e645efb3557d3d2"
 dependencies = [
  "bytemuck",
  "fission-vello-encoding",
@@ -3360,7 +3364,9 @@ dependencies = [
 
 [[package]]
 name = "fission-vello-encoding"
-version = "0.6.0-fission.2"
+version = "0.6.0-fission.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "99e8ef39b1c2aa335cd6c047c01cecf6263c2b3ce4233d4891ec9c19145d3063"
 dependencies = [
  "bytemuck",
  "guillotiere",
@@ -3371,7 +3377,9 @@ dependencies = [
 
 [[package]]
 name = "fission-vello-shaders"
-version = "0.6.0-fission.2"
+version = "0.6.0-fission.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f82a394588d3cf6217cefee3a690ae980f040d3df0c4f9190e5ec0019a0e80e7"
 dependencies = [
  "bytemuck",
  "fission-vello-encoding",
@@ -3405,8 +3413,9 @@ dependencies = [
 
 [[package]]
 name = "fission-winit"
-version = "0.30.13-fission.2"
-source = "git+https://github.com/worka-ai/winit.git?rev=86c4670cb364e109775079a9f63caef0fda919b5#86c4670cb364e109775079a9f63caef0fda919b5"
+version = "0.30.13-fission.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3b8a28d630be05dfb16c51b24e5134f0a07142c5f6be07a529ffcb852e1b6b17"
 dependencies = [
  "ahash",
  "android-activity",
@@ -5827,7 +5836,7 @@ version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "680998035259dcfcafe653688bf2aa6d3e2dc05e98be6ab46afb089dc84f1df8"
 dependencies = [
- "proc-macro-crate 2.0.2",
+ "proc-macro-crate 3.5.0",
  "proc-macro2",
  "quote",
  "syn 2.0.118",
