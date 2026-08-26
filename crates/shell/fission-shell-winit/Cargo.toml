@@ -46,7 +46,7 @@ fission-theme = { path = "../../core/fission-theme", version = "0.14.0" }
 fission-3d = { path = "../../core/fission-3d", optional = true, version = "0.14.0" }
 fission-store = { path = "../../core/fission-store", optional = true, version = "0.14.0" }
 fission-store-sqlite = { path = "../../core/fission-store-sqlite", optional = true, version = "0.14.0", default-features = false }
-winit = { package = "fission-winit", version = "0.30.13-fission.2" }
+winit = { package = "fission-winit", version = "0.30.13-fission.3" }
 fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.14.0" }
 fission-test-driver = { path = "../../tools/fission-test-driver", version = "0.14.0" }
 image = "0.25"
@@ -56,7 +56,7 @@ anyhow = "1.0"
 raw-window-handle = "0.6"
 bytemuck = "1.16"
 serde_json = "1"
-vello = { package = "fission-vello", path = "../../../third_party/vello/vello", version = "0.6.0-fission.2" }
+vello = { package = "fission-vello", version = "0.6.0-fission.2" }
 pollster = "0.3"
 fontique = "0.7"
 read-fonts = "0.35"
@@ -83,7 +83,7 @@ accesskit = "0.24.1"
 accesskit_winit = { package = "fission-accesskit-winit", version = "0.33.1-fission.1", default-features = false, features = ["accesskit_android", "rwh_06"] }
 jni = "0.21"
 ndk-context = "0.1"
-winit = { package = "fission-winit", version = "0.30.13-fission.2", features = ["android-game-activity"] }
+winit = { package = "fission-winit", version = "0.30.13-fission.3", features = ["android-game-activity"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.58", features = [

@@ -345,6 +345,8 @@ dependencies = [
 [[package]]
 name = "android-activity"
 version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f2a1bb052857d5dd49572219344a7332b31b76405648eabac5bc68978251bcd"
 dependencies = [
  "android-properties",
  "bitflags 2.13.0",
@@ -3344,6 +3346,8 @@ dependencies = [
 [[package]]
 name = "fission-vello"
 version = "0.6.0-fission.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae8840ee7e1d9bb6db8d1441d151b368ed1fe7438e9ad4c612991cc2b3cad8f6"
 dependencies = [
  "bytemuck",
  "fission-vello-encoding",
@@ -3361,6 +3365,8 @@ dependencies = [
 [[package]]
 name = "fission-vello-encoding"
 version = "0.6.0-fission.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d034be7f5cacfd10a882743d629fb8ae5b58c62e0f285fa3eedb1e9081e4151"
 dependencies = [
  "bytemuck",
  "guillotiere",
@@ -3372,6 +3378,8 @@ dependencies = [
 [[package]]
 name = "fission-vello-shaders"
 version = "0.6.0-fission.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "364cc381f5ff3e1b195ecd43cf1f5700e015a809bed16746e00dd15b1cbf0cf8"
 dependencies = [
  "bytemuck",
  "fission-vello-encoding",
@@ -3405,8 +3413,9 @@ dependencies = [
 
 [[package]]
 name = "fission-winit"
-version = "0.30.13-fission.2"
-source = "git+https://github.com/worka-ai/winit.git?rev=86c4670cb364e109775079a9f63caef0fda919b5#86c4670cb364e109775079a9f63caef0fda919b5"
+version = "0.30.13-fission.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3b8a28d630be05dfb16c51b24e5134f0a07142c5f6be07a529ffcb852e1b6b17"
 dependencies = [
  "ahash",
  "android-activity",
@@ -5827,7 +5836,7 @@ version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "680998035259dcfcafe653688bf2aa6d3e2dc05e98be6ab46afb089dc84f1df8"
 dependencies = [
- "proc-macro-crate 2.0.2",
+ "proc-macro-crate 3.5.0",
  "proc-macro2",
  "quote",
  "syn 2.0.118",
