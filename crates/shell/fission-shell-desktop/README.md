@@ -118,6 +118,8 @@ The render pipeline (`Pipeline`) manages incremental updates:
 | `FISSION_SCROLL_TRACE` | `false` | Enable scroll event tracing to stderr. |
 | `FISSION_TEST_CONTROL_PORT` | (none) | Start an HTTP test control server on this port. |
 
+The [complete environment-variable reference](https://fission.rs/reference/config/environment-variables/) covers all shell, renderer, diagnostics, storage, build, testing, packaging, signing, and publishing variables.
+
 ## Test control
 
 When `FISSION_TEST_CONTROL_PORT` is set, the shell spawns a TCP server that accepts JSON commands from `fission-test-driver::LiveTestClient`. This enables automated UI testing by sending tap, scroll, type, screenshot, and semantic tree queries over HTTP. See the `fission-test-driver` crate for the client API.

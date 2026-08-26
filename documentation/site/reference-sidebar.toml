@@ -227,6 +227,11 @@ href = "/reference/config/fission-toml/"
 level = 1
 
 [[items]]
+title = "Environment variables"
+href = "/reference/config/environment-variables/"
+level = 1
+
+[[items]]
 title = "Fission release checklist"
 href = "/reference/project/fission-release-checklist/"
 level = 1
