@@ -5,13 +5,29 @@ edition = "2021"
 license = "Apache-2.0"
 
 [dependencies]
-fission = { path = "../../crates/authoring/fission", default-features = false, features = ["desktop", "video"] }
+fission = { path = "../../crates/authoring/fission", default-features = false }
+fission-devtools = { path = "../../crates/tools/fission-devtools", optional = true }
 fission-ir = { path = "../../crates/core/fission-ir" }
 serde = { version = "1.0", features = ["derive"] }
 anyhow = "1.0"
 chrono = { version = "0.4", default-features = false, features = ["alloc", "clock", "serde"] }
 lazy_static = "1.4"
 serde_json = "1.0"
+
+[features]
+default = ["desktop"]
+desktop = ["fission/desktop", "fission/video"]
+devtools = ["dep:fission-devtools"]
+
+[[bin]]
+name = "inbox"
+path = "src/main.rs"
+required-features = ["desktop"]
+
+[[bin]]
+name = "fission-devtools"
+path = "src/devtools.rs"
+required-features = ["devtools"]
 
 [dev-dependencies]
 fission-test = { path = "../../crates/tools/fission-test" }
