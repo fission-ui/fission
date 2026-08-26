@@ -169,6 +169,38 @@ impl VelloTextMeasurer {
         width.map(|w| ((w * 4.0).round() / 4.0).to_bits())
     }
 
+    /// Builds an authored font stack which always terminates in Fission's
+    /// registered default face.
+    ///
+    /// Font selection must never turn missing application font data into
+    /// missing text. The software renderer already falls back to its default
+    /// face; keeping the same invariant here also makes a temporarily missing
+    /// Web font a typography degradation instead of an invisible control.
+    fn font_stack_with_default<'a>(
+        &self,
+        primary: Option<&'a str>,
+        authored_fallbacks: impl IntoIterator<Item = &'a str>,
+    ) -> String {
+        let mut families = Vec::new();
+        if let Some(primary) = primary.filter(|family| !family.trim().is_empty()) {
+            families.push(primary.trim().to_string());
+        }
+        families.extend(
+            authored_fallbacks
+                .into_iter()
+                .map(str::trim)
+                .filter(|family| !family.is_empty())
+                .map(ToOwned::to_owned),
+        );
+        if !families
+            .iter()
+            .any(|family| family.eq_ignore_ascii_case(&self.default_family))
+        {
+            families.push(self.default_family.clone());
+        }
+        families.join(", ")
+    }
+
     fn inline_box_key(inline_box: &RichInlineBox) -> InlineBoxKey {
         InlineBoxKey {
             id: inline_box.id,
@@ -567,25 +599,13 @@ impl VelloTextMeasurer {
             let brush = ParleyBrush([style.color.r, style.color.g, style.color.b, style.color.a]);
             builder.push(StyleProperty::Brush(brush), range.clone());
             builder.push(StyleProperty::FontSize(style.font_size), range.clone());
-            if let Some(font_family) = &style.font_family {
-                let stack = if style.typography.font_fallback.is_empty() {
-                    font_family.clone()
-                } else {
-                    format!(
-                        "{}, {}",
-                        font_family,
-                        style.typography.font_fallback.join(", ")
-                    )
-                };
+            if style.font_family.is_some() || !style.typography.font_fallback.is_empty() {
+                let stack = self.font_stack_with_default(
+                    style.font_family.as_deref(),
+                    style.typography.font_fallback.iter().map(String::as_str),
+                );
                 builder.push(
                     StyleProperty::FontStack(FontStack::Source(Cow::Owned(stack))),
-                    range.clone(),
-                );
-            } else if !style.typography.font_fallback.is_empty() {
-                builder.push(
-                    StyleProperty::FontStack(FontStack::Source(Cow::Owned(
-                        style.typography.font_fallback.join(", "),
-                    ))),
                     range.clone(),
                 );
             }
@@ -1299,6 +1319,37 @@ mod tests {
 
         assert!((bounded - intrinsic).abs() < 0.5);
         assert!(bounded < 80.0);
+    }
+
+    #[test]
+    fn authored_font_stack_always_ends_with_the_registered_default() {
+        let measurer = VelloTextMeasurer::new_with_default_family(
+            Arc::new(Mutex::new(FontContext::new())),
+            "Fission Default",
+        );
+
+        assert_eq!(
+            measurer.font_stack_with_default(Some("Inter"), ["Arial", "sans-serif"]),
+            "Inter, Arial, sans-serif, Fission Default"
+        );
+        assert_eq!(
+            measurer.font_stack_with_default(Some("Fission Default"), std::iter::empty()),
+            "Fission Default"
+        );
+    }
+
+    #[test]
+    fn missing_authored_family_falls_back_instead_of_producing_blank_text() {
+        let measurer = measurer();
+        let mut run = text_run("123456", 42.0, 52.0);
+        run.style.font_family = Some("Definitely Missing Verification Font".into());
+        run.style.letter_spacing = 22.0;
+
+        let resolved = measurer.resolve_rich_text(&[run], Some(360.0));
+
+        assert!(!resolved.glyphs.is_empty());
+        assert!(resolved.size.width > 0.0);
+        assert!(resolved.size.height > 0.0);
     }
 
     #[test]
