@@ -1,0 +1,26 @@
+[package]
+name = "fission-devtools"
+version = "0.14.1"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/fission-ui/fission"
+description = "Development-worker SDK for running Fission applications in Fission Developer"
+categories = ["development-tools", "gui"]
+keywords = ["fission", "devtools", "hot-reload", "ui-framework", "development"]
+
+[package.metadata.fission]
+platforms = ["linux", "macos", "windows"]
+
+homepage = "https://fission.rs"
+documentation = "https://fission.rs"
+readme = "README.md"
+
+[dependencies]
+anyhow = "1.0"
+fission-core = { path = "../../core/fission-core", version = "0.14.1" }
+fission-ir = { path = "../../core/fission-ir", version = "0.14.1" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[lints]
+workspace = true
